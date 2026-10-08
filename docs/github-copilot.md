@@ -31,7 +31,7 @@ models were tested with Claude Code 2.1.289 in October 2026.
    `~/.companion/claude-copilot/claude-copilot`. If either file already exists
    and would change, the script first copies it to `<file>.bak-<timestamp>`.
 
-2. In Takode, open **Settings → CLI & Backends** and set **Claude Code** to the
+2. In Takode, open **Settings → CLIs & Editor** and set **Claude Code** to the
    launcher path the script printed.
 
 3. Start a new Claude session. Sessions that are already running switch over

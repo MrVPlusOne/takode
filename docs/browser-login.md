@@ -4,7 +4,7 @@ Takode can require a password before a browser may use it. Turn it on before mak
 
 ## Turning it on
 
-Open **Settings > System > Login**, enter a password twice and choose **Turn on login**. Every other browser is signed out at once and sees the login screen. The same section changes the password, signs out other devices, logs this browser out and turns login off; changing the password or turning login off needs the current password.
+Open **Settings > Server & Login > Login**, enter a password twice and choose **Turn on login**. Every other browser is signed out at once and sees the login screen. The same section changes the password, signs out other devices, logs this browser out and turns login off; changing the password or turning login off needs the current password.
 
 Login is off by default. While it is off, anyone who can reach the server can use it, as before.
 

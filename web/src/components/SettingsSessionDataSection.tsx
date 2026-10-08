@@ -55,7 +55,7 @@ export function SettingsSessionDataSection({ hidden = false }: { hidden?: boolea
 
   return (
     <SettingsSubsection
-      title="Session Data"
+      title="Export & Import"
       description="Export all sessions to a portable archive, or import sessions from another machine. Paths are automatically rewritten to match this machine."
       hidden={hidden}
     >

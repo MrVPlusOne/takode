@@ -54,7 +54,7 @@ export function CollapsibleSection({
       id={settingsSectionDomId(id)}
       data-settings-section-id={id}
       hidden={hidden}
-      className="bg-cc-card border border-cc-border rounded-xl overflow-hidden"
+      className="scroll-mt-36 lg:scroll-mt-20 bg-cc-card border border-cc-border rounded-xl overflow-hidden"
     >
       <div className="flex items-start justify-between gap-3 border-b border-cc-border/70 p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-cc-fg">{title}</h2>

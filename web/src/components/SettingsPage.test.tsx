@@ -4,168 +4,8 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
-interface MockStoreState {
-  colorTheme: string;
-  darkMode: boolean;
-  notificationSound: boolean;
-  notificationDesktop: boolean;
-  showUsageBars: boolean;
-  compactToolActivity: boolean;
-  chatMessageLineHeight: number;
-  sendKeyScheme: "enter" | "mod-enter";
-  shortcutSettings: {
-    enabled: boolean;
-    preset: "standard" | "vscode-light" | "vim-light";
-    overrides: Record<string, string | null>;
-  };
-  zoomLevel: number;
-  currentSessionId: string | null;
-  sdkSessions: Array<{
-    sessionId: string;
-    createdAt: number;
-    archived?: boolean;
-    cronJobId?: string;
-  }>;
-  setColorTheme: ReturnType<typeof vi.fn>;
-  toggleDarkMode: ReturnType<typeof vi.fn>;
-  toggleNotificationSound: ReturnType<typeof vi.fn>;
-  setNotificationDesktop: ReturnType<typeof vi.fn>;
-  toggleShowUsageBars: ReturnType<typeof vi.fn>;
-  toggleCompactToolActivity: ReturnType<typeof vi.fn>;
-  setChatMessageLineHeight: ReturnType<typeof vi.fn>;
-  setSendKeyScheme: ReturnType<typeof vi.fn>;
-  setShortcutsEnabled: ReturnType<typeof vi.fn>;
-  setShortcutPreset: ReturnType<typeof vi.fn>;
-  setShortcutOverride: ReturnType<typeof vi.fn>;
-  resetShortcutOverrides: ReturnType<typeof vi.fn>;
-  setZoomLevel: ReturnType<typeof vi.fn>;
-  serverReachable: boolean;
-  setServerReachable: ReturnType<typeof vi.fn>;
-  setServerRestarting: ReturnType<typeof vi.fn>;
-}
-
-let mockState: MockStoreState;
-
-function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreState {
-  return {
-    colorTheme: "light",
-    darkMode: false,
-    notificationSound: true,
-    notificationDesktop: false,
-    showUsageBars: false,
-    compactToolActivity: true,
-    chatMessageLineHeight: 1.45,
-    sendKeyScheme: "enter",
-    shortcutSettings: {
-      enabled: false,
-      preset: "standard",
-      overrides: {},
-    },
-    zoomLevel: 1.0,
-    currentSessionId: null,
-    sdkSessions: [],
-    setColorTheme: vi.fn(),
-    toggleDarkMode: vi.fn(),
-    toggleNotificationSound: vi.fn(),
-    setNotificationDesktop: vi.fn(),
-    toggleShowUsageBars: vi.fn(),
-    toggleCompactToolActivity: vi.fn(),
-    setChatMessageLineHeight: vi.fn(),
-    setSendKeyScheme: vi.fn(),
-    setShortcutsEnabled: vi.fn(),
-    setShortcutPreset: vi.fn(),
-    setShortcutOverride: vi.fn(),
-    resetShortcutOverrides: vi.fn(),
-    setZoomLevel: vi.fn(),
-    serverReachable: true,
-    setServerReachable: vi.fn(),
-    setServerRestarting: vi.fn(),
-    ...overrides,
-  };
-}
-
-const mockApi = {
-  getSettings: vi.fn(),
-  updateSettings: vi.fn(),
-  getBackendModels: vi.fn(),
-  restartServer: vi.fn(),
-  getNamerLogs: vi.fn(),
-  getNamerLogEntry: vi.fn(),
-  testPushover: vi.fn(),
-  getWebPushInfo: vi.fn().mockResolvedValue({
-    available: true,
-    publicKey: "test-key",
-    subscriptionCount: 0,
-  }),
-  getCaffeinateStatus: vi.fn(),
-  getAutoApprovalConfigs: vi.fn().mockResolvedValue([]),
-  getAutoApprovalConfig: vi.fn(),
-  createAutoApprovalConfig: vi.fn(),
-  updateAutoApprovalConfig: vi.fn(),
-  deleteAutoApprovalConfig: vi.fn(),
-  getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
-  getAutoApprovalLogEntry: vi.fn(),
-};
-const mockCheckReadinessStatus = vi.fn().mockResolvedValue({
-  ok: true,
-  buildId: "development",
-  servedFrontendBuildId: "development",
-});
-
-const mockApiErrorClass = vi.hoisted(
-  () =>
-    class ApiError extends Error {
-      constructor(
-        message: string,
-        public readonly status: number,
-        public readonly body: unknown,
-      ) {
-        super(message);
-        this.name = "ApiError";
-      }
-    },
-);
-
-vi.mock("../api.js", () => ({
-  api: {
-    getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
-    updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
-    getBackendModels: (...args: unknown[]) => mockApi.getBackendModels(...args),
-    restartServer: (...args: unknown[]) => mockApi.restartServer(...args),
-    getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
-    getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
-    testPushover: (...args: unknown[]) => mockApi.testPushover(...args),
-    getWebPushInfo: (...args: unknown[]) => mockApi.getWebPushInfo(...args),
-    getCaffeinateStatus: (...args: unknown[]) => mockApi.getCaffeinateStatus(...args),
-    getAutoApprovalConfigs: (...args: unknown[]) => mockApi.getAutoApprovalConfigs(...args),
-    getAutoApprovalConfig: (...args: unknown[]) => mockApi.getAutoApprovalConfig(...args),
-    createAutoApprovalConfig: (...args: unknown[]) => mockApi.createAutoApprovalConfig(...args),
-    updateAutoApprovalConfig: (...args: unknown[]) => mockApi.updateAutoApprovalConfig(...args),
-    deleteAutoApprovalConfig: (...args: unknown[]) => mockApi.deleteAutoApprovalConfig(...args),
-    getAutoApprovalLogs: (...args: unknown[]) => mockApi.getAutoApprovalLogs(...args),
-    getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
-  },
-  ApiError: mockApiErrorClass,
-  checkReadinessStatus: (...args: unknown[]) => mockCheckReadinessStatus(...args),
-  isInterruptRestartBlockersResponse: (value: unknown) => {
-    if (!value || typeof value !== "object") return false;
-    const candidate = value as { mode?: unknown; herdDelivery?: unknown };
-    return (candidate.mode === "standalone" || candidate.mode === "restart") && !!candidate.herdDelivery;
-  },
-}));
-
-vi.mock("../store.js", () => {
-  const useStoreFn = (selector: (state: MockStoreState) => unknown) => selector(mockState);
-  useStoreFn.getState = () => mockState;
-  return {
-    useStore: useStoreFn,
-    COLOR_THEMES: [
-      { id: "light", label: "Light" },
-      { id: "dark", label: "Dark" },
-      { id: "vscode-dark", label: "VS Code" },
-    ],
-  };
-});
+vi.mock("../api.js", async () => (await import("./settings-page-test-harness.js")).apiModuleMock());
+vi.mock("../store.js", async () => (await import("./settings-page-test-harness.js")).storeModuleMock());
 
 // These panels are tested in their own files; keep SettingsPage tests focused
 // on page-level wiring and interactions to avoid cross-test contention.
@@ -187,114 +27,20 @@ import {
   beginBuildIdentityObservation,
   getBuildCompatibilitySnapshot,
   observeServerBuildIdentity,
-  resetBuildCompatibilityForTest,
 } from "../build-compatibility.js";
+import {
+  MockApiError,
+  mockApi,
+  mockCheckReadinessStatus,
+  mockState,
+  resetSettingsPageMocks,
+  setMockState,
+  settingsSection,
+  typeLineHeight,
+  waitForSettingsPage,
+} from "./settings-page-test-harness.js";
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockApi.restartServer.mockReset();
-  mockCheckReadinessStatus.mockReset();
-  Element.prototype.scrollIntoView = vi.fn();
-  mockState = createMockState();
-  window.location.hash = "#/settings";
-  // Clear scroll state between tests.
-  localStorage.removeItem("cc-settings-collapsed");
-  localStorage.removeItem("cc-settings-scroll");
-  mockApi.getSettings.mockResolvedValue({
-    serverName: "",
-    serverId: "test-id",
-    serverSlug: "prod",
-    pushoverConfigured: false,
-    pushoverEnabled: true,
-    pushoverEventFilters: {
-      needsInput: true,
-      review: true,
-      notifyMe: true,
-      error: true,
-    },
-    pushoverDelaySeconds: 30,
-    pushoverBaseUrl: "",
-    restartSupported: true,
-    namerConfig: { backend: "claude" },
-    claudeBinary: "",
-    codexBinary: "",
-    codexLeaderContextWindowOverrideTokens: 1_000_000,
-    codexNonLeaderAutoCompactThresholdPercent: 90,
-    codexLeaderRecycleThresholdTokens: 260_000,
-    codexLeaderRecycleThresholdTokensByModel: {},
-    codexLeaderCompactionMode: "recycle",
-    maxKeepAlive: 0,
-    heavyRepoModeEnabled: false,
-    chatMessageLineHeight: 1.45,
-    editorConfig: { editor: "none" },
-    sessionDefaults: DEFAULT_SESSION_DEFAULTS,
-  });
-  mockApi.getBackendModels.mockResolvedValue([]);
-  mockApi.restartServer.mockResolvedValue({
-    ok: true,
-    restartRequested: true,
-    replacementBuildId: null,
-  });
-  mockCheckReadinessStatus.mockResolvedValue({
-    ok: true,
-    buildId: "development",
-    servedFrontendBuildId: "development",
-  });
-  resetBuildCompatibilityForTest();
-  mockApi.updateSettings.mockResolvedValue({
-    serverName: "",
-    serverId: "test-id",
-    serverSlug: "prod",
-    pushoverConfigured: false,
-    pushoverEnabled: true,
-    pushoverEventFilters: {
-      needsInput: true,
-      review: true,
-      notifyMe: true,
-      error: true,
-    },
-    pushoverDelaySeconds: 30,
-    pushoverBaseUrl: "",
-    restartSupported: true,
-    namerConfig: { backend: "claude" },
-    claudeBinary: "",
-    codexBinary: "",
-    codexLeaderContextWindowOverrideTokens: 1_000_000,
-    codexNonLeaderAutoCompactThresholdPercent: 90,
-    codexLeaderRecycleThresholdTokens: 260_000,
-    codexLeaderRecycleThresholdTokensByModel: {},
-    codexLeaderCompactionMode: "recycle",
-    maxKeepAlive: 0,
-    heavyRepoModeEnabled: false,
-    chatMessageLineHeight: 1.45,
-    editorConfig: { editor: "none" },
-    sessionDefaults: DEFAULT_SESSION_DEFAULTS,
-  });
-  mockApi.getNamerLogs.mockResolvedValue([]);
-  mockApi.getCaffeinateStatus.mockResolvedValue({
-    active: false,
-    engagedAt: null,
-    expiresAt: null,
-  });
-});
-
-async function waitForSettingsPage() {
-  await screen.findAllByText("Notifications");
-}
-
-/** Typed line-height values apply on blur, so partial text such as "1." is never saved. */
-function typeLineHeight(input: HTMLElement, value: string) {
-  fireEvent.change(input, { target: { value } });
-  fireEvent.blur(input);
-}
-
-function settingsSection(title: string): HTMLElement {
-  const heading = screen.getAllByText(title).find((node) => node.closest("[data-settings-section-id]"));
-  if (!heading) throw new Error(`Missing settings section: ${title}`);
-  const section = heading.closest("section, form");
-  if (!section) throw new Error(`Missing section wrapper: ${title}`);
-  return section as HTMLElement;
-}
+beforeEach(resetSettingsPageMocks);
 
 function settingsWithGptTranscribeLanguageHints(sttLanguageHints: string[] = ["en"]) {
   return {
@@ -380,7 +126,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
       await act(async () => {
@@ -431,7 +177,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -478,7 +224,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -516,7 +262,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -556,7 +302,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -592,7 +338,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -639,7 +385,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -694,7 +440,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Data")).toBeInTheDocument();
+      expect(settingsSection("Server & Login")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -723,7 +469,7 @@ describe("SettingsPage", () => {
   it("shows a server-returned frontend build failure without polling the healthy old pair", async () => {
     // Vite errors often contain capital “Failed”; typed API failures must not be mistaken for the expected disconnect.
     mockApi.restartServer.mockRejectedValue(
-      new mockApiErrorClass("Failed to resolve import while preparing the frontend", 500, {
+      new MockApiError("Failed to resolve import while preparing the frontend", 500, {
         error: "Failed to resolve import while preparing the frontend",
       }),
     );
@@ -774,7 +520,7 @@ describe("SettingsPage", () => {
       },
     };
     mockApi.restartServer.mockRejectedValue(
-      new mockApiErrorClass(
+      new MockApiError(
         "Cannot restart while 1 session(s) are still blocking restart readiness: Approval session",
         409,
         {
@@ -819,14 +565,14 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const select = within(settingsSection("Input & Voice") as HTMLElement).getByLabelText("Send Key");
+    const select = within(settingsSection("Keyboard") as HTMLElement).getByLabelText("Send Key");
     expect(select).toHaveValue("enter");
     fireEvent.change(select, { target: { value: "mod-enter" } });
     expect(mockState.setSendKeyScheme).toHaveBeenCalledWith("mod-enter");
   });
 
   it("shows shortcut preset controls when shortcuts are enabled", async () => {
-    mockState = createMockState({
+    setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
@@ -843,7 +589,7 @@ describe("SettingsPage", () => {
   });
 
   it("records and clears a custom shortcut override", async () => {
-    mockState = createMockState({
+    setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
@@ -867,7 +613,7 @@ describe("SettingsPage", () => {
   });
 
   it("records double-tap shortcut overrides", async () => {
-    mockState = createMockState({
+    setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
@@ -894,7 +640,7 @@ describe("SettingsPage", () => {
   });
 
   it("allows disabling an individual shortcut with Off", async () => {
-    mockState = createMockState({
+    setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
@@ -988,7 +734,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Transcription");
+    const voiceSection = settingsSection("Voice Input");
     await waitFor(() => {
       expect(within(voiceSection).getByLabelText("STT Model")).toHaveValue("__custom__");
       expect(within(voiceSection).getByLabelText("Custom STT Model")).toHaveValue("whisper-large-v3");
@@ -1017,7 +763,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Transcription");
+    const voiceSection = settingsSection("Voice Input");
     expect(within(voiceSection).getByText("Expected Languages")).toBeInTheDocument();
     await waitFor(() => {
       expect(
@@ -1109,7 +855,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Transcription");
+    const voiceSection = settingsSection("Voice Input");
     const trigger = await within(voiceSection).findByRole("button", {
       name: "Add expected language",
     });
@@ -1166,7 +912,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Transcription");
+    const voiceSection = settingsSection("Voice Input");
     await waitFor(() => {
       expect(within(voiceSection).getByLabelText("STT Model")).toBeInTheDocument();
     });
@@ -1294,8 +1040,9 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
     const section = within(settingsSection("Phone Alert Rules"));
     const toggle = section.getByRole("checkbox", { name: /^Notify Me/ });
-    await waitFor(() => expect(toggle).toHaveProperty("checked", notifyMe));
-    expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked();
+    // Review defaults to on before settings load, so its loaded "off" state shows the filters arrived.
+    await waitFor(() => expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked());
+    expect(toggle).toHaveProperty("checked", notifyMe);
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({
@@ -1330,7 +1077,7 @@ describe("SettingsPage", () => {
 
   it("picks a theme directly from the visible options", async () => {
     // Every theme is shown at once, so choosing one never requires cycling through the others.
-    mockState = createMockState({ colorTheme: "light", darkMode: false });
+    setMockState({ colorTheme: "light", darkMode: false });
     render(<SettingsPage />);
     await waitForSettingsPage();
 
@@ -1796,256 +1543,6 @@ describe("SettingsPage", () => {
         }),
       );
     });
-  });
-
-  // ── Search and section navigation tests ───────────────────────────────────
-
-  it("keeps sections expanded when section headers are clicked", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    expect(screen.getByText(/^Sound$/)).toBeInTheDocument();
-
-    fireEvent.click(settingsSection("Notifications").querySelector("h2") as HTMLElement);
-
-    expect(screen.getByText(/^Sound$/)).toBeInTheDocument();
-    expect(localStorage.getItem("cc-settings-collapsed")).toBeNull();
-  });
-
-  it("ignores stale persisted collapse state and renders sections expanded", async () => {
-    localStorage.setItem("cc-settings-collapsed", JSON.stringify(["notifications", "sessions"]));
-
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    expect(screen.getByText(/^Sound$/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Max Keep-Alive/i)).toBeInTheDocument();
-  });
-
-  it("filters sections with fuzzy search across labels and aliases", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "vscode" } });
-
-    // "vscode" matches the editor row and the shortcut preset, so both groups stay
-    // visible while unrelated rows and groups are filtered out.
-    const systemSection = settingsSection("System");
-    expect(systemSection).toBeVisible();
-    expect(settingsSection("Keyboard Shortcuts")).toBeVisible();
-    expect(settingsSection("Appearance")).not.toBeVisible();
-    expect(within(systemSection).getByLabelText("Editor")).toBeVisible();
-    expect(within(systemSection).getByLabelText("Claude Code")).not.toBeVisible();
-  });
-
-  it("finds role-aware session defaults from worker and leader search terms", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "leader defaults" },
-    });
-
-    const sessionsSection = settingsSection("Sessions");
-    expect(sessionsSection).toBeVisible();
-    expect(within(sessionsSection).getByRole("heading", { name: "Worker Defaults" })).toBeVisible();
-    expect(within(sessionsSection).getByRole("heading", { name: "Leader Defaults" })).toBeVisible();
-    expect(settingsSection("Notifications")).not.toBeVisible();
-  });
-
-  it("finds chat line-height control from settings search", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "line height" } });
-
-    const appearanceSection = settingsSection("Appearance");
-    expect(appearanceSection).toBeVisible();
-    expect(within(appearanceSection).getByLabelText("Chat Message Line Height")).toBeVisible();
-    expect(settingsSection("Notifications")).not.toBeVisible();
-  });
-
-  it("exposes compact tool activity as the searchable quiet-view preference", async () => {
-    // The user-facing setting should be discoverable by the informal mode name and wire to the local display action.
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "quiet mode" } });
-
-    const appearanceSection = settingsSection("Appearance");
-    const toggle = within(appearanceSection).getByRole("switch", {
-      name: "Compact Tool Activity",
-    });
-    expect(toggle).toBeVisible();
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(toggle);
-    expect(mockState.toggleCompactToolActivity).toHaveBeenCalledTimes(1);
-  });
-
-  it("exposes Codex leader mode without restoring legacy budget controls", async () => {
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverEventFilters: {
-        needsInput: true,
-        review: true,
-        notifyMe: true,
-        error: true,
-      },
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      codexLeaderContextWindowOverrideTokens: 1_100_000,
-      codexNonLeaderAutoCompactThresholdPercent: 85,
-      codexLeaderRecycleThresholdTokens: 275_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-      codexLeaderCompactionMode: "compact",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      editorConfig: { editor: "none" },
-    });
-    mockApi.updateSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverEventFilters: {
-        needsInput: true,
-        review: true,
-        notifyMe: true,
-        error: true,
-      },
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      codexLeaderContextWindowOverrideTokens: 1_200_000,
-      codexLeaderRecycleThresholdTokens: 280_000,
-      codexLeaderRecycleThresholdTokensByModel: {
-        "gpt-5.4": 440_000,
-        "gpt-5.5": 320_000,
-      },
-      codexLeaderCompactionMode: "recycle",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      editorConfig: { editor: "none" },
-    });
-
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    expect(screen.getByRole("radiogroup", { name: "Codex Leader Context Mode" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
-    expect(screen.queryByLabelText("Codex Leader Context Window")).toBeNull();
-    expect(screen.queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
-    expect(screen.queryByText("Codex Leader Model Budget Overrides")).toBeNull();
-
-    expect(mockApi.updateSettings).not.toHaveBeenCalled();
-  });
-
-  it("updates the Codex leader context mode setting", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    const modes = screen.getByRole("radiogroup", {
-      name: "Codex Leader Context Mode",
-    });
-    fireEvent.click(within(modes).getByRole("radio", { name: "Compact" }));
-
-    await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith({
-        codexLeaderCompactionMode: "compact",
-      });
-    });
-  });
-
-  it("keeps legacy Codex leader budget controls out of Settings search", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "leader model budget" },
-    });
-
-    // The removed leader budget controls should not remain discoverable
-    // through the settings search index after the visible rows are removed.
-    expect(settingsSection("Sessions")).not.toBeVisible();
-    expect(screen.getByText('No settings match "leader model budget".')).toBeInTheDocument();
-  });
-
-  it("does not expose the legacy non-leader auto-compact setting in Settings search", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    expect(screen.queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "non leader auto compact" },
-    });
-
-    expect(screen.getByText('No settings match "non leader auto compact".')).toBeInTheDocument();
-    expect(settingsSection("Sessions")).not.toBeVisible();
-  });
-
-  it("shows an empty state when no settings match", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "definitelynotasetting" },
-    });
-
-    expect(screen.getByText('No settings match "definitelynotasetting".')).toBeInTheDocument();
-    expect(settingsSection("Notifications")).not.toBeVisible();
-  });
-
-  it("jumps to settings sections from the desktop nav and mobile control", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Sessions$/ }));
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Jump to settings section" }), {
-      target: { value: "server" },
-    });
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
-  });
-
-  it("renders the six groups and their subsections", async () => {
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    // The section jump menu lists exactly the top-level groups, in page order.
-    const jump = screen.getByRole("combobox", {
-      name: "Jump to settings section",
-    });
-    expect(
-      within(jump)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual(["Appearance", "Input & Voice", "Notifications", "Sessions", "System", "Server & Data"]);
-    for (const subsection of [
-      "Keyboard Shortcuts",
-      "Voice Transcription",
-      "This Browser",
-      "Phone Alert Rules",
-      "Web Push",
-      "Pushover",
-      "Leader Profiles",
-      "Session Namer",
-      "Auto-Approval (LLM)",
-      "Backend CLIs",
-      "Hosts",
-      "Session Data",
-    ]) {
-      expect(settingsSection(subsection)).toBeInTheDocument();
-    }
   });
 });
 

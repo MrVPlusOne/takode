@@ -3,10 +3,9 @@ import { api, type AutoApprovalConfig } from "../api.js";
 import { AutoApprovalConfigCard } from "./AutoApprovalConfigCard.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 import { FolderPicker } from "./FolderPicker.js";
-import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
+import { SettingsToggle } from "./settings-controls.js";
 
 interface SettingsAutoApprovalSectionProps {
-  hidden?: boolean;
   aaEnabled: boolean;
   setAaEnabled: Dispatch<SetStateAction<boolean>>;
   aaModel: string;
@@ -39,7 +38,6 @@ interface SettingsAutoApprovalSectionProps {
 }
 
 export function SettingsAutoApprovalSection({
-  hidden = false,
   aaEnabled,
   setAaEnabled,
   aaModel,
@@ -150,11 +148,7 @@ export function SettingsAutoApprovalSection({
   }
 
   return (
-    <SettingsSubsection
-      title="Auto-Approval (LLM)"
-      description="Permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual."
-      hidden={hidden}
-    >
+    <>
       <SettingsToggle
         label="Auto-approve with LLM"
         description={aaSaving ? "Saving..." : undefined}
@@ -358,6 +352,6 @@ export function SettingsAutoApprovalSection({
       <div className="border-t border-cc-border pt-4">
         <AutoApprovalDebugPanel />
       </div>
-    </SettingsSubsection>
+    </>
   );
 }

@@ -178,7 +178,7 @@ export function SettingsPage({
   }>({ active: false, engagedAt: null, expiresAt: null });
   const [caffeinateTick, setCaffeinateTick] = useState(0);
   const lifecycleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [systemCollapsed, setSystemCollapsed] = useState(() => isCollapsibleSectionCollapsed("system"));
+  const [performanceCollapsed, setPerformanceCollapsed] = useState(() => isCollapsibleSectionCollapsed("performance"));
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
@@ -358,7 +358,7 @@ export function SettingsPage({
       setCaffeinateStatus({ active: false, engagedAt: null, expiresAt: null });
       return;
     }
-    if (!isActive || systemCollapsed || !documentVisible) return;
+    if (!isActive || performanceCollapsed || !documentVisible) return;
     let cancelled = false;
     const poll = () => {
       api
@@ -374,15 +374,15 @@ export function SettingsPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [documentVisible, isActive, systemCollapsed, sleepInhibitorEnabled]);
+  }, [documentVisible, isActive, performanceCollapsed, sleepInhibitorEnabled]);
 
   // Tick every second to update elapsed/countdown display
   useEffect(() => {
-    if (!isActive || systemCollapsed || !documentVisible) return;
+    if (!isActive || performanceCollapsed || !documentVisible) return;
     if (!sleepInhibitorEnabled || !caffeinateStatus.active) return;
     const id = setInterval(() => setCaffeinateTick((t) => t + 1), 1_000);
     return () => clearInterval(id);
-  }, [caffeinateStatus.active, documentVisible, isActive, systemCollapsed, sleepInhibitorEnabled]);
+  }, [caffeinateStatus.active, documentVisible, isActive, performanceCollapsed, sleepInhibitorEnabled]);
 
   // Restore scroll position on mount, save on scroll (debounced) and unmount
   useEffect(() => {
@@ -764,12 +764,7 @@ export function SettingsPage({
 
           <div className="space-y-4">
             {/* ── Appearance ───────────────────────────────────────── */}
-            <CollapsibleSection
-              id="appearance"
-              title="Appearance"
-              description="Theme, size, and how chat content is displayed."
-              {...settingsSearch.sectionSearch("appearance")}
-            >
+            <CollapsibleSection {...settingsSearch.sectionProps("appearance")}>
               <SettingsRow label="Theme" hidden={settingsSearch.rowHidden("appearance", "theme")}>
                 <SegmentedControl
                   label="Theme"
@@ -839,18 +834,18 @@ export function SettingsPage({
                 onChange={toggleShowUsageBars}
                 hidden={settingsSearch.rowHidden("appearance", "usage-bars")}
               />
+              <SettingsLeaderProfilesSection
+                hidden={settingsSearch.rowHidden("appearance", "leader-profiles")}
+                poolsFromSettings={leaderProfilePools}
+                loadOnMount={false}
+              />
             </CollapsibleSection>
 
-            {/* ── Input & Voice ────────────────────────────────────── */}
-            <CollapsibleSection
-              id="input"
-              title="Input & Voice"
-              description="How messages are sent, keyboard shortcuts, and voice dictation."
-              {...settingsSearch.sectionSearch("input")}
-            >
+            {/* ── Keyboard ─────────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("keyboard")}>
               <SendKeySchemeSetting
                 shortcutPlatform={shortcutPlatform}
-                hidden={settingsSearch.rowHidden("input", "send-key")}
+                hidden={settingsSearch.rowHidden("keyboard", "send-key")}
               />
               <SettingsShortcutSection
                 shortcutSettings={shortcutSettings}
@@ -861,11 +856,14 @@ export function SettingsPage({
                 recordingShortcutActionId={recordingShortcutActionId}
                 setRecordingShortcutActionId={setRecordingShortcutActionId}
                 shortcutPlatform={shortcutPlatform}
-                hidden={settingsSearch.rowHidden("input", "shortcuts")}
+                hidden={settingsSearch.rowHidden("keyboard", "shortcuts")}
               />
+            </CollapsibleSection>
+
+            {/* ── Voice Input ──────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("voice")}>
               <SettingsVoiceTranscriptionSection
                 loading={loading}
-                hidden={settingsSearch.rowHidden("input", "voice")}
                 transcriptionApiKey={transcriptionApiKey}
                 setTranscriptionApiKey={setTranscriptionApiKey}
                 transcriptionBaseUrl={transcriptionBaseUrl}
@@ -894,12 +892,7 @@ export function SettingsPage({
             </CollapsibleSection>
 
             {/* ── Notifications ────────────────────────────────────── */}
-            <CollapsibleSection
-              id="notifications"
-              title="Notifications"
-              description="Alerts in this browser and on your phone."
-              {...settingsSearch.sectionSearch("notifications")}
-            >
+            <CollapsibleSection {...settingsSearch.sectionProps("notifications")}>
               <SettingsSubsection title="This Browser" hidden={settingsSearch.rowHidden("notifications", "browser")}>
                 <SettingsToggle
                   label="Sound"
@@ -936,12 +929,7 @@ export function SettingsPage({
             </CollapsibleSection>
 
             {/* ── Sessions ─────────────────────────────────────────── */}
-            <CollapsibleSection
-              id="sessions"
-              title="Sessions"
-              description="Defaults and automation for new and running sessions."
-              {...settingsSearch.sectionSearch("sessions")}
-            >
+            <CollapsibleSection {...settingsSearch.sectionProps("sessions")}>
               <div hidden={settingsSearch.rowHidden("sessions", "session-defaults")}>
                 <SettingsSessionDefaultsSection
                   isActive={isActive}
@@ -974,18 +962,32 @@ export function SettingsPage({
                 />
               </SettingsRow>
 
-              <SettingsLeaderProfilesSection
-                hidden={settingsSearch.rowHidden("sessions", "leader-profiles")}
-                poolsFromSettings={leaderProfilePools}
-                loadOnMount={false}
-              />
               <SettingsSessionNamerSection
                 settings={loadedSettings}
                 loading={loading}
                 hidden={settingsSearch.rowHidden("sessions", "session-namer")}
               />
+              <SettingsSubsection
+                title="Environments"
+                description="Reusable environment variable profiles for new sessions."
+                hidden={settingsSearch.rowHidden("sessions", "environments")}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.hash = "#/environments";
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                >
+                  Manage Environments
+                </button>
+              </SettingsSubsection>
+              <SettingsSessionDataSection hidden={settingsSearch.rowHidden("sessions", "session-data")} />
+            </CollapsibleSection>
+
+            {/* ── Auto-Approval ────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("auto-approval")}>
               <SettingsAutoApprovalSection
-                hidden={settingsSearch.rowHidden("sessions", "auto-approval")}
                 aaEnabled={aaEnabled}
                 setAaEnabled={setAaEnabled}
                 aaModel={aaModel}
@@ -1016,38 +1018,17 @@ export function SettingsPage({
                 setShowAaFolderPicker={setShowAaFolderPicker}
                 loadAutoApprovalConfigs={loadAutoApprovalConfigs}
               />
-              <SettingsSubsection
-                title="Environments"
-                description="Reusable environment variable profiles for new sessions."
-                hidden={settingsSearch.rowHidden("sessions", "environments")}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.location.hash = "#/environments";
-                  }}
-                  className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-                >
-                  Manage Environments
-                </button>
-              </SettingsSubsection>
             </CollapsibleSection>
 
-            {/* ── System ───────────────────────────────────────────── */}
-            <CollapsibleSection
-              id="system"
-              title="System"
-              description="Backend CLIs, the file-link editor, resource use, and other machines that run sessions."
-              onCollapsedChange={setSystemCollapsed}
-              {...settingsSearch.sectionSearch("system")}
-            >
+            {/* ── CLIs & Editor ────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("cli")}>
               <SettingsSubsection
                 title="Backend CLIs"
                 description="Custom path or command for each backend CLI. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
-                hidden={settingsSearch.rowHidden("system", "cli")}
+                hidden={settingsSearch.rowHidden("cli", "cli")}
               >
                 {binaryFields.map((field) => (
-                  <div key={field.which} hidden={settingsSearch.rowHidden("system", field.itemId)}>
+                  <div key={field.which} hidden={settingsSearch.rowHidden("cli", field.itemId)}>
                     <label className="block text-sm font-medium mb-1.5" htmlFor={`${field.which}-binary`}>
                       {field.label}
                     </label>
@@ -1084,7 +1065,7 @@ export function SettingsPage({
                 {binSaving && <p className="text-xs text-cc-muted">Saving...</p>}
               </SettingsSubsection>
 
-              <div hidden={settingsSearch.rowHidden("system", "editor")}>
+              <div hidden={settingsSearch.rowHidden("cli", "editor")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="editor-preference">
                   Editor
                 </label>
@@ -1106,11 +1087,17 @@ export function SettingsPage({
                 {editorError && <div className="mt-1.5">{errorBox(editorError)}</div>}
                 {editorSaving && <p className="mt-1.5 text-xs text-cc-muted">Saving...</p>}
               </div>
+            </CollapsibleSection>
 
+            {/* ── Performance & Power ──────────────────────────────── */}
+            <CollapsibleSection
+              {...settingsSearch.sectionProps("performance")}
+              onCollapsedChange={setPerformanceCollapsed}
+            >
               <SettingsRow
                 label="Max Keep-Alive"
                 htmlFor="max-keep-alive"
-                hidden={settingsSearch.rowHidden("system", "max-keep-alive")}
+                hidden={settingsSearch.rowHidden("performance", "max-keep-alive")}
                 description="Maximum number of live CLI processes. Set to 0 for unlimited. Oldest idle sessions are killed first. Busy sessions are never killed."
               >
                 <input
@@ -1135,7 +1122,7 @@ export function SettingsPage({
                 description="Return cached session rows without list-driven background git refresh. Useful for large repos or slow filesystems; selected-session and explicit refreshes still update git metadata."
                 checked={heavyRepoModeEnabled}
                 disabled={heavyRepoSaving}
-                hidden={settingsSearch.rowHidden("system", "heavy-repo")}
+                hidden={settingsSearch.rowHidden("performance", "heavy-repo")}
                 onChange={(next) => {
                   setHeavyRepoModeEnabled(next);
                   void saveHeavyRepoMode(next);
@@ -1143,7 +1130,7 @@ export function SettingsPage({
               />
               {heavyRepoError && errorBox(heavyRepoError)}
 
-              <div className="space-y-3" hidden={settingsSearch.rowHidden("system", "sleep-inhibitor")}>
+              <div className="space-y-3" hidden={settingsSearch.rowHidden("performance", "sleep-inhibitor")}>
                 <SettingsToggle
                   label="Prevent Sleep During Generation"
                   description="Keep your Mac awake while sessions are actively generating. Applies to every session on this Takode server. Uses macOS caffeinate; no effect on other platforms."
@@ -1178,29 +1165,31 @@ export function SettingsPage({
                 )}
                 {sleepInhibitorError && errorBox(sleepInhibitorError)}
               </div>
-
-              <SettingsLoginSection hidden={settingsSearch.rowHidden("system", "login")} />
-              <SettingsHostsSection hidden={settingsSearch.rowHidden("system", "hosts")} />
             </CollapsibleSection>
 
-            {/* ── Server & Data ────────────────────────────────────── */}
-            <SettingsServerDiagnosticsSection
-              logFile={logFile}
-              serverSlug={serverSlug}
-              setServerSlug={setServerSlug}
-              serverSlugSaving={serverSlugSaving}
-              serverSlugError={serverSlugError}
-              restartSupported={restartSupported}
-              restartError={restartError}
-              restartPrepResult={restartPrepResult}
-              restarting={restarting}
-              onSaveServerSlug={onSaveServerSlug}
-              onRestartServer={onRestartServer}
-              sectionSearchProps={settingsSearch.sectionSearch("server")}
-              isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
-            >
-              <SettingsSessionDataSection hidden={settingsSearch.rowHidden("server", "session-data")} />
-            </SettingsServerDiagnosticsSection>
+            {/* ── Remote Hosts ─────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("hosts")}>
+              <SettingsHostsSection />
+            </CollapsibleSection>
+
+            {/* ── Server ───────────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("server")}>
+              <SettingsLoginSection hidden={settingsSearch.rowHidden("server", "login")} />
+              <SettingsServerDiagnosticsSection
+                logFile={logFile}
+                serverSlug={serverSlug}
+                setServerSlug={setServerSlug}
+                serverSlugSaving={serverSlugSaving}
+                serverSlugError={serverSlugError}
+                restartSupported={restartSupported}
+                restartError={restartError}
+                restartPrepResult={restartPrepResult}
+                restarting={restarting}
+                onSaveServerSlug={onSaveServerSlug}
+                onRestartServer={onRestartServer}
+                isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
+              />
+            </CollapsibleSection>
           </div>
         </div>
       </div>

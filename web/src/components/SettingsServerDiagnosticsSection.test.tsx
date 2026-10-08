@@ -2,17 +2,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { ReactNode } from "react";
-
-vi.mock("./CollapsibleSection.js", () => ({
-  CollapsibleSection: ({ title, children }: { title: string; children: ReactNode }) => (
-    <section>
-      <h2>{title}</h2>
-      {children}
-    </section>
-  ),
-}));
-
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 
 const serverSlugProps = {

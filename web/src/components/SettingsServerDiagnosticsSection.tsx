@@ -1,9 +1,5 @@
 import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
-import type { ComponentProps, ReactNode } from "react";
-import { CollapsibleSection } from "./CollapsibleSection.js";
 import { SettingsSubsection } from "./settings-controls.js";
-
-type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
   if (items.length === 0) {
@@ -152,9 +148,7 @@ export function SettingsServerDiagnosticsSection({
   restarting,
   onSaveServerSlug,
   onRestartServer,
-  sectionSearchProps,
   isRowHidden = () => false,
-  children,
 }: {
   logFile: string;
   serverSlug: string;
@@ -167,21 +161,13 @@ export function SettingsServerDiagnosticsSection({
   restarting: boolean;
   onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
-  sectionSearchProps?: SectionSearchProps;
   /** Whether Settings search hides the row or subsection with this item id. */
   isRowHidden?: (itemId: string) => boolean;
-  /** Extra subsections shown before Restart, such as session export and import. */
-  children?: ReactNode;
 }) {
   const visibleRestartPrepResult = restartPrepResult ?? null;
 
   return (
-    <CollapsibleSection
-      id="server"
-      title="Server & Data"
-      description="Server identity, logs, session backups, and restart."
-      {...sectionSearchProps}
-    >
+    <>
       <SettingsSubsection title="Server Slug" hidden={isRowHidden("server-slug")}>
         <div>
           <div className="flex gap-2">
@@ -259,8 +245,6 @@ export function SettingsServerDiagnosticsSection({
         </button>
       </SettingsSubsection>
 
-      {children}
-
       <SettingsSubsection title="Restart" hidden={isRowHidden("restart")}>
         <div className="space-y-3">
           <p className="text-xs text-cc-muted">
@@ -303,6 +287,6 @@ export function SettingsServerDiagnosticsSection({
           )}
         </div>
       </SettingsSubsection>
-    </CollapsibleSection>
+    </>
   );
 }

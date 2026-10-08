@@ -82,8 +82,8 @@ export function SettingsLeaderProfilesSection({
 
   return (
     <SettingsSubsection
-      title="Leader Profiles"
-      description="Built-in portrait pools used for new leader sessions."
+      title="Leader Profile Pictures"
+      description="Picture sets that new leader sessions pick their profile picture from."
       hidden={hidden}
     >
       <div className="grid gap-2 sm:grid-cols-2">

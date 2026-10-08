@@ -9,7 +9,17 @@ type SettingItemMeta = {
   subsection?: string;
 };
 
-export type SettingsSectionId = "appearance" | "input" | "notifications" | "sessions" | "system" | "server";
+export type SettingsSectionId =
+  | "appearance"
+  | "keyboard"
+  | "voice"
+  | "notifications"
+  | "sessions"
+  | "auto-approval"
+  | "cli"
+  | "performance"
+  | "hosts"
+  | "server";
 
 export type SettingsSectionMeta = {
   id: SettingsSectionId;
@@ -29,11 +39,16 @@ export type SettingsSearchResults = {
   visibleItemIds: Map<SettingsSectionId, Set<string>>;
 };
 
+/**
+ * The top-level Settings groups, in page order. Group names should let someone
+ * guess where a setting lives without opening the page, so prefer a concrete
+ * name for a small group over a broad bucket such as "System".
+ */
 export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "appearance",
     title: "Appearance",
-    description: "Theme, size, and how chat content is displayed.",
+    description: "Theme, size, how chat content is displayed, and leader profile pictures.",
     aliases: ["display", "dark", "light", "sidebar", "diff", "quiet mode", "focus mode", "tools"],
     items: [
       { id: "theme", text: "Theme color scheme dark light VS Code appearance" },
@@ -51,13 +66,18 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         id: "usage-bars",
         text: "Usage Bars in Sidebar tokens sidebar usage limits",
       },
+      {
+        id: "leader-profiles",
+        text: "Leader Profile Pictures portraits avatars picture sets Tako Shmi",
+        aliases: ["portrait", "avatar", "profile"],
+      },
     ],
   },
   {
-    id: "input",
-    title: "Input & Voice",
-    description: "How messages are sent, keyboard shortcuts, and voice dictation.",
-    aliases: ["keyboard", "keys", "hotkeys", "typing", "composer", "voice", "dictation"],
+    id: "keyboard",
+    title: "Keyboard",
+    description: "Which key sends a message, and keyboard shortcuts for app actions.",
+    aliases: ["keys", "hotkeys", "typing", "composer"],
     items: [
       {
         id: "send-key",
@@ -76,34 +96,25 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "shortcuts-bindings",
-        text: "Record shortcut override actions reset bindings",
+        text: "Record shortcut override actions reset bindings universal search toggle sidebar terminal previous next new session voice",
         subsection: "shortcuts",
       },
+    ],
+  },
+  {
+    id: "voice",
+    title: "Voice Input",
+    description: "Speech-to-text for dictating messages, with optional cleanup by an LLM.",
+    aliases: ["dictation", "microphone", "speech"],
+    items: [
       {
         id: "voice-credentials",
         text: "Voice Transcription API Key Base URL OpenAI Whisper stt speech transcribe audio",
-        subsection: "voice",
       },
-      {
-        id: "voice-models",
-        text: "STT Model Enhancement Model expected languages hints",
-        subsection: "voice",
-      },
-      {
-        id: "voice-enhancement",
-        text: "Enhancement Style prose bullet points",
-        subsection: "voice",
-      },
-      {
-        id: "voice-vocabulary",
-        text: "Custom Vocabulary terms model mishears vocabulary hints",
-        subsection: "voice",
-      },
-      {
-        id: "voice-tester",
-        text: "Enhancement Tester debug panel",
-        subsection: "voice",
-      },
+      { id: "voice-models", text: "STT Model Enhancement Model expected languages hints" },
+      { id: "voice-enhancement", text: "Enhancement Style prose bullet points" },
+      { id: "voice-vocabulary", text: "Custom Vocabulary terms model mishears vocabulary hints" },
+      { id: "voice-tester", text: "Enhancement Tester debug panel" },
     ],
   },
   {
@@ -157,8 +168,8 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "sessions",
     title: "Sessions",
-    description: "Defaults and automation for new and running sessions.",
-    aliases: ["defaults", "leader", "worker", "automation"],
+    description: "Defaults for new sessions, automatic naming, environments, and moving sessions between machines.",
+    aliases: ["defaults", "leader", "worker"],
     items: [
       {
         id: "session-defaults",
@@ -167,11 +178,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       {
         id: "codex-leader-mode",
         text: "Codex Leader Context Mode recycle compaction compact",
-      },
-      {
-        id: "leader-profiles",
-        text: "Leader Profiles built-in portrait pools Tako Shmi avatars",
-        aliases: ["portrait", "avatar", "profile"],
       },
       {
         id: "namer-enabled",
@@ -194,41 +200,37 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         subsection: "session-namer",
       },
       {
-        id: "auto-approval-enabled",
-        text: "Auto-Approval LLM enabled permission requests",
-        subsection: "auto-approval",
-      },
-      {
-        id: "auto-approval-model",
-        text: "Auto-approval Model Haiku Sonnet session model",
-        subsection: "auto-approval",
-      },
-      {
-        id: "auto-approval-limits",
-        text: "Auto-approval Max concurrency timeout seconds",
-        subsection: "auto-approval",
-      },
-      {
-        id: "auto-approval-rules",
-        text: "Auto-approval Project Rules criteria project paths add rule folder",
-        subsection: "auto-approval",
-      },
-      {
-        id: "auto-approval-debug",
-        text: "Auto-approval Debug panel logs",
-        subsection: "auto-approval",
-      },
-      {
         id: "environments",
         text: "Manage Environments environment variables profiles",
+      },
+      {
+        id: "session-data",
+        text: "Export and Import Sessions Export All Sessions portable archive backup other machine paths",
       },
     ],
   },
   {
-    id: "system",
-    title: "System",
-    description: "Backend CLIs, the file-link editor, resource use, and other machines that run sessions.",
-    aliases: ["backend", "binary", "path", "performance", "resources", "remote", "machine"],
+    id: "auto-approval",
+    title: "Auto-Approval",
+    description:
+      "Permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual.",
+    aliases: ["permissions", "approve"],
+    items: [
+      { id: "auto-approval-enabled", text: "Auto-Approval LLM enabled permission requests" },
+      { id: "auto-approval-model", text: "Auto-approval Model Haiku Sonnet session model" },
+      { id: "auto-approval-limits", text: "Auto-approval Max concurrency timeout seconds" },
+      {
+        id: "auto-approval-rules",
+        text: "Auto-approval Project Rules criteria project paths add rule folder",
+      },
+      { id: "auto-approval-debug", text: "Auto-approval Debug panel logs" },
+    ],
+  },
+  {
+    id: "cli",
+    title: "CLIs & Editor",
+    description: "Which Claude Code and Codex programs to run, and which editor opens file links.",
+    aliases: ["backend", "binary", "path"],
     items: [
       {
         id: "claude",
@@ -245,6 +247,14 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "File Link Editor VSCode local remote Cursor none editor",
         aliases: ["vscode"],
       },
+    ],
+  },
+  {
+    id: "performance",
+    title: "Performance & Power",
+    description: "How many sessions stay running, git refresh load, and keeping your Mac awake.",
+    aliases: ["resources", "memory", "speed", "battery"],
+    items: [
       {
         id: "max-keep-alive",
         text: "Max Keep-Alive live CLI processes idle sessions",
@@ -257,11 +267,14 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         id: "sleep-inhibitor",
         text: "Prevent Sleep During Generation caffeinate awake macOS grace period",
       },
-      {
-        id: "login",
-        text: "Login password browser log in log out sign out devices security access remote phone",
-        aliases: ["password", "security"],
-      },
+    ],
+  },
+  {
+    id: "hosts",
+    title: "Remote Hosts",
+    description: "Other machines that run sessions for this server.",
+    aliases: ["remote", "machine", "devbox"],
+    items: [
       {
         id: "hosts",
         text: "Hosts other machines remote devbox takode node token coordinator add host remove online offline",
@@ -270,10 +283,15 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     id: "server",
-    title: "Server & Data",
-    description: "Server identity, logs, session backups, and restart.",
-    aliases: ["diagnostics", "server", "data", "backup"],
+    title: "Server & Login",
+    description: "Browser login password, server identity, logs, release notes, and restart.",
+    aliases: ["diagnostics", "server", "security", "access"],
     items: [
+      {
+        id: "login",
+        text: "Login password browser log in log out sign out devices security access remote phone",
+        aliases: ["password", "security"],
+      },
       {
         id: "server-slug",
         text: "Server Slug memory repo session space path prod dev port Takode rename",
@@ -285,10 +303,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       {
         id: "changelog",
         text: "Changelog release notes local repository markdown changes",
-      },
-      {
-        id: "session-data",
-        text: "Session Data Export All Sessions Import Sessions portable archive paths",
       },
       {
         id: "restart",
@@ -362,6 +376,9 @@ export function computeSettingsSearchResults(query: string): SettingsSearchResul
   };
 }
 
+/** How far past a group's jump position (its scroll margin, which clears the sticky search bar) it still counts as active. */
+const ACTIVE_SECTION_SLACK_PX = 40;
+
 export function useActiveSettingsSection(
   visibleSectionIds: SettingsSectionId[],
   scrollRef: RefObject<HTMLElement | null>,
@@ -376,31 +393,38 @@ export function useActiveSettingsSection(
     }
   }, [activeSectionId, fallbackSection, visibleSectionIds]);
 
+  // The active group is the last one whose top has scrolled up to about where a
+  // jump puts it, just below the sticky search bar. It is derived from every
+  // group's position on each scroll frame, so a group scrolling out of view
+  // cannot re-select itself.
   useEffect(() => {
-    if (!enabled || typeof IntersectionObserver === "undefined") return;
+    if (!enabled) return;
     const root = scrollRef.current;
     if (!root) return;
 
-    const visibleSet = new Set(visibleSectionIds);
-    const nodes = SETTINGS_SECTIONS.map((section) => document.getElementById(settingsSectionDomId(section.id))).filter(
-      (node): node is HTMLElement =>
-        node !== null && visibleSet.has(node.dataset.settingsSectionId as SettingsSectionId),
-    );
-    if (nodes.length === 0) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const rootTop = root.getBoundingClientRect().top;
+      let current: SettingsSectionId | null = null;
+      for (const id of visibleSectionIds) {
+        const node = document.getElementById(settingsSectionDomId(id));
+        if (!node) continue;
+        const markerY = rootTop + (parseFloat(getComputedStyle(node).scrollMarginTop) || 0) + ACTIVE_SECTION_SLACK_PX;
+        if (current !== null && node.getBoundingClientRect().top > markerY) break;
+        current = id;
+      }
+      if (current) setActiveSectionId(current);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => Math.abs(a.boundingClientRect.top) - Math.abs(b.boundingClientRect.top));
-        const next = visible[0]?.target.getAttribute("data-settings-section-id") as SettingsSectionId | null;
-        if (next) setActiveSectionId(next);
-      },
-      { root, rootMargin: "-12% 0px -72% 0px", threshold: [0, 0.1, 0.25] },
-    );
-
-    nodes.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
   }, [enabled, scrollRef, visibleSectionIds]);
 
   return [activeSectionId, setActiveSectionId];
@@ -419,8 +443,13 @@ export function useSettingsSearchNavigation(scrollRef: RefObject<HTMLElement | n
   );
   const [activeSectionId, setActiveSectionId] = useActiveSettingsSection(visibleSectionIds, scrollRef, isActive);
 
-  function sectionSearch(id: SettingsSectionId) {
+  /** Props for a group's CollapsibleSection: identity from SETTINGS_SECTIONS plus search state. */
+  function sectionProps(id: SettingsSectionId) {
+    const meta = SETTINGS_SECTIONS.find((section) => section.id === id)!;
     return {
+      id,
+      title: meta.title,
+      description: meta.description,
       hidden: !results.visibleSectionIds.has(id),
       searchQuery: results.query,
       matchCount: results.sectionMatchCounts.get(id) ?? 0,
@@ -445,7 +474,7 @@ export function useSettingsSearchNavigation(scrollRef: RefObject<HTMLElement | n
     setQuery,
     results,
     activeSectionId,
-    sectionSearch,
+    sectionProps,
     rowHidden,
     jumpToSection,
   };

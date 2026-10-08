@@ -11,7 +11,7 @@ import {
 import { api, type TranscriptionConfig } from "../api.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
-import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
+import { SettingsToggle } from "./settings-controls.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 
@@ -21,7 +21,6 @@ export const BUILT_IN_STT_MODELS = TRANSCRIPTION_STT_MODELS;
 
 interface SettingsVoiceTranscriptionSectionProps {
   loading: boolean;
-  hidden?: boolean;
   transcriptionApiKey: string;
   setTranscriptionApiKey: Dispatch<SetStateAction<string>>;
   transcriptionBaseUrl: string;
@@ -50,7 +49,6 @@ interface SettingsVoiceTranscriptionSectionProps {
 
 export function SettingsVoiceTranscriptionSection({
   loading,
-  hidden = false,
   transcriptionApiKey,
   setTranscriptionApiKey,
   transcriptionBaseUrl,
@@ -193,11 +191,7 @@ export function SettingsVoiceTranscriptionSection({
   }
 
   return (
-    <SettingsSubsection
-      title="Voice Transcription"
-      description="Configure the OpenAI-compatible Whisper API for voice-to-text input. Optionally enable LLM enhancement to clean up transcribed text before sending."
-      hidden={hidden}
-    >
+    <>
       <div className="space-y-3 pl-3 border-l-2 border-cc-border">
         <div>
           <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-api-key">
@@ -459,6 +453,6 @@ export function SettingsVoiceTranscriptionSection({
 
       <TranscriptionDebugPanel sttModelOptions={replaySttModelOptions} />
       <EnhancementTester />
-    </SettingsSubsection>
+    </>
   );
 }
