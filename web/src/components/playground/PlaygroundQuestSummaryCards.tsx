@@ -6,6 +6,7 @@ import type { BrowserIncomingMessage } from "../../types.js";
 import { buildFeedMessageModel } from "../../utils/feed-render-model.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { buildFeedSections } from "../message-feed-sections.js";
+import { MessageFeedCenteredState } from "../MessageFeedCenteredState.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
 import { Card, Section } from "./shared.js";
 
@@ -227,7 +228,7 @@ export function PlaygroundQuestDescriptionSummary() {
   return (
     <Section
       title="Quest Description Summary"
-      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded."
+      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded; a quest thread with no messages shows it in place of the empty placeholder."
     >
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <Card label="Dispatch-only thread · description TLDR">
@@ -243,6 +244,22 @@ export function PlaygroundQuestDescriptionSummary() {
             history={dispatchHistory(EXCERPT_QUEST_ID)}
             testId="playground-description-summary-excerpt"
           />
+        </Card>
+        <Card label="Quest thread with no messages · card replaces the empty placeholder">
+          <div
+            className="flex h-[260px] max-w-[430px] flex-col rounded-xl bg-cc-bg"
+            data-testid="playground-description-summary-empty"
+          >
+            <MessageFeedCenteredState
+              variant="empty"
+              topControls={null}
+              clearancePx={0}
+              sessionId={SESSION_ID}
+              threadKey={DESCRIPTION_QUEST_ID}
+              onVisibleHeightChange={NOOP}
+              questId={DESCRIPTION_QUEST_ID}
+            />
+          </div>
         </Card>
       </div>
     </Section>

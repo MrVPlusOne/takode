@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
 
@@ -7,23 +8,25 @@ const EXCERPT_CHARS = 280;
  * Compact card that opens a leader quest thread with what the quest is about: the
  * description TLDR, expandable to the full description. Quests without a TLDR show
  * an excerpt of the description instead. It follows the current server quest record,
- * so description edits and refinements show up. Renders nothing for a quest with
- * neither TLDR nor description.
+ * so description edits and refinements show up. Renders `fallback` (nothing by
+ * default) until the record loads, and for a quest with neither TLDR nor description.
  */
 export function QuestDescriptionSummaryCard({
   questId,
   sessionId,
   questLinkSurface,
+  fallback = null,
 }: {
   questId: string;
   sessionId?: string;
   questLinkSurface: QuestLinkSurface;
+  fallback?: ReactNode;
 }) {
   const quest = useQuestRecord(questId);
-  if (!quest) return null;
+  if (!quest) return fallback;
   const description = quest.description?.trim() ?? "";
   const summary = quest.tldr?.trim() || descriptionExcerpt(description);
-  if (!summary) return null;
+  if (!summary) return fallback;
 
   return (
     <QuestSummaryCard

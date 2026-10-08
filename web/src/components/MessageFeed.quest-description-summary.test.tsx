@@ -133,13 +133,48 @@ function dispatchHistory(): BrowserIncomingMessage[] {
   ]).flat();
 }
 
+/**
+ * The reported empty-thread shape: the leader discussed and dispatched the quest, but
+ * every message was routed to Main or another quest, so its own thread has none.
+ */
+function elsewhereRoutedHistory(): BrowserIncomingMessage[] {
+  const otherQuest = "q-4301";
+  return [
+    { type: "user_message", id: "main-ask", content: `Please start ${QUEST_ID}.`, timestamp: 1_700_000_000_000 },
+    {
+      type: "assistant",
+      timestamp: 1_700_000_000_001,
+      parent_tool_use_id: null,
+      leaderThreadRole: "commentary",
+      threadKey: otherQuest,
+      questId: otherQuest,
+      threadRefs: [{ threadKey: otherQuest, questId: otherQuest, source: "explicit" }],
+      message: {
+        id: "other-update",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus",
+        content: [
+          { type: "text", text: `The prerequisite landed, so [${QUEST_ID}](quest:${QUEST_ID}) can start now.` },
+        ],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    },
+  ];
+}
+
 function installThread(
   quest: QuestmasterTask | null,
-  { fromItem = 0, isOrchestrator = true }: { fromItem?: number; isOrchestrator?: boolean } = {},
+  {
+    fromItem = 0,
+    isOrchestrator = true,
+    history = dispatchHistory(),
+  }: { fromItem?: number; isOrchestrator?: boolean; history?: BrowserIncomingMessage[] } = {},
 ): void {
   // Use the shared producer so the browser receives the normal thread window shape.
   const sync = buildThreadWindowSync({
-    messageHistory: dispatchHistory(),
+    messageHistory: history,
     threadKey: QUEST_ID,
     fromItem,
     itemCount: 1,
@@ -248,6 +283,31 @@ describe("MessageFeed quest description summary", () => {
     });
     view.unmount();
     expect(api.getQuestValidated).not.toHaveBeenCalled();
+  });
+
+  it("shows the card instead of the empty placeholder when the quest thread has no messages", async () => {
+    // Every message about the quest was routed elsewhere, so the producer's window for
+    // this thread is empty; the card still says what the quest is about.
+    vi.mocked(api.getQuestValidated).mockResolvedValueOnce({ status: "fresh", etag: '"v1"', data: activeQuest() });
+    installThread(null, { history: elsewhereRoutedHistory() });
+    const window = useStore.getState().threadWindows.get(SESSION_ID)!.get(QUEST_ID)!;
+    expect(window.total_items).toBe(0);
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    // The generic placeholder covers the moment before the record loads.
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+    expect(await screen.findByTestId("quest-description-summary")).toHaveTextContent(TLDR);
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show full description" }));
+    expect(screen.getByTestId("quest-description-summary")).toHaveTextContent("Register it as a Takode host");
+  });
+
+  it("keeps the empty placeholder for an empty quest thread outside a leader session", () => {
+    installThread(activeQuest(), { history: elsewhereRoutedHistory(), isOrchestrator: false });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("quest-description-summary")).not.toBeInTheDocument();
   });
 
   it("waits for the thread's first section before showing the card", () => {

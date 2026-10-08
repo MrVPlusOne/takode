@@ -44,6 +44,7 @@ import {
 } from "./message-feed-utils.js";
 import { isSubagentToolName } from "../types.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { useMessageFeedPending } from "./use-message-feed-pending.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
@@ -1778,6 +1779,7 @@ export function MessageFeed({
     return (
       <MessageFeedCenteredState
         variant="empty"
+        questId={isLeaderSession && isQuestThreadKey(normalizedThreadKey) ? normalizedThreadKey : undefined}
         topControls={feedTopControls}
         clearancePx={centeredFeedStatusClearancePx}
         sessionId={sessionId}
