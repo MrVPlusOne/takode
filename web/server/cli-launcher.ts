@@ -937,6 +937,7 @@ export class CliLauncher {
               repoRoot: info.repoRoot || "",
               parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
               portTarget: info.worktreePortTarget,
+              ...(info.hostId ? { hostId: info.hostId } : {}),
             },
           }
         : {}),
@@ -1130,6 +1131,7 @@ export class CliLauncher {
               repoRoot: info.repoRoot || "",
               parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
               portTarget: info.worktreePortTarget,
+              ...(info.hostId ? { hostId: info.hostId } : {}),
             },
           }
         : {}),

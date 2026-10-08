@@ -27,7 +27,11 @@ export interface CompanionInstructionBuildOptions {
       sourceSessionId?: string;
       sourceSessionNum?: number | null;
       sourceLabel?: string;
+      /** Remote host the port target is on; absent for the coordinator's machine. */
+      hostId?: string;
     };
+    /** Remote host this session runs on; absent for the coordinator's machine. */
+    hostId?: string;
   };
   extraInstructions?: string;
   backend?: BackendType;
@@ -53,7 +57,7 @@ export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptio
   }
 
   if (opts?.worktree) {
-    const { branch, repoRoot, parentBranch, portTarget } = opts.worktree;
+    const { branch, repoRoot, parentBranch, portTarget, hostId } = opts.worktree;
     const branchLabel = parentBranch ? `\`${branch}\` (created from \`${parentBranch}\`)` : `\`${branch}\``;
     const syncRepoRoot = portTarget?.repoRoot || repoRoot;
     const syncBaseBranch = portTarget?.branch || parentBranch || branch;
@@ -79,7 +83,11 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 
 ## Porting Changes
 
-Use \`/port-changes\` when asked to port, sync, or push commits to the main repo.
+${
+  portTarget && (portTarget.hostId ?? undefined) !== (hostId ?? undefined)
+    ? "Your port target is on another machine, so do not port yourself. When asked to port, commit your work, run `takode bundle send` to hand the commits to the Takode server, and report the bundle ID to your leader. A session on the port target's machine fetches it with `takode bundle fetch <id>` and lands it under the normal port rules."
+    : "Use `/port-changes` when asked to port, sync, or push commits to the main repo."
+}
 
 **Sync context for this session:**
 - Base repo checkout: \`${syncRepoRoot}\`

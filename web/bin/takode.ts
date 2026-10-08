@@ -51,6 +51,7 @@ import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import { handleWorktree } from "./takode-worktree.js";
 import { handleHost } from "./takode-host-commands.js";
+import { handleBundle } from "./takode-bundle-commands.js";
 import {
   handleInfo,
   handleLeaderContextResume,
@@ -293,6 +294,9 @@ try {
       break;
     case "host":
       await handleHost(base, args);
+      break;
+    case "bundle":
+      await handleBundle(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

@@ -154,6 +154,36 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Port target source: #2468 QA Data Leader");
   });
 
+  // A worker whose port target is on another machine cannot cherry-pick into it,
+  // so it gets the bundle hand-off instead of the local port workflow.
+  it("selects the bundle hand-off only when the port target is on another machine", () => {
+    const build = (hostId: string | undefined, targetHostId: string | undefined) =>
+      buildCompanionInstructions({
+        worktree: {
+          branch: "main-wt-1",
+          repoRoot: "/srv/app",
+          ...(hostId ? { hostId } : {}),
+          portTarget: { repoRoot: "/repos/app", branch: "main", ...(targetHostId ? { hostId: targetHostId } : {}) },
+        },
+      });
+
+    for (const [hostId, targetHostId, bundle] of [
+      ["host-1", undefined, true],
+      [undefined, "host-1", true],
+      ["host-1", "host-2", true],
+      ["host-1", "host-1", false],
+      [undefined, undefined, false],
+    ] as const) {
+      const result = build(hostId, targetHostId);
+      expect({ hostId, targetHostId, bundle: result.includes("takode bundle send") }).toEqual({
+        hostId,
+        targetHostId,
+        bundle,
+      });
+      expect(result.includes("Use `/port-changes`")).toBe(!bundle);
+    }
+  });
+
   it("appends caller instructions unchanged", () => {
     // Caller-provided content must survive composition, including its own markup.
     const extraInstructions = "Custom context\n`literal syntax` and **formatting**";

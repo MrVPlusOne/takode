@@ -34,6 +34,7 @@ import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
 import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
+import { createBundleRoutes } from "./bundles.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createCodexSidecarRoutes } from "./codex-sidecar.js";
@@ -263,6 +264,7 @@ export function createRoutes(
   api.route("/", createTimerRoutes(ctx));
   api.route("/", createTodoRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
+  api.route("/", createBundleRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
   api.route("/", createCodexSidecarRoutes(ctx));

@@ -170,6 +170,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
     sourceSessionId?: string;
     sourceSessionNum?: number | null;
     sourceLabel?: string;
+    /** Remote host the port target checkout is on; absent for the coordinator's machine. */
+    hostId?: string;
   };
 
   /** Whether this is an assistant-mode session */
@@ -269,6 +271,7 @@ const PUBLIC_LAUNCHER_SESSION_FIELDS = [
   "activeNotificationCount",
   "mutedNeedsInputNotificationCount",
   "killedByIdleManager",
+  "hostId",
   "isWorktree",
   "repoRoot",
   "branch",

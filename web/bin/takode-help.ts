@@ -32,6 +32,7 @@ import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 import { WORKTREE_HELP } from "./takode-worktree.js";
+import { BUNDLE_HELP } from "./takode-bundle-commands.js";
 
 const HOST_HELP = `Usage: takode host <add|list|remove> ...
 
@@ -508,6 +509,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "host":
       console.log(HOST_HELP);
       return true;
+    case "bundle":
+      console.log(BUNDLE_HELP);
+      return true;
     case "pending":
       console.log(PENDING_HELP);
       return true;
@@ -675,6 +679,7 @@ Commands:
   worktree-cleanup  List or retry archived worktree cleanup
   worktree         Register and inspect auxiliary worktree retention
   host             Register machines that run sessions for this server (takode host add <name>)
+  bundle           Carry commits to the machine of your port target (takode bundle send|fetch)
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session

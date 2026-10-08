@@ -379,6 +379,7 @@ export const SPAWN_FLAG_USAGE = `Usage: takode spawn [options]
 Options:
   --backend <type>             AI backend: "claude" or "codex" (default: inherit from leader)
   --cwd <path>                 Working directory (default: current directory)
+  --host <name>                Run on a registered remote host; needs --cwd, a checkout on that host
   --count <n>                  Number of sessions to spawn (default: 1)
   --message <text>             Short inline initial message
   --message-file <path>|-      Read the initial message from a file or stdin
@@ -411,6 +412,7 @@ Examples:
 const SPAWN_ALLOWED_FLAGS = new Set([
   "backend",
   "cwd",
+  "host",
   "count",
   "message",
   "message-file",
@@ -681,6 +683,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     actualBranch?: string | null;
     gitBranch?: string | null;
     memorySessionSpaceSlug?: string;
+    hostId?: string | null;
   };
   const leaderSessionLabel = leader.name
     ? `#${leader.sessionNum ?? "?"} ${leader.name}`
@@ -696,6 +699,10 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
 
   const explicitCwd = typeof flags.cwd === "string" ? flags.cwd : undefined;
   let cwd = explicitCwd ?? process.cwd();
+  const hostName = typeof flags.host === "string" ? flags.host.trim() : undefined;
+  if (flags.host !== undefined && !hostName) err("--host requires a host name.");
+  // Paths on another machine cannot be inferred from this one.
+  if (hostName && !explicitCwd) err("--host needs --cwd <path>: the repo checkout to work in on that host.");
   const useWorktree = flags["no-worktree"] === true ? false : true;
   const fixedName = typeof flags["fixed-name"] === "string" ? flags["fixed-name"].trim() : "";
   if (flags["fixed-name"] !== undefined && !fixedName) {
@@ -724,6 +731,11 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     leaderWorktreeTargetBranch !== undefined &&
     useWorktree &&
     (explicitCwd === undefined || explicitCwdMatchesLeaderWorktree);
+  // A worker on another machine still lands its commits in the leader's checkout.
+  const remotePortTargetBranch =
+    hostName && useWorktree
+      ? (leaderWorktreeTargetBranch ?? (leader.gitBranch || leader.branch || "").trim()) || undefined
+      : undefined;
 
   // --reviewer <session-number>: create a reviewer session tied to a parent worker
   const reviewerRaw = flags.reviewer;
@@ -825,6 +837,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const inheritedCodexPermissionMode =
     backendRaw === "codex" && isCodexProfilePermissionMode(leader.permissionMode) ? leader.permissionMode : undefined;
 
+  const hostId = hostName ? await resolveHostId(base, hostName) : undefined;
+
   const buildCreatePayload = (): Record<string, unknown> => {
     const createPayload: Record<string, unknown> = {
       backend: backendRaw,
@@ -850,11 +864,14 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       createPayload.model = model;
     }
 
-    if (shouldUseLeaderWorktreeTarget && reviewerOfNum === undefined) {
-      createPayload.branch = leaderWorktreeTargetBranch;
+    const portTargetBranch = shouldUseLeaderWorktreeTarget ? leaderWorktreeTargetBranch : remotePortTargetBranch;
+    if (hostId) createPayload.hostId = hostId;
+    if (portTargetBranch && reviewerOfNum === undefined) {
+      createPayload.branch = portTargetBranch;
       createPayload.worktreePortTarget = {
-        repoRoot: leader.repoRoot || undefined,
-        branch: leaderWorktreeTargetBranch,
+        repoRoot: leader.repoRoot || leader.cwd || undefined,
+        branch: portTargetBranch,
+        ...(leader.hostId ? { hostId: leader.hostId } : {}),
         ...(leader.cwd ? { worktreePath: leader.cwd } : {}),
         sourceSessionId: leader.sessionId,
         sourceSessionNum: leader.sessionNum ?? null,
@@ -1950,4 +1967,13 @@ export async function handlePhases(base: string, args: string[]): Promise<void> 
     console.log(`  leader brief: ${phase.leaderBriefDisplayPath}`);
     console.log(`  phase metadata: ${phase.phaseJsonDisplayPath}`);
   }
+}
+
+async function resolveHostId(base: string, name: string): Promise<string> {
+  const { hosts } = (await apiGet(base, "/hosts")) as { hosts: Array<{ id: string; name: string }> };
+  const host = hosts.find((candidate) => candidate.name === name);
+  if (!host) {
+    err(`Unknown host: ${name}. Registered hosts: ${hosts.map((candidate) => candidate.name).join(", ") || "none"}.`);
+  }
+  return host.id;
 }

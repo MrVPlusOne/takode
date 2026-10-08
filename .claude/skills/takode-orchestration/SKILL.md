@@ -439,7 +439,7 @@ Claim worker sessions under your orchestrator. Each session can only have one le
 takode herd 2 3 5
 ```
 
-### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json] [--details | --include <fields>]`
+### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--host NAME] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json] [--details | --include <fields>]`
 
 Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
@@ -454,6 +454,8 @@ takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --me
 Use `--message` only for short inline text. For multiline or shell-like dispatch bodies, prefer `--message-file <path>` or `--message-file -`.
 
 Use `--replace-worktree-worker <session>` when reclaiming an owned completed worktree worker for a new worker in the same repo/base branch. Replacement preflight inspects the live worktree, refuses uncommitted changes and commits genuinely ahead of the current target/base branch, allows a clean behind-only worktree, resets the recycled worktree to the base branch, and spawns the replacement in that path. Do not treat sidebar or `takode info` ahead/behind counts as the safety authority when they are surprising, because they may use a different session diff base; use replacement preflight or explicit current target-ref verification. It is not compatible with `--count > 1`, `--reviewer`, or `--no-worktree`.
+
+Use `--host <name> --cwd <checkout on that host>` to run a worker on a registered remote host (`takode host list`). Workers default to the machine holding your checkout; use another host only when the work needs that machine. A remote worker's worktree is created from its own clone there, and its port target stays your checkout. It does not port: it hands its commits over with `takode bundle send` and reports a bundle ID. Have a worker on your checkout's machine run `takode bundle fetch <id>`, cherry-pick the printed range and land it under the normal port lease, gate and push rules.
 
 Routine dispatch should use compact plain-text output, not spawn `--json`. If structured spawn output is needed for a script, compact JSON is the default and bulky session fields require `--details` or `--include <field>`.
 

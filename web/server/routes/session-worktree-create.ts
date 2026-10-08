@@ -29,6 +29,8 @@ export interface WorktreeSessionInfo {
     sourceSessionId?: string;
     sourceSessionNum?: number | null;
     sourceLabel?: string;
+    /** Remote host the port target checkout is on; absent for the coordinator's machine. */
+    hostId?: string;
   };
 }
 
@@ -80,6 +82,12 @@ export async function prepareWorktreeForSessionCreate(options: {
     typeof requestedPortTarget?.repoRoot === "string" && requestedPortTarget.repoRoot.trim()
       ? requestedPortTarget.repoRoot.trim()
       : repoInfo.repoRoot;
+  // A requested target names its own machine (the requester's); a default one is this session's repo.
+  const portTargetHostId = requestedPortTarget
+    ? typeof requestedPortTarget.hostId === "string" && requestedPortTarget.hostId
+      ? requestedPortTarget.hostId
+      : undefined
+    : hostId;
   const portTargetWorktreePath =
     typeof requestedPortTarget?.worktreePath === "string" && requestedPortTarget.worktreePath.trim()
       ? requestedPortTarget.worktreePath.trim()
@@ -124,6 +132,7 @@ export async function prepareWorktreeForSessionCreate(options: {
         ...(typeof requestedPortTarget?.sourceLabel === "string" && requestedPortTarget.sourceLabel.trim()
           ? { sourceLabel: requestedPortTarget.sourceLabel.trim() }
           : {}),
+        ...(portTargetHostId ? { hostId: portTargetHostId } : {}),
       },
     },
   };

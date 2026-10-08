@@ -118,4 +118,12 @@ describe("public launcher session serialization", () => {
     expect(result).not.toHaveProperty("codexHome");
     expect(result).not.toHaveProperty("sdkDebugLogPath");
   });
+
+  // Leaders' `takode spawn` and the sidebar both read a session's host from
+  // the public session info; without it a remote leader's port target would
+  // silently point at the coordinator's machine.
+  it("keeps the remote host a session runs on", () => {
+    expect(stripInternalLauncherSessionState(launcherInfo({ hostId: "host-1" })).hostId).toBe("host-1");
+    expect(stripInternalLauncherSessionState(launcherInfo())).not.toHaveProperty("hostId");
+  });
 });

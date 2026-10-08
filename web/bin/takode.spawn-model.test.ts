@@ -206,4 +206,58 @@ describe("takode spawn model payloads", () => {
       model: "custom",
     });
   });
+
+  // A worker on a remote host works in that host's checkout but keeps the
+  // leader's checkout (on the leader's machine) as its port target.
+  it("spawns on a named host with the leader's checkout as port target", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const route = `${req.method} ${req.url}`;
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (route === "GET /api/takode/me") return json(200, { sessionId: "leader-host", isOrchestrator: true });
+      if (route === "GET /api/sessions/leader-host") {
+        return json(200, {
+          sessionId: "leader-host",
+          sessionNum: 9,
+          backendType: "claude",
+          cwd: "/repos/app",
+          repoRoot: "/repos/app",
+          gitBranch: "main",
+        });
+      }
+      if (route === "GET /api/hosts") return json(200, { hosts: [{ id: "host-id-1", name: "devbox" }] });
+      if (route === "POST /api/sessions/create") {
+        createBodies.push(await readJson(req));
+        return json(200, { sessionId: "worker-host" });
+      }
+      if (route === "GET /api/sessions/worker-host/info") {
+        return json(200, { sessionId: "worker-host", sessionNum: 53, state: "running", cwd: "/srv/app" });
+      }
+      return json(404, { error: "not found" });
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-host", COMPANION_AUTH_TOKEN: "auth-host" };
+    const missingCwd = await runTakode(["spawn", "--port", String(port), "--host", "devbox"], env);
+    const result = await runTakode(["spawn", "--port", String(port), "--host", "devbox", "--cwd", "/srv/app"], env);
+    server.close();
+
+    expect(missingCwd.status).not.toBe(0);
+    expect(missingCwd.stderr).toContain("--host needs --cwd");
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0]).toMatchObject({
+      cwd: "/srv/app",
+      useWorktree: true,
+      hostId: "host-id-1",
+      branch: "main",
+      worktreePortTarget: { repoRoot: "/repos/app", branch: "main", worktreePath: "/repos/app", sourceSessionNum: 9 },
+    });
+    expect((createBodies[0].worktreePortTarget as JsonObject).hostId).toBeUndefined();
+  });
 });
