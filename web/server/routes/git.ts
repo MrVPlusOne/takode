@@ -47,11 +47,12 @@ export function createGitRoutes(ctx: RouteContext) {
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
     const limitStr = c.req.query("limit");
     const limit = Math.min(Math.max(parseInt(limitStr || "20", 10) || 20, 1), 100);
+    const host = c.req.query("host") || undefined;
     try {
-      const raw = await execCaptureStdoutAsync(
-        `${SERVER_GIT_CMD} log --format="%H%x00%h%x00%s%x00%ct" -${limit}`,
-        repoRoot,
-      );
+      const format = `--format="%H%x00%h%x00%s%x00%ct" -${limit}`;
+      const raw = host
+        ? await gitUtils.gitAsync(`log ${format}`, repoRoot, machineFor(host))
+        : await execCaptureStdoutAsync(`${SERVER_GIT_CMD} log ${format}`, repoRoot);
       const commits = raw
         .split("\n")
         .filter(Boolean)
@@ -61,6 +62,7 @@ export function createGitRoutes(ctx: RouteContext) {
         });
       return c.json({ commits });
     } catch (e: unknown) {
+      if (host) return remoteHostFailure(c, e, host, launcher.remoteHosts?.registry);
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
@@ -99,8 +101,10 @@ export function createGitRoutes(ctx: RouteContext) {
     const body = await c.req.json().catch(() => ({}));
     const { cwd, sessionId, hostId } = body;
     if (!cwd) return c.json({ error: "cwd required" }, 400);
-    // `hostId` pulls a repo on that registered remote host.
-    const machine = hostId ? machineFor(hostId) : undefined;
+    // Pull on the session's machine, or on the registered remote host `hostId`
+    // when pulling a repo for a new session there.
+    const pullHost = hostId || (sessionId ? launcher.getSession(sessionId)?.hostId : undefined);
+    const machine = pullHost ? machineFor(pullHost) : undefined;
     const result = await gitUtils.gitPullAsync(cwd, machine);
     // Return refreshed ahead/behind counts; none without an upstream.
     const counts = await gitUtils.gitSafeAsync("rev-list --left-right --count @{upstream}...HEAD", cwd, machine);

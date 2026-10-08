@@ -604,6 +604,26 @@ describe("POST /api/sessions/:id/relaunch", () => {
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 
+  // With no repo root known, a local session's repo is read from its cwd here;
+  // a remote session's cwd is on its host, so this machine must not read it.
+  it("infers a missing repoRoot from the cwd only for sessions on this machine", async () => {
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({ repoRoot: "/repo" } as any);
+    launcher.relaunch.mockResolvedValue({ ok: true });
+    bridge.getSession.mockReturnValue({ id: "s1", state: { cwd: "/repo/web" } });
+
+    const local = { sessionId: "s1", state: "exited", cwd: "/repo/web", repoRoot: undefined as string | undefined };
+    launcher.getSession.mockReturnValue(local);
+    expect((await app.request("/api/sessions/s1/relaunch", { method: "POST" })).status).toBe(200);
+    expect(local.repoRoot).toBe("/repo");
+
+    vi.mocked(gitUtils.getRepoInfoAsync).mockClear();
+    const remote = { ...local, repoRoot: undefined, hostId: "host-1" };
+    launcher.getSession.mockReturnValue(remote);
+    expect((await app.request("/api/sessions/s1/relaunch", { method: "POST" })).status).toBe(200);
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(remote.repoRoot).toBeUndefined();
+  });
+
   it("returns 503 with error when container is missing", async () => {
     launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test", containerId: "abc" });
     launcher.relaunch.mockResolvedValue({

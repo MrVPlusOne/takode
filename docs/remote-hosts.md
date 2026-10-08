@@ -65,7 +65,9 @@ process it needs.
    selected, the dialog's folder browser and branch picker read the host's
    folders and repos, and recent folders are kept per machine. Worktrees are
    created on the host. Folder browsing needs the host's `takode node` to run a
-   build that includes it.
+   build that includes it. A running session's Git status, diffs, the diff
+   panel's base-branch and commit choices, and pulls all read its checkout on
+   the host.
 
 ## Choosing the agent CLIs on a host
 

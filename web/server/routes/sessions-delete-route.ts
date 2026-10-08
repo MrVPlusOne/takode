@@ -50,8 +50,10 @@ export function registerSessionDeleteRoute(
 
     const mapping = worktreeTracker.getBySession(id);
     const worktreeResult = mapping ? await cleanupWorktree(mapping, worktreeTracker, true) : undefined;
-    // Clean up any stale archived ref from a previous archive cycle
-    if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch) {
+    // Clean up any stale archived ref from a previous archive cycle. Only
+    // checkouts on this machine can have one; never touch a same-named repo
+    // here for a session on a remote host.
+    if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch && !sessionInfo.hostId) {
       await gitUtils.deleteArchivedRefAsync(sessionInfo.repoRoot, sessionInfo.actualBranch);
     }
     prPoller?.unwatch(id);

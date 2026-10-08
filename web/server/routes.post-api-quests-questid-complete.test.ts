@@ -4,6 +4,7 @@ import * as questStore from "./quest-store.js";
 import { resolveQuestFeedbackDocumentation } from "./quest-phase-docs.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { validateCompanionAuth } from "./routes/auth.js";
+import { configureRemoteMachines } from "./remote-host/session-machine.js";
 import { createQuestRoutes, validateV2CompletionGitState } from "./routes/quests.js";
 
 // Keep all durable writes behind mocks; exercise real routes, auth, phase routing,
@@ -638,6 +639,53 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("uncommitted tracked changes") });
     expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  // A worker on a remote host has its checkout there: the dirty check must read
+  // the host's checkout, never the same path on the coordinator's machine.
+  it("checks a remote worker's tracked changes on its host", async () => {
+    const hostExec = vi.fn(async () => ({
+      kind: "exec",
+      code: 0,
+      signal: null,
+      stdout: " M web/server/file.ts\n",
+      stderr: "",
+      truncated: false,
+    }));
+    configureRemoteMachines({ request: hostExec } as any);
+    try {
+      const auth = installV2MemoryFixture({ workerState: { host_id: "host-1" }, trackedStatus: "" });
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("uncommitted tracked changes") });
+      expect(hostExec).toHaveBeenCalledWith(
+        "host-1",
+        expect.objectContaining({ kind: "exec", cwd: "/repo", command: expect.stringContaining("status --porcelain") }),
+        expect.any(Number),
+      );
+      expect(mockExecSync).not.toHaveBeenCalledWith(expect.stringContaining("status --porcelain"));
+      expect(questStore.completeQuest).not.toHaveBeenCalled();
+    } finally {
+      configureRemoteMachines(null);
+    }
+  });
+
+  // An unreachable host cannot prove the remote worker's checkout clean.
+  it("refuses completion when a remote worker's host cannot be read", async () => {
+    configureRemoteMachines({ request: vi.fn(async () => Promise.reject(new Error("Host devbox is offline"))) } as any);
+    try {
+      const auth = installV2MemoryFixture({ workerState: { host_id: "host-1" }, trackedStatus: "" });
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("on its host") });
+      expect(questStore.completeQuest).not.toHaveBeenCalled();
+    } finally {
+      configureRemoteMachines(null);
+    }
   });
 
   it("rejects remote-backed worktree completion when the caller self-selects local-clean", async () => {

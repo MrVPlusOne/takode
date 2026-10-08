@@ -1182,7 +1182,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     buildEnrichedSessionsSnapshot(sessionSnapshotDeps, filterFn);
 
   const backfillSessionProjectMeta = async (
-    info: { cwd: string; repoRoot?: string },
+    info: { cwd: string; repoRoot?: string; hostId?: string },
     bridgeSession?: { state?: { repo_root?: string; cwd?: string } } | null,
   ): Promise<void> => {
     if ((!info.cwd || !info.cwd.trim()) && bridgeSession?.state?.cwd) {
@@ -1194,7 +1194,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
       info.repoRoot = fromBridge;
       return;
     }
-    if (!info.cwd || !info.cwd.trim()) return;
+    // A remote session's cwd is on its host, so this machine cannot infer its
+    // repo; the host-side git refresh fills `repo_root` for it instead.
+    if (!info.cwd || !info.cwd.trim() || info.hostId) return;
     const inferred = await gitUtils.getRepoInfoAsync(info.cwd);
     if (inferred?.repoRoot) info.repoRoot = inferred.repoRoot;
   };

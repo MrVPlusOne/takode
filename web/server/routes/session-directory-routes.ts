@@ -8,6 +8,7 @@ type SessionDirectoryOpenTarget = "working-directory" | "worktree" | "base-repo"
 interface SessionProjectMeta {
   cwd: string;
   repoRoot?: string;
+  hostId?: string;
 }
 
 interface SessionProjectBridgeState {
@@ -54,6 +55,7 @@ export function registerSessionDirectoryRoutes(
     const info = {
       cwd: bridgeState?.cwd || session.cwd || "",
       repoRoot: bridgeState?.repo_root ?? session.repoRoot ?? undefined,
+      hostId: session.hostId,
     };
     await backfillSessionProjectMeta(info, bridgeSession);
 

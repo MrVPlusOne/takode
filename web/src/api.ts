@@ -1418,9 +1418,9 @@ export const api = {
     get<GitBranchInfo[]>(
       `/git/branches?repoRoot=${encodeURIComponent(repoRoot)}${opts?.localOnly ? "&localOnly=1" : ""}${hostQuery(opts?.hostId)}`,
     ),
-  getRecentCommits: (repoRoot: string, limit = 20) =>
+  getRecentCommits: (repoRoot: string, limit = 20, hostId?: string) =>
     get<{ commits: { sha: string; shortSha: string; message: string; timestamp: number }[] }>(
-      `/git/commits?repoRoot=${encodeURIComponent(repoRoot)}&limit=${limit}`,
+      `/git/commits?repoRoot=${encodeURIComponent(repoRoot)}&limit=${limit}${hostQuery(hostId)}`,
     ),
   gitFetch: (repoRoot: string, hostId?: string) =>
     post<{ success: boolean; output: string }>("/git/fetch", { repoRoot, ...(hostId ? { hostId } : {}) }),

@@ -152,6 +152,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const changedFilesSet = useStore((s) => s.changedFiles.get(sessionId));
 
   const cwd = session?.cwd || sdkSession?.cwd;
+  const hostId = session?.host_id || sdkSession?.hostId || undefined;
   const repoRoot = session?.repo_root && cwd?.startsWith(session.repo_root + "/") ? session.repo_root : cwd;
 
   // Initialize from cached stats so re-opening DiffPanel doesn't flash empty.
@@ -331,31 +332,31 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     return initial;
   });
 
-  // Fetch branch list (once per cwd)
+  // Fetch branch list (once per cwd), from the session's machine
   useEffect(() => {
     if (!cwd || branchesFetched.current) return;
     branchesFetched.current = true;
     if (!serverDefaultBranch) {
       api
-        .getRepoInfo(cwd)
+        .getRepoInfo(cwd, hostId)
         .then((info) => {
           if (info?.defaultBranch) setFallbackDefault(info.defaultBranch);
         })
         .catch(() => {});
     }
     api
-      .listBranches(cwd, { localOnly: true })
+      .listBranches(cwd, { localOnly: true, hostId })
       .then((branches) => {
         setAvailableBranches(branches.map((b) => b.name));
       })
       .catch(() => {});
     api
-      .getRecentCommits(cwd, 20)
+      .getRecentCommits(cwd, 20, hostId)
       .then((res) => {
         setRecentCommits(res.commits);
       })
       .catch(() => {});
-  }, [cwd, serverDefaultBranch]);
+  }, [cwd, hostId, serverDefaultBranch]);
 
   // Fetch git-based changed files when base branch changes.
   // This gives us the authoritative list including deletions and renames.

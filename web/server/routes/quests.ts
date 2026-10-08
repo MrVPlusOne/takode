@@ -26,6 +26,8 @@ import {
   type QuestListSortColumn,
 } from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
+import { gitSafeAsync } from "../git-utils.js";
+import { machineFor } from "../remote-host/session-machine.js";
 import {
   addTaskEntry as addTaskEntryController,
   setSessionClaimedQuest as setSessionClaimedQuestController,
@@ -644,9 +646,21 @@ export function createQuestRoutes(ctx: RouteContext) {
         headers: { "content-type": "application/json" },
       });
     }
-    const trackedStatus = (
-      await execCaptureStdoutAsync(`${SERVER_GIT_CMD} status --porcelain --untracked-files=no`, workerState.cwd)
-    ).trim();
+    // Read the worker's checkout on its own machine (its remote host when it has one).
+    const trackedStatus = workerState.host_id
+      ? await gitSafeAsync("status --porcelain --untracked-files=no", workerState.cwd, machineFor(workerState.host_id))
+      : (
+          await execCaptureStdoutAsync(`${SERVER_GIT_CMD} status --porcelain --untracked-files=no`, workerState.cwd)
+        ).trim();
+    if (trackedStatus === null) {
+      return new Response(
+        JSON.stringify({ error: "Cannot read worker git state on its host for v2 Memory completion." }),
+        {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
     if (trackedStatus) {
       return new Response(
         JSON.stringify({ error: "Worker has uncommitted tracked changes; clean or sync them before completion." }),

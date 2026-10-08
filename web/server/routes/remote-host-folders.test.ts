@@ -36,6 +36,7 @@ describe("folder and repo routes for a remote host", () => {
   let dir: string;
   let repo: string;
   let app: Hono;
+  let broadcastToSession: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     dir = await realpath(await mkdtemp(join(tmpdir(), "remote-host-folders-")));
@@ -57,6 +58,7 @@ describe("folder and repo routes for a remote host", () => {
     );
     git(repo, "branch", "feature");
 
+    broadcastToSession = vi.fn();
     manager = new HostLinkManager();
     configureRemoteMachines(manager);
     agent = new HostAgent({
@@ -70,8 +72,11 @@ describe("folder and repo routes for a remote host", () => {
     await waitFor(() => manager.status(hostId).online);
 
     const ctx = {
-      launcher: { remoteHosts: { registry: { get: async (id: string) => ({ id, name: "devbox", createdAt: 0 }) } } },
-      wsBridge: { getSession: () => undefined },
+      launcher: {
+        remoteHosts: { registry: { get: async (id: string) => ({ id, name: "devbox", createdAt: 0 }) } },
+        getSession: (sessionId: string) => (sessionId === "remote-session" ? { sessionId, hostId } : undefined),
+      },
+      wsBridge: { getSession: () => undefined, broadcastToSession },
       execAsync: async () => "",
       execCaptureStdoutAsync: async () => "",
     } as unknown as RouteContext;
@@ -134,6 +139,59 @@ describe("folder and repo routes for a remote host", () => {
     );
   });
 
+  // The diff panel's base-branch picker lists recent commits of a remote session's repo.
+  it("lists a repo's recent commits on the host", async () => {
+    const request = vi.spyOn(manager, "request");
+    const res = await app.request(`/api/git/commits?host=${hostId}&repoRoot=${encodeURIComponent(repo)}&limit=5`);
+    expect(res.status).toBe(200);
+    const { commits } = (await res.json()) as { commits: { sha: string; message: string }[] };
+    expect(commits).toEqual([expect.objectContaining({ sha: git(repo, "rev-parse", "HEAD"), message: "init" })]);
+    expect(request).toHaveBeenCalledWith(
+      hostId,
+      expect.objectContaining({ kind: "exec", cwd: repo, command: expect.stringContaining(" log ") }),
+      expect.any(Number),
+    );
+  });
+
+  // Pulling for a session (no explicit host) runs on the session's host, then
+  // reports the session's refreshed ahead/behind counts to its browsers.
+  it("pulls a remote session's checkout on its host", async () => {
+    const clone = join(dir, "clone");
+    execFileSync("git", ["clone", "-q", repo, clone]);
+    git(
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "next",
+    );
+    git(clone, "fetch", "-q");
+    const request = vi.spyOn(manager, "request");
+
+    const res = await app.request("/api/git/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: clone, sessionId: "remote-session" }),
+    });
+
+    expect(await res.json()).toEqual(expect.objectContaining({ success: true, git_ahead: 0, git_behind: 0 }));
+    expect(git(clone, "rev-parse", "HEAD")).toBe(git(repo, "rev-parse", "HEAD"));
+    expect(request).toHaveBeenCalledWith(
+      hostId,
+      expect.objectContaining({ kind: "exec", cwd: clone, command: expect.stringContaining(" pull") }),
+      expect.any(Number),
+    );
+    expect(broadcastToSession).toHaveBeenCalledWith("remote-session", {
+      type: "session_update",
+      session: { git_ahead: 0, git_behind: 0 },
+    });
+  });
+
   // An offline host gets a clear message naming it, not an empty folder.
   it("reports an offline host by name", async () => {
     agent.stop();
@@ -145,5 +203,8 @@ describe("folder and repo routes for a remote host", () => {
 
     const info = await app.request(`/api/git/repo-info?host=${hostId}&path=${encodeURIComponent(repo)}`);
     expect(info.status).toBe(503);
+
+    const commits = await app.request(`/api/git/commits?host=${hostId}&repoRoot=${encodeURIComponent(repo)}`);
+    expect(commits.status).toBe(503);
   });
 });

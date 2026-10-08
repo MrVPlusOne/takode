@@ -601,6 +601,28 @@ describe("DELETE /api/sessions/:id", () => {
     });
   });
 
+  // Stale archived refs live only in repos on this machine. A remote session's
+  // repo path names a checkout on its host, so a same-named repo here is left alone.
+  it("cleans a stale archived ref only for sessions on this machine", async () => {
+    const worktreeSession = {
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/wt/feat",
+      archived: false,
+      isWorktree: true,
+      repoRoot: "/repo",
+      actualBranch: "feat-wt-1",
+    };
+    launcher.getSession.mockReturnValue(worktreeSession);
+    expect((await app.request("/api/sessions/s1", { method: "DELETE" })).status).toBe(200);
+    expect(gitUtils.deleteArchivedRefAsync).toHaveBeenCalledWith("/repo", "feat-wt-1");
+
+    vi.mocked(gitUtils.deleteArchivedRefAsync).mockClear();
+    launcher.getSession.mockReturnValue({ ...worktreeSession, hostId: "host-1" });
+    expect((await app.request("/api/sessions/s1", { method: "DELETE" })).status).toBe(200);
+    expect(gitUtils.deleteArchivedRefAsync).not.toHaveBeenCalled();
+  });
+
   it("emits session_archived herd event when deleting a herded session", async () => {
     // When a herded worker is deleted, the leader should be notified via
     // session_archived (the same proven path used by explicit archiving).

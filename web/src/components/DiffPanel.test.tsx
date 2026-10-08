@@ -39,6 +39,7 @@ interface MockStoreState {
     string,
     {
       cwd?: string;
+      host_id?: string;
       repo_root?: string;
       git_default_branch?: string;
       diff_base_branch?: string;
@@ -173,6 +174,18 @@ describe("DiffPanel", () => {
     const [branchSelect, commitSelect] = screen.getAllByRole("combobox");
     expect(branchSelect).toHaveClass("takode-native-select");
     expect(commitSelect).toHaveClass("takode-native-select");
+  });
+
+  // The base-branch picker's repo info, branches and recent commits come from
+  // the machine holding the session's checkout: its remote host when it has one.
+  it("reads a remote session's branches and commits from its host", async () => {
+    resetStore({ sessions: new Map([["s1", { cwd: "/repo", host_id: "host-1" }]]) });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => expect(mockApi.getRecentCommits).toHaveBeenCalledWith("/repo", 20, "host-1"));
+    expect(mockApi.listBranches).toHaveBeenCalledWith("/repo", { localOnly: true, hostId: "host-1" });
+    expect(mockApi.getRepoInfo).toHaveBeenCalledWith("/repo", "host-1");
   });
 
   it("shows code files before tests in the feed and file picker", () => {
