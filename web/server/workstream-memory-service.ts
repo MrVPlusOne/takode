@@ -40,10 +40,10 @@ export class WorkstreamMemoryService {
     return scanMemoryCatalog(options, runtime);
   }
 
-  /** Render a catalog view with handle dedupe (see `renderMemoryCatalogView`). */
-  async catalogView(request: MemoryCatalogViewRequest, options?: MemoryRepoOptions, seen?: string) {
+  /** Render a catalog view with handle dedupe and an optional machine line (see `renderMemoryCatalogView`). */
+  async catalogView(request: MemoryCatalogViewRequest, options?: MemoryRepoOptions, seen?: string, machine?: string) {
     const catalog = await scanMemoryCatalog(options);
-    return { catalog, view: await renderMemoryCatalogView(catalog, request, { seen }) };
+    return { catalog, view: await renderMemoryCatalogView(catalog, request, { seen, machine }) };
   }
 
   /** Record that notes helped today. Marks refresh a note's last-touched date for the recent list. */

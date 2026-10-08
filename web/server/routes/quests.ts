@@ -35,6 +35,7 @@ import {
 } from "../bridge/session-registry-controller.js";
 import { broadcastQuestUpdate, buildQuestTitlePreview } from "./quest-helpers.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
+import { sessionMachineName } from "../remote-host/machines.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { isLegacyQuestJourneyPhaseId, normalizeKnownQuestJourneyPhaseIds } from "../../shared/quest-journey.js";
 import {
@@ -154,6 +155,11 @@ function isAuthenticatedCompanionCaller(
   auth: OptionalAuthResult,
 ): auth is Exclude<OptionalAuthResult, null | { response: Response }> {
   return auth !== null && !("response" in auth);
+}
+
+/** Machine of the calling session, which text it writes is stamped with; never taken from the request body. */
+function callerMachine(auth: OptionalAuthResult): string | undefined {
+  return isAuthenticatedCompanionCaller(auth) ? sessionMachineName(auth.callerId) : undefined;
 }
 
 function setDescriptionTldrWarningHeaderForAgentWrite(
@@ -1273,8 +1279,18 @@ export function createQuestRoutes(ctx: RouteContext) {
       }
       const guardResponse = guardStatusMutation(c, auth, current, body);
       if (guardResponse) return guardResponse;
-      const { force: _force, reason: _reason, ...transitionInput } = withoutSidecarQuestFields(body);
-      const quest = await transitionQuestAndSync(questId, transitionInput, current);
+      const {
+        force: _force,
+        reason: _reason,
+        debriefMachine: _debriefMachine,
+        ...transitionInput
+      } = withoutSidecarQuestFields(body);
+      const debriefMachine = typeof body.debrief === "string" ? callerMachine(auth) : undefined;
+      const quest = await transitionQuestAndSync(
+        questId,
+        { ...transitionInput, ...(debriefMachine ? { debriefMachine } : {}) },
+        current,
+      );
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       if (body.description !== undefined || body.tldr !== undefined) {
         const warningTldr =
@@ -1527,7 +1543,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         commitShas,
         memoryCommitShas,
         ...(targetSessionId ? { sessionId: targetSessionId } : {}),
-        ...(typeof body.debrief === "string" ? { debrief: body.debrief } : {}),
+        ...(typeof body.debrief === "string" ? { debrief: body.debrief, debriefMachine: callerMachine(auth) } : {}),
         ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
         ...(recoveryEvent ? { recoveryEvent } : {}),
       });
@@ -1589,7 +1605,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         {
           status: "done",
           ...(body.notes ? { notes: body.notes } : {}),
-          ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
+          ...(body.debrief !== undefined ? { debrief: body.debrief, debriefMachine: callerMachine(auth) } : {}),
           ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
           ...(bodySession.sessionId ? { sessionId: bodySession.sessionId } : {}),
           ...(body.commitShas?.length ? { commitShas: body.commitShas } : {}),
@@ -1731,6 +1747,8 @@ export function createQuestRoutes(ctx: RouteContext) {
       const entry: import("../quest-types.js").QuestFeedbackEntry = { author, text: text.trim(), ts: Date.now() };
       if (tldr) entry.tldr = tldr;
       if (authorSessionId) entry.authorSessionId = authorSessionId;
+      const machine = sessionMachineName(authorSessionId);
+      if (machine) entry.machine = machine;
       const hasImagesField = body.images !== undefined;
       if (Array.isArray(body.images) && body.images.length > 0) entry.images = body.images;
       const documentation = resolveQuestFeedbackDocumentation({
@@ -1760,6 +1778,7 @@ export function createQuestRoutes(ctx: RouteContext) {
             ...(hasTldrField && entry.tldr ? { tldr: entry.tldr } : {}),
             ts: entry.ts,
             ...(authorSessionId ? { authorSessionId } : {}),
+            ...(machine ? { machine } : {}),
             ...(hasImagesField ? { images: entry.images } : {}),
           };
           nextFeedback[summaryIndex] = updatedEntry;
@@ -1788,6 +1807,8 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   // Edit an existing feedback entry by index
   api.patch("/quests/:questId/feedback/:index", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     try {
       const body = await c.req.json().catch(() => ({}));
       const index = parseInt(c.req.param("index"), 10);
@@ -1801,8 +1822,11 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
       if (isDeletedQuestFeedbackEntry(existing[index])) return c.json({ error: "Feedback entry was deleted" }, 400);
       const updated = [...existing];
-      if (typeof body.text === "string" && body.text.trim())
-        updated[index] = { ...updated[index], text: body.text.trim() };
+      if (typeof body.text === "string" && body.text.trim()) {
+        // New text from a session refers to that session's machine.
+        const machine = callerMachine(auth);
+        updated[index] = { ...updated[index], text: body.text.trim(), ...(machine ? { machine } : {}) };
+      }
       if (body.tldr !== undefined) {
         updated[index] = { ...updated[index], tldr: normalizeTldr(body.tldr) };
       }

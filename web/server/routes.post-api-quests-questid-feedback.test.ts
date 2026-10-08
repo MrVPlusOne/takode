@@ -169,6 +169,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { configureMachines } from "./remote-host/machines.js";
 import { QUEST_TLDR_WARNING_HEADER } from "./quest-tldr.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
@@ -1107,6 +1108,49 @@ describe("POST /api/quests/:questId/feedback", () => {
       authorSessionId: "session-1",
       text: "Addressed",
     });
+  });
+
+  // Every note records the machine its author session ran on, so paths in it
+  // can be read against the right machine; the request body cannot set it.
+  it("stamps agent feedback with the author session's machine", async () => {
+    configureMachines({
+      local: () => ({ name: "laptop", platform: "darwin", user: null, home: null }),
+      hostName: (hostId) => (hostId === "h1" ? "devbox" : null),
+      hostDetails: () => null,
+      sessionHostId: (sessionId) => (sessionId === "session-1" ? "h1" : undefined),
+    });
+    try {
+      launcher.getSession.mockReturnValue({ sessionId: "session-1", state: "running", cwd: "/test", archived: false });
+      const quest = {
+        id: "q-1-v3",
+        questId: "q-1",
+        version: 3,
+        title: "Quest",
+        createdAt: Date.now(),
+        status: "refined",
+        description: "Work",
+        feedback: [],
+      } as any;
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(quest);
+      const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce(quest);
+
+      const res = await app.request("/api/quests/q-1/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "Ran tests in /srv/repo",
+          author: "agent",
+          sessionId: "session-1",
+          machine: "fake",
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const feedback = (patchSpy.mock.calls[0][1] as { feedback: Array<{ machine?: string }> }).feedback;
+      expect(feedback[feedback.length - 1]?.machine).toBe("devbox");
+    } finally {
+      configureMachines(null);
+    }
   });
 
   it("infers phase documentation scope from the quest leader board row", async () => {

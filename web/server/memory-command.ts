@@ -1,6 +1,7 @@
 import { workstreamMemoryService } from "./workstream-memory-service.js";
 import { applyMemoryHandle, noteViewLine, type MemoryViewLine } from "./memory-catalog-view.js";
 import { memoryHealthSummary } from "./memory-repo-health.js";
+import { machineContextForSession } from "./remote-host/machines.js";
 import { parseMovePlan } from "./memory-move.js";
 import { grepMemoryNotes, readMemoryNotes, removeMemoryNote, writeMemoryNote } from "./memory-note-files.js";
 import {
@@ -22,7 +23,7 @@ export interface MemoryCommandResult {
 export interface MemoryCommandContext {
   /** Repo selection defaults; command-line options such as `--root` override them. */
   defaults?: MemoryRepoOptions;
-  /** Session recorded on a new lock. */
+  /** Session recorded on a new lock; the catalog overview names the machine it runs on. */
   session?: string;
   /** Key for the per-session catalog snapshot behind `catalog diff`. */
   catalogSessionKey?: string;
@@ -304,7 +305,12 @@ async function executeMemoryCommand(
       : flag("all")
         ? ({ mode: "all" } as const)
         : ({ mode: "overview" } as const);
-    const { catalog, view } = await workstreamMemoryService.catalogView(request, repoOptions(), option("seen"));
+    const { catalog, view } = await workstreamMemoryService.catalogView(
+      request,
+      repoOptions(),
+      option("seen"),
+      machineContextForSession(context.session) ?? undefined,
+    );
     io.print(view.text);
     if (!folder) await workstreamMemoryService.markCatalogSeen(catalog, repoOptions());
     return 0;

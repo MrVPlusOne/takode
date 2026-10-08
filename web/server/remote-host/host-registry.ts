@@ -3,11 +3,15 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HostMachineSettings } from "../../shared/host-protocol.js";
+import { machineNameError } from "../machine-identity.js";
 
 /** A machine registered to run sessions for this coordinator. */
 export interface RegisteredHost {
   id: string;
-  /** Human-readable name chosen at registration, unique per coordinator. */
+  /**
+   * The machine's name, unique per coordinator: chosen at registration, then
+   * the name the machine itself reports (see `machine-identity.ts`).
+   */
   name: string;
   createdAt: number;
 }
@@ -52,8 +56,6 @@ interface StoredRegistry {
   };
 }
 
-const HOST_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
-
 /**
  * Registry of remote hosts allowed to connect to this coordinator. Each host
  * authenticates with a random token issued once at registration; only its hash
@@ -80,19 +82,61 @@ export class HostRegistry {
     return host ? publicHost(host) : null;
   }
 
-  /** Register a host and return its token. The token cannot be recovered later. */
-  async register(name: string): Promise<{ host: RegisteredHost; token: string }> {
+  /**
+   * Register a host and return its token. The token cannot be recovered later.
+   * `reserved` names other machines that are not registered hosts (this machine).
+   */
+  async register(name: string, reserved: string[] = []): Promise<{ host: RegisteredHost; token: string }> {
     const trimmed = name.trim();
-    if (!HOST_NAME.test(trimmed)) {
-      throw new Error("Host names use letters, digits, '.', '_' or '-' and start with a letter or digit");
-    }
     const hosts = await this.load();
-    if (hosts.some((host) => host.name === trimmed)) throw new Error(`A host named ${trimmed} already exists`);
+    const problem = this.nameProblem(trimmed, null, reserved);
+    if (problem) throw new Error(problem);
     const token = randomBytes(32).toString("base64url");
     const stored: StoredHost = { id: randomUUID(), name: trimmed, createdAt: Date.now(), tokenSha256: sha256(token) };
     hosts.push(stored);
     await this.persist();
     return { host: publicHost(stored), token };
+  }
+
+  /** A host's name from memory once the registry has loaded; null for unknown hosts. */
+  nameOf(id: string): string | null {
+    return this.hosts?.find((host) => host.id === id)?.name ?? null;
+  }
+
+  /**
+   * Rename a host. `reserved` names other machines that are not registered
+   * hosts (this machine). Throws for an invalid or taken name; returns false
+   * for an unknown host.
+   */
+  async rename(id: string, name: string, reserved: string[] = []): Promise<boolean> {
+    const host = (await this.load()).find((candidate) => candidate.id === id);
+    if (!host) return false;
+    const problem = this.nameProblem(name, id, reserved);
+    if (problem) throw new Error(problem);
+    host.name = name;
+    await this.persist();
+    return true;
+  }
+
+  /**
+   * Settle a connecting host's name: a machine keeps the name it already has,
+   * so the registry takes it unless it is invalid or taken. Synchronous, for
+   * the link handshake; the registry has loaded by then (the host authenticated).
+   * Returns the name the host goes by.
+   */
+  adoptReportedName(id: string, reported: string | null, reserved: string[] = []): string | null {
+    const host = this.hosts?.find((candidate) => candidate.id === id);
+    if (!host) return null;
+    if (!reported || reported === host.name) return host.name;
+    const problem = this.nameProblem(reported, id, reserved);
+    if (problem) {
+      console.warn(`[host-registry] Host ${host.name} reports the name ${reported}, which is not usable: ${problem}`);
+      return host.name;
+    }
+    console.log(`[host-registry] Host ${host.name} goes by its own machine name ${reported}`);
+    host.name = reported;
+    void this.persist().catch((error) => console.error("[host-registry] Saving a host name failed:", error));
+    return reported;
   }
 
   /**
@@ -204,6 +248,13 @@ export class HostRegistry {
 
   private localEntry(): NonNullable<StoredRegistry["local"]> {
     return this.local ?? { settings: { ...DEFAULT_MACHINE_SETTINGS } };
+  }
+
+  private nameProblem(name: string, id: string | null, reserved: string[] = []): string | null {
+    const invalid = machineNameError(name);
+    if (invalid) return invalid;
+    const taken = reserved.includes(name) || (this.hosts ?? []).some((host) => host.name === name && host.id !== id);
+    return taken ? `A machine named ${name} already exists` : null;
   }
 
   private persist(): Promise<void> {

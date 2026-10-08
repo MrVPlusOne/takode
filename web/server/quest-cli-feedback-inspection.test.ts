@@ -112,7 +112,7 @@ describe("quest CLI feedback inspection", () => {
       claimedAt: Date.now() - 30_000,
       feedback: [
         { author: "human", text: "First human note", ts: 10, addressed: true },
-        { author: "agent", text: "Summary: handled first note", ts: 20 },
+        { author: "agent", text: "Summary: handled first note", ts: 20, machine: "devbox" },
         { author: "human", text: "Second human note", ts: 30 },
       ],
     });
@@ -133,6 +133,8 @@ describe("quest CLI feedback inspection", () => {
 
       const textShow = await runQuest(["feedback", "show", "q-2", "1"], baseEnv(tmp), tmp);
       expect(textShow.stdout).toContain("#1 [agent, summary,");
+      // The machine a note was written on appears next to its author.
+      expect(textShow.stdout).toContain(", on devbox,");
       expect(textShow.stdout).not.toContain("[agent, agent,");
     } finally {
       rmSync(tmp, { recursive: true, force: true });

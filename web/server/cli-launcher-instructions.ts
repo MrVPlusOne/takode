@@ -33,6 +33,8 @@ export interface CompanionInstructionBuildOptions {
     /** Remote host this session runs on; absent for the coordinator's machine. */
     hostId?: string;
   };
+  /** Which machine the session runs on and where the coordinator runs (see `machineContextForHost`). */
+  machine?: string;
   extraInstructions?: string;
   backend?: BackendType;
 }
@@ -55,6 +57,8 @@ export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptio
         `Pro tip: if you need earlier context from this same session, inspect your own conversation with token-efficient Takode tools before re-reading long history. Start with \`takode scan ${opts.sessionNum}\`.`,
     );
   }
+
+  if (opts?.machine) parts.push(`## Machine\n\n${opts.machine}`);
 
   if (opts?.worktree) {
     const { branch, repoRoot, parentBranch, portTarget, hostId } = opts.worktree;

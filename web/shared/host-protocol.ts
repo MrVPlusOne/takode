@@ -156,6 +156,14 @@ export type HostToCoordinator =
       /** The host user's home directory, for host paths the coordinator writes (attachments). */
       homeDir?: string;
       /**
+       * The name this machine keeps for itself (`~/.companion/machine.json`),
+       * or null when it has none yet. Absent from older hosts.
+       */
+      machineName?: string | null;
+      /** `process.platform` and user name of the host, which sessions are told about. */
+      platform?: string;
+      user?: string;
+      /**
        * Processes this host instance still has, including exited ones whose
        * output is not yet acknowledged. A coordinator taking over processes
        * after its restart ends the ones missing here. Absent from older hosts,
@@ -188,6 +196,8 @@ export type CoordinatorToHost =
        * restart, the processes it takes over appear with 0.
        */
       received: Record<string, number>;
+      /** The name this coordinator knows the host by; a host without a name of its own keeps it. */
+      machineName?: string;
     }
   | { t: "command"; seq: number; command: HostCommand }
   | { t: "event_ack"; procId: string; seq: number }
@@ -199,6 +209,8 @@ export type CoordinatorToHost =
    * they change; the host resolves the programs it runs with them.
    */
   | { t: "settings"; settings: HostMachineSettings }
+  /** The user renamed this machine; the host keeps the new name. */
+  | { t: "machine_name"; name: string }
   /**
    * Switch to this commit and restart, sent only to hosts that offered
    * `autoUpdate` and only while none of their sessions is in a turn. Restarting

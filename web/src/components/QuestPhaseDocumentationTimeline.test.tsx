@@ -214,3 +214,37 @@ describe("QuestDetailTextSections Journey Details toggle", () => {
     await waitFor(() => expect(screen.getByTestId("quest-phase-documentation-timeline")).toBeInTheDocument());
   });
 });
+
+describe("quest machine stamps", () => {
+  // A phase note and the final debrief show the machine they were written on,
+  // since paths and commands in them refer to that machine.
+  it("shows the machine next to a phase note's author and on the debrief", () => {
+    const summary = longSummary();
+    const stamped = { ...summary.groups[0]!.entries[0]!, machine: "devbox" };
+    const groups = [{ ...summary.groups[0]!, entries: [stamped] }, ...summary.groups.slice(1)];
+    const quest: QuestmasterTask = {
+      id: "q-42-v1",
+      questId: "q-42",
+      version: 1,
+      title: "Stamped notes",
+      status: "done",
+      description: "Done.",
+      createdAt: 1,
+      completedAt: 2,
+      verificationItems: [],
+      debrief: "Outcome.",
+      debriefMachine: "laptop",
+    };
+    render(
+      <QuestDetailTextSections
+        quest={quest}
+        phaseDocumentationSummary={{ ...summary, groups, scopedEntries: groups.flatMap((item) => item.entries) }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Earlier Journey run 1/ }));
+    expect(screen.getAllByTestId("quest-machine-stamp").map((node) => node.textContent)).toEqual([
+      "on laptop",
+      "on devbox",
+    ]);
+  });
+});

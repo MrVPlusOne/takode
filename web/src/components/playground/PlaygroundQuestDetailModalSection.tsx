@@ -52,6 +52,9 @@ function openPlaygroundQuestDetail() {
           completedAt: now - 3600000,
           commitShas: ["82a3f2b71d4c9000", "7d2c332e9b5a1000"],
           memoryCommitShas: ["eedb2db46f8a7000"],
+          debrief: "The sidebar now scrolls inside a bounded wrapper on narrow screens.",
+          debriefTldr: "Bounded, scrollable sidebar on narrow screens.",
+          debriefMachine: "laptop",
           tags: ["ui", "mobile", "bug"],
           verificationItems: [
             { text: "Sidebar does not overflow on iPhone SE", checked: true },
@@ -89,6 +92,7 @@ function openPlaygroundQuestDetail() {
               text: "Checked on iPad mini -- works correctly with the new wrapper.",
               ts: now - 3600000,
               authorSessionId: "abc-123",
+              machine: "build-box",
             },
             {
               author: "human" as const,
@@ -167,6 +171,8 @@ function buildPlaygroundPhaseFeedback(journeyRuns: ReturnType<typeof buildPlaygr
       tldr: `Run ${runIndex + 1} phase ${occurrence.phasePosition} TLDR for collapsed Journey testing.`,
       ts: now - 5400000 + runIndex * 120000 + occurrenceIndex * 1000,
       authorSessionId: "abc-123",
+      // Alternate machines so the Playground shows notes stamped by different machines.
+      machine: occurrenceIndex % 2 === 0 ? "laptop" : "build-box",
       journeyRunId: run.runId,
       phaseOccurrenceId: occurrence.occurrenceId,
       phaseId: occurrence.phaseId,

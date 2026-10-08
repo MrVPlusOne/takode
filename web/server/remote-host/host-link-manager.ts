@@ -95,6 +95,9 @@ interface HostLink {
   hostInstanceId: string | null;
   /** Home directory reported by the host. */
   homeDir: string | null;
+  /** `process.platform` and user reported by the host. */
+  platform: string | null;
+  user: string | null;
   /** Whether the host last reported a usable network of its own. */
   network: boolean;
   build: string | null;
@@ -152,6 +155,11 @@ export class HostLinkManager {
   stopHostSessions: ((hostId: string) => Promise<void>) | null = null;
   /** Each host's machine settings, sent to it on every connect and by {@link pushSettings}. */
   machineSettingsFor: ((hostId: string) => HostMachineSettings) | null = null;
+  /**
+   * Settle a connecting host's name from the name its machine keeps (null
+   * when it has none) and return the name it goes by, which `welcome` carries.
+   */
+  nameHost: ((hostId: string, reportedName: string | null) => string | null) | null = null;
   private readonly now: () => number;
 
   constructor(options: { epoch?: number; build?: string | null; now?: () => number } = {}) {
@@ -321,6 +329,21 @@ export class HostLinkManager {
     return this.links.get(hostId)?.homeDir ?? null;
   }
 
+  /** Platform, user and home a host reported since this coordinator started; null before it connected. */
+  machineDetails(hostId: string): { platform: string | null; user: string | null; home: string | null } | null {
+    const link = this.links.get(hostId);
+    if (!link || link.hostInstanceId === null) return null;
+    return { platform: link.platform, user: link.user, home: link.homeDir };
+  }
+
+  /** Tell a connected host its new name. Returns false when it is offline. */
+  pushMachineName(hostId: string, name: string): boolean {
+    const link = this.links.get(hostId);
+    if (!link?.online || !link.socket) return false;
+    send(link.socket, { t: "machine_name", name });
+    return true;
+  }
+
   /**
    * Write a file on a host in order with later process input. If the host is
    * away, the write waits with the other commands.
@@ -440,9 +463,18 @@ export class HostLinkManager {
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
     link.lastStartAt = this.now();
+    if (hello.platform) link.platform = hello.platform;
+    if (hello.user) link.user = hello.user;
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
-    send(socket, { t: "welcome", instanceId: this.instanceId, epoch: this.epoch, received });
+    const machineName = this.nameHost?.(hostId, hello.machineName ?? null);
+    send(socket, {
+      t: "welcome",
+      instanceId: this.instanceId,
+      epoch: this.epoch,
+      received,
+      ...(machineName ? { machineName } : {}),
+    });
     // Before any command, so the host starts processes with its current settings.
     this.sendSettings(hostId, socket);
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
@@ -522,6 +554,8 @@ export class HostLinkManager {
         lastSeenAt: null,
         hostInstanceId: null,
         homeDir: null,
+        platform: null,
+        user: null,
         network: true,
         build: null,
         autoUpdate: false,

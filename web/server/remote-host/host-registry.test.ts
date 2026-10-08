@@ -36,9 +36,39 @@ describe("HostRegistry", () => {
 
   it("rejects invalid and duplicate host names", async () => {
     const registry = new HostRegistry(join(dir, "hosts.json"));
-    await expect(registry.register("bad name")).rejects.toThrow("Host names use letters");
+    await expect(registry.register("bad name")).rejects.toThrow("Machine names use letters");
     await registry.register("laptop");
     await expect(registry.register("laptop")).rejects.toThrow("already exists");
+    // The coordinator's own machine is not registered, but its name is taken too.
+    await expect(registry.register("coordinator-box", ["coordinator-box"])).rejects.toThrow("already exists");
+  });
+
+  // A machine's name belongs to the machine: renames are validated against
+  // every other machine, and a connecting host's own name replaces the
+  // registration name unless it is taken or invalid.
+  it("renames hosts and adopts the name a host reports", async () => {
+    const path = join(dir, "hosts.json");
+    const registry = new HostRegistry(path);
+    const { host } = await registry.register("devbox");
+    const { host: other } = await registry.register("gpu-box");
+
+    await expect(registry.rename(host.id, "gpu-box")).rejects.toThrow("already exists");
+    await expect(registry.rename(host.id, "laptop", ["laptop"])).rejects.toThrow("already exists");
+    expect(await registry.rename("missing", "anything")).toBe(false);
+    expect(await registry.rename(host.id, "build-box")).toBe(true);
+    expect(registry.nameOf(host.id)).toBe("build-box");
+
+    // No stored name on the host, or the same one: nothing changes.
+    expect(registry.adoptReportedName(host.id, null)).toBe("build-box");
+    // Taken by another host or by this machine: the registry keeps its name.
+    expect(registry.adoptReportedName(host.id, registry.nameOf(other.id))).toBe("build-box");
+    expect(registry.adoptReportedName(host.id, "laptop", ["laptop"])).toBe("build-box");
+    expect(registry.adoptReportedName(host.id, "bad name")).toBe("build-box");
+    // A usable name the machine already has wins and is saved.
+    expect(registry.adoptReportedName(host.id, "old-laptop")).toBe("old-laptop");
+    await registry.rename(other.id, "gpu-box"); // waits for earlier writes
+    const reloaded = new HostRegistry(path);
+    expect((await reloaded.get(host.id))?.name).toBe("old-laptop");
   });
 
   // Each machine, including this one, has its own Claude/Codex settings; they

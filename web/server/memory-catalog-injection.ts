@@ -5,6 +5,7 @@ import {
   type MemoryCatalogInjectionBundle,
 } from "./memory-catalog-injection-utils.js";
 import { renderMemoryCatalogView } from "./memory-catalog-view.js";
+import { machineContextForSession } from "./remote-host/machines.js";
 
 export * from "./memory-catalog-injection-utils.js";
 
@@ -63,7 +64,11 @@ export async function buildMemoryCatalogInjectionBundle(
     // Injected catalogs never take a handle: each one is complete and issues a fresh handle,
     // which is how a compacted or new context starts dedupe over.
     const view = await withTimeout(
-      renderMemoryCatalogView(catalog, { mode: "overview" }),
+      renderMemoryCatalogView(
+        catalog,
+        { mode: "overview" },
+        { machine: machineContextForSession(options.sessionId) ?? undefined },
+      ),
       timeoutMs,
       "memory catalog rendering",
     );

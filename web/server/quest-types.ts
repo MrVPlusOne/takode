@@ -79,6 +79,8 @@ export interface QuestFeedbackEntry {
   ts: number;
   /** Companion session ID that submitted this entry, including on-behalf-of-user feedback. */
   authorSessionId?: string;
+  /** Machine the author session ran on; paths and commands in the entry refer to it. */
+  machine?: string;
   /** Provider-aware invocation that submitted this entry, when available. */
   provenance?: QuestInvocationProvenance;
   /** Images attached to this feedback entry */
@@ -333,6 +335,8 @@ export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "ownerKin
   debrief?: string;
   /** Human-readable scan summary for long final debriefs. */
   debriefTldr?: string;
+  /** Machine the session that wrote the debrief ran on. */
+  debriefMachine?: string;
   /** If true, this quest was cancelled/aborted rather than completed */
   cancelled?: boolean;
 };
@@ -528,6 +532,8 @@ export interface QuestTransitionInput {
   debrief?: string;
   /** Human-readable scan summary for long final debriefs. */
   debriefTldr?: string;
+  /** Machine of the session that supplied `debrief`; ignored without it. */
+  debriefMachine?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
   cancelled?: boolean;
 }

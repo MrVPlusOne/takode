@@ -2,15 +2,18 @@ import { Hono } from "hono";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
 import type { LocalNode } from "../remote-host/local-node.js";
+import { machineNameError, type ThisMachine } from "../machine-identity.js";
 
 /**
  * Remote host management. Registering a host returns its token once; the
  * `takode node` helper on that machine presents it when it connects.
+ * `thisMachine` holds this machine's name, which the routes may change.
  */
 export function createHostRoutes(
   registry: HostRegistry,
   links: HostLinkManager,
   localNode: Pick<LocalNode, "setEnabled">,
+  thisMachine: Pick<ThisMachine, "name" | "rename">,
 ) {
   const api = new Hono();
 
@@ -28,6 +31,7 @@ export function createHostRoutes(
       build: links.build,
       local: {
         id: LOCAL_HOST_ID,
+        name: thisMachine.name,
         settings: registry.machineSettings(LOCAL_HOST_ID),
         node: { enabled: registry.localNodeEnabled(), ...links.status(LOCAL_HOST_ID) },
       },
@@ -62,11 +66,41 @@ export function createHostRoutes(
     return c.json({ settings });
   });
 
+  /**
+   * Rename a machine (`local` for this one). The name is kept by the machine
+   * itself, so a host must be online to receive it.
+   */
+  api.put("/hosts/:id/name", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+    if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
+    const name = body.name.trim();
+    try {
+      if (id === LOCAL_HOST_ID) {
+        const problem =
+          machineNameError(name) ??
+          ((await registry.list()).some((host) => host.name === name)
+            ? `A machine named ${name} already exists`
+            : null);
+        if (problem) return c.json({ error: problem }, 400);
+        await thisMachine.rename(name);
+        return c.json({ name });
+      }
+      if (!(await registry.get(id))) return c.json({ error: "Host not found" }, 404);
+      if (!links.status(id).online) return c.json({ error: "Connect the host before renaming it" }, 409);
+      await registry.rename(id, name, [thisMachine.name]);
+      links.pushMachineName(id, name);
+      return c.json({ name });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
   api.post("/hosts", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
     if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
     try {
-      const { host, token } = await registry.register(body.name);
+      const { host, token } = await registry.register(body.name, [thisMachine.name]);
       return c.json({ host, token }, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);

@@ -33,6 +33,8 @@ export interface RemoteHost {
 /** The server's own machine, which runs sessions that have no host. */
 export interface LocalHost {
   id: string;
+  /** The machine's own name, which stays with it if another machine becomes the server. */
+  name: string;
   settings: MachineSettings;
   /**
    * This machine's own `takode node`: when enabled, it runs these sessions so
@@ -125,6 +127,18 @@ export async function setLocalNodeEnabled(enabled: boolean): Promise<void> {
     };
     throw new Error(body.error || `HTTP ${response.status}`);
   }
+  await refreshRemoteHosts();
+}
+
+/** Rename a machine (`local` for this one); a host must be online to receive its new name. */
+export async function renameMachine(id: string, name: string): Promise<void> {
+  const response = await fetch(`/api/hosts/${encodeURIComponent(id)}/name`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { error?: string };
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
   await refreshRemoteHosts();
 }
 

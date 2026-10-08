@@ -173,7 +173,7 @@ export function NewSessionModal({
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const remoteHosts = useRemoteHosts().hosts;
+  const { hosts: remoteHosts, local: localMachine } = useRemoteHosts();
   /** Registered remote host to run on; empty for this machine. Folders and repos are read on that host. */
   const [hostId, setHostId] = useState("");
   const recentDirsKey = hostId ? hostRecentDirsKey(hostId) : defaultsKey || undefined;
@@ -1216,7 +1216,7 @@ export function NewSessionModal({
                           }}
                           className="px-2 py-1 rounded-md bg-cc-input-bg border border-cc-border text-xs text-cc-fg"
                         >
-                          <option value="">This machine</option>
+                          <option value="">{localMachine ? `${localMachine.name} (server)` : "This machine"}</option>
                           {remoteHosts.map((host) => (
                             <option key={host.id} value={host.id}>
                               {host.online ? host.name : `${host.name} (offline)`}

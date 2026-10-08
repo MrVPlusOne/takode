@@ -28,6 +28,7 @@ import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
+import { machineContextForHost } from "./remote-host/machines.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
 import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
 
@@ -1056,6 +1057,7 @@ export class CliLauncher {
             },
           }
         : {}),
+      machine: machineContextForHost(info.hostId) ?? undefined,
       extraInstructions: options.extraInstructions,
       backend: "claude-sdk",
     });
@@ -1259,6 +1261,7 @@ export class CliLauncher {
             },
           }
         : {}),
+      machine: machineContextForHost(info.hostId) ?? undefined,
       extraInstructions: options.extraInstructions,
       backend: "codex",
     });

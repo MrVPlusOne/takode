@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { HostAgent } from "./host-agent.js";
+import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostLinkManager, type RemoteProcess } from "./host-link-manager.js";
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
@@ -36,8 +36,9 @@ describe("host link", () => {
   let agent: HostAgent;
   let links: FakeHostLink[];
 
-  function startAgent(reconnectDelayMs = 20): HostAgent {
+  function startAgent(reconnectDelayMs = 20, extra: Partial<HostAgentOptions> = {}): HostAgent {
     const started = new HostAgent({
+      ...extra,
       coordinatorUrl: "http://coordinator.test",
       token: "token",
       apiProxyPort: 45_678,
@@ -283,5 +284,35 @@ describe("host link", () => {
     // A later node starts nothing left over from before.
     agent = startAgent();
     await waitFor(() => manager.status(hostId).online);
+  });
+
+  // A machine's name belongs to the machine. A host without one keeps the name
+  // the coordinator knows it by; a rename reaches it over the link; and a host
+  // that has a name reports it, together with its platform, user and home.
+  it("settles machine names and reports machine details over the link", async () => {
+    const reported: Array<string | null> = [];
+    manager.nameHost = (_hostId, name) => {
+      reported.push(name);
+      return name ?? "devbox";
+    };
+    const saved: string[] = [];
+    agent = startAgent(20, { machineName: null, saveMachineName: async (name) => void saved.push(name) });
+    await waitFor(() => manager.status(hostId).online);
+    await waitFor(() => saved.length === 1);
+    expect(reported).toEqual([null]);
+    expect(saved).toEqual(["devbox"]);
+    expect(manager.machineDetails(hostId)).toMatchObject({ platform: process.platform });
+    expect(manager.machineDetails(hostId)?.home).toBeTruthy();
+
+    expect(manager.pushMachineName(hostId, "build-box")).toBe(true);
+    await waitFor(() => saved.length === 2);
+    expect(saved[1]).toBe("build-box");
+    agent.stop();
+
+    // A host that already has a name reports it and keeps it.
+    agent = startAgent(20, { machineName: "old-laptop", saveMachineName: async (name) => void saved.push(name) });
+    await waitFor(() => reported.length === 2);
+    expect(reported[1]).toBe("old-laptop");
+    expect(saved).toHaveLength(2);
   });
 });

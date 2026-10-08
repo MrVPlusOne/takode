@@ -244,7 +244,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     id: "hosts",
     title: "Hosts",
     description:
-      "This machine and other machines that run sessions, and the Claude Code and Codex programs each one runs.",
+      "This server's machine and other machines that run sessions, their names, and the Claude Code and Codex programs each one runs.",
     aliases: ["remote", "machine", "devbox", "backend", "binary", "path", "cli"],
     items: [
       {

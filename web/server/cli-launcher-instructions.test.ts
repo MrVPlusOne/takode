@@ -51,6 +51,12 @@ describe("buildCompanionInstructions", () => {
     expect(buildCompanionInstructions()).not.toContain("## Session Identity");
   });
 
+  it("includes the machine section only when the launch knows the session's machine", () => {
+    // The launcher supplies the machine text; assembly only places it.
+    expect(buildCompanionInstructions({ machine: "Runs on `devbox`." })).toContain("## Machine\n\nRuns on `devbox`.");
+    expect(buildCompanionInstructions()).not.toContain("## Machine\n");
+  });
+
   it.each([
     "claude",
     "claude-sdk",

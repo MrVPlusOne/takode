@@ -69,11 +69,31 @@ process it needs.
    panel's base-branch and commit choices, and pulls all read its checkout on
    the host.
 
+## Machine names
+
+Every machine has a name that belongs to the machine, kept in its own
+`~/.companion/machine.json`, so it stays the same if another machine later
+becomes the coordinator. The coordinator names its own machine after its
+hostname the first time it starts. A host takes the name it was registered
+with, unless it already has a name of its own from another Takode setup, which
+it keeps. Rename any machine with **Rename** in **Settings → Hosts**; a host
+must be connected to receive its new name.
+
+Each session's instructions and memory catalog say which machine it runs on and
+which machine runs the coordinator. Quest notes and debriefs are stamped with
+the machine of the session that wrote them, shown next to the author in
+Questmaster and in `quest show` and `quest feedback`, because paths and
+commands in a note refer to that machine. Notes written before stamps existed
+were stamped once by the coordinator on its first start with this feature,
+after it saved the whole quest store under
+`~/.companion/questmaster-backups/migrations/`; `questmaster-live/machine-stamps.json`
+records that run and the backup that undoes it.
+
 ## Choosing the agent CLIs on a host
 
 Every machine has its own **Claude Code** and **Codex** settings in
-**Settings → Hosts**: **This machine** for the coordinator's own machine, plus
-one entry per registered host. Each is a path or command on that machine; an
+**Settings → Hosts**: the coordinator's own machine, plus one entry per
+registered host. Each is a path or command on that machine; an
 empty field means the `claude` or `codex` on that machine's `PATH`. The
 coordinator stores the settings and sends a host its own whenever it connects
 or they change, so there is nothing to copy between machines. New sessions use
@@ -120,8 +140,8 @@ What survives what:
 ## Keeping this machine's sessions across restarts
 
 The coordinator's own sessions can survive its restarts the same way. Turn on
-**Keep sessions running across server restarts** under **Settings → Hosts →
-This machine**. The server then starts a `takode node` on its own machine and
+**Keep sessions running across server restarts** on the coordinator's own
+machine, the first entry in **Settings → Hosts**. The server then starts a `takode node` on its own machine and
 runs the processes of sessions without a host under it. After a restart, the
 new server takes them over when that node reconnects: a turn in progress keeps
 running, its output arrives, and a pending permission prompt is asked again.

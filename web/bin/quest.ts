@@ -448,7 +448,9 @@ function formatFeedbackEntry(entry: IndexedFeedbackEntry, options: { full?: bool
     ? ` (${entry.images.length} image${entry.images.length === 1 ? "" : "s"})`
     : "";
   const phaseNote = entry.phaseId ? `, ${entry.phaseId}${entry.phasePosition ? `@${entry.phasePosition}` : ""}` : "";
-  return `#${entry.index} [${entry.author}, ${state}${phaseNote}, ${timeAgo(entry.ts)}] ${text}${imageNote}`;
+  // Paths and commands in a note refer to the machine it was written on.
+  const machineNote = entry.machine ? `, on ${entry.machine}` : "";
+  return `#${entry.index} [${entry.author}, ${state}${phaseNote}${machineNote}, ${timeAgo(entry.ts)}] ${text}${imageNote}`;
 }
 
 let stdinTextPromise: Promise<string> | null = null;

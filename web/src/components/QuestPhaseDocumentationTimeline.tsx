@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { formatQuestJourneyDuration, getQuestJourneyPhase } from "../../shared/quest-journey.js";
 import {
   phaseDocumentationPreview,
@@ -425,6 +426,7 @@ function PhaseDocumentationEntry({
         ) : (
           <span className="text-[10px] font-medium text-cc-muted">{entry.author}</span>
         )}
+        <QuestMachineStamp machine={entry.machine} />
         {entry.kind && <span className="text-[10px] text-cc-muted">{entry.kind}</span>}
         <span className="text-[10px] text-cc-muted/60">{timeAgo(entry.ts)}</span>
       </div>

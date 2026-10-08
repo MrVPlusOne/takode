@@ -169,6 +169,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { configureMachines } from "./remote-host/machines.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
@@ -586,6 +587,56 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
         current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
       }),
     );
+  });
+
+  // Edited text from a session refers to that session's machine, so the stamp
+  // follows the editor; an edit from the browser keeps the original stamp.
+  it("restamps edited text with the editing session's machine", async () => {
+    configureMachines({
+      local: () => ({ name: "laptop", platform: "darwin", user: null, home: null }),
+      hostName: (hostId) => (hostId === "h1" ? "devbox" : null),
+      hostDetails: () => null,
+      sessionHostId: (sessionId) => (sessionId === "session-1" ? "h1" : undefined),
+    });
+    try {
+      launcher.getSession.mockReturnValue({ sessionId: "session-1", state: "running", cwd: "/test", archived: false });
+      const quest = (text: string) =>
+        ({
+          id: "q-1-v3",
+          questId: "q-1",
+          version: 3,
+          title: "Quest",
+          createdAt: Date.now(),
+          status: "refined",
+          description: "Work",
+          feedback: [{ author: "agent", text, ts: 1, authorSessionId: "session-1", machine: "laptop" }],
+        }) as any;
+      const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValue(quest("x"));
+
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(quest("Old"));
+      const browserEdit = await app.request("/api/quests/q-1/feedback/0", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Browser edit" }),
+      });
+      expect(browserEdit.status).toBe(200);
+      expect((patchSpy.mock.calls[0][1] as any).feedback[0].machine).toBe("laptop");
+
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(quest("Old"));
+      const sessionEdit = await app.request("/api/quests/q-1/feedback/0", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-companion-session-id": "session-1",
+          "x-companion-auth-token": "tok-1",
+        },
+        body: JSON.stringify({ text: "Session edit" }),
+      });
+      expect(sessionEdit.status).toBe(200);
+      expect((patchSpy.mock.calls[1][1] as any).feedback[0]).toMatchObject({ text: "Session edit", machine: "devbox" });
+    } finally {
+      configureMachines(null);
+    }
   });
 
   it("clears agent feedback images when edit explicitly sends an empty image list", async () => {

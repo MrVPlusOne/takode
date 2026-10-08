@@ -119,12 +119,14 @@ function formatAuthorLabel(
   sessionMetadata: Map<string, SessionMetadata> | undefined,
   options: FormatQuestOptions | undefined,
 ): string {
-  return entry.authorSessionId
+  const author = entry.authorSessionId
     ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, sessionMetadata, {
         ...options,
         preferSessionNum: true,
       })}`
     : entry.author;
+  // Paths and commands in a note refer to the machine it was written on.
+  return entry.machine ? `${author} on ${entry.machine}` : author;
 }
 
 function indexedFeedbackEntries(q: QuestmasterTask): IndexedQuestFeedbackEntry[] {
@@ -441,7 +443,8 @@ export function formatQuestDetail(
     q.status === "done" && !isCancelled ? normalizeTldr((q as { debriefTldr?: unknown }).debriefTldr) : undefined;
   if (sections.debrief && debrief) {
     if (debriefTldr) addIndentedSection(lines, "Debrief TLDR", debriefTldr);
-    addIndentedSection(lines, "Debrief", debrief);
+    const machine = (q as { debriefMachine?: string }).debriefMachine;
+    addIndentedSection(lines, machine ? `Debrief (written on ${machine})` : "Debrief", debrief);
   } else if (debriefTldr) {
     lines.push(`Debrief TLDR: ${compactPreview(debriefTldr)}`);
   } else if (debrief) {
@@ -506,6 +509,8 @@ function formatQuestDetailFull(
   }
   if (debrief) {
     lines.push(`Debrief:     ${debrief}`);
+    const machine = (q as { debriefMachine?: string }).debriefMachine;
+    if (machine) lines.push(`Debrief written on: ${machine}`);
   }
   if (q.tags?.length) {
     lines.push(`Tags:        ${q.tags.join(", ")}`);
@@ -579,12 +584,7 @@ function formatQuestDetailFull(
       const meta = group.metaLabel ? ` [${group.metaLabel}]` : "";
       lines.push(`  ${group.displayLabel}${meta}`);
       for (const entry of group.entries) {
-        const authorLabel = entry.authorSessionId
-          ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, sessionMetadata, {
-              ...options,
-              preferSessionNum: true,
-            })}`
-          : entry.author;
+        const authorLabel = formatAuthorLabel(entry, sessionMetadata, options);
         const kind = entry.kind ? `, ${entry.kind}` : "";
         const preview = normalizeTldr(entry.tldr)
           ? `TLDR: ${normalizeTldr(entry.tldr)}`
@@ -600,12 +600,7 @@ function formatQuestDetailFull(
     if (entries?.length) {
       lines.push(phaseDocumentation.hasPhaseDocumentation ? `Unscoped Feedback:` : `Feedback:`);
       for (const entry of entries) {
-        const authorLabel = entry.authorSessionId
-          ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, sessionMetadata, {
-              ...options,
-              preferSessionNum: true,
-            })}`
-          : entry.author;
+        const authorLabel = formatAuthorLabel(entry, sessionMetadata, options);
         const tag = entry.addressed
           ? `${authorLabel}, addressed, ${timeAgo(entry.ts)}`
           : `${authorLabel}, ${timeAgo(entry.ts)}`;

@@ -35,6 +35,7 @@ import { PickerSessionChip } from "./QuestPickerSessionChip.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
+import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 import { QuestCommitEvidenceList, shortCommitSha } from "./QuestCommitEvidence.js";
 import { buildQuestCommitEntries, QuestCommitDiffView, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
@@ -1160,6 +1161,7 @@ export function QuestDetailPanel() {
                                       {feedbackAuthorLabel}
                                     </span>
                                   )}
+                                  <QuestMachineStamp machine={entry.machine} className="text-[11px] text-cc-muted/60" />
                                   <span className="font-mono-code text-[10px] text-cc-muted/50">#{entryIndex}</span>
                                   <span className="text-[11px] text-cc-muted/40">{timeAgo(entry.ts)}</span>
                                   {entry.author === "human" && entry.addressed && (

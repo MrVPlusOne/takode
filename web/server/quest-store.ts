@@ -52,6 +52,7 @@ import {
 } from "../shared/quest-code-commit-evidence.js";
 import { appendQuestCodeCommitEvidenceReplacementEvent } from "./quest-code-commit-evidence.js";
 import { assertSafeQuestmasterTestRoot, recordQuestStoreMutationBackup } from "./quest-backup-store.js";
+import { withDirectoryLock } from "./quest-store-locks.js";
 import {
   assertQuestMutationOwner,
   buildCancelledQuest,
@@ -76,7 +77,6 @@ const LEGACY_COLOCATED_LIVE_STORE_FILE = join(QUESTMASTER_DIR, "store.json");
 const LIVE_STORE_FILE = join(LIVE_QUESTMASTER_DIR, "store.json");
 const LIVE_STORE_LOCK_DIR = join(LIVE_QUESTMASTER_DIR, "_store.lock");
 const CREATE_LOCK_STALE_MS = 30_000;
-const CREATE_LOCK_RETRY_MS = 10;
 const LATEST_SNAPSHOT_LOCK_STALE_MS = 120_000;
 const LIVE_STORE_LOCK_STALE_MS = 120_000;
 
@@ -218,57 +218,9 @@ async function nextQuestId(): Promise<string> {
   return `q-${n}`;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function isCreateLockStale(): Promise<boolean> {
-  try {
-    const lockStat = await stat(CREATE_LOCK_DIR);
-    return Date.now() - lockStat.mtimeMs > CREATE_LOCK_STALE_MS;
-  } catch {
-    return false;
-  }
-}
-
-async function acquireCreateFilesystemLock(): Promise<() => Promise<void>> {
-  await ensureDir();
-  const startedAt = Date.now();
-
-  while (true) {
-    try {
-      await mkdir(CREATE_LOCK_DIR);
-      return async () => {
-        await rm(CREATE_LOCK_DIR, { recursive: true, force: true });
-      };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== "EEXIST") throw err;
-
-      if (await isCreateLockStale()) {
-        await rm(CREATE_LOCK_DIR, { recursive: true, force: true }).catch(() => {});
-        continue;
-      }
-
-      if (Date.now() - startedAt > CREATE_LOCK_STALE_MS * 2) {
-        throw new Error("Timed out waiting for quest create lock");
-      }
-
-      await sleep(CREATE_LOCK_RETRY_MS);
-    }
-  }
-}
-
 async function withCreateLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = async () => {
-    const release = await acquireCreateFilesystemLock();
-    try {
-      return await fn();
-    } finally {
-      await release();
-    }
-  };
-
+  const run = () =>
+    withDirectoryLock(CREATE_LOCK_DIR, { staleMs: CREATE_LOCK_STALE_MS, label: "quest create lock" }, fn);
   const result = pendingCreate.catch(() => {}).then(run);
   pendingCreate = result.catch(() => {});
   return result;
@@ -408,53 +360,9 @@ function liveQuestsWithRelationships(store: LiveQuestStore): QuestmasterTask[] {
   return [...quests];
 }
 
-async function isLiveStoreLockStale(): Promise<boolean> {
-  try {
-    const lockStat = await stat(LIVE_STORE_LOCK_DIR);
-    return Date.now() - lockStat.mtimeMs > LIVE_STORE_LOCK_STALE_MS;
-  } catch {
-    return false;
-  }
-}
-
-async function acquireLiveStoreFilesystemLock(): Promise<() => Promise<void>> {
-  await ensureLiveDir();
-  const startedAt = Date.now();
-
-  while (true) {
-    try {
-      await mkdir(LIVE_STORE_LOCK_DIR);
-      return async () => {
-        await rm(LIVE_STORE_LOCK_DIR, { recursive: true, force: true });
-      };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== "EEXIST") throw err;
-
-      if (await isLiveStoreLockStale()) {
-        await rm(LIVE_STORE_LOCK_DIR, { recursive: true, force: true }).catch(() => {});
-        continue;
-      }
-
-      if (Date.now() - startedAt > LIVE_STORE_LOCK_STALE_MS * 2) {
-        throw new Error("Timed out waiting for live quest store lock");
-      }
-
-      await sleep(CREATE_LOCK_RETRY_MS);
-    }
-  }
-}
-
 async function withLiveStoreWriteLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = async () => {
-    const release = await acquireLiveStoreFilesystemLock();
-    try {
-      return await fn();
-    } finally {
-      await release();
-    }
-  };
-
+  const run = () =>
+    withDirectoryLock(LIVE_STORE_LOCK_DIR, { staleMs: LIVE_STORE_LOCK_STALE_MS, label: "live quest store lock" }, fn);
   const result = pendingLiveStoreWrite.catch(() => {}).then(run);
   pendingLiveStoreWrite = result.catch(() => {});
   return result;
@@ -639,50 +547,12 @@ async function readLatestSnapshotFile(): Promise<LatestQuestSnapshot | null> {
   }
 }
 
-async function isLatestSnapshotLockStale(): Promise<boolean> {
-  try {
-    const lockStat = await stat(LATEST_SNAPSHOT_LOCK_DIR);
-    return Date.now() - lockStat.mtimeMs > LATEST_SNAPSHOT_LOCK_STALE_MS;
-  } catch {
-    return false;
-  }
-}
-
-async function acquireLatestSnapshotFilesystemLock(): Promise<() => Promise<void>> {
-  await ensureDir();
-  const startedAt = Date.now();
-
-  while (true) {
-    try {
-      await mkdir(LATEST_SNAPSHOT_LOCK_DIR);
-      return async () => {
-        await rm(LATEST_SNAPSHOT_LOCK_DIR, { recursive: true, force: true });
-      };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== "EEXIST") throw err;
-
-      if (await isLatestSnapshotLockStale()) {
-        await rm(LATEST_SNAPSHOT_LOCK_DIR, { recursive: true, force: true }).catch(() => {});
-        continue;
-      }
-
-      if (Date.now() - startedAt > LATEST_SNAPSHOT_LOCK_STALE_MS * 2) {
-        throw new Error("Timed out waiting for latest quest snapshot lock");
-      }
-
-      await sleep(CREATE_LOCK_RETRY_MS);
-    }
-  }
-}
-
-async function withLatestSnapshotLock<T>(fn: () => Promise<T>): Promise<T> {
-  const release = await acquireLatestSnapshotFilesystemLock();
-  try {
-    return await fn();
-  } finally {
-    await release();
-  }
+function withLatestSnapshotLock<T>(fn: () => Promise<T>): Promise<T> {
+  return withDirectoryLock(
+    LATEST_SNAPSHOT_LOCK_DIR,
+    { staleMs: LATEST_SNAPSHOT_LOCK_STALE_MS, label: "latest quest snapshot lock" },
+    fn,
+  );
 }
 
 async function listQuestVersionFilesByQuest(): Promise<Map<string, QuestVersionFile[]>> {
@@ -1705,6 +1575,25 @@ export async function claimQuest(
   });
 }
 
+/**
+ * Rewrite every quest in one locked write, for one-time migrations. `rewrite`
+ * gets the current store's text and quests and returns replacement quests, or
+ * null to leave the store alone. A migration takes its own backup from the
+ * text: this write is not recorded in the mutation journal.
+ */
+export async function rewriteAllQuests(
+  rewrite: (storeText: string, quests: readonly QuestmasterTask[]) => Promise<QuestmasterTask[] | null>,
+): Promise<boolean> {
+  return withLiveStoreWriteLock(async () => {
+    const current = await readLiveQuestStore();
+    if (!current) return false;
+    const quests = await rewrite(JSON.stringify(current, null, 2), current.quests);
+    if (!quests) return false;
+    await writeLiveQuestStore({ ...current, quests }, current);
+    return true;
+  });
+}
+
 /** Convenience: complete a quest (mark done and enter the review inbox). */
 export async function completeQuest(
   questId: string,
@@ -1717,6 +1606,7 @@ export async function completeQuest(
     sessionId?: string;
     debrief?: string;
     debriefTldr?: string;
+    debriefMachine?: string;
     recoveryEvent?: QuestRecoveryEventDraft;
   },
 ): Promise<QuestmasterTask | null> {
@@ -1731,6 +1621,7 @@ export async function completeQuest(
     ...(opts?.memoryCommitShas?.length ? { memoryCommitShas: opts.memoryCommitShas } : {}),
     ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
     ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
+    ...(opts?.debriefMachine ? { debriefMachine: opts.debriefMachine } : {}),
     ...(opts?.recoveryEvent ? { recoveryEvent: opts.recoveryEvent } : {}),
   });
 }

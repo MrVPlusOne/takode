@@ -31,6 +31,7 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
     ...hostRow({ id: "local", name: "local", online: false, processes: 0 }),
     enabled: false,
   };
+  let localName = "laptop";
   const requests: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -56,6 +57,17 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         };
         return new Response(JSON.stringify({ enabled }));
       }
+      if (method === "PUT" && url.endsWith("/name")) {
+        // PUT /api/hosts/:id/name: names are unique across machines, as on the server.
+        const { name } = JSON.parse(String(init?.body)) as { name: string };
+        const id = url.split("/")[3]!;
+        if (name === localName || hosts.some((host) => host.name === name && host.id !== id)) {
+          return new Response(JSON.stringify({ error: `A machine named ${name} already exists` }), { status: 400 });
+        }
+        if (id === "local") localName = name;
+        else hosts = hosts.map((host) => (host.id === id ? { ...host, name } : host));
+        return new Response(JSON.stringify({ name }));
+      }
       if (method === "PUT") {
         // PUT /api/hosts/:id/settings, as the server answers it.
         const patch = JSON.parse(String(init?.body)) as Partial<MachineSettings>;
@@ -75,7 +87,7 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         JSON.stringify({
           hosts,
           build: SERVER_BUILD,
-          local: { id: "local", settings: localSettings, node: localNode },
+          local: { id: "local", name: localName, settings: localSettings, node: localNode },
         }),
       );
     }),
@@ -175,5 +187,31 @@ describe("SettingsHostsSection", () => {
     await waitFor(() => expect(requests).toContain("PUT /api/hosts/local/node"));
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
     expect(screen.getByTestId("settings-local-host").textContent).toContain("Node connected · 1 process");
+  });
+
+  // Every machine, this server's included, shows its own name and can be
+  // renamed in place; a host only while it is connected, since it keeps its name.
+  it("shows and renames machines by their own names", async () => {
+    const requests = serveHostRoutes([
+      hostRow({ id: "h1", name: "devbox" }),
+      hostRow({ id: "h2", name: "sleepy", online: false }),
+    ]);
+    render(<SettingsHostsSection />);
+    await waitFor(() => expect(screen.getByTestId("settings-local-host").textContent).toContain("laptop"));
+    expect(screen.getByTestId("settings-local-host").textContent).not.toContain("This machine");
+
+    const renameButtons = screen.getAllByText("Rename") as HTMLButtonElement[];
+    expect(renameButtons.map((button) => button.disabled)).toEqual([false, false, true]);
+
+    fireEvent.click(renameButtons[0]!);
+    const input = screen.getByLabelText("New name for laptop");
+    fireEvent.change(input, { target: { value: "devbox" } });
+    await act(async () => fireEvent.click(screen.getByText("Save")));
+    await waitFor(() => expect(screen.getByText("A machine named devbox already exists")).toBeTruthy());
+
+    fireEvent.change(input, { target: { value: "old-laptop" } });
+    await act(async () => fireEvent.click(screen.getByText("Save")));
+    await waitFor(() => expect(screen.getByTestId("settings-local-host").textContent).toContain("old-laptop"));
+    expect(requests).toContain("PUT /api/hosts/local/name");
   });
 });

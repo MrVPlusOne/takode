@@ -38,6 +38,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostAgent, insecureCoordinatorUrlProblem, startApiProxy } from "../server/remote-host/host-agent.js";
+import { readMachineName, saveMachineName } from "../server/machine-identity.js";
 import {
   NODE_RESTART_EXIT_CODE,
   readCheckoutCommit,
@@ -118,6 +119,8 @@ async function main(): Promise<void> {
     apiProxyPort: proxy.port,
     commands,
     build,
+    machineName: await readMachineName(),
+    saveMachineName: (name) => saveMachineName(name),
     ...(sharedCheckout
       ? {
           update: async () => {

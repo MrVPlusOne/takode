@@ -265,6 +265,12 @@ export function buildTransitionedQuest(
       }
       const currentDebrief = current.status === "done" && !input.cancelled ? (current as QuestDone).debrief : undefined;
       const debrief = input.debrief !== undefined && !input.cancelled ? input.debrief.trim() : currentDebrief;
+      const debriefMachine =
+        input.debrief !== undefined
+          ? input.debriefMachine
+          : currentDebrief
+            ? (current as QuestDone).debriefMachine
+            : undefined;
       const notes =
         input.notes ?? (current.status === "done" && !input.cancelled ? (current as QuestDone).notes : undefined);
       const debriefTldr = input.cancelled
@@ -296,6 +302,7 @@ export function buildTransitionedQuest(
           : {}),
         ...(notes ? { notes } : {}),
         ...(debrief ? { debrief } : {}),
+        ...(debrief && debriefMachine ? { debriefMachine } : {}),
         ...(debriefTldr ? { debriefTldr } : {}),
         ...(input.cancelled ? { cancelled: true } : {}),
       } as QuestDone;

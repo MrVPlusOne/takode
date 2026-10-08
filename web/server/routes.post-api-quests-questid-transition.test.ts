@@ -173,6 +173,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { configureMachines } from "./remote-host/machines.js";
 import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "./quest-recovery.js";
 import { QUEST_TLDR_WARNING_HEADER } from "./quest-tldr.js";
 import * as sessionNames from "./session-names.js";
@@ -573,6 +574,57 @@ describe("POST /api/quests/:questId/transition", () => {
       claimedQuestStatus: undefined,
     });
     expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+  });
+
+  // A debrief is stamped with the machine of the session that wrote it; a
+  // machine in the request body is ignored, and a browser write gets none.
+  it("stamps a session-written debrief with the caller's machine", async () => {
+    configureMachines({
+      local: () => ({ name: "laptop", platform: "darwin", user: null, home: null }),
+      hostName: () => null,
+      hostDetails: () => null,
+      sessionHostId: (sessionId) => (sessionId === "worker-1" ? null : undefined),
+    });
+    try {
+      launcher.getSession.mockImplementation((sessionId: string) => ({ sessionId, isOrchestrator: false }));
+      const current = {
+        id: "q-1-v2",
+        questId: "q-1",
+        title: "Quest",
+        status: "in_progress",
+        createdAt: Date.now(),
+        claimedAt: Date.now(),
+        description: "Ready",
+        sessionId: "worker-1",
+      } as any;
+      vi.spyOn(questStore, "getQuest").mockResolvedValue(current);
+      const transitionSpy = vi
+        .spyOn(questStore, "transitionQuest")
+        .mockResolvedValue({ ...current, status: "done", verificationItems: [], completedAt: Date.now() });
+      const body = JSON.stringify({ status: "done", debrief: "Final.", debriefTldr: "TLDR.", debriefMachine: "fake" });
+
+      const res = await app.request("/api/quests/q-1/transition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-companion-session-id": "worker-1",
+          "x-companion-auth-token": "tok",
+        },
+        body,
+      });
+      expect(res.status).toBe(200);
+      expect(transitionSpy.mock.calls[0][1]).toMatchObject({ debrief: "Final.", debriefMachine: "laptop" });
+
+      await app.request("/api/quests/q-1/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      expect(transitionSpy.mock.calls[1][1]).not.toHaveProperty("debriefMachine");
+    } finally {
+      configureMachines(null);
+      vi.mocked(questStore.getQuest).mockReset();
+    }
   });
 
   it("broadcasts claimed quest to the target active session for in_progress transitions", async () => {

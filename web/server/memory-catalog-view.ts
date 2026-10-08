@@ -36,13 +36,17 @@ export interface MemoryViewLine {
  * Render a catalog view and apply handle dedupe: lines already shown under `seen` (same key and
  * version) are left out and counted, and the output ends with a handle naming the new shown set.
  * Without `seen`, the output is complete. Pass `storeHandle: false` to measure without writing.
+ * `machine` says where the reader's session and the memory repo are; the overview shows it
+ * under the repo line.
  */
 export async function renderMemoryCatalogView(
   catalog: MemoryCatalog,
   request: MemoryCatalogViewRequest,
-  options: { seen?: string; storeHandle?: boolean } = {},
+  options: { seen?: string; storeHandle?: boolean; machine?: string } = {},
 ): Promise<MemoryCatalogView> {
-  return applyMemoryHandle(catalog.repo.root, buildViewLines(catalog, request), options);
+  const lines = buildViewLines(catalog, request);
+  if (options.machine && request.mode === "overview") lines.splice(1, 0, { text: options.machine });
+  return applyMemoryHandle(catalog.repo.root, lines, options);
 }
 
 /** Dedupe arbitrary view lines against a handle and issue the next one. Also used by `catalog diff`. */

@@ -61,6 +61,19 @@ describe("memory catalog view", () => {
     ).toBe(true);
   });
 
+  // The overview tells the reader where its session and the memory repo are,
+  // right under the repo line; folder listings do not repeat it.
+  it("shows the machine line under the repo line in the overview only", async () => {
+    await note("topic/a.md", { description: '"Read when a."', type: "decision", updated: "2026-09-01" });
+    const machine = "This session runs on machine `devbox`.";
+    const overview = await renderMemoryCatalogView(await catalog(), { mode: "overview" }, { machine });
+    const lines = overview.text.split("\n");
+    expect(lines[0]).toMatch(/^Memory repo: /);
+    expect(lines[1]).toBe(machine);
+    const folder = await renderMemoryCatalogView(await catalog(), { mode: "folder", folder: "topic" }, { machine });
+    expect(folder.text).not.toContain(machine);
+  });
+
   it("caps the recent list and ranks by the later of edit and helpful dates", async () => {
     for (let index = 0; index < RECENT_NOTE_LIMIT + 2; index++) {
       const day = String(1 + (index % 28)).padStart(2, "0");

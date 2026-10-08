@@ -8,6 +8,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
 import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
+import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import { useEffect, useState, type ReactNode } from "react";
 import type { QuestmasterTask } from "../types.js";
@@ -126,7 +127,10 @@ export function QuestDetailTextSections({
             </div>
           )}
           <div className="min-w-0 max-w-full space-y-2">
-            <QuestDetailSectionLabel>Full Final Debrief</QuestDetailSectionLabel>
+            <div className="flex items-baseline gap-1.5">
+              <QuestDetailSectionLabel>Full Final Debrief</QuestDetailSectionLabel>
+              <QuestMachineStamp machine={quest.status === "done" ? quest.debriefMachine : undefined} />
+            </div>
             <MarkdownContent
               text={questDebrief ?? ""}
               size="sm"

@@ -163,6 +163,35 @@ describe("quest formatting", () => {
     expect(detail).toContain("Debrief TLDR:\n  Final outcome TLDR.");
   });
 
+  // Agents read notes through the CLI, so each note and the debrief name the
+  // machine they were written on next to their author.
+  it("shows the machine a note or debrief was written on", () => {
+    const done = {
+      ...quest,
+      status: "done",
+      completedAt: Date.now(),
+      verificationItems: [],
+      debrief: "Final outcome.",
+      debriefMachine: "laptop",
+      feedback: [
+        {
+          author: "agent",
+          text: "Ran tests in /srv/repo.",
+          ts: Date.now(),
+          authorSessionId: "worker-1",
+          machine: "devbox",
+        },
+        { author: "human", text: "Please check.", ts: Date.now() },
+      ],
+    } satisfies QuestmasterTask;
+    const detail = formatQuestDetail(done, sessionMetadata, { sections: "debrief" });
+    expect(detail).toContain("Debrief (written on laptop):\n  Final outcome.");
+    const full = formatQuestDetail(done, sessionMetadata, { full: true });
+    expect(full).toContain("Debrief written on: laptop");
+    expect(full).toMatch(/#0 \[agent:#12 .* on devbox, /);
+    expect(full).toMatch(/#1 \[human, /);
+  });
+
   it("reveals all phase TLDRs without full phase bodies through sections phases", () => {
     const detail = formatQuestDetail(
       {

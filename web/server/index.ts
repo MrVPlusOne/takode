@@ -67,6 +67,9 @@ import { hostCanRestart } from "./remote-host/host-restart-gate.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines } from "./remote-host/session-machine.js";
+import { configureMachines } from "./remote-host/machines.js";
+import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
+import { stampQuestMachines } from "./quest-machine-stamps.js";
 import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
 import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
 import { ImageStore } from "./image-store.js";
@@ -272,6 +275,18 @@ hostLinks.stopHostSessions = async (hostId) => {
   );
 };
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
+// Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
+const thisMachine = await ThisMachine.load();
+hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
+configureMachines({
+  local: () => ({ name: thisMachine.name, ...thisMachineDetails() }),
+  hostName: (hostId) => hostRegistry.nameOf(hostId),
+  hostDetails: (hostId) => hostLinks.machineDetails(hostId),
+  sessionHostId: (sessionId) => {
+    const session = launcher.getSession(sessionId);
+    return session ? (session.hostId ?? null) : undefined;
+  },
+});
 hostLinks.start();
 // This machine's own node, which runs local sessions so they outlive server restarts when turned on.
 const localNode = new LocalNode({
@@ -420,6 +435,10 @@ await runPreListenStartupReadiness(
 );
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
+// Once: quest notes written before machine stamps existed get the machine their session ran on.
+void stampQuestMachines({ coordinatorMachine: thisMachine.name }).catch((error) =>
+  serverLog.error("Stamping existing quest notes with machine names failed", { error: String(error) }),
+);
 projectModelProvenanceMigrationFamilies(launcher, wsBridge, modelProvenanceMigrationAcknowledgementStore);
 {
   const defaultMemorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(launcher.getMemorySessionSpaceSlug());
@@ -1029,7 +1048,7 @@ app.route(
     },
   }),
 );
-app.route("/api", createHostRoutes(hostRegistry, hostLinks, localNode));
+app.route("/api", createHostRoutes(hostRegistry, hostLinks, localNode, thisMachine));
 app.route(
   "/api",
   createRoutes(

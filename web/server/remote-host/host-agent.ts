@@ -8,6 +8,7 @@ import { getEnrichedPath } from "../path-resolver.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
+import { thisMachineDetails } from "../machine-identity.js";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -59,6 +60,10 @@ export interface HostAgentOptions {
   }>;
   /** Git commit this node's Takode checkout was at when it started, reported to the coordinator. */
   build?: string | null;
+  /** The name this machine keeps for itself, or null when it has none yet. */
+  machineName?: string | null;
+  /** Keep a new name for this machine: the registration name when it had none, or a rename. */
+  saveMachineName?: (name: string) => Promise<void>;
   /**
    * Accept the coordinator's `update`: switch this machine's Takode checkout to
    * the named commit and restart. It returns only if the switch failed (by
@@ -126,10 +131,12 @@ export class HostAgent {
   private updating = false;
   /** This machine's settings as the coordinator last sent them. */
   private machineSettings: HostMachineSettings = { claudeBinary: "", codexBinary: "" };
+  private machineName: string | null;
   private readonly log: (message: string) => void;
 
   constructor(private readonly options: HostAgentOptions) {
     this.log = options.log ?? ((message) => console.log(`[takode node] ${message}`));
+    this.machineName = options.machineName ?? null;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
     this.maxReconnectDelayMs = isLoopbackHost(new URL(options.coordinatorUrl).hostname)
       ? MAX_LOOPBACK_RECONNECT_DELAY_MS
@@ -166,6 +173,7 @@ export class HostAgent {
     this.socket = socket;
     socket.onopen = () => {
       this.lastHeardAt = Date.now();
+      const details = thisMachineDetails();
       this.send({
         t: "hello",
         protocol: HOST_PROTOCOL_VERSION,
@@ -173,6 +181,9 @@ export class HostAgent {
         appliedCommandSeq: this.appliedCommandSeq,
         appliedFrom: this.coordinatorInstanceId,
         homeDir: homedir(),
+        machineName: this.machineName,
+        platform: details.platform ?? undefined,
+        ...(details.user ? { user: details.user } : {}),
         processes: [...this.processes.keys()],
         ...(this.options.build ? { build: this.options.build } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
@@ -226,6 +237,8 @@ export class HostAgent {
           return;
         }
         this.highestEpoch = message.epoch;
+        // A machine keeps its own name; one without a name takes the one it was registered with.
+        if (!this.machineName && message.machineName) this.keepMachineName(message.machineName);
         this.handleWelcome(message.instanceId, message.received);
         return;
       case "command":
@@ -264,7 +277,19 @@ export class HostAgent {
       case "settings":
         this.machineSettings = message.settings;
         return;
+      case "machine_name":
+        this.keepMachineName(message.name);
+        return;
     }
+  }
+
+  private keepMachineName(name: string): void {
+    if (name === this.machineName) return;
+    this.machineName = name;
+    this.log(`This machine is named ${name}`);
+    this.options
+      .saveMachineName?.(name)
+      .catch((error) => this.log(`Saving the machine name failed: ${errorMessage(error)}`));
   }
 
   private async applyUpdate(commit: string): Promise<void> {
