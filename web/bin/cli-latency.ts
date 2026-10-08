@@ -15,6 +15,7 @@ import { hostname } from "node:os";
 import { dirname } from "node:path";
 import {
   CLI_LATENCY_LOG_PATH,
+  HOST_HOP_TIMING_METRIC,
   LATENCY_LOG_MAX_BYTES,
   SERVER_TIMING_METRIC,
   roundMs,
@@ -30,7 +31,6 @@ const SUBCOMMAND_PARENTS: Record<CliTool, ReadonlySet<string>> = {
   takode: new Set(["board", "goal", "lease", "notify", "permission", "port", "thread", "timer", "todo", "worktree"]),
 };
 const COMMAND_NAME = /^[a-z][a-z-]{0,39}$/;
-const SERVER_TIMING_DURATION = new RegExp(`(?:^|,)\\s*${SERVER_TIMING_METRIC};dur=([\\d.]+)`);
 const BODY_READERS = ["arrayBuffer", "json", "text"] as const;
 
 /**
@@ -67,8 +67,11 @@ export function trackCliLatency(
     try {
       const response = await originalFetch(input, init);
       finish();
-      const serverMs = parseServerTiming(response.headers.get("server-timing"));
+      const header = response.headers.get("server-timing");
+      const serverMs = parseServerTiming(header);
       if (serverMs !== undefined) timing.serverMs = serverMs;
+      const hostHopMs = parseServerTiming(header, HOST_HOP_TIMING_METRIC);
+      if (hostHopMs !== undefined) timing.hostHopMs = hostHopMs;
       extendTimingThroughBodyRead(response, finish);
       return response;
     } catch (error) {
@@ -116,6 +119,7 @@ export function buildCliLatencyRecord(input: {
 }): CliLatencyRecord {
   const httpMs = unionDuration(input.requests.map((request) => [request.atMs, request.atMs + request.ms]));
   const serverMs = input.requests.reduce((sum, request) => sum + (request.serverMs ?? 0), 0);
+  const hostHopMs = input.requests.reduce((sum, request) => sum + (request.hostHopMs ?? 0), 0);
   return {
     ts: Date.now(),
     host: hostname(),
@@ -128,12 +132,14 @@ export function buildCliLatencyRecord(input: {
     httpMs: roundMs(httpMs),
     // Parallel requests can report more summed server time than wall time spent waiting.
     serverMs: roundMs(Math.min(serverMs, httpMs)),
+    ...(hostHopMs > 0 ? { hostHopMs: roundMs(Math.min(hostHopMs, httpMs)) } : {}),
     requests: input.requests,
   };
 }
 
-export function parseServerTiming(header: string | null): number | undefined {
-  const match = header ? SERVER_TIMING_DURATION.exec(header) : null;
+/** The duration of one Server-Timing metric (the server's handler time by default). */
+export function parseServerTiming(header: string | null, metric = SERVER_TIMING_METRIC): number | undefined {
+  const match = header ? new RegExp(`(?:^|,)\\s*${metric};dur=([\\d.]+)`).exec(header) : null;
   return match ? roundMs(Number(match[1])) : undefined;
 }
 

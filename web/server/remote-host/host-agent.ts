@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { hasUsableNetwork } from "../network-availability.js";
 import { dirname } from "node:path";
 import { getEnrichedPath } from "../path-resolver.js";
+import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
 import {
   HOST_HEARTBEAT_MS,
@@ -410,7 +411,7 @@ export function startApiProxy(options: { coordinatorUrl: string; port: number })
       });
       // Report the hop to the coordinator so the CLI latency log can separate it from local overhead.
       const relayed = new Headers(response.headers);
-      relayed.append("server-timing", `takode-node-hop;dur=${(performance.now() - started).toFixed(1)}`);
+      relayed.append("server-timing", `${HOST_HOP_TIMING_METRIC};dur=${(performance.now() - started).toFixed(1)}`);
       return new Response(response.body, { status: response.status, headers: relayed });
     },
   });

@@ -39,6 +39,23 @@ describe("parseServerTiming", () => {
     expect(parseServerTiming("db;dur=3")).toBeUndefined();
     expect(parseServerTiming(null)).toBeUndefined();
   });
+
+  // On a remote host the API proxy appends its own round trip to the
+  // coordinator, so a run there can split the network hop from local overhead.
+  it("reads the host proxy hop next to the server's time", () => {
+    const header = "app;dur=4, takode-node-hop;dur=31.25";
+    expect(parseServerTiming(header)).toBe(4);
+    expect(parseServerTiming(header, "takode-node-hop")).toBe(31.3);
+    const record = buildCliLatencyRecord({
+      tool: "quest",
+      command: "show",
+      exitCode: 0,
+      totalMs: 80,
+      startupMs: 10,
+      requests: [{ method: "GET", path: "/api/quests/q-1", atMs: 20, ms: 40, serverMs: 4, hostHopMs: 31.3 }],
+    });
+    expect(record).toMatchObject({ httpMs: 40, serverMs: 4, hostHopMs: 31.3 });
+  });
 });
 
 describe("buildCliLatencyRecord", () => {

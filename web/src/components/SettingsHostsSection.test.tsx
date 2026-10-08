@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
+import type { RemoteHost } from "../remote-hosts.js";
 
 /** A fake of the server's host routes, so the section talks to the same API shape. */
 function serveHostRoutes() {
-  let hosts = [{ id: "h1", name: "devbox", createdAt: 0, online: true, lastSeenAt: 1, processes: 2 }];
+  let hosts: RemoteHost[] = [{ id: "h1", name: "devbox", createdAt: 0, online: true, lastSeenAt: 1, processes: 2 }];
   const requests: string[] = [];
   vi.stubGlobal(
     "fetch",

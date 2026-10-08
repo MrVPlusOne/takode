@@ -22,6 +22,8 @@ export const LATENCY_LOG_MAX_BYTES = 4 * 1024 * 1024;
 
 /** Server handler time is reported to clients through this Server-Timing metric. */
 export const SERVER_TIMING_METRIC = "app";
+/** A remote host's API proxy reports its round trip to the coordinator through this Server-Timing metric. */
+export const HOST_HOP_TIMING_METRIC = "takode-node-hop";
 
 /** Upper bounds (ms) of the histogram buckets in server action aggregates; one extra bucket counts larger values. */
 export const LATENCY_BUCKET_BOUNDS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 30000] as const;
@@ -39,6 +41,11 @@ export interface CliRequestTiming {
   ms: number;
   /** Server handler time from the response's Server-Timing header, when the server reported it. */
   serverMs?: number;
+  /**
+   * On a remote host: the API proxy's round trip to the coordinator, including
+   * the server time. The rest of the request time is spent on this machine.
+   */
+  hostHopMs?: number;
 }
 
 /** One CLI invocation. All durations are milliseconds, rounded to 0.1 ms. */
@@ -59,6 +66,8 @@ export interface CliLatencyRecord {
   httpMs: number;
   /** Server handler time across requests, capped at httpMs. */
   serverMs: number;
+  /** On a remote host: proxy-to-coordinator round trips across requests, capped at httpMs. */
+  hostHopMs?: number;
   requests: CliRequestTiming[];
 }
 
