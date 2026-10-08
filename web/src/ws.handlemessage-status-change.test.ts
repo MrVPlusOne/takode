@@ -144,6 +144,29 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
   });
 
+  it("starts the activity timer from the server turn start carried by running status", () => {
+    // The dispatch status_change carries the server's generationStartedAt.
+    // A later stream message_start must not restart the timer, which used to
+    // reset the chip to 0s and hide it for a moment after the first output.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "main" },
+      generationStartedAt: 1_000,
+      codexReasoningPreviews: [],
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "message_start", message: {} },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().streamingStartedAt.get("s1")).toBe(1_000);
+  });
+
   it("stores active turn route from running status and clears it when idle", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

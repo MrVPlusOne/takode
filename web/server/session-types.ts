@@ -144,7 +144,8 @@ export interface CLISystemInitMessage {
 export interface CLISystemStatusMessage {
   type: "system";
   subtype: "status";
-  status: "compacting" | null;
+  // Claude CLI 2.1.289 / Agent SDK 0.2.141 also send "requesting" while a model request is in flight.
+  status: "compacting" | "requesting" | null;
   permissionMode?: string;
   uuid: string;
   session_id: string;
@@ -1024,6 +1025,8 @@ export type BrowserIncomingMessageBase =
       codexCompactionCause?: CodexCompactionCause;
       codexCompactionCauseSource?: CodexCompactionCauseSource;
       activeTurnRoute?: ActiveTurnRoute | null;
+      /** Server turn start, sent with "running" so the browser timer counts from dispatch. */
+      generationStartedAt?: number;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
     }

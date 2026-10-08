@@ -965,8 +965,10 @@ describe("SDK resume stall: cliResuming guards", () => {
     expect(session.cliResuming).toBe(false);
     browser.send.mockClear();
 
-    // Now a live status_change should be broadcast normally
-    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+    // Now a live status_change should be broadcast normally. Compaction is the
+    // CLI status that changes the browser's session status; other CLI
+    // sub-states (such as "requesting") are lifecycle-neutral.
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     const statusChanges = browser.send.mock.calls.filter((call: any[]) => {
       try {
         const msg = JSON.parse(call[0]);

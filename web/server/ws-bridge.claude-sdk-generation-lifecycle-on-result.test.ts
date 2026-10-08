@@ -755,4 +755,71 @@ describe("Claude SDK generation lifecycle on result", () => {
     expect(update).toBeDefined();
     expect(update.session.context_used_percent).toBe(20);
   });
+
+  it("keeps the browser status running when Claude reports model requests mid-turn", async () => {
+    // Claude CLI 2.1.289 sends system/status "requesting" before every model
+    // request; the SDK adapter forwards it as status_change. Forwarding that
+    // to browsers replaced "running", which hid the lower-left generation chip
+    // while the model thought between tool calls. The sequence below follows a
+    // recorded leader turn: dispatch, requesting, thinking + tool_use,
+    // tool result, requesting again, then the final answer and result.
+    const sid = "sdk-requesting-status";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "check the logs" }));
+    const session = bridge.getSession(sid)!;
+    expect(session.isGenerating).toBe(true);
+
+    adapter.emitBrowserMessage({ type: "status_change", status: "requesting" });
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "msg-requesting-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5.5",
+        content: [{ type: "tool_use", id: "toolu-requesting-1", name: "Bash", input: { command: "sleep 3" } }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "requesting-assistant-1",
+      session_id: sid,
+    });
+    adapter.emitBrowserMessage({ type: "status_change", status: "requesting" });
+
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const statusMsgs = sent.filter((m: any) => m.type === "status_change");
+    expect(statusMsgs.map((m: any) => m.status)).toEqual(["running"]);
+    // The dispatch status carries the server turn start for the chip's timer.
+    expect(statusMsgs[0].generationStartedAt).toBe(session.generationStartedAt);
+    expect(session.isGenerating).toBe(true);
+  });
+
+  it("returns the browser status to running after compaction ends mid-turn", async () => {
+    // Compaction is not a turn boundary. The SDK adapter reports its end as
+    // status "idle" (null mapped by the adapter); the browser must go back to
+    // the turn's running status rather than look idle until the next message.
+    const sid = "sdk-compaction-running";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "keep going" }));
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    adapter.emitBrowserMessage({ type: "status_change", status: "idle" });
+
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const statuses = sent.filter((m: any) => m.type === "status_change").map((m: any) => m.status);
+    expect(statuses).toEqual(["compacting", "running"]);
+  });
 });

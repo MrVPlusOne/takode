@@ -85,6 +85,7 @@ export interface SystemMessageSessionLike {
   forceCompactPending: boolean;
   compactedDuringTurn: boolean;
   awaitingCompactSummary?: boolean;
+  isGenerating: boolean;
   messageHistory: BrowserIncomingMessage[];
   state: SessionState;
 }
@@ -1577,7 +1578,16 @@ function handleSystemStatus(
   }
 
   if (!session.cliResuming) {
-    deps.broadcastToBrowsers(session, { type: "status_change", status: msg.status ?? null });
+    // Claude also reports sub-states that are not session lifecycle changes:
+    // "requesting" before every model request, and null with permission-mode
+    // updates. Forwarding them replaced the browser's "running" status mid-turn
+    // and hid the generation chip, so only compaction changes the browser
+    // status here; Takode's turn lifecycle owns running and idle.
+    if (msg.status === "compacting") {
+      deps.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
+    } else if (wasCompacting) {
+      deps.broadcastToBrowsers(session, { type: "status_change", status: session.isGenerating ? "running" : "idle" });
+    }
     deps.onSessionActivityStateChanged(session.id, "system_status");
   }
 }

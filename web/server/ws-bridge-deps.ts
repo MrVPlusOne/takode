@@ -1491,6 +1491,9 @@ export function getBrowserRoutingDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        ...(status === "running" && typeof session.generationStartedAt === "number"
+          ? { generationStartedAt: session.generationStartedAt }
+          : {}),
         codexReasoningPreviews: listCodexReasoningPreviews(session),
         codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });
@@ -1760,6 +1763,9 @@ export function getGenerationLifecycleDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        ...(status === "running" && typeof session.generationStartedAt === "number"
+          ? { generationStartedAt: session.generationStartedAt }
+          : {}),
         codexReasoningPreviews: listCodexReasoningPreviews(session),
         codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });

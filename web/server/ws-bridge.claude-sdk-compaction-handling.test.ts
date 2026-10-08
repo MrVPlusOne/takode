@@ -951,8 +951,10 @@ describe("Claude SDK compaction handling", () => {
     expect(types).toContain("compact_boundary");
     expect(types).toContain("status_change");
     expect(types).toContain("compact_summary");
-    // Verify final status_change(null) was broadcast
-    const finalStatusMsg = calls.filter((m: any) => m.type === "status_change" && m.status === null);
+    // Verify compaction end was broadcast as the session's lifecycle status:
+    // this session has no running turn, so it returns to idle rather than
+    // forwarding the CLI's null sub-status.
+    const finalStatusMsg = calls.filter((m: any) => m.type === "status_change" && m.status === "idle");
     expect(finalStatusMsg.length).toBeGreaterThanOrEqual(1);
   });
 

@@ -21,6 +21,11 @@ export function handleStatusChangeMessage(sessionId: string, data: StatusChangeM
   if ("activeTurnRoute" in data || data.status !== "running") {
     store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
   }
+  // Without the server's turn start, the activity timer would restart from
+  // the first model output and briefly hide the chip at 0s.
+  if (data.status === "running" && typeof data.generationStartedAt === "number") {
+    store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
+  }
   if (data.codexReasoningPreviews !== undefined) {
     store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews);
   }
