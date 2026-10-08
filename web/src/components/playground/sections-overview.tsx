@@ -20,6 +20,7 @@ import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.j
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { QuestQuizSection } from "../QuestQuizSection.js";
 import { ToolBlock } from "../ToolBlock.js";
 import { GitHubPRDisplay } from "../TaskPanel.js";
 import { SessionStatusDot } from "../SessionStatusDot.js";
@@ -767,6 +768,21 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Assistant completion quiz">
             <PlaygroundAssistantQuestQuizMessage />
+          </Card>
+          <Card label="Assistant completion quiz (collapsed)">
+            <QuestQuizSection
+              variant="inline"
+              collapsed
+              questId="q-8"
+              questTitle="Add Quest Quiz Metadata"
+              items={[
+                {
+                  id: "q8-collapsed",
+                  question: "Where should the generated quiz appear in the leader conversation?",
+                  answer: "Inline after the leader's final completion summary.",
+                },
+              ]}
+            />
           </Card>
           <Card label="Assistant message (image preview group)">
             <MessageBubble message={MSG_ASSISTANT_IMAGE_PREVIEW} sessionId="playground" />

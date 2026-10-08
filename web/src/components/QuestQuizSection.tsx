@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestQuizItem } from "../types.js";
@@ -9,6 +10,7 @@ interface QuestQuizSectionProps {
   sessionId?: string;
   questId?: string;
   questTitle?: string;
+  /** Start collapsed. Detail quizzes render as a closed card; inline feed quizzes can always be toggled. */
   collapsed?: boolean;
   onSessionNavigate?: () => void;
   questLinkSurface?: QuestLinkSurface;
@@ -24,6 +26,8 @@ export function QuestQuizSection({
   onSessionNavigate,
   questLinkSurface = "legacy",
 }: QuestQuizSectionProps) {
+  // Hiding a feed quiz is local view state and never touches quiz data.
+  const [inlineExpanded, setInlineExpanded] = useState(!collapsed);
   const quizItems = items ?? [];
   if (quizItems.length === 0) return null;
 
@@ -48,7 +52,7 @@ export function QuestQuizSection({
     </div>
   );
 
-  if (collapsed) {
+  if (collapsed && variant !== "inline") {
     return (
       <details className="min-w-0 max-w-full rounded-lg border border-cc-border bg-cc-input-bg" data-testid={testId}>
         <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-cc-fg hover:bg-cc-hover/40">
@@ -66,7 +70,27 @@ export function QuestQuizSection({
     <section className={sectionClassName(variant)} aria-label="Quest quiz" data-testid={testId}>
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Quiz</div>
+          {variant === "inline" ? (
+            <button
+              type="button"
+              onClick={() => setInlineExpanded((expanded) => !expanded)}
+              aria-expanded={inlineExpanded}
+              aria-label={`${inlineExpanded ? "Hide" : "Show"} quiz`}
+              className="-mx-1 flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70 hover:bg-cc-hover/50 hover:text-cc-muted"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+                className={`h-3 w-3 shrink-0 transition-transform ${inlineExpanded ? "rotate-90" : ""}`}
+              >
+                <path d="M6 4l4 4-4 4" />
+              </svg>
+              Quiz
+            </button>
+          ) : (
+            <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Quiz</div>
+          )}
           {variant === "inline" && (
             <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[11px] text-cc-muted">
               {questId && (
@@ -84,7 +108,7 @@ export function QuestQuizSection({
           {quizItems.length} item{quizItems.length === 1 ? "" : "s"}
         </div>
       </div>
-      {body}
+      {(variant !== "inline" || inlineExpanded) && body}
     </section>
   );
 }

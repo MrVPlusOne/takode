@@ -121,4 +121,45 @@ describe("QuestQuizSection", () => {
     ).not.toHaveClass("text-[13px]", "sm:text-[14px]");
     expect(screen.getByText("Source: completion summary")).toBeVisible();
   });
+
+  it("lets the user hide and reshow an inline feed quiz, expanded by default", () => {
+    // The feed quiz starts open for recall, but the user can hide it as a whole while
+    // its header (quest link and item count) stays visible to reopen it.
+    render(
+      <QuestQuizSection
+        variant="inline"
+        questId="q-8"
+        questTitle="Add Quest Quiz Metadata"
+        items={[{ id: "one", question: "Why hide a quiz?", answer: "To keep the thread scannable." }]}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Hide quiz" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Why hide a quiz?")).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByText("Why hide a quiz?")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show quiz" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("quest-quiz-inline")).toHaveTextContent("q-8");
+    expect(screen.getByText("1 item")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show quiz" }));
+    expect(screen.getByText("Why hide a quiz?")).toBeInTheDocument();
+  });
+
+  it("starts an inline quiz collapsed when requested", () => {
+    // Playground and any caller wanting a hidden start use the same `collapsed` prop as quest details.
+    render(
+      <QuestQuizSection
+        variant="inline"
+        collapsed
+        questId="q-8"
+        items={[{ id: "one", question: "Hidden at first?", answer: "Yes." }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Show quiz" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Hidden at first?")).not.toBeInTheDocument();
+  });
 });
