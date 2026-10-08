@@ -8,18 +8,19 @@ import type { WsBridge } from "./ws-bridge.js";
  *
  * Tests feed Claude stream-json output with `message()` exactly as the CLI
  * prints it; the real adapter translates it and the bridge handles it through
- * the production SDK attach path. Only the SDK session object (the process
- * boundary) is faked, so what Takode sends back to Claude is observable on
- * `userTurns` (prompts) and `outgoing` (permission answers, interrupts, ...).
+ * the production SDK attach path. Only the SDK query and its prompt input (the
+ * process boundary) are faked, so what Takode sends back to Claude is observable
+ * on `userTurns` (prompts) and `outgoing` (permission answers, interrupts, ...).
  */
 export interface ClaudeSdkTestBackend {
   readonly sessionId: string;
   readonly adapter: ClaudeSdkAdapter;
-  /** Prompts delivered to Claude (`SDKSession.send` arguments). */
+  /** Prompts delivered to Claude's input stream. */
   readonly userTurns: ReturnType<typeof vi.fn>;
-  /** `SDKSession.query` control calls. */
+  /** Control calls on the SDK query. */
   readonly query: {
     interrupt: ReturnType<typeof vi.fn>;
+    setPermissionMode: ReturnType<typeof vi.fn>;
     setModel: ReturnType<typeof vi.fn>;
     applyFlagSettings: ReturnType<typeof vi.fn>;
   };
@@ -44,14 +45,16 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
   const adapter = new ClaudeSdkAdapter(sessionId, { cwd: "/test" });
   initialize.mockRestore();
 
-  const userTurns = vi.fn(async (_prompt: unknown) => {});
+  const userTurns = vi.fn((_prompt: unknown) => {});
   const query = {
     interrupt: vi.fn(async () => {}),
+    setPermissionMode: vi.fn(async (_mode: string) => {}),
     setModel: vi.fn(async () => {}),
     applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
   };
   const internals = adapter as any;
-  internals.sdkSession = { send: userTurns, close: vi.fn(), query };
+  internals.sdkQuery = { ...query, close: vi.fn() };
+  internals.prompts = { push: userTurns, end: vi.fn() };
   internals.connected = true;
 
   const outgoing: BrowserOutgoingMessage[] = [];
@@ -100,6 +103,7 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
     clearSent() {
       userTurns.mockClear();
       query.interrupt.mockClear();
+      query.setPermissionMode.mockClear();
       query.setModel.mockClear();
       query.applyFlagSettings.mockClear();
       outgoing.length = 0;
@@ -135,21 +139,16 @@ export function attachClaudeSdkTestBackend(bridge: WsBridge, sessionId: string):
 
 /**
  * Module factory for `vi.mock("@anthropic-ai/claude-agent-sdk", ...)`: records the
- * options of every session the real adapter starts, and keeps each session idle.
- * The adapter's first call is a one-time class probe, so the last entry is the
- * session under test.
+ * options of every query the real adapter starts, and keeps each one idle.
  */
-export function fakeAgentSdkModule(sessionOptions: any[]) {
-  const idleStream = () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }) });
-  const makeSession = () => ({ close: vi.fn(), query: {}, stream: idleStream });
+export function fakeAgentSdkModule(queryOptions: any[]) {
   return {
-    unstable_v2_createSession: vi.fn((options: unknown) => {
-      sessionOptions.push(options);
-      return makeSession();
-    }),
-    unstable_v2_resumeSession: vi.fn((_sessionId: string, options: unknown) => {
-      sessionOptions.push(options);
-      return makeSession();
+    query: vi.fn(({ options }: { options: unknown }) => {
+      queryOptions.push(options);
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
+      };
     }),
   };
 }

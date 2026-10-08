@@ -12,6 +12,12 @@ import { serverWorkAdmission } from "./server-work-admission.js";
  */
 
 import { randomUUID } from "node:crypto";
+import type {
+  EffortLevel,
+  Options as SdkQueryOptions,
+  PermissionMode as SdkPermissionMode,
+  Query as SdkQuery,
+} from "@anthropic-ai/claude-agent-sdk";
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
 import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
@@ -31,12 +37,6 @@ import type {
   ClaudeTurnAwareAdapter,
   PendingOutgoingAwareAdapter,
 } from "./bridge/adapter-interface.js";
-
-// ─── SDK internals cache ─────────────────────────────────────────────────────
-// We cache class references after the first SDK import so we can patch prototypes
-// without spawning a new probe process on every session creation.
-let cachedV4Class: any = null;
-let cachedQueryClass: any = null;
 
 /**
  * Claude Code retries a failed model request 10 times by default (about 3
@@ -126,6 +126,52 @@ interface PendingPermission {
   originalInput: Record<string, unknown>;
 }
 
+/** A user message on Claude's stream-json input. */
+type ClaudeInputMessage = {
+  type: "user";
+  message: { role: "user"; content: Array<{ type: "text"; text: string }> };
+  parent_tool_use_id: null;
+  session_id: string;
+};
+
+/**
+ * Claude's input for the whole process lifetime: the SDK reads prompts from it
+ * as they arrive, and ending it closes Claude's stdin.
+ */
+class PromptStream implements AsyncIterable<ClaudeInputMessage> {
+  private queued: ClaudeInputMessage[] = [];
+  private waiting: ((result: IteratorResult<ClaudeInputMessage>) => void) | null = null;
+  private ended = false;
+
+  push(msg: ClaudeInputMessage): void {
+    if (this.ended) return;
+    const waiting = this.waiting;
+    this.waiting = null;
+    if (waiting) waiting({ value: msg, done: false });
+    else this.queued.push(msg);
+  }
+
+  end(): void {
+    this.ended = true;
+    const waiting = this.waiting;
+    this.waiting = null;
+    waiting?.({ value: undefined, done: true });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<ClaudeInputMessage> {
+    return {
+      next: () => {
+        const msg = this.queued.shift();
+        if (msg) return Promise.resolve({ value: msg, done: false });
+        if (this.ended) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => {
+          this.waiting = resolve;
+        });
+      },
+    };
+  }
+}
+
 // ─── Adapter ────────────────────────────────────────────────────────────────────
 
 export class ClaudeSdkAdapter
@@ -137,7 +183,9 @@ export class ClaudeSdkAdapter
 {
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
-  private sdkSession: any = null; // SDKSession from the Agent SDK
+  /** The SDK query driving the Claude process; also its control channel. */
+  private sdkQuery: SdkQuery | null = null;
+  private prompts: Pick<PromptStream, "push" | "end"> | null = null;
   /** Settles true once the Claude process has spawned, false if startup failed. */
   readonly started: Promise<boolean>;
   private settleStarted: (started: boolean) => void = () => {};
@@ -175,7 +223,7 @@ export class ClaudeSdkAdapter
   /** Accept a message from the browser and send it to the CLI */
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
     if (serverWorkAdmission.isStopping()) return false;
-    if (!this.connected || !this.sdkSession) {
+    if (!this.connected || !this.sdkQuery) {
       this.pendingOutgoing.push(msg);
       return false;
     }
@@ -215,7 +263,9 @@ export class ClaudeSdkAdapter
     this.connected = false;
     this.turnInFlight = false;
     try {
-      this.sdkSession?.close();
+      // Ends Claude's input, then stops the process after a short grace period.
+      this.sdkQuery?.close();
+      this.prompts?.end();
     } catch {
       /* ignore */
     }
@@ -269,27 +319,7 @@ export class ClaudeSdkAdapter
 
     // Build the plugins list from pluginDirs
     const plugins = (this.options.pluginDirs ?? []).map((path) => ({ type: "local" as const, path }));
-
-    const sessionOptions: Record<string, unknown> = {
-      cwd: this.options.cwd,
-      permissionMode: this.mapPermissionMode(this.options.permissionMode),
-      env: mergedEnv,
-      canUseTool: this.handleCanUseTool.bind(this),
-      // NOTE: settingSources and plugins are NOT forwarded by the v2 SDK's SQ
-      // class to the underlying V4 (ProcessTransport). SQ hardcodes
-      // settingSources:[] and omits plugins entirely. We work around this by
-      // patching V4.prototype.initialize (see below) so the subprocess receives
-      // the correct --setting-sources and --plugin-dir flags.
-      settingSources: ["user", "project", "local"],
-      ...(plugins.length > 0 ? { plugins } : {}),
-      ...(this.options.allowedTools?.length ? { allowedTools: this.options.allowedTools } : {}),
-    };
-
-    // Pass model explicitly if provided — otherwise the CLI reads it from
-    // settings.json (which we load via settingSources).
-    if (this.options.model) {
-      sessionOptions.model = this.options.model;
-    }
+    const resuming = !!this.options.cliSessionId;
 
     // NOTE: Always provide canUseTool, even in bypassPermissions mode.
     // The ws-bridge permission pipeline handles mode-based auto-approval
@@ -298,221 +328,94 @@ export class ClaudeSdkAdapter
     // Without canUseTool, the CLI handles permissions internally and these
     // interactive tools fail silently — the user never sees the plan
     // approval dialog or question form.
-
-    // Resolve the claude binary path — use the configured binary or find it on PATH
-    if (this.options.claudeBinary) {
-      sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
-    }
-    if (this.options.spawnProcess) {
-      sessionOptions.spawnClaudeCodeProcess = this.options.spawnProcess;
-    }
-    if (this.options.debugFile) {
-      sessionOptions.debugFile = this.options.debugFile;
-    }
-    if (this.options.reasoningEffort) {
-      (sessionOptions as any).effort = this.options.reasoningEffort;
-    }
-    if (this.options.betas?.length) {
-      (sessionOptions as any).betas = this.options.betas;
-    }
+    const queryOptions: SdkQueryOptions = {
+      cwd: this.options.cwd,
+      permissionMode: this.mapPermissionMode(this.options.permissionMode) as SdkQueryOptions["permissionMode"],
+      env: mergedEnv,
+      canUseTool: this.handleCanUseTool.bind(this) as unknown as SdkQueryOptions["canUseTool"],
+      settingSources: ["user", "project", "local"],
+      // query() starts from an empty system prompt unless told otherwise; keep
+      // Claude Code's own prompt, with Takode's instructions appended.
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        ...(this.options.instructions ? { append: this.options.instructions } : {}),
+      },
+      ...(plugins.length > 0 ? { plugins } : {}),
+      ...(this.options.allowedTools?.length ? { allowedTools: this.options.allowedTools } : {}),
+      // Otherwise Claude Code reads the model from settings.json (loaded via settingSources).
+      ...(this.options.model ? { model: this.options.model } : {}),
+      // Without a configured binary the SDK runs the Claude Code bundled with it.
+      ...(this.options.claudeBinary ? { pathToClaudeCodeExecutable: this.options.claudeBinary } : {}),
+      ...(this.options.spawnProcess
+        ? { spawnClaudeCodeProcess: this.options.spawnProcess as SdkQueryOptions["spawnClaudeCodeProcess"] }
+        : {}),
+      ...(this.options.debugFile ? { debugFile: this.options.debugFile } : {}),
+      ...(this.options.reasoningEffort ? { effort: this.options.reasoningEffort as SdkQueryOptions["effort"] } : {}),
+      ...(this.options.betas?.length ? { betas: this.options.betas as SdkQueryOptions["betas"] } : {}),
+      ...(resuming ? { resume: this.options.cliSessionId } : {}),
+      // Revert: keep only the conversation through this assistant message.
+      ...(resuming && this.options.resumeSessionAt ? { resumeSessionAt: this.options.resumeSessionAt } : {}),
+    };
 
     console.log(
       `[claude-sdk-adapter] Creating session ${this.sessionId} with options:`,
       JSON.stringify({
         cwd: this.options.cwd,
-        permissionMode: sessionOptions.permissionMode,
-        model: sessionOptions.model ?? "(from settings.json)",
+        permissionMode: queryOptions.permissionMode,
+        model: queryOptions.model ?? "(from settings.json)",
         reasoningEffort: this.options.reasoningEffort ?? null,
         betas: this.options.betas ?? [],
-        settingSources: sessionOptions.settingSources,
+        settingSources: queryOptions.settingSources,
         plugins: plugins.map((p) => p.path),
         claudeBinary: this.options.claudeBinary ?? "(default)",
         debugFile: this.options.debugFile ?? null,
+        appendSystemPrompt: this.options.instructions?.length ?? 0,
       }),
     );
 
-    // WORKAROUND: The SDK's v2 SQ class hardcodes settingSources:[] and omits
-    // plugins when constructing V4 (ProcessTransport). We fix this by temporarily
-    // patching V4.prototype.initialize to inject the correct values before the
-    // subprocess spawns.
-    //
-    // Strategy:
-    //  1. On first call, create a throwaway SQ instance with a nonexistent binary
-    //     to get the V4 class reference (cached module-level for subsequent calls).
-    //  2. Save the original V4.prototype.initialize.
-    //  3. Replace it with a wrapper that overrides settingSources and plugins in
-    //     this.options before delegating to the original.
-    //  4. Create the real session (which synchronously calls new V4 → V4.initialize).
-    //  5. Restore the original prototype method immediately after.
-    //
-    // Safety: JavaScript is single-threaded — no concurrent code can call
-    // V4.prototype.initialize between step 3 and step 5.
-    if (!cachedV4Class) {
-      try {
-        // Probe: create a session with a nonexistent binary so the process fails
-        // fast. We just need class references — the subprocess dying is fine.
-        // This probe only runs ONCE per server process lifetime (result is cached).
-        const probe = (sdk as any).unstable_v2_createSession({
-          permissionMode: "bypassPermissions",
-          pathToClaudeCodeExecutable: "__nonexistent_probe__",
-        });
-        cachedV4Class = probe?.query?.transport?.constructor ?? null;
-        cachedQueryClass = probe?.query?.constructor ?? null;
-        console.log(`[claude-sdk-adapter] V4 probe: v4Class=${!!cachedV4Class} queryClass=${!!cachedQueryClass}`);
-        // Close the probe session immediately
-        try {
-          probe?.close?.();
-        } catch {
-          /* ignore */
-        }
-      } catch (probeErr) {
-        // Probe failed — classes unavailable, skip the patches
-        console.warn(`[claude-sdk-adapter] V4 probe failed:`, probeErr instanceof Error ? probeErr.message : probeErr);
-      }
-    }
-    const v4Class = cachedV4Class;
-    const queryClass = cachedQueryClass;
-
-    // PATCH 1: V4 (ProcessTransport) — inject settingSources and plugins into
-    // CLI args. The SDK's v2 SQ class hardcodes settingSources:[] and omits
-    // plugins; we override them before the subprocess spawns.
-    const originalV4Initialize = v4Class?.prototype?.initialize;
-    if (v4Class && originalV4Initialize) {
-      const patchedSettingSources = sessionOptions.settingSources as string[];
-      const patchedPlugins = plugins;
-      const patchedReasoningEffort = this.options.reasoningEffort;
-      const patchedBetas = this.options.betas;
-      // The v2 session API always clears resumeSessionAt, but the transport still
-      // maps it to --resume-session-at, which Revert needs to truncate context.
-      const patchedResumeSessionAt = this.options.cliSessionId ? this.options.resumeSessionAt : undefined;
-      const patchedSpawnProcess = this.options.spawnProcess;
-      const patchedClaudeBinary = this.options.claudeBinary;
-      v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
-        this.options.settingSources = patchedSettingSources;
-        if (patchedSpawnProcess) {
-          // The v2 session API does not forward the custom spawn hook either.
-          this.options.spawnClaudeCodeProcess = patchedSpawnProcess;
-          if (patchedClaudeBinary) this.options.pathToClaudeCodeExecutable = patchedClaudeBinary;
-        }
-        if (patchedPlugins.length > 0) {
-          this.options.plugins = patchedPlugins;
-        }
-        if (patchedReasoningEffort) {
-          this.options.effort = patchedReasoningEffort;
-        }
-        if (patchedBetas?.length) {
-          this.options.betas = patchedBetas;
-        }
-        if (patchedResumeSessionAt) {
-          this.options.resumeSessionAt = patchedResumeSessionAt;
-        }
-        return originalV4Initialize.call(this);
-      };
-    } else {
-      console.warn(
-        `[claude-sdk-adapter] Could not patch V4.prototype.initialize — settingSources and plugins may not reach the CLI`,
-      );
-    }
-
-    // PATCH 2: Query class — inject appendSystemPrompt into the initialize
-    // control_request. In SDK 0.2.101+, appendSystemPrompt is sent via the
-    // Query's initialize() control_request (reading from this.initConfig),
-    // NOT via V4's CLI args. The v2 API (unstable_v2_createSession) doesn't
-    // pass initConfig to the Query constructor, so we patch the Query's
-    // initialize() to inject it before the request is built.
-    const originalQueryInitialize = queryClass?.prototype?.initialize;
-    if (queryClass && originalQueryInitialize && this.options.instructions) {
-      const patchedAppendSystemPrompt = this.options.instructions;
-      queryClass.prototype.initialize = async function patchedQueryInitialize(this: any) {
-        // Ensure initConfig exists and inject appendSystemPrompt
-        if (!this.initConfig) {
-          this.initConfig = {};
-        }
-        this.initConfig.appendSystemPrompt = patchedAppendSystemPrompt;
-        return originalQueryInitialize.call(this);
-      };
-      console.log(
-        `[claude-sdk-adapter] Patching Query.initialize for session ${this.sessionId}` +
-          ` (appendSystemPrompt=${patchedAppendSystemPrompt.length} chars)`,
-      );
-    }
-
-    // Create or resume session — MUST be synchronous (no await) so the prototype
-    // patches above are still active when the subprocess spawns. The session
-    // passes `cwd` to the spawn itself, so a remote host gets its own path.
-    try {
-      if (this.options.cliSessionId) {
-        this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
-      } else {
-        this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
-      }
-    } finally {
-      // Always restore original prototypes
-      if (v4Class && originalV4Initialize) {
-        v4Class.prototype.initialize = originalV4Initialize;
-      }
-      if (queryClass && originalQueryInitialize) {
-        queryClass.prototype.initialize = originalQueryInitialize;
-      }
-    }
+    // Starts the process right away (the session passes `cwd` to the spawn
+    // itself, so a remote host gets its own path); prompts follow on `prompts`.
+    const prompts = new PromptStream();
+    const sdkQuery = sdk.query({ prompt: prompts as AsyncIterable<any>, options: queryOptions });
+    this.prompts = prompts;
+    this.sdkQuery = sdkQuery;
 
     this.connected = true;
     this.watchProcessStart();
     // A reattached process answers `initialize` with an error, so it reports no catalog.
     if (!this.options.reattach) this.recordModelCatalog();
-    console.log(
-      `[claude-sdk-adapter] Session ${this.sessionId} initialized${this.options.cliSessionId ? " (resumed)" : ""}`,
-    );
+    console.log(`[claude-sdk-adapter] Session ${this.sessionId} initialized${resuming ? " (resumed)" : ""}`);
 
     // Flush pending outgoing messages
     for (const msg of this.pendingOutgoing.splice(0)) {
       this.dispatchOutgoing(msg);
     }
 
-    // Start streaming messages
-    this.streamMessages().catch((err) => {
-      const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
-      console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}: ${errMsg}`);
-      this.handleDisconnect(err instanceof Error ? err.message : String(err));
-    });
+    void this.streamMessages(sdkQuery);
   }
 
   // ─── Message streaming ──────────────────────────────────────────────────────
 
-  private async streamMessages(): Promise<void> {
-    if (!this.sdkSession) return;
-
-    // The V2 SDK session's stream() yields messages until a result, then returns.
-    // For multi-turn sessions, we loop back and call stream() again for the next turn.
-    // The session stays alive between turns — only truly disconnects when closed.
-    while (this.connected && this.sdkSession) {
-      try {
-        let sawResult = false;
-        for await (const msg of this.sdkSession.stream()) {
-          this.handleSdkMessage(msg);
-          sawResult = msg?.type === "result";
-        }
-        // stream() returns without a result only once Claude's output has
-        // closed (e.g. the process died from a signal). Calling it again would
-        // return at once forever, spinning on microtasks and starving the
-        // event loop, so treat it as the process ending.
-        if (!sawResult) {
-          if (this.connected) {
-            console.warn(`[claude-sdk-adapter] Stream closed without a result for session ${this.sessionId}`);
-          }
-          this.handleDisconnect();
-          return;
-        }
-        // Stream ended normally (result received) -- session is still alive,
-        // just waiting for the next send(). Don't disconnect.
-        console.log(`[claude-sdk-adapter] Stream turn ended for session ${this.sessionId}`);
-      } catch (err) {
-        if (this.connected) {
-          const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
-          console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}: ${errMsg}`);
-          this.handleDisconnect(err instanceof Error ? err.message : String(err));
-          return;
-        }
+  /**
+   * Relay Claude's output for the life of the process. The query yields every
+   * turn's messages and ends only once Claude's output closes (the process
+   * exited or was killed), or throws when the process fails.
+   */
+  private async streamMessages(sdkQuery: AsyncIterable<unknown>): Promise<void> {
+    try {
+      for await (const msg of sdkQuery) {
+        this.handleSdkMessage(msg);
+      }
+      if (this.connected) {
+        console.warn(`[claude-sdk-adapter] Claude output ended for session ${this.sessionId}`);
+      }
+      this.handleDisconnect();
+    } catch (err) {
+      if (this.connected) {
+        const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+        console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}: ${errMsg}`);
+        this.handleDisconnect(err instanceof Error ? err.message : String(err));
       }
     }
   }
@@ -691,7 +594,7 @@ export class ClaudeSdkAdapter
 
   private dispatchOutgoing(msg: BrowserOutgoingMessage): boolean {
     if (serverWorkAdmission.isStopping()) return false;
-    if (!this.sdkSession || !this.connected) return false;
+    if (!this.sdkQuery || !this.prompts || !this.connected) return false;
 
     const msgType = (msg as any).type;
     trafficStats.record({
@@ -714,32 +617,17 @@ export class ClaudeSdkAdapter
         // Raw image payloads are rejected by routeBrowserMessage's ingress
         // guard before reaching this adapter -- no image handling needed here.
 
-        if (selectionText) {
-          // No images but VSCode selection present: send as structured message
-          // with content block array so the model sees both the user text and
-          // the selection hint.
-          const sdkMsg = {
-            type: "user" as const,
-            message: {
-              role: "user" as const,
-              content: [
-                { type: "text", text: content },
-                { type: "text", text: selectionText },
-              ],
-            },
-            parent_tool_use_id: null,
-            session_id: this.sessionId,
-          };
-          this.turnInFlight = true;
-          this.sdkSession.send(sdkMsg).catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] Send failed for session ${this.sessionId}:`, err);
-          });
-        } else {
-          this.turnInFlight = true;
-          this.sdkSession.send(content).catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] Send failed for session ${this.sessionId}:`, err);
-          });
-        }
+        // A VSCode selection rides along as a second text block so the model
+        // sees both the user text and the selection hint.
+        const blocks: Array<{ type: "text"; text: string }> = [{ type: "text", text: content }];
+        if (selectionText) blocks.push({ type: "text", text: selectionText });
+        this.turnInFlight = true;
+        this.prompts.push({
+          type: "user",
+          message: { role: "user", content: blocks },
+          parent_tool_use_id: null,
+          session_id: "",
+        });
         return true;
       }
 
@@ -772,19 +660,11 @@ export class ClaudeSdkAdapter
       }
 
       case "interrupt": {
-        // The v2 SDKSession type doesn't expose interrupt() directly, but the
-        // underlying SQ class holds a v1 Query at this.query which has it.
-        // Calling query.interrupt() sends a control_request {subtype:"interrupt"}
-        // to the CLI process.
-        const query = (this.sdkSession as any)?.query;
-        if (query?.interrupt) {
-          query.interrupt().catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] Interrupt failed for session ${this.sessionId}:`, err);
-          });
-          console.log(`[claude-sdk-adapter] Interrupt sent for session ${this.sessionId}`);
-        } else {
-          console.warn(`[claude-sdk-adapter] No interrupt method available for session ${this.sessionId}`);
-        }
+        // Sends a control_request {subtype:"interrupt"} to the CLI process.
+        this.sdkQuery.interrupt().catch((err: Error) => {
+          console.error(`[claude-sdk-adapter] Interrupt failed for session ${this.sessionId}:`, err);
+        });
+        console.log(`[claude-sdk-adapter] Interrupt sent for session ${this.sessionId}`);
         return true;
       }
 
@@ -792,34 +672,22 @@ export class ClaudeSdkAdapter
         // The CLI's own mode decides which tool calls reach canUseTool at all:
         // bypassPermissions never asks, and auto lets Claude's classifier approve
         // safe actions itself. A server-only change would leave the CLI in its old
-        // mode, so forward it (same internal Query path as interrupt/setModel).
-        const mode = this.mapPermissionMode((msg as any).mode) ?? "default";
-        const query = (this.sdkSession as any)?.query;
-        if (query?.setPermissionMode) {
-          query.setPermissionMode(mode).catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] setPermissionMode failed for session ${this.sessionId}:`, err);
-          });
-          console.log(`[claude-sdk-adapter] Permission mode changed to "${mode}" for session ${this.sessionId}`);
-        } else {
-          console.warn(`[claude-sdk-adapter] No setPermissionMode method available for session ${this.sessionId}`);
-        }
+        // mode, so forward it.
+        const mode = (this.mapPermissionMode((msg as any).mode) ?? "default") as SdkPermissionMode;
+        this.sdkQuery.setPermissionMode(mode).catch((err: Error) => {
+          console.error(`[claude-sdk-adapter] setPermissionMode failed for session ${this.sessionId}:`, err);
+        });
+        console.log(`[claude-sdk-adapter] Permission mode changed to "${mode}" for session ${this.sessionId}`);
         return true;
       }
 
       case "set_model": {
-        // Forward model change to the CLI subprocess via the internal v1 Query.
-        // Unlike permission mode, the model must reach the CLI so it uses the
-        // correct model for the next API call.
+        // The model must reach the CLI so it uses it for the next API call.
         const model = (msg as any).model;
-        const queryForModel = (this.sdkSession as any)?.query;
-        if (queryForModel?.setModel) {
-          queryForModel.setModel(model).catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] setModel failed for session ${this.sessionId}:`, err);
-          });
-          console.log(`[claude-sdk-adapter] Model changed to "${model}" for session ${this.sessionId}`);
-        } else {
-          console.warn(`[claude-sdk-adapter] No setModel method available for session ${this.sessionId}`);
-        }
+        this.sdkQuery.setModel(model).catch((err: Error) => {
+          console.error(`[claude-sdk-adapter] setModel failed for session ${this.sessionId}:`, err);
+        });
+        console.log(`[claude-sdk-adapter] Model changed to "${model}" for session ${this.sessionId}`);
         return true;
       }
 
@@ -827,15 +695,10 @@ export class ClaudeSdkAdapter
         // Effort set through the flag-settings layer replaces the process's
         // live effort, including one passed as --effort at launch; null
         // returns to Claude's default.
-        const effortLevel = (msg as { effort: string }).effort || null;
-        const queryForEffort = (this.sdkSession as any)?.query;
-        if (queryForEffort?.applyFlagSettings) {
-          queryForEffort.applyFlagSettings({ effortLevel }).catch((err: Error) => {
-            console.error(`[claude-sdk-adapter] Effort change failed for session ${this.sessionId}:`, err);
-          });
-        } else {
-          console.warn(`[claude-sdk-adapter] No applyFlagSettings method available for session ${this.sessionId}`);
-        }
+        const effortLevel = ((msg as { effort: string }).effort || null) as EffortLevel | null;
+        this.sdkQuery.applyFlagSettings({ effortLevel }).catch((err: Error) => {
+          console.error(`[claude-sdk-adapter] Effort change failed for session ${this.sessionId}:`, err);
+        });
         return true;
       }
 
@@ -887,7 +750,8 @@ export class ClaudeSdkAdapter
    * session creation has already returned.
    */
   private watchProcessStart(): void {
-    const proc = this.sdkSession?.query?.transport?.process;
+    // The SDK's internal process transport; not a public contract.
+    const proc = (this.sdkQuery as any)?.transport?.process;
     if (typeof proc?.once !== "function") {
       // SDK internals changed: startup cannot be observed, so keep treating the
       // created session as started. Later failures still arrive as disconnects.
@@ -901,7 +765,7 @@ export class ClaudeSdkAdapter
 
   /** Record the CLI's model catalog once initialization completes, so model menus list what this CLI offers. */
   private recordModelCatalog(): void {
-    const query = this.sdkSession?.query;
+    const query = this.sdkQuery;
     if (typeof query?.supportedModels !== "function") return;
     query.supportedModels().then(recordClaudeModelCatalog, (err: unknown) => {
       console.warn(

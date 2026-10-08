@@ -10,24 +10,12 @@ function createIdleAdapter(onBackendExit: (error: string) => void): ClaudeSdkAda
 }
 
 /**
- * Mirrors the Agent SDK's session stream(): each call yields one turn and
- * returns right after its `result`, or returns with nothing once Claude's
- * output has closed. A closed stream stays closed, so every later call returns
- * at once. Re-entering after closure throws so a regression fails here instead
- * of spinning the test worker.
+ * Mirrors the Agent SDK query: one iterator yields every turn's messages for
+ * the life of the process and finishes once Claude's output closes.
  */
-function fakeSdkSession(turns: Array<Array<{ type: string }>>) {
-  let calls = 0;
-  return {
-    get streamCalls() {
-      return calls;
-    },
-    async *stream() {
-      calls++;
-      if (calls > turns.length + 1) throw new Error("stream() re-entered after the session closed");
-      for (const msg of turns[calls - 1] ?? []) yield msg;
-    },
-  };
+async function* fakeSdkQuery(messages: Array<{ type: string }>, closed: Promise<void> = Promise.resolve()) {
+  for (const msg of messages) yield msg;
+  await closed;
 }
 
 describe("ClaudeSdkAdapter message stream", () => {
@@ -35,35 +23,54 @@ describe("ClaudeSdkAdapter message stream", () => {
     vi.restoreAllMocks();
   });
 
-  it("reports the backend exit when the SDK stream closes without a result", async () => {
-    // Regression: a Ctrl-C reaching Claude's process group killed the process,
-    // and its stream then returned empty on every call. The adapter kept
-    // re-entering stream() in a microtask loop that starved the event loop, so
-    // the server never ran its shutdown and grew to 11 GB.
+  it("keeps relaying across turns and reports the backend exit when Claude's output closes", async () => {
+    // Several results arrive on one stream; only the end of Claude's output
+    // (for example the process killed by a Ctrl-C reaching its process group)
+    // means the backend is gone, and it must surface as a backend exit.
     const onBackendExit = vi.fn();
     const adapter = createIdleAdapter(onBackendExit);
-    const session = fakeSdkSession([[{ type: "assistant" }, { type: "result" }]]);
+    const relayed: string[] = [];
+    adapter.onBrowserMessage((msg) => relayed.push(msg.type));
     (adapter as any).connected = true;
-    (adapter as any).sdkSession = session;
 
-    await (adapter as any).streamMessages();
+    await (adapter as any).streamMessages(
+      fakeSdkQuery([{ type: "assistant" }, { type: "result" }, { type: "assistant" }, { type: "result" }]),
+    );
 
-    // One completed turn, then one closed stream: exactly two calls.
-    expect(session.streamCalls).toBe(2);
+    expect(relayed).toEqual(["assistant", "result", "assistant", "result"]);
     expect(onBackendExit).toHaveBeenCalledWith("Claude process ended");
     expect(adapter.isConnected()).toBe(false);
   });
 
-  it("stops quietly when the adapter was disconnected on purpose", async () => {
-    // disconnect() closes the SDK session, which also ends its stream without
-    // a result; that is not a backend failure and must not be reported.
+  it("reports a failed process with the SDK's error", async () => {
     const onBackendExit = vi.fn();
     const adapter = createIdleAdapter(onBackendExit);
-    const session = fakeSdkSession([]);
     (adapter as any).connected = true;
-    (adapter as any).sdkSession = session;
 
-    const streaming = (adapter as any).streamMessages();
+    await (adapter as any).streamMessages(
+      (async function* () {
+        yield* [];
+        throw new Error("Claude Code process exited with code 1");
+      })(),
+    );
+
+    expect(onBackendExit).toHaveBeenCalledWith("Claude Code process exited with code 1");
+    expect(adapter.isConnected()).toBe(false);
+  });
+
+  it("stops quietly when the adapter was disconnected on purpose", async () => {
+    // disconnect() closes the query, which also ends Claude's output; that is
+    // not a backend failure and must not be reported.
+    const onBackendExit = vi.fn();
+    const adapter = createIdleAdapter(onBackendExit);
+    let closeOutput = () => {};
+    const closed = new Promise<void>((resolve) => {
+      closeOutput = resolve;
+    });
+    (adapter as any).connected = true;
+    (adapter as any).sdkQuery = { close: closeOutput };
+
+    const streaming = (adapter as any).streamMessages(fakeSdkQuery([], closed));
     await adapter.disconnect();
     await streaming;
 

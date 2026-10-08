@@ -67,7 +67,8 @@ describe("ClaudeSdkAdapter permission requests", () => {
     const adapter = createIdleAdapter();
     const setPermissionMode = vi.fn().mockResolvedValue(undefined);
     (adapter as any).connected = true;
-    (adapter as any).sdkSession = { query: { setPermissionMode } };
+    (adapter as any).sdkQuery = { setPermissionMode };
+    (adapter as any).prompts = { push: vi.fn(), end: vi.fn() };
 
     expect(adapter.sendBrowserMessage({ type: "set_permission_mode", mode: "auto" })).toBe(true);
     expect(adapter.sendBrowserMessage({ type: "set_permission_mode", mode: "default" })).toBe(true);

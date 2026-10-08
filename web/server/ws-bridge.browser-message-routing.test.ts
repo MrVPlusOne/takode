@@ -1126,7 +1126,9 @@ describe("Browser message routing", () => {
     expect(cli.promptTexts()).toHaveLength(1);
     const sent = cli.promptTexts()[0];
     // Images should be sent as file path annotations (plain text), not inline base64 blocks.
-    expect(cli.userTurns.mock.calls[0][0]).toBeTypeOf("string");
+    const blocks = (cli.userTurns.mock.calls[0][0] as { message: { content: Array<{ type: string }> } }).message
+      .content;
+    expect(blocks.map((block) => block.type)).toEqual(["text"]);
     expect(sent).toContain("Please compare these");
     expect(sent).toContain(`Attachment 1: ${expectedPath1}`);
     expect(sent).toContain(`Attachment 2: ${expectedPath2}`);
@@ -1657,8 +1659,9 @@ describe("Browser message routing", () => {
       }),
     );
 
-    // The SDK keeps permission policy server-side; the adapter still sees the change.
+    // Claude's own mode decides which tool calls reach Takode, so the process gets it too.
     expect(cli.outgoing).toEqual([{ type: "set_permission_mode", mode: "bypassPermissions" }]);
+    expect(cli.query.setPermissionMode).toHaveBeenCalledWith("bypassPermissions");
     expect(bridge.getSession("s1")!.state.permissionMode).toBe("bypassPermissions");
   });
 

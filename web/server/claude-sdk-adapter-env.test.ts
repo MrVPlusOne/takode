@@ -5,48 +5,24 @@ vi.mock("./path-resolver.js", () => ({
   getEnrichedPath: mockGetEnrichedPath,
 }));
 
-const sdkMocks = vi.hoisted(() => {
-  class MockTransport {
-    options: Record<string, unknown> = {};
-    initialize(): void {}
-  }
-
-  class MockQuery {
-    initConfig: Record<string, unknown> = {};
-    initialize(): Promise<void> {
-      return Promise.resolve();
-    }
-  }
-
-  const makeSession = () => ({
+const sdkMocks = vi.hoisted(() => ({
+  // Records each query the adapter starts: its prompt input and options.
+  query: vi.fn((_params: { prompt: AsyncIterable<unknown>; options: Record<string, any> }) => ({
     close: vi.fn(),
-    query: {
-      transport: new MockTransport(),
-      constructor: MockQuery,
-    },
-  });
-
-  // Like the real SDK, resuming constructs the process transport and initializes it
-  // synchronously, which is when CLI arguments are derived from transport options.
-  const resumedTransports: MockTransport[] = [];
-  const resumeSession = (_sessionId: string, _options: unknown) => {
-    const transport = new MockTransport();
-    transport.initialize();
-    resumedTransports.push(transport);
-    return makeSession();
-  };
-
-  return {
-    createSession: vi.fn((_options: unknown) => makeSession()),
-    resumeSession: vi.fn(resumeSession),
-    resumedTransports,
-  };
-});
-
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  unstable_v2_createSession: sdkMocks.createSession,
-  unstable_v2_resumeSession: sdkMocks.resumeSession,
+    [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
+  })),
 }));
+
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({ query: sdkMocks.query }));
+
+/** Start an adapter and return the options of the query it started. */
+async function launchOptions(options: Partial<ConstructorParameters<typeof ClaudeSdkAdapter>[1]> = {}) {
+  const before = sdkMocks.query.mock.calls.length;
+  const adapter = new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), ...options });
+  await vi.waitFor(() => expect(sdkMocks.query.mock.calls.length).toBeGreaterThan(before));
+  const params = sdkMocks.query.mock.calls.at(-1)![0];
+  return { adapter, options: params.options, prompt: params.prompt };
+}
 
 import { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
 
@@ -56,7 +32,6 @@ describe("ClaudeSdkAdapter launch env", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    sdkMocks.resumedTransports.length = 0;
     delete process.env.CLAUDECODE;
     if (originalGitEditor === undefined) {
       delete process.env.GIT_EDITOR;
@@ -70,14 +45,13 @@ describe("ClaudeSdkAdapter launch env", () => {
     }
   });
 
-  it("enforces noninteractive Git editors in SDK sessionOptions.env", async () => {
-    // The SDK adapter builds sessionOptions.env itself, so launcher-level spawn
+  it("enforces noninteractive Git editors in the SDK query env", async () => {
+    // The SDK adapter builds the query env itself, so launcher-level spawn
     // assertions do not cover the subprocess environment used by Claude SDK.
     process.env.GIT_EDITOR = "code --wait";
     process.env.GIT_SEQUENCE_EDITOR = "vim";
 
-    new ClaudeSdkAdapter("sdk-session", {
-      cwd: process.cwd(),
+    const { options } = await launchOptions({
       env: {
         COMPANION_SERVER_ID: "test-server-id",
         GIT_EDITOR: "nano",
@@ -87,43 +61,69 @@ describe("ClaudeSdkAdapter launch env", () => {
       },
     });
 
-    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalledTimes(2));
-
-    const sessionOptions = sdkMocks.createSession.mock.calls[1][0] as {
-      env: Record<string, string | undefined>;
-    };
-    expect(sessionOptions.env.GIT_EDITOR).toBe("true");
-    expect(sessionOptions.env.GIT_SEQUENCE_EDITOR).toBe("true");
-    expect(sessionOptions.env.EDITOR).toBe("code --wait");
-    expect(sessionOptions.env.VISUAL).toBe("code --wait");
+    expect(options.env.GIT_EDITOR).toBe("true");
+    expect(options.env.GIT_SEQUENCE_EDITOR).toBe("true");
+    expect(options.env.EDITOR).toBe("code --wait");
+    expect(options.env.VISUAL).toBe("code --wait");
   });
 
-  it("passes reasoning effort and betas into SDK session options", async () => {
-    new ClaudeSdkAdapter("sdk-session", {
-      cwd: process.cwd(),
-      reasoningEffort: "max",
-      betas: ["context-1m-2025-08-07"],
-    });
+  it("passes reasoning effort and betas into the SDK query options", async () => {
+    const { options } = await launchOptions({ reasoningEffort: "max", betas: ["context-1m-2025-08-07"] });
 
-    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
+    expect(options.effort).toBe("max");
+    expect(options.betas).toEqual(["context-1m-2025-08-07"]);
+  });
 
-    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as {
-      effort?: string;
-      betas?: string[];
-    };
-    expect(sessionOptions.effort).toBe("max");
-    expect(sessionOptions.betas).toEqual(["context-1m-2025-08-07"]);
+  it("keeps Claude Code's own system prompt and appends Takode's instructions", async () => {
+    // query() starts from an empty system prompt unless given the preset;
+    // without it, Claude would lose its tool and coding instructions.
+    const { options } = await launchOptions({ instructions: "Takode session #5" });
+    expect(options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Takode session #5" });
+
+    const { options: bare } = await launchOptions();
+    expect(bare.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
+  });
+
+  it("loads user, project and local settings and the session's plugins", async () => {
+    // Project settings carry CLAUDE.md loading and project permission rules.
+    const { options } = await launchOptions({ pluginDirs: ["/plugins/takode"] });
+
+    expect(options.settingSources).toEqual(["user", "project", "local"]);
+    expect(options.plugins).toEqual([{ type: "local", path: "/plugins/takode" }]);
+  });
+
+  it("uses a configured Claude binary and a host spawn hook, else the SDK's bundled Claude", async () => {
+    const spawnProcess = vi.fn();
+    const { options } = await launchOptions({ claudeBinary: "claude", spawnProcess });
+    expect(options.pathToClaudeCodeExecutable).toBe("claude");
+    expect(options.spawnClaudeCodeProcess).toBe(spawnProcess);
+
+    const { options: defaults } = await launchOptions();
+    expect(defaults).not.toHaveProperty("pathToClaudeCodeExecutable");
+    expect(defaults).not.toHaveProperty("spawnClaudeCodeProcess");
+  });
+
+  it("delivers prompts on Claude's input stream in order, including ones sent before start", async () => {
+    const { adapter, prompt } = await launchOptions();
+    adapter.sendBrowserMessage({ type: "user_message", content: "first" });
+    adapter.sendBrowserMessage({ type: "user_message", content: "second" });
+
+    const input = prompt[Symbol.asyncIterator]();
+    const texts = [(await input.next()).value, (await input.next()).value].map(
+      (msg: any) => msg.message.content[0].text,
+    );
+    expect(texts).toEqual(["first", "second"]);
+    expect(adapter.hasTurnInFlight()).toBe(true);
+
+    // Disconnecting ends Claude's input so the SDK closes its stdin.
+    await adapter.disconnect();
+    expect((await input.next()).done).toBe(true);
   });
 
   it("lets Claude retry model requests longest inside a turn unless a value is configured", async () => {
     // Longer in-turn retries let most network outages end without a hidden
     // continue prompt; an explicit session or server setting must still win.
-    const launchEnv = async (env?: Record<string, string>) => {
-      const before = sdkMocks.createSession.mock.calls.length;
-      new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), ...(env ? { env } : {}) });
-      await vi.waitFor(() => expect(sdkMocks.createSession.mock.calls.length).toBeGreaterThan(before));
-      return (sdkMocks.createSession.mock.calls.at(-1)?.[0] as { env: Record<string, unknown> }).env;
-    };
+    const launchEnv = async (env?: Record<string, string>) => (await launchOptions(env ? { env } : {})).options.env;
     const original = process.env.CLAUDE_CODE_MAX_RETRIES;
     try {
       delete process.env.CLAUDE_CODE_MAX_RETRIES;
@@ -139,43 +139,33 @@ describe("ClaudeSdkAdapter launch env", () => {
 
   it("strips an inherited CLAUDECODE so Claude's nesting guard does not trip", async () => {
     process.env.CLAUDECODE = "1";
-    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd() });
+    const { options } = await launchOptions();
 
-    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
-
-    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as { env: Record<string, unknown> };
-    expect(sessionOptions.env.CLAUDECODE).toBeUndefined();
+    expect(options.env.CLAUDECODE).toBeUndefined();
   });
 
-  it("passes allowed tools into SDK session options", async () => {
-    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), allowedTools: ["Read", "Bash"] });
+  it("passes allowed tools into the SDK query options", async () => {
+    const { options } = await launchOptions({ allowedTools: ["Read", "Bash"] });
 
-    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
-
-    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as { allowedTools?: string[] };
-    expect(sessionOptions.allowedTools).toEqual(["Read", "Bash"]);
+    expect(options.allowedTools).toEqual(["Read", "Bash"]);
   });
 
-  it("injects the Revert point into the resumed transport so Claude truncates its context", async () => {
-    // The v2 session API clears resumeSessionAt; the transport patch must restore it
-    // so the CLI receives --resume-session-at for the chosen assistant message.
-    new ClaudeSdkAdapter("sdk-session", {
-      cwd: process.cwd(),
-      cliSessionId: "cli-session-1",
-      resumeSessionAt: "assistant-uuid-7",
-    });
+  it("resumes at the Revert point so Claude truncates its context", async () => {
+    // The CLI receives --resume-session-at for the chosen assistant message.
+    const { options } = await launchOptions({ cliSessionId: "cli-session-1", resumeSessionAt: "assistant-uuid-7" });
 
-    await vi.waitFor(() => expect(sdkMocks.resumeSession).toHaveBeenCalled());
-
-    expect(sdkMocks.resumeSession.mock.calls.at(-1)?.[0]).toBe("cli-session-1");
-    expect(sdkMocks.resumedTransports.at(-1)?.options.resumeSessionAt).toBe("assistant-uuid-7");
+    expect(options.resume).toBe("cli-session-1");
+    expect(options.resumeSessionAt).toBe("assistant-uuid-7");
   });
 
-  it("does not set a Revert point on an ordinary resume", async () => {
-    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), cliSessionId: "cli-session-1" });
+  it("does not set a Revert point on an ordinary resume or a new session", async () => {
+    const { options } = await launchOptions({ cliSessionId: "cli-session-1" });
+    expect(options.resume).toBe("cli-session-1");
+    expect(options).not.toHaveProperty("resumeSessionAt");
 
-    await vi.waitFor(() => expect(sdkMocks.resumeSession).toHaveBeenCalled());
-
-    expect(sdkMocks.resumedTransports.at(-1)?.options.resumeSessionAt).toBeUndefined();
+    // A Revert point without a session to resume is meaningless.
+    const { options: fresh } = await launchOptions({ resumeSessionAt: "assistant-uuid-7" });
+    expect(fresh).not.toHaveProperty("resume");
+    expect(fresh).not.toHaveProperty("resumeSessionAt");
   });
 });

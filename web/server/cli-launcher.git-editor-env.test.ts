@@ -7,9 +7,9 @@ import { vi } from "vitest";
 // launcher hands it instead of starting a real Claude process.
 // Claude sessions run through the real SDK adapter against a fake Agent SDK, so the
 // test sees the environment the Claude process would actually receive.
-const sdkSessionOptions = vi.hoisted(() => [] as any[]);
+const sdkQueryOptions = vi.hoisted(() => [] as any[]);
 vi.mock("@anthropic-ai/claude-agent-sdk", async () =>
-  (await import("./claude-sdk-test-helpers.js")).fakeAgentSdkModule(sdkSessionOptions),
+  (await import("./claude-sdk-test-helpers.js")).fakeAgentSdkModule(sdkQueryOptions),
 );
 
 vi.mock("node:crypto", async (importOriginal) => {
@@ -72,7 +72,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sdkSessionOptions.length = 0;
+  sdkQueryOptions.length = 0;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-git-editor-env-test-"));
   store = new SessionStore(tempDir);
   launcher = new CliLauncher(3456, { serverId: "test-server-id" });
@@ -109,8 +109,8 @@ describe("launcher Git editor env", () => {
     });
 
     // The first SDK call is the adapter's one-time class probe; the last starts this session.
-    await vi.waitFor(() => expect(sdkSessionOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
-    const { env } = sdkSessionOptions.at(-1);
+    await vi.waitFor(() => expect(sdkQueryOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
+    const { env } = sdkQueryOptions.at(-1);
     expect(env.GIT_EDITOR).toBe("true");
     expect(env.GIT_SEQUENCE_EDITOR).toBe("true");
     expect(env.EDITOR).toBe("code --wait");

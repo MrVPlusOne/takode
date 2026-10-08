@@ -7,6 +7,12 @@ which owns the `claude` process and talks to it over stdio
 that name the `claude` family (session creation, `takode spawn --backend claude`,
 cron jobs) launch it.
 
+**Which Claude Code runs.** When Settings "Claude binary" is empty, the SDK runs
+the Claude Code build bundled with the pinned SDK version (SDK 0.3.289 bundles
+Claude Code 2.1.289). A configured "Claude binary" is used instead, and a remote
+host runs its own configured binary or the `claude` on its PATH. Upgrading the
+SDK therefore upgrades Claude Code for default installs.
+
 Takode used to offer a second Claude backend that started
 `claude --sdk-url ws://localhost:<port>/ws/cli/<session>` and let the CLI connect
 back over a newline-delimited JSON WebSocket. That backend, its `/ws/cli` route,
