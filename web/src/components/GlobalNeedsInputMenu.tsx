@@ -4,7 +4,6 @@ import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
-import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { applySessionNotifications, type NotificationStatusSnapshot } from "../notification-status.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
@@ -14,7 +13,7 @@ import {
   shouldShowNeedsInputQuestionPrompt,
 } from "../utils/notification-source-context.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
-import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
+import { navigateToNotification } from "../utils/notification-navigation.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
@@ -76,27 +75,6 @@ function needsInputFetchRequests(state: GlobalNeedsInputState): NeedsInputFetchR
         status,
       };
     });
-}
-
-function jumpToNotification(entry: GlobalNeedsInputEntry, sdkSessions: SdkSessionInfo[]) {
-  const threadKey = resolveNotificationOwnerThreadKey(entry.notification);
-  const routeSessionId = routeSessionRefForId(entry.sessionId, sdkSessions);
-  const fallbackMessageId =
-    !entry.notification.messageId && threadKey !== MAIN_THREAD_KEY
-      ? attentionLedgerMessageIdForNotificationId(entry.notification.id)
-      : null;
-  const messageId = entry.notification.messageId ?? fallbackMessageId;
-
-  if (messageId) {
-    navigateToSessionMessageId(entry.sessionId, messageId, {
-      routeSessionId,
-      threadKey,
-      preserveMainThreadRoute: true,
-    });
-    return;
-  }
-
-  navigateToSessionThread(entry.sessionId, threadKey, false, routeSessionId, { preserveMainThreadRoute: true });
 }
 
 function getCurrentChatFeedWidth(): number {
@@ -396,7 +374,7 @@ function GlobalNeedsInputPopover({
   const navigate = useCallback(
     (entry: GlobalNeedsInputEntry) => {
       const shouldDismiss = shouldDismissAfterNavigation(popoverRef.current);
-      jumpToNotification(entry, sdkSessions);
+      navigateToNotification(entry.sessionId, entry.notification, sdkSessions);
       if (shouldDismiss) onClose();
     },
     [onClose, sdkSessions],

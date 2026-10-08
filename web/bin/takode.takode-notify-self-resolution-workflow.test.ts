@@ -243,15 +243,18 @@ describe("takode notify self-resolution workflow", () => {
     expect(requestBodies).toEqual([]);
   });
 
-  it("prints the created notification id for takode notify needs-input", async () => {
+  it("prints the created notification id and link for takode notify needs-input", async () => {
     const result = await runTakode(["notify", "needs-input", "Need", "approval", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "worker-7",
+      COMPANION_SESSION_NUMBER: "77",
       COMPANION_AUTH_TOKEN: "auth-7",
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Notification sent (needs-input, id 7)");
+    expect(result.stdout.trim()).toBe(
+      "Notification sent (needs-input, id 7). Link: [Need approval](session:77:notification:7)",
+    );
     expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Need approval" });
   });
 
@@ -435,9 +438,11 @@ describe("takode notify self-resolution workflow", () => {
   });
 
   it("lists unresolved same-session needs-input notifications", async () => {
+    // Each entry is a paste-ready notification link so agents never mention bare IDs to the user.
     const result = await runTakode(["notify", "list", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "worker-7",
+      COMPANION_SESSION_NUMBER: "77",
       COMPANION_AUTH_TOKEN: "auth-7",
     });
 
@@ -445,16 +450,18 @@ describe("takode notify self-resolution workflow", () => {
     expect(result.stdout).toContain(
       "Active unresolved same-session needs-input notifications: 2. Muted: 1. Resolved: 1.",
     );
-    expect(result.stdout).toContain("2. Need rollout decision");
-    expect(result.stdout).toContain("7. Need config confirmation");
+    expect(result.stdout).toContain("2. [Need rollout decision](session:77:notification:2)");
+    expect(result.stdout).toContain("7. [Need config confirmation](session:77:notification:7)");
     expect(result.stdout).not.toContain("8. Deferred prompt");
     expect(result.stdout).toContain("suggestions: yes, no");
   });
 
   it("lists muted same-session needs-input notifications separately", async () => {
+    // Without a session number (for example an auth-file fallback), entries keep their plain summaries.
     const result = await runTakode(["notify", "list", "--muted", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "worker-7",
+      COMPANION_SESSION_NUMBER: "",
       COMPANION_AUTH_TOKEN: "auth-7",
     });
 

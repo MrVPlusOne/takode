@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
 import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
 import { isValidQuestId } from "../shared/quest-journey.ts";
+import { formatNotificationMarkdownLink } from "../shared/notification-link.ts";
 import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../shared/session-defaults.ts";
 import {
   apiDelete,
@@ -1741,7 +1742,8 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     );
     for (const notification of result.notifications) {
       const summary = notification.summary?.trim() || "(no summary)";
-      console.log(`  ${notification.notificationId}. ${formatInlineText(summary)}`);
+      const link = callerNotificationLink(notification.rawNotificationId, summary);
+      console.log(`  ${notification.notificationId}. ${link ?? formatInlineText(summary)}`);
       if (notification.suggestedAnswers?.length) {
         console.log(
           `     suggestions: ${notification.suggestedAnswers.map((answer) => formatInlineText(answer)).join(", ")}`,
@@ -1882,11 +1884,19 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     typeof result.notificationId === "number"
       ? String(result.notificationId)
       : formatInlineText(result.rawNotificationId ?? "(none)");
+  const link = result.rawNotificationId ? callerNotificationLink(result.rawNotificationId, summary) : null;
+  const linkSuffix = link ? `. Link: ${link}` : "";
   if (result.reused) {
-    console.log(`Notification already active (${category}, id ${notificationLabel})`);
+    console.log(`Notification already active (${category}, id ${notificationLabel})${linkSuffix}`);
     return;
   }
-  console.log(`Notification sent (${category}, id ${notificationLabel})`);
+  console.log(`Notification sent (${category}, id ${notificationLabel})${linkSuffix}`);
+}
+
+/** Markdown link agents can paste to refer to one of their own notifications; null without a session number. */
+function callerNotificationLink(rawNotificationId: string, summary: string): string | null {
+  const sessionNum = Number.parseInt(process.env.COMPANION_SESSION_NUMBER ?? "", 10);
+  return Number.isInteger(sessionNum) ? formatNotificationMarkdownLink(sessionNum, rawNotificationId, summary) : null;
 }
 
 export async function handleWorkerStream(base: string, args: string[]): Promise<void> {

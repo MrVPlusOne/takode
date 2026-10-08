@@ -30,6 +30,8 @@ import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } f
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { HighlightedText, buildHighlightPattern } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { NotificationInlineLink } from "./NotificationInlineLink.js";
+import { parseNotificationLinkHref } from "../../shared/notification-link.js";
 import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
 import {
   KATEX_RENDER_OPTIONS,
@@ -513,7 +515,14 @@ function hasUnsafePathTraversal(path: string): boolean {
 }
 
 function transformMarkdownUrl(url: string): string {
-  if (parseQuestLinkTarget(url) || parseSessionLinkFromHref(url) != null || parseFileLinkFromHref(url)) return url;
+  if (
+    parseQuestLinkTarget(url) ||
+    parseSessionLinkFromHref(url) != null ||
+    parseNotificationLinkHref(url) ||
+    parseFileLinkFromHref(url)
+  ) {
+    return url;
+  }
   if (isReservedQuestLinkHref(url) || /^file:/i.test(url.trim())) return "";
   // Block dangerous protocols while preserving normal links.
   const normalized = url.toLowerCase().replace(/[\u0000-\u001f\u007f\s]+/g, "");
@@ -830,6 +839,20 @@ export const MarkdownContent = memo(function MarkdownContent({
             }
             if (!href) {
               return <span>{children}</span>;
+            }
+            const notificationLink = parseNotificationLinkHref(href);
+            if (notificationLink) {
+              return (
+                <NotificationInlineLink
+                  sessionNum={notificationLink.sessionNum}
+                  notificationId={notificationLink.notificationId}
+                  className={`text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`}
+                  onNavigate={onSessionNavigate}
+                  stopPropagation={stopLinkPropagation}
+                >
+                  {children}
+                </NotificationInlineLink>
+              );
             }
             const sessionLink = parseSessionLinkFromHref(href);
             if (sessionLink != null) {

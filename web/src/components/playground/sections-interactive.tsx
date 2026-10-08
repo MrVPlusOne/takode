@@ -26,6 +26,7 @@ import {
 import { getSyncedProjectionValue } from "../../store-synced-projections.js";
 import { THREAD_MONITORING_PROJECTION } from "../../../shared/thread-monitoring.js";
 import { PlaygroundNotificationInboxSection } from "./PlaygroundNotificationInboxSection.js";
+import { PlaygroundNotificationLinkDemo } from "./NotificationLinkPlaygroundDemo.js";
 import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerAutocompletePreview.js";
 import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
 import {
@@ -1930,6 +1931,9 @@ export function PlaygroundInteractiveSections() {
           </Card>
           <Card label="Message link hover focuses the referenced message">
             <PlaygroundMessageLinkHoverDemo />
+          </Card>
+          <Card label="Needs-input notification links show the prompt and its status">
+            <PlaygroundNotificationLinkDemo />
           </Card>
         </div>
       </Section>

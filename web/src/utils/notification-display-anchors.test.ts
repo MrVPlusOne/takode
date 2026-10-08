@@ -133,6 +133,18 @@ describe("projectNotificationDisplayAnchors", () => {
     expect(source).toEqual(original);
   });
 
+  it.each([
+    ". Link: [Approve deploy?](session:12:notification:870)",
+    ". Link: [Pick \\[A\\] or B](session:12:notification:870)\n(0.1s)",
+  ])("accepts the CLI notification link suffix %j", (suffix) => {
+    // `takode notify` appends a paste-ready link to the same notification; it is still the exact receipt.
+    const source = fixture();
+    source.toolResults.set("notify-tool", receipt("notify-tool", `Notification sent (needs-input, id 870)${suffix}`));
+    expect(
+      projectNotificationDisplayAnchors(source.notifications, source.messages, source.toolResults)?.[0]?.messageId,
+    ).toBe("notify");
+  });
+
   it.each(["\n(123ms)", "\n(0.1s)"])("accepts the normal CLI duration suffix %j", (suffix) => {
     const source = fixture();
     source.toolResults.set("notify-tool", receipt("notify-tool", `Notification sent (needs-input, id 870)${suffix}`));
@@ -169,6 +181,10 @@ describe("projectNotificationDisplayAnchors", () => {
     ["wrong notification", { content: "Notification sent (needs-input, id 871)" }],
     ["wrong category", { content: "Notification sent (review, id 870)" }],
     ["extra output", { content: "Notification sent (needs-input, id 870)\nAnother notification may exist." }],
+    [
+      "link to another notification",
+      { content: "Notification sent (needs-input, id 870). Link: [x](session:12:notification:871)" },
+    ],
   ] satisfies [string, Partial<ToolResultPreview>][])("rejects a %s receipt", (_name, patch) => {
     // A nearby tool or a plausible-looking preview cannot provide authority to
     // relocate a notification without the exact successful producer receipt.

@@ -146,9 +146,11 @@ function successfulNotificationReceipt(result: ToolResultPreview | undefined, to
   ) {
     return null;
   }
-  const match = /^Notification sent \(needs-input, id (\d+)\)(?:\r?\n\(\d+(?:\.\d+)?(?:ms|s)\))?\s*$/.exec(
-    result.content,
-  );
+  // The receipt may end with the CLI's paste-ready link to the same notification.
+  const match =
+    /^Notification sent \(needs-input, id (\d+)\)(?:\. Link: \[[^\n]*\]\(session:\d+:notification:\1\))?(?:\r?\n\(\d+(?:\.\d+)?(?:ms|s)\))?\s*$/.exec(
+      result.content,
+    );
   return match ? `n-${match[1]}` : null;
 }
 
