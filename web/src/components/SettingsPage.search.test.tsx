@@ -58,12 +58,24 @@ describe("SettingsPage groups and search", () => {
 
     // "vscode" matches the editor row and the shortcut preset, so both groups stay
     // visible while unrelated rows and groups are filtered out.
-    const cliSection = settingsSection("CLIs & Editor");
-    expect(cliSection).toBeVisible();
+    const editorSection = settingsSection("Editor");
+    expect(editorSection).toBeVisible();
     expect(settingsSection("Keyboard Shortcuts")).toBeVisible();
     expect(settingsSection("Appearance")).not.toBeVisible();
-    expect(within(cliSection).getByLabelText("Editor")).toBeVisible();
-    expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
+    expect(within(editorSection).getByLabelText("Editor")).toBeVisible();
+    // Claude Code and Codex programs are per-machine settings in Hosts, which "vscode" does not match.
+    expect(settingsSection("Hosts")).not.toBeVisible();
+  });
+
+  // The Claude Code and Codex programs moved from a global group to each machine in Hosts.
+  it("finds the per-machine CLI settings under Hosts", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "codex binary" } });
+
+    expect(settingsSection("Hosts")).toBeVisible();
+    expect(settingsSection("Editor")).not.toBeVisible();
   });
 
   it("finds role-aware session defaults from worker and leader search terms", async () => {
@@ -125,8 +137,6 @@ describe("SettingsPage groups and search", () => {
       },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_100_000,
       codexNonLeaderAutoCompactThresholdPercent: 85,
       codexLeaderRecycleThresholdTokens: 275_000,
@@ -150,8 +160,6 @@ describe("SettingsPage groups and search", () => {
       },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_200_000,
       codexLeaderRecycleThresholdTokens: 280_000,
       codexLeaderRecycleThresholdTokensByModel: {
@@ -290,9 +298,9 @@ describe("SettingsPage groups and search", () => {
       "Voice Input",
       "Notifications",
       "Sessions",
-      "CLIs & Editor",
+      "Editor",
       "Performance & Power",
-      "Remote Hosts",
+      "Hosts",
       "Server & Login",
     ]);
     for (const subsection of [
@@ -305,7 +313,6 @@ describe("SettingsPage groups and search", () => {
       "Session Namer",
       "Environments",
       "Export & Import",
-      "Backend CLIs",
       "Login",
       "Server Slug",
       "Restart",

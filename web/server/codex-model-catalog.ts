@@ -1,9 +1,9 @@
 import * as childProcess from "node:child_process";
+import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import { readFile, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { resolveBinary } from "./path-resolver.js";
-import { getSettings } from "./settings-manager.js";
 import { getLegacyCodexHome } from "./codex-home.js";
 import { buildTakodeCatalogRouteEntry, fingerprintModelRouteEntry } from "./model-identity-contract.js";
 
@@ -244,7 +244,7 @@ async function readModelsCacheCatalog(
 
 function resolveCodexBinary(override?: string): string | null {
   if (override && (override.includes("/") || override.startsWith("."))) return override;
-  return resolveBinary(override || getSettings().codexBinary || "codex");
+  return resolveBinary(override || machineSettingsFor(null).codexBinary || "codex");
 }
 
 export async function loadCodexModelCatalog(options: LoadCodexCatalogOptions = {}): Promise<CodexCatalogResult | null> {

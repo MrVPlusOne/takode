@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HostCliSettings } from "./HostCliSettings.js";
 import {
   hostBuildWarning,
   registerRemoteHost,
@@ -7,12 +8,15 @@ import {
   type RemoteHost,
 } from "../remote-hosts.js";
 
+const HOST_CARD = "rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 text-xs";
+
 /**
- * Machines that run sessions for this server. Each runs `takode node`, which
- * connects out to this server with the token issued here.
+ * Machines that run sessions for this server: this machine, and remote hosts
+ * that each run `takode node`, which connects out to this server with the
+ * token issued here. Every machine has its own Claude Code and Codex settings.
  */
 export function SettingsHostsSection() {
-  const { hosts, serverBuild } = useRemoteHosts();
+  const { hosts, serverBuild, local } = useRemoteHosts();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -50,15 +54,17 @@ export function SettingsHostsSection() {
 
   return (
     <>
-      {hosts.length === 0 ? (
-        <p className="text-xs text-cc-muted">No hosts yet. Sessions run on this machine.</p>
-      ) : (
-        <ul className="space-y-2" data-testid="settings-hosts-list">
-          {hosts.map((host) => (
-            <li
-              key={host.id}
-              className="flex items-center justify-between gap-2 rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 text-xs"
-            >
+      <ul className="space-y-2" data-testid="settings-hosts-list">
+        {local && (
+          <li className={HOST_CARD} data-testid="settings-local-host">
+            <div className="font-medium text-cc-fg">This machine</div>
+            <div className="mt-0.5 text-cc-muted">Runs sessions that have no other host. Always present.</div>
+            <HostCliSettings hostId={local.id} settings={local.settings} local />
+          </li>
+        )}
+        {hosts.map((host) => (
+          <li key={host.id} className={HOST_CARD}>
+            <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 font-medium text-cc-fg">
                   <span
@@ -84,10 +90,11 @@ export function SettingsHostsSection() {
               >
                 {confirmingRemove === host.id ? "Confirm remove" : "Remove"}
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
+            </div>
+            <HostCliSettings hostId={host.id} settings={host.settings} overrides={host.commandOverrides} />
+          </li>
+        ))}
+      </ul>
 
       <div className="flex items-center gap-2">
         <input

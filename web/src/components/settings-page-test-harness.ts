@@ -175,8 +175,6 @@ function settingsResponse() {
     pushoverBaseUrl: "",
     restartSupported: true,
     namerConfig: { backend: "claude" },
-    claudeBinary: "",
-    codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
     codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,

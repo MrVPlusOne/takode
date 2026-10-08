@@ -117,7 +117,8 @@ install_file "$LAUNCHER.new" "$LAUNCHER" 755
 
 cat <<EOF
 
-Done. Next, in Takode open Settings -> CLIs & Editor and set "Claude Code" to:
+Done. Next, in Takode open Settings -> Hosts and, for the machine you ran this
+on (This machine, or the remote host), set "Claude Code" to:
   $LAUNCHER
 New Claude sessions then run through GitHub Copilot with Opus 5.5 (default),
 Sonnet 5.5 and Haiku 4.5. Running sessions switch when they relaunch.

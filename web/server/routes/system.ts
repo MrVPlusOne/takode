@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { machineSettingsFor } from "../remote-host/machine-settings.js";
 import { readFile, writeFile, stat, rm, mkdir, unlink, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -9,7 +10,6 @@ import { getNamerLogIndex, getNamerLogEntry } from "../session-namer.js";
 import { runExport, runImport, type ImportStats } from "../migration.js";
 import { containerManager } from "../container-manager.js";
 import { resolveBinary, captureUserShellEnv } from "../path-resolver.js";
-import { getSettings } from "../settings-manager.js";
 import { getLogPath } from "../server-logger.js";
 import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
@@ -578,7 +578,8 @@ export function createSystemRoutes(ctx: RouteContext) {
   // ─── Available backends ─────────────────────────────────────
 
   api.get("/backends", (c) => {
-    const s = getSettings();
+    // Availability on this machine; remote hosts resolve their own programs.
+    const s = machineSettingsFor(null);
     const backends: Array<{ id: string; name: string; available: boolean }> = [];
 
     // Only two creation-time backends: "claude" (launched through the Agent SDK)

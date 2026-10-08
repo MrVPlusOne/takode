@@ -37,8 +37,6 @@ describe("CliLauncher legacy model provenance", () => {
     launcher.setStore(store);
     configuredDefault = "gpt-5.6-terra";
     launcher.setSettingsGetter(() => ({
-      claudeBinary: "",
-      codexBinary: "codex",
       sessionDefaults: { codex: { model: configuredDefault } },
     }));
     spawnCodex = vi.spyOn(launcher as any, "spawnCodex").mockResolvedValue(undefined);

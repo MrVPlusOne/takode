@@ -7,7 +7,9 @@ import {
   HOST_PROTOCOL_VERSION,
   type CoordinatorToHost,
   type HostCommand,
+  type HostMachineSettings,
   type HostProcessEvent,
+  type HostProgramRole,
   type HostRequest,
   type HostResponse,
   type HostToCoordinator,
@@ -50,6 +52,8 @@ export interface HostLinkStatus {
   updating: boolean;
   /** Why the host's last update attempt failed, until it restarts. */
   updateError: string | null;
+  /** Programs the host's `takode node` was started with (`--claude`, `--codex`), which win over its settings. */
+  commandOverrides: Partial<Record<HostProgramRole, string>>;
 }
 
 /** What a caller needs to start a process on a host; mirrors the Agent SDK's spawn options. */
@@ -91,6 +95,7 @@ interface HostLink {
   updateError: string | null;
   /** A host operation was already logged as sent to a mismatched build of this host instance. */
   mismatchWarned: boolean;
+  commandOverrides: Partial<Record<HostProgramRole, string>>;
   nextCommandSeq: number;
   unacked: QueuedCommand[];
   processes: Map<string, RemoteProcess>;
@@ -128,6 +133,8 @@ export class HostLinkManager {
    * auto-updated only when this says yes; without it they never are.
    */
   canRestartHost: ((hostId: string) => boolean) | null = null;
+  /** Each host's machine settings, sent to it on every connect and by {@link pushSettings}. */
+  machineSettingsFor: ((hostId: string) => HostMachineSettings) | null = null;
   private readonly now: () => number;
 
   constructor(options: { epoch?: number; build?: string | null; now?: () => number } = {}) {
@@ -165,6 +172,7 @@ export class HostLinkManager {
       autoUpdate: link?.autoUpdate ?? false,
       updating: Boolean(link?.updateRequested && link.updateRequested === this.build && !link.updateError),
       updateError: link?.updateError ?? null,
+      commandOverrides: { ...link?.commandOverrides },
     };
   }
 
@@ -260,6 +268,16 @@ export class HostLinkManager {
       if (error instanceof HostUnavailableError) throw error;
       throw new Error(`${error.message} (${mismatch}; update takode on the host)`);
     });
+  }
+
+  /** Send a host its current machine settings, e.g. after they changed. A host that is away gets them when it connects. */
+  pushSettings(hostId: string): void {
+    const link = this.links.get(hostId);
+    if (link?.online && link.socket) this.sendSettings(hostId, link.socket);
+  }
+
+  private sendSettings(hostId: string, socket: HostLinkSocket): void {
+    if (this.machineSettingsFor) send(socket, { t: "settings", settings: this.machineSettingsFor(hostId) });
   }
 
   /** Close a host's link, e.g. after its registration is removed. Its processes wait as if it were away. */
@@ -382,11 +400,14 @@ export class HostLinkManager {
       link.updateRequested = null;
       link.updateError = null;
       link.mismatchWarned = false;
+      link.commandOverrides = { ...hello.commandOverrides };
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
     send(socket, { t: "welcome", instanceId: this.instanceId, epoch: this.epoch, received });
+    // Before any command, so the host starts processes with its current settings.
+    this.sendSettings(hostId, socket);
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
     const applied = hello.appliedFrom === this.instanceId ? hello.appliedCommandSeq : 0;
     for (const queued of link.unacked) {
@@ -459,6 +480,7 @@ export class HostLinkManager {
         updateRequested: null,
         updateError: null,
         mismatchWarned: false,
+        commandOverrides: {},
         nextCommandSeq: 1,
         unacked: [],
         processes: new Map(),

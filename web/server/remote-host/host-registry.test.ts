@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HostRegistry } from "./host-registry.js";
+import { HostRegistry, LOCAL_HOST_ID } from "./host-registry.js";
 
 describe("HostRegistry", () => {
   let dir: string;
@@ -39,5 +39,41 @@ describe("HostRegistry", () => {
     await expect(registry.register("bad name")).rejects.toThrow("Host names use letters");
     await registry.register("laptop");
     await expect(registry.register("laptop")).rejects.toThrow("already exists");
+  });
+
+  // Each machine, including this one, has its own Claude/Codex settings; they
+  // persist, are trimmed, and go away with a removed host.
+  it("stores machine settings per host and for this machine", async () => {
+    const path = join(dir, "hosts.json");
+    const registry = new HostRegistry(path);
+    const { host } = await registry.register("gpu-box");
+    expect(registry.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "" });
+
+    await registry.updateMachineSettings(host.id, { claudeBinary: " /opt/claude " });
+    await registry.updateMachineSettings(LOCAL_HOST_ID, { codexBinary: "/usr/local/bin/codex" });
+    expect(await registry.updateMachineSettings("missing", { claudeBinary: "x" })).toBeNull();
+
+    const reloaded = new HostRegistry(path);
+    await reloaded.load();
+    expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "/opt/claude", codexBinary: "" });
+    expect(reloaded.machineSettings(LOCAL_HOST_ID)).toEqual({ claudeBinary: "", codexBinary: "/usr/local/bin/codex" });
+
+    await reloaded.remove(host.id);
+    expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "" });
+  });
+
+  // The old global binaries become this machine's settings once; a later start
+  // never overwrites what the user has set since.
+  it("adopts the old global binaries as this machine's settings only once", async () => {
+    const path = join(dir, "hosts.json");
+    const registry = new HostRegistry(path);
+    expect(await registry.adoptLegacyLocalSettings(null)).toBe(false);
+    expect(await registry.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(true);
+    expect(registry.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/old/claude");
+
+    await registry.updateMachineSettings(LOCAL_HOST_ID, { claudeBinary: "/new/claude" });
+    const reloaded = new HostRegistry(path);
+    expect(await reloaded.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(true);
+    expect(reloaded.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/new/claude");
   });
 });

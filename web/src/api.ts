@@ -648,8 +648,6 @@ export interface AppSettings {
   pushoverEventFilters?: PushoverEventFilters;
   pushoverDelaySeconds: number;
   pushoverBaseUrl: string;
-  claudeBinary: string;
-  codexBinary: string;
   maxKeepAlive: number;
   heavyRepoModeEnabled: boolean;
   namerConfig: NamerConfig;
@@ -1366,8 +1364,6 @@ export const api = {
     pushoverEnabled?: boolean;
     pushoverEventFilters?: Partial<PushoverEventFilters>;
     pushoverBaseUrl?: string;
-    claudeBinary?: string;
-    codexBinary?: string;
     maxKeepAlive?: number;
     heavyRepoModeEnabled?: boolean;
     namerConfig?: NamerConfig;

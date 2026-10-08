@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { HostMachineSettings } from "../../shared/host-protocol.js";
 
 /** A machine registered to run sessions for this coordinator. */
 export interface RegisteredHost {
@@ -11,9 +12,28 @@ export interface RegisteredHost {
   createdAt: number;
 }
 
+/**
+ * Settings that belong to one machine rather than to the server: the agent
+ * CLIs that machine runs. An empty value means the CLI's own name, found on
+ * that machine's PATH.
+ */
+export type MachineSettings = HostMachineSettings;
+
+/** Host id of the coordinator's own machine, which always exists and is not registered. */
+export const LOCAL_HOST_ID = "local";
+
+const DEFAULT_MACHINE_SETTINGS: MachineSettings = { claudeBinary: "", codexBinary: "" };
+
 interface StoredHost extends RegisteredHost {
   /** SHA-256 of the host token; the token itself is shown once at registration. */
   tokenSha256: string;
+  settings?: MachineSettings;
+}
+
+interface StoredRegistry {
+  hosts: StoredHost[];
+  /** Settings of the coordinator's own machine. Absent until first written, which also marks the legacy migration as done. */
+  local?: { settings: MachineSettings };
 }
 
 const HOST_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
@@ -25,6 +45,7 @@ const HOST_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
  */
 export class HostRegistry {
   private hosts: StoredHost[] | null = null;
+  private local: StoredRegistry["local"];
   private pendingWrite: Promise<void> = Promise.resolve();
 
   constructor(private readonly path: string) {}
@@ -58,6 +79,46 @@ export class HostRegistry {
     return { host: publicHost(stored), token };
   }
 
+  /**
+   * Machine settings of a host (`LOCAL_HOST_ID` for this machine). Answers
+   * from memory once the registry has loaded, so launches can read it
+   * synchronously; before that, and for unknown hosts, the defaults.
+   */
+  machineSettings(hostId: string): MachineSettings {
+    const stored =
+      hostId === LOCAL_HOST_ID ? this.local?.settings : this.hosts?.find((host) => host.id === hostId)?.settings;
+    return { ...DEFAULT_MACHINE_SETTINGS, ...stored };
+  }
+
+  /** Change some of a host's machine settings. Returns null for an unknown host. */
+  async updateMachineSettings(hostId: string, patch: Partial<MachineSettings>): Promise<MachineSettings | null> {
+    const hosts = await this.load();
+    const next = { ...this.machineSettings(hostId), ...definedSettings(patch) };
+    if (hostId === LOCAL_HOST_ID) {
+      this.local = { settings: next };
+    } else {
+      const host = hosts.find((candidate) => candidate.id === hostId);
+      if (!host) return null;
+      host.settings = next;
+    }
+    await this.persist();
+    return next;
+  }
+
+  /**
+   * Once per registry, adopt the Claude/Codex settings that used to be global
+   * server settings as this machine's settings. Returns whether they are now
+   * stored here, so the caller may drop the old copy.
+   */
+  async adoptLegacyLocalSettings(legacy: MachineSettings | null): Promise<boolean> {
+    await this.load();
+    if (this.local) return true;
+    if (!legacy) return false;
+    this.local = { settings: { ...DEFAULT_MACHINE_SETTINGS, ...definedSettings(legacy) } };
+    await this.persist();
+    return true;
+  }
+
   async remove(id: string): Promise<boolean> {
     const hosts = await this.load();
     const index = hosts.findIndex((host) => host.id === id);
@@ -76,11 +137,13 @@ export class HostRegistry {
     return null;
   }
 
-  private async load(): Promise<StoredHost[]> {
+  /** Read the registry from disk; later reads answer from memory. */
+  async load(): Promise<StoredHost[]> {
     if (this.hosts) return this.hosts;
     try {
-      const parsed = JSON.parse(await readFile(this.path, "utf-8")) as { hosts?: StoredHost[] };
+      const parsed = JSON.parse(await readFile(this.path, "utf-8")) as Partial<StoredRegistry>;
       this.hosts = Array.isArray(parsed.hosts) ? parsed.hosts : [];
+      this.local = parsed.local?.settings ? { settings: parsed.local.settings } : undefined;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       this.hosts = [];
@@ -89,7 +152,8 @@ export class HostRegistry {
   }
 
   private persist(): Promise<void> {
-    const content = JSON.stringify({ hosts: this.hosts ?? [] }, null, 2);
+    const registry: StoredRegistry = { hosts: this.hosts ?? [], ...(this.local ? { local: this.local } : {}) };
+    const content = JSON.stringify(registry, null, 2);
     this.pendingWrite = this.pendingWrite.then(async () => {
       await mkdir(dirname(this.path), { recursive: true });
       const temp = `${this.path}.${process.pid}.tmp`;
@@ -102,6 +166,14 @@ export class HostRegistry {
 
 function publicHost({ id, name, createdAt }: StoredHost): RegisteredHost {
   return { id, name, createdAt };
+}
+
+/** The string fields of a settings patch, trimmed. */
+function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettings> {
+  const defined: Partial<MachineSettings> = {};
+  if (typeof patch.claudeBinary === "string") defined.claudeBinary = patch.claudeBinary.trim();
+  if (typeof patch.codexBinary === "string") defined.codexBinary = patch.codexBinary.trim();
+  return defined;
 }
 
 function sha256(value: string): string {

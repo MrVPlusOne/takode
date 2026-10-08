@@ -314,6 +314,7 @@ vi.mock("./claude-sdk-adapter.js", () => ({
 // ─── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { SessionStore } from "./session-store.js";
+import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { CliLauncher, type LaunchOptions } from "./cli-launcher.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
@@ -470,6 +471,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  configureMachineSettings(null);
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -674,6 +676,20 @@ describe("launch", () => {
     });
 
     expect(sdkAdapterLaunches[0]!.options.claudeBinary).toBe("/opt/bin/claude");
+  });
+
+  // Without an explicit binary, a session on this machine runs this machine's
+  // Claude setting. A session on a remote host never gets it: the host resolves
+  // \`claude\` from its own settings.
+  it("uses this machine's Claude setting for local sessions only", async () => {
+    configureMachineSettings({
+      machineSettings: (hostId) => ({
+        claudeBinary: hostId === "local" ? "/opt/local-claude" : "/remote/claude",
+        codexBinary: "",
+      }),
+    });
+    await launcher.launch({ cwd: "/tmp" });
+    expect(sdkAdapterLaunches[0]!.options.claudeBinary).toBe("/opt/local-claude");
   });
 
   it("stores container metadata when containerId provided", async () => {
@@ -1049,10 +1065,7 @@ describe("launch", () => {
       expect(config).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: "/opt/fake/codex",
-      }));
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "/opt/fake/codex" }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
       expect(relaunch.ok).toBe(true);
@@ -1125,10 +1138,7 @@ describe("launch", () => {
           },
         ],
       };
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: "/opt/fake/codex",
-      }));
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "/opt/fake/codex" }) });
 
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1213,10 +1223,7 @@ describe("launch", () => {
       expect(cmdAndArgs[0]).toBe(wrapperPath);
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: wrapperPath,
-      }));
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: wrapperPath }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
       expect(relaunch.ok).toBe(true);
@@ -1814,10 +1821,7 @@ describe("launch", () => {
       expect(innerScript).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: "codex",
-      }));
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "codex" }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
       expect(relaunch.ok).toBe(true);

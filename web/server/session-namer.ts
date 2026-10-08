@@ -10,6 +10,7 @@
  * - REVISE: <title> — same task, better wording
  * - NEW: <title> — fundamentally different task
  */
+import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
 import { resolveBinary, getEnrichedPath } from "./path-resolver.js";
 import { getSettings, type NamerConfig } from "./settings-manager.js";
@@ -512,9 +513,9 @@ let resolvedBinary: string | null | undefined;
 
 function getClaudeBinary(): string | null {
   // Use custom binary from settings if configured (e.g. claude.sh with LiteLLM auth)
-  const settings = getSettings();
-  if (settings.claudeBinary) {
-    const resolved = resolveBinary(settings.claudeBinary);
+  const { claudeBinary } = machineSettingsFor(null);
+  if (claudeBinary) {
+    const resolved = resolveBinary(claudeBinary);
     if (resolved) return resolved;
   }
   // Fall back to auto-detected claude

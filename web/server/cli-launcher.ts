@@ -23,6 +23,7 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
+import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
@@ -75,8 +76,6 @@ export function getKnownSessionNum(sessionId: string): number | undefined {
 }
 
 type LauncherSettingsSnapshot = {
-  claudeBinary: string;
-  codexBinary: string;
   codexLeaderCompactionMode?: string;
   sessionDefaults?: { codex?: { model?: string } };
 };
@@ -751,7 +750,7 @@ export class CliLauncher {
     // Taken now, before any await, so a second relaunch cannot take it as well.
     const reattachHostProcess = this.hostReattach.get(sessionId);
     this.hostReattach.delete(sessionId);
-    const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };
+    const binSettings = this.settingsGetter?.() ?? {};
     const bt = info.backendType ?? "claude-sdk";
     if (bt === "codex") {
       const ensured = ensureModelAuthority(info, binSettings.sessionDefaults?.codex?.model, "legacy_relaunch");
@@ -829,7 +828,7 @@ export class CliLauncher {
 
       // Validate the configured Codex binary exists inside the container
       // (saved Claude container sessions were refused above).
-      const binary = (binSettings.codexBinary.trim() || "codex").split(/\s+/)[0];
+      const binary = (machineSettingsFor(null).codexBinary.trim() || "codex").split(/\s+/)[0];
 
       if (!containerManager.hasBinaryInContainer(info.containerId, binary)) {
         console.error(
@@ -917,7 +916,6 @@ export class CliLauncher {
             askPermission: info.askPermission,
             uiMode: info.uiMode,
             cwd: info.cwd,
-            codexBinary: binSettings.codexBinary || undefined,
             codexSandbox: info.codexSandbox,
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
@@ -941,7 +939,6 @@ export class CliLauncher {
             claudeReasoningEffort: info.claudeReasoningEffort,
             claudeMaxContextLength: info.claudeMaxContextLength,
             cwd: info.cwd,
-            claudeBinary: binSettings.claudeBinary || undefined,
             env: runtimeEnv,
             extraInstructions,
             reattachHostProcess,
@@ -1035,7 +1032,10 @@ export class CliLauncher {
       cliSessionId: info.cliSessionId,
       resumeSessionAt: info.resumeAt,
       env: options.env as Record<string, string | undefined>,
-      claudeBinary: options.claudeBinary,
+      // A remote host resolves `claude` itself, from its own settings.
+      claudeBinary: info.hostId
+        ? undefined
+        : options.claudeBinary || machineSettingsFor(null).claudeBinary || undefined,
       ...(info.hostId
         ? {
             spawnProcess: this.remoteSpawner(info, options.reattachHostProcess),
@@ -1090,12 +1090,10 @@ export class CliLauncher {
     /** Set when the host prepared this launch; the process then runs there. */
     let remoteLaunchId: string | undefined;
     try {
-      const binSettings = this.settingsGetter?.();
-      const codexOptions = binSettings
-        ? {
-            ...options,
-          }
-        : options;
+      // A remote host prepares Codex with its own settings; here, this machine's apply.
+      const codexOptions = info.hostId
+        ? options
+        : { ...options, codexBinary: options.codexBinary || machineSettingsFor(null).codexBinary || undefined };
       const launchInfo = {
         cwd: info.cwd,
         cliSessionId: info.cliSessionId,

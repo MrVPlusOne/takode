@@ -31,8 +31,9 @@ models were tested with Claude Code 2.1.289 in October 2026.
    `~/.companion/claude-copilot/claude-copilot`. If either file already exists
    and would change, the script first copies it to `<file>.bak-<timestamp>`.
 
-2. In Takode, open **Settings → CLIs & Editor** and set **Claude Code** to the
-   launcher path the script printed.
+2. In Takode, open **Settings → Hosts** and set **Claude Code** to the launcher
+   path the script printed, for the machine you ran it on: **This machine**
+   for the server's own machine, or the remote host.
 
 3. Start a new Claude session. Sessions that are already running switch over
    when they relaunch.
@@ -40,9 +41,9 @@ models were tested with Claude Code 2.1.289 in October 2026.
 The script changes nothing else: it doesn't touch your global Claude Code
 settings, your plain `claude` command or Takode's server.
 
-On a [remote host](remote-hosts.md), run the script on that host and start
-`takode node` with `--claude <launcher path>`. The **Claude Code** setting
-applies only to sessions on the server's own machine.
+On a [remote host](remote-hosts.md), run the script on that host and set that
+host's **Claude Code** setting. Each machine has its own setting, so this
+changes nothing on the others.
 
 ## What the settings do
 
@@ -114,7 +115,7 @@ new session.
 
 ## Undoing the setup
 
-Clear the **Claude Code** field in Takode's settings, or set it back to your
-previous value. To restore an earlier settings file or launcher, copy its
+Clear the machine's **Claude Code** field in **Settings → Hosts**, or set it
+back to your previous value. To restore an earlier settings file or launcher, copy its
 `.bak-<timestamp>` file back over it. Deleting `~/.companion/claude-copilot/`
 removes the setup completely.

@@ -13,6 +13,8 @@ import {
   _resetForTest,
   _flushForTest,
   _getSecretsPathForTest,
+  clearLegacyMachineSettings,
+  getLegacyMachineSettings,
 } from "./settings-manager.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../shared/session-defaults.js";
 
@@ -45,8 +47,6 @@ describe("settings-manager", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexNonLeaderAutoCompactThresholdPercent: 90,
       codexLeaderRecycleThresholdTokens: 260_000,
@@ -573,8 +573,6 @@ describe("settings-manager", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexNonLeaderAutoCompactThresholdPercent: 90,
       codexLeaderRecycleThresholdTokens: 260_000,
@@ -789,35 +787,38 @@ describe("server slug", () => {
   });
 });
 
-describe("CLI binary settings", () => {
-  it("defaults to empty strings", () => {
-    expect(getSettings().claudeBinary).toBe("");
-    expect(getSettings().codexBinary).toBe("");
+// Claude/Codex binaries used to be server settings; they are per-machine settings
+// now (the host registry). The server moves an older build's values there once,
+// so until then the settings file must keep them untouched.
+describe("legacy CLI binary settings", () => {
+  it("has none to move by default", () => {
+    expect(getLegacyMachineSettings()).toBeNull();
+    expect(getSettings()).not.toHaveProperty("claudeBinary");
     expect(getSettings().maxKeepAlive).toBe(0);
   });
 
-  it("updates and persists claudeBinary", async () => {
-    const updated = updateSettings({ claudeBinary: "/usr/local/bin/claude" });
-    expect(updated.claudeBinary).toBe("/usr/local/bin/claude");
-
-    await _flushForTest();
-    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(saved.claudeBinary).toBe("/usr/local/bin/claude");
-  });
-
-  it("updates and persists codexBinary", async () => {
-    const updated = updateSettings({ codexBinary: "/opt/codex/bin/codex" });
-    expect(updated.codexBinary).toBe("/opt/codex/bin/codex");
-
-    await _flushForTest();
-    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(saved.codexBinary).toBe("/opt/codex/bin/codex");
-  });
-
-  it("loads claudeBinary from existing settings file", () => {
+  it("reads the binaries an older build saved", () => {
     writeFileSync(settingsPath, JSON.stringify({ claudeBinary: "/custom/claude", updatedAt: 0 }), "utf-8");
     _resetForTest(settingsPath);
-    expect(getSettings().claudeBinary).toBe("/custom/claude");
+    expect(getLegacyMachineSettings()).toEqual({ claudeBinary: "/custom/claude", codexBinary: "" });
+  });
+
+  // Another settings change before the move must not drop them from the file.
+  it("keeps them in the file across other settings writes until cleared", async () => {
+    writeFileSync(settingsPath, JSON.stringify({ codexBinary: "/opt/codex/bin/codex", updatedAt: 0 }), "utf-8");
+    _resetForTest(settingsPath);
+    updateSettings({ maxKeepAlive: 3 });
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).codexBinary).toBe("/opt/codex/bin/codex");
+  });
+
+  it("removes them from the file once cleared", async () => {
+    writeFileSync(settingsPath, JSON.stringify({ claudeBinary: "/usr/local/bin/claude", updatedAt: 0 }), "utf-8");
+    _resetForTest(settingsPath);
+    clearLegacyMachineSettings();
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).not.toHaveProperty("claudeBinary");
+    expect(getLegacyMachineSettings()).toBeNull();
   });
 });
 

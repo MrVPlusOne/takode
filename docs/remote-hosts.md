@@ -26,7 +26,7 @@ process it needs.
 ## Setup
 
 1. **Register the host on the coordinator.** Run `takode host add <name>` or use
-   **Settings → Remote Hosts**. The host's token is shown only once. On the
+   **Settings → Hosts**. The host's token is shown only once. On the
    host, save it to a file only you can read:
 
    ```bash
@@ -66,18 +66,28 @@ process it needs.
 
 ## Choosing the agent CLIs on a host
 
-The coordinator's **Claude Code** and **Codex** settings apply only to sessions
-on the coordinator's own machine. A host runs the `claude` and `codex` it finds
-on its `PATH`, unless `takode node` is told otherwise:
+Every machine has its own **Claude Code** and **Codex** settings in
+**Settings → Hosts**: **This machine** for the coordinator's own machine, plus
+one entry per registered host. Each is a path or command on that machine; an
+empty field means the `claude` or `codex` on that machine's `PATH`. The
+coordinator stores the settings and sends a host its own whenever it connects
+or they change, so there is nothing to copy between machines. New sessions use
+a changed setting at once; running ones pick it up when they relaunch.
+
+`takode node` can also be started with `--claude` and `--codex`:
 
 ```bash
 bun web/bin/takode-node.ts ... --claude /path/to/claude --codex /path/to/codex
 ```
 
+A flag wins over the host's setting for as long as that node runs, and
+**Settings → Hosts** shows which program the flag makes it run. Prefer the
+setting; keep the flags for a node that must differ from its stored setting.
+
 For example, to run a host's Claude sessions through GitHub Copilot, run
 `scripts/setup-claude-copilot.sh` on the host (see
-[Using Takode with GitHub Copilot](github-copilot.md)) and pass the launcher it
-prints with `--claude`.
+[Using Takode with GitHub Copilot](github-copilot.md)) and set that host's
+**Claude Code** to the launcher it prints.
 
 ## Keeping it running
 
@@ -105,7 +115,7 @@ What survives what:
 ## Updating Takode
 
 The host's checkout should run the same commit as the coordinator. `takode
-host list` and **Settings → Remote Hosts** show each host's commit and flag a
+host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.
 
 Start `takode node` with `--auto-update` to let the coordinator keep it in

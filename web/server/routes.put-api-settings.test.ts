@@ -107,8 +107,6 @@ vi.mock("./settings-manager.js", () => ({
     pushoverEnabled: true,
     pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: "",
-    claudeBinary: "",
-    codexBinary: "",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     namerConfig: { backend: "claude" },
@@ -139,8 +137,6 @@ vi.mock("./settings-manager.js", () => ({
     pushoverEnabled: patch.pushoverEnabled ?? true,
     pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
-    claudeBinary: patch.claudeBinary ?? "",
-    codexBinary: patch.codexBinary ?? "",
     maxKeepAlive: patch.maxKeepAlive ?? 0,
     heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
     namerConfig: patch.namerConfig ?? { backend: "claude" },
@@ -550,8 +546,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -584,8 +578,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: undefined,
       pushoverEventFilters: undefined,
       pushoverBaseUrl: undefined,
-      claudeBinary: undefined,
-      codexBinary: undefined,
       maxKeepAlive: undefined,
       heavyRepoModeEnabled: undefined,
       namerConfig: undefined,
@@ -609,8 +601,6 @@ describe("PUT /api/settings", () => {
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -646,8 +636,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -680,8 +668,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: undefined,
       pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
       pushoverBaseUrl: undefined,
-      claudeBinary: undefined,
-      codexBinary: undefined,
       maxKeepAlive: undefined,
       heavyRepoModeEnabled: undefined,
       namerConfig: undefined,
@@ -732,8 +718,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -766,8 +750,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: undefined,
       pushoverEventFilters: undefined,
       pushoverBaseUrl: undefined,
-      claudeBinary: undefined,
-      codexBinary: undefined,
       maxKeepAlive: undefined,
       heavyRepoModeEnabled: undefined,
       namerConfig: undefined,
@@ -794,8 +776,6 @@ describe("PUT /api/settings", () => {
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -959,8 +939,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: undefined,
       pushoverEnabled: false,
       pushoverBaseUrl: undefined,
-      claudeBinary: undefined,
-      codexBinary: undefined,
       maxKeepAlive: undefined,
       heavyRepoModeEnabled: undefined,
       namerConfig: undefined,
@@ -976,72 +954,29 @@ describe("PUT /api/settings", () => {
     });
   });
 
-  it("updates claudeBinary setting", async () => {
-    vi.mocked(settingsManager.updateSettings).mockReturnValue({
-      serverName: "",
-      serverId: "",
-      serverSlug: "prod",
-      pushoverUserKey: "",
-      pushoverApiToken: "",
-      pushoverDelaySeconds: 30,
-      pushoverEnabled: true,
-      pushoverBaseUrl: "",
-      claudeBinary: "/usr/local/bin/claude",
-      codexBinary: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      namerConfig: { backend: "claude" },
-      autoNamerEnabled: true,
-      transcriptionConfig: {
-        apiKey: "",
-        baseUrl: "https://api.openai.com/v1",
-        enhancementEnabled: true,
-        enhancementModel: "gpt-5-mini",
-      },
-      editorConfig: { editor: "none" },
-      sleepInhibitorEnabled: false,
-      sleepInhibitorDurationMinutes: 5,
-      codexLeaderContextWindowOverrideTokens: 1_000_000,
-      codexLeaderRecycleThresholdTokens: 260_000,
-      updatedAt: Date.now(),
-    });
-
+  // Claude/Codex binaries are per-machine settings now (PUT /api/hosts/:id/settings);
+  // the server settings route no longer accepts them.
+  it("rejects the retired claudeBinary setting", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ claudeBinary: "/usr/local/bin/claude" }),
     });
 
-    expect(res.status).toBe(200);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ claudeBinary: "/usr/local/bin/claude" }),
-    );
-    const json = await res.json();
-    expect(json.claudeBinary).toBe("/usr/local/bin/claude");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "At least one settings field is required" });
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
   });
 
-  it("returns 400 for non-string claudeBinary", async () => {
+  it("rejects the retired codexBinary setting", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ claudeBinary: 123 }),
+      body: JSON.stringify({ codexBinary: "/opt/codex" }),
     });
 
     expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json).toEqual({ error: "claudeBinary must be a string" });
-  });
-
-  it("returns 400 for non-string codexBinary", async () => {
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ codexBinary: true }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json).toEqual({ error: "codexBinary must be a string" });
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
   });
 
   it("returns 400 for negative maxKeepAlive", async () => {
@@ -1090,8 +1025,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 5,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1132,8 +1065,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: true,
       namerConfig: { backend: "claude" },
@@ -1275,8 +1206,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1304,8 +1233,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1374,8 +1301,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1468,8 +1393,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1550,8 +1473,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: { backend: "claude" },
@@ -1594,8 +1515,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: {
@@ -1627,8 +1546,6 @@ describe("PUT /api/settings", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       namerConfig: {

@@ -1,5 +1,4 @@
 import type { Context, Hono } from "hono";
-import { getSettings } from "../settings-manager.js";
 import type { CliLauncher } from "../cli-launcher.js";
 import type { WsBridge } from "../ws-bridge.js";
 import type { SessionStore } from "../session-store.js";
@@ -403,7 +402,6 @@ export function registerSessionDelegateRoutes(
 
     const delegateId = createDelegateId();
     const forkedThreadId = await adapter.forkThread();
-    const settings = getSettings();
     const child = await launcher.launch({
       backendType: "codex",
       cwd: parent.state.cwd || parentInfo.cwd,
@@ -411,7 +409,6 @@ export function registerSessionDelegateRoutes(
       permissionMode: parentInfo.permissionMode,
       askPermission: parentInfo.askPermission ?? true,
       uiMode: parentInfo.uiMode ?? "agent",
-      codexBinary: settings.codexBinary || undefined,
       codexSandbox: parentInfo.codexSandbox,
       codexInternetAccess: parentInfo.codexInternetAccess === true,
       codexReasoningEffort: parentInfo.codexReasoningEffort,

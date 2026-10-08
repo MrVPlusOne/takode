@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
-import type { RemoteHost } from "../remote-hosts.js";
+import type { MachineSettings, RemoteHost } from "../remote-hosts.js";
 
 const SERVER_BUILD = "b".repeat(40);
 
@@ -17,6 +17,8 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
     autoUpdate: false,
     updating: false,
     updateError: null,
+    settings: { claudeBinary: "", codexBinary: "" },
+    commandOverrides: {},
     ...overrides,
   };
 }
@@ -24,6 +26,7 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
 /** A fake of the server's host routes, so the section talks to the same API shape. */
 function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "devbox", processes: 2 })]) {
   let hosts = initial;
+  let localSettings: MachineSettings = { claudeBinary: "", codexBinary: "" };
   const requests: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -36,11 +39,24 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         hosts = [...hosts, host];
         return new Response(JSON.stringify({ host, token: "secret-token" }), { status: 201 });
       }
+      if (method === "PUT") {
+        // PUT /api/hosts/:id/settings, as the server answers it.
+        const patch = JSON.parse(String(init?.body)) as Partial<MachineSettings>;
+        const id = url.split("/")[3]!;
+        if (id === "local") {
+          localSettings = { ...localSettings, ...patch };
+          return new Response(JSON.stringify({ settings: localSettings }));
+        }
+        hosts = hosts.map((host) => (host.id === id ? { ...host, settings: { ...host.settings, ...patch } } : host));
+        return new Response(JSON.stringify({ settings: hosts.find((host) => host.id === id)!.settings }));
+      }
       if (method === "DELETE") {
         hosts = hosts.filter((host) => !url.endsWith(host.id));
         return new Response(JSON.stringify({ ok: true }));
       }
-      return new Response(JSON.stringify({ hosts, build: SERVER_BUILD }));
+      return new Response(
+        JSON.stringify({ hosts, build: SERVER_BUILD, local: { id: "local", settings: localSettings } }),
+      );
     }),
   );
   return requests;
@@ -94,5 +110,33 @@ describe("SettingsHostsSection", () => {
     expect(auto).toContain("updates when none of its sessions is in a turn");
     expect(broken).toContain("Auto-update failed: uncommitted changes");
     expect(screen.getByTestId("settings-hosts-list").textContent).toContain("Takode bbbbbbbb · auto-update on");
+  });
+
+  // This machine is always listed first and cannot be removed; each machine's
+  // Claude/Codex programs save when the field loses focus, and a program the
+  // host's takode node was started with is shown as overriding the setting.
+  it("edits each machine's Claude and Codex programs and shows node overrides", async () => {
+    const requests = serveHostRoutes([
+      hostRow({ id: "h1", name: "devbox", commandOverrides: { claude: "/opt/claude-copilot" } }),
+    ]);
+    render(<SettingsHostsSection />);
+    await waitFor(() => expect(screen.getByTestId("settings-local-host")).toBeTruthy());
+    expect(screen.getByTestId("settings-local-host").textContent).not.toContain("Remove");
+
+    const localClaude = screen.getByLabelText("Claude Code", { selector: "#local-claude-binary" });
+    fireEvent.focus(localClaude);
+    fireEvent.change(localClaude, { target: { value: " /usr/local/bin/claude " } });
+    await act(async () => fireEvent.blur(localClaude));
+    await waitFor(() => expect(requests).toContain("PUT /api/hosts/local/settings"));
+    await waitFor(() => expect((localClaude as HTMLInputElement).value).toBe("/usr/local/bin/claude"));
+
+    const remoteCodex = screen.getByLabelText("Codex", { selector: "#h1-codex-binary" });
+    fireEvent.focus(remoteCodex);
+    fireEvent.change(remoteCodex, { target: { value: "/opt/codex" } });
+    await act(async () => fireEvent.blur(remoteCodex));
+    await waitFor(() => expect(requests).toContain("PUT /api/hosts/h1/settings"));
+
+    expect(screen.getByTestId("host-claude-override").textContent).toContain("/opt/claude-copilot");
+    expect(screen.queryByTestId("host-codex-override")).toBeNull();
   });
 });

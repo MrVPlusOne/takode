@@ -15,7 +15,9 @@ import {
   HOST_PROTOCOL_VERSION,
   type CoordinatorToHost,
   type HostCommand,
+  type HostMachineSettings,
   type HostProcessEvent,
+  type HostProgramRole,
   type HostRequest,
   type HostResponse,
   type HostToCoordinator,
@@ -40,10 +42,10 @@ export interface HostAgentOptions {
   /** Loopback port of this host's API proxy; agent CLIs on this host use it as COMPANION_PORT. */
   apiProxyPort: number;
   /**
-   * Programs the coordinator names abstractly, resolved on this host. The
-   * coordinator asks for `claude`; a host can map it to its own installation.
+   * Programs to run by role, from the node's command line (`--claude`,
+   * `--codex`). They win over the machine settings the coordinator sends.
    */
-  commands?: Record<string, string>;
+  commands?: Partial<Record<HostProgramRole, string>>;
   /** Codex launch preparation; the real one (`prepareCodexSpawn`) unless a test supplies another. */
   prepareCodexLaunch?: (
     sessionId: string,
@@ -119,6 +121,8 @@ export class HostAgent {
   private reconnectDelayMs: number;
   private stopped = false;
   private updating = false;
+  /** This machine's settings as the coordinator last sent them. */
+  private machineSettings: HostMachineSettings = { claudeBinary: "", codexBinary: "" };
   private readonly log: (message: string) => void;
 
   constructor(private readonly options: HostAgentOptions) {
@@ -166,6 +170,9 @@ export class HostAgent {
         processes: [...this.processes.keys()],
         ...(this.options.build ? { build: this.options.build } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
+        ...(this.options.commands && Object.keys(this.options.commands).length > 0
+          ? { commandOverrides: this.options.commands }
+          : {}),
       });
     };
     socket.onmessage = (event) => {
@@ -247,6 +254,9 @@ export class HostAgent {
         return;
       case "update":
         void this.applyUpdate(message.commit);
+        return;
+      case "settings":
+        this.machineSettings = message.settings;
         return;
     }
   }
@@ -336,7 +346,7 @@ export class HostAgent {
     const options = {
       ...(request.options as Record<string, unknown>),
       // The coordinator's binary and Codex home paths describe its own machine.
-      codexBinary: this.options.commands?.codex,
+      codexBinary: this.program("codex"),
       codexHome: undefined,
     };
     const prepare = this.options.prepareCodexLaunch ?? prepareCodexWithThisInstall;
@@ -405,7 +415,7 @@ export class HostAgent {
       COMPANION_PORT: port,
       ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
     };
-    const program = prepared ? prepared.argv[0]! : (this.options.commands?.[command.command] ?? command.command);
+    const program = prepared ? prepared.argv[0]! : this.program(command.command);
     const programArgs = prepared ? prepared.argv.slice(1) : command.args;
     const cwd = prepared ? prepared.cwd : command.cwd;
     const start = this.options.spawnProcess ?? defaultSpawn;
@@ -469,6 +479,15 @@ export class HostAgent {
       resize: (cols, rows) => terminal.resize(cols, rows),
     };
     this.emit(command.procId, { kind: "spawned" });
+  }
+
+  /**
+   * The program to run for a name the coordinator sent: for a known role, the
+   * node's command-line override, else this machine's setting, else the name.
+   */
+  private program(name: string): string {
+    if (name !== "claude" && name !== "codex") return name;
+    return this.options.commands?.[name] || this.machineSettings[`${name}Binary`] || name;
   }
 
   /** Record an event for the coordinator and send it if the link is up. */

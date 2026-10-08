@@ -41,7 +41,15 @@ import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
 import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
-import { getServerId, getServerSlug, getSettings, getServerName, initWithPort } from "./settings-manager.js";
+import {
+  clearLegacyMachineSettings,
+  getLegacyMachineSettings,
+  getServerId,
+  getServerSlug,
+  getSettings,
+  getServerName,
+  initWithPort,
+} from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
 import { WebPushChannel } from "./web-push.js";
 import { PRPoller } from "./pr-poller.js";
@@ -54,6 +62,7 @@ import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { HostRegistry } from "./remote-host/host-registry.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { hostCanRestart } from "./remote-host/host-restart-gate.js";
+import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines } from "./remote-host/session-machine.js";
 import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
@@ -224,6 +233,10 @@ const cronScheduler = new CronScheduler(launcher, wsBridge);
 const timerManager = new TimerManager(wsBridge);
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 const hostRegistry = HostRegistry.forServer(serverId);
+// Claude/Codex binaries are per-machine settings now; older builds kept them as
+// global settings, which become this machine's settings once.
+if (await hostRegistry.adoptLegacyLocalSettings(getLegacyMachineSettings())) clearLegacyMachineSettings();
+configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const hostLinks = new HostLinkManager({ build: await readCheckoutCommit(packageRoot) });
 const coordinatorStartedAt = Date.now();
@@ -235,6 +248,7 @@ hostLinks.canRestartHost = (hostId) =>
     bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
     coordinatorStartedAt,
   });
+hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 hostLinks.start();
 launcher.setRemoteHosts({ registry: hostRegistry, links: hostLinks });
 configureRemoteMachines(hostLinks);

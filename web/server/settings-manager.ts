@@ -50,10 +50,6 @@ export interface CompanionSettings {
   pushoverEventFilters?: PushoverEventFilters;
   /** External base URL for deep links in push notifications */
   pushoverBaseUrl: string;
-  /** Custom Claude Code CLI binary path or command (empty = auto-detect "claude") */
-  claudeBinary: string;
-  /** Custom Codex CLI binary path or command (empty = auto-detect "codex") */
-  codexBinary: string;
   /** Max number of live CLI processes to keep alive (0 = unlimited) */
   maxKeepAlive: number;
   /** Whether session list git refreshes should run in the background for large/slow repos */
@@ -201,6 +197,12 @@ let secretsLoaded = false;
 let filePath = DEFAULT_PATH;
 let secretsPath = DEFAULT_SECRETS_PATH;
 let settingsPort: number | null = null;
+/**
+ * Claude/Codex binaries saved by builds where they were server settings. They
+ * are now per-machine settings (the host registry), so they stay in the file
+ * untouched until the server has moved them there.
+ */
+let legacyMachineSettings: LegacyMachineSettings | null = null;
 let _pendingWrite: Promise<void> = Promise.resolve();
 let _pendingSecretsWrite: Promise<void> = Promise.resolve();
 let settings: CompanionSettings = {
@@ -213,8 +215,6 @@ let settings: CompanionSettings = {
   pushoverEnabled: true,
   pushoverEventFilters: { ...DEFAULT_PUSHOVER_EVENT_FILTERS },
   pushoverBaseUrl: "",
-  claudeBinary: "",
-  codexBinary: "",
   maxKeepAlive: 0,
   heavyRepoModeEnabled: false,
   namerConfig: { backend: "claude" },
@@ -477,8 +477,6 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     pushoverEnabled: typeof raw?.pushoverEnabled === "boolean" ? raw.pushoverEnabled : true,
     pushoverEventFilters: normalizePushoverEventFilters(raw?.pushoverEventFilters),
     pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
-    claudeBinary: typeof raw?.claudeBinary === "string" ? raw.claudeBinary : "",
-    codexBinary: typeof raw?.codexBinary === "string" ? raw.codexBinary : "",
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     heavyRepoModeEnabled: typeof raw?.heavyRepoModeEnabled === "boolean" ? raw.heavyRepoModeEnabled : false,
     namerConfig: normalizeNamerConfig(raw),
@@ -538,11 +536,14 @@ function loadSecretsFromDisk(): CompanionSecrets {
 function ensureLoaded(): void {
   if (loaded) return;
   let normalized = normalize(null);
+  legacyMachineSettings = null;
   try {
     if (existsSync(filePath)) {
       // sync-ok: cold path, cached after first load
       const raw = readFileSync(filePath, "utf-8"); // sync-ok: cold path, cached after first load
-      normalized = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
+      const parsed = JSON.parse(raw) as Partial<CompanionSettings>;
+      normalized = normalize(parsed);
+      legacyMachineSettings = readLegacyMachineSettings(parsed);
     }
   } catch {
     normalized = normalize(null);
@@ -569,7 +570,7 @@ function ensureLoaded(): void {
 }
 
 function persist(): void {
-  const data = JSON.stringify(stripSecretsFromSettings(settings), null, 2);
+  const data = JSON.stringify({ ...stripSecretsFromSettings(settings), ...legacyMachineSettings }, null, 2);
   const path = filePath; // capture current path before any async re-assignment
   mkdirSync(dirname(path), { recursive: true });
   // Chain writes so each waits for the previous to finish. This prevents
@@ -582,6 +583,35 @@ function persistSecrets(): void {
   const path = secretsPath; // capture current path before any async re-assignment
   mkdirSync(dirname(path), { recursive: true });
   _pendingSecretsWrite = _pendingSecretsWrite.then(() => writeFile(path, data, "utf-8").catch(() => {}));
+}
+
+/** Claude/Codex binaries from the time they were global settings, kept in `CompanionSettings` files of older builds. */
+export interface LegacyMachineSettings {
+  claudeBinary: string;
+  codexBinary: string;
+}
+
+/**
+ * The Claude/Codex binaries an older build saved as server settings, or null
+ * when there are none left to move to the coordinator machine's settings.
+ */
+export function getLegacyMachineSettings(): LegacyMachineSettings | null {
+  ensureLoaded();
+  return legacyMachineSettings ? { ...legacyMachineSettings } : null;
+}
+
+/** Remove the old global binaries from the settings file once they are stored per machine. */
+export function clearLegacyMachineSettings(): void {
+  ensureLoaded();
+  if (!legacyMachineSettings) return;
+  legacyMachineSettings = null;
+  persist();
+}
+
+function readLegacyMachineSettings(raw: Record<string, unknown>): LegacyMachineSettings | null {
+  const claudeBinary = typeof raw.claudeBinary === "string" ? raw.claudeBinary : "";
+  const codexBinary = typeof raw.codexBinary === "string" ? raw.codexBinary : "";
+  return claudeBinary || codexBinary ? { claudeBinary, codexBinary } : null;
 }
 
 export function getSettings(): CompanionSettings {
@@ -599,8 +629,6 @@ export function updateSettings(
       | "pushoverEnabled"
       | "pushoverEventFilters"
       | "pushoverBaseUrl"
-      | "claudeBinary"
-      | "codexBinary"
       | "maxKeepAlive"
       | "heavyRepoModeEnabled"
       | "namerConfig"
@@ -720,9 +748,11 @@ export async function initWithPort(port: number): Promise<void> {
     // sync-ok: cold path, cached after first load
     try {
       const raw = readFileSync(LEGACY_PATH, "utf-8"); // sync-ok: cold path, cached after first load
-      const legacy = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
+      const parsedLegacy = JSON.parse(raw) as Partial<CompanionSettings>;
+      const legacy = normalize(parsedLegacy);
       const migrated = {
         ...stripSecretsFromSettings(legacy),
+        ...readLegacyMachineSettings(parsedLegacy),
         serverId: "",
         serverSlug: "",
         updatedAt: Date.now(),
@@ -756,6 +786,7 @@ export function _resetForTest(customPath?: string, customPort?: number | null): 
   settingsPort = customPort ?? null;
   resetPaths(customPath || DEFAULT_PATH);
   settings = normalize(null);
+  legacyMachineSettings = null;
   secrets = normalizeSecrets(null);
   _pendingWrite = Promise.resolve();
   _pendingSecretsWrite = Promise.resolve();

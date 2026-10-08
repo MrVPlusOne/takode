@@ -33,6 +33,15 @@ export const HOST_LINK_STALE_MS = 30_000;
 /** Interval at which each side sends a heartbeat. */
 export const HOST_HEARTBEAT_MS = 10_000;
 
+/** Programs the coordinator names by role; each host resolves them to its own installation. */
+export type HostProgramRole = "claude" | "codex";
+
+/** Settings of one machine, stored on the coordinator. Empty values mean the role's own name on the host's PATH. */
+export interface HostMachineSettings {
+  claudeBinary: string;
+  codexBinary: string;
+}
+
 export type HostCommand =
   | {
       kind: "spawn";
@@ -132,6 +141,11 @@ export type HostToCoordinator =
        * coordinator's own commit (`takode node --auto-update`).
        */
       autoUpdate?: boolean;
+      /**
+       * Programs this node was told to run by role on its command line
+       * (`--claude`, `--codex`); they win over the coordinator's `settings`.
+       */
+      commandOverrides?: Partial<Record<HostProgramRole, string>>;
       /** The host user's home directory, for host paths the coordinator writes (attachments). */
       homeDir?: string;
       /**
@@ -173,6 +187,11 @@ export type CoordinatorToHost =
   | { t: "request"; id: string; request: HostRequest }
   | { t: "heartbeat" }
   | { t: "rejected"; reason: string }
+  /**
+   * This host's machine settings, sent after every `welcome` and whenever
+   * they change; the host resolves the programs it runs with them.
+   */
+  | { t: "settings"; settings: HostMachineSettings }
   /**
    * Switch to this commit and restart, sent only to hosts that offered
    * `autoUpdate` and only while none of their sessions is in a turn. Restarting

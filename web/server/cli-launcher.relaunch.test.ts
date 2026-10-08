@@ -300,6 +300,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 // ─── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { SessionStore } from "./session-store.js";
+import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
@@ -405,6 +406,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  configureMachineSettings(null);
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -789,10 +791,9 @@ describe("relaunch", () => {
   it("refuses a saved Claude container session before any container preflight", async () => {
     // Claude no longer runs in containers, so relaunch refuses before restarting
     // the container or looking for a configured Claude binary inside it.
-    launcher.setSettingsGetter(() => ({
-      claudeBinary: "/opt/custom/claude-enterprise",
-      codexBinary: "",
-    }));
+    configureMachineSettings({
+      machineSettings: () => ({ claudeBinary: "/opt/custom/claude-enterprise", codexBinary: "" }),
+    });
 
     await launcher.launch({
       cwd: "/tmp/project",
@@ -811,10 +812,9 @@ describe("relaunch", () => {
   });
 
   it("validates configured Codex binary name in container during relaunch", async () => {
-    launcher.setSettingsGetter(() => ({
-      claudeBinary: "",
-      codexBinary: "/opt/custom/codex-enterprise --app-server",
-    }));
+    configureMachineSettings({
+      machineSettings: () => ({ claudeBinary: "", codexBinary: "/opt/custom/codex-enterprise --app-server" }),
+    });
 
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({

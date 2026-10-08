@@ -1,6 +1,5 @@
 import type { Context, Hono } from "hono";
 import * as sessionNames from "../session-names.js";
-import { getSettings } from "../settings-manager.js";
 import type { CliLauncher } from "../cli-launcher.js";
 import type { WsBridge } from "../ws-bridge.js";
 import type {
@@ -290,7 +289,6 @@ export function registerSessionSideChatRoutes(
     }
 
     const sideChatId = createSideChatId();
-    const binarySettings = getSettings();
     const permissionMode = backend === "codex" ? rootInfo.permissionMode || "codex-default" : "default";
     const forkContext = await tryCreateNativeFork(backend, root, rootInfo, anchor);
     if (forkContext.strategy === "bounded-replay" && fallbackMode !== "allow-bounded-replay") {
@@ -323,8 +321,6 @@ export function registerSessionSideChatRoutes(
       permissionMode,
       askPermission: rootInfo.askPermission ?? true,
       uiMode: rootInfo.uiMode ?? "agent",
-      claudeBinary: binarySettings.claudeBinary || undefined,
-      codexBinary: binarySettings.codexBinary || undefined,
       codexSandbox: backend === "codex" ? "read-only" : undefined,
       codexInternetAccess: backend === "codex" ? rootInfo.codexInternetAccess === true : undefined,
       codexReasoningEffort: backend === "codex" ? rootInfo.codexReasoningEffort : undefined,

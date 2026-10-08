@@ -17,6 +17,10 @@
  * if needed, and never over uncommitted changes), runs a frozen install and
  * restarts, which ends its session processes; their sessions relaunch.
  *
+ * Which Claude Code and Codex programs it runs comes from this host's settings
+ * on the coordinator (Settings > Hosts). `--claude` and `--codex` override
+ * them for this node.
+ *
  * Before connecting it installs the agent CLI wrappers, skills and Quest
  * Journey phase briefs from this machine's Takode checkout, as the server does
  * at startup.
@@ -71,8 +75,8 @@ async function main(): Promise<void> {
   if (!token) fail("A host token is required: --token-file <path> or TAKODE_HOST_TOKEN");
   const apiPort = Number(option("api-port") ?? 0);
   if (!Number.isInteger(apiPort) || apiPort < 0 || apiPort > 65_535) fail("--api-port must be a port number");
-  // Programs the coordinator names by role; each host may point them at its own installation.
-  const commands: Record<string, string> = {};
+  // Per-node overrides of the Claude/Codex programs this machine's settings on the coordinator name.
+  const commands: { claude?: string; codex?: string } = {};
   const claude = option("claude");
   const codex = option("codex");
   if (claude) commands.claude = claude;

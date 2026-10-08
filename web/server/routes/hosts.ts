@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
-import type { HostRegistry, RegisteredHost } from "../remote-host/host-registry.js";
+import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
 
 /**
  * Remote host management. Registering a host returns its token once; the
@@ -12,7 +12,34 @@ export function createHostRoutes(registry: HostRegistry, links: HostLinkManager)
   api.get("/hosts", async (c) => {
     const hosts = await registry.list();
     // `build` is this server's commit, which each host's `build` is compared with.
-    return c.json({ hosts: hosts.map((host) => ({ ...host, ...links.status(host.id) })), build: links.build });
+    // `local` is this machine, which runs sessions without a host.
+    return c.json({
+      hosts: hosts.map((host) => ({
+        ...host,
+        ...links.status(host.id),
+        settings: registry.machineSettings(host.id),
+      })),
+      build: links.build,
+      local: { id: LOCAL_HOST_ID, settings: registry.machineSettings(LOCAL_HOST_ID) },
+    });
+  });
+
+  /** Change a machine's settings (`local` for this machine); a connected host receives them at once. */
+  api.put("/hosts/:id/settings", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    for (const field of ["claudeBinary", "codexBinary"]) {
+      if (body[field] !== undefined && typeof body[field] !== "string") {
+        return c.json({ error: `${field} must be a string` }, 400);
+      }
+    }
+    const settings = await registry.updateMachineSettings(id, {
+      ...(typeof body.claudeBinary === "string" ? { claudeBinary: body.claudeBinary } : {}),
+      ...(typeof body.codexBinary === "string" ? { codexBinary: body.codexBinary } : {}),
+    });
+    if (!settings) return c.json({ error: "Host not found" }, 404);
+    if (id !== LOCAL_HOST_ID) links.pushSettings(id);
+    return c.json({ settings });
   });
 
   api.post("/hosts", async (c) => {

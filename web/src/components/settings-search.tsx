@@ -210,20 +210,9 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     id: "cli",
-    title: "CLIs & Editor",
-    description: "Which Claude Code and Codex programs to run, and which editor opens file links.",
-    aliases: ["backend", "binary", "path"],
+    title: "Editor",
+    description: "Which editor opens file links.",
     items: [
-      {
-        id: "claude",
-        text: "Claude Code binary path command auto-detect CLI",
-        subsection: "cli",
-      },
-      {
-        id: "codex",
-        text: "Codex binary path command auto-detect CLI",
-        subsection: "cli",
-      },
       {
         id: "editor",
         text: "File Link Editor VSCode local remote Cursor none editor",
@@ -253,13 +242,14 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     id: "hosts",
-    title: "Remote Hosts",
-    description: "Other machines that run sessions for this server.",
-    aliases: ["remote", "machine", "devbox"],
+    title: "Hosts",
+    description:
+      "This machine and other machines that run sessions, and the Claude Code and Codex programs each one runs.",
+    aliases: ["remote", "machine", "devbox", "backend", "binary", "path", "cli"],
     items: [
       {
         id: "hosts",
-        text: "Hosts other machines remote devbox takode node token coordinator add host remove online offline",
+        text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI",
       },
     ],
   },

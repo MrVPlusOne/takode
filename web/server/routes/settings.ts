@@ -879,8 +879,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
       pushoverDelaySeconds: settings.pushoverDelaySeconds,
       pushoverBaseUrl: settings.pushoverBaseUrl,
-      claudeBinary: settings.claudeBinary,
-      codexBinary: settings.codexBinary,
       maxKeepAlive: settings.maxKeepAlive,
       heavyRepoModeEnabled: settings.heavyRepoModeEnabled,
       namerConfig: maskNamerConfig(settings.namerConfig),
@@ -1025,12 +1023,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
     }
     if (body.pushoverBaseUrl !== undefined && typeof body.pushoverBaseUrl !== "string") {
       return c.json({ error: "pushoverBaseUrl must be a string" }, 400);
-    }
-    if (body.claudeBinary !== undefined && typeof body.claudeBinary !== "string") {
-      return c.json({ error: "claudeBinary must be a string" }, 400);
-    }
-    if (body.codexBinary !== undefined && typeof body.codexBinary !== "string") {
-      return c.json({ error: "codexBinary must be a string" }, 400);
     }
     if (
       body.maxKeepAlive !== undefined &&
@@ -1213,8 +1205,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "pushoverEnabled",
       "pushoverEventFilters",
       "pushoverBaseUrl",
-      "claudeBinary",
-      "codexBinary",
       "maxKeepAlive",
       "heavyRepoModeEnabled",
       "namerConfig",
@@ -1253,8 +1243,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? parsePushoverEventFiltersFromBody(body.pushoverEventFilters as Record<string, unknown>)
         : undefined,
       pushoverBaseUrl: typeof body.pushoverBaseUrl === "string" ? body.pushoverBaseUrl.trim() : undefined,
-      claudeBinary: typeof body.claudeBinary === "string" ? body.claudeBinary.trim() : undefined,
-      codexBinary: typeof body.codexBinary === "string" ? body.codexBinary.trim() : undefined,
       maxKeepAlive: typeof body.maxKeepAlive === "number" ? body.maxKeepAlive : undefined,
       heavyRepoModeEnabled: typeof body.heavyRepoModeEnabled === "boolean" ? body.heavyRepoModeEnabled : undefined,
       namerConfig: body.namerConfig ? parseNamerConfigFromBody(body.namerConfig) : undefined,

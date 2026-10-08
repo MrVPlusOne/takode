@@ -128,33 +128,13 @@ export function SettingsPage({
     });
   };
 
-  // CLI binary state
-  const [claudeBin, setClaudeBin] = useState("");
-  const [codexBin, setCodexBin] = useState("");
   const [codexLeaderCompactionMode, setCodexLeaderCompactionMode] = useState<CodexLeaderCompactionMode>("recycle");
   const [logFile, setLogFile] = useState("");
-  const [binSaving, setBinSaving] = useState(false);
-  const [binError, setBinError] = useState("");
   const [leaderProfilePools, setLeaderProfilePools] = useState<LeaderProfilePoolSettings | undefined>(undefined);
-  const [claudeTest, setClaudeTest] = useState<{
-    ok: boolean;
-    resolvedPath?: string;
-    version?: string;
-    error?: string;
-  } | null>(null);
-  const [codexTest, setCodexTest] = useState<{
-    ok: boolean;
-    resolvedPath?: string;
-    version?: string;
-    error?: string;
-  } | null>(null);
-  const [claudeTesting, setClaudeTesting] = useState(false);
-  const [codexTesting, setCodexTesting] = useState(false);
   const [editorChoice, setEditorChoice] = useState<EditorKind>("none");
   const [sessionDefaults, setSessionDefaults] = useState<SessionDefaultsSettings>(DEFAULT_SESSION_DEFAULTS);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState("");
-  const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
   const [maxKeepAlive, setMaxKeepAlive] = useState(0);
@@ -226,8 +206,6 @@ export function SettingsPage({
       .getSettings()
       .then((s) => {
         setLoadedSettings(s);
-        setClaudeBin(s.claudeBinary || "");
-        setCodexBin(s.codexBinary || "");
         setCodexLeaderCompactionMode(normalizeCodexLeaderCompactionMode(s.codexLeaderCompactionMode));
         setLeaderProfilePools(s.leaderProfilePools);
         setLogFile(s.logFile || "");
@@ -379,47 +357,6 @@ export function SettingsPage({
       localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
     };
   }, [isActive]);
-
-  // Debounced auto-save for CLI binaries (fires 800ms after last keystroke)
-  function debouncedSaveBinaries(newClaude: string, newCodex: string) {
-    if (binDebounceRef.current) clearTimeout(binDebounceRef.current);
-    binDebounceRef.current = setTimeout(async () => {
-      setBinSaving(true);
-      setBinError("");
-      try {
-        const res = await api.updateSettings({
-          claudeBinary: newClaude.trim(),
-          codexBinary: newCodex.trim(),
-        });
-        setClaudeBin(res.claudeBinary || "");
-        setCodexBin(res.codexBinary || "");
-      } catch (err: unknown) {
-        setBinError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBinSaving(false);
-      }
-    }, 800);
-  }
-
-  async function onTestBinary(which: "claude" | "codex") {
-    const binary = which === "claude" ? claudeBin.trim() || "claude" : codexBin.trim() || "codex";
-    const setTesting = which === "claude" ? setClaudeTesting : setCodexTesting;
-    const setResult = which === "claude" ? setClaudeTest : setCodexTest;
-    setTesting(true);
-    setResult(null);
-    try {
-      const res = await api.testBinary(binary);
-      setResult(res);
-    } catch (err: unknown) {
-      setResult({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setTesting(false);
-      setTimeout(() => setResult(null), 5000);
-    }
-  }
 
   async function onChangeEditor(nextEditor: EditorKind) {
     setEditorChoice(nextEditor);
@@ -677,33 +614,6 @@ export function SettingsPage({
   const errorBox = (message: string) => (
     <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">{message}</div>
   );
-  const binaryFields = [
-    {
-      which: "claude" as const,
-      itemId: "claude",
-      label: "Claude Code",
-      value: claudeBin,
-      testing: claudeTesting,
-      test: claudeTest,
-      onChange: (v: string) => {
-        setClaudeBin(v);
-        debouncedSaveBinaries(v, codexBin);
-      },
-    },
-    {
-      which: "codex" as const,
-      itemId: "codex",
-      label: "Codex",
-      value: codexBin,
-      testing: codexTesting,
-      test: codexTest,
-      onChange: (v: string) => {
-        setCodexBin(v);
-        debouncedSaveBinaries(claudeBin, v);
-      },
-    },
-  ];
-
   return (
     <div
       ref={scrollRef}
@@ -952,51 +862,8 @@ export function SettingsPage({
               <SettingsSessionDataSection hidden={settingsSearch.rowHidden("sessions", "session-data")} />
             </CollapsibleSection>
 
-            {/* ── CLIs & Editor ────────────────────────────────────── */}
+            {/* ── Editor ───────────────────────────────────────────── */}
             <CollapsibleSection {...settingsSearch.sectionProps("cli")}>
-              <SettingsSubsection
-                title="Backend CLIs"
-                description="Custom path or command for each backend CLI. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
-                hidden={settingsSearch.rowHidden("cli", "cli")}
-              >
-                {binaryFields.map((field) => (
-                  <div key={field.which} hidden={settingsSearch.rowHidden("cli", field.itemId)}>
-                    <label className="block text-sm font-medium mb-1.5" htmlFor={`${field.which}-binary`}>
-                      {field.label}
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id={`${field.which}-binary`}
-                        type="text"
-                        value={field.value}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        placeholder={`${field.which} (auto-detect)`}
-                        className="flex-1 min-w-0 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => onTestBinary(field.which)}
-                        disabled={field.testing}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                          field.testing
-                            ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                            : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                        }`}
-                      >
-                        {field.testing ? "Testing..." : "Test"}
-                      </button>
-                    </div>
-                    {field.test && (
-                      <p className={`mt-1.5 text-xs ${field.test.ok ? "text-cc-success" : "text-cc-error"}`}>
-                        {field.test.ok ? `${field.test.resolvedPath} — ${field.test.version}` : field.test.error}
-                      </p>
-                    )}
-                  </div>
-                ))}
-                {binError && errorBox(binError)}
-                {binSaving && <p className="text-xs text-cc-muted">Saving...</p>}
-              </SettingsSubsection>
-
               <div hidden={settingsSearch.rowHidden("cli", "editor")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="editor-preference">
                   Editor
@@ -1099,7 +966,7 @@ export function SettingsPage({
               </div>
             </CollapsibleSection>
 
-            {/* ── Remote Hosts ─────────────────────────────────────── */}
+            {/* ── Hosts ────────────────────────────────────────────── */}
             <CollapsibleSection {...settingsSearch.sectionProps("hosts")}>
               <SettingsHostsSection />
             </CollapsibleSection>
