@@ -5,6 +5,7 @@ import { access, realpath } from "node:fs/promises";
 import { delimiter, resolve } from "node:path";
 import { COMPANION_BIN_DIR } from "../server/cli-wrapper-paths.js";
 import { optimizeAgentImageFile } from "../server/image-optimizer.js";
+import { AGENT_BROWSER_LEASE, agentBrowserSession, findHeldSlot } from "./validation-slots.js";
 
 const TAKODE_ORIGINAL_FLAG = "--takode-original";
 const SCREENSHOT_COMMAND = "screenshot";
@@ -30,23 +31,24 @@ async function main(): Promise<void> {
     console.error("agent-browser: real agent-browser binary not found outside ~/.companion/bin");
     process.exit(127);
   }
+  const env = await slotSessionEnv(args);
 
   const screenshotIndex = findScreenshotCommandIndex(args);
   if (screenshotIndex === null) {
-    const code = await runDelegate(delegate, args, "inherit");
+    const code = await runDelegate(delegate, args, env);
     process.exit(code);
   }
 
   wakeDisplayForCapture();
   const cleanedArgs = args.filter((arg) => arg !== TAKODE_ORIGINAL_FLAG);
   if (args.includes(TAKODE_ORIGINAL_FLAG) || process.env.TAKODE_AGENT_BROWSER_ORIGINAL === "1") {
-    const code = await runDelegate(delegate, cleanedArgs, "inherit");
+    const code = await runDelegate(delegate, cleanedArgs, env);
     process.exit(code);
   }
 
   const callerRequestedJson = hasJsonFlag(cleanedArgs);
   const delegateArgs = callerRequestedJson ? cleanedArgs : [...cleanedArgs, "--json"];
-  const result = await runDelegateCaptured(delegate, delegateArgs);
+  const result = await runDelegateCaptured(delegate, delegateArgs, env);
   if (result.code !== 0) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
@@ -123,6 +125,22 @@ async function findDelegate(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Parallel lease holders must not share a browser, so a caller holding an
+ * agent-browser slot drives that slot's session unless it chose one itself.
+ */
+async function slotSessionEnv(args: string[]): Promise<NodeJS.ProcessEnv> {
+  const choseSession = args.some((arg) => arg === "--session" || arg.startsWith("--session="));
+  if (choseSession || process.env.AGENT_BROWSER_SESSION) return process.env;
+  try {
+    const slot = await findHeldSlot(AGENT_BROWSER_LEASE);
+    return slot === null ? process.env : { ...process.env, AGENT_BROWSER_SESSION: agentBrowserSession(slot) };
+  } catch (err) {
+    console.error(`agent-browser: could not look up your agent-browser lease slot: ${(err as Error).message}`);
+    return process.env;
+  }
+}
+
 function hasJsonFlag(args: string[]): boolean {
   return args.some((arg) => arg === "--json" || arg.startsWith("--json="));
 }
@@ -175,9 +193,9 @@ function forwardTerminationSignals(child: ChildProcess): void {
   }
 }
 
-function runDelegate(delegate: string, args: string[], stdio: "inherit"): Promise<number> {
+function runDelegate(delegate: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolveCode) => {
-    const child = spawn(delegate, args, { stdio, env: process.env });
+    const child = spawn(delegate, args, { stdio: "inherit", env });
     forwardTerminationSignals(child);
     child.on("error", (err) => {
       console.error(`agent-browser: failed to run ${delegate}: ${(err as Error).message}`);
@@ -193,9 +211,10 @@ function runDelegate(delegate: string, args: string[], stdio: "inherit"): Promis
 function runDelegateCaptured(
   delegate: string,
   args: string[],
+  env: NodeJS.ProcessEnv,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
-    const child = spawn(delegate, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    const child = spawn(delegate, args, { stdio: ["ignore", "pipe", "pipe"], env });
     forwardTerminationSignals(child);
     let stdout = "";
     let stderr = "";

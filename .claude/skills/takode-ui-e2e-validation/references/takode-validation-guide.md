@@ -19,6 +19,8 @@ takode lease acquire dev-server:companion --purpose "Validate q-N server" --ttl 
 takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait
 ```
 
+The acquire output names your slot in each pool; the SKILL.md **Lease Slots** table maps it to your ports, state directory and browser session.
+
 If the command queues behind another holder, it prints the owner and queue details, then the server sends a Resource Lease message to your session when you are promoted. Do not poll in a loop; use `takode lease status <resource>` only for an intentional manual refresh.
 
 Renew long sessions before leases expire:
@@ -28,10 +30,11 @@ takode lease renew dev-server:companion
 takode lease renew agent-browser
 ```
 
-Release promptly:
+Release promptly, after stopping what you started (from `web/`):
 
 ```bash
 agent-browser close
+bun --no-install scripts/validation-server.ts stop
 takode lease release agent-browser
 takode lease release dev-server:companion
 ```
@@ -44,7 +47,7 @@ Choose the state strategy before opening the browser or starting a server. Recor
 
 Use shared persistent validation state by default for normal Takode UI/E2E checks. Accumulated sessions, long leader histories, Questmaster data, notifications, Work Board/thread state, reconnection artifacts, and other realistic state are useful validation assets rather than noise to discard. The profile must be documented or explicitly authorized for the task, with known URL/ports and state ownership. Persistent validation state is not permission to mutate the live/session server on `:3456`.
 
-Use isolated temp HOME/state only when isolation, resetability, privacy, or destructive testing matters more than representative accumulated state. This is the safer choice for destructive permission flows, cleanup behavior, migration experiments, failure injection, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, tests that may create harmful or misleading session data, or any run where stale retained state could confuse the result. Set `HOME` to a temp directory for both backend and frontend commands, then record the temporary HOME, companion settings/session path, backend port, frontend port, and cleanup performed.
+Use isolated temp HOME/state only when isolation, resetability, privacy, or destructive testing matters more than representative accumulated state. This is the safer choice for destructive permission flows, cleanup behavior, migration experiments, failure injection, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, tests that may create harmful or misleading session data, or any run where stale retained state could confuse the result. Use your `dev-server:companion` slot's HOME through `scripts/validation-server.ts start` (`--fresh` for empty state), then record the slot, HOME, backend port, frontend port, and cleanup performed.
 
 Unported worktree code does not automatically justify empty isolated state. Code and state are separable: for pre-Port UI validation, run the worker worktree frontend/backend on safe alternate ports while pointing it at the authorized persistent validation profile when that profile can be reused safely. If direct reuse would risk corrupting or confusing shared state, use a sanitized copied persistent snapshot before falling back to an empty temp HOME. Record which option you chose and why, especially when persistent state cannot safely run the worktree code.
 
@@ -73,28 +76,23 @@ Takode agents depend on the live/session server on `:3456`. Never stop, kill, re
 
 For normal E2E/browser validation, prefer the authorized shared persistent validation state with documented URL/ports and retention policy. If no such profile is available, fall back to isolated temp state, Playground/browser fixtures, or a sanitized copied-live snapshot and document the limitation.
 
-For isolated validation, use both a temp `HOME` and alternate ports:
+For isolated validation, start this checkout's backend and Vite on your slot's ports and HOME, from `web/`:
 
 ```bash
-# Shared setup:
-mkdir -p /tmp/takode-q-N/home
-
-# Terminal 1, from web/
-HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun --no-install server/index.ts
-
-# Terminal 2, from web/
-HOME=/tmp/takode-q-N/home PORT=3467 bun --no-install run dev:vite -- --host 0.0.0.0 --port 5178
+bun --no-install scripts/validation-server.ts start --fresh
 ```
 
-Then browse:
+It prints your frontend URL, for example `http://127.0.0.1:5182` for slot 2, plus the HOME and log paths; `status` repeats them. Then browse:
 
 ```bash
-agent-browser --color-scheme dark open http://127.0.0.1:5178
+agent-browser --color-scheme dark open http://127.0.0.1:5182
 agent-browser set viewport 1440 1000
 agent-browser set viewport 430 932
 ```
 
-Use existing project scripts only when their hardcoded ports are appropriate and you hold the lease. `scripts/dev-start.sh` uses backend `3457` and frontend `5174`; it may stop processes on those ports when asked to start or stop, so do not use it for unknown or shared port occupants.
+Restarting after a code change is `stop` then `start` without `--fresh`, which keeps the scenario you built in the slot HOME. If `start` reports a port in use, find out whose process it is; stop it only if it is yours from an earlier run.
+
+Do not use `make dev` or `scripts/dev-start.sh` for leased validation: their default ports `3457` and `5174` belong to no slot, and `dev-start.sh` may stop processes on those ports.
 
 Do not reset, prune, or clean shared persistent validation state unless the task or documented profile policy authorizes that cleanup. Long-lived validation state is allowed to accumulate useful scenarios, but every retained scenario needs a reason and enough provenance for the next tester to understand it.
 
@@ -127,13 +125,15 @@ The expected Chrome for Testing cache is `~/.agent-browser/browsers`, for exampl
 Typical flow:
 
 ```bash
-agent-browser --color-scheme dark open http://127.0.0.1:5178
+agent-browser --color-scheme dark open http://127.0.0.1:5182
 agent-browser set viewport 1440 1000
 agent-browser screenshot /tmp/takode-q-N/desktop-initial.png
-agent-browser open http://127.0.0.1:5178/#/playground
+agent-browser open http://127.0.0.1:5182/#/playground
 agent-browser set viewport 430 932
 agent-browser screenshot /tmp/takode-q-N/mobile-playground.png
 ```
+
+The wrapper runs every command in your `agent-browser` slot's session (`takode-browser-N`), so these commands never touch another holder's browser. It leaves an explicit `--session` or `AGENT_BROWSER_SESSION` alone.
 
 Prefer semantic interactions and visible UI checks. Use DOM probes only when they answer an objective question that screenshots or visible interaction cannot, such as bounding boxes, aria state, or exact row counts.
 

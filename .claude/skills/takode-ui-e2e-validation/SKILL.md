@@ -11,7 +11,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 
 - Use `agent-browser` for interactive Takode browser validation.
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
-- Stop a validation server you started by its own task, PID or port (`lsof -tiTCP:<port> -sTCP:LISTEN`), never by a command-line pattern such as `pkill -f server/index.ts`: the live `:3456` server runs with the same command line.
+- Stop a validation server you started with `scripts/validation-server.ts stop` or by its own task, PID or port (`lsof -tiTCP:<port> -sTCP:LISTEN`), never by a command-line pattern such as `pkill -f server/index.ts`: the live `:3456` server runs with the same command line.
 - Default normal Takode E2E/browser validation to the authorized shared persistent validation state when one is documented or explicitly authorized. Treat this as persistent validation state, not as permission to mutate live `:3456`.
 - Use isolated temp HOME/state only for destructive tests, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, or when retained shared state would make the result misleading. Playground/browser fixtures and sanitized copied-live snapshots remain valid for their narrower cases.
 - Do not treat "the accepted code is only in my worktree / not ported yet" as an isolation reason by itself. Code and state are separable: run the worker worktree process on safe alternate ports, but point it at an authorized persistent validation profile when that profile is safe to reuse. Prefer that, or a sanitized copied persistent snapshot, before falling back to an empty temp HOME.
@@ -19,7 +19,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 - Hold the Takode lease for each shared resource you will use:
   - Full browser validation usually needs both `dev-server:companion` and `agent-browser`.
   - Server-only work needs `dev-server:companion`.
-  - If an authorized resource pool has multiple slots, use only your acquired slot and its documented port/state mapping. Apply the shared **Global Resource Leases** instructions for capacity and recovery; do not increase capacity or treat another slot as permission to share conflicting ports/state.
+  - Use only the ports, state and browser session mapped to the slots you hold (see **Lease Slots**). Apply the shared **Global Resource Leases** instructions for capacity and recovery; do not increase capacity or treat another slot as permission to share conflicting ports/state.
   - Browser-only inspection of an already-authorized server needs `agent-browser`.
 - Release leases promptly when validation is finished.
 - Close Agent Browser/browser resources you opened before releasing the lease, especially after screenshots or capture work. On macOS, when practical, verify stale `Google Chrome for Testing` capture state is not still holding a display-sleep assertion such as `PreventUserIdleDisplaySleep` / `NoDisplaySleepAssertion`.
@@ -35,7 +35,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
    - Use sanitized copied-live snapshots for bugs anchored to a specific live session/history.
    - If the implementation is still in a worker worktree, remember that code location and state location are separate choices: run the worktree frontend/backend on alternate ports, then point it at the authorized persistent validation state when safe. If direct reuse is unsafe, try a sanitized copied persistent snapshot. Empty isolated state is the last fallback, not the default consequence of working before Port.
 3. Before using shared persistent validation state, inventory the starting state: profile name or state location, URL/ports, known useful scenarios, owner/lease status, and anything you expect to preserve.
-4. If starting a server, use authorized profile ports or alternate isolated ports only. Keep `:3456` untouched.
+4. If starting a server, use your `dev-server:companion` slot's ports through `scripts/validation-server.ts` (see **Lease Slots**). Keep `:3456` untouched.
 5. Open and operate the UI with `agent-browser`.
 6. Capture screenshots for important visual states and optimized evidence paths.
 7. End by deciding what state to retain or remove. Retain useful new scenarios by default; clean up only state that is clearly harmful, misleading, sensitive, destructive, or not useful. Close Agent Browser/browser resources and clean up only resources you own.
@@ -45,26 +45,41 @@ If a lease command queues you behind another session, wait for the Resource Leas
 
 For command patterns, artifact handling, and surface-specific heuristics, read [references/takode-validation-guide.md](references/takode-validation-guide.md).
 
+## Lease Slots
+
+Each slot number of these pools maps to its own resources, so parallel holders never share a server, a HOME or a browser:
+
+| Pool | Slot N resources |
+|------|------------------|
+| `dev-server:companion` | backend port `3470+N`, Vite port `5180+N`, state directory `/tmp/takode-validation/dev-server-N/` (HOME in its `home/`, plus logs) |
+| `agent-browser` | agent-browser session `takode-browser-N` |
+
+Slot 2, for example, gets backend `3472`, frontend `http://127.0.0.1:5182` and browser session `takode-browser-2`.
+
+- Start and stop validation servers with the helper, run from `web/` of the checkout you are validating. It reads your slot from your lease, refuses ports that are already in use instead of stopping their owners, drops the live server's `COMPANION_*`/`TAKODE_*` identity from the inherited environment, and `stop` only stops processes this session started:
+
+  ```bash
+  bun --no-install scripts/validation-server.ts start   # add --fresh to empty the slot HOME first
+  bun --no-install scripts/validation-server.ts status  # your slots, URLs and whether your servers run
+  bun --no-install scripts/validation-server.ts stop
+  ```
+
+- The slot's state directory belongs to whoever holds the slot. It may contain an earlier holder's state, so use `start --fresh` when you need empty state.
+- Takode's `agent-browser` wrapper drives your slot's session automatically while you hold an `agent-browser` slot, including `agent-browser close`. If you call the real binary directly, pass `--session takode-browser-N`. Never run `agent-browser close --all`; it closes other slots' browsers too.
+- `make dev` and `scripts/dev-start.sh` use the default ports `3457`/`5174`, which belong to no slot. Do not use them for leased validation.
+
 ## Server Selection
 
-Use the authorized shared persistent validation state as the default for normal Takode E2E/browser validation when the current owner/lease allows it. The profile must have an identified URL/ports, state location or name, and cleanup/retention expectations. If no safe persistent profile is documented or authorized, explicitly record that limitation, then use an isolated temp `HOME` plus alternate ports such as backend `3467` and frontend `5178`.
+Use the authorized shared persistent validation state as the default for normal Takode E2E/browser validation when the current owner/lease allows it. The profile must have an identified URL/ports, state location or name, and cleanup/retention expectations. If no safe persistent profile is documented or authorized, explicitly record that limitation, then use your slot's isolated HOME through the helper above.
 
-Example manual two-terminal pattern from `web/`:
-
-```bash
-mkdir -p /tmp/takode-q-N/home
-HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun --no-install server/index.ts
-HOME=/tmp/takode-q-N/home PORT=3467 bun --no-install run dev:vite -- --port 5178
-```
-
-Open `http://127.0.0.1:5178` in `agent-browser`. The Vite proxy will target the backend port from `PORT`.
+Open your slot's frontend in `agent-browser`; the Vite proxy targets your slot's backend:
 
 ```bash
-agent-browser --color-scheme dark open http://127.0.0.1:5178
+agent-browser --color-scheme dark open http://127.0.0.1:5182   # slot 2
 agent-browser set viewport 1440 1000
 ```
 
-Do not run any helper that kills an occupied port unless you know the port is owned by your current validation run. This is especially strict for `:3456`. Shared persistent validation state is intentionally long-lived; do not reset or prune it unless the task or profile policy authorizes that cleanup.
+Do not stop or kill any process you did not start, especially on `:3456`. Shared persistent validation state is intentionally long-lived; do not reset or prune it unless the task or profile policy authorizes that cleanup.
 
 ## Playground
 

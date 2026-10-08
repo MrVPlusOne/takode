@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -13,6 +15,7 @@ let fakeScreenshotPath: string;
 let delegateArgsPath: string;
 let caffeinateArgsPath: string;
 let delegatePidPath: string;
+let delegateSessionPath: string;
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "agent-browser-shim-test-"));
@@ -21,6 +24,7 @@ beforeEach(async () => {
   delegateArgsPath = join(tempDir, "delegate-args.txt");
   caffeinateArgsPath = join(tempDir, "caffeinate-args.txt");
   delegatePidPath = join(tempDir, "delegate.pid");
+  delegateSessionPath = join(tempDir, "delegate-session.txt");
   await mkdir(fakeBinDir, { recursive: true });
   await writeFile(
     fakeScreenshotPath,
@@ -151,6 +155,83 @@ describe("agent-browser shim", () => {
     await vi.waitFor(() => expect(isAlive(delegatePid)).toBe(false), { timeout: 5000 });
   });
 
+  // Parallel holders of the agent-browser pool must each drive their own
+  // browser, so the shim picks the session mapped to the caller's slot.
+  describe("lease slot sessions", () => {
+    let leaseServer: Server;
+    let leaseRequests: number;
+
+    beforeEach(async () => {
+      leaseRequests = 0;
+      leaseServer = createServer((req, res) => {
+        leaseRequests += 1;
+        // Mirrors GET /api/resource-leases/:key, where another session holds slot 1.
+        const authorized = req.headers["x-companion-auth-token"] === "test-token";
+        res.writeHead(authorized && req.url === "/api/resource-leases/agent-browser" ? 200 : 404, {
+          "Content-Type": "application/json",
+        });
+        res.end(
+          JSON.stringify({
+            resource: {
+              resourceKey: "agent-browser",
+              capacity: 3,
+              leases: [
+                { slot: 1, ownerSessionId: "other-session" },
+                { slot: 2, ownerSessionId: "slot-holder" },
+              ],
+              waiters: [],
+            },
+          }),
+        );
+      });
+      await new Promise<void>((resolveListen) => leaseServer.listen(0, resolveListen));
+    });
+
+    afterEach(async () => {
+      await new Promise((resolveClose) => leaseServer.close(resolveClose));
+    });
+
+    function sessionEnv(sessionId: string): Record<string, string> {
+      return {
+        COMPANION_SESSION_ID: sessionId,
+        COMPANION_AUTH_TOKEN: "test-token",
+        COMPANION_PORT: String((leaseServer.address() as AddressInfo).port),
+      };
+    }
+
+    it("drives the browser session of the caller's slot", async () => {
+      const result = await runShimAsync(["open", "http://127.0.0.1:5182"], sessionEnv("slot-holder"));
+
+      expect(result.code).toBe(0);
+      expect(readFileSync(delegateSessionPath, "utf-8").trim()).toBe("takode-browser-2");
+      expect(readFileSync(delegateArgsPath, "utf-8").trim()).toBe("open http://127.0.0.1:5182");
+    });
+
+    it("keeps the default session when the caller holds no slot", async () => {
+      const result = await runShimAsync(["status"], sessionEnv("no-lease"));
+
+      expect(result.code).toBe(0);
+      expect(leaseRequests).toBe(1);
+      expect(readFileSync(delegateSessionPath, "utf-8").trim()).toBe("");
+    });
+
+    it("leaves an explicitly chosen session alone without asking the server", async () => {
+      const result = await runShimAsync(["--session", "manual", "status"], sessionEnv("slot-holder"));
+
+      expect(result.code).toBe(0);
+      expect(leaseRequests).toBe(0);
+      expect(readFileSync(delegateSessionPath, "utf-8").trim()).toBe("");
+    });
+
+    it("warns and keeps the default session when the lease lookup fails", async () => {
+      const result = await runShimAsync(["status"], { ...sessionEnv("slot-holder"), COMPANION_AUTH_TOKEN: "bad" });
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("could not look up your agent-browser lease slot");
+      expect(readFileSync(delegateSessionPath, "utf-8").trim()).toBe("");
+    });
+  });
+
   it("fails clearly when no external delegate is available", () => {
     const result = runShim(["status"], { PATH: "/usr/bin:/bin" });
 
@@ -161,6 +242,21 @@ describe("agent-browser shim", () => {
 
 function runShim(args: string[], envOverrides: Record<string, string> = {}) {
   return spawnSync(process.execPath, [shimPath(), ...args], { env: shimEnv(envOverrides), encoding: "utf-8" });
+}
+
+/** Async variant for tests whose in-process lease server must keep answering. */
+function runShimAsync(
+  args: string[],
+  envOverrides: Record<string, string>,
+): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolveRun) => {
+    const child = spawn(process.execPath, [shimPath(), ...args], { env: shimEnv(envOverrides) });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("close", (code) => resolveRun({ code, stderr }));
+  });
 }
 
 function shimPath(): string {
@@ -175,7 +271,14 @@ function shimEnv(envOverrides: Record<string, string>): NodeJS.ProcessEnv {
     FAKE_SCREENSHOT_SOURCE: fakeScreenshotPath,
     DELEGATE_ARGS_FILE: delegateArgsPath,
     CAFFEINATE_ARGS_FILE: caffeinateArgsPath,
+    DELEGATE_SESSION_FILE: delegateSessionPath,
     TMPDIR: tempDir,
+    // Never let the shim's lease lookup reach the live server from a test.
+    COMPANION_SESSION_ID: "",
+    COMPANION_AUTH_TOKEN: "",
+    COMPANION_PORT: "",
+    TAKODE_API_PORT: "",
+    AGENT_BROWSER_SESSION: "",
     ...envOverrides,
   };
 }
@@ -203,6 +306,7 @@ function installFakeDelegate(): void {
     `#!/bin/sh
 original_args="$*"
 printf '%s\\n' "$*" > "$DELEGATE_ARGS_FILE"
+printf '%s\\n' "$AGENT_BROWSER_SESSION" > "$DELEGATE_SESSION_FILE"
 cmd=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
