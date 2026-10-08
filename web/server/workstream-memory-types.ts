@@ -55,6 +55,8 @@ export interface MemoryFile {
   updated: string;
   description: string;
   source: string[];
+  /** Machines the note was written on (`machines:`), in the order they first wrote it; [] when unstamped. */
+  machines: string[];
   path: string;
   absolutePath: string;
   frontmatter: MemoryFrontmatter;
@@ -73,6 +75,8 @@ export interface MemoryCatalogEntry {
   description: string;
   path: string;
   source: string[];
+  /** Machines the note was written on, as in `MemoryFile.machines`. */
+  machines: string[];
   facets: Record<string, string[]>;
 }
 
@@ -198,6 +202,8 @@ export interface MemoryCommitInput extends MemoryRepoOptions {
   operation?: MemoryCommitOperation;
   memoryIds?: string[];
   sources?: string[];
+  /** Machine of the committing session, added to every note a non-repair commit changes. */
+  machine?: string;
 }
 
 export interface MemoryCommitResult {

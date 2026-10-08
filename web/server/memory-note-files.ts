@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, realpath, rmdir, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { stampNoteMachine } from "./memory-note-machines.js";
 import { assertActiveMemoryLock, ensureMemoryRepo, resolveMemoryRepo } from "./workstream-memory-store.js";
 import type { MemoryRepoOptions } from "./workstream-memory-types.js";
 
@@ -67,8 +68,16 @@ export async function grepMemoryNotes(
   return { lines, omitted };
 }
 
-/** Create or replace one note (or folder README) with `content`. Requires the repo lock. */
-export async function writeMemoryNote(path: string, content: string, options: MemoryRepoOptions): Promise<string> {
+/**
+ * Create or replace one note (or folder README) with `content`. Requires the repo lock.
+ * A note gets `machine` (the writing session's) added to its `machines:` list.
+ */
+export async function writeMemoryNote(
+  path: string,
+  content: string,
+  options: MemoryRepoOptions,
+  machine?: string,
+): Promise<string> {
   const repo = await ensureMemoryRepo(options);
   await assertActiveMemoryLock(repo.root);
   const root = await realpath(repo.root);
@@ -77,11 +86,15 @@ export async function writeMemoryNote(path: string, content: string, options: Me
   await mkdir(dirname(absolute), { recursive: true });
   // A symlinked folder or file must not lead the write outside the repo.
   assertInside(root, await realpath(dirname(absolute)));
-  await realpath(absolute).then(
-    (target) => assertInside(root, target),
-    () => undefined,
+  const existing = await realpath(absolute).then(
+    (target) => (assertInside(root, target), true),
+    () => false,
   );
-  await writeFile(absolute, content.endsWith("\n") ? content : `${content}\n`, "utf-8");
+  let text = content.endsWith("\n") ? content : `${content}\n`;
+  if (machine && basename(relativePath) !== "README.md") {
+    text = stampNoteMachine(text, machine, existing ? await readFile(absolute, "utf-8") : undefined);
+  }
+  await writeFile(absolute, text, "utf-8");
   return relativePath;
 }
 

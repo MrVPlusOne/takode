@@ -42,6 +42,8 @@ export interface MemoryCatalogEntry {
   description: string;
   path: string;
   source: string[];
+  /** Machines the note was written on, in the order they first wrote it; [] when unstamped. */
+  machines: string[];
   facets: Record<string, string[]>;
 }
 
@@ -124,6 +126,7 @@ export interface MemoryFile {
   updated: string;
   description: string;
   source: string[];
+  machines: string[];
   path: string;
   absolutePath: string;
   frontmatter: Record<string, unknown>;

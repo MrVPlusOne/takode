@@ -23,6 +23,7 @@ import {
   setFrontmatterField,
 } from "./memory-repo-layout.js";
 import { checkMemoryRepoHealth } from "./memory-repo-health.js";
+import { stampNoteMachine } from "./memory-note-machines.js";
 import {
   LEGACY_TYPE_FOLDERS,
   MEMORY_COMMIT_OPERATIONS,
@@ -742,7 +743,7 @@ export async function commitMemory(input: MemoryCommitInput): Promise<MemoryComm
   if (errors.length) {
     throw new Error(`Memory lint failed: ${errors.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
   }
-  if (!repair) await stampUpdated(repo.root, changedPaths);
+  if (!repair) await stampChangedNotes(repo.root, changedPaths, input.machine);
 
   await runGit(repo.root, ["add", "-A"]);
   const status = await memoryGitStatus(input);
@@ -774,6 +775,7 @@ export function parseMemoryFile(root: string, absolutePath: string, content: str
     updated: optionalString(frontmatter.updated),
     description: optionalString(frontmatter.description),
     source: stringList(frontmatter.source),
+    machines: stringList(frontmatter.machines),
     path,
     absolutePath,
     frontmatter,
@@ -819,6 +821,7 @@ function catalogEntryFromFile(file: MemoryFile, gitDate: string, helpfulDate: st
     description: file.description,
     path: file.path,
     source: file.source,
+    machines: file.machines,
     facets: normalizeFacets(file.frontmatter.facets),
   };
 }
@@ -1187,8 +1190,11 @@ async function changedMemoryPaths(root: string): Promise<string[]> {
   return paths;
 }
 
-/** Stamp `updated:` with today's date on changed notes that still exist (not folder READMEs). */
-async function stampUpdated(root: string, changedPaths: string[]): Promise<void> {
+/**
+ * Stamp `updated:` with today's date, and the committing session's machine when known, on
+ * changed notes that still exist (not folder READMEs).
+ */
+async function stampChangedNotes(root: string, changedPaths: string[], machine: string | undefined): Promise<void> {
   const today = localDate();
   for (const path of changedPaths) {
     if (!path.endsWith(".md") || path === "README.md" || path.endsWith("/README.md")) continue;
@@ -1198,7 +1204,8 @@ async function stampUpdated(root: string, changedPaths: string[]): Promise<void>
     } catch {
       continue; // Deleted or moved away.
     }
-    const stamped = setFrontmatterField(content, "updated", today);
+    const dated = setFrontmatterField(content, "updated", today);
+    const stamped = machine ? stampNoteMachine(dated, machine) : dated;
     if (stamped !== content) await writeFile(join(root, path), stamped, "utf-8");
   }
 }

@@ -154,6 +154,7 @@ source:
       "knowledge/service-x.md",
       `
 description: Explains Service X config and failure modes.
+machines: [laptop]
 source:
   - q-1220
 facets:
@@ -200,6 +201,7 @@ source:
           path: "knowledge/service-x.md",
           type: "knowledge",
           source: ["q-1220"],
+          machines: ["laptop"],
           facets: { project: ["takode"] },
         }),
         expect.objectContaining({ path: "current/live.md" }),

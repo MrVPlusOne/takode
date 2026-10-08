@@ -52,7 +52,7 @@ export function machineContextForHost(hostId?: string | null): string | null {
     : ", which also runs the Takode coordinator that holds quests and memory.";
   return (
     `This session runs on machine \`${session.name}\`${detailSuffix(session)}${coordinatorText} ` +
-    "Quest notes and debriefs are stamped with the machine they were written on: paths, commands and environment details in notes from another machine describe that machine, not this one."
+    "Quest notes, debriefs and memory notes are stamped with the machine they were written on: paths, commands and environment details in notes from another machine describe that machine, not this one."
   );
 }
 

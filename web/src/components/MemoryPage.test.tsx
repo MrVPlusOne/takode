@@ -152,6 +152,7 @@ function catalogResponse(): MemoryCatalogResponse {
         path: "knowledge/service-x.md",
         description: "Explains Service X config and failure modes.",
         source: ["q-1220", "session:1576:99"],
+        machines: ["laptop"],
         facets: { project: ["takode"] },
       },
       {
@@ -163,6 +164,7 @@ function catalogResponse(): MemoryCatalogResponse {
         path: "procedures/run-service.md",
         description: "Starts the local service.",
         source: ["q-1227"],
+        machines: ["laptop"],
         facets: {},
       },
       {
@@ -174,6 +176,7 @@ function catalogResponse(): MemoryCatalogResponse {
         path: "decisions/memory-policy.md",
         description: "Records how memory catalog freshness is evaluated.",
         source: ["q-1220"],
+        machines: ["laptop"],
         facets: {},
       },
     ],
@@ -245,6 +248,7 @@ function otherCatalogResponse(): MemoryCatalogResponse {
         path: "current/other-state.md",
         description: "Other session-space state.",
         source: ["q-1237"],
+        machines: ["laptop"],
         facets: {},
       },
     ],
@@ -267,6 +271,7 @@ function recordResponse(path = "knowledge/service-x.md"): MemoryRecordResponse {
         absolutePath: "/Users/test/.companion/memory/prod/Takode/procedures/run-service.md",
         description: "Starts the local service.",
         source: ["q-1227"],
+        machines: ["laptop"],
         frontmatter: {},
         body: "Run `bun run dev` from the web directory.",
         content: "---\ndescription: Starts the local service.\n---\n\nRun `bun run dev` from the web directory.",
@@ -286,6 +291,7 @@ function recordResponse(path = "knowledge/service-x.md"): MemoryRecordResponse {
       absolutePath: "/Users/test/.companion/memory/prod/Takode/knowledge/service-x.md",
       description: "Explains Service X config and failure modes.",
       source: ["q-1220", "session:1576:99"],
+      machines: ["laptop", "devbox"],
       frontmatter: { facets: { project: ["takode"] } },
       body: "Service X is started through a local dev command.",
       content: "---\ndescription: Explains Service X config and failure modes.\n---\n\nService X",
@@ -312,6 +318,7 @@ function otherRecordResponse(): MemoryRecordResponse {
       absolutePath: "/Users/test/.companion/memory/prod/Other/current/other-state.md",
       description: "Other session-space state.",
       source: ["q-1237"],
+      machines: ["laptop"],
       frontmatter: {},
       body: "Other memory detail.",
       content: "---\ndescription: Other session-space state.\n---\n\nOther memory detail.",
@@ -418,6 +425,8 @@ describe("MemoryPage", () => {
     expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "q-1220" })[0]).toHaveAttribute("href", "#/questmaster?quest=q-1220");
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
+    // The machines a note was written on tell the reader which environment its paths describe.
+    expect(screen.getByTestId("memory-record-machines")).toHaveTextContent("laptopdevbox");
     expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]");
     expect(screen.getByRole("region", { name: "Memory detail" })).toHaveClass("min-w-0", "overflow-hidden");
     expect(screen.getByTestId("memory-detail-body")).toHaveClass("space-y-4");

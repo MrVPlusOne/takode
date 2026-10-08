@@ -1,7 +1,14 @@
 import { workstreamMemoryService } from "./workstream-memory-service.js";
-import { applyMemoryHandle, noteViewLine, type MemoryViewLine } from "./memory-catalog-view.js";
+import {
+  applyMemoryHandle,
+  defaultMachineLine,
+  defaultNoteMachine,
+  machineTag,
+  noteViewLine,
+  type MemoryViewLine,
+} from "./memory-catalog-view.js";
 import { memoryHealthSummary } from "./memory-repo-health.js";
-import { machineContextForSession } from "./remote-host/machines.js";
+import { machineContextForSession, sessionMachineName } from "./remote-host/machines.js";
 import { parseMovePlan } from "./memory-move.js";
 import { grepMemoryNotes, readMemoryNotes, removeMemoryNote, writeMemoryNote } from "./memory-note-files.js";
 import {
@@ -231,6 +238,7 @@ Note frontmatter:
   description: "Read when/before/for ..." routing line, at most ${MEMORY_DESCRIPTION_CHAR_LIMIT} characters
   type: one of ${MEMORY_NOTE_TYPES.join(", ")}
   updated: YYYY-MM-DD (stamped by memory commit)
+  machines: [name, ...] (machines the note was written on; stamped by memory write and commit)
   source: [q-N]   (quest ID for quest-backed notes; session:<id> only without a quest)
 Notes live in topic folders (5-25 notes each), each with a README.md holding a one-line description.
 
@@ -353,6 +361,7 @@ async function executeMemoryCommand(
       path,
       await context.readTextFile(requireOption(option, "file")),
       repoOptions(),
+      sessionMachineName(context.session),
     );
     if (jsonOutput) out({ written });
     else io.print(`Wrote ${written}.`);
@@ -463,6 +472,7 @@ async function executeMemoryCommand(
       operation: parseOperation(option("operation")),
       memoryIds: [...options("memory-id"), ...parseCsv(option("memory-ids"))],
       sources: [...options("source"), ...parseCsv(option("sources"))],
+      machine: sessionMachineName(context.session),
     });
     if (jsonOutput) out(result);
     else io.print(result.committed ? `committed ${result.sha}` : result.message);
@@ -485,7 +495,9 @@ async function printCatalogDiff(
     return;
   }
   // Versions must match catalog outputs so a later listing can skip what diff already showed.
-  const hashes = (await workstreamMemoryService.catalog(repoOptions)).contentHashes ?? {};
+  const catalog = await workstreamMemoryService.catalog(repoOptions);
+  const hashes = catalog.contentHashes ?? {};
+  const defaultMachine = defaultNoteMachine(catalog.entries);
   const lines: MemoryViewLine[] = [{ text: `Memory repo: ${diff.repo.root}` }];
   lines.push({
     text: diff.previousSeenAt
@@ -493,12 +505,14 @@ async function printCatalogDiff(
       : "No prior catalog snapshot for this session; current entries are shown as new:",
   });
   if (!diff.changes.length) lines.push({ text: "No catalog changes since last seen." });
+  else lines.push(...defaultMachineLine(defaultMachine));
   for (const change of diff.changes) {
     const entry = change.after ?? change.before;
     const description = entry?.description ? ` ${entry.description}` : "";
-    const text = `${change.kind}: ${change.path}${description}`;
+    const tag = change.after ? machineTag(change.after, defaultMachine) : "";
+    const text = `${change.kind}: ${change.path}${tag}${description}`;
     // A changed note's new version is now shown; record it so later reads can skip it.
-    lines.push(change.after ? { ...noteViewLine(change.after, hashes[change.path]), text } : { text });
+    lines.push(change.after ? { ...noteViewLine(change.after, hashes[change.path], defaultMachine), text } : { text });
   }
   const rendered = await applyMemoryHandle(diff.repo.root, lines, { seen: view.seen });
   io.print(rendered.text);

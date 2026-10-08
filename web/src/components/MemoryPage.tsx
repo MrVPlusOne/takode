@@ -481,6 +481,22 @@ function MemoryFileDetail({
                 "none"
               )}
             </Field>
+            <Field label="Written on">
+              {file.machines.length ? (
+                <div className="flex flex-wrap gap-1.5" data-testid="memory-record-machines">
+                  {file.machines.map((machine) => (
+                    <span
+                      key={machine}
+                      className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 font-mono text-[11px] text-cc-muted"
+                    >
+                      {machine}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                "unknown machine"
+              )}
+            </Field>
             {facetEntries.length ? (
               <Field label="Facets">
                 <div className="flex flex-wrap gap-1.5 text-[11px]">

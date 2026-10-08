@@ -36,7 +36,7 @@ describe("machines", () => {
     expect(machineContextForSession("remote")).toBe(
       "This session runs on machine `devbox` (Linux, user `ana`, home `/home/ana`). " +
         "The Takode coordinator, which holds quests and memory, runs on machine `laptop` (macOS). " +
-        "Quest notes and debriefs are stamped with the machine they were written on: paths, commands and environment details in notes from another machine describe that machine, not this one.",
+        "Quest notes, debriefs and memory notes are stamped with the machine they were written on: paths, commands and environment details in notes from another machine describe that machine, not this one.",
     );
     expect(machineContextForHost(null)).toContain(
       "This session runs on machine `laptop` (macOS, user `ana`, home `/Users/ana`), which also runs the Takode coordinator",

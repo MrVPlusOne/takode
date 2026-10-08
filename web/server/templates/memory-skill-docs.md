@@ -24,6 +24,7 @@ Every note:
   - `type:` one of `current` (live state or obligations that expire), `knowledge` (how something works), `procedure` (steps to do something), `decision` (an accepted choice or preference, and why), `reference` (a digest of or pointer to an outside source), `artifact` (a record of produced outputs or evidence).
   - `updated:` the date of the last substantive change. `memory commit` stamps it; commits made with `--operation repair` leave it alone.
   - `source:` a YAML list of quest IDs (`q-N`); use `session:<id>` only when no quest exists or the session itself is the durable source of truth.
+  - `machines:` the machines the note was written on, like `[laptop, devbox]`, in the order they first wrote it. `memory write` and `memory commit` add your session's machine; keep the list when you rewrite a note.
 
 Every folder has a `README.md` whose frontmatter is a single `description:` line in the same format, "Read for <subject>: <the main subtopics it holds>". It describes the folder and is not a note.
 
@@ -40,7 +41,8 @@ Good folder names are short subject nouns a reader would look for (`codex-recove
 3. Read the notes in those listings that are relevant with `memory read <path>...`. Don't stop at the first note that answers the question if others also apply.
 4. Use `memory grep <pattern> [<folder>...]` for exact terms, such as a file name or an error message, or when no folder description fits.
 5. Use `memory catalog diff` to see which notes changed since this session last looked.
-6. When a note materially helped your work, mark it: `memory helpful <path>...`. A mark counts like an update, so useful notes stay in the recent list.
+6. **Notes come from machines.** Sessions on several machines share one repo, and a note's paths, commands and environment details (home folders, installed tools, "this Mac") describe the machines in its `machines:` list, not necessarily yours. The catalog names the machine most notes come from once and tags every other note after its path, like `note.md [devbox]`. When a note is from another machine, map what it says to your own environment, or check it there, before acting on it.
+7. When a note materially helped your work, mark it: `memory helpful <path>...`. A mark counts like an update, so useful notes stay in the recent list.
 
 **Memory handles keep outputs from repeating what you have already seen.** Every `memory catalog` output, including the injected catalog, ends with a line such as `[memory handle: mem-05de9125ba; 4 entries omitted as already shown. Pass --seen mem-05de9125ba to your next memory read.]`
 

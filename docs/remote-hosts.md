@@ -90,6 +90,17 @@ after it saved the whole quest store under
 `~/.companion/questmaster-backups/migrations/`; `questmaster-live/machine-stamps.json`
 records that run and the backup that undoes it.
 
+Memory notes record the same thing in a `machines:` frontmatter list: the
+machines that wrote the note, in the order they first did. The server adds the
+writing session's machine on `memory write` and on every `memory commit` except
+repairs. The memory catalog names the machine most notes come from once and
+tags the others after their path, like `note.md [devbox]`; the Memory page shows
+the list on each note. Notes written before this existed were stamped once with
+the coordinator's machine on its first start with this feature, as one memory
+commit per repo (`git revert` undoes it); `.git/takode-machine-stamps.json` in
+the memory repo records that run. A repo that was locked or had uncommitted
+changes is tried again at the next start.
+
 ## Choosing the agent CLIs on a host
 
 Every machine has its own **Claude Code** and **Codex** settings in

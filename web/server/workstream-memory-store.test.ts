@@ -383,6 +383,7 @@ facets:
         description: "Explains Service X config and failure modes.",
         path: "knowledge/service-x.md",
         source: ["q-1220"],
+        machines: [],
         facets: { project: ["takode"], service: ["service-x"] },
       }),
     ]);

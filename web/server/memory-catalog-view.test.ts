@@ -74,6 +74,51 @@ describe("memory catalog view", () => {
     expect(folder.text).not.toContain(machine);
   });
 
+  // Every note records its machines; to stay small, the catalog names the most common
+  // machine once and tags only notes written elsewhere or on several machines.
+  it("tags notes not written on the repo's default machine alone", async () => {
+    const fields = (machines: string) => ({ description: '"Read when x."', type: "decision", machines });
+    await note("topic/a.md", fields("[laptop]"));
+    await note("topic/b.md", fields("[laptop]"));
+    await note("topic/c.md", fields("[devbox]"));
+    await note("topic/d.md", fields("[laptop, devbox]"));
+    await note("topic/e.md", { description: '"Read when x."', type: "decision" });
+
+    const expected = [
+      "Notes were written on machine `laptop` unless tagged with other machines after the path, like `note.md [other-machine]`.",
+      "topic/a.md: Read when x.",
+      "topic/b.md: Read when x.",
+      "topic/c.md [devbox]: Read when x.",
+      "topic/d.md [laptop, devbox]: Read when x.",
+      "topic/e.md [unknown machine]: Read when x.",
+    ];
+    for (const request of [{ mode: "overview" }, { mode: "folder", folder: "topic" }, { mode: "all" }] as const) {
+      const lines = (await renderMemoryCatalogView(await catalog(), request)).text.split("\n");
+      expect({ request, lines: lines.filter((line) => expected.includes(line)) }).toEqual({ request, lines: expected });
+    }
+
+    // When the default machine changes, lines whose tag changed are shown again despite --seen.
+    const first = await renderMemoryCatalogView(await catalog(), { mode: "folder", folder: "topic" });
+    await note("topic/f.md", fields("[devbox]"));
+    await note("topic/g.md", fields("[devbox]"));
+    const second = await renderMemoryCatalogView(
+      await catalog(),
+      { mode: "folder", folder: "topic" },
+      { seen: first.handle },
+    );
+    expect(second.text).toContain("Notes were written on machine `devbox`");
+    expect(second.text).toContain("topic/a.md [laptop]: Read when x.");
+    expect(second.text).toContain("topic/f.md: Read when x.");
+    expect(second.text).not.toContain("topic/d.md");
+  });
+
+  it("leaves notes untagged while no note records a machine", async () => {
+    await note("topic/a.md", { description: '"Read when a."', type: "decision" });
+    const view = await renderMemoryCatalogView(await catalog(), { mode: "overview" });
+    expect(view.text).not.toContain("machine");
+    expect(view.text).toContain("topic/a.md: Read when a.");
+  });
+
   it("caps the recent list and ranks by the later of edit and helpful dates", async () => {
     for (let index = 0; index < RECENT_NOTE_LIMIT + 2; index++) {
       const day = String(1 + (index % 28)).padStart(2, "0");

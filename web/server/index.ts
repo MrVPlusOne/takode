@@ -70,6 +70,7 @@ import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-mac
 import { configureMachines } from "./remote-host/machines.js";
 import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
 import { stampQuestMachines } from "./quest-machine-stamps.js";
+import { stampExistingMemoryNotesInOwnSpaces } from "./memory-note-machines.js";
 import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
 import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
 import { ImageStore } from "./image-store.js";
@@ -440,6 +441,16 @@ await wsBridge.restoreFromDisk();
 void stampQuestMachines({ coordinatorMachine: thisMachine.name }).catch((error) =>
   serverLog.error("Stamping existing quest notes with machine names failed", { error: String(error) }),
 );
+// Once per memory repo: notes written before machine stamps existed were all written here.
+void stampExistingMemoryNotesInOwnSpaces(thisMachine.name)
+  .then((results) => {
+    for (const result of results.filter((item) => item.outcome !== "done" || item.notes)) {
+      serverLog.info("Stamped existing memory notes with this machine's name", { ...result });
+    }
+  })
+  .catch((error) =>
+    serverLog.error("Stamping existing memory notes with machine names failed", { error: String(error) }),
+  );
 projectModelProvenanceMigrationFamilies(launcher, wsBridge, modelProvenanceMigrationAcknowledgementStore);
 {
   const defaultMemorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(launcher.getMemorySessionSpaceSlug());

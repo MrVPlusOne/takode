@@ -97,24 +97,72 @@ export function clipDescription(description: string): string {
   return `${characters.slice(0, MEMORY_DESCRIPTION_CHAR_LIMIT - 1).join("")}…`;
 }
 
-export function noteViewLine(entry: MemoryCatalogEntry, contentHash: string | undefined): MemoryViewLine {
+/**
+ * One catalog line per note: `path: description`, with a `[machines]` tag after the path when
+ * the note was not written on `defaultMachine` alone (see `defaultNoteMachine`).
+ */
+export function noteViewLine(
+  entry: MemoryCatalogEntry,
+  contentHash: string | undefined,
+  defaultMachine?: string,
+): MemoryViewLine {
+  const tag = machineTag(entry, defaultMachine);
   return {
-    text: `${entry.path}: ${clipDescription(entry.description)}`,
+    text: `${entry.path}${tag}: ${clipDescription(entry.description)}`,
     key: entry.path,
-    version: (contentHash ?? entry.description).slice(0, 16),
+    // The tag depends on the repo's default machine too, so a changed tag is shown again.
+    version: (contentHash ?? entry.description).slice(0, 16) + tag,
   };
+}
+
+/**
+ * The machine most notes were written on alone. Catalog lines leave it out and tag only notes
+ * from other (or several) machines, which keeps the catalog small. Undefined when no note is stamped.
+ */
+export function defaultNoteMachine(entries: MemoryCatalogEntry[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const machines = entry.machines ?? [];
+    if (machines.length === 1) counts.set(machines[0], (counts.get(machines[0]) ?? 0) + 1);
+  }
+  return [...counts].sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))[0]?.[0];
+}
+
+/** Says which machine untagged notes come from; omitted when no note is stamped. */
+export function defaultMachineLine(defaultMachine: string | undefined): MemoryViewLine[] {
+  if (!defaultMachine) return [];
+  return [
+    {
+      text: `Notes were written on machine \`${defaultMachine}\` unless tagged with other machines after the path, like \`note.md [other-machine]\`.`,
+      key: "machines:default",
+      version: defaultMachine,
+    },
+  ];
+}
+
+/** ` [machines]` for a note not written on `defaultMachine` alone, else "". */
+export function machineTag(entry: MemoryCatalogEntry, defaultMachine: string | undefined): string {
+  if (!defaultMachine) return "";
+  const machines = entry.machines ?? [];
+  if (machines.length === 1 && machines[0] === defaultMachine) return "";
+  return machines.length ? ` [${machines.join(", ")}]` : " [unknown machine]";
 }
 
 function buildViewLines(catalog: MemoryCatalog, request: MemoryCatalogViewRequest): MemoryViewLine[] {
   const hashes = catalog.contentHashes ?? {};
-  const note = (entry: MemoryCatalogEntry) => noteViewLine(entry, hashes[entry.path]);
+  const defaultMachine = defaultNoteMachine(catalog.entries);
+  const note = (entry: MemoryCatalogEntry) => noteViewLine(entry, hashes[entry.path], defaultMachine);
   if (request.mode === "all") {
     return [
       { text: `Memory repo: ${catalog.repo.root} (${plural(catalog.entries.length, "note")})` },
+      ...defaultMachineLine(defaultMachine),
       ...catalog.entries.map(note),
     ];
   }
-  if (request.mode === "folder") return buildFolderLines(catalog, request.folder, note);
+  if (request.mode === "folder") {
+    const [folderLine, ...rest] = buildFolderLines(catalog, request.folder, note);
+    return [folderLine, ...defaultMachineLine(defaultMachine), ...rest];
+  }
 
   const recent = selectRecentNotes(catalog.entries);
   const recentPaths = new Set(recent.map((entry) => entry.path));
@@ -127,6 +175,7 @@ function buildViewLines(catalog: MemoryCatalog, request: MemoryCatalogViewReques
     { text: "" },
   ];
   if (!catalog.entries.length) lines.push({ text: "No memory files found." });
+  lines.push(...defaultMachineLine(defaultMachine));
   if (recent.length) {
     lines.push({
       text: `Recently updated notes (${recent.length} of ${catalog.entries.length}). Before relying on memory, also list every folder that matches your task:`,
