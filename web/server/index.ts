@@ -60,7 +60,7 @@ import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
-import { HostRegistry, LOCAL_HOST_ID } from "./remote-host/host-registry.js";
+import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { hostCanRestart } from "./remote-host/host-restart-gate.js";
@@ -105,7 +105,6 @@ import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
-import { access } from "node:fs/promises";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { CodexWorkerV2RolloutService } from "./codex-worker-v2-rollout-service.js";
 import {
@@ -260,6 +259,18 @@ hostLinks.canRestartHost = (hostId) =>
     bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
     coordinatorStartedAt,
   });
+// Stopped like idle sessions, they relaunch on their next message after the update.
+hostLinks.stopHostSessions = async (hostId) => {
+  const live = launcher
+    .listSessions()
+    .filter((s) => processHostOf(s) === hostId && !s.archived && s.state !== "exited");
+  await Promise.all(
+    live.map((s) => {
+      s.killedByIdleManager = true;
+      return wsBridge.killSession(s.sessionId);
+    }),
+  );
+};
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 hostLinks.start();
 // This machine's own node, which runs local sessions so they outlive server restarts when turned on.
@@ -586,37 +597,24 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
   // intentionally stopped to enforce maxKeepAlive.
   if (info.killedByIdleManager) return;
 
-  // If cwd doesn't exist, try to recreate worktree (e.g. after migration)
+  // If cwd doesn't exist on the session's machine, try to recreate its worktree (e.g. after migration)
   try {
-    await access(info.cwd);
-  } catch {
-    if (info.isWorktree && info.repoRoot && info.branch) {
-      try {
-        const wtResult = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
-        if (wtResult.error) {
-          wsBridge.markCodexAutoRecoveryFailed(sessionId);
-          wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
-          return;
-        }
-        if (wtResult.recreated) {
-          console.log(`[server] Recreated worktree for session ${sessionId} before relaunch`);
-        }
-      } catch (e) {
-        wsBridge.markCodexAutoRecoveryFailed(sessionId);
-        wsBridge.broadcastToSession(sessionId, {
-          type: "error",
-          message: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
-        });
-        return;
-      }
-    } else {
+    const wtResult = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
+    if (wtResult.error) {
       wsBridge.markCodexAutoRecoveryFailed(sessionId);
-      wsBridge.broadcastToSession(sessionId, {
-        type: "error",
-        message: `Working directory not found: ${info.cwd}`,
-      });
+      wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
       return;
     }
+    if (wtResult.recreated) {
+      console.log(`[server] Recreated worktree for session ${sessionId} before relaunch`);
+    }
+  } catch (e) {
+    wsBridge.markCodexAutoRecoveryFailed(sessionId);
+    wsBridge.broadcastToSession(sessionId, {
+      type: "error",
+      message: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
+    });
+    return;
   }
 
   console.log(`[server] Relaunching session ${sessionId}`);

@@ -437,29 +437,9 @@ export class ClaudeSdkAdapter
       );
     }
 
-    // WORKAROUND: The SDK's v2 session API (SDKSessionOptions) does NOT expose
-    // `cwd` — the Session constructor (SQ) never forwards it to ProcessTransport
-    // (V4). So the subprocess inherits process.cwd().
-    //
-    // We temporarily chdir before the synchronous SDK constructor call. This is
-    // safe because: (1) JavaScript is single-threaded — no other code runs
-    // between chdir and restore, (2) the SDK constructor synchronously spawns
-    // the subprocess (V4.initialize() is called from the constructor, not
-    // deferred), (3) all await points in our initialize() happen ABOVE this
-    // block, so no other async code can interleave here.
-    const originalCwd = process.cwd();
-    const targetCwd = this.options.cwd;
-    if (targetCwd && targetCwd !== originalCwd) {
-      try {
-        process.chdir(targetCwd);
-      } catch (e) {
-        console.warn(`[claude-sdk-adapter] Failed to chdir to ${targetCwd}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-
-    // Create or resume session — MUST be synchronous (no await) so process.cwd()
-    // is still set to targetCwd when the subprocess spawns. The prototype patches
-    // above are also active at this point.
+    // Create or resume session — MUST be synchronous (no await) so the prototype
+    // patches above are still active when the subprocess spawns. The session
+    // passes `cwd` to the spawn itself, so a remote host gets its own path.
     try {
       if (this.options.cliSessionId) {
         this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
@@ -467,14 +447,6 @@ export class ClaudeSdkAdapter
         this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
       }
     } finally {
-      // Restore immediately — the subprocess has already been spawned synchronously.
-      if (process.cwd() !== originalCwd) {
-        try {
-          process.chdir(originalCwd);
-        } catch {
-          /* ignore */
-        }
-      }
       // Always restore original prototypes
       if (v4Class && originalV4Initialize) {
         v4Class.prototype.initialize = originalV4Initialize;

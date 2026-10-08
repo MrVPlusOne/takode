@@ -17,6 +17,14 @@ import {
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
 
+/**
+ * How long after a host connects, or a process starts there, before an update
+ * may restart it. A session that just started may be about to resume a turn or
+ * ask again for a permission it was waiting on, which the restart gate cannot
+ * see yet.
+ */
+export const HOST_UPDATE_SETTLE_MS = 60_000;
+
 /** The host could not be asked: it is offline or the link dropped before it answered. */
 export class HostUnavailableError extends Error {
   constructor(hostName: string) {
@@ -91,6 +99,8 @@ interface HostLink {
   network: boolean;
   build: string | null;
   autoUpdate: boolean;
+  /** When the host last connected or this coordinator last started a process on it. */
+  lastStartAt: number;
   /** Commit this coordinator asked the current host instance to switch to. */
   updateRequested: string | null;
   updateError: string | null;
@@ -134,6 +144,12 @@ export class HostLinkManager {
    * auto-updated only when this says yes; without it they never are.
    */
   canRestartHost: ((hostId: string) => boolean) | null = null;
+  /**
+   * Stop the host's sessions just before an update restarts it. The restart
+   * ends every process there; stopped first, the sessions relaunch on their
+   * next message instead of reporting a crashed process.
+   */
+  stopHostSessions: ((hostId: string) => Promise<void>) | null = null;
   /** Each host's machine settings, sent to it on every connect and by {@link pushSettings}. */
   machineSettingsFor: ((hostId: string) => HostMachineSettings) | null = null;
   private readonly now: () => number;
@@ -348,6 +364,7 @@ export class HostLinkManager {
     const procId = randomUUID();
     const proc = new RemoteProcess(procId, (command) => this.enqueue(link, command));
     link.processes.set(procId, proc);
+    link.lastStartAt = this.now();
     proc.once("exit", () => link.processes.delete(procId));
     this.enqueue(link, startCommand(procId));
     return proc;
@@ -422,6 +439,7 @@ export class HostLinkManager {
       link.commandOverrides = { ...hello.commandOverrides };
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
+    link.lastStartAt = this.now();
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
     send(socket, { t: "welcome", instanceId: this.instanceId, epoch: this.epoch, received });
@@ -433,8 +451,6 @@ export class HostLinkManager {
       if (queued.seq > applied) send(socket, { t: "command", seq: queued.seq, command: queued.command });
     }
     this.setOnline(hostId, link, true);
-    // Auto-update is checked on the next heartbeat tick, not here: sessions are
-    // still taking over this host's processes right after it connects.
   }
 
   /** Whether the host runs a build other than this coordinator's, or one it does not report. */
@@ -450,15 +466,28 @@ export class HostLinkManager {
   /**
    * Ask an auto-updating host that runs another build to switch to this
    * coordinator's commit, once per host instance, when it can restart without
-   * ending a turn. A failed attempt is not repeated until the host restarts.
+   * ending a turn and nothing started there recently. Its sessions are stopped
+   * first. A failed attempt is not repeated until the host restarts.
    */
   private updateIfIdle(hostId: string, link: HostLink): void {
     if (!link.online || !link.socket || !link.autoUpdate || !this.build || !this.buildMismatch(link)) return;
-    if (link.updateRequested === this.build || !this.canRestartHost?.(hostId)) return;
-    link.updateRequested = this.build;
+    if (link.updateRequested === this.build || this.now() - link.lastStartAt < HOST_UPDATE_SETTLE_MS) return;
+    if (!this.canRestartHost?.(hostId)) return;
+    const commit = this.build;
+    const instanceId = link.hostInstanceId;
+    link.updateRequested = commit;
     link.updateError = null;
-    console.log(`[host-link] Updating host ${hostId} to ${shortCommit(this.build)}`);
-    send(link.socket, { t: "update", commit: this.build });
+    console.log(`[host-link] Updating host ${hostId} to ${shortCommit(commit)}`);
+    void Promise.resolve(this.stopHostSessions?.(hostId))
+      .catch((error) =>
+        console.warn(`[host-link] Could not stop the sessions on host ${hostId} before updating it:`, error),
+      )
+      .then(() => {
+        // A new host instance starts over; one that dropped off is asked again once it is back.
+        if (link.hostInstanceId !== instanceId || link.updateRequested !== commit) return;
+        if (link.online && link.socket) send(link.socket, { t: "update", commit });
+        else link.updateRequested = null;
+      });
   }
 
   private handleEvent(
@@ -496,6 +525,7 @@ export class HostLinkManager {
         network: true,
         build: null,
         autoUpdate: false,
+        lastStartAt: 0,
         updateRequested: null,
         updateError: null,
         mismatchWarned: false,

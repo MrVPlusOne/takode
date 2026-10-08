@@ -890,7 +890,7 @@ export class CliLauncher {
     info.killedByIdleManager = false;
 
     console.log(
-      `[cli-launcher] Relaunching session ${sessionTag(sessionId)} (cliSessionId: ${info.cliSessionId || "none"}, state: ${info.state}, backendType: ${info.backendType})`,
+      `[cli-launcher] ${reattachHostProcess ? "Taking over the host process of" : "Relaunching"} session ${sessionTag(sessionId)} (cliSessionId: ${info.cliSessionId || "none"}, state: ${info.state}, backendType: ${info.backendType})`,
     );
     this.recorder?.recordServerEvent(
       sessionId,

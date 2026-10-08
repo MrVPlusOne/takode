@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostAgent } from "./host-agent.js";
-import { HostLinkManager } from "./host-link-manager.js";
+import { HOST_UPDATE_SETTLE_MS, HostLinkManager } from "./host-link-manager.js";
 import { hostCanRestart, type BridgeTurnView } from "./host-restart-gate.js";
 import { readCheckoutCommit, switchCheckoutToCommit } from "./host-update.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
@@ -23,6 +23,8 @@ describe("host builds and auto-update over the link", () => {
   const hostId = "host-1";
   let manager: HostLinkManager;
   let agent: HostAgent | null = null;
+  let link: FakeHostLink | null = null;
+  let clock = 0;
 
   function startAgent(options: { build?: string | null; update?: (commit: string) => Promise<void> }): HostAgent {
     const started = new HostAgent({
@@ -31,15 +33,27 @@ describe("host builds and auto-update over the link", () => {
       apiProxyPort: 45_678,
       reconnectDelayMs: 20,
       log: () => {},
-      connect: () => new FakeHostLink(manager, hostId).agentSide,
+      connect: () => {
+        link = new FakeHostLink(manager, hostId);
+        return link.agentSide;
+      },
       ...options,
     });
     started.start();
     return started;
   }
 
+  /** Let `elapsedMs` pass (by default the settle time), then run the coordinator's heartbeat tick. */
+  function tick(elapsedMs = HOST_UPDATE_SETTLE_MS): void {
+    clock += elapsedMs;
+    // The host's own heartbeat keeps the link from counting as stale.
+    manager.handleMessage(hostId, link!.coordinatorSide, JSON.stringify({ t: "heartbeat" }));
+    (manager as unknown as { tick(): void }).tick();
+  }
+
   beforeEach(() => {
-    manager = new HostLinkManager({ build: COORDINATOR_BUILD });
+    clock = 1_000_000;
+    manager = new HostLinkManager({ build: COORDINATOR_BUILD, now: () => clock });
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -80,14 +94,83 @@ describe("host builds and auto-update over the link", () => {
     expect(requested).toEqual([]);
 
     idle = true;
-    (manager as unknown as { tick(): void }).tick();
+    tick();
     await waitFor(() => requested.length === 1);
     expect(requested).toEqual([COORDINATOR_BUILD]);
     expect(manager.status(hostId).updating).toBe(true);
 
-    (manager as unknown as { tick(): void }).tick();
+    tick();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(requested).toHaveLength(1);
+  });
+
+  // Right after a coordinator restart the host reconnects and the coordinator
+  // takes over or starts its sessions; those can look idle for a moment before
+  // they resume a turn or ask again for a permission. The update waits until
+  // nothing has started on the host for the settle time.
+  it("waits until nothing has started on the host for a while", async () => {
+    manager.canRestartHost = () => true;
+    const requested: string[] = [];
+    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
+    await waitFor(() => manager.status(hostId).online);
+
+    tick(0);
+    manager.spawn(hostId, { command: process.execPath, args: ["-e", ""], env: {} });
+    tick(HOST_UPDATE_SETTLE_MS - 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requested).toEqual([]);
+    expect(manager.status(hostId).updating).toBe(false);
+
+    tick();
+    await waitFor(() => requested.length === 1);
+  });
+
+  // The restart ends every process on the host. Its sessions are stopped first
+  // (as an idle stop would), so they relaunch on their next message instead of
+  // reporting a crashed process; only then is the host asked to update.
+  it("stops the host's sessions before asking it to update", async () => {
+    manager.canRestartHost = () => true;
+    const events: string[] = [];
+    let finishStopping = () => {};
+    manager.stopHostSessions = (stoppingHost) => {
+      events.push(`stop ${stoppingHost}`);
+      return new Promise<void>((resolve) => (finishStopping = resolve));
+    };
+    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void events.push(`update ${commit}`) });
+    await waitFor(() => manager.status(hostId).online);
+
+    tick();
+    expect(events).toEqual([`stop ${hostId}`]);
+    expect(manager.status(hostId).updating).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(events).toHaveLength(1);
+
+    finishStopping();
+    await waitFor(() => events.length === 2);
+    expect(events[1]).toBe(`update ${COORDINATOR_BUILD}`);
+  });
+
+  // If the link drops while the sessions are being stopped, the update is not
+  // lost: the same host instance is asked again once it is back and settled.
+  it("asks again when the host dropped off while its sessions were stopping", async () => {
+    manager.canRestartHost = () => true;
+    let finishStopping = () => {};
+    manager.stopHostSessions = () => new Promise<void>((resolve) => (finishStopping = resolve));
+    const requested: string[] = [];
+    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
+    await waitFor(() => manager.status(hostId).online);
+
+    tick();
+    link!.drop();
+    await waitFor(() => !manager.status(hostId).online);
+    finishStopping();
+    await waitFor(() => !manager.status(hostId).updating);
+    expect(requested).toEqual([]);
+
+    await waitFor(() => manager.status(hostId).online);
+    manager.stopHostSessions = async () => {};
+    tick();
+    await waitFor(() => requested.length === 1);
   });
 
   // A host without --auto-update is never asked, however idle it is.
@@ -104,7 +187,7 @@ describe("host builds and auto-update over the link", () => {
       sent.push(data);
       return send(data);
     };
-    (manager as unknown as { tick(): void }).tick();
+    tick();
     expect(sent.some((data) => data.includes('"t":"update"'))).toBe(false);
   });
 
@@ -118,7 +201,7 @@ describe("host builds and auto-update over the link", () => {
       },
     });
     await waitFor(() => manager.status(hostId).online);
-    (manager as unknown as { tick(): void }).tick();
+    tick();
     await waitFor(() => manager.status(hostId).updateError !== null);
     expect(manager.status(hostId)).toMatchObject({
       online: true,

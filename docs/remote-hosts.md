@@ -146,10 +146,11 @@ host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.
 
 Start `takode node` with `--auto-update` to let the coordinator keep it in
-step: whenever the host runs another commit and none of its sessions is in a
-turn, the node checks out the coordinator's commit (fetching it from the
-checkout's remote if needed), runs a frozen install and restarts. Its sessions
-relaunch on their next message. It refuses to update a checkout with uncommitted changes, so give the
+step: whenever the host runs another commit, none of its sessions is in a
+turn and none started in the last minute, the coordinator stops the host's
+sessions and the node checks out the coordinator's commit (fetching it from
+the checkout's remote if needed), runs a frozen install and restarts. Its
+sessions relaunch on their next message. It refuses to update a checkout with uncommitted changes, so give the
 node a checkout of its own rather than one you work in.
 
 Without `--auto-update`, update the host's checkout and restart `takode node`

@@ -1344,8 +1344,13 @@ export async function killSession(
 ): Promise<boolean> {
   const session = sessions.get(sessionId);
   if (session?.claudeSdkAdapter) {
+    const adapter = session.claudeSdkAdapter;
+    // Detached, the next message queues on the session and asks for a relaunch
+    // instead of waiting inside the stopped adapter.
+    session.claudeSdkAdapter = null;
+    session.cliInitReceived = false;
     try {
-      await session.claudeSdkAdapter.disconnect();
+      await adapter.disconnect();
     } catch {}
   }
   return deps.killLauncher(sessionId);

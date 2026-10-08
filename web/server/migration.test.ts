@@ -11,6 +11,21 @@ import {
 } from "./migration.js";
 import * as gitUtils from "./git-utils.js";
 
+// A registered host whose only folder is one that does not exist on this machine.
+const remoteHost = vi.hoisted(() => ({ id: "remote-host", dir: "/home/someone-else/checkout-only-on-the-host" }));
+vi.mock("./remote-host/session-machine.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./remote-host/session-machine.js")>();
+  const hostMachine = {
+    ...real.localMachine,
+    stat: async (path: string) =>
+      path === remoteHost.dir ? { size: 0, isFile: false, isDirectory: true, mtimeMs: 0 } : null,
+  };
+  return {
+    ...real,
+    machineFor: (hostId?: string | null) => (hostId === remoteHost.id ? hostMachine : real.machineFor(hostId)),
+  };
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeTempDir(): string {
@@ -257,6 +272,27 @@ describe("recreateWorktreeIfMissing", () => {
     const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
     expect(result.recreated).toBe(false);
     expect(result.error).toContain("Working directory not found");
+  });
+
+  // Relaunching a session checks its folder first; a remote session's folder
+  // exists only on its host, so it must be looked up there, not on this machine.
+  it("checks a remote session's folder on its host", async () => {
+    const mockDeps = {
+      launcher: { updateWorktree: () => {} } as any,
+      worktreeTracker: { addMapping: () => {} } as any,
+      wsBridge: { markWorktree: () => {} } as any,
+    };
+    const remote = {
+      sessionId: "s",
+      cwd: remoteHost.dir,
+      state: "exited" as const,
+      createdAt: 0,
+      hostId: remoteHost.id,
+    };
+    expect(await recreateWorktreeIfMissing("s", remote, mockDeps)).toEqual({ recreated: false });
+
+    const local = { ...remote, hostId: undefined };
+    expect((await recreateWorktreeIfMissing("s", local, mockDeps)).error).toContain("Working directory not found");
   });
 
   it("returns error when repo root doesn't exist", async () => {
