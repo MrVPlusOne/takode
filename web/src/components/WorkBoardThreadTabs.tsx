@@ -393,71 +393,95 @@ function threadTabTone(selected: boolean): string {
 
 type QuestTabHover = (view: ThreadTabView, anchorRect: DOMRect) => void;
 
-/** Opens the tab menu at viewport coordinates. */
-type OpenThreadTabMenu = (x: number, y: number) => void;
+/** Opens the tab menu at viewport coordinates; `touch` marks a long-press. */
+type OpenThreadTabMenu = (x: number, y: number, touch: boolean) => void;
 
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 8;
+// A long-press menu gets finger-sized rows and a native-style pop-in.
+const TOUCH_TAB_MENU_CLASS =
+  "w-fit min-w-44 origin-top-left motion-safe:animate-[context-menu-pop_180ms_cubic-bezier(0.16,1,0.3,1)]";
+const TOUCH_TAB_MENU_ITEM_CLASS = "!px-4 !py-3 !text-sm";
 
 /**
  * Touch long-press handlers for a tab. iOS Safari never fires `contextmenu`
  * for touch, so the press is timed here. The menu opens just below the tab so
- * the finger does not cover it.
+ * the finger does not cover it, and `pressing` drives the press-in feedback.
  */
 function useTabLongPress(onOpenMenu: OpenThreadTabMenu | undefined) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  // Set when a long-press opens the menu and kept until the next touchstart.
   const firedRef = useRef(false);
-  const cancel = () => {
+  const [pressing, setPressing] = useState(false);
+  const clearTimer = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
   };
-  useEffect(() => cancel, []);
-  if (!onOpenMenu) return {};
+  const cancel = () => {
+    clearTimer();
+    setPressing(false);
+  };
+  useEffect(() => clearTimer, []);
+  // iOS does not reliably honor the cancelled touchend after a long press and
+  // can still emulate mousedown/mouseup/click when the finger lifts. Swallow
+  // them here: the mousedown would otherwise reach the menu's outside-press
+  // dismissal and close the menu the moment it opened, and the click would
+  // select or close the tab.
+  const swallowEmulatedMouse = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!firedRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  if (!onOpenMenu) return { pressing: false, handlers: {} };
   return {
-    onTouchStart: (event: ReactTouchEvent<HTMLElement>) => {
-      cancel();
-      // A genuine tap starts with touchstart, so a stale suppression from a
-      // press whose synthetic click never arrived cannot swallow this tap.
-      firedRef.current = false;
-      const touch = event.touches[0];
-      if (!touch || event.touches.length > 1) return;
-      startRef.current = { x: touch.clientX, y: touch.clientY };
-      const element = event.currentTarget;
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        firedRef.current = true;
-        const rect = element.getBoundingClientRect();
-        onOpenMenu(rect.left, rect.bottom + 4);
-      }, LONG_PRESS_MS);
-    },
-    onTouchMove: (event: ReactTouchEvent<HTMLElement>) => {
-      const start = startRef.current;
-      const touch = event.touches[0];
-      if (!start || !touch) return;
-      const moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
-      if (moved > LONG_PRESS_MOVE_TOLERANCE_PX) cancel();
-    },
-    onTouchEnd: (event: ReactTouchEvent<HTMLElement>) => {
-      cancel();
-      // Cancelling touchend suppresses the emulated mouse events and click, so
-      // lifting the finger neither selects or closes the tab nor dismisses the
-      // menu that just opened.
-      if (firedRef.current) event.preventDefault();
-    },
-    onTouchCancel: cancel,
-    onClickCapture: (event: ReactMouseEvent<HTMLElement>) => {
-      if (!firedRef.current) return;
-      firedRef.current = false;
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
-      event.preventDefault();
-      // Android also fires contextmenu on long-press; let whichever fires
-      // first open the menu.
-      cancel();
-      if (!firedRef.current) onOpenMenu(event.clientX, event.clientY);
+    pressing,
+    handlers: {
+      onTouchStart: (event: ReactTouchEvent<HTMLElement>) => {
+        clearTimer();
+        // Emulated mouse events never start with touchstart, so this ends
+        // the previous long-press's suppression without swallowing this tap.
+        firedRef.current = false;
+        const touch = event.touches[0];
+        if (!touch || event.touches.length > 1) {
+          setPressing(false);
+          return;
+        }
+        startRef.current = { x: touch.clientX, y: touch.clientY };
+        setPressing(true);
+        const element = event.currentTarget;
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          firedRef.current = true;
+          setPressing(false);
+          // Android haptics. iOS has no web API that can tick mid-press.
+          navigator.vibrate?.(10);
+          const rect = element.getBoundingClientRect();
+          onOpenMenu(rect.left, rect.bottom + 4, true);
+        }, LONG_PRESS_MS);
+      },
+      onTouchMove: (event: ReactTouchEvent<HTMLElement>) => {
+        const start = startRef.current;
+        const touch = event.touches[0];
+        if (!start || !touch) return;
+        const moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
+        if (moved > LONG_PRESS_MOVE_TOLERANCE_PX) cancel();
+      },
+      onTouchEnd: (event: ReactTouchEvent<HTMLElement>) => {
+        cancel();
+        if (firedRef.current) event.preventDefault();
+      },
+      onTouchCancel: cancel,
+      onMouseDownCapture: swallowEmulatedMouse,
+      onMouseUpCapture: swallowEmulatedMouse,
+      onClickCapture: swallowEmulatedMouse,
+      onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+        event.preventDefault();
+        // Android also fires contextmenu on long-press; let whichever fires
+        // first open the menu.
+        cancel();
+        if (!firedRef.current) onOpenMenu(event.clientX, event.clientY, false);
+      },
     },
   };
 }
@@ -489,6 +513,8 @@ function RailThreadTab({
     transform: CSS.Transform.toString(constrainThreadTabTransformToHorizontal(transform)),
     transition,
     ...(isDragging ? { opacity: 0.78, zIndex: 30 } : {}),
+    // Press-in while a long-press is pending, like iOS before a context menu.
+    ...(longPress.pressing ? { scale: "0.94", transition: `scale ${LONG_PRESS_MS}ms ease-out` } : {}),
   };
   const title = hoverQuest
     ? undefined
@@ -501,7 +527,7 @@ function RailThreadTab({
       title={title}
       onMouseEnter={(event) => onHover(view, event.currentTarget.getBoundingClientRect())}
       onMouseLeave={questId ? onHoverEnd : undefined}
-      {...longPress}
+      {...longPress.handlers}
       className={`group relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${onOpenMenu ? "select-none [-webkit-touch-callout:none]" : ""} ${threadTabTone(selected)}`}
       data-testid="thread-tab"
       data-thread-key={tab.threadKey}
@@ -515,6 +541,7 @@ function RailThreadTab({
       data-has-quest-hover={hoverQuest ? "true" : "false"}
       data-thread-tab-width-source="true"
       data-reorderable={reorderable ? "true" : "false"}
+      data-pressing={longPress.pressing ? "true" : "false"}
     >
       {activeOutput && <ActiveOutputIndicator />}
       <button
@@ -622,7 +649,10 @@ function MoreThreadTabRow({
 }
 
 function useQuestTabHover() {
-  const [hoveredQuest, setHoveredQuest] = useState<{ quest: QuestmasterTask; anchorRect: DOMRect } | null>(null);
+  const [hoveredQuest, setHoveredQuest] = useState<{
+    quest: QuestmasterTask;
+    anchorRect: DOMRect;
+  } | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ questId: string; anchorRect: DOMRect } | null>(null);
 
@@ -716,7 +746,12 @@ export function ThreadTabRail({
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
-  const [tabMenu, setTabMenu] = useState<{ threadKey: string; x: number; y: number } | null>(null);
+  const [tabMenu, setTabMenu] = useState<{
+    threadKey: string;
+    x: number;
+    y: number;
+    touch: boolean;
+  } | null>(null);
   const compactTabs = useMemo(
     () => buildCompactThreadTabPartition({ tabs, currentThreadKey, railWidth }),
     [currentThreadKey, railWidth, tabs],
@@ -801,7 +836,10 @@ export function ThreadTabRail({
     const threadKey = normalizeThreadKey(tab.threadKey);
     const items: ContextMenuItem[] = [];
     if (onCloseThreadTab && tab.canClose) {
-      items.push({ label: "Close tab", onClick: () => onCloseThreadTab(threadKey) });
+      items.push({
+        label: "Close tab",
+        onClick: () => onCloseThreadTab(threadKey),
+      });
     }
     // Notify Me tracks quest threads only, and its current state comes from the server projection.
     if (monitors && /^q-\d+$/.test(threadKey)) {
@@ -809,7 +847,11 @@ export function ThreadTabRail({
       const pendingResultId = monitor?.pendingResultId ?? undefined;
       const action = !monitor ? "track" : pendingResultId ? "acknowledge" : "untrack";
       items.push({
-        label: { track: "Notify Me", untrack: "Turn off Notify Me", acknowledge: "Acknowledge result" }[action],
+        label: {
+          track: "Notify Me",
+          untrack: "Turn off Notify Me",
+          acknowledge: "Acknowledge result",
+        }[action],
         onClick: () => {
           updateThreadMonitoring(sessionId, threadKey, action, pendingResultId).catch((error) =>
             console.error("[thread-tabs] Notify Me update failed:", error),
@@ -823,7 +865,11 @@ export function ThreadTabRail({
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
-  const mainAttention = mainState ?? { needsInput: false, mutedNeedsInput: false, blueNudge: false };
+  const mainAttention = mainState ?? {
+    needsInput: false,
+    mutedNeedsInput: false,
+    blueNudge: false,
+  };
   const mainActiveOutput = isActiveOutputThread(runningRoute, MAIN_THREAD_KEY);
   const selectedHidden = hiddenTabs.some((tab) => isSelectedThread(currentThreadKey, tab.threadKey));
   const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningRoute, tab.threadKey));
@@ -905,13 +951,21 @@ export function ThreadTabRail({
                   onClose={onCloseThreadTab ? () => onCloseThreadTab(view.threadKey) : undefined}
                   onOpenMenu={
                     tabMenuItems(tab).length > 0
-                      ? (x, y) => {
+                      ? (x, y, touch) => {
                           hover.hideImmediately();
-                          setTabMenu({ threadKey: view.threadKey, x, y });
+                          setTabMenu({
+                            threadKey: view.threadKey,
+                            x,
+                            y,
+                            touch,
+                          });
                         }
                       : undefined
                   }
-                  onHover={hover.show}
+                  // iOS can emulate a hover when a long-press lifts; keep the card off the menu.
+                  onHover={(hoverView, anchorRect) => {
+                    if (!tabMenu) hover.show(hoverView, anchorRect);
+                  }}
                   onHoverEnd={hover.scheduleHide}
                 />
               );
@@ -1041,7 +1095,14 @@ export function ThreadTabRail({
         />
       )}
       {tabMenu && menuItems.length > 0 && (
-        <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          items={menuItems}
+          onClose={() => setTabMenu(null)}
+          widthClassName={tabMenu.touch ? TOUCH_TAB_MENU_CLASS : undefined}
+          itemClassName={tabMenu.touch ? TOUCH_TAB_MENU_ITEM_CLASS : undefined}
+        />
       )}
     </div>
   );

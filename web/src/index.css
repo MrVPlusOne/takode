@@ -477,6 +477,16 @@ html, body {
   animation: thread-tab-pop 520ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Transform-only so the long-press menu never paints transparent. */
+@keyframes context-menu-pop {
+  0% {
+    transform: scale(0.88);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 @keyframes attention-paw-stamp {
   0% {
     opacity: 0;
