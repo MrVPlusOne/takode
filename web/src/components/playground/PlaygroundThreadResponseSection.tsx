@@ -256,6 +256,51 @@ const CROSS_THREAD_PRESENTATION: ThreadResponsePresentation = {
   currentResponseMessageIds: new Set([CROSS_THREAD_RESPONSE.msg.id]),
   layoutSignature: "playground-cross-thread-answer",
 };
+const COMMENT_ONLY_RESPONSE = assistantEntry(
+  "playground-comment-only-answer",
+  "Yes, this can be fixed properly: the stall check should treat a lease queue as a legitimate wait.",
+  "answer",
+);
+const COMMENT_ONLY_TURN: Turn = {
+  ...ANSWER_ONLY_TURN,
+  id: "playground-comment-only-turn",
+  allEntries: [COMMENT_ONLY_RESPONSE],
+  presentationEntries: [COMMENT_ONLY_RESPONSE],
+  notificationEntries: [COMMENT_ONLY_RESPONSE],
+  responseEntry: COMMENT_ONLY_RESPONSE,
+};
+// The covered request was sent only as a comment on earlier text: empty content, structured comments.
+const COMMENT_ONLY_PRESENTATION: ThreadResponsePresentation = {
+  ...ANSWER_ONLY_PRESENTATION,
+  currentResponses: [
+    {
+      ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!,
+      response: {
+        ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!.response,
+        currentMessageId: COMMENT_ONLY_RESPONSE.msg.id,
+      },
+      sourceTurnId: COMMENT_ONLY_TURN.id,
+      messageEntry: COMMENT_ONLY_RESPONSE,
+      collapsedMessageEntry: COMMENT_ONLY_RESPONSE,
+      referencedUserMessages: [
+        {
+          historyMessageId: ANSWER_ONLY_TURN.id,
+          userMessageId: "u3",
+          content: "",
+          annotations: [
+            {
+              id: "playground-comment-1",
+              selectedText: "This stall alert is a false alarm. The worker is queued for the port lease.",
+              comment: "Also is this something we can properly fix?",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  currentResponseMessageIds: new Set([COMMENT_ONLY_RESPONSE.msg.id]),
+  layoutSignature: "playground-comment-only-answer",
+};
 const ASSOCIATED_MAIN_RESPONSE_BASE = assistantEntry(
   "playground-associated-main-answer",
   "This Main answer remains visible here because its covered request is associated with this quest.",
@@ -539,6 +584,28 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={ANSWER_ONLY_TURN}
                 presentation={ANSWER_ONLY_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed answer · comment-only request preview">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-comment-only-answer"
+            >
+              <TurnActivityDisclosure
+                stats={COMMENT_ONLY_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
+              <ReadyThreadResponseRows
+                turn={COMMENT_ONLY_TURN}
+                presentation={COMMENT_ONLY_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"

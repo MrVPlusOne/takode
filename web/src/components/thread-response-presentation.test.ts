@@ -128,6 +128,20 @@ describe("explicit answer presentation", () => {
     expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
   });
 
+  it("carries comments from a comment-only covered message into its preview", () => {
+    // Comment-only requests are stored with empty content plus structured annotations
+    // (metadata.annotations after history normalization); the preview needs those comments.
+    const messages = validMessages();
+    const annotations = [{ id: "c1", selectedText: "quoted answer text", comment: "Can this be fixed?" }];
+    messages[4] = { ...messages[4]!, content: "", metadata: { ...messages[4]!.metadata, annotations } };
+
+    const result = resolveThreadResponses(sections(messages), projection(), THREAD_KEY);
+
+    expect(result?.currentResponses[1]?.referencedUserMessages).toEqual([
+      { historyMessageId: "raw-u3", userMessageId: "u3", content: "", annotations },
+    ]);
+  });
+
   it("preserves marker-free response content and identity, including surrounding whitespace", () => {
     // Ready response resolution runs during feed renders. A marker-free answer must not be cloned
     // merely because parsing normalizes whitespace, or unrelated feed updates bypass memoization.

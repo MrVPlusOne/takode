@@ -376,7 +376,17 @@ describe("Playground", () => {
       expect(preview).toHaveTextContent("[⏰ Timer t2 reminder] Check build health");
       fireEvent.click(badge);
     }
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(11);
+    // A request sent only as a comment keeps a previewable answer label showing the comment.
+    const commentOnly = within(routedFinalStates.getByTestId("playground-comment-only-answer"));
+    const commentBadge = commentOnly.getByTestId("thread-response-answer-count");
+    fireEvent.click(commentBadge);
+    expect(
+      within(screen.getByRole("dialog", { name: "Referenced user messages" })).getByTestId(
+        "thread-response-covered-message-comment",
+      ),
+    ).toHaveTextContent("Also is this something we can properly fix?");
+    fireEvent.click(commentBadge);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(12);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

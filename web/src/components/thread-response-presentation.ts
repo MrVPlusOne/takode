@@ -1,3 +1,4 @@
+import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "../../shared/leader-answer-message-id.js";
 import {
   leaderResponseAnswerOwnerThreadKeys,
@@ -18,6 +19,8 @@ export interface ThreadResponseReferencedUserMessage {
   userMessageId: string;
   content: string;
   attachmentCount?: number;
+  /** Comments sent with the message; a comment-only message has empty content. */
+  annotations?: readonly ConversationAnnotation[];
 }
 
 export interface CurrentThreadResponsePresentationItem {
@@ -436,11 +439,13 @@ export function resolveThreadResponses(
       collapsedMessageEntry: collapsedResponseEntry(located.entry),
       referencedUserMessages: referencedAnchors.map((anchor) => {
         const attachmentCount = Math.max(anchor!.message.images?.length ?? 0, anchor!.message.localImages?.length ?? 0);
+        const annotations = anchor!.message.metadata?.annotations;
         return {
           historyMessageId: anchor!.message.id,
           userMessageId: anchor!.userMessageId,
           content: anchor!.message.content,
           ...(attachmentCount > 0 ? { attachmentCount } : {}),
+          ...(annotations?.length ? { annotations } : {}),
         };
       }),
     });

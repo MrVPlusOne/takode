@@ -184,6 +184,64 @@ describe("ThreadResponseCoverageBadge", () => {
     );
   });
 
+  it("previews comment-only covered messages through their attached comments", () => {
+    // A request sent only as comments on earlier text is stored with empty content and
+    // structured annotations. It is a real covered message, so its label must stay hoverable.
+    render(
+      <ThreadResponseCoverageBadge
+        messageCount={1}
+        referencedMessages={[
+          {
+            historyMessageId: "raw-comment",
+            userMessageId: "u4",
+            content: "",
+            annotations: [
+              { id: "c1", selectedText: "This stall alert is a false alarm.", comment: "Can we fix this properly?" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Answers 1 message; preview referenced message" }));
+    const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
+    const comment = within(preview).getByTestId("thread-response-covered-message-comment");
+    expect(within(comment).getByText("This stall alert is a false alarm.").tagName).toBe("BLOCKQUOTE");
+    expect(comment).toHaveTextContent("Can we fix this properly?");
+    expect(within(preview).queryByTestId("thread-response-covered-message-content")).not.toBeInTheDocument();
+  });
+
+  it("numbers multiple comments and keeps message text after them", () => {
+    // Mirrors the agent-facing order: comments first, then any typed message text.
+    render(
+      <ThreadResponseCoverageBadge
+        messageCount={1}
+        referencedMessages={[
+          {
+            historyMessageId: "raw-comments",
+            userMessageId: "u6",
+            content: "And one more thing.",
+            annotations: [
+              { id: "c1", selectedText: "first quote", comment: "first comment" },
+              { id: "c2", selectedText: "second quote", comment: "second comment" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Answers 1 message; preview referenced message" }));
+    const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
+    const comments = within(preview).getAllByTestId("thread-response-covered-message-comment");
+    expect(comments.map((node) => node.textContent)).toEqual([
+      "first quoteComment 1:first comment",
+      "second quoteComment 2:second comment",
+    ]);
+    expect(within(preview).getByTestId("thread-response-covered-message-content")).toHaveTextContent(
+      "And one more thing.",
+    );
+  });
+
   it.each([
     ["missing", undefined],
     ["incomplete", [referencedMessages[0]]],

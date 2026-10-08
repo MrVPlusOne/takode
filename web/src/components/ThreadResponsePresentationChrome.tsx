@@ -111,10 +111,11 @@ function hasCompletePreview(
   const userIds = new Set<string>();
   for (const message of messages) {
     const attachmentCount = message.attachmentCount ?? 0;
+    const hasComments = (message.annotations?.length ?? 0) > 0;
     if (
       !message.historyMessageId ||
       !message.userMessageId ||
-      (!message.content.trim() && attachmentCount <= 0) ||
+      (!message.content.trim() && attachmentCount <= 0 && !hasComments) ||
       !Number.isInteger(attachmentCount) ||
       attachmentCount < 0
     ) {
@@ -360,6 +361,23 @@ export function ThreadResponseCoverageBadge({
                     {message.userMessageId}
                     {messageCount > 1 ? ` · ${index + 1} of ${messageCount}` : ""}
                   </div>
+                  {message.annotations?.map((annotation, commentIndex) => (
+                    <div
+                      key={annotation.id}
+                      className="mb-1.5 text-[12px] leading-relaxed"
+                      data-testid="thread-response-covered-message-comment"
+                    >
+                      <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-2 text-cc-muted">
+                        {annotation.selectedText}
+                      </blockquote>
+                      <div className="mt-0.5 whitespace-pre-wrap break-words text-cc-fg">
+                        {message.annotations!.length > 1 && (
+                          <span className="mr-1 text-[10px] text-cc-muted">Comment {commentIndex + 1}:</span>
+                        )}
+                        {annotation.comment}
+                      </div>
+                    </div>
+                  ))}
                   {message.content.trim() && (
                     <div
                       className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-cc-fg"
