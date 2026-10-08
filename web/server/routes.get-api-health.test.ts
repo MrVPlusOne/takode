@@ -544,4 +544,11 @@ describe("GET /api/health", () => {
     expect(json.timestamp).toBeGreaterThanOrEqual(before);
     expect(json.timestamp).toBeLessThanOrEqual(after);
   });
+
+  it("reports server handler time in a Server-Timing header", async () => {
+    // CLI latency tracking subtracts this handler time from the client-observed
+    // request time to isolate transport overhead, so every API route must send it.
+    const res = await app.request("/api/health", { method: "GET" });
+    expect(res.headers.get("server-timing")).toMatch(/^app;dur=\d+\.\d$/);
+  });
 });

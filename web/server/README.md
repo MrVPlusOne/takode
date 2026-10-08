@@ -50,7 +50,7 @@ This directory contains the server process that:
 - **Cron & timers:** `cron-scheduler.ts` / `cron-store.ts` / `cron-types.ts`, `timer-manager.ts` / `timer-store.ts` / `timer-types.ts` / `timer-parse.ts`
 - **Transcription:** [transcription.ts](./transcription.ts), [transcription-enhancer.ts](./transcription-enhancer.ts)
 - **Git & GitHub:** `git-utils.ts`, `github-pr.ts`, `pr-poller.ts`, `worktree-tracker.ts`
-- **Infra/utilities:** [recorder.ts](./recorder.ts), [replay.ts](./replay.ts), [server-logger.ts](./server-logger.ts), [usage-limits.ts](./usage-limits.ts), [perf-tracer.ts](./perf-tracer.ts), `relaunch-queue.ts`, `sleep-inhibitor.ts`, `pushover.ts` (phone-alert scheduler), `web-push.ts` (Web Push channel; service worker in `public/sw.js`), `traffic-stats.ts`, `migration.ts`, `ripgrep.ts`, `fs-search.ts`
+- **Infra/utilities:** [recorder.ts](./recorder.ts), [replay.ts](./replay.ts), [server-logger.ts](./server-logger.ts), [usage-limits.ts](./usage-limits.ts), [perf-tracer.ts](./perf-tracer.ts), [core-action-latency.ts](./core-action-latency.ts) and [latency-log.ts](./latency-log.ts) (persisted latency logs read by `takode latency`), `relaunch-queue.ts`, `sleep-inhibitor.ts`, `pushover.ts` (phone-alert scheduler), `web-push.ts` (Web Push channel; service worker in `public/sw.js`), `traffic-stats.ts`, `migration.ts`, `ripgrep.ts`, `fs-search.ts`
 
 ## How pieces fit together
 

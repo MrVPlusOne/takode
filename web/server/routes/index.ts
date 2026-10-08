@@ -14,6 +14,7 @@ import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
 import type { PreparedFrontendRestart } from "../frontend-restart-preparation.js";
 import type { TakodeRuntimeBuildIdentity } from "../build-identity.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
+import { SERVER_TIMING_METRIC } from "../latency-log.js";
 import { validateCompanionAuth } from "./auth.js";
 import { createSessionsRoutes } from "./sessions.js";
 import { createGitRoutes } from "./git.js";
@@ -202,16 +203,16 @@ export function createRoutes(
       headerLabel: "Companion",
     });
 
-  if (perfTracer) {
-    api.use("/*", async (c, next) => {
-      const start = performance.now();
-      await next();
-      const ms = performance.now() - start;
-      if (ms > perfTracer.httpSlowThresholdMs) {
-        perfTracer.recordSlowRequest(c.req.method, c.req.path, ms);
-      }
-    });
-  }
+  api.use("/*", async (c, next) => {
+    const start = performance.now();
+    await next();
+    const ms = performance.now() - start;
+    // Lets CLI latency tracking separate server work from transport overhead.
+    c.header("Server-Timing", `${SERVER_TIMING_METRIC};dur=${ms.toFixed(1)}`);
+    if (perfTracer && ms > perfTracer.httpSlowThresholdMs) {
+      perfTracer.recordSlowRequest(c.req.method, c.req.path, ms);
+    }
+  });
 
   const ctx: RouteContext = {
     launcher,

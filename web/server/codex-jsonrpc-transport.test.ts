@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
+import { coreActionLatency } from "./core-action-latency.js";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
 
@@ -82,5 +83,27 @@ describe("JsonRpcTransport diagnostics", () => {
     expect(diagnostics?.recentOutgoing.map((entry) => entry.method)).toEqual(["skills/list", "initialized"]);
     expect(rawIncoming).toHaveLength(1);
     expect(secondRawIncoming).toEqual(rawIncoming);
+  });
+});
+
+describe("JsonRpcTransport latency", () => {
+  it("records each request round trip as a core action named after its method", async () => {
+    // Codex RPC round trips are the coordinator-to-process hop that later
+    // crosses the network, so every response feeds the core action stats.
+    const recorded: Array<[string, number]> = [];
+    const spy = vi.spyOn(coreActionLatency, "record").mockImplementation((action, ms) => {
+      recorded.push([action, ms]);
+    });
+    const stdin = new MockWritableStream();
+    const stdout = new MockReadableStream();
+    const transport = new JsonRpcTransport(stdin as never, stdout.stream, "session-1");
+
+    const request = transport.request("turn/start", {});
+    await tick();
+    stdout.push(JSON.stringify({ id: request.id, result: {} }) + "\n");
+    await request.promise;
+    spy.mockRestore();
+
+    expect(recorded).toEqual([["codex-rpc turn/start", expect.any(Number)]]);
   });
 });

@@ -6,6 +6,7 @@
 
 import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
+import { trackCliLatency } from "./cli-latency.js";
 import {
   apiDelete,
   apiGet,
@@ -22,6 +23,7 @@ import { handleReport } from "./takode-report.js";
 import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
+import { handleLatency } from "./takode-latency.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
 import { handleBranch, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
 import { handleTodo } from "./takode-todo-commands.js";
@@ -72,6 +74,7 @@ const command = process.argv[2];
 const rawArgs = process.argv.slice(3);
 const args = stripGlobalFlags(rawArgs);
 const base = getBase(rawArgs);
+trackCliLatency("takode", command, args);
 
 try {
   const commandAccess = new Map<string, CommandAccess>([
@@ -201,6 +204,9 @@ try {
       break;
     case "export":
       await handleExport(base, args);
+      break;
+    case "latency":
+      await handleLatency(args);
       break;
     case "send":
       await handleSend(base, args);

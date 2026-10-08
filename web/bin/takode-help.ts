@@ -133,6 +133,25 @@ const LOGS_HELP = `Usage: takode logs [--level warn,error] [--component name] [-
 Query and tail structured Companion server logs.
 `;
 
+const LATENCY_HELP = `Usage: takode latency [--since <duration>] [--limit <n>] [--json]
+
+Audit where time goes in quest, memory and takode CLI commands and in server
+core actions such as Codex JSON-RPC requests. Reads this machine's latency logs,
+so it works without a running server.
+
+Each command row splits its mean run time into startup (runtime boot and module
+load), local (CLI-side work), server (handler time) and transport (request time
+outside the handler: connections, network, routing). Rows marked ! spend at
+least 25ms on transport and more on transport than on actual work. Rows marked ?
+had requests without server timing (an older server), so transport includes
+server time there.
+
+Options:
+  --since <duration>  Time window, e.g. 1h, 24h or 7d (default 24h)
+  --limit <n>         Rows per table (default 20)
+  --json              Output all rows as JSON
+`;
+
 const EXPORT_HELP = `Usage: takode export <session> <path>
 
 Export a session's full history to a text file.
@@ -427,6 +446,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "logs":
       console.log(LOGS_HELP);
       return true;
+    case "latency":
+      console.log(LATENCY_HELP);
+      return true;
     case "export":
       console.log(EXPORT_HELP);
       return true;
@@ -619,6 +641,7 @@ Commands:
   read     Read a full message (available to all sessions)
   grep     Search within a session's messages (JS regex, case-insensitive)
   logs     Query and tail structured server logs
+  latency  Audit CLI command and server action latency (startup, work, transport)
   export   Export full session history to a text file
   send     Send a message to a herded session
   reconnect  Reconnect selected or all herded workers without sending messages
@@ -689,6 +712,7 @@ Examples:
   takode grep 1 "authentication"
   takode logs --level warn,error --component ws-bridge
   takode logs --session abc123 --pattern reconnect --follow
+  takode latency --since 7d
   takode export 1 /tmp/session-1.txt
   takode send 2 "Please add tests for the edge cases"
   takode reconnect 2,3

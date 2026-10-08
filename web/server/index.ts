@@ -221,6 +221,7 @@ const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeas
 
 // ── Performance tracer — event loop lag + slow request/message tracking ──
 import { PerfTracer } from "./perf-tracer.js";
+import { coreActionLatency } from "./core-action-latency.js";
 const perfTracer = new PerfTracer();
 perfTracer.startLagMonitor();
 perfTracer.startSummaryLogging();
@@ -1223,6 +1224,7 @@ const shutdown = new ServerShutdown({
     await Promise.all([
       sessionStore.flushAll(),
       timerManager.flush(),
+      coreActionLatency.flush(),
       containerManager.flushState(CONTAINER_STATE_PATH),
     ]);
   },

@@ -126,6 +126,7 @@ import { discoverQuestCompanionCredentials, type CompanionCredentials } from "./
 import { saveQuestInputImage, uploadQuestInputImage } from "./quest-image-input.js";
 import { formatQuestStatusSummary, questStatusSummaryForJson } from "./quest-status-format.js";
 import { runQuestOutcomeCommand } from "./quest-outcome-command.js";
+import { trackCliLatency } from "./cli-latency.js";
 
 const DEFAULT_PORT = 3456;
 const COMPANION_SESSION_ID_HEADER = "x-companion-session-id";
@@ -138,6 +139,7 @@ const command = args[0];
 const positionalArgs = questCommandPositionals(args);
 const codexInvocation = getCodexQuestInvocationContext();
 const questServerExecution = isQuestServerExecution();
+trackCliLatency("quest", command, args.slice(1), { serverRun: questServerExecution });
 const managedCompanionIdentity = hasManagedCompanionIdentity();
 const directCodexExecution = !!codexInvocation && questServerExecution && !managedCompanionIdentity;
 

@@ -12,6 +12,7 @@ import {
   MEMORY_NOTE_TYPES,
   type MemoryCommitOperation,
 } from "../server/workstream-memory-types.js";
+import { trackCliLatency } from "./cli-latency.js";
 
 const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
 /** Flags that never take a value, so the next token stays positional. */
@@ -20,6 +21,7 @@ const args = process.argv.slice(2);
 const commandIndex = findCommandIndex(args);
 const command = commandIndex === -1 ? undefined : args[commandIndex];
 const jsonOutput = flag("json");
+trackCliLatency("memory", command, commandIndex === -1 ? [] : args.slice(commandIndex + 1));
 
 function flag(name: string): boolean {
   return args.includes(`--${name}`);

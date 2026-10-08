@@ -1,4 +1,5 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
+import { coreActionLatency } from "./core-action-latency.js";
 import { randomUUID } from "node:crypto";
 import type { RecorderManager } from "./recorder.js";
 import { getTrafficMessageType, trafficStats } from "./traffic-stats.js";
@@ -215,6 +216,7 @@ export class JsonRpcTransport {
         const pending = this.pending.get(msg.id as number);
         if (pending) {
           this.pending.delete(msg.id as number);
+          coreActionLatency.record(`codex-rpc ${pending.method}`, Date.now() - pending.createdAt);
           const resp = msg as JsonRpcResponse;
           if (resp.error) {
             pending.reject(new Error(resp.error.message));
