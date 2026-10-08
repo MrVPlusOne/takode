@@ -101,7 +101,6 @@ import { projectModelProvenanceMigrationFamilies } from "./model-provenance-migr
 import {
   addTaskEntry as addTaskEntryController,
   mergeKeywords as mergeKeywordsController,
-  markNotificationDoneBySessionId as markNotificationDoneBySessionIdController,
 } from "./bridge/session-registry-controller.js";
 import * as envManager from "./env-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
@@ -556,10 +555,6 @@ const herdEventDispatcher = new HerdEventDispatcher(herdBridge, launcher, {
   getSessionName: (sessionId) => sessionNames.getName(sessionId),
   getSessions: () => bridgeAny.sessions,
   getLeaderIdleDeps: () => bridgeAny.getSessionRegistryDeps(),
-  markNotificationDone: (sessionId, notifId, done) => {
-    const notificationDeps = bridgeAny.getSessionNotificationDeps();
-    return markNotificationDoneBySessionIdController(bridgeAny.sessions, sessionId, notifId, done, notificationDeps);
-  },
 });
 wsBridge.herdEventDispatcher = herdEventDispatcher;
 const messageDeliveries = new MessageDeliveryTracker({

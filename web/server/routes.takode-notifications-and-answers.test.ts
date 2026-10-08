@@ -1951,6 +1951,57 @@ describe("Takode server-authoritative auth", () => {
     );
   });
 
+  // Leaders answer a worker's `takode notify needs-input` prompt by the msg index or
+  // notification id shown in the herd event; with two open prompts, only the selected
+  // one receives the reply and is resolved.
+  it.each([
+    { selector: { msgIndex: 1 }, label: "message index" },
+    { selector: { targetId: "n-2" }, label: "notification id" },
+  ])("takode answer selects a needs-input notification by $label", async ({ selector }) => {
+    setupTakodeSessions();
+    bridge.getSession.mockReturnValue({
+      pendingPermissions: new Map(),
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Pick a logger",
+          timestamp: 1000,
+          messageId: "asst-1",
+          done: false,
+        },
+        {
+          id: "n-2",
+          category: "needs-input",
+          summary: "Pick a rollout",
+          timestamp: 1100,
+          messageId: "asst-2",
+          done: false,
+        },
+      ],
+      messageHistory: [
+        { type: "assistant", message: { id: "asst-1" } },
+        { type: "assistant", message: { id: "asst-2" } },
+      ],
+    });
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Staged", ...selector }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, kind: "notification", action: "answered" });
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(bridge.injectUserMessage.mock.calls[0]?.[5]).toMatchObject({
+      deliveryContent: "[reply] Pick a rollout\n\nStaged",
+      replyContext: { messageId: "asst-2", notificationId: "n-2" },
+    });
+    const notifications = bridge.getSession("worker-1")?.notifications;
+    expect(notifications?.map((notification: { done: boolean }) => notification.done)).toEqual([false, true]);
+  });
+
   it("takode answer fills every AskUserQuestion answer slot when the leader replies with free text", async () => {
     setupTakodeSessions();
     bridge.getSession.mockReturnValue({

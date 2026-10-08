@@ -338,7 +338,6 @@ export class HerdEventDispatcher {
       getSessionName?: (sessionId: string) => string | undefined;
       getSessions?: () => LeaderIdleStateLike["sessions"];
       getLeaderIdleDeps?: () => Parameters<typeof updateLeaderGroupIdleStateController>[3];
-      markNotificationDone?: (sessionId: string, notifId: string, done: boolean) => boolean;
     },
   ) {}
 
@@ -694,9 +693,10 @@ export class HerdEventDispatcher {
           if (!ownerIds) return true;
           return entry.deliveryOwnerId !== null && ownerIds.has(entry.deliveryOwnerId);
         });
+        // Confirming delivery does not resolve a worker's needs-input prompt: the
+        // leader may answer it in a later turn with `takode answer`, which resolves it.
         for (const entry of confirmedEntries) {
           this.markDeliveryHistoryStatus(inbox, entry, "confirmed");
-          this.confirmNotificationIfNeeded(entry);
         }
         if (confirmedEntries.length > 0) {
           const confirmed = new Set(confirmedEntries);
@@ -1075,7 +1075,6 @@ export class HerdEventDispatcher {
         confirmedSeqs.add(entry.seq);
         confirmedEvents.push(entry.event);
         this.markDeliveryHistoryStatus(inbox, entry, "confirmed");
-        this.confirmNotificationIfNeeded(entry);
         continue;
       }
       keptEntries.push(entry);
@@ -1096,13 +1095,6 @@ export class HerdEventDispatcher {
       inbox.entries.length > 0 ? Math.min(...inbox.entries.map((entry) => entry.seq)) : inbox.nextSeq;
     const inFlight = inbox.entries.filter((entry) => entry.deliveryOwnerId !== undefined);
     inbox.inFlightUpTo = inFlight.length > 0 ? Math.max(...inFlight.map((entry) => entry.seq)) : null;
-  }
-
-  private confirmNotificationIfNeeded(entry: InboxEntry): void {
-    if (entry.event.event !== "notification_needs_input") return;
-    const notifId = entry.event.data.notificationId;
-    if (typeof notifId !== "string" || notifId.length === 0) return;
-    this.runtime?.markNotificationDone?.(entry.event.sessionId, notifId, true);
   }
 
   private releaseHeldRestartPrepEvents(operationId: string): void {

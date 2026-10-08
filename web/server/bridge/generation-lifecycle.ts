@@ -167,8 +167,8 @@ function getCurrentTurnDecisionLifecycle(
     session.queuedTurnUserMessageIds.flat(),
     activeRouteKey,
   );
-  // `done` is not answer evidence here: herd delivery confirmation marks a
-  // notification done before the leader may have answered it. Correlate actual
+  // `done` is not answer evidence here: a notification can be resolved by hand
+  // (`takode notify resolve`, dismissal) without any answer. Correlate actual
   // current/queued inputs instead so the predecessor's normal wait stays visible.
   const currentWaitCandidates = notifications.filter(
     (notification) =>

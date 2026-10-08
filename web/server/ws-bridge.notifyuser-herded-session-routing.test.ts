@@ -713,7 +713,9 @@ describe("notifyUser herded session routing", () => {
     expect(session.attentionReason).toBeNull();
   });
 
-  it("keeps herded needs-input active until leader turn end confirms herd delivery", () => {
+  it("keeps herded needs-input answerable after leader turn end confirms herd delivery", () => {
+    // Regression: confirming herd delivery used to resolve the worker's prompt, so a
+    // leader answering in a later turn got "No pending question or plan to answer".
     vi.useFakeTimers();
     try {
       const leaderId = "leader-1";
@@ -742,13 +744,6 @@ describe("notifyUser herded session routing", () => {
           getSession: (sessionId: string) => bridge.getSession(sessionId) as any,
         },
         launcherMock as any,
-        {
-          markNotificationDone: (sessionId: string, notifId: string, done: boolean) => {
-            const session = bridge.getSession(sessionId);
-            if (!session) return false;
-            return markNotificationDoneController(session as any, notifId, done, makeHerdNotificationDoneDeps(bridge));
-          },
-        },
       );
       bridge.setHerdEventDispatcher(dispatcher as any);
       dispatcher.setupForOrchestrator(leaderId);
@@ -771,14 +766,13 @@ describe("notifyUser herded session routing", () => {
 
       dispatcher.onOrchestratorTurnEnd(leaderId);
 
-      expect(session.notifications[0].done).toBe(true);
-      expect(session.notifications.filter((notif) => !notif.done && notif.category === "needs-input")).toHaveLength(0);
+      expect(session.notifications[0].done).toBe(false);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps herd-delivery auto-resolution idempotent when leader answer already resolved the notification", () => {
+  it("keeps a leader-answered needs-input resolved when herd delivery is confirmed afterwards", () => {
     vi.useFakeTimers();
     try {
       const leaderId = "leader-1";
@@ -807,13 +801,6 @@ describe("notifyUser herded session routing", () => {
           getSession: (sessionId: string) => bridge.getSession(sessionId) as any,
         },
         launcherMock as any,
-        {
-          markNotificationDone: (sessionId: string, notifId: string, done: boolean) => {
-            const session = bridge.getSession(sessionId);
-            if (!session) return false;
-            return markNotificationDoneController(session as any, notifId, done, makeHerdNotificationDoneDeps(bridge));
-          },
-        },
       );
       bridge.setHerdEventDispatcher(dispatcher as any);
       dispatcher.setupForOrchestrator(leaderId);
