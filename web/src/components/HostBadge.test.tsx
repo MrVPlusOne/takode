@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, render, screen } from "@testing-library/react";
-import { HostBadge, HostOfflineBanner } from "./HostBadge.js";
+import { HostBadge, HostOfflineBanner, SessionHostBadge, SessionMachineRow } from "./HostBadge.js";
 import { useStore } from "../store.js";
 import { refreshRemoteHosts } from "../remote-hosts.js";
 
@@ -79,5 +79,65 @@ describe("remote host session UI", () => {
     const badge = screen.getByTestId("session-host-badge");
     expect(badge.className).toContain("text-cc-warning");
     expect(badge.getAttribute("title")).toContain("Runs Takode aaaaaaaa, this server runs bbbbbbbb");
+  });
+
+  // Session-scoped surfaces (top bar, worker cards, board) show the chip only for
+  // remote sessions; the info panel names the machine, and labels a local session
+  // only while some session runs remotely, so single-machine setups see no change.
+  it("labels sessions by machine in chips and the info panel", async () => {
+    serveHosts([{ id: "h1", name: "devbox", online: true }]);
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "remote", hostId: "h1", state: "running", cwd: "/srv", createdAt: 0 },
+        { sessionId: "local", state: "running", cwd: "/repo", createdAt: 0 },
+      ] as never,
+    });
+    render(
+      <>
+        <div data-testid="remote-chip">
+          <SessionHostBadge sessionId="remote" />
+        </div>
+        <div data-testid="local-chip">
+          <SessionHostBadge sessionId="local" />
+        </div>
+        <div data-testid="remote-row">
+          <SessionMachineRow sessionId="remote" />
+        </div>
+        <div data-testid="local-row">
+          <SessionMachineRow sessionId="local" />
+        </div>
+      </>,
+    );
+    await act(async () => {
+      await refreshRemoteHosts();
+    });
+    expect(screen.getByTestId("remote-chip").textContent).toBe("devbox");
+    expect(screen.getByTestId("local-chip").textContent).toBe("");
+    expect(screen.getByTestId("remote-row").textContent).toBe("Runs ondevboxOnline");
+    expect(screen.getByTestId("local-row").textContent).toBe("Runs onThis server's machine");
+
+    // Without any remote session, the local label disappears.
+    act(() => {
+      useStore.setState({
+        sdkSessions: [{ sessionId: "local", state: "running", cwd: "/repo", createdAt: 0 }] as never,
+      });
+    });
+    expect(screen.getByTestId("local-row").textContent).toBe("");
+  });
+
+  // A session whose host was removed says so instead of claiming it is offline.
+  it("explains a removed host in the info panel", async () => {
+    serveHosts([]);
+    useStore.setState({
+      sdkSessions: [{ sessionId: "orphan", hostId: "gone", state: "exited", cwd: "/srv", createdAt: 0 }] as never,
+    });
+    render(<SessionMachineRow sessionId="orphan" />);
+    await act(async () => {
+      await refreshRemoteHosts();
+    });
+    expect(screen.getByTestId("session-info-machine-status").textContent).toBe("It is no longer registered.");
+    expect(screen.getByTestId("session-host-badge").getAttribute("title")).toBe(
+      "Runs on a removed host. It is no longer registered.",
+    );
   });
 });

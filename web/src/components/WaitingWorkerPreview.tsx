@@ -13,6 +13,7 @@ import {
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { navigateToSession, navigateToSessionMessage } from "../utils/routing.js";
 import type { BoardRowData } from "./BoardTable.js";
+import { SessionHostBadge } from "./HostBadge.js";
 
 /** How long the preview survives a cleared thread status after the leader stops generating. */
 export const WAITING_WORKER_PREVIEW_HOLD_MS = 5_000;
@@ -232,6 +233,7 @@ export function WaitingWorkerPreviewPanel({
           aria-hidden="true"
         />
         <span className="shrink-0 font-mono-code font-medium text-cc-fg/85">{workerLabel}</span>
+        <SessionHostBadge sessionId={target.workerSessionId} />
         <span className="min-w-0 truncate text-cc-muted">
           {[target.phaseLabel, elapsed].filter(Boolean).join(" · ")}
         </span>

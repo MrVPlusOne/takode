@@ -87,6 +87,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Session List Herd Groups",
     "Herd Collapsible Container",
     "Quest Title Styling",
+    "Remote Host Indicators",
   ]),
   createNavGroup("interactive", "Interactive", "Controls, overlays, and jumpable workflows.", [
     "Conversation annotations",

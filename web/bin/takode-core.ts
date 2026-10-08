@@ -503,6 +503,8 @@ export function parsePositiveIntegerFlag(
 
 export type TakodeSessionInfo = {
   sessionId: string;
+  /** Registered remote host running the session; absent on this server's machine. */
+  hostId?: string | null;
   sessionNum?: number | null;
   name?: string | null;
   state: string;

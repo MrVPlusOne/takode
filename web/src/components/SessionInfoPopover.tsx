@@ -24,6 +24,7 @@ import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
+import { SessionMachineRow } from "./HostBadge.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type SessionDirectoryOpenTarget } from "../api.js";
 import type { CodexContextWindowDiagnostics, SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
@@ -427,6 +428,7 @@ export function SessionInfoPopover({
               </>
             )}
           </div>
+          <SessionMachineRow sessionId={sessionId} />
           {onConfigure && (
             <button
               type="button"

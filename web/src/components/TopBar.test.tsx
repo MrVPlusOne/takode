@@ -111,6 +111,7 @@ interface MockStoreState {
     archived?: boolean;
     isWorktree?: boolean;
     containerId?: string;
+    hostId?: string | null;
     herdedBy?: string;
     cwd?: string;
     name?: string;
@@ -555,6 +556,30 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
+  });
+
+  // The title names a remote session's host next to the session name, inside the
+  // button that opens session info; local sessions keep the title unchanged.
+  it("shows a remote session's host chip in the title", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ hosts: [{ id: "h1", name: "devbox", online: true }] }))),
+    );
+    try {
+      resetStore({
+        currentSessionId: "s1",
+        sessions: new Map([["s1", { cwd: "/srv" }]]),
+        sdkSessions: [
+          { sessionId: "s1", createdAt: 1, cliConnected: true, state: "idle", name: "Remote", hostId: "h1" },
+        ],
+      });
+      render(<TopBar />);
+      const chip = await screen.findByText("devbox");
+      expect(chip.closest('[data-testid="session-host-badge"]')).toBeInTheDocument();
+      expect(chip.closest("button")).toHaveAttribute("aria-label", "Remote");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("uses projected current-session status, permission, name, and timer authority", () => {

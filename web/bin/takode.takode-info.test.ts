@@ -65,10 +65,17 @@ async function runTakode(
 }
 
 describe("takode info", () => {
-  function createInfoServer(sessionPayload: JsonObject) {
+  function createInfoServer(sessionPayload: JsonObject, hosts: JsonObject[] = [], hostRequests: string[] = []) {
     return createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
+
+      if (method === "GET" && url === "/api/hosts") {
+        hostRequests.push(url);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ hosts, build: "b".repeat(40) }));
+        return;
+      }
 
       if (method === "GET" && url === "/api/takode/me") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -179,6 +186,51 @@ describe("takode info", () => {
     expect(result.stdout).toContain("WT Branch      jiayi");
     expect(result.stdout).toContain("Actual Branch  jiayi-wt-7173");
     expect(result.stdout).toContain("Timers         3 pending");
+  });
+
+  // The Host line says which machine runs the session. Local sessions need no
+  // host lookup; remote ones name the host and its link status from /api/hosts.
+  it("prints which machine runs the session", async () => {
+    const hostRequests: string[] = [];
+    const hosts = [{ id: "host-1", name: "devbox", online: false, buildMismatch: false }];
+    const local = createInfoServer(
+      { sessionId: "local-info", sessionNum: 60, name: "Local", state: "connected", cwd: "/tmp/local" },
+      hosts,
+      hostRequests,
+    );
+    local.listen(0);
+    await once(local, "listening");
+    const localResult = await runTakode(
+      ["info", "local-info", "--port", String((local.address() as AddressInfo).port)],
+      { ...process.env, COMPANION_SESSION_ID: "leader-info", COMPANION_AUTH_TOKEN: "auth-info" },
+    );
+    local.close();
+    expect(localResult.status).toBe(0);
+    expect(localResult.stdout).toContain("Host           local (this server's machine)");
+    expect(hostRequests).toEqual([]);
+
+    const remote = createInfoServer(
+      {
+        sessionId: "remote-info",
+        sessionNum: 61,
+        name: "Remote",
+        state: "connected",
+        cwd: "/srv/repo",
+        hostId: "host-1",
+      },
+      hosts,
+      hostRequests,
+    );
+    remote.listen(0);
+    await once(remote, "listening");
+    const remoteResult = await runTakode(
+      ["info", "remote-info", "--port", String((remote.address() as AddressInfo).port)],
+      { ...process.env, COMPANION_SESSION_ID: "leader-info", COMPANION_AUTH_TOKEN: "auth-info" },
+    );
+    remote.close();
+    expect(remoteResult.status).toBe(0);
+    expect(remoteResult.stdout).toContain("Host           devbox (offline; the session continues when it reconnects)");
+    expect(hostRequests).toEqual(["/api/hosts"]);
   });
 
   it("reports requested versus effective Codex reasoning without promoting an unverified Ultra label", async () => {

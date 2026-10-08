@@ -19,6 +19,7 @@ import {
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { SessionHostBadge } from "./HostBadge.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
   isCompletedJourneyPresentationStatus,
@@ -241,6 +242,7 @@ function BoardSessionEntry({
       >
         {`#${resolvedSessionNum ?? "?"}`}
       </SessionInlineLink>
+      <SessionHostBadge sessionId={resolvedSessionId} />
     </span>
   );
 }

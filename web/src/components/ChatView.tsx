@@ -46,7 +46,7 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
-import { HostOfflineBanner } from "./HostBadge.js";
+import { HostOfflineBanner, SessionHostBadge } from "./HostBadge.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
   QUEST_PARTICIPANT_CHIP_CLASS,
@@ -497,6 +497,7 @@ function QuestBannerParticipantChip({
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <SessionRoleLabel role={role} />
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{`#${sessionNum ?? "?"}`}</span>
+      {sessionId && <SessionHostBadge sessionId={sessionId} />}
       {showDisplayName && displayName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{displayName}</span>}
     </>
   );

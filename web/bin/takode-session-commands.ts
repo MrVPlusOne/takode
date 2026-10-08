@@ -103,6 +103,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     attentionReason?: string;
     repoRoot?: string;
     isWorktree?: boolean;
+    hostId?: string | null;
     herdedBy?: string;
     reviewerOf?: number;
     claimedQuestId?: string | null;
@@ -160,6 +161,10 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     return;
   }
 
+  const hosts = await fetchHostsById(
+    base,
+    filtered.map((s) => s.hostId),
+  );
   const shownWorkerCount = filtered.filter((s) => s.reviewerOf === undefined).length;
   const shownReviewerCount = filtered.length - shownWorkerCount;
   const activeHerdWorkerCount =
@@ -224,14 +229,14 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     });
 
     // Build a map of parentSessionNum -> reviewer sessions for nesting display
-    total += printNestedSessions(projectSessions, showTasks);
+    total += printNestedSessions(projectSessions, showTasks, hosts);
     console.log("");
   }
 
   // Archived group
   if (archived.length > 0) {
     console.log(`▸ ARCHIVED  ${archived.length}`);
-    total += printNestedSessions(archived, showTasks);
+    total += printNestedSessions(archived, showTasks, hosts);
     console.log("");
   }
 
@@ -244,8 +249,38 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     );
   }
   console.log(
-    `Status: ● running  ○ idle  || paused  ✗ disconnected  ⊘ archived  ⚠ needs attention  📋 quest  ↑↓ commits ahead/behind`,
+    `Status: ● running  ○ idle  || paused  ✗ disconnected  ⊘ archived  ⚠ needs attention  📋 quest  ↑↓ commits ahead/behind${hosts.size > 0 ? "  @ remote host" : ""}`,
   );
+}
+
+type HostSummary = { name: string; online: boolean; buildMismatch?: boolean };
+
+/**
+ * Registered remote hosts by id. Fetched only when a shown session runs on
+ * one, so listing local sessions costs no extra request.
+ */
+async function fetchHostsById(
+  base: string,
+  hostIds: Array<string | null | undefined>,
+): Promise<Map<string, HostSummary>> {
+  if (!hostIds.some(Boolean)) return new Map();
+  try {
+    const { hosts } = (await apiGet(base, "/hosts", { auth: "optional" })) as {
+      hosts: Array<HostSummary & { id: string }>;
+    };
+    return new Map(hosts.map((host) => [host.id, host]));
+  } catch (error) {
+    console.error(`Could not load remote hosts: ${error instanceof Error ? error.message : String(error)}`);
+    return new Map();
+  }
+}
+
+/** Short row tag for a remote session, e.g. ` @devbox` or ` @devbox(offline)`; empty for local sessions. */
+function formatHostTag(hostId: string | null | undefined, hosts: Map<string, HostSummary> | undefined): string {
+  if (!hostId || !hosts) return "";
+  const host = hosts.get(hostId);
+  if (!host) return ` @host:${formatInlineText(hostId.slice(0, 8))}`;
+  return ` @${formatInlineText(host.name)}${host.online ? "" : "(offline)"}`;
 }
 
 export function printSessionLine(
@@ -278,9 +313,12 @@ export function printSessionLine(
     pendingTimerCount?: number;
     pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
     pausedInputQueueCount?: number;
+    hostId?: string | null;
   },
   opts?: {
     indent?: boolean;
+    /** Registered hosts by id; when given, remote sessions get an `@host` tag. */
+    hosts?: Map<string, HostSummary>;
     attachedReviewer?: {
       sessionNum?: number;
       state: string;
@@ -296,6 +334,7 @@ export function printSessionLine(
   const herd = s.herdedBy ? " [herd]" : "";
   // Backend type tag: only show for codex (sdk is implied by session details)
   const backend = s.backendType === "codex" ? " [codex]" : "";
+  const host = formatHostTag(s.hostId, opts?.hosts);
   const paused = !!s.pause?.pausedAt;
   const status = paused ? "||" : s.cliConnected ? (s.state === "running" ? "●" : "○") : s.archived ? "⊘" : "✗";
   const attention = s.pendingPermissionSummary
@@ -346,7 +385,7 @@ export function printSessionLine(
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
   console.log(
-    `${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${pause}${quest}${timers}${reviewerSummary}${attention}`,
+    `${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${host}${pause}${quest}${timers}${reviewerSummary}${attention}`,
   );
   // Compact display for indented reviewer sessions: skip the detail line (cwd/branch)
   // since reviewers share the parent's worktree and the extra line is just noise
@@ -363,6 +402,7 @@ function printNestedSessions(
   sessions: Parameters<typeof printSessionLine>[0] &
     { sessionNum?: number | null; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
   showTasks: boolean,
+  hosts: Map<string, HostSummary>,
 ): number {
   const reviewersByParent = new Map<number, typeof sessions>();
   const topLevel = sessions.filter((s) => {
@@ -378,12 +418,12 @@ function printNestedSessions(
   let count = 0;
   for (const s of topLevel) {
     const reviewers = typeof s.sessionNum === "number" ? reviewersByParent.get(s.sessionNum) : undefined;
-    printSessionLine(s, { attachedReviewer: reviewers?.[0] ?? null });
+    printSessionLine(s, { attachedReviewer: reviewers?.[0] ?? null, hosts });
     if (showTasks) printSessionTasks(s.taskHistory);
     count++;
     if (reviewers) {
       for (const r of reviewers) {
-        printSessionLine(r, { indent: true });
+        printSessionLine(r, { indent: true, hosts });
         if (showTasks) printSessionTasks(r.taskHistory);
         count++;
       }
@@ -395,7 +435,7 @@ function printNestedSessions(
   // even though their parent isn't visible in the current listing.
   for (const [, orphans] of reviewersByParent) {
     for (const r of orphans) {
-      printSessionLine(r, { indent: true });
+      printSessionLine(r, { indent: true, hosts });
       if (showTasks) printSessionTasks(r.taskHistory);
       count++;
     }
@@ -439,7 +479,7 @@ export async function handleInfo(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  printSessionInfo(data);
+  printSessionInfo(data, await fetchHostsById(base, [data.hostId]));
 }
 
 export async function handleLeaderContextResume(base: string, args: string[]): Promise<void> {
@@ -457,7 +497,7 @@ export async function handleLeaderContextResume(base: string, args: string[]): P
   console.log(renderLeaderContextResumeText(result));
 }
 
-function printSessionInfo(data: TakodeSessionInfo): void {
+function printSessionInfo(data: TakodeSessionInfo, hosts: Map<string, HostSummary>): void {
   // ── Header ──
   const num = data.sessionNum != null ? `#${data.sessionNum}` : "";
   const name = formatInlineText(data.name || "(unnamed)");
@@ -507,6 +547,8 @@ function printSessionInfo(data: TakodeSessionInfo): void {
     if (data.codexSandbox) console.log(`  Sandbox        ${formatInlineText(data.codexSandbox)}`);
     printCodexPendingDeliveryLine(data.codexPendingDelivery);
   }
+
+  console.log(`  Host           ${formatHostDetail(data.hostId, hosts)}`);
 
   // ── Working directory ──
   console.log(`  CWD            ${formatInlineText(data.cwd)}`);
@@ -615,6 +657,19 @@ function printSessionInfo(data: TakodeSessionInfo): void {
   if (data.keywords && data.keywords.length > 0) {
     console.log(`  Keywords       ${data.keywords.map((keyword) => formatInlineText(keyword)).join(", ")}`);
   }
+}
+
+/** Which machine runs the session, with the remote host's link status. */
+function formatHostDetail(hostId: string | null | undefined, hosts: Map<string, HostSummary>): string {
+  if (!hostId) return "local (this server's machine)";
+  const host = hosts.get(hostId);
+  if (!host) return `unknown host ${formatInlineText(hostId)}`;
+  const status = !host.online
+    ? "offline; the session continues when it reconnects"
+    : host.buildMismatch
+      ? "online, different Takode build (see takode host list)"
+      : "online";
+  return `${formatInlineText(host.name)} (${status})`;
 }
 
 function printCodexPendingDeliveryLine(diagnostics: TakodeSessionInfo["codexPendingDelivery"] | undefined): void {

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
+import { HostBadge } from "./HostBadge.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import {
   deriveSessionStatus,
@@ -328,6 +329,12 @@ export function SessionHoverCard({
               <>
                 <span className="text-cc-muted/40 text-[10px]">&middot;</span>
                 <span className="text-[11px] text-cc-muted">{formatModel(model)}</span>
+              </>
+            )}
+            {s.hostId && (
+              <>
+                <span className="text-cc-muted/40 text-[10px]">&middot;</span>
+                <HostBadge hostId={s.hostId} />
               </>
             )}
             {s.cronJobId && (

@@ -25,6 +25,7 @@ import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js"
 import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
+import { SessionHostBadge } from "./HostBadge.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
@@ -481,6 +482,7 @@ export function TopBar({
                     {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
                   </span>
                 )}
+                <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
               </button>
             )}
             {!isConnected && !isPaused && !isArchived && (

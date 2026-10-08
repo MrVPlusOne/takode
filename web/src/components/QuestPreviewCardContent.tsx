@@ -23,6 +23,7 @@ import {
   QUEST_REVIEWER_ROLE_CLASS,
 } from "./quest-participant-chip-style.js";
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
+import { SessionHostBadge } from "./HostBadge.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
@@ -399,6 +400,7 @@ function QuestHoverSessionChip({
         <span className={QUEST_REVIEWER_ROLE_CLASS}>{role}</span>
       )}
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{displaySession}</span>
+      <SessionHostBadge sessionId={sessionId} />
       {sessionName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{sessionName}</span>}
     </SessionInlineLink>
   );

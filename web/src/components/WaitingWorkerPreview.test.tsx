@@ -185,6 +185,28 @@ describe("WaitingWorkerPreview", () => {
     expect(navigateToSession).toHaveBeenCalledWith(WORKER);
   });
 
+  // A leader watching a worker on a remote host sees which machine it runs on.
+  it("names a remote worker's host next to the worker number", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ hosts: [{ id: "h1", name: "devbox", online: true }] }))),
+    );
+    try {
+      setLeaderState();
+      act(() => {
+        useStore.setState({
+          sdkSessions: [{ sessionId: WORKER, hostId: "h1", state: "running", cwd: "/srv", createdAt: 0 }] as never,
+        });
+      });
+      render(<FeedFooterHost />);
+      const preview = await screen.findByTestId("waiting-worker-preview");
+      await waitFor(() => expect(preview).toHaveTextContent("#7devbox"));
+    } finally {
+      vi.unstubAllGlobals();
+      act(() => useStore.setState({ sdkSessions: [] }));
+    }
+  });
+
   it("keys the card's left edge to the worker status so it stands apart from activity groups", async () => {
     // A working worker gets a green edge and tint; an idle one a neutral edge.
     setLeaderState();
