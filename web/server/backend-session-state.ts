@@ -21,7 +21,9 @@ export interface BackendSessionState {
   codex_stream_retry?: { turnId: string } | null;
   /**
    * A Claude turn is paused because the model API was unreachable; Takode
-   * resumes it once the connection is back. Never restored from disk.
+   * resumes it once the connection is back. `autoResumePaused` means Takode
+   * used up its automatic continues for this outage and now waits for new
+   * input or a network change. Never restored from disk.
    */
-  claude_network_wait?: { since: number } | null;
+  claude_network_wait?: { since: number; autoResumePaused?: boolean } | null;
 }

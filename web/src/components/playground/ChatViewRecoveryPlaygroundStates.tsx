@@ -10,6 +10,7 @@ import {
   PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_STREAM_RETRY_SESSION_ID,
   PLAYGROUND_NETWORK_WAIT_SESSION_ID,
+  PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
@@ -93,6 +94,11 @@ export function PlaygroundChatViewRecoveryStates() {
           label="Claude waiting for connection"
           sessionId={PLAYGROUND_NETWORK_WAIT_SESSION_ID}
           testId="playground-claude-network-wait"
+        />
+        <ChatStateCard
+          label="Claude waiting for connection, automatic continues used up"
+          sessionId={PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID}
+          testId="playground-claude-network-wait-paused"
         />
         <ChatStateCard label="Recoverable resuming chip" sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
         <ChatStateCard label="Recoverable disconnected chip" sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />

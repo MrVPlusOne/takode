@@ -16,6 +16,7 @@ export const PLAYGROUND_RESUMING_SESSION_ID = "playground-chat-resuming";
 export const PLAYGROUND_RECOVERING_SESSION_ID = "playground-chat-recovering";
 export const PLAYGROUND_STREAM_RETRY_SESSION_ID = "playground-chat-stream-retry";
 export const PLAYGROUND_NETWORK_WAIT_SESSION_ID = "playground-chat-network-wait";
+export const PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID = "playground-chat-network-wait-paused";
 export const PLAYGROUND_DISCONNECTED_SESSION_ID = "playground-chat-disconnected";
 export const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
 export const PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID = "playground-chat-recovery-suppressed";

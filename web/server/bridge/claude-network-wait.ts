@@ -25,6 +25,15 @@ export const CLAUDE_NETWORK_RESUME_PROMPT =
 const RESUME_DELAYS_MS = [10_000, 30_000, 60_000];
 /** How often to look again while the machine has no usable network at all. */
 const OFFLINE_RECHECK_MS = 5_000;
+/**
+ * Hidden continues per outage. Each one runs Claude's full in-turn retry cycle
+ * (about 6 minutes), so five cover roughly 40 minutes of an outage where the
+ * machine looks online but the API stays unreachable. After that, Takode stops
+ * adding prompts to Claude's conversation until something changes.
+ */
+const MAX_CONTINUES_PER_OUTAGE = 5;
+/** How often a paused wait checks whether the machine dropped off and rejoined a network. */
+const PAUSED_RECHECK_MS = 30_000;
 
 /**
  * How Claude Code (checked against 2.1.289) words a model request that got no
@@ -66,6 +75,9 @@ export interface ClaudeNetworkWaitDeps {
 interface WaitRuntime {
   timer: ReturnType<typeof setTimeout> | null;
   failures: number;
+  continues: number;
+  /** A paused wait saw the machine without any network, so rejoining one is a real change. */
+  sawOffline: boolean;
 }
 
 const runtimes = new WeakMap<ClaudeNetworkWaitSession, WaitRuntime>();
@@ -111,7 +123,11 @@ export function handleClaudeNetworkWaitMessage(
         `(failure ${runtime.failures}); waiting for the connection before resuming`,
     );
     enterWait(session, deps);
-    scheduleResume(session, deps, RESUME_DELAYS_MS[Math.min(runtime.failures, RESUME_DELAYS_MS.length) - 1]);
+    if (runtime.continues >= MAX_CONTINUES_PER_OUTAGE) {
+      pauseAutoResume(session, deps);
+    } else {
+      scheduleResume(session, deps, RESUME_DELAYS_MS[Math.min(runtime.failures, RESUME_DELAYS_MS.length) - 1]);
+    }
     return true;
   }
 
@@ -157,26 +173,77 @@ function isModelActivity(msg: any): boolean {
 
 function enterWait(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps): void {
   if (session.state.claude_network_wait) return;
-  const wait = { since: Date.now() };
+  publishWait(session, deps, { since: Date.now() });
+}
+
+function publishWait(
+  session: ClaudeNetworkWaitSession,
+  deps: ClaudeNetworkWaitDeps,
+  wait: NonNullable<SessionState["claude_network_wait"]>,
+): void {
   session.state.claude_network_wait = wait;
   deps.broadcastToBrowsers(session, { type: "session_update", session: { claude_network_wait: wait } });
+}
+
+/**
+ * Stop sending continues but keep the turn waiting. Input from the user or a
+ * leader still resumes Claude, and so does the machine visibly dropping off
+ * and rejoining a network, which starts a fresh allowance.
+ */
+function pauseAutoResume(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps): void {
+  const wait = session.state.claude_network_wait;
+  if (wait && !wait.autoResumePaused) {
+    console.warn(
+      `[claude-network] Stopped resuming session ${sessionTag(session.id)} after ${MAX_CONTINUES_PER_OUTAGE} ` +
+        "attempts; waiting for new input or a network change",
+    );
+    publishWait(session, deps, { ...wait, autoResumePaused: true });
+  }
+  schedule(session, PAUSED_RECHECK_MS, () => watchForReconnect(session, deps));
+}
+
+function watchForReconnect(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps): void {
+  const wait = session.state.claude_network_wait;
+  if (!wait) return;
+  if (!session.isGenerating || !session.claudeSdkAdapter?.isConnected()) {
+    stopClaudeNetworkWait(session, deps);
+    return;
+  }
+  const runtime = getRuntime(session);
+  if (!(deps.hasNetwork ?? hasUsableNetwork)()) {
+    runtime.sawOffline = true;
+  } else if (runtime.sawOffline) {
+    console.log(`[claude-network] Session ${sessionTag(session.id)} rejoined a network; resuming automatically again`);
+    runtime.failures = 0;
+    runtime.continues = 0;
+    runtime.sawOffline = false;
+    publishWait(session, deps, { since: wait.since });
+    tryResume(session, deps);
+    return;
+  }
+  schedule(session, PAUSED_RECHECK_MS, () => watchForReconnect(session, deps));
 }
 
 function getRuntime(session: ClaudeNetworkWaitSession): WaitRuntime {
   let runtime = runtimes.get(session);
   if (!runtime) {
-    runtime = { timer: null, failures: 0 };
+    runtime = { timer: null, failures: 0, continues: 0, sawOffline: false };
     runtimes.set(session, runtime);
   }
   return runtime;
 }
 
 function scheduleResume(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps, delayMs: number): void {
+  schedule(session, delayMs, () => tryResume(session, deps));
+}
+
+/** One timer per session: scheduling replaces whatever was pending. */
+function schedule(session: ClaudeNetworkWaitSession, delayMs: number, run: () => void): void {
   const runtime = getRuntime(session);
   if (runtime.timer) clearTimeout(runtime.timer);
   runtime.timer = setTimeout(() => {
     runtime.timer = null;
-    tryResume(session, deps);
+    run();
   }, delayMs);
 }
 
@@ -193,7 +260,12 @@ function tryResume(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDep
   }
   // Input sent meanwhile (user, leader) already restarted Claude; its result decides what happens next.
   if (adapter.hasTurnInFlight()) return;
-  console.log(`[claude-network] Resuming interrupted turn for session ${sessionTag(session.id)}`);
+  const runtime = getRuntime(session);
+  runtime.continues++;
+  console.log(
+    `[claude-network] Resuming interrupted turn for session ${sessionTag(session.id)} ` +
+      `(continue ${runtime.continues}/${MAX_CONTINUES_PER_OUTAGE})`,
+  );
   adapter.sendBrowserMessage({ type: "user_message", content: CLAUDE_NETWORK_RESUME_PROMPT });
 }
 

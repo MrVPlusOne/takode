@@ -115,6 +115,28 @@ describe("ClaudeSdkAdapter launch env", () => {
     expect(sessionOptions.betas).toEqual(["context-1m-2025-08-07"]);
   });
 
+  it("lets Claude retry model requests longest inside a turn unless a value is configured", async () => {
+    // Longer in-turn retries let most network outages end without a hidden
+    // continue prompt; an explicit session or server setting must still win.
+    const launchEnv = async (env?: Record<string, string>) => {
+      const before = sdkMocks.createSession.mock.calls.length;
+      new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), ...(env ? { env } : {}) });
+      await vi.waitFor(() => expect(sdkMocks.createSession.mock.calls.length).toBeGreaterThan(before));
+      return (sdkMocks.createSession.mock.calls.at(-1)?.[0] as { env: Record<string, unknown> }).env;
+    };
+    const original = process.env.CLAUDE_CODE_MAX_RETRIES;
+    try {
+      delete process.env.CLAUDE_CODE_MAX_RETRIES;
+      expect((await launchEnv()).CLAUDE_CODE_MAX_RETRIES).toBe("15");
+      expect((await launchEnv({ CLAUDE_CODE_MAX_RETRIES: "7" })).CLAUDE_CODE_MAX_RETRIES).toBe("7");
+      process.env.CLAUDE_CODE_MAX_RETRIES = "4";
+      expect((await launchEnv()).CLAUDE_CODE_MAX_RETRIES).toBe("4");
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CODE_MAX_RETRIES;
+      else process.env.CLAUDE_CODE_MAX_RETRIES = original;
+    }
+  });
+
   it("strips an inherited CLAUDECODE so Claude's nesting guard does not trip", async () => {
     process.env.CLAUDECODE = "1";
     new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd() });

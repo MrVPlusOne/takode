@@ -221,6 +221,61 @@ describe("Claude SDK turns during a network outage", () => {
     expect(backend.promptTexts()).toEqual([expect.stringContaining("status?")]);
   });
 
+  /** Fail the original turn, then let each hidden continue fail too until Takode stops sending them. */
+  function exhaustContinues(backend: ReturnType<typeof startTurn>["backend"]) {
+    backend.message(errorResult(NETWORK_ERROR, "result-err-0"));
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      vi.advanceTimersByTime(60_000);
+      expect(backend.promptTexts()).toHaveLength(attempt);
+      backend.message(errorResult(NETWORK_ERROR, `result-err-${attempt}`));
+    }
+  }
+
+  it("stops adding continues after five per outage but keeps the turn waiting", () => {
+    // A long outage where the machine looks online must not fill Claude's
+    // conversation with continue prompts.
+    const { session, backend, browserSends } = startTurn();
+    exhaustContinues(backend);
+
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(backend.promptTexts()).toEqual(Array(5).fill(CLAUDE_NETWORK_RESUME_PROMPT));
+    expect(session.isGenerating).toBe(true);
+    expect(session.state.claude_network_wait).toEqual({ since: expect.any(Number), autoResumePaused: true });
+    expect(browserSends).toContainEqual({
+      type: "session_update",
+      session: { claude_network_wait: session.state.claude_network_wait },
+    });
+    expect(historyText("s1")).not.toContain("Can't reach");
+  });
+
+  it("still resumes on user input after the cap and resets once Claude answers", () => {
+    const { session, backend } = startTurn();
+    exhaustContinues(backend);
+
+    bridge.injectUserMessage("s1", "are you there?");
+    expect(backend.promptTexts().at(-1)).toContain("are you there?");
+    backend.message(ASSISTANT);
+    expect(session.state.claude_network_wait).toBeNull();
+    backend.message(SUCCESS);
+    expect(session.isGenerating).toBe(false);
+  });
+
+  it("starts a fresh allowance when the machine drops off and rejoins a network", () => {
+    // Looking online the whole time is not new evidence; losing every network
+    // interface and getting one back is.
+    const { session, backend } = startTurn();
+    exhaustContinues(backend);
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(backend.promptTexts()).toHaveLength(5);
+
+    network.online = false;
+    vi.advanceTimersByTime(30_000);
+    network.online = true;
+    vi.advanceTimersByTime(30_000);
+    expect(backend.promptTexts()).toHaveLength(6);
+    expect(session.state.claude_network_wait).toEqual({ since: expect.any(Number) });
+  });
+
   it("stops waiting when the turn is interrupted", async () => {
     const { session, backend } = startTurn();
     backend.message(errorResult(NETWORK_ERROR, "result-err-1"));

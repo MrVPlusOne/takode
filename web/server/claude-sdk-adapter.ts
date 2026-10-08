@@ -38,6 +38,15 @@ import type {
 let cachedV4Class: any = null;
 let cachedQueryClass: any = null;
 
+/**
+ * Claude Code retries a failed model request 10 times by default (about 3
+ * minutes when the connection is refused) and clamps this setting to 15
+ * (about 6 minutes; measured with 2.1.289). Its maximum lets most network
+ * outages end inside the original turn, so Takode rarely has to send a hidden
+ * continue. Any explicitly configured value wins.
+ */
+const CLAUDE_MAX_RETRIES_DEFAULT = "15";
+
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 export interface ClaudeSdkAdapterOptions {
@@ -237,6 +246,7 @@ export class ClaudeSdkAdapter
     // (e.g., quest CLI in ~/.companion/bin). Without this, SDK sessions can't
     // find binaries that aren't on the default system PATH.
     const mergedEnv: Record<string, string | undefined> = withNonInteractiveGitEditorEnv({
+      CLAUDE_CODE_MAX_RETRIES: CLAUDE_MAX_RETRIES_DEFAULT,
       ...stripInheritedTelemetryEnv(process.env),
       ...(this.options.env || {}),
       // A Takode server started from inside Claude Code must not trip the CLI's nesting guard.

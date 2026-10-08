@@ -148,7 +148,10 @@ export function ElapsedTimer({
               reviewedQuestId,
             });
   const retryDetail = networkWait
-    ? "The model API can't be reached. Takode will continue this turn automatically once the connection is back."
+    ? networkWait.autoResumePaused
+      ? "The model API still can't be reached after several automatic retries, so Takode stopped retrying on its own. " +
+        "Send a message to try again; Takode also retries when this machine reconnects to a network."
+      : "The model API can't be reached. Takode will continue this turn automatically once the connection is back."
     : streamRetry
       ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
       : undefined;

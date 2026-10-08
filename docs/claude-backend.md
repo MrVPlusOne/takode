@@ -81,7 +81,13 @@ official pages before relying on any of this.
   rather than failed. Claude retries on its own first; when it gives up, Takode
   keeps the error out of the feed and herd events, shows the turn as "Waiting
   for connection", and sends Claude a hidden prompt to continue once the
-  network is back (retrying after 10, 30, then every 60 seconds). Errors that
+  network is back (retrying after 10, 30, then every 60 seconds). Takode
+  launches Claude with `CLAUDE_CODE_MAX_RETRIES=15`, Claude Code's own maximum
+  (about 6 minutes of in-turn retries instead of the default 3), unless the
+  environment already sets it, so most outages end inside the original turn.
+  At most 5 hidden continues are sent per outage; after that the turn keeps
+  waiting until a new message arrives or the machine drops off and rejoins a
+  network, which allows another 5. Errors that
   got an HTTP response (authentication, quota, invalid requests), SSL failures
   and proxy-tunnel refusals stay visible. Raw errors go to the server log.
   Codex network failures use Codex's own outage recovery.
