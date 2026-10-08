@@ -48,6 +48,9 @@ import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
+import { HostRegistry } from "./remote-host/host-registry.js";
+import { HostLinkManager } from "./remote-host/host-link-manager.js";
+import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
@@ -218,6 +221,10 @@ const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
 const timerManager = new TimerManager(wsBridge);
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
+const hostRegistry = HostRegistry.forServer(serverId);
+const hostLinks = new HostLinkManager();
+hostLinks.start();
+launcher.remoteHosts = { registry: hostRegistry, links: hostLinks };
 
 // ── Performance tracer — event loop lag + slow request/message tracking ──
 import { PerfTracer } from "./perf-tracer.js";
@@ -954,6 +961,7 @@ const app = new Hono();
 
 app.route("/", createFileLinkBrowserRoutes(wsBridge));
 app.use("/api/*", cors());
+app.route("/api", createHostRoutes(hostRegistry, hostLinks));
 app.route(
   "/api",
   createRoutes(
@@ -1014,6 +1022,13 @@ const server = Bun.serve<SocketData>({
     });
     if (opaqueOriginBlock) return opaqueOriginBlock;
 
+    if (wsRoute?.kind === "host") {
+      const host = await authenticateHostRequest(req, hostRegistry);
+      if (!host) return new Response("Unknown host token", { status: 401 });
+      if (server.upgrade(req, { data: { kind: "host" as const, hostId: host.id } })) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
     if (wsRoute) {
       const data =
         wsRoute.kind === "terminal"
@@ -1047,7 +1062,9 @@ const server = Bun.serve<SocketData>({
     perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
     open(ws: ServerWebSocket<SocketData>) {
       const data = ws.data;
-      if (data.kind === "browser") {
+      if (data.kind === "host") {
+        hostLinks.attach(data.hostId, ws);
+      } else if (data.kind === "browser") {
         wsBridge.handleBrowserOpen(ws, data.sessionId);
       } else if (data.kind === "terminal") {
         terminalManager.addBrowserSocket(data.terminalId, ws);
@@ -1055,7 +1072,9 @@ const server = Bun.serve<SocketData>({
     },
     message(ws: ServerWebSocket<SocketData>, msg: string | Buffer) {
       const data = ws.data;
-      if (data.kind === "browser") {
+      if (data.kind === "host") {
+        hostLinks.handleMessage(data.hostId, ws, typeof msg === "string" ? msg : msg.toString("utf-8"));
+      } else if (data.kind === "browser") {
         wsBridge.handleBrowserMessage(ws, msg);
       } else if (data.kind === "terminal") {
         terminalManager.handleBrowserMessage(data.terminalId, ws, msg);
@@ -1063,7 +1082,9 @@ const server = Bun.serve<SocketData>({
     },
     close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
       const data = ws.data;
-      if (data.kind === "browser") {
+      if (data.kind === "host") {
+        hostLinks.detach(data.hostId, ws);
+      } else if (data.kind === "browser") {
         // Close diagnostics even if the session was removed while its socket was open.
         closeBrowserConnectionDiagnostics(ws);
         wsBridge.handleBrowserClose(ws, code, reason);

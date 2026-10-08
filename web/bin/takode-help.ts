@@ -33,6 +33,19 @@ import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./tak
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 import { WORKTREE_HELP } from "./takode-worktree.js";
 
+const HOST_HELP = `Usage: takode host <add|list|remove> ...
+
+Register the machines that may run sessions for this Takode server. Each
+machine runs \`takode node\`, which connects out to this server.
+
+  takode host add <name> [--coordinator-url <url>] [--json]
+      Register a machine and print its token (shown once) and the command
+      that starts the helper there.
+  takode host list [--json]
+      List registered machines with their online status.
+  takode host remove <name>
+      Remove a machine; its token stops working at once.`;
+
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
 List sessions.
@@ -492,6 +505,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "worktree":
       console.log(WORKTREE_HELP);
       return true;
+    case "host":
+      console.log(HOST_HELP);
+      return true;
     case "pending":
       console.log(PENDING_HELP);
       return true;
@@ -658,6 +674,7 @@ Commands:
   port             Track private review, squashed commits, and exact port receipts
   worktree-cleanup  List or retry archived worktree cleanup
   worktree         Register and inspect auxiliary worktree retention
+  host             Register machines that run sessions for this server (takode host add <name>)
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session

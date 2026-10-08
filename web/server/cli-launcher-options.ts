@@ -5,6 +5,8 @@ import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compactio
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 
 export interface LaunchOptions {
+  /** Registered remote host to run the session on; the coordinator's own machine when absent. */
+  hostId?: string;
   model?: string;
   /** Persisted explanation of the managed Codex model winner and overridden candidates. */
   modelAuthority?: ModelAuthorityDecision;

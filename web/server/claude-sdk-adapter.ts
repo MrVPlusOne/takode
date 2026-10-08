@@ -51,6 +51,17 @@ export interface ClaudeSdkAdapterOptions {
   resumeSessionAt?: string;
   env?: Record<string, string | undefined>;
   claudeBinary?: string;
+  /**
+   * Start the Claude process somewhere other than this machine (a registered
+   * remote host). The host resolves the `claude` program itself.
+   */
+  spawnProcess?: (options: {
+    command: string;
+    args: string[];
+    cwd?: string;
+    env: Record<string, string | undefined>;
+    signal: AbortSignal;
+  }) => unknown;
   debugFile?: string;
   recorder?: RecorderManager | null;
   /** Plugin directories to pass to Claude Code */
@@ -266,7 +277,11 @@ export class ClaudeSdkAdapter
     // approval dialog or question form.
 
     // Resolve the claude binary path — use the configured binary or find it on PATH
-    if (this.options.claudeBinary) {
+    if (this.options.spawnProcess) {
+      // A bare program name the remote host resolves against its own installation.
+      sessionOptions.pathToClaudeCodeExecutable = "claude";
+      sessionOptions.spawnClaudeCodeProcess = this.options.spawnProcess;
+    } else if (this.options.claudeBinary) {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
     }
     if (this.options.debugFile) {
@@ -348,8 +363,14 @@ export class ClaudeSdkAdapter
       // The v2 session API always clears resumeSessionAt, but the transport still
       // maps it to --resume-session-at, which Revert needs to truncate context.
       const patchedResumeSessionAt = this.options.cliSessionId ? this.options.resumeSessionAt : undefined;
+      const patchedSpawnProcess = this.options.spawnProcess;
       v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
         this.options.settingSources = patchedSettingSources;
+        if (patchedSpawnProcess) {
+          // The v2 session API does not forward the custom spawn hook either.
+          this.options.spawnClaudeCodeProcess = patchedSpawnProcess;
+          this.options.pathToClaudeCodeExecutable = "claude";
+        }
         if (patchedPlugins.length > 0) {
           this.options.plugins = patchedPlugins;
         }

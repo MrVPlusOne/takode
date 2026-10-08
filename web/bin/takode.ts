@@ -50,6 +50,7 @@ import { handlePermission } from "./takode-permission-commands.js";
 import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import { handleWorktree } from "./takode-worktree.js";
+import { handleHost } from "./takode-host-commands.js";
 import {
   handleInfo,
   handleLeaderContextResume,
@@ -289,6 +290,9 @@ try {
       break;
     case "worktree":
       await handleWorktree(base, args);
+      break;
+    case "host":
+      await handleHost(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

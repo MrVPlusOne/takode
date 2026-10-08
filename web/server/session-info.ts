@@ -27,6 +27,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   /** False for hidden delegate children that keep UUID/Codex identity but do not consume public #N numbers. */
   publicSessionNumber?: boolean;
   pid?: number;
+  /** Registered remote host running this session's process; absent for sessions on the coordinator's machine. */
+  hostId?: string;
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;
   model?: string;

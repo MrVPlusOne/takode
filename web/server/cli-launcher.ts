@@ -25,6 +25,8 @@ import {
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
+import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
+import type { HostRegistry } from "./remote-host/host-registry.js";
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
 import { type CodexTokenRefreshNoiseState } from "./cli-stream-log-classifier.js";
 import { formatStreamTailForError, pipeLauncherStream } from "./cli-launcher-streams.js";
@@ -103,6 +105,9 @@ export class CliLauncher {
   /** Callback for herd relationship changes (set by server bootstrap). */
   onHerdChange: ((event: HerdChangeEvent) => void) | null = null;
 
+  /** Registered remote hosts and their links (set by server bootstrap); sessions with a `hostId` run there. */
+  remoteHosts: { registry: HostRegistry; links: HostLinkManager } | null = null;
+
   // ─── Integer session ID tracking ───────────────────────────────────────────
   private nextSessionNum = 0;
   /** UUID → integer session number */
@@ -117,6 +122,13 @@ export class CliLauncher {
     this.memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(
       options?.memorySessionSpaceSlug ?? process.env[COMPANION_MEMORY_SPACE_SLUG_ENV],
     );
+  }
+
+  /** Process spawner for a remote host, in the shape the Agent SDK's custom spawn hook expects. */
+  private remoteSpawner(hostId: string): (options: RemoteSpawnOptions) => RemoteProcess {
+    const links = this.remoteHosts?.links;
+    if (!links) throw new Error(`Remote hosts are not available on this server; cannot run on host ${hostId}`);
+    return (options) => links.spawn(hostId, options);
   }
 
   /** Get the server port number. */
@@ -509,6 +521,7 @@ export class CliLauncher {
       slackThreadAnchorMessageId: options.sideChatAnchorMessageId ?? options.slackThreadAnchorMessageId,
       slackThreadAnchorHistoryIndex: options.sideChatAnchorHistoryIndex ?? options.slackThreadAnchorHistoryIndex,
       slackThreadReadOnly: (options.sideChatReadOnly ?? options.slackThreadReadOnly) === true,
+      ...(options.hostId ? { hostId: options.hostId } : {}),
     };
 
     if (backendType === "codex") {
@@ -549,7 +562,8 @@ export class CliLauncher {
     // worker worktree. Refresh from the session CWD before launch so the assignee
     // path leaders provide matches the worktree version being reviewed.
     try {
-      const refreshedPhaseBriefs = await ensureQuestJourneyPhaseDataForCwd(info.cwd);
+      // A remote session's cwd is a path on its host, not on this machine.
+      const refreshedPhaseBriefs = info.hostId ? false : await ensureQuestJourneyPhaseDataForCwd(info.cwd);
       if (refreshedPhaseBriefs) {
         console.log(`[cli-launcher] Refreshed Quest Journey phase briefs from session cwd (${info.cwd})`);
       }
@@ -941,6 +955,7 @@ export class CliLauncher {
       resumeSessionAt: info.resumeAt,
       env: options.env as Record<string, string | undefined>,
       claudeBinary: options.claudeBinary,
+      ...(info.hostId ? { spawnProcess: this.remoteSpawner(info.hostId) } : {}),
       recorder: this.recorder,
       pluginDirs: options.pluginDirs,
       allowedTools: options.allowedTools,

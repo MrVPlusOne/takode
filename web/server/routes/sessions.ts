@@ -4,6 +4,7 @@ import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { resolveRemoteHostForCreate } from "./session-remote-host.js";
 import { homedir } from "node:os";
 import { type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
@@ -529,7 +530,14 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const isAssistantMode = body.assistantMode === true;
     let worktreeInfo: WorktreeSessionInfo | undefined;
 
-    if (cwd) {
+    const remoteHostId = await resolveRemoteHostForCreate({
+      body,
+      backend,
+      cwd,
+      registry: launcher.remoteHosts?.registry,
+      fail: throwPreparationError,
+    });
+    if (cwd && !remoteHostId) {
       cwd = resolve(expandTilde(cwd));
       if (!(await pathExists(cwd))) {
         throwPreparationError(`Directory does not exist: ${cwd}`, 400, "resolving_env");
@@ -808,6 +816,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       memorySessionSpaceSlug,
       isOrchestrator,
       ...codexRoleLaunchSettings,
+      ...(remoteHostId ? { hostId: remoteHostId } : {}),
     };
 
     return {

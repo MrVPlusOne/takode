@@ -55,7 +55,13 @@ export interface TerminalSocketData {
   terminalId: string;
 }
 
-export type SocketData = BrowserSocketData | TerminalSocketData;
+/** A remote host's link, authenticated by its host token before the upgrade. */
+export interface HostSocketData {
+  kind: "host";
+  hostId: string;
+}
+
+export type SocketData = BrowserSocketData | TerminalSocketData | HostSocketData;
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
