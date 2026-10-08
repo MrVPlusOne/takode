@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createFixture,
+  delay,
   readStatus,
   startSupervisor,
   waitForExit,
+  waitForStatus,
   registerSupervisorCleanup,
 } from "./relay-tunnel-supervisor.test-helpers.js";
 
@@ -30,7 +32,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     30_000,
   );
 
-  it("uses bounded backoff and resets the attempt after a stable child", async () => {
+  it("uses bounded backoff that grows with each quick child exit", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nexit:255\nexit:255\n", "utf8");
     const fast = startSupervisor(fixture, {
@@ -42,14 +44,24 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(firstLog).toContain("backoff_seconds=0.01");
     expect(firstLog).toContain("backoff_seconds=0.02");
     expect(firstLog).toContain("backoff_seconds=0.03");
+  }, 30_000);
 
+  it("resets the attempt after a child stays up for the stable period", async () => {
+    // The supervisor measures child uptime in whole seconds from just before it
+    // publishes the running status. Releasing the child only after the status
+    // appears and a full stable period has passed guarantees an uptime of at
+    // least stableSeconds however slowly the processes start under load.
+    const stableSeconds = 1;
     const stableFixture = await createFixture();
-    await writeFile(join(stableFixture.fakeState, "sequence"), "sleep:1.1:255\nexit:255\n", "utf8");
+    await writeFile(join(stableFixture.fakeState, "sequence"), "await-release:255\nexit:255\n", "utf8");
     const stable = startSupervisor(stableFixture, {
       backoffs: "0.01,0.02,0.03,0.04,0.05",
       maxChildExits: 2,
-      stableSeconds: 1,
+      stableSeconds,
     });
+    await waitForStatus(stableFixture, (status) => status.state === "running" && status.childPid !== null);
+    await delay(stableSeconds * 1000 + 100);
+    await writeFile(join(stableFixture.fakeState, "child-release"), "1\n", "utf8");
     const stableResult = await waitForExit(stable);
     const stableDebug = {
       result: stableResult,

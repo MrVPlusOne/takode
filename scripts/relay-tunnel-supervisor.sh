@@ -155,9 +155,13 @@ absolute_path() {
   esac
 }
 
+# BSD (macOS) or GNU stat, detected once. Probing the flavor on every call
+# doubled the stat launches, and process launches dominate this script's cost.
+if stat -f '%u' / >/dev/null 2>&1; then STAT_IS_BSD=1; else STAT_IS_BSD=0; fi
+
 file_mode() {
   local raw
-  if stat -f '%p' "$1" >/dev/null 2>&1; then
+  if [ "$STAT_IS_BSD" -eq 1 ]; then
     raw=$(stat -f '%p' "$1") || return 1
     printf '%o\n' $((8#$raw & 07777))
   else
@@ -166,15 +170,30 @@ file_mode() {
 }
 
 file_owner_uid() {
-  if stat -f '%u' "$1" >/dev/null 2>&1; then
+  if [ "$STAT_IS_BSD" -eq 1 ]; then
     stat -f '%u' "$1"
   else
     stat -c '%u' "$1"
   fi
 }
 
+# True when the current user owns the path and its permission bits equal the
+# expected octal mode. One stat launch covers both checks, which run on every
+# status write and event.
+file_has_owner_mode() {
+  local fields mode
+  if [ "$STAT_IS_BSD" -eq 1 ]; then
+    fields=$(stat -f '%u %p' "$1" 2>/dev/null) || return 1
+    printf -v mode '%o' $((8#${fields#* } & 07777))
+    fields="${fields%% *} $mode"
+  else
+    fields=$(stat -c '%u %a' "$1" 2>/dev/null) || return 1
+  fi
+  [ "$fields" = "$CURRENT_UID $2" ]
+}
+
 path_inode() {
-  if stat -f '%i' "$1" >/dev/null 2>&1; then
+  if [ "$STAT_IS_BSD" -eq 1 ]; then
     stat -f '%i' "$1"
   else
     stat -c '%i' "$1"
@@ -227,7 +246,7 @@ file_fingerprint() {
 }
 
 file_size() {
-  if stat -f '%z' "$1" >/dev/null 2>&1; then
+  if [ "$STAT_IS_BSD" -eq 1 ]; then
     stat -f '%z' "$1"
   else
     stat -c '%s' "$1"
@@ -244,8 +263,7 @@ read_owner_metadata() {
   OBSERVED_OWNER_START_IDENTITY=""
   OBSERVED_OWNER_INODE=""
   [ -f "$metadata_path" ] && [ ! -L "$metadata_path" ] || return 1
-  [ "$(file_owner_uid "$metadata_path" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-  [ "$(file_mode "$metadata_path" 2>/dev/null || true)" = "600" ] || return 1
+  file_has_owner_mode "$metadata_path" 600 || return 1
   seen="|"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in *=*) key=${line%%=*}; value=${line#*=} ;; *) return 1 ;; esac
@@ -367,8 +385,7 @@ emit_event() {
 event_file_is_trusted() {
   local path=$1
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
-  [ "$(file_owner_uid "$path" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-  [ "$(file_mode "$path" 2>/dev/null || true)" = "600" ] || return 1
+  file_has_owner_mode "$path" 600 || return 1
   [ "$(file_size "$path" 2>/dev/null || true)" -le "$EVENT_MAX_BYTES" ] 2>/dev/null
 }
 
@@ -376,8 +393,7 @@ validate_event_sink_trust() {
   local path suffix index
   path_is_trusted_ancestry "$STATE_DIR" || return 1
   [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
-  [ "$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-  [ "$(file_mode "$STATE_DIR" 2>/dev/null || true)" = "700" ] || return 1
+  file_has_owner_mode "$STATE_DIR" 700 || return 1
   is_positive_integer "$EVENT_MAX_BYTES" && [ "$EVENT_MAX_BYTES" -ge 512 ] || return 1
   is_positive_integer "$EVENT_ROTATION_COUNT" || return 1
   if [ -e "$EVENT_FILE" ] || [ -L "$EVENT_FILE" ]; then event_file_is_trusted "$EVENT_FILE" || return 1; fi
@@ -398,8 +414,7 @@ validate_event_sink_trust() {
 validate_event_append_trust() {
   path_is_trusted_ancestry "$STATE_DIR" || return 1
   [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
-  [ "$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-  [ "$(file_mode "$STATE_DIR" 2>/dev/null || true)" = "700" ] || return 1
+  file_has_owner_mode "$STATE_DIR" 700 || return 1
   is_positive_integer "$EVENT_MAX_BYTES" && [ "$EVENT_MAX_BYTES" -ge 512 ] || return 1
   event_file_is_trusted "$EVENT_FILE"
 }
@@ -539,24 +554,19 @@ trap deliberate_stop TERM INT
 trap on_exit EXIT
 
 initialize_state_dir() {
-  local owner mode
   if ! absolute_path "$STATE_DIR" || ! path_is_trusted_ancestry "$STATE_DIR"; then
     printf 'relay supervisor: state directory ancestry is untrusted\n' >&2
     exit 0
   fi
   if [ -e "$STATE_DIR" ]; then
     [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || { printf 'relay supervisor: state path is not a directory\n' >&2; exit 0; }
-    owner=$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)
-    mode=$(file_mode "$STATE_DIR" 2>/dev/null || true)
-    if [ "$owner" != "$CURRENT_UID" ] || [ "$mode" != "700" ]; then
+    if ! file_has_owner_mode "$STATE_DIR" 700; then
       printf 'relay supervisor: existing state directory ownership or mode is untrusted\n' >&2
       exit 0
     fi
   else
     mkdir "$STATE_DIR" || exit 70
-    owner=$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)
-    mode=$(file_mode "$STATE_DIR" 2>/dev/null || true)
-    if [ "$owner" != "$CURRENT_UID" ] || [ "$mode" != "700" ] || [ -L "$STATE_DIR" ]; then
+    if ! file_has_owner_mode "$STATE_DIR" 700 || [ -L "$STATE_DIR" ]; then
       rmdir "$STATE_DIR" 2>/dev/null || true
       exit 0
     fi
@@ -593,8 +603,7 @@ prune_owner_quarantines() {
     for entry in "${entries[@]}"; do
       if [[ "$entry" < "$oldest" ]]; then oldest=$entry; fi
     done
-    [ "$(file_owner_uid "$oldest" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-    [ "$(file_mode "$oldest" 2>/dev/null || true)" = "600" ] || return 1
+    file_has_owner_mode "$oldest" 600 || return 1
     rm -f "$oldest" || return 1
   done
 }
@@ -691,8 +700,7 @@ acquire_owner() {
       emit_event "owner_untrusted_rejected"
       exit 0
     fi
-    if [ "$(file_owner_uid "$OWNER_LOCK" 2>/dev/null || true)" != "$CURRENT_UID" ] ||
-      [ "$(file_mode "$OWNER_LOCK" 2>/dev/null || true)" != "600" ]; then
+    if ! file_has_owner_mode "$OWNER_LOCK" 600; then
       emit_event "owner_untrusted_rejected"
       exit 0
     fi
@@ -733,7 +741,7 @@ validate_runtime_config_trust() {
   if ! absolute_path "$CONFIG_PATH" || ! path_is_trusted_ancestry "$CONFIG_PATH" || [ ! -f "$CONFIG_PATH" ] || [ ! -r "$CONFIG_PATH" ] || [ -L "$CONFIG_PATH" ]; then
     pause_fatal "config_unreadable"
   fi
-  if [ "$(file_owner_uid "$CONFIG_PATH")" != "$CURRENT_UID" ] || [ "$(file_mode "$CONFIG_PATH")" != "600" ]; then
+  if ! file_has_owner_mode "$CONFIG_PATH" 600; then
     pause_fatal "config_permissions"
   fi
 }

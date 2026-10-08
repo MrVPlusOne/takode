@@ -354,12 +354,11 @@ case "$mode" in
     ;;
   exit:*) exit "\${mode#exit:}" ;;
   signal:*) kill -"\${mode#signal:}" $$ ;;
-  sleep:*)
-    rest=\${mode#sleep:}
-    duration=\${rest%%:*}
-    code=\${rest#*:}
-    sleep "$duration"
-    exit "$code"
+  await-release:*)
+    # Run until the test creates the release file, so a test controls the
+    # child's uptime without racing a fixed sleep.
+    while [ ! -e "$state/child-release" ]; do sleep 0.05; done
+    exit "\${mode#await-release:}"
     ;;
   *) exit 64 ;;
 esac
