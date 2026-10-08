@@ -432,10 +432,11 @@ function normalizeResourceKey(resourceKey: string): string {
   if (key.length > MAX_RESOURCE_KEY_LENGTH) {
     throw new ResourceLeaseError("invalid", `resource key must be ${MAX_RESOURCE_KEY_LENGTH} characters or less`);
   }
-  if (!/^[a-z0-9][a-z0-9._:-]*$/.test(key)) {
+  // An optional `@<host>` suffix names the machine a machine-local resource is on.
+  if (!/^[a-z0-9][a-z0-9._:-]*(@[a-z0-9][a-z0-9._-]*)?$/.test(key)) {
     throw new ResourceLeaseError(
       "invalid",
-      "resource key must use letters, numbers, dot, underscore, colon, or hyphen",
+      "resource key must use letters, numbers, dot, underscore, colon, or hyphen, optionally followed by @<host>",
     );
   }
   return key;

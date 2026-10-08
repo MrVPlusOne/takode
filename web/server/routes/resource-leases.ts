@@ -31,7 +31,9 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     if ("response" in auth) return auth.response;
     if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
 
-    const resource = await ctx.resourceLeaseManager.getStatus(c.req.param("resourceKey"));
+    const resource = await ctx.resourceLeaseManager.getStatus(
+      await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
+    );
     return c.json({ resource: enrichStatusForResponse(ctx, resource) });
   });
 
@@ -43,7 +45,10 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
       return c.json({ error: "Only leader sessions can configure resource capacity" }, 403);
     try {
       const body = await c.req.json();
-      const resource = await ctx.resourceLeaseManager.configure(c.req.param("resourceKey"), body.capacity);
+      const resource = await ctx.resourceLeaseManager.configure(
+        await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
+        body.capacity,
+      );
       return c.json({ resource: enrichStatusForResponse(ctx, resource) });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);
@@ -58,7 +63,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     try {
       const body = await c.req.json().catch(() => ({}));
       const result = await ctx.resourceLeaseManager.acquire({
-        resourceKey: c.req.param("resourceKey"),
+        resourceKey: await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
         callerSessionId: auth.callerId,
         questId: normalizeQuestId(body.questId) ?? wsBridge.getSession(auth.callerId)?.state.claimedQuestId,
         purpose: normalizePurpose(body.purpose),
@@ -80,7 +85,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     try {
       const body = await c.req.json().catch(() => ({}));
       const result = await ctx.resourceLeaseManager.wait({
-        resourceKey: c.req.param("resourceKey"),
+        resourceKey: await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
         callerSessionId: auth.callerId,
         questId: normalizeQuestId(body.questId) ?? wsBridge.getSession(auth.callerId)?.state.claimedQuestId,
         purpose: normalizePurpose(body.purpose),
@@ -102,7 +107,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     try {
       const body = await c.req.json().catch(() => ({}));
       const lease = await ctx.resourceLeaseManager.renew({
-        resourceKey: c.req.param("resourceKey"),
+        resourceKey: await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
         callerSessionId: auth.callerId,
         ttlMs: normalizeTtl(body),
         slot: body.slot,
@@ -121,7 +126,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     try {
       const body = await c.req.json().catch(() => ({}));
       const lease = await ctx.resourceLeaseManager.renew({
-        resourceKey: c.req.param("resourceKey"),
+        resourceKey: await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
         callerSessionId: auth.callerId,
         ttlMs: normalizeTtl(body),
         slot: body.slot,
@@ -144,7 +149,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
         return c.json({ error: "Only leader sessions can force-release a resource lease" }, 403);
       }
       const result = await ctx.resourceLeaseManager.release(
-        c.req.param("resourceKey"),
+        await leaseKey(ctx, auth.callerId, c.req.param("resourceKey")),
         auth.callerId,
         force,
         body.slot,
@@ -156,6 +161,20 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
   });
 
   return api;
+}
+
+/**
+ * Lease keys name machine-local resources such as a dev server or a browser. A
+ * key without `@<host>` means the caller's own machine: for a session on a
+ * remote host it is qualified with that host's name, and otherwise it means
+ * the coordinator's machine. A key that names a host is used as given.
+ */
+async function leaseKey(ctx: RouteContext, callerId: string, key: string): Promise<string> {
+  if (key.includes("@")) return key;
+  const hostId = ctx.launcher?.getSession?.(callerId)?.hostId;
+  if (!hostId) return key;
+  const host = await ctx.launcher.remoteHosts?.registry.get(hostId);
+  return `${key}@${host?.name ?? hostId}`;
 }
 
 type LeaseResponse = ResourceLease & {

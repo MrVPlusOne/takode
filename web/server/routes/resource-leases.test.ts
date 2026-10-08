@@ -29,6 +29,7 @@ describe("resource lease routes", () => {
       isOrchestrator?: boolean;
       archived?: boolean;
       herdedBy?: string;
+      hostId?: string;
     }
   >;
 
@@ -38,6 +39,7 @@ describe("resource lease routes", () => {
       ["waiter", { sessionId: "waiter", sessionNum: 1364, name: "Waiter Execute" }],
       ["leader", { sessionId: "leader", isOrchestrator: true }],
       ["other", { sessionId: "other" }],
+      ["remote", { sessionId: "remote", hostId: "host-1" }],
     ]);
     tempDir = mkdtempSync(join(tmpdir(), "resource-lease-routes-"));
     manager = new ResourceLeaseManager(
@@ -49,6 +51,7 @@ describe("resource lease routes", () => {
       getSession: (sessionId: string) => launcherSessions.get(sessionId),
       getSessionNum: (sessionId: string) => launcherSessions.get(sessionId)?.sessionNum,
       verifySessionAuthToken: (sessionId: string, token: string) => token === `test-token-${sessionId}`,
+      remoteHosts: { registry: { get: async (id: string) => ({ id, name: "devbox", createdAt: 0 }) } },
     };
     app = new Hono();
     app.route(
@@ -92,6 +95,26 @@ describe("resource lease routes", () => {
       questId: "q-979",
       metadata: { url: "http://localhost:5174" },
     });
+  });
+
+  // The same key names a different machine's resource for a session on a remote
+  // host, so a dev server there never blocks one on the coordinator's machine.
+  it("qualifies a remote session's lease keys with its host name", async () => {
+    const acquire = (sessionId: string, key: string) =>
+      app.request(`/api/resource-leases/${key}/acquire`, {
+        method: "POST",
+        headers: authHeaders(sessionId),
+        body: JSON.stringify({ purpose: "Run dev server" }),
+      });
+
+    const remote = await (await acquire("remote", "dev-server:companion")).json();
+    expect(remote.result.lease.resourceKey).toBe("dev-server:companion@devbox");
+    const local = await (await acquire("owner", "dev-server:companion")).json();
+    expect(local.result.lease.resourceKey).toBe("dev-server:companion");
+
+    // Naming the host explicitly reaches that host's pool from anywhere.
+    const explicit = await (await acquire("other", "dev-server:companion@devbox")).json();
+    expect(explicit.result).toMatchObject({ status: "unavailable", leases: [{ ownerSessionId: "remote" }] });
   });
 
   it("enriches queued acquire responses with owner and waiter session labels", async () => {
