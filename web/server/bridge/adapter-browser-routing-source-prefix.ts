@@ -2,10 +2,16 @@ import { formatThreadMarker } from "../../shared/thread-routing.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import type { BrowserUserMessage, IngestedUserMessage } from "./adapter-browser-routing-message-types.js";
 import { isSystemSourceTag, isTimerReminderContent, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
+import { formatCompactAgentLabel } from "../../shared/takode-constants.js";
 
 function localDateKey(ts: number): string {
   const date = new Date(ts);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Session tags carry only the stable `#N`: names can be long and change on rename. */
+function sourceSessionLabel(agentSource: NonNullable<BrowserUserMessage["agentSource"]>): string {
+  return formatCompactAgentLabel(agentSource.sessionLabel) ?? agentSource.sessionId.slice(0, 8);
 }
 
 export function buildAdapterUserMessageSourcePrefix(
@@ -39,7 +45,7 @@ export function buildAdapterUserMessageSourcePrefix(
     if (isSystemSourceTag(agentSource)) return `[System ${timeWithDate}] ${threadTag}`;
     if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] ${threadTag}`;
     if (agentSource) {
-      const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
+      const label = sourceSessionLabel(agentSource);
       const role = getLauncherSessionInfo(agentSource.sessionId)?.isOrchestrator ? "Leader" : "Agent";
       return `[${role} ${label} ${timeWithDate}] ${threadTag}`;
     }
@@ -47,7 +53,7 @@ export function buildAdapterUserMessageSourcePrefix(
     return `[User ${timeWithDate}${idTag}] ${threadTag}`;
   }
   if (sessionInfo?.herdedBy && agentSource) {
-    const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
+    const label = sourceSessionLabel(agentSource);
     return `[Leader ${label} ${timeWithDate}] `;
   }
   return `[User ${timeWithDate}] `;

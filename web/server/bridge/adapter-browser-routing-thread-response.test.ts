@@ -246,6 +246,7 @@ describe("leader recipient source tags", () => {
   it("tags a message from another leader as Leader and other agent sessions as Agent", () => {
     // Leaders can message each other with takode send; the recipient must be
     // able to tell a peer leader apart from any other agent-sourced message.
+    // Tags carry only the stable session number, not the renameable name.
     const getLauncherSessionInfo = vi.fn((id: string) => ({ isOrchestrator: id !== "worker-7" }));
     const peerPrefix = buildAdapterUserMessageSourcePrefix(session(), 1_000, getLauncherSessionInfo as any, {
       sessionId: "leader-2763",
@@ -255,8 +256,24 @@ describe("leader recipient source tags", () => {
       sessionId: "worker-7",
       sessionLabel: "#7 Worker",
     });
-    expect(peerPrefix).toMatch(/^\[Leader #2763 Takode Leader .*\] $/);
-    expect(agentPrefix).toMatch(/^\[Agent #7 Worker .*\] $/);
+    expect(peerPrefix).toMatch(/^\[Leader #2763 .*\] $/);
+    expect(peerPrefix).not.toContain("Takode Leader");
+    expect(agentPrefix).toMatch(/^\[Agent #7 .*\] $/);
+    expect(agentPrefix).not.toContain("Worker");
+
+    // A herded worker sees its own leader by number only, too.
+    const workerInfo = vi.fn((id: string) => (id === "worker-r" ? { herdedBy: "leader-2763" } : {}));
+    const workerPrefix = buildAdapterUserMessageSourcePrefix(
+      { ...session(), id: "worker-r" },
+      1_000,
+      workerInfo as any,
+      {
+        sessionId: "leader-2763",
+        sessionLabel: "#2763 Takode Leader",
+      },
+    );
+    expect(workerPrefix).toMatch(/^\[Leader #2763 .*\] $/);
+    expect(workerPrefix).not.toContain("Takode Leader");
   });
 });
 

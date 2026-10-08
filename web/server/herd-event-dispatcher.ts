@@ -50,6 +50,7 @@ import {
   type LeaderIdleStateLike,
 } from "./bridge/session-registry-controller.js";
 import { sessionTag } from "./session-tag.js";
+import { formatCompactAgentLabel } from "../shared/takode-constants.js";
 
 export interface BufferedTakodeEventState {
   takodeSubscribers: Set<TakodeEventSubscriber>;
@@ -1534,13 +1535,14 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
     }
     case "user_message": {
       const content = truncate(evt.data.content, 5000);
-      // Show who sent the message: [User], [Agent #N name], or [Herd]
+      // Show who sent the message: [User], [Agent #N], or [Herd]
       const agentSource = evt.data.agentSource;
       let sender = "User";
       if (agentSource?.sessionId === "herd-events") {
         sender = "Herd";
       } else if (agentSource?.sessionId) {
-        sender = agentSource.sessionLabel ? `Agent ${agentSource.sessionLabel}` : "Agent";
+        const label = formatCompactAgentLabel(agentSource.sessionLabel);
+        sender = label ? `Agent ${label}` : "Agent";
       }
       const msgRef = typeof evt.data.msg_index === "number" ? ` | msg [${evt.data.msg_index}]` : "";
       const messageId = typeof evt.data.message_id === "string" ? ` | id ${evt.data.message_id}` : "";

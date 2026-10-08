@@ -650,8 +650,8 @@ describe("Claude SDK adapter queue handoff", () => {
     expect(delivered[0].content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello sdk$/);
   });
 
-  it("tags user_message with [Leader <session> HH:MM] in herded SDK session", () => {
-    // Verifies herded workers get [Leader <session>] tag through the adapter path
+  it("tags user_message with [Leader #N HH:MM] in herded SDK session", () => {
+    // Verifies herded workers get [Leader #N] tag through the adapter path
     const bridge = attachBoardFacade(new WsBridge());
     const sid = "sdk-ts-herded";
     bridge.getOrCreateSession(sid);
@@ -685,7 +685,7 @@ describe("Claude SDK adapter queue handoff", () => {
 
     expect(delivered).toHaveLength(1);
     expect(delivered[0].content).toMatch(
-      /^\[Leader #22 Leader (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/,
+      /^\[Leader #22 (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/,
     );
   });
 

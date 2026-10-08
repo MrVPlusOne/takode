@@ -502,7 +502,8 @@ describe("formatHerdEventBatch", () => {
     ];
 
     const result = formatHerdEventBatch(events);
-    expect(result).toContain('user_message [Agent #1 Leader] | "leader dispatch"');
+    // Only the stable session number appears; the renameable name is dropped.
+    expect(result).toContain('user_message [Agent #1] | "leader dispatch"');
     expect(result).toContain('user_message [Herd] | "herd event delivery"');
     expect(result).not.toContain("user sent to");
     expect(result).not.toContain("The worker should be reacting to this user message now.");

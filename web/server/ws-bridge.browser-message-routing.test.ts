@@ -683,7 +683,7 @@ describe("Browser message routing", () => {
     expect(userMessages).toHaveLength(1);
   });
 
-  it("user_message: herded worker gets [Leader <session> HH:MM] for leader-forwarded messages", () => {
+  it("user_message: herded worker gets [Leader #N HH:MM] for leader-forwarded messages", () => {
     // Make the session a herded worker
     bridge.setLauncher({
       touchActivity: vi.fn(),
@@ -701,7 +701,7 @@ describe("Browser message routing", () => {
     );
 
     const sent = cli.promptTexts()[0];
-    expect(sent).toMatch(/^\[Leader #17 Orchestrator (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+    expect(sent).toMatch(/^\[Leader #17 (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
   });
 
   it("user_message: herded worker falls back to leader session id when label is absent", () => {
