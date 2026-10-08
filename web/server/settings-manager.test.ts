@@ -53,10 +53,6 @@ describe("settings-manager", () => {
       codexLeaderCompactionMode: "recycle",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
-      autoApprovalEnabled: false,
-      autoApprovalModel: "",
-      autoApprovalMaxConcurrency: 4,
-      autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: {
@@ -585,10 +581,6 @@ describe("settings-manager", () => {
       codexLeaderCompactionMode: "recycle",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
-      autoApprovalEnabled: false,
-      autoApprovalModel: "",
-      autoApprovalMaxConcurrency: 4,
-      autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: {
@@ -653,6 +645,31 @@ describe("settings-manager", () => {
 
     const settings = getSettings();
     expect(settings.serverName).toBe("Legacy");
+  });
+
+  it("loads settings files that still contain retired LLM auto-approval keys", () => {
+    // The LLM auto-approval feature was removed; existing settings files may
+    // still carry its keys. Loading must keep the other settings and must not
+    // surface the retired keys on the normalized settings object.
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        serverName: "Legacy",
+        heavyRepoModeEnabled: true,
+        autoApprovalEnabled: true,
+        autoApprovalModel: "haiku",
+        autoApprovalMaxConcurrency: 2,
+        autoApprovalTimeoutSeconds: 30,
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    const settings = getSettings();
+    expect(settings.serverName).toBe("Legacy");
+    expect(settings.heavyRepoModeEnabled).toBe(true);
+    expect(settings).not.toHaveProperty("autoApprovalEnabled");
+    expect(settings).not.toHaveProperty("autoApprovalModel");
   });
 });
 

@@ -5,9 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import * as envManager from "../env-manager.js";
 import * as cronStore from "../cron-store.js";
-import * as autoApprovalStore from "../auto-approval-store.js";
 import { getNamerLogIndex, getNamerLogEntry } from "../session-namer.js";
-import { getApprovalLogIndex, getApprovalLogEntry } from "../auto-approver.js";
 import { runExport, runImport, type ImportStats } from "../migration.js";
 import { containerManager } from "../container-manager.js";
 import { resolveBinary, captureUserShellEnv } from "../path-resolver.js";
@@ -1217,86 +1215,6 @@ export function createSystemRoutes(ctx: RouteContext) {
     const id = Number(c.req.param("id"));
     if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const entry = getNamerLogEntry(id);
-    if (!entry) return c.json({ error: "Not found" }, 404);
-    return c.json(entry);
-  });
-
-  // ─── Auto-Approval Configs ──────────────────────────────────────
-
-  api.get("/auto-approval/configs", async (c) => {
-    try {
-      return c.json(await autoApprovalStore.listConfigs());
-    } catch (e: unknown) {
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
-    }
-  });
-
-  /** Find the matching auto-approval config for a given cwd (longest prefix match).
-   *  Optional `repo_root` param for worktree sessions whose cwd differs from the main repo. */
-  api.get("/auto-approval/configs/match", async (c) => {
-    const cwd = c.req.query("cwd");
-    if (!cwd) return c.json({ error: "Missing cwd query parameter" }, 400);
-    const repoRoot = c.req.query("repo_root");
-    const extraPaths = repoRoot ? [repoRoot] : undefined;
-    const config = await autoApprovalStore.getConfigForPath(cwd, extraPaths);
-    return c.json({ config });
-  });
-
-  api.get("/auto-approval/configs/:slug", async (c) => {
-    const config = await autoApprovalStore.getConfig(c.req.param("slug"));
-    if (!config) return c.json({ error: "Config not found" }, 404);
-    return c.json(config);
-  });
-
-  api.post("/auto-approval/configs", async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    try {
-      const config = await autoApprovalStore.createConfig(
-        body.projectPath,
-        body.label,
-        body.criteria,
-        body.enabled,
-        body.projectPaths,
-      );
-      return c.json(config, 201);
-    } catch (e: unknown) {
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
-    }
-  });
-
-  api.put("/auto-approval/configs/:slug", async (c) => {
-    const slug = c.req.param("slug");
-    const body = await c.req.json().catch(() => ({}));
-    try {
-      const config = await autoApprovalStore.updateConfig(slug, {
-        label: body.label,
-        criteria: body.criteria,
-        enabled: body.enabled,
-        projectPaths: body.projectPaths,
-      });
-      if (!config) return c.json({ error: "Config not found" }, 404);
-      return c.json(config);
-    } catch (e: unknown) {
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
-    }
-  });
-
-  api.delete("/auto-approval/configs/:slug", async (c) => {
-    const deleted = await autoApprovalStore.deleteConfig(c.req.param("slug"));
-    if (!deleted) return c.json({ error: "Config not found" }, 404);
-    return c.json({ ok: true });
-  });
-
-  // ─── Auto-Approval Logs ───────────────────────────────────────
-
-  api.get("/auto-approval/logs", (c) => {
-    return c.json(getApprovalLogIndex());
-  });
-
-  api.get("/auto-approval/logs/:id", (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-    const entry = getApprovalLogEntry(id);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
   });

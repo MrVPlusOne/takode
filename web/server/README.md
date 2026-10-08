@@ -43,7 +43,7 @@ This directory contains the server process that:
 
 - **CLI launchers:** `cli-launcher.ts` (Claude Code), `cli-launcher-codex.ts` (Codex), `cli-launcher-instructions.ts` (per-session instructions), `cli-launcher-worktree.ts` (worktree setup)
 - **Session state:** `session-names.ts` / `session-namer.ts` / `session-namer-arbitration.ts` (auto-naming), `session-tag.ts`, `session-search.ts`, `session-payload-metrics.ts`
-- **Permissions & auto-approval:** `auto-approval-store.ts`, `auto-approver.ts`, `settings-manager.ts`
+- **Settings:** `settings-manager.ts`
 - **Codex subsystem:** `codex-adapter-utils.ts`, `codex-jsonrpc-transport.ts`, `codex-approval-manager.ts`, `codex-item-event-manager.ts`, `codex-mcp-manager.ts`
 - **Orchestration & Takode:** `takode-*.ts`, [herd-event-dispatcher.ts](./herd-event-dispatcher.ts), [herd-change-handler.ts](./herd-change-handler.ts), [herd-activity-formatter.ts](./herd-activity-formatter.ts), [session-tag.ts](./session-tag.ts)
 - **Questmaster:** `quest-*.ts`, [quest-integration.ts](./quest-integration.ts)

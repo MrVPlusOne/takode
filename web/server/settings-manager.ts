@@ -58,14 +58,6 @@ export interface CompanionSettings {
   maxKeepAlive: number;
   /** Whether session list git refreshes should run in the background for large/slow repos */
   heavyRepoModeEnabled: boolean;
-  /** Whether LLM auto-approval is enabled globally (default: false) */
-  autoApprovalEnabled: boolean;
-  /** Model to use for auto-approval LLM calls (empty = use session model, falls back to "haiku") */
-  autoApprovalModel: string;
-  /** Max concurrent auto-approval LLM subprocess calls (default: 4) */
-  autoApprovalMaxConcurrency: number;
-  /** Timeout in seconds for each auto-approval LLM call (default: 45) */
-  autoApprovalTimeoutSeconds: number;
   /** Session auto-namer backend configuration */
   namerConfig: NamerConfig;
   /** Whether the AI session auto-namer is enabled (default: true) */
@@ -225,10 +217,6 @@ let settings: CompanionSettings = {
   codexBinary: "",
   maxKeepAlive: 0,
   heavyRepoModeEnabled: false,
-  autoApprovalEnabled: false,
-  autoApprovalModel: "",
-  autoApprovalMaxConcurrency: 4,
-  autoApprovalTimeoutSeconds: 45,
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
   transcriptionConfig: {
@@ -493,16 +481,6 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     codexBinary: typeof raw?.codexBinary === "string" ? raw.codexBinary : "",
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     heavyRepoModeEnabled: typeof raw?.heavyRepoModeEnabled === "boolean" ? raw.heavyRepoModeEnabled : false,
-    autoApprovalEnabled: typeof raw?.autoApprovalEnabled === "boolean" ? raw.autoApprovalEnabled : false,
-    autoApprovalModel: typeof raw?.autoApprovalModel === "string" ? raw.autoApprovalModel : "",
-    autoApprovalMaxConcurrency:
-      typeof raw?.autoApprovalMaxConcurrency === "number" && raw.autoApprovalMaxConcurrency >= 1
-        ? Math.floor(raw.autoApprovalMaxConcurrency)
-        : 4,
-    autoApprovalTimeoutSeconds:
-      typeof raw?.autoApprovalTimeoutSeconds === "number" && raw.autoApprovalTimeoutSeconds >= 5
-        ? Math.floor(raw.autoApprovalTimeoutSeconds)
-        : 45,
     namerConfig: normalizeNamerConfig(raw),
     autoNamerEnabled: typeof raw?.autoNamerEnabled === "boolean" ? raw.autoNamerEnabled : true,
     transcriptionConfig: normalizeTranscriptionConfig(raw),
@@ -625,10 +603,6 @@ export function updateSettings(
       | "codexBinary"
       | "maxKeepAlive"
       | "heavyRepoModeEnabled"
-      | "autoApprovalEnabled"
-      | "autoApprovalModel"
-      | "autoApprovalMaxConcurrency"
-      | "autoApprovalTimeoutSeconds"
       | "namerConfig"
       | "autoNamerEnabled"
       | "transcriptionConfig"

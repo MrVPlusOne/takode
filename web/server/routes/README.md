@@ -26,7 +26,7 @@ Each file owns a route domain and is mounted by [index.ts](./index.ts).
 - [quests.ts](./quests.ts)
   - Quest CRUD, transitions, claims, feedback, verification inbox actions.
 - [settings.ts](./settings.ts)
-  - Settings reads/writes, auto-approval configuration, logs.
+  - Settings reads/writes, logs.
 - [filesystem.ts](./filesystem.ts)
   - Directory browsing, file preview, diff and diff-stat endpoints.
 - [git.ts](./git.ts)

@@ -105,7 +105,6 @@ const mockStoreState = {
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 import { SessionHoverCard } from "./SessionHoverCard.js";

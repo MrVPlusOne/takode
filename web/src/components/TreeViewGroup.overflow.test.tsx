@@ -32,7 +32,6 @@ vi.mock("@dnd-kit/sortable", () => ({
   }),
 }));
 vi.mock("../store.js", () => ({
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
   useStore: (selector: (state: typeof storeState) => unknown) => selector(storeState),
 }));
 vi.mock("./SessionItem.js", () => ({

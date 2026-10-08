@@ -1,9 +1,6 @@
 import { basename } from "node:path";
 import { homedir } from "node:os";
-import { shouldAttemptAutoApproval } from "../auto-approver.js";
-import type { AutoApprovalConfig } from "../auto-approval-store.js";
 import type { BackendType, PermissionRequest, PermissionUpdate } from "../session-types.js";
-import { isClaudeFamily } from "../session-types.js";
 import { detectLongSleepBashCommand, LONG_SLEEP_DENY_MESSAGE, LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
 import { shouldSettingsRuleApprove } from "./settings-rule-matcher.js";
 
@@ -25,7 +22,6 @@ export interface PermissionPipelineSession {
   state: {
     permissionMode?: string;
     cwd?: string;
-    repo_root?: string;
     slackThreadChild?: { readOnly?: boolean } | null;
   };
   pendingPermissions: Map<string, PermissionRequest>;
@@ -43,7 +39,6 @@ export interface PermissionPipelineDeps<S extends PermissionPipelineSession> {
 export interface HandlePermissionRequestOptions {
   activityReason: string;
   enableModeAutoApprove?: boolean;
-  enableLlmAutoApproval?: boolean;
   enableSettingsRuleApprove?: boolean;
 }
 
@@ -56,11 +51,6 @@ export type PermissionPipelineResult =
       kind: "settings_rule_approved";
       request: PermissionRequest;
       matchedRule: string;
-    }
-  | {
-      kind: "queued_for_llm_auto_approval";
-      request: PermissionRequest;
-      autoApprovalConfig: AutoApprovalConfig;
     }
   | {
       kind: "hard_denied";
@@ -156,24 +146,6 @@ function shouldModeAutoApprove(permissionMode: string | undefined, toolName: str
   );
 }
 
-function isLlmAutoApprovalEligible<S extends PermissionPipelineSession>(
-  session: S,
-  toolName: string,
-  input: Record<string, unknown>,
-): boolean {
-  const isFileEdit =
-    toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
-  const filePath = isFileEdit ? String(input.file_path ?? "") : "";
-  const bashCommand = toolName === "Bash" ? String(input.command ?? "") : "";
-
-  return (
-    isClaudeFamily(session.backendType) &&
-    !NEVER_AUTO_APPROVE.has(toolName) &&
-    !(isFileEdit && isSensitiveConfigPath(filePath)) &&
-    !(toolName === "Bash" && isSensitiveBashCommand(bashCommand))
-  );
-}
-
 function toPermissionRequest(request: IncomingPermissionRequest): PermissionRequest {
   return {
     request_id: request.request_id,
@@ -233,91 +205,34 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
   options: HandlePermissionRequestOptions,
 ): PermissionPipelineResult | Promise<PermissionPipelineResult> {
   const perm = toPermissionRequest(request);
-  const modeAutoApproveEnabled = options.enableModeAutoApprove !== false;
-  const llmAutoApproveEnabled = options.enableLlmAutoApproval !== false;
   const toolName = perm.tool_name;
-  const input = perm.input;
 
   const hardDenied = getHardDeniedPermission(session, perm);
   if (hardDenied) return hardDenied;
 
-  const complete = (autoApprovalConfig: AutoApprovalConfig | null): PermissionPipelineResult => {
-    if (autoApprovalConfig) {
-      perm.evaluating = "queued";
-    }
-
+  const pendingHuman = (): PermissionPipelineResult => {
     session.pendingPermissions.set(perm.request_id, perm);
     deps.onSessionActivityStateChanged(session.id, options.activityReason);
     deps.broadcastPermissionRequest(session, perm);
-
-    // Always emit takode permission_request — the herd leader needs visibility
-    // into ALL pending permissions, including ones queued for LLM auto-approval.
-    // Without this, the leader has a blind spot while the LLM evaluates: the
-    // worker is blocked but the leader doesn't know about it (q-205).
     deps.emitTakodePermissionRequest(session, perm);
-
-    if (autoApprovalConfig) {
-      deps.persistSession(session);
-      return {
-        kind: "queued_for_llm_auto_approval",
-        request: perm,
-        autoApprovalConfig,
-      };
-    }
-
     deps.setAttentionAction(session);
     deps.persistSession(session);
     deps.schedulePermissionNotification?.(session, perm);
     return { kind: "pending_human", request: perm };
   };
 
-  if (modeAutoApproveEnabled && shouldModeAutoApprove(session.state.permissionMode, toolName)) {
+  if (options.enableModeAutoApprove !== false && shouldModeAutoApprove(session.state.permissionMode, toolName)) {
     return { kind: "mode_auto_approved", request: perm };
   }
 
-  // Helper: set deferralReason when sensitive file/command blocks auto-approval
-  const setSensitiveDeferralReason = (): void => {
-    if (NEVER_AUTO_APPROVE.has(toolName)) return; // UI handles AskUserQuestion/ExitPlanMode specially
-    const isFileEdit =
-      toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
-    const filePath = isFileEdit ? String(input.file_path ?? "") : "";
-    const bashCommand = toolName === "Bash" ? String(input.command ?? "") : "";
-    if (isFileEdit && isSensitiveConfigPath(filePath)) {
-      perm.deferralReason = "Sensitive file — requires manual approval";
-    } else if (toolName === "Bash" && isSensitiveBashCommand(bashCommand)) {
-      perm.deferralReason = "Modifies sensitive config — requires manual approval";
-    }
-  };
-
-  // Tier 2: Settings.json rule matching — fast static check against user allow rules.
+  // Settings.json rule matching -- fast static check against user allow rules.
   // Enabled for all backends. SDK sessions bypass the CLI's built-in rule engine
   // (--permission-prompt-tool stdio) and Codex has no CLI-side engine.
   // Skip tools that can never be auto-approved (they'd just return null anyway).
-  const settingsRuleEnabled = options.enableSettingsRuleApprove !== false && !NEVER_AUTO_APPROVE.has(toolName);
-  if (settingsRuleEnabled) {
-    return shouldSettingsRuleApprove(toolName, input, session.state.cwd).then((matchedRule) => {
-      if (matchedRule) {
-        return { kind: "settings_rule_approved" as const, request: perm, matchedRule };
-      }
-      // Fall through to LLM/human
-      if (!llmAutoApproveEnabled || !isLlmAutoApprovalEligible(session, toolName, input)) {
-        setSensitiveDeferralReason();
-        return complete(null);
-      }
-      return shouldAttemptAutoApproval(
-        session.state.cwd ?? "",
-        session.state.repo_root ? [session.state.repo_root] : undefined,
-      ).then((autoApprovalConfig) => complete(autoApprovalConfig));
-    });
+  if (options.enableSettingsRuleApprove === false || NEVER_AUTO_APPROVE.has(toolName)) {
+    return pendingHuman();
   }
-
-  if (!llmAutoApproveEnabled || !isLlmAutoApprovalEligible(session, toolName, input)) {
-    setSensitiveDeferralReason();
-    return complete(null);
-  }
-
-  return shouldAttemptAutoApproval(
-    session.state.cwd ?? "",
-    session.state.repo_root ? [session.state.repo_root] : undefined,
-  ).then((autoApprovalConfig) => complete(autoApprovalConfig));
+  return shouldSettingsRuleApprove(toolName, perm.input, session.state.cwd).then((matchedRule) =>
+    matchedRule ? { kind: "settings_rule_approved" as const, request: perm, matchedRule } : pendingHuman(),
+  );
 }

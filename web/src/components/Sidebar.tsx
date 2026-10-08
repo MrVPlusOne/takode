@@ -14,7 +14,6 @@ import {
   hydrateChatDisplaySettingsFromServer,
   hydrateShortcutSettingsFromServer,
   useStore,
-  countUserPermissions,
   type PendingSession,
 } from "../store.js";
 import { api, type SessionSearchResult } from "../api.js";

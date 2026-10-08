@@ -3,7 +3,7 @@ import {
   type SessionAttentionProjectionValue,
   type SessionAttentionReason,
 } from "../shared/session-attention-projection.js";
-import { countPendingUserPermissions, getNotificationStatusSnapshot } from "./bridge/session-registry-controller.js";
+import { getNotificationStatusSnapshot } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
 import type { SyncedProjectionDefinition } from "./synced-projection-runtime.js";
@@ -115,7 +115,7 @@ export function createSessionAttentionProjectionDefinition<TSubscriber>(
     resolveSource: deps.getSession,
     selectDependencies: (session) => ({
       attentionReason: session.attentionReason ?? null,
-      pendingPermissionCount: countPendingUserPermissions(session),
+      pendingPermissionCount: session.pendingPermissions.size,
       notificationStatusVersion: session.notificationStatusVersion,
       notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
       manualUnread: session.manualUnread === true,

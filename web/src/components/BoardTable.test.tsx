@@ -41,7 +41,6 @@ let mockState: MockStoreState;
 
 vi.mock("../store.js", () => ({
   useStore: useStoreMock,
-  countUserPermissions: () => 0,
 }));
 
 vi.mock("./SessionInlineLink.js", () => ({

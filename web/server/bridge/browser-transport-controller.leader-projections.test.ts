@@ -67,7 +67,6 @@ function makeInjectDeps(overrides: Record<string, unknown> = {}) {
     setRouteChain: vi.fn(),
     clearRouteChain: vi.fn(),
     routeBrowserMessage: vi.fn(),
-    abortAutoApproval: vi.fn(),
     broadcastToBrowsers: vi.fn(),
     setAttentionAction: vi.fn(),
     touchActivity: vi.fn(),

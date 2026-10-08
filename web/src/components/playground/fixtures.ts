@@ -531,36 +531,6 @@ export const PERM_BASH_NO_SUGGESTIONS = mockPermission({
   },
 });
 
-// Auto-approval evaluating state — collapsed with spinner while LLM evaluates
-export const PERM_EVALUATING_BASH = mockPermission({
-  tool_name: "Bash",
-  input: { command: "git push origin main", description: "Push changes" },
-  evaluating: "evaluating",
-});
-
-export const PERM_EVALUATING_BASH_LONG = mockPermission({
-  tool_name: "Bash",
-  input: {
-    command:
-      "cd /home/user/projects/my-app && npm run build --production && docker build -t my-app:latest . && docker push registry.example.com/my-app:latest",
-    description: "Build and push Docker image",
-  },
-  evaluating: "evaluating",
-});
-
-export const PERM_EVALUATING_EDIT = mockPermission({
-  tool_name: "Edit",
-  input: { file_path: "/src/components/App.tsx", old_string: "const x = 1;", new_string: "const x = 2;" },
-  evaluating: "evaluating",
-});
-
-// Auto-approval queued state — waiting in semaphore queue
-export const PERM_QUEUED_BASH = mockPermission({
-  tool_name: "Bash",
-  input: { command: "npm test -- --coverage", description: "Run tests with coverage" },
-  evaluating: "queued",
-});
-
 export const PERM_ASK_SINGLE = mockPermission({
   tool_name: "AskUserQuestion",
   input: {
@@ -945,7 +915,7 @@ export const MSG_APPROVED_PLAN: ChatMessage = {
 export const MSG_APPROVED_AUTO_SHORT: ChatMessage = {
   id: "approval-auto-short",
   role: "system",
-  content: "Auto-approved Bash: This is a git push to a non-destructive branch.",
+  content: "Approved: Bash \u2014 git push origin jiayi",
   timestamp: Date.now() - 15800,
   variant: "approved",
 };
@@ -954,7 +924,7 @@ export const MSG_APPROVED_AUTO_LONG: ChatMessage = {
   id: "approval-auto-long",
   role: "system",
   content:
-    'Auto-approved Bash: Step 1: The criteria explicitly mention "any local or remote git operations applied to ~/companion or its git work tree copies" except for destructive remote operations. Step 2: This request is a git push operation to origin/jiayi branch in the companion work tree with GIT_TRACE debugging enabled. A push to a feature branch is a non-destructive remote git operation. Step 3: This is a standard push operation on a feature branch in the companion repo work tree, which falls within the auto-approval criteria for non-destructive git operations.',
+    "Approved: Bash \u2014 cd /home/user/projects/my-app && npm run build --production && docker build -t my-app:latest . && docker push registry.example.com/my-app:latest",
   timestamp: Date.now() - 15700,
   variant: "approved",
 };

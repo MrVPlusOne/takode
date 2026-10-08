@@ -124,7 +124,6 @@ vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (state: typeof mockState) => unknown) => selector(mockState), {
     getState: () => mockState,
   }),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
   getSessionSearchState: () => ({ query: "", isOpen: false, mode: "strict", category: "all", matches: [] }),
 }));
 

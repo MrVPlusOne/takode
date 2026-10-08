@@ -267,8 +267,6 @@ export interface ChatMessage {
   metadata?: {
     markdownReport?: import("../shared/markdown-report.js").MarkdownReportSource;
     answers?: { question: string; answer: string }[];
-    /** LLM rationale for auto-approved permissions (rendered separately from the summary). */
-    autoApprovalReason?: string;
     /** Preserved leader-visible history row, including legacy publications and notification anchors. */
     leaderUserMessage?: boolean;
     /** Post-cutover direct-human messages participate in leader answer coverage. */

@@ -98,7 +98,6 @@ function makeIngressDeps(
     setRouteChain: vi.fn(),
     clearRouteChain: vi.fn(),
     routeBrowserMessage,
-    abortAutoApproval: vi.fn(),
     broadcastToBrowsers: vi.fn(),
     setAttentionAction: vi.fn(),
     touchActivity: vi.fn(),

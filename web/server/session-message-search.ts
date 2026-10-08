@@ -434,12 +434,7 @@ function eventTextForMessage(message: BrowserIncomingMessage): string | null {
       return message.summary ?? `${message.count} activities in thread ${message.questId ?? message.threadKey}`;
     case "permission_denied":
     case "permission_approved":
-    case "permission_auto_approved":
       return message.summary;
-    case "permission_auto_denied":
-      return message.reason;
-    case "permission_needs_attention":
-      return message.reason ?? "Permission needs attention";
     case "task_notification":
       return message.summary ?? null;
     case "result": {

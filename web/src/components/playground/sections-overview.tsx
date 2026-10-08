@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   PermissionBanner,
   PermissionsCollapsedChip,
-  EvaluatingCollapsedChip,
   PlanReviewOverlay,
   PlanCollapsedChip,
 } from "../PermissionBanner.js";
@@ -79,14 +78,10 @@ import {
   PERM_DYNAMIC,
   PERM_EDIT,
   PERM_EDIT_PATCH,
-  PERM_EVALUATING_BASH,
-  PERM_EVALUATING_BASH_LONG,
-  PERM_EVALUATING_EDIT,
   PERM_EXIT_PLAN,
   PERM_GENERIC,
   PERM_GLOB,
   PERM_GREP,
-  PERM_QUEUED_BASH,
   PERM_READ,
   PERM_WRITE,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
@@ -322,32 +317,6 @@ export function PlaygroundOverviewSections() {
         </Card>
         <Card label="Single tool pending">
           <PermissionsCollapsedChip permissions={[PERM_BASH]} onExpand={() => {}} />
-        </Card>
-      </Section>
-
-      {/* ─── Auto-Approval Evaluating State ─────────────────── */}
-      <Section
-        title="Auto-Approval Evaluating"
-        description="Collapsed permission banners shown while the LLM auto-approver is evaluating. Click to expand for manual override."
-      >
-        <Card label="Bash — evaluating (short cmd)">
-          <EvaluatingCollapsedChip permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
-        </Card>
-        <Card label="Bash — evaluating (long cmd)">
-          <EvaluatingCollapsedChip
-            permission={PERM_EVALUATING_BASH_LONG}
-            sessionId={MOCK_SESSION_ID}
-            onExpand={() => {}}
-          />
-        </Card>
-        <Card label="Edit — evaluating">
-          <EvaluatingCollapsedChip permission={PERM_EVALUATING_EDIT} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
-        </Card>
-        <Card label="PermissionBanner with evaluating (starts collapsed, click expand)">
-          <PermissionBanner permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} />
-        </Card>
-        <Card label="Bash — queued (waiting for semaphore slot)">
-          <EvaluatingCollapsedChip permission={PERM_QUEUED_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
         </Card>
       </Section>
 
@@ -856,10 +825,10 @@ export function PlaygroundOverviewSections() {
           <Card label="Approved — Plan">
             <MessageBubble message={MSG_APPROVED_PLAN} />
           </Card>
-          <Card label="Approved — Auto-approval (short, fits 1 line)">
+          <Card label="Approved — Mode or rule auto-approval (short, fits 1 line)">
             <MessageBubble message={MSG_APPROVED_AUTO_SHORT} />
           </Card>
-          <Card label="Approved — Auto-approval (long, collapsed by default)">
+          <Card label="Approved — Mode or rule auto-approval (long, collapsed by default)">
             <MessageBubble message={MSG_APPROVED_AUTO_LONG} />
           </Card>
           <Card label="Approved — AskUserQuestion with answers">

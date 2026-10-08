@@ -12,14 +12,8 @@ vi.mock("../store.js", async () => (await import("./settings-page-test-harness.j
 vi.mock("./NamerDebugPanel.js", () => ({
   NamerDebugPanel: () => <div>Session Namer Debug</div>,
 }));
-vi.mock("./AutoApprovalDebugPanel.js", () => ({
-  AutoApprovalDebugPanel: () => null,
-}));
 vi.mock("./TranscriptionDebugPanel.js", () => ({
   TranscriptionDebugPanel: () => null,
-}));
-vi.mock("./FolderPicker.js", () => ({
-  FolderPicker: () => null,
 }));
 
 import { SettingsPage } from "./SettingsPage.js";
@@ -667,7 +661,6 @@ describe("SettingsPage", () => {
       vi.advanceTimersByTime(20_000);
 
       expect(mockApi.getSettings).not.toHaveBeenCalled();
-      expect(mockApi.getAutoApprovalConfigs).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -1501,48 +1494,6 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     // NamerDebugPanel renders the "Session Namer Debug" heading
     expect(await screen.findByText("Session Namer Debug")).toBeInTheDocument();
-  });
-
-  it("edits auto-approval rules in a modal", async () => {
-    mockApi.getAutoApprovalConfigs.mockResolvedValue([
-      {
-        slug: "companion",
-        label: "companion",
-        projectPath: "/mnt/home/jiayiwei/companion",
-        projectPaths: ["/mnt/home/jiayiwei/companion"],
-        criteria: "Allow harmless commands",
-        enabled: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
-    mockApi.updateAutoApprovalConfig.mockResolvedValue({});
-
-    render(<SettingsPage />);
-    await screen.findByText("companion");
-
-    fireEvent.click(screen.getByText("Edit"));
-
-    const dialog = screen.getByRole("dialog", {
-      name: "Edit auto-approval rule",
-    });
-    expect(dialog).toBeInTheDocument();
-
-    fireEvent.change(within(dialog).getByLabelText("Rule criteria"), {
-      target: { value: "Allow harmless commands and test commands" },
-    });
-    fireEvent.click(within(dialog).getByText("Save"));
-
-    await waitFor(() => {
-      expect(mockApi.updateAutoApprovalConfig).toHaveBeenCalledWith(
-        "companion",
-        expect.objectContaining({
-          label: "companion",
-          criteria: "Allow harmless commands and test commands",
-          projectPaths: ["/mnt/home/jiayiwei/companion"],
-        }),
-      );
-    });
   });
 });
 

@@ -288,7 +288,6 @@ function createSessionRuntime(
     diffStatsDirty: true,
     searchDataOnly: false,
     searchExcerpts: [],
-    evaluatingAborts: new Map(),
     cliResuming: false,
     cliResumingClearTimer: null,
     dropReplayHistoryAfterRevert: false,
@@ -752,10 +751,6 @@ export async function restorePersistedSessions(
     session.state.codex_turn_recovery = restoredRecoveryRepair.state;
     markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
     session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
-
-    for (const perm of session.pendingPermissions.values()) {
-      if (perm.evaluating) perm.evaluating = undefined;
-    }
 
     restoreSessionMessagePreview(session);
     deps.setLastUserMessageAt?.(
@@ -1561,14 +1556,6 @@ export function summarizePendingPermissions(session: SessionLike): string | null
   if (tools.has("AskUserQuestion")) return "pending question";
   if (tools.size === 1) return `pending ${[...tools][0]}`;
   return `${session.pendingPermissions.size} pending permissions`;
-}
-
-export function countPendingUserPermissions(session: SessionLike): number {
-  let count = 0;
-  for (const perm of session.pendingPermissions.values()) {
-    if (!perm?.evaluating && !perm?.autoApproved) count++;
-  }
-  return count;
 }
 
 export function getSessionActivitySnapshot(session: SessionLike): {

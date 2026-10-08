@@ -211,7 +211,7 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         );
       }
-      return <AutoApprovedChip content={message.content} reason={message.metadata?.autoApprovalReason} />;
+      return <AutoApprovedChip content={message.content} />;
     }
     // Quest lifecycle blocks — rendered as collapsible cards in the feed
     if ((message.variant === "quest_claimed" || message.variant === "quest_submitted") && message.metadata?.quest) {
@@ -1437,8 +1437,8 @@ function DetailedToolGroup({
   return <ToolGroupBlock name={group.name} items={group.items} {...props} />;
 }
 
-/** Auto-approved chip — shows what was approved on line 1, LLM rationale on line 2 in muted text. */
-function AutoApprovedChip({ content, reason }: { content: string; reason?: string }) {
+/** Approved chip -- shows what was approved; click to expand a clamped summary. */
+function AutoApprovedChip({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]">
@@ -1458,11 +1458,6 @@ function AutoApprovedChip({ content, reason }: { content: string; reason?: strin
         </svg>
         <div className="min-w-0">
           <span className={expanded ? "" : "line-clamp-1"}>{content}</span>
-          {reason && (
-            <span className={`block text-[10px] text-green-400/40 mt-0.5 ${expanded ? "" : "line-clamp-1"}`}>
-              {reason}
-            </span>
-          )}
         </div>
       </button>
     </div>

@@ -110,10 +110,6 @@ vi.mock("./settings-manager.js", () => ({
     codexBinary: "",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
-    autoApprovalEnabled: false,
-    autoApprovalModel: "haiku",
-    autoApprovalMaxConcurrency: 4,
-    autoApprovalTimeoutSeconds: 45,
     namerConfig: { backend: "claude" },
     autoNamerEnabled: true,
     transcriptionConfig: {
@@ -141,10 +137,6 @@ vi.mock("./settings-manager.js", () => ({
     codexBinary: patch.codexBinary ?? "",
     maxKeepAlive: patch.maxKeepAlive ?? 0,
     heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
-    autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
-    autoApprovalModel: patch.autoApprovalModel ?? "haiku",
-    autoApprovalMaxConcurrency: patch.autoApprovalMaxConcurrency ?? 4,
-    autoApprovalTimeoutSeconds: patch.autoApprovalTimeoutSeconds ?? 45,
     namerConfig: patch.namerConfig ?? { backend: "claude" },
     autoNamerEnabled: patch.autoNamerEnabled ?? true,
     transcriptionConfig: patch.transcriptionConfig ?? {

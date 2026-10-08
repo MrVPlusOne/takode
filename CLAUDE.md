@@ -197,8 +197,7 @@ Claude's former native `--sdk-url` WebSocket backend is retired; see [Claude bac
   - `session-search.ts` — Full-text session search across messages and metadata.
   - `session-payload-metrics.ts` — Token and payload size tracking per session.
 
-  **Permissions & auto-approval:**
-  - `auto-approval-store.ts` / `auto-approver.ts` — Persistent auto-approval rules and LLM-based approval evaluation.
+  **Settings:**
   - `settings-manager.ts` — Manages `settings.json` with chained async writes.
 
   **Routes:**
@@ -239,11 +238,11 @@ Claude's former native `--sdk-url` WebSocket backend is retired; see [Claude bac
 
   *Transport:*
   - `browser-transport-controller.ts` — Browser WebSocket transport, history sync hashing, session tagging.
-  - `adapter-browser-routing-controller.ts` — Routes browser messages to the active backend adapter (with auto-approval evaluation).
+  - `adapter-browser-routing-controller.ts` — Routes browser messages to the active backend adapter (with permission-pipeline handling).
   - `adapter-interface.ts` — Shared `AdapterSessionMeta` interface and base adapter contract.
 
   *Permissions:*
-  - `permission-pipeline.ts` — Permission request normalization, mode-based auto-approve, LLM approval queuing, human-review fallback.
+  - `permission-pipeline.ts` — Permission request normalization, mode-based auto-approve, settings-rule approval, human-review fallback.
   - `permission-response-controller.ts` — Handles permission responses from browser back to backend.
   - `permission-summaries.ts` — Formats permission request summaries (including Codex image drafts).
   - `settings-rule-matcher.ts` — Matches SDK permission requests against settings.json rules.

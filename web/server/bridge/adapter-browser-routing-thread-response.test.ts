@@ -301,7 +301,6 @@ function session(): AdapterBrowserRoutingSessionLike {
     messageHistory: [],
     notifications: [],
     pendingPermissions: new Map(),
-    evaluatingAborts: new Map(),
     pendingMessages: [],
     pendingCodexTurns: [],
     pendingCodexInputs: [],

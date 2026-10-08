@@ -272,7 +272,6 @@ function setNavigationProjection(
 }
 
 vi.mock("../store.js", () => ({
-  countUserPermissions: () => 0,
   useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
 }));
 

@@ -205,7 +205,6 @@ vi.mock("../store.js", () => {
   useStoreFn.getState = () => mockState;
   return {
     useStore: useStoreFn,
-    countUserPermissions: () => 0,
   };
 });
 

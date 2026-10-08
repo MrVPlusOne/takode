@@ -305,9 +305,6 @@ export interface Session {
   searchExcerpts: import("../session-store.js").SearchExcerpt[];
   /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
   resumedFromExternal?: boolean;
-  /** AbortControllers for in-flight LLM auto-approval evaluations, keyed by request_id.
-   *  Used to cancel the LLM subprocess when the user responds manually. Transient — not persisted. */
-  evaluatingAborts: Map<string, AbortController>;
   /** True while a relaunched CLI is replaying old messages via --resume.
    *  During this window, system.status permissionMode changes must NOT
    *  overwrite uiMode — the replayed mode is stale and would revert

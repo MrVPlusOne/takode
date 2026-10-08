@@ -74,7 +74,6 @@ vi.mock("../store.js", () => ({
       setExpandAllInTurn: vi.fn(),
     }),
   }),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 vi.mock("./BoardTable.js", async (importOriginal) => {

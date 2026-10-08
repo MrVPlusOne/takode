@@ -114,13 +114,6 @@ export const mockApi = {
     subscriptionCount: 0,
   }),
   getCaffeinateStatus: vi.fn(),
-  getAutoApprovalConfigs: vi.fn().mockResolvedValue([]),
-  getAutoApprovalConfig: vi.fn(),
-  createAutoApprovalConfig: vi.fn(),
-  updateAutoApprovalConfig: vi.fn(),
-  deleteAutoApprovalConfig: vi.fn(),
-  getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
-  getAutoApprovalLogEntry: vi.fn(),
 };
 export const mockCheckReadinessStatus = vi.fn().mockResolvedValue({
   ok: true,

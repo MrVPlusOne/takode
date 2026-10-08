@@ -2,8 +2,6 @@ import { serverWorkAdmission } from "../server-work-admission.js";
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
 import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
-import { evaluatePermission, type RecentToolCall } from "../auto-approver.js";
-import type { AutoApprovalConfig } from "../auto-approval-store.js";
 import type { ImageRef } from "../image-store.js";
 import {
   appendLocalSlashCommandHistory,
@@ -117,12 +115,7 @@ import {
   clearActionAttentionIfNoPermissions as clearActionAttentionIfNoPermissionsSessionRegistryController,
   setAttention as setAttentionSessionRegistryController,
 } from "./session-registry-controller.js";
-import {
-  getApprovalSummary,
-  getAutoApprovalSummary,
-  getDenialSummary,
-  NOTABLE_APPROVALS,
-} from "./permission-summaries.js";
+import { getApprovalSummary, getDenialSummary, NOTABLE_APPROVALS } from "./permission-summaries.js";
 function findPendingExitPlanPermission(
   session: AdapterBrowserRoutingSessionLike,
   route: ThreadRouteMetadata | null,
@@ -614,10 +607,6 @@ export function handleSdkPermissionRequest(
         });
       }
       broadcastAutoApproval(session, result.request, deps);
-      return;
-    }
-    if (result.kind === "queued_for_llm_auto_approval") {
-      void tryLlmAutoApproval(session, result.request.request_id, result.request, result.autoApprovalConfig, deps);
     }
   };
   const resultOrPromise = handlePermissionRequestPipeline(
@@ -666,11 +655,6 @@ export function handleCodexPermissionRequest(
         });
       }
       broadcastAutoApproval(session, result.request, deps);
-      return;
-    }
-
-    if (result.kind === "queued_for_llm_auto_approval") {
-      void tryLlmAutoApproval(session, result.request.request_id, result.request, result.autoApprovalConfig, deps);
     }
   };
 
@@ -707,96 +691,6 @@ export function handleCodexPermissionRequest(
   applyResult(resultOrPromise);
 }
 
-export async function tryLlmAutoApproval(
-  session: AdapterBrowserRoutingSessionLike,
-  requestId: string,
-  perm: PermissionRequest,
-  config: AutoApprovalConfig,
-  deps: AdapterBrowserRoutingDeps,
-): Promise<void> {
-  const abort = new AbortController();
-  session.evaluatingAborts.set(requestId, abort);
-  const recentToolCalls = extractRecentToolCalls(session);
-  try {
-    const result = await evaluatePermission(
-      session.id,
-      perm.tool_name,
-      perm.input,
-      perm.description,
-      session.state.cwd,
-      config,
-      abort.signal,
-      recentToolCalls,
-      session.state.model,
-      () => {
-        if (!session.pendingPermissions.has(requestId)) return;
-        perm.evaluating = "evaluating";
-        deps.broadcastToBrowsers(session, {
-          type: "permission_evaluating_status",
-          request_id: requestId,
-          evaluating: "evaluating",
-          timestamp: Date.now(),
-        });
-      },
-    );
-    session.evaluatingAborts.delete(requestId);
-    if (!session.pendingPermissions.has(requestId)) return;
-    if (result?.decision === "approve") {
-      session.pendingPermissions.delete(requestId);
-      deps.onSessionActivityStateChanged(session.id, "auto_approved_permission");
-      deps.sessionNotificationDeps.cancelPermissionNotification?.(session.id, requestId);
-      clearActionAttentionIfNoPermissionsSessionRegistryController(session, deps.sessionNotificationDeps);
-      routeApprovalResponse(session, requestId, perm.input);
-      deps.broadcastToBrowsers(session, {
-        type: "permission_auto_approved",
-        request_id: requestId,
-        tool_name: perm.tool_name,
-        tool_use_id: perm.tool_use_id,
-        reason: result.reason,
-        summary: getAutoApprovalSummary(perm.tool_name, perm.input),
-        timestamp: Date.now(),
-      });
-      emitTakodePermissionResolved(session.id, perm.tool_name, "approved", deps);
-      deps.persistSession(session);
-      return;
-    }
-    const deferralReason =
-      result?.decision === "defer"
-        ? result.reason || "Auto-approver deferred to human"
-        : "Auto-approval evaluation failed or timed out";
-    perm.evaluating = undefined;
-    perm.deferralReason = deferralReason;
-    deps.broadcastToBrowsers(session, {
-      type: "permission_needs_attention",
-      request_id: requestId,
-      timestamp: Date.now(),
-      reason: deferralReason,
-    });
-    emitTakodePermissionRequest(session, perm, deps);
-    setActionAttention(session, deps);
-    schedulePermissionNotification(session, perm, deps);
-    deps.persistSession(session);
-  } catch (err) {
-    session.evaluatingAborts.delete(requestId);
-    if (session.pendingPermissions.has(requestId)) {
-      const errorReason = "Auto-approval evaluation encountered an error";
-      perm.evaluating = undefined;
-      perm.deferralReason = errorReason;
-      deps.broadcastToBrowsers(session, {
-        type: "permission_needs_attention",
-        request_id: requestId,
-        timestamp: Date.now(),
-        reason: errorReason,
-      });
-      emitTakodePermissionRequest(session, perm, deps);
-      setActionAttention(session, deps);
-      schedulePermissionNotification(session, perm, deps);
-      deps.persistSession(session);
-    }
-    console.warn(`[auto-approver] Error evaluating ${perm.tool_name} for session ${session.id}:`, err);
-  }
-}
-
 export function handleInterrupt(
   session: AdapterBrowserRoutingSessionLike,
   source: InterruptSource,
@@ -806,40 +700,6 @@ export function handleInterrupt(
   deps.markTurnInterrupted(session, source);
   const adapter = session.claudeSdkAdapter ?? session.codexAdapter;
   adapter?.sendBrowserMessage({ type: "interrupt", interruptSource: source });
-}
-
-function extractRecentToolCalls(session: AdapterBrowserRoutingSessionLike, limit = 10): RecentToolCall[] {
-  const calls: RecentToolCall[] = [];
-  for (let i = session.messageHistory.length - 1; i >= 0 && calls.length < limit; i--) {
-    const msg = session.messageHistory[i] as
-      | (BrowserIncomingMessage & {
-          message?: { content?: Array<{ type?: string; name?: string; input?: Record<string, unknown> }> };
-        })
-      | undefined;
-    if (msg?.type !== "assistant" || !msg.message?.content) continue;
-    const blocks = msg.message.content;
-    for (let j = blocks.length - 1; j >= 0 && calls.length < limit; j--) {
-      const block = blocks[j];
-      if (block.type === "tool_use") {
-        calls.push({ toolName: block.name, input: block.input as Record<string, unknown> });
-      }
-    }
-  }
-  return calls.reverse();
-}
-
-function routeApprovalResponse(
-  session: AdapterBrowserRoutingSessionLike,
-  requestId: string,
-  updatedInput: Record<string, unknown>,
-): void {
-  const adapter = session.claudeSdkAdapter ?? session.codexAdapter;
-  adapter?.sendBrowserMessage({
-    type: "permission_response",
-    request_id: requestId,
-    behavior: "allow",
-    updated_input: updatedInput,
-  });
 }
 
 export function ingestUserMessage(

@@ -248,18 +248,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
 vi.mock("../store.js", () => {
   const useStoreFn = (selector: (state: MockStoreState) => unknown) => selector(mockState);
   useStoreFn.getState = () => mockState;
-  const countUserPermissions = (perms: Map<string, unknown> | undefined): number => {
-    if (!perms) return 0;
-    let count = 0;
-    for (const p of perms.values()) {
-      const perm = p as { evaluating?: boolean; autoApproved?: string };
-      if (!perm?.evaluating && !perm?.autoApproved) count++;
-    }
-    return count;
-  };
   return {
     useStore: useStoreFn,
-    countUserPermissions,
     hydrateChatDisplaySettingsFromServer: vi.fn(),
     hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
   };

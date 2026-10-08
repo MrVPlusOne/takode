@@ -84,7 +84,6 @@ vi.mock("../store.js", () => ({
       setExpandAllInTurn: mockSetExpandAllInTurn,
     }),
   }),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 // Keep the panel tests focused on view selection and routing rather than BoardTable internals.

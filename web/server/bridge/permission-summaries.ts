@@ -27,23 +27,3 @@ export function getApprovalSummary(toolName: string, input: Record<string, unkno
   }
   return `Approved: ${toolName}`;
 }
-
-/** Build a concise human-readable summary for an auto-approved permission.
- *  Prefers the human-readable description over raw command/file when available.
- *  Reason (LLM rationale) is kept separate — sent as its own field, not baked into summary. */
-export function getAutoApprovalSummary(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === "Bash") {
-    // Prefer the human-readable description (set by Claude Code for Bash calls)
-    if (typeof input.description === "string" && input.description.length > 0) {
-      return `Auto-approved: ${input.description}`;
-    }
-    if (typeof input.command === "string") {
-      const cmd = input.command.length > 60 ? input.command.slice(0, 60) + "..." : input.command;
-      return `Auto-approved: Bash \u2014 ${cmd}`;
-    }
-  }
-  if (typeof input.file_path === "string") {
-    return `Auto-approved: ${toolName} \u2014 ${input.file_path}`;
-  }
-  return `Auto-approved: ${toolName}`;
-}

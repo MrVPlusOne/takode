@@ -241,7 +241,6 @@ export interface BrowserTransportDeps {
     session: BrowserTransportSessionLike,
     batch: TakodeHerdBatchSnapshot | undefined,
   ) => { batch?: TakodeHerdBatchSnapshot; content?: string; changed: boolean };
-  abortAutoApproval: (session: BrowserTransportSessionLike, requestId: string) => void;
   broadcastToBrowsers: (session: BrowserTransportSessionLike, msg: BrowserIncomingMessage) => void;
   setAttentionAction: (session: BrowserTransportSessionLike) => void;
   touchActivity?: (sessionId: string) => void;
@@ -677,26 +676,6 @@ export function handleBrowserProtocolMessage(
 
   if ((msg as { type: string }).type === "ping") return true;
   if (isArchivedReadOnlySession(session, deps)) return true;
-
-  if (msg.type === "permission_user_viewing") {
-    const requestId = msg.request_id;
-    const perm = session.pendingPermissions.get(requestId);
-    if (perm?.evaluating) {
-      deps.abortAutoApproval(session, requestId);
-      perm.evaluating = undefined;
-      deps.broadcastToBrowsers(session, {
-        type: "permission_needs_attention",
-        request_id: requestId,
-        timestamp: Date.now(),
-      });
-      deps.setAttentionAction(session);
-      console.log(
-        `[ws-bridge] Auto-approval cancelled for ${perm.tool_name} in session ${sessionTag(session.id)} — user opened dialog`,
-      );
-      deps.persistSession(session);
-    }
-    return true;
-  }
 
   if (msg.type === "leader_thread_tabs_update" && isObsoleteLeaderThreadTabOperation(msg.operation)) {
     deps.touchActivity?.(session.id);

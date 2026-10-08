@@ -758,8 +758,7 @@ export type BrowserOutgoingMessage =
   | { type: "mcp_toggle"; serverName: string; enabled: boolean; client_msg_id?: string }
   | { type: "mcp_reconnect"; serverName: string; client_msg_id?: string }
   | { type: "mcp_set_servers"; servers: Record<string, McpServerConfig>; client_msg_id?: string }
-  | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string }
-  | { type: "permission_user_viewing"; request_id: string };
+  | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string };
 export type PausedInboundSource = "browser" | "programmatic";
 
 export interface PausedInboundMessage {
@@ -1156,24 +1155,6 @@ export type BrowserIncomingMessageBase =
       answers?: { question: string; answer: string }[];
     }
   | {
-      type: "permission_auto_approved";
-      request_id: string;
-      tool_name: string;
-      tool_use_id: string;
-      reason: string;
-      summary: string;
-      timestamp: number;
-    }
-  | {
-      type: "permission_auto_denied";
-      request_id: string;
-      tool_name: string;
-      tool_use_id: string;
-      reason: string;
-      timestamp: number;
-    }
-  | { type: "permission_needs_attention"; request_id: string; timestamp: number; reason?: string }
-  | {
       type: "leader_group_idle";
       leader_session_id: string;
       leader_label: string;
@@ -1181,7 +1162,6 @@ export type BrowserIncomingMessageBase =
       idle_for_ms: number;
       timestamp: number;
     }
-  | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
   | {
       type: "state_snapshot";
       sessionStatus: string | null;
@@ -1707,16 +1687,6 @@ export interface PermissionRequest {
   tool_use_id: string;
   agent_id?: string;
   timestamp: number;
-  /** Auto-approval status: "queued" (waiting for semaphore slot), "evaluating" (LLM call in progress).
-   *  Falsy/undefined means not in auto-approval flow — show full Allow/Deny UI. */
-  evaluating?: "queued" | "evaluating";
-  /** Set when the LLM auto-approver approved this permission. The reason string explains why.
-   *  PermissionBanner uses this to show a brief "auto-approved" indicator instead of vanishing
-   *  the dialog when the user was actively viewing it. */
-  autoApproved?: string;
-  /** Set when the LLM auto-approver deferred this permission to the human.
-   *  Explains why: LLM rationale (for "defer"), "evaluation timed out", or "evaluation failed". */
-  deferralReason?: string;
   /** Thread route used by leader/user prompt matching. Main is explicit for new prompt records. */
   threadKey?: string;
   questId?: string;

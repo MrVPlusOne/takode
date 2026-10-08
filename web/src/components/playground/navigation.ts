@@ -46,7 +46,6 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
   createNavGroup("overview", "Overview", "Core display surfaces and reference states.", [
     "Permission Banners",
     "Collapsed Permissions Chip",
-    "Auto-Approval Evaluating",
     "Real Chat Stack",
     "Leader Session Return Stability",
     "Leader Thread Panel",

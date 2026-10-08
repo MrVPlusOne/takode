@@ -81,7 +81,6 @@ export interface AdapterBrowserRoutingSessionLike {
   attentionReason?: "action" | "error" | "review" | null;
   notifications?: SessionNotification[];
   pendingPermissions: Map<string, PermissionRequest>;
-  evaluatingAborts: Map<string, AbortController>;
   pendingMessages: string[];
   pendingCodexTurns: CodexOutboundTurn[];
   pendingCodexInputs: PendingCodexInput[];
@@ -130,7 +129,6 @@ export interface AdapterBrowserRoutingDeps {
   sessionNotificationDeps: SessionNotificationDeps;
   onAgentPaused?: (sessionId: string, history: AdapterBrowserRoutingSessionLike["messageHistory"], cwd: string) => void;
   getCurrentTurnTriggerSource: (session: AdapterBrowserRoutingSessionLike) => "user" | "leader" | "system" | "unknown";
-  abortAutoApproval: (session: AdapterBrowserRoutingSessionLike, requestId: string) => void;
   preInterrupt: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
   touchUserMessage: (sessionId: string, timestamp?: number) => void;
   nextUserMessageId: (ts: number) => string;

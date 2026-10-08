@@ -139,7 +139,6 @@ export function handleCodexSetPermissionMode(
       } else {
         deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       }
-      deps.abortAutoApproval(session, reqId);
       deps.sessionNotificationDeps.cancelPermissionNotification?.(session.id, reqId);
       deps.emitTakodeEvent(session.id, "permission_resolved", {
         tool_name: perm.tool_name,

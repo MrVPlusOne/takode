@@ -5,7 +5,6 @@ import {
   checkReadinessStatus,
   isInterruptRestartBlockersResponse,
   type AppSettings,
-  type AutoApprovalConfig,
   type TranscriptionConfig,
   type EditorKind,
   type InterruptRestartBlockersResponse,
@@ -19,7 +18,6 @@ import {
 import { createInitiatingTabRestartIntent, type InitiatingTabRestartIntent } from "../server-restart-auto-reload.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
-import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
@@ -196,23 +194,6 @@ export function SettingsPage({
   const restartAttemptSequenceRef = useRef(0);
   const restartIntentRef = useRef<InitiatingTabRestartIntent | null>(null);
 
-  // Auto-approval state
-  const [aaEnabled, setAaEnabled] = useState(false);
-  const [aaModel, setAaModel] = useState("");
-  const [aaMaxConcurrency, setAaMaxConcurrency] = useState(4);
-  const [aaTimeoutSeconds, setAaTimeoutSeconds] = useState(45);
-  const [aaSaving, setAaSaving] = useState(false);
-  const [aaError, setAaError] = useState("");
-  const [aaConfigs, setAaConfigs] = useState<AutoApprovalConfig[]>([]);
-  const [aaConfigsLoading, setAaConfigsLoading] = useState(false);
-  const [aaNewProjectPaths, setAaNewProjectPaths] = useState<string[]>([]);
-  const [aaNewPathInput, setAaNewPathInput] = useState("");
-  const [aaNewLabel, setAaNewLabel] = useState("");
-  const [aaNewCriteria, setAaNewCriteria] = useState("");
-  const [aaCreating, setAaCreating] = useState(false);
-  const [aaCreateError, setAaCreateError] = useState("");
-  const [showAaFolderPicker, setShowAaFolderPicker] = useState(false);
-
   // Voice transcription state
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
@@ -239,15 +220,6 @@ export function SettingsPage({
     }
   }
 
-  function loadAutoApprovalConfigs() {
-    setAaConfigsLoading(true);
-    api
-      .getAutoApprovalConfigs()
-      .then(setAaConfigs)
-      .catch(() => {})
-      .finally(() => setAaConfigsLoading(false));
-  }
-
   useEffect(() => {
     if (!isActive) return;
     api
@@ -271,10 +243,6 @@ export function SettingsPage({
         setRestartSupported(s.restartSupported);
         setServerSlug(s.serverSlug || "");
         setSessionDefaults(normalizeSessionDefaults(s.sessionDefaults));
-        setAaEnabled(s.autoApprovalEnabled);
-        setAaModel(s.autoApprovalModel ?? "");
-        setAaMaxConcurrency(s.autoApprovalMaxConcurrency ?? 4);
-        setAaTimeoutSeconds(s.autoApprovalTimeoutSeconds ?? 45);
         if (s.transcriptionConfig) {
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : s.transcriptionConfig.apiKey || "");
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
@@ -296,7 +264,6 @@ export function SettingsPage({
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-    loadAutoApprovalConfigs();
   }, [isActive]);
 
   useEffect(() => {
@@ -983,41 +950,6 @@ export function SettingsPage({
                 </button>
               </SettingsSubsection>
               <SettingsSessionDataSection hidden={settingsSearch.rowHidden("sessions", "session-data")} />
-            </CollapsibleSection>
-
-            {/* ── Auto-Approval ────────────────────────────────────── */}
-            <CollapsibleSection {...settingsSearch.sectionProps("auto-approval")}>
-              <SettingsAutoApprovalSection
-                aaEnabled={aaEnabled}
-                setAaEnabled={setAaEnabled}
-                aaModel={aaModel}
-                setAaModel={setAaModel}
-                aaMaxConcurrency={aaMaxConcurrency}
-                setAaMaxConcurrency={setAaMaxConcurrency}
-                aaTimeoutSeconds={aaTimeoutSeconds}
-                setAaTimeoutSeconds={setAaTimeoutSeconds}
-                aaSaving={aaSaving}
-                setAaSaving={setAaSaving}
-                aaError={aaError}
-                setAaError={setAaError}
-                aaConfigs={aaConfigs}
-                aaConfigsLoading={aaConfigsLoading}
-                aaNewProjectPaths={aaNewProjectPaths}
-                setAaNewProjectPaths={setAaNewProjectPaths}
-                aaNewPathInput={aaNewPathInput}
-                setAaNewPathInput={setAaNewPathInput}
-                aaNewLabel={aaNewLabel}
-                setAaNewLabel={setAaNewLabel}
-                aaNewCriteria={aaNewCriteria}
-                setAaNewCriteria={setAaNewCriteria}
-                aaCreating={aaCreating}
-                setAaCreating={setAaCreating}
-                aaCreateError={aaCreateError}
-                setAaCreateError={setAaCreateError}
-                showAaFolderPicker={showAaFolderPicker}
-                setShowAaFolderPicker={setShowAaFolderPicker}
-                loadAutoApprovalConfigs={loadAutoApprovalConfigs}
-              />
             </CollapsibleSection>
 
             {/* ── CLIs & Editor ────────────────────────────────────── */}

@@ -10,14 +10,8 @@ vi.mock("../store.js", async () => (await import("./settings-page-test-harness.j
 vi.mock("./NamerDebugPanel.js", () => ({
   NamerDebugPanel: () => <div>Session Namer Debug</div>,
 }));
-vi.mock("./AutoApprovalDebugPanel.js", () => ({
-  AutoApprovalDebugPanel: () => null,
-}));
 vi.mock("./TranscriptionDebugPanel.js", () => ({
   TranscriptionDebugPanel: () => null,
-}));
-vi.mock("./FolderPicker.js", () => ({
-  FolderPicker: () => null,
 }));
 
 import { SettingsPage } from "./SettingsPage.js";
@@ -296,7 +290,6 @@ describe("SettingsPage groups and search", () => {
       "Voice Input",
       "Notifications",
       "Sessions",
-      "Auto-Approval",
       "CLIs & Editor",
       "Performance & Power",
       "Remote Hosts",

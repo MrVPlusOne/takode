@@ -84,8 +84,6 @@ vi.mock("./settings-manager.js", () => ({
     codexBinary: "",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
-    autoApprovalEnabled: false,
-    autoApprovalModel: "haiku",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -100,8 +98,6 @@ vi.mock("./settings-manager.js", () => ({
     codexBinary: patch.codexBinary ?? "",
     maxKeepAlive: patch.maxKeepAlive ?? 0,
     heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
-    autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
-    autoApprovalModel: patch.autoApprovalModel ?? "haiku",
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),

@@ -37,7 +37,6 @@ vi.mock("../store.js", () => {
   });
   return {
     useStore,
-    countUserPermissions: () => 0,
     getSessionSearchState: () => ({
       query: "",
       isOpen: false,

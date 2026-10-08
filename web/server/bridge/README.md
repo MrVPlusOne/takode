@@ -14,7 +14,7 @@ interfaces rather than full bridge state.
   - Browser WebSocket transport layer, history sync hashing, session tagging.
 
 - [adapter-browser-routing-controller.ts](./adapter-browser-routing-controller.ts)
-  - Routes incoming browser messages (with auto-approval evaluation and
+  - Routes incoming browser messages (with permission-pipeline handling and
     attachment path handling) to the active backend adapter.
 
 - [adapter-interface.ts](./adapter-interface.ts)
@@ -28,7 +28,7 @@ interfaces rather than full bridge state.
   - Permission request normalization and policy flow:
     - mode-based auto-approve rules
     - sensitive path/command guards
-    - LLM auto-approval eligibility and queuing
+    - settings.json allow-rule matching
     - human-review fallback path
 
 - [permission-response-controller.ts](./permission-response-controller.ts)
@@ -126,7 +126,7 @@ interfaces rather than full bridge state.
 
 - Incoming permission request:
   - bridge normalizes backend payload
-  - `permission-pipeline.ts` decides mode-auto-approve vs queue-human vs queue-LLM
+  - `permission-pipeline.ts` decides mode-auto-approve vs settings-rule approval vs queue-human
   - bridge continues with approval or pending-permission updates
 
 - Generation state update:

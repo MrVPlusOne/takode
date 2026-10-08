@@ -793,7 +793,7 @@ export function SessionInfoPopover({
           />
         ) : (
           <>
-            {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={sessionVm?.repoRoot} />}
+            {cwd && <ClaudeMdCollapsible cwd={cwd} />}
             <SystemPromptCollapsible sessionId={sessionId} />
           </>
         )}

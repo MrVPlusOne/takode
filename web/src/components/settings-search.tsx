@@ -15,7 +15,6 @@ export type SettingsSectionId =
   | "voice"
   | "notifications"
   | "sessions"
-  | "auto-approval"
   | "cli"
   | "performance"
   | "hosts"
@@ -207,23 +206,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         id: "session-data",
         text: "Export and Import Sessions Export All Sessions portable archive backup other machine paths",
       },
-    ],
-  },
-  {
-    id: "auto-approval",
-    title: "Auto-Approval",
-    description:
-      "Permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual.",
-    aliases: ["permissions", "approve"],
-    items: [
-      { id: "auto-approval-enabled", text: "Auto-Approval LLM enabled permission requests" },
-      { id: "auto-approval-model", text: "Auto-approval Model Haiku Sonnet session model" },
-      { id: "auto-approval-limits", text: "Auto-approval Max concurrency timeout seconds" },
-      {
-        id: "auto-approval-rules",
-        text: "Auto-approval Project Rules criteria project paths add rule folder",
-      },
-      { id: "auto-approval-debug", text: "Auto-approval Debug panel logs" },
     ],
   },
   {

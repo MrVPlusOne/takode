@@ -186,7 +186,6 @@ import {
   hasPendingForceCompact as hasPendingForceCompactController,
   isCliSlashCommand as isCliSlashCommandController,
   queueForceCompactPendingMessage as queueForceCompactPendingMessageController,
-  tryLlmAutoApproval as tryLlmAutoApprovalController,
 } from "./bridge/adapter-browser-routing-controller.js";
 import {
   addPendingCodexInput as addPendingCodexInputController,
@@ -775,8 +774,6 @@ export function getClaudeMessageHandlers(host: any) {
       browserMsg: BrowserIncomingMessage,
       options?: { skipBuffer?: boolean },
     ) => host.broadcastToBrowsers(targetSession as Session, browserMsg, options),
-    abortAutoApproval: (targetSession: unknown, requestId: string) =>
-      host.abortAutoApproval(targetSession as Session, requestId),
     clearActionAttentionIfNoPermissions: (targetSession: unknown) =>
       host.clearActionAttentionIfNoPermissions(targetSession as Session),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
@@ -1003,8 +1000,6 @@ export function getBrowserTransportDeps(host: any) {
       ),
     pruneTakodeHerdBatch: (targetSession: unknown, batch: TakodeHerdBatchSnapshot | undefined) =>
       pruneStaleBoardStalledHerdBatchController(targetSession as Session, batch, host.getBoardWatchdogDeps()),
-    abortAutoApproval: (targetSession: unknown, requestId: string) =>
-      host.abortAutoApproval(targetSession as Session, requestId),
     broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, browserMsg),
     setAttentionAction: (targetSession: unknown) =>
@@ -1445,8 +1440,6 @@ export function getBrowserRoutingDeps(host: any) {
       getCurrentTurnTriggerSourceController(targetSession as Session, {
         isSystemSourceTag,
       }),
-    abortAutoApproval: (targetSession: unknown, requestId: string) =>
-      host.abortAutoApproval(targetSession as Session, requestId),
     preInterrupt: (targetSession: unknown, source: InterruptSource) => {
       const session = targetSession as Session;
       if (session.backendType === "codex" && source === "user") {

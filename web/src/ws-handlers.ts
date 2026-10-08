@@ -1099,15 +1099,11 @@ function handleParsedMessage(
 
     case "permission_request": {
       store.addPermission(sessionId, data.request);
-      // If evaluating via LLM auto-approver, don't pause timer or notify —
-      // the agent isn't waiting on the user yet.
-      if (!data.request.evaluating) {
-        store.pauseStreamingTimer(sessionId);
-        if (!document.hasFocus() && store.notificationDesktop) {
-          const req = data.request;
-          console.log(`[notification] permission_request: session=${sessionId.slice(0, 8)} tool=${req.tool_name}`);
-          sendBrowserNotification("Permission needed", `${req.tool_name}: approve or deny`, req.request_id);
-        }
+      store.pauseStreamingTimer(sessionId);
+      if (!document.hasFocus() && store.notificationDesktop) {
+        const req = data.request;
+        console.log(`[notification] permission_request: session=${sessionId.slice(0, 8)} tool=${req.tool_name}`);
+        sendBrowserNotification("Permission needed", `${req.tool_name}: approve or deny`, req.request_id);
       }
       // Also extract tasks and changed files from permission requests
       const req = data.request;
@@ -1172,63 +1168,6 @@ function handleParsedMessage(
       break;
     }
 
-    case "permission_auto_approved": {
-      // Don't remove — mark as auto-approved so PermissionBanner can decide
-      // whether to dismiss silently or show an "auto-approved" indicator
-      // (depending on whether the user had expanded the evaluating dialog).
-      store.markPermissionAutoApproved(sessionId, data.request_id, data.reason || "Auto-approved");
-      // Summary shows what was approved; reason (LLM rationale) is passed via metadata
-      // for separate rendering in the AutoApprovedChip.
-      store.appendMessage(sessionId, {
-        id: nextId(),
-        role: "system",
-        content: data.summary ?? `Auto-approved: ${data.tool_name}`,
-        timestamp: data.timestamp,
-        variant: "approved",
-        ephemeral: true,
-        ...(data.reason ? { metadata: { autoApprovalReason: data.reason } } : {}),
-      });
-      break;
-    }
-
-    case "permission_auto_denied": {
-      // LLM auto-approver declined — transition from evaluating to normal pending state.
-      // The permission stays pending for the user (LLM deny = "not confident, ask human").
-      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
-      // NOW pause timer and send notification since this needs user attention
-      store.pauseStreamingTimer(sessionId);
-      if (!document.hasFocus() && store.notificationDesktop) {
-        sendBrowserNotification("Permission needed", `${data.tool_name}: approve or deny`, data.request_id);
-      }
-      store.appendMessage(sessionId, {
-        id: nextId(),
-        role: "system",
-        content: `Auto-approver declined ${data.tool_name}: ${data.reason}`,
-        timestamp: data.timestamp,
-        variant: "info",
-        ephemeral: true,
-      });
-      break;
-    }
-
-    case "permission_needs_attention": {
-      // LLM evaluation deferred, failed, or timed out — transition to normal pending state.
-      // Store the deferral reason so PermissionBanner can explain WHY.
-      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
-      if (data.reason) {
-        store.updatePermissionDeferralReason(sessionId, data.request_id, data.reason);
-      }
-      store.pauseStreamingTimer(sessionId);
-      if (!document.hasFocus() && store.notificationDesktop) {
-        sendBrowserNotification(
-          "Permission needed",
-          data.reason || "Auto-approval evaluation finished — needs your input",
-          data.request_id,
-        );
-      }
-      break;
-    }
-
     case "leader_group_idle": {
       console.log(
         `[notification] leader_group_idle: leader=${data.leader_label} members=${data.member_count} idle_for=${data.idle_for_ms}ms focus=${document.hasFocus()} sound=${store.notificationSound}`,
@@ -1243,12 +1182,6 @@ function handleParsedMessage(
           `leader-group-idle:${data.leader_session_id}`,
         );
       }
-      break;
-    }
-
-    case "permission_evaluating_status": {
-      // Auto-approver status transition (e.g., "queued" → "evaluating")
-      store.updatePermissionEvaluating(sessionId, data.request_id, data.evaluating);
       break;
     }
 

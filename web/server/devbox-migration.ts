@@ -417,7 +417,7 @@ function buildEntrySpecs(
     packagePath: "todos",
     notes: ["Copies the durable personal to-do list, categories, proposals, and scoped workflow grants."],
   });
-  for (const name of ["session-names.json", "auto-approval.json", "tree-groups.json"] as const) {
+  for (const name of ["session-names.json", "tree-groups.json"] as const) {
     specs.push({
       id: name.replace(/\.json$/, ""),
       category: "configuration",

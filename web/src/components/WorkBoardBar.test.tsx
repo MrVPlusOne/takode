@@ -89,7 +89,6 @@ vi.mock("../store.js", () => ({
       setExpandAllInTurn: mockSetExpandAllInTurn,
     }),
   }),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 // Mock BoardTable to avoid needing full store for QuestLink/WorkerLink.

@@ -8,10 +8,7 @@ function makeSession(): Session {
   return {
     id: "worker-1",
     backendType: "codex",
-    pendingPermissions: new Map([
-      ["human", { request_id: "human", tool_name: "Bash", input: {} }],
-      ["automatic", { request_id: "automatic", tool_name: "Read", input: {}, autoApproved: true }],
-    ]),
+    pendingPermissions: new Map([["human", { request_id: "human", tool_name: "Bash", input: {} }]]),
     isGenerating: true,
     lastUserMessage: "Inspect the synchronized navigation projection",
     state: {

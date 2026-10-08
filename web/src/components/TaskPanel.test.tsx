@@ -17,7 +17,6 @@ const { mockApi } = vi.hoisted(() => ({
     getSessionInfo: vi.fn().mockResolvedValue({ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 }),
     getSessionSystemPrompt: vi.fn().mockResolvedValue({ prompt: null }),
     getSessionInstructionContent: vi.fn(),
-    getAutoApprovalConfigForPath: vi.fn().mockResolvedValue({ config: null }),
     getHerdDiagnostics: vi.fn().mockResolvedValue({
       herdDispatcher: { pendingEventCount: 0, eventHistory: [] },
       isGenerating: false,
@@ -190,7 +189,6 @@ vi.mock("../store.js", () => {
   };
   return {
     useStore,
-    countUserPermissions: () => 0,
   };
 });
 
@@ -199,7 +197,6 @@ import {
   CodexInstructionsCollapsible,
   CodexRateLimitsSection,
   CodexTokenDetailsSection,
-  ClaudeMdCollapsible,
 } from "./TaskPanel.js";
 
 function instructionSnapshot(threadId: string) {
@@ -220,7 +217,6 @@ beforeEach(() => {
   mockApi.getClaudeMdFiles.mockResolvedValue({ cwd: "/repo", files: [] });
   mockApi.getSessionInfo.mockResolvedValue({ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 });
   mockApi.getSessionSystemPrompt.mockResolvedValue({ prompt: null });
-  mockApi.getAutoApprovalConfigForPath.mockResolvedValue({ config: null });
   resetStore();
 });
 
@@ -301,7 +297,6 @@ describe("TaskPanel", () => {
       expect(mockApi.getPRStatus).toHaveBeenCalledWith("/projected/cwd", "projected-branch");
       expect(mockApi.getSessionInfo).toHaveBeenCalledWith("s1");
       expect(mockApi.getClaudeMdFiles).not.toHaveBeenCalled();
-      expect(mockApi.getAutoApprovalConfigForPath).not.toHaveBeenCalled();
     });
   });
 
@@ -791,33 +786,6 @@ describe("TaskPanel", () => {
     expect(mockApi.getSessionSystemPrompt).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "CLAUDE.md" })).not.toBeInTheDocument();
     expect(mockApi.getClaudeMdFiles).not.toHaveBeenCalled();
-  });
-
-  it("shows Auto-Approval Rules in CLAUDE.md section when config exists", async () => {
-    mockApi.getClaudeMdFiles.mockResolvedValue({
-      cwd: "/repo",
-      files: [],
-    });
-    mockApi.getAutoApprovalConfigForPath.mockResolvedValue({
-      config: {
-        slug: "repo",
-        projectPath: "/repo",
-        label: "Repo defaults",
-        criteria: "Allow harmless commands",
-        enabled: true,
-      },
-    });
-    localStorage.setItem("cc-collapse-claudemd", "0");
-
-    render(<ClaudeMdCollapsible cwd="/repo" repoRoot="/repo" />);
-
-    await waitFor(() => expect(mockApi.getAutoApprovalConfigForPath).toHaveBeenCalledWith("/repo", "/repo"), {
-      timeout: 5000,
-    });
-
-    const autoApprovalButton = await screen.findByRole("button", { name: "Auto-Approval Rules" }, { timeout: 5000 });
-    fireEvent.click(autoApprovalButton);
-    await screen.findByText("Read-only", {}, { timeout: 5000 });
   });
 
   it("does not start herd diagnostics polling when the task panel is closed", () => {

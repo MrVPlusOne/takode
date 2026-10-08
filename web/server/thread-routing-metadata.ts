@@ -152,11 +152,7 @@ export function messageIdForThreadAttachment(entry: BrowserIncomingMessage, inde
     return entry.message.id;
   }
   if (
-    (entry.type === "permission_denied" ||
-      entry.type === "permission_approved" ||
-      entry.type === "permission_auto_approved" ||
-      entry.type === "permission_auto_denied" ||
-      entry.type === "permission_needs_attention") &&
+    (entry.type === "permission_denied" || entry.type === "permission_approved") &&
     typeof entry.request_id === "string" &&
     entry.request_id.trim()
   ) {

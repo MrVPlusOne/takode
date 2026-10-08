@@ -177,7 +177,7 @@ export function attachClaudeSdkAdapterLifecycle(
       const maybe = deps.handleSdkPermissionRequest(session, (msg as any).request);
       if (maybe instanceof Promise) {
         void maybe.catch((err) => {
-          console.error(`[ws-bridge] SDK auto-approval error for session ${sessionTag(session.id)}:`, err);
+          console.error(`[ws-bridge] SDK permission request error for session ${sessionTag(session.id)}:`, err);
         });
       }
       return;

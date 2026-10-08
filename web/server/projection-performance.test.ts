@@ -5,7 +5,6 @@ import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projec
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import {
   clearAttentionAndMarkRead,
-  countPendingUserPermissions,
   getNotificationStatusSnapshot,
   getSessionActivitySnapshot,
   getUserVisibleSessionNotifications,
@@ -558,7 +557,7 @@ function historicalNavigationControl(
     session: {
       attentionReason: fixture.worker.attentionReason ?? null,
       lastReadAt: fixture.worker.lastReadAt,
-      pendingPermissionCount: countPendingUserPermissions(fixture.worker),
+      pendingPermissionCount: fixture.worker.pendingPermissions.size,
       pendingPermissionSummary: summarizePendingPermissions(fixture.worker),
       ...getSessionActivitySnapshot(fixture.worker),
       status: "running",
@@ -699,7 +698,7 @@ function historicalAttentionGlobalControl(fixture: ProjectionFixture): BrowserIn
     session: {
       attentionReason: fixture.worker.attentionReason ?? null,
       lastReadAt: fixture.worker.lastReadAt,
-      pendingPermissionCount: countPendingUserPermissions(fixture.worker),
+      pendingPermissionCount: fixture.worker.pendingPermissions.size,
       pendingPermissionSummary: summarizePendingPermissions(fixture.worker),
       ...getNotificationStatusSnapshot(fixture.worker),
     },

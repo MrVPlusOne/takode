@@ -489,158 +489,12 @@ function CustomRuleEditor({
 // ── PermissionBanner — handles all non-ExitPlanMode permissions ─────────────
 // ExitPlanMode is handled by PlanReviewOverlay/PlanCollapsedChip via ChatView.
 
-// ── EvaluatingCollapsedChip — compact bar shown while LLM auto-approver is queued/evaluating ──
-
-export function EvaluatingCollapsedChip({
-  permission,
-  sessionId,
-  onExpand,
-}: {
-  permission: PermissionRequest;
-  sessionId: string;
-  onExpand: () => void;
-}) {
-  const toolName = permission.tool_name;
-  const desc =
-    permission.description ??
-    (toolName === "Bash" && typeof permission.input?.command === "string"
-      ? (permission.input.command as string)
-      : toolName);
-  const isQueued = permission.evaluating === "queued";
-
-  return (
-    <div className="px-2 sm:px-4 py-2 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl mx-auto">
-        <button
-          onClick={onExpand}
-          title={
-            isQueued
-              ? "Queued for auto-approval — click to expand and approve manually"
-              : "Evaluating for auto-approval — click to expand and approve manually"
-          }
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-cc-muted/20 bg-cc-muted/5 hover:bg-cc-muted/10 transition-colors cursor-pointer text-left"
-        >
-          {/* Icon: clock for queued, spinner for evaluating */}
-          <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-cc-muted/10 border border-cc-muted/20">
-            {isQueued ? (
-              // Clock icon (waiting in queue)
-              <svg
-                className="w-3.5 h-3.5 text-cc-muted"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 5v3l2 1.5" />
-              </svg>
-            ) : (
-              // Spinner icon (LLM call in progress)
-              <svg className="w-3.5 h-3.5 text-cc-muted animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="6"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeDasharray="28"
-                  strokeDashoffset="7"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </div>
-          <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-muted/10 text-cc-muted shrink-0">
-            {toolName}
-          </span>
-          <span className="text-[10px] text-cc-muted/60 shrink-0">{isQueued ? "queued" : "evaluating"}</span>
-          <span className="text-xs text-cc-muted truncate flex-1 min-w-0">{desc}</span>
-          <svg
-            className="w-3 h-3 text-cc-muted shrink-0"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M3 5l3 3 3-3" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function PermissionBanner({ permission, sessionId }: { permission: PermissionRequest; sessionId: string }) {
   const [loading, setLoading] = useState(false);
   const [stamping, setStamping] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [expandedFromEvaluating, setExpandedFromEvaluating] = useState(false);
   const [customEditorOpen, setCustomEditorOpen] = useState(false);
   const removePermission = useStore((s) => s.removePermission);
-
-  // Auto-dismiss auto-approved permissions that the user wasn't actively viewing.
-  // If the user had expanded from evaluating, keep it visible with an indicator.
-  useEffect(() => {
-    if (permission.autoApproved && !expandedFromEvaluating) {
-      const timer = setTimeout(() => {
-        removePermission(sessionId, permission.request_id);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [permission.autoApproved, expandedFromEvaluating, sessionId, permission.request_id, removePermission]);
-
-  // Show evaluating collapsed state when permission is being LLM-evaluated,
-  // unless the user has already expanded it for manual intervention.
-  if (permission.evaluating && !expandedFromEvaluating) {
-    return (
-      <EvaluatingCollapsedChip
-        permission={permission}
-        sessionId={sessionId}
-        onExpand={() => {
-          setExpandedFromEvaluating(true);
-          // Cancel auto-approval so the user can review manually
-          sendToSession(sessionId, {
-            type: "permission_user_viewing",
-            request_id: permission.request_id,
-          });
-        }}
-      />
-    );
-  }
-
-  // Auto-approved: user wasn't looking → render nothing while useEffect auto-dismisses
-  if (permission.autoApproved && !expandedFromEvaluating) {
-    return null;
-  }
-
-  // Auto-approved: user had expanded the evaluating dialog → show "auto-approved" indicator
-  if (permission.autoApproved) {
-    return (
-      <div className="px-2 sm:px-4 py-3 border-b border-cc-border bg-green-500/5 animate-[fadeSlideIn_0.2s_ease-out]">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-green-500 shrink-0">
-              <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.03 5.28a.75.75 0 00-1.06-1.06L7.25 7.94 6.03 6.72a.75.75 0 00-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l3.25-3.25z" />
-            </svg>
-            <span className="text-[13px] text-cc-fg truncate">
-              Auto-approved: <span className="text-cc-muted">{permission.autoApproved}</span>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => removePermission(sessionId, permission.request_id)}
-            className="text-[12px] text-cc-muted hover:text-cc-fg transition-colors cursor-pointer px-2 py-1 rounded hover:bg-cc-hover shrink-0"
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   function handleAllow(updatedInput?: Record<string, unknown>, updatedPermissions?: PermissionUpdate[]) {
     setLoading(true);
@@ -658,7 +512,7 @@ export function PermissionBanner({ permission, sessionId }: { permission: Permis
     // the stamping animation could play.
     //
     // Safety net: if the server already resolved this permission (e.g.,
-    // auto-approver won the race), the broadcast will never come. Clean
+    // another browser answered first), the broadcast will never come. Clean
     // up locally after a timeout to prevent a stuck zombie dialog.
     setTimeout(() => {
       removePermission(sessionId, permission.request_id);
@@ -801,16 +655,6 @@ export function PermissionBanner({ permission, sessionId }: { permission: Permis
                 </button>
               )}
             </div>
-
-            {/* Show when user took over from auto-approval */}
-            {expandedFromEvaluating && !permission.evaluating && (
-              <div className="text-[11px] text-amber-500/70 italic mb-1">Auto-approval cancelled — you took over</div>
-            )}
-
-            {/* Show why the auto-approver deferred this permission to the human */}
-            {!expandedFromEvaluating && permission.deferralReason && (
-              <div className="text-[11px] text-cc-warning/70 italic mb-1">{permission.deferralReason}</div>
-            )}
 
             {isAskUser ? (
               <AskUserQuestionDisplay

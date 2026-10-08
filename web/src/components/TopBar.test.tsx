@@ -271,15 +271,6 @@ vi.mock("../store.js", () => {
   useStore.getState = () => storeState;
   return {
     useStore,
-    countUserPermissions: (perms: Map<string, unknown> | undefined): number => {
-      if (!perms) return 0;
-      let count = 0;
-      for (const p of perms.values()) {
-        const perm = p as { evaluating?: boolean; autoApproved?: string };
-        if (!perm?.evaluating && !perm?.autoApproved) count++;
-      }
-      return count;
-    },
     getSessionSearchState: () => ({
       query: "",
       isOpen: false,

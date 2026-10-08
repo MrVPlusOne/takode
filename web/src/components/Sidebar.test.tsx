@@ -298,20 +298,8 @@ vi.mock("../store.js", () => {
     mockState = { ...mockState, ...next };
   };
 
-  /** countUserPermissions: count permissions excluding evaluating/auto-approved ones */
-  const countUserPermissions = (perms: Map<string, unknown> | undefined): number => {
-    if (!perms) return 0;
-    let count = 0;
-    for (const p of perms.values()) {
-      const perm = p as { evaluating?: boolean; autoApproved?: string };
-      if (!perm?.evaluating && !perm?.autoApproved) count++;
-    }
-    return count;
-  };
-
   return {
     useStore: useStoreFn,
-    countUserPermissions,
     hydrateChatDisplaySettingsFromServer: vi.fn(),
     hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
   };

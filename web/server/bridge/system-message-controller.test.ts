@@ -43,7 +43,6 @@ function makeDeps() {
     hasCompactBoundaryReplay: vi.fn(() => false),
     freezeHistoryThroughCurrentTail: vi.fn(),
     hasTaskNotificationReplay: vi.fn(() => false),
-    abortAutoApproval: vi.fn(),
     clearActionAttentionIfNoPermissions: vi.fn(),
   };
 }

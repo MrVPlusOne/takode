@@ -1,10 +1,10 @@
 /**
- * Tests for the permission pipeline's takode event emission behavior (q-205).
+ * Tests for the permission pipeline's outcomes and takode event emission (q-205).
  *
- * Validates that emitTakodePermissionRequest is called for ALL pipeline outcomes
- * that create a pending permission (both queued_for_llm_auto_approval and
- * pending_human), ensuring herded workers' permissions are always visible
- * to the leader session.
+ * Validates that emitTakodePermissionRequest is called whenever the pipeline
+ * creates a pending permission, ensuring herded workers' permissions are always
+ * visible to the leader session, and that instant approvals and hard denials
+ * never surface a pending prompt.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -13,31 +13,15 @@ import {
   type PermissionPipelineSession,
   type PermissionPipelineDeps,
 } from "./permission-pipeline.js";
-import type { AutoApprovalConfig } from "../auto-approval-store.js";
 
 // Mock the async dependencies so we can control the pipeline
-vi.mock("../auto-approver.js", () => ({
-  shouldAttemptAutoApproval: vi.fn(),
-}));
-
 vi.mock("./settings-rule-matcher.js", () => ({
   shouldSettingsRuleApprove: vi.fn(),
 }));
 
-import { shouldAttemptAutoApproval } from "../auto-approver.js";
 import { shouldSettingsRuleApprove } from "./settings-rule-matcher.js";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-const MOCK_AUTO_APPROVAL_CONFIG: AutoApprovalConfig = {
-  enabled: true,
-  criteria: "approve safe operations",
-  projectPath: "/tmp/test",
-  label: "test",
-  slug: "test-slug",
-  createdAt: Date.now(),
-  updatedAt: Date.now(),
-};
 
 function makeSession(overrides: Partial<PermissionPipelineSession> = {}): PermissionPipelineSession {
   return {
@@ -65,14 +49,13 @@ function makeDeps(): PermissionPipelineDeps<PermissionPipelineSession> {
 describe("permission pipeline takode event emission (q-205)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: settings rules don't match, auto-approval not configured
+    // Default: settings rules don't match
     vi.mocked(shouldSettingsRuleApprove).mockResolvedValue(null);
-    vi.mocked(shouldAttemptAutoApproval).mockResolvedValue(null);
   });
 
-  it("emits takode permission_request when permission is pending_human (no auto-approval)", async () => {
-    // When LLM auto-approval is not available, the pipeline should emit the
-    // takode event so the herd leader has visibility.
+  it("emits takode permission_request and schedules a notification when permission is pending_human", async () => {
+    // A permission that needs a human must be visible to the herd leader and
+    // trigger the delayed user notification.
     const session = makeSession();
     const deps = makeDeps();
 
@@ -98,43 +81,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         tool_name: "Bash",
       }),
     );
-  });
-
-  it("emits takode permission_request when permission is queued for LLM auto-approval (SDK sessions)", async () => {
-    // Regression test (q-205): previously, queued_for_llm_auto_approval did NOT
-    // emit the takode event, leaving the herd leader blind to permissions being
-    // evaluated by the LLM auto-approver.
-    // Note: SDK sessions go through the settings rule tier first, so we mock that
-    // to return no match.
-    vi.mocked(shouldAttemptAutoApproval).mockResolvedValue(MOCK_AUTO_APPROVAL_CONFIG);
-
-    const session = makeSession({ backendType: "claude-sdk" });
-    const deps = makeDeps();
-
-    const result = await handlePermissionRequest(
-      session,
-      {
-        request_id: "req-2",
-        tool_name: "Edit",
-        input: { file_path: "/tmp/test/foo.ts", old_string: "a", new_string: "b" },
-        tool_use_id: "tu-2",
-      },
-      "claude-sdk",
-      deps,
-      { activityReason: "permission_request" },
-    );
-
-    expect(result.kind).toBe("queued_for_llm_auto_approval");
-    // Key assertion: emitTakodePermissionRequest MUST be called even for
-    // queued_for_llm_auto_approval so the herd leader has visibility
-    expect(deps.emitTakodePermissionRequest).toHaveBeenCalledTimes(1);
-    expect(deps.emitTakodePermissionRequest).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        request_id: "req-2",
-        tool_name: "Edit",
-      }),
-    );
+    expect(deps.schedulePermissionNotification).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT emit takode permission_request for mode_auto_approved (bypassPermissions)", () => {
@@ -221,8 +168,8 @@ describe("permission pipeline takode event emission (q-205)", () => {
   });
 
   it("keeps sensitive ordinary tools pending for manual approval outside auto-approve modes", async () => {
-    // Sensitive protection still matters in manual sessions: edits to approval
-    // rules/instructions should be visible to a human instead of LLM-approved.
+    // Sensitive protection still matters in manual sessions: edits to
+    // instructions and settings should be visible to a human.
     const session = makeSession({
       state: { permissionMode: "default", cwd: "/tmp/test" },
     });
@@ -242,13 +189,11 @@ describe("permission pipeline takode event emission (q-205)", () => {
     );
 
     expect(result.kind).toBe("pending_human");
-    expect(result.request.deferralReason).toBe("Sensitive file — requires manual approval");
     expect(session.pendingPermissions.has("req-sensitive-manual")).toBe(true);
     expect(deps.broadcastPermissionRequest).toHaveBeenCalledWith(
       session,
       expect.objectContaining({
         request_id: "req-sensitive-manual",
-        deferralReason: "Sensitive file — requires manual approval",
       }),
     );
   });
@@ -294,34 +239,6 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(session.pendingPermissions.has("req-ask-interactive")).toBe(true);
     expect(session.pendingPermissions.has("req-plan-interactive")).toBe(true);
     expect(deps.broadcastPermissionRequest).toHaveBeenCalledTimes(2);
-  });
-
-  it("schedules notification only for pending_human, not for queued_for_llm", async () => {
-    // Notifications should only fire when a human needs to act. When the LLM
-    // is evaluating, the notification is premature.
-    vi.mocked(shouldAttemptAutoApproval).mockResolvedValue(MOCK_AUTO_APPROVAL_CONFIG);
-
-    const session = makeSession({ backendType: "claude-sdk" });
-    const deps = makeDeps();
-
-    const result = await handlePermissionRequest(
-      session,
-      {
-        request_id: "req-4",
-        tool_name: "Bash",
-        input: { command: "ls" },
-        tool_use_id: "tu-4",
-      },
-      "claude-sdk",
-      deps,
-      { activityReason: "permission_request" },
-    );
-
-    expect(result.kind).toBe("queued_for_llm_auto_approval");
-    // schedulePermissionNotification should NOT be called for LLM-queued permissions
-    expect(deps.schedulePermissionNotification).not.toHaveBeenCalled();
-    // But emitTakodePermissionRequest MUST still be called (q-205 fix)
-    expect(deps.emitTakodePermissionRequest).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT emit takode permission_request for settings_rule_approved", async () => {

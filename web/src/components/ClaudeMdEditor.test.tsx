@@ -4,14 +4,12 @@ import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 
 const mockApi = {
   getClaudeMdFiles: vi.fn(),
-  getAutoApprovalConfigForPath: vi.fn(),
   saveClaudeMd: vi.fn(),
 };
 
 vi.mock("../api.js", () => ({
   api: {
     getClaudeMdFiles: (...args: unknown[]) => mockApi.getClaudeMdFiles(...args),
-    getAutoApprovalConfigForPath: (...args: unknown[]) => mockApi.getAutoApprovalConfigForPath(...args),
     saveClaudeMd: (...args: unknown[]) => mockApi.saveClaudeMd(...args),
   },
 }));
@@ -19,7 +17,6 @@ vi.mock("../api.js", () => ({
 describe("ClaudeMdEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockApi.getAutoApprovalConfigForPath.mockResolvedValue({ config: null });
   });
 
   it("preselects the requested file path when opening", async () => {
@@ -97,28 +94,5 @@ describe("ClaudeMdEditor", () => {
     const body = screen.getByTestId("claude-md-editor-body");
     expect(body.className).toContain("flex-col");
     expect(body.className).toContain("sm:flex-row");
-  });
-
-  it("opens directly in auto-approval view when requested", async () => {
-    mockApi.getClaudeMdFiles.mockResolvedValue({
-      cwd: "/repo",
-      files: [{ path: "/repo/CLAUDE.md", content: "root file", writable: true }],
-    });
-    mockApi.getAutoApprovalConfigForPath.mockResolvedValue({
-      config: {
-        slug: "repo",
-        projectPath: "/repo",
-        label: "Repo defaults",
-        criteria: "Allow harmless commands",
-        enabled: true,
-      },
-    });
-
-    render(<ClaudeMdEditor cwd="/repo" open initialView="autoApproval" onClose={() => {}} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Read-only")).toBeTruthy();
-      expect(screen.getByText("Allow harmless commands")).toBeTruthy();
-    });
   });
 });

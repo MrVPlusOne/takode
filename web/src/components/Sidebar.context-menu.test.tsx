@@ -204,7 +204,6 @@ vi.mock("../store.js", () => {
   };
   return {
     useStore: useStoreFn,
-    countUserPermissions: (perms: Map<string, unknown> | undefined) => perms?.size ?? 0,
     hydrateChatDisplaySettingsFromServer: vi.fn(),
     hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
   };

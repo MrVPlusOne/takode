@@ -180,7 +180,7 @@ vi.mock("../store.js", async () => {
   };
   // Add getState for imperative access (used by Composer for clearComposerDraft etc.)
   useStore.getState = () => mockStoreState;
-  return { useStore, countUserPermissions: () => 0 };
+  return { useStore };
 });
 
 import { Composer } from "./Composer.js";

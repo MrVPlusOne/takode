@@ -195,7 +195,6 @@ import {
   hasPendingForceCompact as hasPendingForceCompactController,
   isCliSlashCommand as isCliSlashCommandController,
   queueForceCompactPendingMessage as queueForceCompactPendingMessageController,
-  tryLlmAutoApproval as tryLlmAutoApprovalController,
 } from "./bridge/adapter-browser-routing-controller.js";
 import {
   interruptSession as interruptSessionController,
@@ -1626,14 +1625,6 @@ export class WsBridge {
 
   private static isSensitiveBashCommand(command: string): boolean {
     return isSensitiveBashCommandPolicy(command);
-  }
-
-  private abortAutoApproval(session: Session, requestId: string): void {
-    const abort = session.evaluatingAborts.get(requestId);
-    if (abort) {
-      abort.abort();
-      session.evaluatingAborts.delete(requestId);
-    }
   }
 
   private collectCompletedToolStartTimes(

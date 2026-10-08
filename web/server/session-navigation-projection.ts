@@ -13,7 +13,6 @@ import {
 import { deriveAskPermissionForMode } from "../shared/permission-modes.js";
 import { normalizePersistedBackendType } from "./session-types.js";
 import { isCodexLeaderRecycleMode } from "../shared/codex-leader-compaction-mode.js";
-import { countPendingUserPermissions } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
@@ -176,7 +175,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     status: deps.getSessionStatus(session.id),
     cliConnected,
     killedByIdleManager: launcherInfo?.killedByIdleManager === true,
-    pendingPermissionCount: countPendingUserPermissions(session),
+    pendingPermissionCount: session.pendingPermissions.size,
     pendingTimerCount: nonNegativeInteger(deps.getPendingTimerCount(session.id)),
     leaseWaitResource: boundedNullableText(deps.getLeaseWaitResourceKeys(session.id).join(", ") || null),
     paused: pause !== null,

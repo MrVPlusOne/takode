@@ -308,13 +308,6 @@ export interface AppState {
   ) => void;
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
-  updatePermissionEvaluating: (
-    sessionId: string,
-    requestId: string,
-    evaluating: "queued" | "evaluating" | undefined,
-  ) => void;
-  updatePermissionDeferralReason: (sessionId: string, requestId: string, reason: string) => void;
-  markPermissionAutoApproved: (sessionId: string, requestId: string, reason: string) => void;
   clearPermissions: (sessionId: string) => void;
   pauseStreamingTimer: (sessionId: string) => void;
   resumeStreamingTimer: (sessionId: string) => void;

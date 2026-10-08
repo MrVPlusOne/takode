@@ -32,7 +32,6 @@ vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState), {
     getState: () => mockStoreState,
   }),
-  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 vi.mock("../api.js", () => ({

@@ -286,7 +286,6 @@ export interface CliUserReplaySessionLike {
 }
 
 interface PassthroughMessageDeps {
-  abortAutoApproval: (session: CliMessageRouteSessionLike, requestId: string) => void;
   broadcastToBrowsers: (
     session: CliMessageRouteSessionLike,
     msg: BrowserIncomingMessage,
@@ -1279,7 +1278,6 @@ export function createClaudeMessageHandlers(
   };
 
   const passthroughDeps: PassthroughMessageDeps = {
-    abortAutoApproval: deps.abortAutoApproval,
     broadcastToBrowsers: deps.broadcastToBrowsers,
     cancelPermissionNotification: deps.cancelPermissionNotification,
     clearActionAttentionIfNoPermissions: deps.clearActionAttentionIfNoPermissions,
@@ -1678,7 +1676,6 @@ function handleControlCancelRequestMessage(
   const reqId = msg.request_id;
   const pending = session.pendingPermissions.get(reqId);
   if (!pending) return;
-  deps.abortAutoApproval(session, reqId);
   session.pendingPermissions.delete(reqId);
   deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
   deps.cancelPermissionNotification(session.id, reqId);

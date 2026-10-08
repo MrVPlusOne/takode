@@ -879,51 +879,6 @@ export const useStore = create<AppState>((set, get) => ({
       return { pendingPermissions };
     }),
 
-  updatePermissionEvaluating: (sessionId, requestId, evaluating) =>
-    set((s) => {
-      const pendingPermissions = new Map(s.pendingPermissions);
-      const sessionPerms = pendingPermissions.get(sessionId);
-      if (sessionPerms) {
-        const perm = sessionPerms.get(requestId);
-        if (perm) {
-          const updated = new Map(sessionPerms);
-          updated.set(requestId, { ...perm, evaluating });
-          pendingPermissions.set(sessionId, updated);
-        }
-      }
-      return { pendingPermissions };
-    }),
-
-  updatePermissionDeferralReason: (sessionId, requestId, deferralReason) =>
-    set((s) => {
-      const pendingPermissions = new Map(s.pendingPermissions);
-      const sessionPerms = pendingPermissions.get(sessionId);
-      if (sessionPerms) {
-        const perm = sessionPerms.get(requestId);
-        if (perm) {
-          const updated = new Map(sessionPerms);
-          updated.set(requestId, { ...perm, deferralReason });
-          pendingPermissions.set(sessionId, updated);
-        }
-      }
-      return { pendingPermissions };
-    }),
-
-  markPermissionAutoApproved: (sessionId, requestId, reason) =>
-    set((s) => {
-      const pendingPermissions = new Map(s.pendingPermissions);
-      const sessionPerms = pendingPermissions.get(sessionId);
-      if (sessionPerms) {
-        const perm = sessionPerms.get(requestId);
-        if (perm) {
-          const updated = new Map(sessionPerms);
-          updated.set(requestId, { ...perm, evaluating: undefined, autoApproved: reason });
-          pendingPermissions.set(sessionId, updated);
-        }
-      }
-      return { pendingPermissions };
-    }),
-
   clearPermissions: (sessionId) =>
     set((s) => {
       const pendingPermissions = new Map(s.pendingPermissions);
@@ -1764,5 +1719,3 @@ export const hydrateShortcutSettingsFromServer = createShortcutSettingsHydrator(
 export const hydrateChatDisplaySettingsFromServer = createChatDisplaySettingsHydrator((lineHeight) =>
   useStore.setState({ chatMessageLineHeight: lineHeight }),
 );
-
-export { countUserPermissions } from "./store-permissions.js";

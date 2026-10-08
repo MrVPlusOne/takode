@@ -54,7 +54,6 @@ function countTitleAttention({
     sessionStatus,
     cliConnected: new Map(sdkSessions.map((session) => [session.sessionId, true])),
     cliDisconnectReason: new Map(),
-    countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
   };
   return getDocumentTitleAttentionCount(state);
 }

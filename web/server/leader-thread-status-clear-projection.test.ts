@@ -41,7 +41,6 @@ function leaderSession(messageHistory: BrowserIncomingMessage[] = []) {
     attentionRecords: [],
     notifications: [],
     pendingPermissions: new Map(),
-    evaluatingAborts: new Map(),
     pendingMessages: [],
     pendingCodexTurns: [],
     pendingCodexInputs: [],
