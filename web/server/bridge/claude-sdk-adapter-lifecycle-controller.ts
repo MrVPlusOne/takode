@@ -1,3 +1,4 @@
+import { openTurnStartedAt } from "../remote-host/host-restart-gate.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
@@ -104,6 +105,14 @@ export function attachClaudeSdkAdapterLifecycle(
     // queued before the relaunch (such as a restart continuation) would wait
     // forever for a replay that only that input can trigger.
     scheduleResumeSettled();
+  }
+
+  // A process taken over after a server restart may still be in the turn its
+  // history shows open. Restored sessions are idle, and the CLI sends nothing
+  // more until that turn produces output, so mark it running now.
+  if (adapter.reattached && !session.isGenerating && openTurnStartedAt(session.messageHistory) !== null) {
+    deps.setGenerating(session, true, "claude_reattach");
+    deps.broadcastToBrowsers(session, { type: "status_change", status: "running" });
   }
 
   if (!session.cliResuming && session.pendingMessages.length > 0) {

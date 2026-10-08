@@ -1,9 +1,15 @@
+import { RESTART_EXIT_CODE } from "./constants.js";
 import { serverWorkAdmission, type ServerWorkAdmission } from "./server-work-admission.js";
 
 export interface ServerShutdownOptions {
   stopWork: () => void;
   settleWork: () => Promise<void>;
   cancelFrontendPreparation: () => Promise<void>;
+  /**
+   * End the sessions whose processes outlive this server under a node. Only a
+   * stop does this; a restart leaves them running for the next server to take over.
+   */
+  stopSessions: () => Promise<void>;
   stopListener: () => Promise<void>;
   persist: () => Promise<void>;
   cleanupFrontend: () => Promise<void>;
@@ -36,6 +42,8 @@ export class ServerShutdown {
 
   private async finish(exitCode: number): Promise<void> {
     await this.bounded("frontend-preparation", this.options.cancelFrontendPreparation);
+    // Before the listener closes, while the nodes are still connected to receive the stop.
+    if (exitCode !== RESTART_EXIT_CODE) await this.bounded("sessions", this.options.stopSessions);
     const listenerStopped = await this.bounded("listener", this.options.stopListener);
     if (!(await this.preservationBarrier("accepted-work", this.options.settleWork))) return;
     if (!(await this.preservationBarrier("persistence", this.options.persist))) return;

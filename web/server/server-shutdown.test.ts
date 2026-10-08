@@ -20,6 +20,7 @@ function setup(overrides: Partial<ServerShutdownOptions> = {}) {
     stopWork: vi.fn(),
     settleWork: () => admission.drain(),
     cancelFrontendPreparation: vi.fn(async () => {}),
+    stopSessions: vi.fn(async () => {}),
     stopListener: vi.fn(async () => {}),
     persist: vi.fn(async () => {}),
     cleanupFrontend: vi.fn(async () => {}),
@@ -58,6 +59,27 @@ describe("server shutdown", () => {
     await operation;
     expect(h.options.cleanupFrontend).toHaveBeenCalledOnce();
     expect(h.options.exit).toHaveBeenCalledExactlyOnceWith(42);
+  });
+
+  it("stops node-run sessions before closing the listener on a stop, and keeps them on a restart", async () => {
+    // A stop must reach the nodes while their links are still open; a restart
+    // leaves the sessions running for the next server to take over.
+    const order: string[] = [];
+    const stop = setup({
+      stopSessions: vi.fn(async () => {
+        order.push("sessions");
+      }),
+      stopListener: vi.fn(async () => {
+        order.push("listener");
+      }),
+    });
+    await stop.shutdown.request(0);
+    expect(order).toEqual(["sessions", "listener"]);
+
+    const restart = setup();
+    await restart.shutdown.request(42);
+    expect(restart.options.stopSessions).not.toHaveBeenCalled();
+    expect(restart.options.exit).toHaveBeenCalledWith(42);
   });
 
   it("continues after a stuck listener but preserves its frontend until process exit", async () => {

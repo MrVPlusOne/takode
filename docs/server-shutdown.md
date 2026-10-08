@@ -5,6 +5,13 @@ shutdown starts. Work already accepted may finish handing off its pending state;
 already-running backend output can still be recorded. Repeated signals or restart
 requests share one shutdown operation.
 
+A stop (`SIGTERM`, `SIGINT`) first stops every session whose process runs
+under a connected `takode node`, on this machine or a remote host, and then
+this machine's node, while the nodes are still connected to receive it. A restart
+(the Restart Server button) skips this so the next server takes those sessions
+over. `takode restart` of an installed service stops the server with `SIGTERM`
+and starts it again, so it stops them too.
+
 Listener and non-data cleanup stages have a five-second budget each. Bun 1.3.10
 can leave `server.stop(true)` pending after a server-initiated WebSocket close,
 even when the client has closed. A listener timeout is logged and shutdown

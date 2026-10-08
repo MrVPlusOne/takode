@@ -264,18 +264,24 @@ hostLinks.canRestartHost = (hostId) =>
     bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
     coordinatorStartedAt,
   });
-// Stopped like idle sessions, they relaunch on their next message after the update.
-hostLinks.stopHostSessions = async (hostId) => {
-  const live = launcher
-    .listSessions()
-    .filter((s) => processHostOf(s) === hostId && !s.archived && s.state !== "exited");
+/**
+ * Stop the live sessions whose processes run under a node on the matching
+ * hosts. Stopped like idle sessions, they relaunch on their next message.
+ */
+async function stopNodeSessions(onHost: (hostId: string) => boolean): Promise<void> {
+  const live = launcher.listSessions().filter((s) => {
+    const host = processHostOf(s);
+    return host !== undefined && onHost(host) && !s.archived && s.state !== "exited";
+  });
   await Promise.all(
     live.map((s) => {
       s.killedByIdleManager = true;
       return wsBridge.killSession(s.sessionId);
     }),
   );
-};
+}
+// Before a host's node restarts for an update.
+hostLinks.stopHostSessions = (hostId) => stopNodeSessions((host) => host === hostId);
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
@@ -1380,6 +1386,14 @@ const shutdown = new ServerShutdown({
     await serverWorkAdmission.drain();
   },
   cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),
+  // A stop ends the sessions of every connected node, here or on another host;
+  // nobody would see their output until the next start. A host that is offline
+  // cannot be told, so its sessions wait to be taken over as after a restart.
+  // This machine's node goes too.
+  stopSessions: async () => {
+    await stopNodeSessions((host) => hostLinks.status(host).online);
+    await localNode.shutdown();
+  },
   stopListener: () => server.stop(true),
   persist: async () => {
     herdEventDispatcher.preservePendingForShutdown();

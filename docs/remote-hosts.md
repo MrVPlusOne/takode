@@ -146,6 +146,12 @@ What survives what:
 - **Network drops, host sleep and coordinator restarts:** sessions keep running.
   The host buffers their output and replays it when the link returns, and agent
   CLIs on the host wait for the coordinator instead of failing.
+- **Stopping the coordinator** (Ctrl-C, `SIGTERM`; anything but a restart):
+  stops the sessions on every connected host, since nobody would see their
+  output until the next start. They relaunch and resume their conversation the
+  next time they are used; `takode node` itself keeps running. A host that is
+  offline at that moment cannot be told, so its sessions keep running and the
+  next start takes them over, as after a restart.
 - **Restarting `takode node`:** ends the sessions it was running. They relaunch
   and resume their conversation the next time they are used.
 
@@ -157,7 +163,9 @@ machine, the first entry in **Settings → Hosts**. The server then starts a `ta
 runs the processes of sessions without a host under it. After a restart, the
 new server takes them over when that node reconnects: a turn in progress keeps
 running, its output arrives, and a pending permission prompt is asked again.
-Running sessions move to the node the next time they start.
+Running sessions move to the node the next time they start. Sessions that start
+while the node is still connecting, such as just after the server starts, wait
+for it; if it does not connect within 30 seconds, they start without it.
 
 The server supervises this node itself: it starts it with the server (also
 after a reboot), lets a running one reconnect after a restart, and replaces one
@@ -166,10 +174,12 @@ server's own checkout, so an update restarts it on that checkout's code, only
 while none of its sessions is in a turn. Its log is
 `~/.companion/logs/local-node-<serverId>.log`.
 
-Stopping the server leaves the node and its sessions running, so the next start
-takes them over. Turning the setting off stops the node once no session runs
-on it. To stop it at once, end its process (it is the `takode-node.ts` process
-with `--shared-checkout`); its sessions then relaunch when next used.
+Only a restart (the Restart Server button) leaves the node and its sessions
+running for the next server to take over. Stopping the server stops its
+sessions and then the node; they relaunch when next used. Turning the setting
+off stops the node once no session runs on it. To stop it at once, end its
+process (it is the `takode-node.ts` process with `--shared-checkout`); its
+sessions then relaunch when next used.
 
 ## Updating Takode
 

@@ -44,7 +44,7 @@ export function hostCanRestart(
 }
 
 /** When the last user message without a later result was sent, or null when the last turn finished. */
-function openTurnStartedAt(history: BridgeTurnView["messageHistory"]): number | null {
+export function openTurnStartedAt(history: BridgeTurnView["messageHistory"]): number | null {
   for (let index = history.length - 1; index >= 0; index--) {
     const message = history[index]!;
     if (message.type === "result") return null;

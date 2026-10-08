@@ -220,6 +220,7 @@ describe("frontend snapshot shutdown", () => {
       stopWork: () => {},
       settleWork: async () => {},
       cancelFrontendPreparation: async () => {},
+      stopSessions: async () => {},
       stopListener: () => server.stop(true),
       persist: async () => {},
       cleanupFrontend: cleanup,

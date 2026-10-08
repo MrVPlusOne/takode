@@ -43,7 +43,8 @@ export interface LocalNodeOptions {
  * reused pid is never mistaken for it, and lets it reconnect. A node that is
  * gone, or stays disconnected for longer than the grace period, is replaced.
  * Once turned off, a node still running from before keeps its processes until
- * they end, and is then stopped.
+ * they end, and is then stopped. Stopping the server ends the node too; only a
+ * restart leaves it running for the next server.
  */
 export class LocalNode {
   private readonly tokenFile: string;
@@ -55,6 +56,10 @@ export class LocalNode {
   private offlineSince: number | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private checking: Promise<void> | null = null;
+  /** A node did not connect within the grace period, and none has connected since. */
+  private failedToConnect = false;
+  /** Set when the server stops, so nothing starts the node again. */
+  private shutDown = false;
 
   constructor(private readonly options: LocalNodeOptions) {
     const dir = options.companionDir ?? join(homedir(), ".companion");
@@ -81,9 +86,31 @@ export class LocalNode {
     this.timer = null;
   }
 
-  /** Whether sessions without a host should start their processes under the node now. */
+  /**
+   * End the node for good when the server stops; its sessions should already
+   * be stopped, and the node ends any process still running under it.
+   */
+  async shutdown(): Promise<void> {
+    this.shutDown = true;
+    this.stop();
+    await this.checking;
+    const pid = await this.runningPid();
+    if (pid === null) return;
+    this.log(`Stopping the local node (pid ${pid}) with the server`);
+    this.signal(pid, "SIGTERM");
+  }
+
+  /**
+   * Whether sessions without a host should start their processes under the
+   * node now. A node that is starting or reconnecting takes them too, and they
+   * start once it connects, so sessions launched just after a server start do
+   * not miss it. Once a node fails to connect in time, launches start directly
+   * until one connects.
+   */
   ready(): boolean {
-    return this.options.registry.localNodeEnabled() && this.options.links.status(LOCAL_HOST_ID).online;
+    if (!this.options.registry.localNodeEnabled()) return false;
+    if (this.options.links.status(LOCAL_HOST_ID).online) return true;
+    return this.offlineSince !== null && !this.failedToConnect;
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -95,6 +122,7 @@ export class LocalNode {
 
   /** Bring the node in line with the setting. Concurrent calls share one run. */
   check(): Promise<void> {
+    if (this.shutDown) return Promise.resolve();
     this.checking ??= this.reconcile()
       .catch((error) => this.log(`Check failed: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => {
@@ -109,6 +137,7 @@ export class LocalNode {
     const status = links.status(LOCAL_HOST_ID);
     if (status.online) {
       this.offlineSince = null;
+      this.failedToConnect = false;
       if (!enabled && status.processes === 0) {
         const pid = await this.runningPid();
         if (pid !== null) {
@@ -128,6 +157,7 @@ export class LocalNode {
       this.log(`The local node (pid ${pid}) has not connected for ${CONNECT_GRACE_MS / 1000}s; replacing it`);
       this.signal(pid, "SIGTERM");
     }
+    if (waitedOut) this.failedToConnect = true;
     // Nothing will take over processes still waiting for a node that is gone.
     if (!enabled || waitedOut) links.release(LOCAL_HOST_ID, "This machine's node is not running");
     if (enabled) await this.launch();

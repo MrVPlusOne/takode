@@ -195,6 +195,37 @@ describe("claude-sdk-adapter-lifecycle-controller", () => {
     );
   });
 
+  // A Claude process taken over after a server restart sends nothing until its
+  // turn produces output, so the turn its history shows open must show as
+  // running from the takeover, not only once more output arrives.
+  it("marks a taken-over Claude process running when its history shows an open turn", () => {
+    const openTurn = [
+      { type: "user_message", content: "first", timestamp: 1 },
+      { type: "result", data: {} },
+      { type: "user_message", content: "second", timestamp: 2 },
+    ];
+    const reattached = makeSession({ messageHistory: openTurn, isGenerating: false });
+    const reattachedDeps = makeDeps(reattached);
+    attachClaudeSdkAdapterLifecycle("s1", { ...makeAdapterMock(), reattached: true }, reattachedDeps);
+    expect(reattachedDeps.setGenerating).toHaveBeenCalledWith(reattached, true, "claude_reattach");
+    expect(reattachedDeps.broadcastToBrowsers).toHaveBeenCalledWith(reattached, {
+      type: "status_change",
+      status: "running",
+    });
+
+    // A finished last turn stays idle.
+    const finished = makeSession({ messageHistory: openTurn.slice(0, 2), isGenerating: false });
+    const finishedDeps = makeDeps(finished);
+    attachClaudeSdkAdapterLifecycle("s1", { ...makeAdapterMock(), reattached: true }, finishedDeps);
+    expect(finishedDeps.setGenerating).not.toHaveBeenCalled();
+
+    // A fresh (resumed) process restarts no turn: the restart interrupted it.
+    const relaunched = makeSession({ messageHistory: openTurn, isGenerating: false });
+    const relaunchedDeps = makeDeps(relaunched);
+    attachClaudeSdkAdapterLifecycle("s1", makeAdapterMock(), relaunchedDeps);
+    expect(relaunchedDeps.setGenerating).not.toHaveBeenCalled();
+  });
+
   // Verifies that stale pendingPermissions are cleared when the SDK adapter
   // disconnects, preventing takode answer from resolving the wrong request_id
   // after a reconnect.

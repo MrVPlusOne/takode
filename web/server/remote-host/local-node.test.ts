@@ -65,8 +65,9 @@ describe("LocalNode", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // Turning the node on starts it with a token only it and this server know;
-  // sessions start under it only once it has connected.
+  // Turning the node on starts it with a token only it and this server know.
+  // Sessions start under it from then on: launched before it connects, their
+  // processes start when it does.
   it("starts the node when turned on, with a private token the registry accepts", async () => {
     await node.check();
     expect(started).toEqual([]);
@@ -88,7 +89,7 @@ describe("LocalNode", () => {
     expect(await registry.authenticate((await readFile(tokenFile, "utf-8")).trim())).toMatchObject({
       id: LOCAL_HOST_ID,
     });
-    expect(node.ready()).toBe(false);
+    expect(node.ready()).toBe(true);
     link.online = true;
     expect(node.ready()).toBe(true);
   });
@@ -106,17 +107,26 @@ describe("LocalNode", () => {
     expect(started).toHaveLength(1);
     expect(signals).toEqual([]);
 
+    expect(node.ready()).toBe(true);
+
     now += 30_000;
     await node.check();
     expect(signals).toEqual([[500, "SIGTERM"]]);
     expect(link.released).toEqual(["This machine's node is not running"]);
     expect(started).toHaveLength(2);
     expect(await readFile(join(dir, "hosts", "server-1-local-node.token"), "utf-8")).toBe(token);
+    // Released sessions start again directly rather than waiting on another node that may not come.
+    expect(node.ready()).toBe(false);
 
     // The replacement gets its own grace period.
     now += 10_000;
     await node.check();
     expect(started).toHaveLength(2);
+
+    // Once a node connects, sessions start under it again.
+    link.online = true;
+    await node.check();
+    expect(node.ready()).toBe(true);
   });
 
   // A node that exited (to update, or a crash) is started again at once.
@@ -145,6 +155,19 @@ describe("LocalNode", () => {
     link.processes = 0;
     await node.check();
     expect(signals).toEqual([[500, "SIGTERM"]]);
+  });
+
+  // A server stop ends the node, and nothing starts it again while the server
+  // finishes stopping, even though the node now shows as gone.
+  it("ends the node when the server stops and does not start another", async () => {
+    await node.setEnabled(true);
+    link.online = true;
+    await node.shutdown();
+    expect(signals).toEqual([[500, "SIGTERM"]]);
+
+    link.online = false;
+    await node.check();
+    expect(started).toHaveLength(1);
   });
 
   // The node reaches this server on an address of this machine.

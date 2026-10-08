@@ -25,7 +25,7 @@ it("exits after a real server-closed WebSocket even when Bun retains the stop pr
     let cleaned = false;
     const shutdown = new ServerShutdown({
       stopWork: () => { stopped = true; }, settleWork: async () => {},
-      cancelFrontendPreparation: async () => {}, stopListener: () => server.stop(true),
+      cancelFrontendPreparation: async () => {}, stopSessions: async () => {}, stopListener: () => server.stop(true),
       persist: async () => { if (!stopped) throw new Error("work still active"); saved = true; },
       cleanupFrontend: async () => { cleaned = true; }, flushLogs: async () => {},
       log: (message, details) => stages.push({message, ...details}), stageTimeoutMs: 50,
