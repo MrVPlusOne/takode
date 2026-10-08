@@ -65,9 +65,18 @@ export async function prepareWorktreeForSessionCreate(options: {
   // requested cwd is itself a worktree, the current branch is still the
   // user-visible source of truth; falling back to the parent/default branch
   // would silently lose the leader/worktree target context.
-  const targetBranch = body.branch || repoInfo.currentBranch;
+  // A detached checkout reports `HEAD`, which is no branch: used as one it
+  // resolves to origin/HEAD, the remote's default branch.
+  const namedBranch = (branch: unknown) => (typeof branch === "string" && branch !== "HEAD" ? branch : "");
+  const targetBranch = namedBranch(body.branch) || namedBranch(repoInfo.currentBranch);
   if (!targetBranch) {
-    fail("Unable to determine branch for worktree session", 400, "creating_worktree");
+    fail(
+      repoInfo.currentBranch === "HEAD"
+        ? `${worktreeCwd} has no branch checked out (detached HEAD); check out a branch or choose one`
+        : "Unable to determine branch for worktree session",
+      400,
+      "creating_worktree",
+    );
   }
 
   const requestedPortTarget =

@@ -597,20 +597,24 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const reasoningEffort = resolveReasoningEffort(flags);
   const serviceTierOverride = resolveServiceTier(flags);
   const maxContextOverride = resolveMaxContext(flags);
+  const hostId = hostName ? await resolveHostId(base, hostName) : undefined;
+  // `--host` naming the leader's own machine is a same-machine spawn.
+  const workerOnOtherMachine = hostId !== undefined && hostId !== (leader.hostId || undefined);
   const leaderWorktreeTargetBranch =
-    leader.isWorktree === true
-      ? (leader.actualBranch || leader.gitBranch || leader.branch || "").trim() || undefined
-      : undefined;
+    leader.isWorktree === true ? namedBranch(leader.actualBranch || leader.gitBranch || leader.branch) : undefined;
   const explicitCwdMatchesLeaderWorktree =
-    explicitCwd !== undefined && leader.cwd ? resolve(explicitCwd) === resolve(leader.cwd) : false;
+    explicitCwd !== undefined && leader.cwd && !workerOnOtherMachine
+      ? resolve(explicitCwd) === resolve(leader.cwd)
+      : false;
   const shouldUseLeaderWorktreeTarget =
     leaderWorktreeTargetBranch !== undefined &&
     useWorktree &&
     (explicitCwd === undefined || explicitCwdMatchesLeaderWorktree);
   // A worker on another machine still lands its commits in the leader's checkout.
+  // On the leader's own machine, the `--cwd` checkout's branch applies, as for local spawns.
   const remotePortTargetBranch =
-    hostName && useWorktree
-      ? (leaderWorktreeTargetBranch ?? (leader.gitBranch || leader.branch || "").trim()) || undefined
+    workerOnOtherMachine && useWorktree
+      ? (leaderWorktreeTargetBranch ?? namedBranch(leader.gitBranch || leader.branch))
       : undefined;
 
   // --reviewer <session-number>: create a reviewer session tied to a parent worker
@@ -712,8 +716,6 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const inheritBypass = leader.permissionMode === "bypassPermissions";
   const inheritedCodexPermissionMode =
     backendRaw === "codex" && isCodexProfilePermissionMode(leader.permissionMode) ? leader.permissionMode : undefined;
-
-  const hostId = hostName ? await resolveHostId(base, hostName) : undefined;
 
   const buildCreatePayload = (): Record<string, unknown> => {
     const createPayload: Record<string, unknown> = {
@@ -1857,6 +1859,12 @@ export async function handlePhases(base: string, args: string[]): Promise<void> 
     console.log(`  leader brief: ${phase.leaderBriefDisplayPath}`);
     console.log(`  phase metadata: ${phase.phaseJsonDisplayPath}`);
   }
+}
+
+/** A checkout's branch name, or undefined when it has none (a detached checkout reports `HEAD`). */
+function namedBranch(branch: string | null | undefined): string | undefined {
+  const name = branch?.trim();
+  return name && name !== "HEAD" ? name : undefined;
 }
 
 async function resolveHostId(base: string, name: string): Promise<string> {

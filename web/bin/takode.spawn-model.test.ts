@@ -260,4 +260,53 @@ describe("takode spawn model payloads", () => {
     });
     expect((createBodies[0].worktreePortTarget as JsonObject).hostId).toBeUndefined();
   });
+
+  // A leader already on the host spawns there like a local spawn: the `--cwd`
+  // checkout's own branch is the base and port target, which the server reads
+  // on the host. The leader's detached checkout (branch `HEAD`) must not become
+  // the branch, or the worktree would start from origin/HEAD.
+  it("leaves the base branch to the host checkout when the leader is on that host", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const route = `${req.method} ${req.url}`;
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (route === "GET /api/takode/me") return json(200, { sessionId: "leader-on-host", isOrchestrator: true });
+      if (route === "GET /api/sessions/leader-on-host") {
+        return json(200, {
+          sessionId: "leader-on-host",
+          backendType: "claude",
+          cwd: "/home/coder/takode",
+          repoRoot: "/home/coder/takode",
+          gitBranch: "HEAD",
+          hostId: "host-id-1",
+        });
+      }
+      if (route === "GET /api/hosts") return json(200, { hosts: [{ id: "host-id-1", name: "devbox" }] });
+      if (route === "POST /api/sessions/create") {
+        createBodies.push(await readJson(req));
+        return json(200, { sessionId: "worker-on-host" });
+      }
+      if (route === "GET /api/sessions/worker-on-host/info") {
+        return json(200, { sessionId: "worker-on-host", sessionNum: 54, state: "running", cwd: "/home/coder/app" });
+      }
+      return json(404, { error: "not found" });
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-on-host", COMPANION_AUTH_TOKEN: "auth-host" };
+    const args = ["spawn", "--port", String(port), "--host", "devbox", "--cwd", "/home/coder/app"];
+    const result = await runTakode(args, env);
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0]).toMatchObject({ cwd: "/home/coder/app", useWorktree: true, hostId: "host-id-1" });
+    expect(createBodies[0].branch).toBeUndefined();
+    expect(createBodies[0].worktreePortTarget).toBeUndefined();
+  });
 });

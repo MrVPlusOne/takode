@@ -3,6 +3,7 @@ import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
+import { prepareWorktreeForSessionCreate } from "../routes/session-worktree-create.js";
 import { HostAgent } from "./host-agent.js";
 import { HostLinkManager } from "./host-link-manager.js";
 import { onMachine } from "./host-operations.js";
@@ -101,5 +102,42 @@ describe("host operations", () => {
     await expect(requestOnHost(hostId, { kind: "operation", name: "constructor", args: [] }, 5_000)).rejects.toThrow(
       "Unknown host operation: constructor",
     );
+  });
+
+  // A worktree session created on a host starts from the branch checked out in
+  // the host's clone, not from the remote's default branch. A clone has
+  // origin/HEAD, so a detached checkout reporting `HEAD` used to resolve to
+  // origin/main; it now fails with a clear message instead.
+  it("bases a host worktree on the clone's checked-out branch", async () => {
+    git(repo, "checkout", "-q", "-b", "jiayi");
+    git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "j");
+    const jiayiTip = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "main");
+    const clone = join(dir, "clone");
+    execFileSync("git", ["clone", "-q", repo, clone]);
+    git(clone, "checkout", "-q", "jiayi");
+    const create = (cwd: string) =>
+      prepareWorktreeForSessionCreate({
+        body: { useWorktree: true },
+        cwd,
+        hostId,
+        isOrchestrator: false,
+        emit: async () => {},
+        throwPreparationError: (message) => {
+          throw new Error(message);
+        },
+      });
+
+    const result = await create(clone);
+    expect(result?.worktreeInfo).toMatchObject({
+      repoRoot: clone,
+      branch: "jiayi",
+      actualBranch: expect.stringMatching(/^jiayi-wt-\d+$/),
+      portTarget: { repoRoot: clone, branch: "jiayi", hostId },
+    });
+    expect(git(result!.cwd, "rev-parse", "HEAD")).toBe(jiayiTip);
+
+    git(clone, "checkout", "-q", "--detach");
+    await expect(create(clone)).rejects.toThrow("detached HEAD");
   });
 });
