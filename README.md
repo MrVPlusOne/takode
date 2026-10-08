@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/readme-hero.jpg" alt="A Takode leader session reporting a finished fix, with its worker sessions grouped under it in the sidebar" width="100%" />
+  <img src="docs/screenshots/readme-hero.jpg" alt="A Takode leader's quest tab showing the user's request, the leader's dispatch summary and a live card of the worker's latest steps, with the leader's five running workers grouped under it in the sidebar" width="100%" />
 </p>
 
 <h1 align="center">Takode</h1>
@@ -28,10 +28,14 @@ One agent in one terminal is easy to follow. Ten agents across five tabs is not:
 **1. Ask.** Describe a bug, paste a screenshot, or point at an existing quest. The leader writes it up as a quest, dispatches a worker in its own worktree, and keeps your conversation in a tab for that quest. A live card shows the worker's latest steps without opening its session.
 
 <p align="center">
-  <img src="docs/screenshots/readme-live-worker.jpg" alt="A leader's quest tab: the user's bug report with a screenshot, the leader's dispatch note, and a live card showing the worker's latest steps" width="100%" />
+  <img src="docs/screenshots/readme-live-worker.jpg" alt="A leader's quest tab: the user's request with a screenshot, the leader's dispatch note, and a live card showing the worker's latest steps" width="100%" />
 </p>
 
 **2. Decide when asked.** If the work needs your call (a design choice, an approval, a missing detail), the leader asks with suggested replies. Everything else, such as follow-ups, reviews, and retries, happens between agents.
+
+<p align="center">
+  <img src="docs/screenshots/readme-decision.jpg" alt="A leader asking the user to test a fix on their phone, with numbered steps and a question card offering two suggested replies or a free-text answer" width="90%" />
+</p>
 
 **3. Review the result.** The leader reports what changed and why, links the exact commits, and attaches a short quiz so you can check you understood the fix. Each commit opens in a compact diff view.
 
@@ -45,6 +49,11 @@ Takode's main job is keeping many sessions manageable:
 
 - **Leaders and their workers.** Leaders herd workers, receive their events, and can message, interrupt, or archive them. The sidebar groups each team together.
 - **Batches of quests.** Hand a leader a whole list of tasks. It queues them on its Work Board, holds each one until a worker is free or the quests it depends on are done, then starts it.
+
+<p align="center">
+  <img src="docs/screenshots/readme-work-board.jpg" alt="A leader's Work Board with one quest in progress and three queued quests waiting for it to finish" width="90%" />
+</p>
+
 - **Jump in or delegate.** Every worker is still an ordinary session you can open and talk to directly. Or tell the leader, and it passes your instructions along with the context the worker needs.
 - **Session spaces.** Keep separate areas of your life or work apart, each with its own sessions and memory.
 - **Worktree isolation.** Workers get their own git worktree and branch, so parallel changes do not collide; finished worktrees are cleaned up safely.
