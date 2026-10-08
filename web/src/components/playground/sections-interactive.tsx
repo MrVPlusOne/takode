@@ -24,6 +24,7 @@ import {
   type LeaderThreadTabsProjectionValue,
 } from "../../../shared/leader-thread-tabs-projection.js";
 import { getSyncedProjectionValue } from "../../store-synced-projections.js";
+import { THREAD_MONITORING_PROJECTION } from "../../../shared/thread-monitoring.js";
 import { PlaygroundNotificationInboxSection } from "./PlaygroundNotificationInboxSection.js";
 import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerAutocompletePreview.js";
 import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
@@ -1526,6 +1527,21 @@ export function PlaygroundInteractiveSections() {
                     },
                     activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
                   });
+                  // Notify Me state for the tab long-press/right-click menu: q-42 is tracked, q-55 has a waiting result.
+                  state.applySyncedProjectionSnapshot({
+                    type: "synced_projection_snapshot",
+                    projection: THREAD_MONITORING_PROJECTION,
+                    key: boardSessionId,
+                    generation: "playground-board-monitoring",
+                    revision: ++playgroundBoardProjectionRevision,
+                    value: {
+                      revision: 1,
+                      alertVersion: 1,
+                      trackedCount: 2,
+                      pendingCount: 1,
+                      threads: { "q-42": { pendingResultId: null }, "q-55": { pendingResultId: "1" } },
+                    },
+                  });
                   const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99", "q-1932"];
                   const quests = state.quests
                     .filter((quest) => !questIds.includes(quest.questId))
@@ -1845,7 +1861,9 @@ export function PlaygroundInteractiveSections() {
                 current row 12. The retained q-1932 tab is absent from the paged quest list and recovers its canonical
                 title only from the bounded title projection. q-88 is completed but has authoritative Thread Waiting;
                 use the dedicated control to keep it visible while Main remains selected. The active-output route
-                targets q-42 so Main stays visually quiet.
+                targets q-42 so Main stays visually quiet. Long-press a quest tab on touch, or right-click it, to open
+                its menu: tracked q-42 offers only Turn off Notify Me (it is working, so not closable), queued q-55
+                offers Close tab and Acknowledge result for its waiting result, and Main has no menu.
               </p>
             </div>
           </Card>

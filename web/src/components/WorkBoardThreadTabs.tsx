@@ -2,9 +2,10 @@
  * Leader quest/thread tab rail presentation and interaction.
  *
  * WorkBoardBar owns projection/model assembly; this module owns the bounded
- * tab strip, overflow menu, drag handling, and hover-detail lifecycle.
+ * tab strip, overflow menu, tab context menu, drag handling, and hover-detail
+ * lifecycle.
  */
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -17,6 +18,8 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/t
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 
@@ -390,11 +393,81 @@ function threadTabTone(selected: boolean): string {
 
 type QuestTabHover = (view: ThreadTabView, anchorRect: DOMRect) => void;
 
+/** Opens the tab menu at viewport coordinates. */
+type OpenThreadTabMenu = (x: number, y: number) => void;
+
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 8;
+
+/**
+ * Touch long-press handlers for a tab. iOS Safari never fires `contextmenu`
+ * for touch, so the press is timed here. The menu opens just below the tab so
+ * the finger does not cover it.
+ */
+function useTabLongPress(onOpenMenu: OpenThreadTabMenu | undefined) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const firedRef = useRef(false);
+  const cancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+  useEffect(() => cancel, []);
+  if (!onOpenMenu) return {};
+  return {
+    onTouchStart: (event: ReactTouchEvent<HTMLElement>) => {
+      cancel();
+      // A genuine tap starts with touchstart, so a stale suppression from a
+      // press whose synthetic click never arrived cannot swallow this tap.
+      firedRef.current = false;
+      const touch = event.touches[0];
+      if (!touch || event.touches.length > 1) return;
+      startRef.current = { x: touch.clientX, y: touch.clientY };
+      const element = event.currentTarget;
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        firedRef.current = true;
+        const rect = element.getBoundingClientRect();
+        onOpenMenu(rect.left, rect.bottom + 4);
+      }, LONG_PRESS_MS);
+    },
+    onTouchMove: (event: ReactTouchEvent<HTMLElement>) => {
+      const start = startRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+      const moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
+      if (moved > LONG_PRESS_MOVE_TOLERANCE_PX) cancel();
+    },
+    onTouchEnd: (event: ReactTouchEvent<HTMLElement>) => {
+      cancel();
+      // Cancelling touchend suppresses the emulated mouse events and click, so
+      // lifting the finger neither selects or closes the tab nor dismisses the
+      // menu that just opened.
+      if (firedRef.current) event.preventDefault();
+    },
+    onTouchCancel: cancel,
+    onClickCapture: (event: ReactMouseEvent<HTMLElement>) => {
+      if (!firedRef.current) return;
+      firedRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      // Android also fires contextmenu on long-press; let whichever fires
+      // first open the menu.
+      cancel();
+      if (!firedRef.current) onOpenMenu(event.clientX, event.clientY);
+    },
+  };
+}
+
 function RailThreadTab({
   view,
   reorderable,
   onSelect,
   onClose,
+  onOpenMenu,
   onHover,
   onHoverEnd,
 }: {
@@ -402,10 +475,12 @@ function RailThreadTab({
   reorderable: boolean;
   onSelect: () => void;
   onClose?: () => void;
+  onOpenMenu?: OpenThreadTabMenu;
   onHover: QuestTabHover;
   onHoverEnd: () => void;
 }) {
   const { tab, threadKey, selected, activeOutput, newTab, hoverQuest, questId, titleColor } = view;
+  const longPress = useTabLongPress(onOpenMenu);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.threadKey,
     disabled: !reorderable,
@@ -426,7 +501,8 @@ function RailThreadTab({
       title={title}
       onMouseEnter={(event) => onHover(view, event.currentTarget.getBoundingClientRect())}
       onMouseLeave={questId ? onHoverEnd : undefined}
-      className={`group relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${threadTabTone(selected)}`}
+      {...longPress}
+      className={`group relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${onOpenMenu ? "select-none [-webkit-touch-callout:none]" : ""} ${threadTabTone(selected)}`}
       data-testid="thread-tab"
       data-thread-key={tab.threadKey}
       data-needs-input={tab.needsInput ? "true" : "false"}
@@ -640,6 +716,7 @@ export function ThreadTabRail({
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
+  const [tabMenu, setTabMenu] = useState<{ threadKey: string; x: number; y: number } | null>(null);
   const compactTabs = useMemo(
     () => buildCompactThreadTabPartition({ tabs, currentThreadKey, railWidth }),
     [currentThreadKey, railWidth, tabs],
@@ -718,6 +795,32 @@ export function ThreadTabRail({
     setReorderMode(false);
     closeMoreTabs();
   };
+
+  // Only actions that apply to a tab are offered; a tab with none gets no menu.
+  const tabMenuItems = (tab: PrimaryThreadChip): ContextMenuItem[] => {
+    const threadKey = normalizeThreadKey(tab.threadKey);
+    const items: ContextMenuItem[] = [];
+    if (onCloseThreadTab && tab.canClose) {
+      items.push({ label: "Close tab", onClick: () => onCloseThreadTab(threadKey) });
+    }
+    // Notify Me tracks quest threads only, and its current state comes from the server projection.
+    if (monitors && /^q-\d+$/.test(threadKey)) {
+      const monitor = monitors[threadKey];
+      const pendingResultId = monitor?.pendingResultId ?? undefined;
+      const action = !monitor ? "track" : pendingResultId ? "acknowledge" : "untrack";
+      items.push({
+        label: { track: "Notify Me", untrack: "Turn off Notify Me", acknowledge: "Acknowledge result" }[action],
+        onClick: () => {
+          updateThreadMonitoring(sessionId, threadKey, action, pendingResultId).catch((error) =>
+            console.error("[thread-tabs] Notify Me update failed:", error),
+          );
+        },
+      });
+    }
+    return items;
+  };
+  const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
+  const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
   const mainAttention = mainState ?? { needsInput: false, mutedNeedsInput: false, blueNudge: false };
@@ -800,6 +903,14 @@ export function ThreadTabRail({
                   reorderable={reorderable}
                   onSelect={() => openThread(view.threadKey)}
                   onClose={onCloseThreadTab ? () => onCloseThreadTab(view.threadKey) : undefined}
+                  onOpenMenu={
+                    tabMenuItems(tab).length > 0
+                      ? (x, y) => {
+                          hover.hideImmediately();
+                          setTabMenu({ threadKey: view.threadKey, x, y });
+                        }
+                      : undefined
+                  }
                   onHover={hover.show}
                   onHoverEnd={hover.scheduleHide}
                 />
@@ -928,6 +1039,9 @@ export function ThreadTabRail({
           onMouseEnter={hover.keepVisible}
           onMouseLeave={hover.hideImmediately}
         />
+      )}
+      {tabMenu && menuItems.length > 0 && (
+        <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
       )}
     </div>
   );
