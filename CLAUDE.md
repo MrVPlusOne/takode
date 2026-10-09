@@ -90,6 +90,7 @@ cd web && bun --no-install -e 'import { buildInjectedSystemPromptForDebug } from
 - Dependency changes must review manifest and lockfile diffs together. Avoid plain `bun install` for routine work because it may refresh lockfiles or float direct ranges.
 - Before trusting lifecycle scripts introduced by dependency changes, run `bun pm untrusted` and review the package. Use focused trust decisions.
 - For dependency additions/updates, default to a 3-day minimum release age: `--minimum-release-age=259200`. Override only for urgent security fixes or extension/tooling compatibility, and document why.
+- Install through the machine's configured registry (for example a company npm proxy); never bypass it to get a release it does not offer yet. When a wanted version is too new for that registry, use the newest version it offers if that works, record why, and keep `bun.lock` registry-neutral. See [Configured Registries and Proxies](docs/dependency-policy.md#configured-registries-and-proxies).
 - Helper scripts should fail fast when dependencies are missing. Any convenience install path must be explicitly opted in with `TAKODE_AUTO_INSTALL=1` and must use `--frozen-lockfile`.
 - `@vscode/vsce` is trusted VS Code extension packaging tooling scoped to `vscode/takode-panel-prototype/`; keep it exact-pinned there, invoked through the local binary, and out of `web`/server runtime dependencies.
 

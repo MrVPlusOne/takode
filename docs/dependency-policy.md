@@ -44,6 +44,27 @@ bun add --exact --minimum-release-age=259200 <package>
 Use an explicit override only for urgent security fixes or extension/tooling
 compatibility work, and document the reason in the quest or commit notes.
 
+## Configured Registries and Proxies
+
+Many machines install packages through a configured registry, such as a company
+npm proxy or mirror set in `.npmrc` or `bunfig.toml` (a Microsoft npm proxy is
+one example). Such a registry is part of the machine's safety setup, and it can
+lag public releases by days.
+
+- Install through the configured registry. Do not bypass it with `--registry`,
+  `NPM_CONFIG_REGISTRY` or tool settings pointing elsewhere to get a version it
+  does not offer yet.
+- When the version you want is too new for the configured registry, use the
+  newest version that registry offers, if it works for the change. It still has
+  to pass the release-age gate and the change's own checks. Record why the pin
+  is older than the latest release, and move to the newer version once the
+  registry has it.
+- Keep `bun.lock` registry-neutral. Some registries make Bun write their own
+  tarball URLs into every lockfile entry; drop those so installs work through
+  any registry that serves the same packages. A frozen install through the
+  configured registry with an empty package cache confirms that the registry
+  serves every locked package with matching integrity hashes.
+
 ## Lifecycle Scripts
 
 Bun blocks most dependency lifecycle scripts unless the package is trusted. When
