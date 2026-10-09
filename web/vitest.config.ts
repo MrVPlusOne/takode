@@ -1,5 +1,5 @@
-import { availableParallelism, loadavg } from "node:os";
 import { defineConfig } from "vitest/config";
+import { vitestWorkerCount } from "./scripts/vitest-worker-budget";
 
 // Set before Vite resolves anything; workers inherit it. Sessions launched by a
 // production server otherwise pass NODE_ENV=production, which makes Vite
@@ -7,16 +7,8 @@ import { defineConfig } from "vitest/config";
 // 19.2+ also only exports `act` in its development build.
 process.env.NODE_ENV = "test";
 
-/**
- * Size the worker pool to the CPU left idle by other processes. Several agents
- * often run the suite at once; each starting cpus-1 workers starves process-
- * and git-heavy tests into timeouts without finishing any sooner overall.
- */
-function idleCpuWorkerCount(): number {
-  const cpus = availableParallelism();
-  const idleCpus = Math.round(cpus - loadavg()[0]);
-  return Math.max(1, Math.min(cpus - 1, Math.max(4, idleCpus)));
-}
+// Sized to the CPUs this run may use (cgroup quota, affinity) minus busy ones; see the helper.
+const maxWorkers = await vitestWorkerCount();
 
 export default defineConfig({
   define: {
@@ -50,6 +42,6 @@ export default defineConfig({
     ],
     setupFiles: ["src/test-setup.ts"],
     globalSetup: ["scripts/vitest-disposable-home.ts"],
-    maxWorkers: idleCpuWorkerCount(),
+    maxWorkers,
   },
 });
