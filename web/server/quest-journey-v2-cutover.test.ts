@@ -137,7 +137,11 @@ describe("Quest Journey v2 data-preserving cutover", () => {
   });
 
   it("keeps active discovery and new-row validation v2-only while accepting stored legacy rows", () => {
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory", "landing"]);
+    // Landing is active but never planned by hand; Takode adds it on a landing-queue hand-off.
+    expect(validateQuestJourneyPhaseSequence(["work", "memory", "landing"])).toContain(
+      "Landing is not planned by hand",
+    );
 
     const invalid = getInvalidQuestJourneyPhaseIds(["alignment", "implement", "code-review", "memory"]);
     expect(invalid).toEqual(["alignment", "implement", "code-review"]);

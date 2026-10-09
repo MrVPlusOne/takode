@@ -59,6 +59,12 @@ import {
   type ActiveWorkPhaseContext,
 } from "./work-evidence-context.js";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
+import {
+  boardRowLanding,
+  createLandingQuestHandoff,
+  resolveSubmittedLandingEntry,
+  withLandingAfterMemory,
+} from "./work-to-memory-landing.js";
 import { projectQuestDelivery } from "../../shared/quest-delivery.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 
@@ -327,6 +333,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
   };
 
   registerWorkDeliveryRoutes(api, { launcher, wsBridge, authenticateTakodeCaller, acquireWorkEvidenceMutationLock });
+  wsBridge.landingHandoff = createLandingQuestHandoff({ launcher, wsBridge, workBoardStateDeps });
 
   function syncDoneQuestBoardState(questId: string): void {
     const boardBridge = wsBridge as {
@@ -398,9 +405,17 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     ) {
       return c.json({ error: "preparationId requires an exact preparation ID and code commit evidence." }, 400);
     }
-    if (hasCommitMode === hasNoCodeMode) {
-      return c.json({ error: "Work -> Memory requires exactly one code evidence mode: commitShas or noCode." }, 400);
+    const landingEntryId = typeof body.landingEntryId === "string" ? body.landingEntryId.trim() : undefined;
+    if (body.landingEntryId !== undefined && !/^le-[0-9a-f]{8}$/.test(landingEntryId ?? ""))
+      return c.json({ error: "landingEntryId must name a landing-queue entry (le-...)." }, 400);
+    if ([hasCommitMode, hasNoCodeMode, landingEntryId !== undefined].filter(Boolean).length !== 1) {
+      return c.json(
+        { error: "Work -> Memory requires exactly one code evidence mode: commitShas, noCode or landingEntryId." },
+        400,
+      );
     }
+    if (landingEntryId && (body.preparationId !== undefined || body.deliveryTargetId !== undefined))
+      return c.json({ error: "A landing entry carries its own preparation; do not pass preparationId." }, 400);
 
     let commitShas: string[] | undefined;
     if (hasCommitMode) {
@@ -480,6 +495,10 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       const initialTarget = resolveWorkToMemoryTarget(initialWorkContext, skipOptionalUserCheckpointReason);
       if ("error" in initialTarget) return c.json({ error: initialTarget.error }, 409);
 
+      const landingEntry = landingEntryId
+        ? await resolveSubmittedLandingEntry(wsBridge.landingQueue, landingEntryId, auth.callerId, questId)
+        : undefined;
+      if (landingEntry && "error" in landingEntry) return c.json({ error: landingEntry.error }, 409);
       if (
         hasNoCodeMode &&
         quest.codeDeliveries?.some((delivery) => delivery.phaseOccurrenceId === initialWorkContext.phaseOccurrenceId)
@@ -653,7 +672,11 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
       const target = resolveWorkToMemoryTarget(activeWorkContext, skipOptionalUserCheckpointReason);
       if ("error" in target) return c.json({ error: target.error }, 409);
-      const { currentJourney, phaseIds } = activeWorkContext;
+      const { currentJourney } = activeWorkContext;
+      // A submitted change lands after Memory: the quest, not the worker, waits for it in Landing.
+      const phaseIds = landingEntry
+        ? withLandingAfterMemory(activeWorkContext.phaseIds, target.memoryIndex)
+        : activeWorkContext.phaseIds;
 
       // Publish the freshly re-read structured evidence before the board advertises Memory,
       // including historical commit truth carried through an explicit no-code Work occurrence.
@@ -674,9 +697,14 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
             currentPhaseId: "memory",
             ...(target.phaseSkipReasons ? { phaseSkipReasons: target.phaseSkipReasons } : {}),
           },
+          ...(landingEntry
+            ? { landing: boardRowLanding(landingEntry.entry, auth.callerId, activeWorkContext.phaseOccurrenceId) }
+            : {}),
         },
         workBoardStateDeps,
       );
+      // A change that landed or bounced before (or during) this transition is handled now, as later outcomes are.
+      if (landingEntry) void wsBridge.landingHandoff?.catchUp?.(landingEntry.entry.id);
 
       return c.json({
         ok: true,
@@ -1133,6 +1161,11 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       existingRow?.status === "PLANNING" ||
       ((existingRow?.status === "QUEUED" || existingRow?.status === "PROPOSED") &&
         normalizeKnownQuestJourneyPhaseIds(existingRow.journey?.phaseIds)[0] === "alignment");
+    if (explicitStatusUpper === "LANDING" && existingRow?.status !== "LANDING")
+      return c.json(
+        { error: "Takode moves a quest to Landing when final Memory completes before its change lands." },
+        400,
+      );
     if (
       explicitStatusUpper &&
       !(QUEST_JOURNEY_STATES as readonly string[]).includes(explicitStatusUpper) &&

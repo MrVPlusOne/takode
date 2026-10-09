@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LandingEntry, LandingRun } from "../shared/landing-queue.js";
+import type { LandingEntry, LandingRun, LandingRunnerLaunch } from "../shared/landing-queue.js";
 
 const LANDING_QUEUE_DIR = join(homedir(), ".companion", "landing-queue");
 
@@ -10,10 +10,12 @@ export interface LandingQueueFile {
   version: 1;
   entries: LandingEntry[];
   runs: LandingRun[];
+  /** Runners started for the queues, kept so a runner can still authenticate after a server restart. */
+  launches: LandingRunnerLaunch[];
 }
 
 export function emptyLandingQueueFile(): LandingQueueFile {
-  return { version: 1, entries: [], runs: [] };
+  return { version: 1, entries: [], runs: [], launches: [] };
 }
 
 /** One JSON file per server; writes are chained so they land in order. */
@@ -33,6 +35,7 @@ export class LandingQueueStore {
         version: 1,
         entries: Array.isArray(raw.entries) ? raw.entries : [],
         runs: Array.isArray(raw.runs) ? raw.runs : [],
+        launches: Array.isArray(raw.launches) ? raw.launches : [],
       };
     } catch (err: any) {
       if (err?.code !== "ENOENT") console.warn("[landing-queue-store] Failed to load the landing queue:", err);

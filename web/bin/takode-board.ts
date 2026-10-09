@@ -150,13 +150,13 @@ Advance a quest through non-Work Quest Journey boundaries. Advancing from the fi
 Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note, the concrete skip condition has been satisfied, and the resulting transition is not Work -> Memory. The reason is recorded on the board row.
 `;
 
-export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--preparation <id> | --delivery-target <approval-id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --landing-entry <entry-id> | --no-code) [--preparation <id> | --delivery-target <approval-id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
 Independent publication: the assigned leader first uses approve-delivery-target;
 the worker supplies --delivery-target with its exact approved commits. This is
 read-only publication verification, not a push retry or session-target mutation.
 
-Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits, or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
+Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits; or, for a change submitted to the landing queue, its entry with --landing-entry (Takode records the landed commits and completes the quest after Memory, without the worker waiting); or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
 `;
 
 export const BOARD_REPLACE_WORK_EVIDENCE_HELP = `Usage: takode board replace-work-evidence <quest-id> --expected-commits <sha1,sha2> --commits <sha1,sha2> --reason <text> [--json]
@@ -422,7 +422,9 @@ function buildBoardRowDecisionContext(
 ): BoardRowDecisionContext {
   return {
     blockingQuestIds: new Set(
-      (opts?.allBoardRows || board).filter((row) => isQuestWaitForBlockingState(row.status)).map((row) => row.questId),
+      (opts?.allBoardRows || board)
+        .filter((row) => isQuestWaitForBlockingState(row.status, row))
+        .map((row) => row.questId),
     ),
     dispatchableQuestIds: new Set(
       (opts?.queueWarnings ?? [])
@@ -1343,11 +1345,15 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     } catch (error) {
       err(error instanceof Error ? error.message : String(error));
     }
-    if (noCode === commitShas.length > 0) {
+    if (flags["landing-entry"] === true) err("--landing-entry requires the entry ID `takode land submit` printed.");
+    const landingEntryId = typeof flags["landing-entry"] === "string" ? flags["landing-entry"].trim() : undefined;
+    if ([noCode, commitShas.length > 0, landingEntryId !== undefined].filter(Boolean).length !== 1) {
       err(
-        "Use exactly one Work evidence mode: --commit/--commits for synchronized target SHAs, or --no-code for genuine zero-tracked-change Work.",
+        "Use exactly one Work evidence mode: --commit/--commits for synchronized target SHAs, --landing-entry for a change submitted to the landing queue, or --no-code for genuine zero-tracked-change Work.",
       );
     }
+    if (landingEntryId && (flags.preparation || deliveryTargetId))
+      err("--landing-entry carries the entry's own preparation; do not pass --preparation or --delivery-target.");
     if (flags["skip-optional-checkpoint"] === true) {
       err("--skip-optional-checkpoint requires a reason explaining why the approved skip condition is satisfied.");
     }
@@ -1356,7 +1362,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiPost(base, "/takode/board/work-to-memory", {
       questId,
       ...(workFeedbackIndex !== undefined ? { workFeedbackIndex } : {}),
-      ...(commitShas.length > 0 ? { commitShas } : { noCode: true }),
+      ...(commitShas.length > 0 ? { commitShas } : landingEntryId ? { landingEntryId } : { noCode: true }),
       ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
       ...(typeof flags.preparation === "string" ? { preparationId: flags.preparation } : {}),
       ...(deliveryTargetId ? { deliveryTargetId } : {}),
@@ -1380,7 +1386,9 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const evidence =
       commitShas.length > 0
         ? `${commitShas.length} code commit${commitShas.length === 1 ? "" : "s"}`
-        : "no code changes";
+        : landingEntryId
+          ? `landing entry ${landingEntryId}; the quest lands after Memory`
+          : "no code changes";
     const operation = `${result.questId}: ${result.previousState ?? "WORKING"} -> ${result.newState} (Work note #${result.workFeedbackIndex}, ${evidence})`;
     outputBoardMutation(result.board, flags.json === true, {
       affectedQuestIds: [result.questId],

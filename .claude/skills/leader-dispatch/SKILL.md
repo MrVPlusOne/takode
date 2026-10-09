@@ -163,6 +163,7 @@ When all worker slots are used, compare active board work to your herd. If ready
 
 - Prefer `takode spawn --replace-worktree-worker <session> ...` for an owned completed worktree worker when the new worker belongs in the same repo/base-branch worktree. A clean worktree that is only behind the current target/base branch is safe to reclaim when normal capacity rules allow.
 - If replacement is ineligible, archive the completed worker least likely to be reused.
+- A worker whose only quest waits in Landing (its change submitted, final Memory done) counts as completed: reuse it when its context helps, or replace it. Prefer replacement to archiving while the quest is still in Landing, because Takode records the landed commits' port receipts in that worktree.
 - Never archive proactively. Archiving a worktree worker deletes unsynced worktree state, so reclaim capacity only after uncommitted changes and commits genuinely ahead of the current target have been committed, ported, or otherwise preserved.
 - Do not infer dirty state from the worktree badge or treat every displayed ahead count as proof of unported work. `takode info` and sidebar counts may use a session diff base that differs from the live replacement preflight base. If counts are surprising, use replacement preflight or explicit current target-ref verification as the safety authority; never discard uncertain state.
 

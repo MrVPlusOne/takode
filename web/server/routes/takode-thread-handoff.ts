@@ -47,7 +47,7 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     if (
       !row?.worker ||
       row.completedAt !== undefined ||
-      !["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY"].includes(row.status ?? "")
+      !["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY", "LANDING"].includes(row.status ?? "")
     ) {
       return c.json({ error: "The destination must be an active quest on your work board" }, 409);
     }

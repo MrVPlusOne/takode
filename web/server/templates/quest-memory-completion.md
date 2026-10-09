@@ -89,6 +89,8 @@ takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha
 
 Use the merged/cherry-picked SHAs from the selected target, not pre-port worktree-only SHAs. Every Work occurrence, including rework, supplies fresh transition evidence even when older commits are already attached; the transition appends new unique SHAs. A note alone is not enough. This ordering makes commit counts and diff controls available immediately while final Memory runs.
 
+For a change submitted to a landing queue, Work hands off with the entry instead (`--landing-entry <entry-id>`) and Takode attaches the landed commits when the change lands, even after final Memory. Final Memory does not wait for them: if the change has not landed when you complete the quest, `quest complete` moves it to the Landing phase with your completion kept, and Takode completes it when the change lands.
+
 For genuine zero-git-tracked-change Work, the transition uses the mutually exclusive explicit mode:
 
 ```bash

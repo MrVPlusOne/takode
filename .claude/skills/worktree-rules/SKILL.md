@@ -27,16 +27,15 @@ If approved delivery work requires an additional checkout, follow the shared **A
 
 ## Landing queue (remote-backed targets with a saved landing gate)
 
-Ready changes wait in a queue per remote branch. One landing run at a time, started by whoever holds the branch's port lease `port:<REPO>:<BASE_BRANCH>`, stacks every waiting change on the remote tip, runs the gate once on the combined tree and pushes exactly the commit it gated. A change that conflicts or brings new gate failures bounces back to its owner; the rest land after a fresh gate without it. `<REPO>` is the repository name from the base checkout's `origin` URL (`port:takode:jiayi` for Takode on `jiayi`, on every machine). Run `takode land --help` for the commands.
+Ready changes wait in a queue per remote branch. The Takode server runs the landings itself: whenever changes wait and the branch's port lease `port:<REPO>:<BASE_BRANCH>` is free, it takes the lease in the queue's name and starts a landing runner on the machine of the oldest waiting change. The runner stacks every waiting change on the remote tip, runs the gate once on the combined tree and pushes exactly the commit it gated. A change that conflicts or brings new gate failures bounces; the rest land after a fresh gate without it. `<REPO>` is the repository name from the base checkout's `origin` URL (`port:takode:jiayi` for Takode on `jiayi`, on every machine). You never hold, wait for or run anything with that lease on this path. Run `takode land --help` for the commands.
 
 1. **Rebase onto the remote branch.** `git fetch origin <BASE_BRANCH>`, then rebase only your verified private suffix in your worktree: `git rebase --onto origin/<BASE_BRANCH> <VERIFIED_PRIVATE_BASE_SHA>`. Resolve conflicts here. If you use port tracking, first bring the base checkout to the same commit with `git -C <BASE_REPO> pull --ff-only origin <BASE_BRANCH>` (only when it is on `<BASE_BRANCH>` and clean; otherwise stop and report), then prepare, squash and seal as described in [port-tracking.md](references/port-tracking.md). No lease is needed for any of this.
 2. **Run the pre-submit check:** `takode land test <test files or directories>`, naming the tests that exercise what you changed: the test files you added or edited, plus tests of the modules and behavior you changed and of their direct callers when you changed a shared interface. It runs the gate's other steps (for Takode, typecheck and format) whole and its test step only on those paths, usually in a minute or two, so run it in the foreground. Failing tests rerun once (tests that then pass are flaky) and still-failing ones are checked on your base commit (failures that also happen there are pre-existing, such as a machine's environment-only failures); only new failures fail it, so fix them. For a change no test covers (docs, instructions, skills), use `takode land test --no-tests`. Use `takode land test --full` instead when the change could break tests anywhere, such as shared types, test setup or config, dependencies, or a cross-cutting refactor: it runs the whole gate, takes a slot of the per-machine `full-suite:<REPO>` lease pool (if it exits 3, queued, end your turn and rerun it when the Resource Lease message arrives) and can take 10+ minutes, so run it as a background or long-running command. The landing queue runs the full gate on every batch either way, and a bounce there costs the batch a culprit search, so choose generously when unsure. If no run is feasible, `takode land submit --skip-test "<reason>"` records the exception.
-3. **Submit:** `takode land submit q-N [--preparation <id>]`, then end your turn. Your commits travel to the queue as a bundle, so this works the same from any machine; a worker on another machine than its port target submits directly instead of using `takode bundle send`.
-4. **If a Resource Lease message for `port:<REPO>:<BASE_BRANCH>` arrives,** your change is still waiting and you are next: run `takode land run` (it starts the background landing run for every waiting change and returns), then end your turn. The run renews and releases the lease itself. Never hold the port lease while testing or editing.
-5. **On "landed"** (a Landing Queue message with your target SHAs): run `takode land finish q-N` in your worktree. It fast-forwards the base checkout, records port-tracking receipts (including changes integrated with others in the same batch), resets your worktree to the branch and prints the `Synced SHAs:` line and the `work-to-memory` command. Then write the Work note and run the guarded transition below.
-6. **On "bounced":** read the reason and failing output, fix or rebase onto `origin/<BASE_BRANCH>`, rerun `takode land test` (include the tests that failed in the queue), re-prepare with `--previous <id>` if you use port tracking (allowed after a bounce), squash, seal and submit again.
+3. **Submit:** `takode land submit q-N [--preparation <id>]`. Your commits travel to the queue as a bundle, so this works the same from any machine; a worker on another machine than its port target submits directly instead of using `takode bundle send`. It prints the landing entry ID.
+4. **Don't wait for the landing.** For a quest, write the Work note and hand the quest to Memory with the entry: `takode board work-to-memory q-N --work-note <index> --landing-entry <entry-id>` (see "Quest Work-to-Memory Rule" below), then do final Memory as usual. The quest, not you, waits for the landing: Takode records the landed commits as its Work delivery and completes it after Memory. Without a quest, you get a Landing Queue message when the change lands or bounces.
+5. **If the change bounces:** while you are still in Work or Memory, you get a Landing Queue message with the reason and failing output. In Work, fix it right away; in Memory, finish Memory as usual and your leader decides who fixes it and when. Whoever fixes a bounced change restores it with `takode land resume <entry-id>` when their worktree no longer has it, rebases onto `origin/<BASE_BRANCH>`, fixes it, reruns `takode land test` (include the tests that failed in the queue), re-prepares with `--previous <id>` if port tracking is in use (allowed after a bounce), squashes, seals and submits again.
 
-`takode land status` shows the queue, the running batch and its phase. An owner or its leader can `takode land withdraw <entry-id>` a waiting change. If a landing run dies, its lease expires (or a leader force-releases it) and the next run checks whether its push reached the remote before landing anything else. Do not cherry-pick into or push the shared base checkout yourself on this path.
+`takode land status` shows the queue, the running batch, the runner's machine and any problem starting runs. An owner or its leader can `takode land withdraw <entry-id>` a waiting change. If a runner dies or stops reporting, the server takes its run back within minutes, frees the lease and starts another runner; a run that had started pushing is checked against the remote first. When the server cannot start runners (for example, the machines with waiting changes are offline), it retries with growing delays and messages the leaders; a leader, or the owner of a waiting change, can start one on their own machine with `takode land run --branch <BASE_BRANCH>` from a checkout of the repository. Do not cherry-pick into or push the shared base checkout yourself on this path.
 
 ## Classic port workflow
 
@@ -187,7 +186,7 @@ When a classic port to a remote-backed target waits a long time for its port lea
 
 ## Completion Checklist
 
-On the landing queue, the sync is complete once the Landing Queue message says your change landed and `takode land finish` has run cleanly: the landing run already gated the pushed tree, pushed it and fast-forwarded the base checkout, and `finish` reset your worktree and printed the `Synced SHAs:` line.
+On the landing queue, your part of the sync ends at submit. Takode lands the change: the landing run gates and pushes the tree, and the server fast-forwards the base checkout, records the port receipts and attaches the landed commits to the quest as its Work delivery.
 
 On the classic workflow, do NOT report the sync as complete until ALL of the following are true:
 - [ ] Selected target log shows the cherry-picked commits
@@ -198,13 +197,21 @@ On the classic workflow, do NOT report the sync as complete until ALL of the fol
 
 ## Quest Work-to-Memory Rule
 
-If you are working on a Quest Journey from this worktree session, do **not** enter Memory until the sync workflow above is fully complete, the selected target contains the changes, and any required push for a remote-backed target has completed. If sync is still pending, leave the quest in Work.
+If you are working on a Quest Journey from this worktree session, do **not** enter Memory until the sync workflow above is fully complete, the selected target contains the changes, and any required push for a remote-backed target has completed. If sync is still pending, leave the quest in Work. The one exception is the landing queue: there, Work ends at submit and the quest is handed to Memory with its landing entry (below); it lands after Memory.
 
 The worker-owned Work -> Memory transition is also the structured code-evidence boundary. For tracked changes, attach the ordered synchronized **target SHAs** in the transition itself:
 
 ```bash
 takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"
 ```
+
+On the landing queue, hand the quest to Memory with the entry `takode land submit` printed instead of SHAs. The entry carries its own preparation, so do not pass `--preparation`:
+
+```bash
+takode board work-to-memory q-N --work-note <feedback-index> --landing-entry <entry-id>
+```
+
+Takode inserts a Landing phase after Memory. Final Memory then runs as usual, except that the debrief and memory notes must not claim the change has landed. If the change has not landed when you complete the quest (`quest complete`), the quest moves to Landing instead of done and keeps your completion; when your worktree holds exactly the submitted change, `quest complete` resets it to `origin/<BASE_BRANCH>` (the queue keeps the commits). You are then done with the quest. When the change lands, Takode records the landed commits as this Work occurrence's delivery, records the port receipts and completes the quest; if it bounces, the quest stays in Landing and your leader routes the fix. The Work note names the entry ID on a `Landing entry:` line instead of a `Synced SHAs:` line.
 
 For a quest that produced genuinely zero git-tracked changes, use the explicit zero-code mode instead:
 

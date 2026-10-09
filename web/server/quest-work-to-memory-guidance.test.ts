@@ -21,8 +21,11 @@ describe("copyable Work-to-Memory commands", () => {
     for (const command of commands) {
       const flags: string[] = command.match(/--[\w-]+/g) ?? [];
       expect(flags).toContain("--work-note");
-      expect(flags.filter((flag) => ["--commit", "--commits", "--no-code"].includes(flag))).toHaveLength(1);
+      const modes = ["--commit", "--commits", "--landing-entry", "--no-code"];
+      expect(flags.filter((flag) => modes.includes(flag))).toHaveLength(1);
       expect(flags.includes("--preparation") && flags.includes("--delivery-target")).toBe(false);
+      // A landing entry carries its own preparation.
+      if (flags.includes("--landing-entry")) expect(flags).not.toContain("--preparation");
     }
   });
 });

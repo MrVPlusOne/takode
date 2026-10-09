@@ -15,6 +15,7 @@ const ACTIVE_PHASE_PALETTE: Array<{
   { id: "work", status: "WORKING", description: "Existing green execution" },
   { id: "user-checkpoint", status: "USER_CHECKPOINTING", description: "Amber decision pause" },
   { id: "memory", status: "MEMORY", description: "Violet durable closure" },
+  { id: "landing", status: "LANDING", description: "Teal wait for the landing queue" },
 ];
 
 const PROPOSED_JOURNEY: QuestJourneyPlanState = {

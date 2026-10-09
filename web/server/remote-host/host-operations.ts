@@ -2,6 +2,8 @@ import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
 import { listDirectories } from "../directory-listing.js";
 import { readCommitDetails } from "../git-commit-reader.js";
 import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git-utils.js";
+import { startLandingRunner } from "../landing-runner-launcher.js";
+import { syncBaseCheckoutToRemote } from "../landing-target-sync.js";
 import { recreateSessionCheckout } from "../migration.js";
 import { verifyReview } from "../port-tracking.js";
 import { verifyPublishedDeliveryTarget } from "../published-delivery-target.js";
@@ -41,6 +43,10 @@ const operations = {
   readCommitDetails: (...args: Parameters<typeof readCommitDetails>) => readCommitDetails(...args),
   resolveDeliveryRange: (...args: Parameters<typeof resolveDeliveryRange>) => resolveDeliveryRange(...args),
   readDeliveryRange: (...args: Parameters<typeof readDeliveryRange>) => readDeliveryRange(...args),
+  // The landing queue starts runners on the host of a waiting change (the coordinator's own machine starts them in-process).
+  startLandingRunner: (input: Parameters<typeof startLandingRunner>[0]) =>
+    startLandingRunner(input, { forRemoteCoordinator: true }),
+  syncBaseCheckoutToRemote: (input: Parameters<typeof syncBaseCheckoutToRemote>[0]) => syncBaseCheckoutToRemote(input),
 };
 
 export type HostOperations = typeof operations;

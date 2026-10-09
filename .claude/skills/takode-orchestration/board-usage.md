@@ -4,7 +4,7 @@ The work board (`takode board show`) tracks Quest Journey v2 coordination: propo
 
 Active v2 states are:
 
-`PROPOSED`, `QUEUED`, `WORKING`, `USER_CHECKPOINTING`, `MEMORY`. Existing `PLANNING` occurrences remain readable and keep their approval boundary.
+`PROPOSED`, `QUEUED`, `WORKING`, `USER_CHECKPOINTING`, `MEMORY`, `LANDING`. Existing `PLANNING` occurrences remain readable and keep their approval boundary. `LANDING` belongs to the system-managed Landing phase: Takode adds it after Memory when Work hands a submitted landing-queue change to Memory, and moves the quest there when final Memory completes before the change lands.
 
 Legacy v1 states and phase IDs are historical-read compatibility only.
 
@@ -49,6 +49,12 @@ Worker-owned Work -> Memory transition with synchronized selected-target code co
 takode board work-to-memory q-12 --work-note 3 --commits "abc1234,def5678"
 ```
 
+For a change submitted to the landing queue, with the entry `takode land submit` printed (the quest lands after Memory):
+
+```bash
+takode board work-to-memory q-12 --work-note 3 --landing-entry le-1a2b3c4d
+```
+
 For genuine zero-git-tracked-change Work only:
 
 ```bash
@@ -84,6 +90,7 @@ takode board set q-12 --status WORKING --clear-wait-for-input
 - Work owns investigation, implementation, self-review, approved execution, validation, sync/push duties, iterative fixes, and structured target code evidence inside the approved envelope.
 - Project-specific safety, permission, durable-data, lease, cluster/job, credential/privacy/security, external-effect, strong verification, and no-force Git rules remain authoritative.
 - Memory normally stays with the same worker and completes the quest after durable closure; it may attach separate memory-repository commits but must not first-attach Work code SHAs.
+- Landing is never planned by hand, and nobody advances a quest into it. A quest in `LANDING` completes by itself when its change lands. `board advance` moves it on only after its change bounced or was withdrawn, into the Work occurrence Takode added for the fix.
 - Independent review is a separate quest, not an embedded board phase.
 - Do not create or revise rows with legacy v1 phase IDs such as `implement`, `code-review`, `port`, or `execute`.
 - Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's timing, notes, legacy compatibility labels, and revision details.
@@ -91,9 +98,9 @@ takode board set q-12 --status WORKING --clear-wait-for-input
 
 ## Work To Memory Guard
 
-`takode board work-to-memory` is intentionally narrower than generic board mutation. It succeeds only when the caller is the authenticated assigned worker, the quest is claimed by that worker, the row is `WORKING`, a current Work note exists, no unresolved checkpoint is linked, and the request supplies exactly one fresh evidence mode: non-empty `--commit` / `--commits` for synchronized selected-target SHAs, or `--no-code` for genuine zero-git-tracked-change Work. Do not combine the modes. Older stored commits do not replace fresh evidence for a rework occurrence.
+`takode board work-to-memory` is intentionally narrower than generic board mutation. It succeeds only when the caller is the authenticated assigned worker, the quest is claimed by that worker, the row is `WORKING`, a current Work note exists, no unresolved checkpoint is linked, and the request supplies exactly one fresh evidence mode: non-empty `--commit` / `--commits` for synchronized selected-target SHAs, `--landing-entry` for the worker's own waiting (or landed) landing-queue entry of this quest, or `--no-code` for genuine zero-git-tracked-change Work. Do not combine the modes. Older stored commits do not replace fresh evidence for a rework occurrence.
 
-The transition persists normalized code SHAs before entering `MEMORY` and appends only new unique values. A Work note alone is not structured evidence. Leaders can still inspect or intervene, but routine Work completion should not require leader-owned Port/review/Memory dispatch, and final Memory must route missing code evidence back to Work rather than first-attaching it.
+The transition persists normalized code SHAs before entering `MEMORY` and appends only new unique values. With a landing entry, the code evidence follows when the change lands: Takode records the landed commits as this Work occurrence's delivery, and until then the quest still blocks `--wait-for` dependents. A Work note alone is not structured evidence. Leaders can still inspect or intervene, but routine Work completion should not require leader-owned Port/review/Memory dispatch, and final Memory must route missing code evidence back to Work rather than first-attaching it.
 
 ## Correcting Invalid Work Evidence
 

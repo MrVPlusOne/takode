@@ -40,6 +40,8 @@ const CODEX_QUEST_WORKER =
 const SESSION_CREDENTIALS = "Session credentials the server wrote on this machine: identity, not configuration";
 const SERVER_LAUNCHER = "Starts and manages the Takode server on this machine; it is not run for another coordinator";
 const LATENCY_LOGS = "Latency logs of commands run on this machine (diagnostics)";
+const LANDING_RUNNERS =
+  "Starts the landing queue's runners on this machine, with their logs under its ~/.companion/landing like `takode land`";
 
 /** Every allowed direct reach into `~/.companion`, keyed `<file>: <entry>` or `<file> -> <module>`. */
 const INVENTORY: Record<string, string> = {
@@ -72,6 +74,7 @@ const INVENTORY: Record<string, string> = {
   "bin/takode-sidecar-client.ts -> server/codex-sidecar-auth.ts":
     "Credentials for the Takode server on this machine, used by a standalone Codex task",
   "bin/takode-land.ts: landing": "Checkouts, scratch space and logs of landing runs on this machine",
+  "bin/takode-node.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
   "bin/takode-node.ts -> server/machine-identity.ts":
     "This machine's name belongs to the machine; the node reports it to the coordinator",
   "bin/takode-node.ts -> server/quest-integration.ts":
@@ -87,6 +90,7 @@ const INVENTORY: Record<string, string> = {
   "server/remote-host/host-operations.ts -> server/git-utils.ts":
     "Session worktrees are checkouts on this machine, under its ~/.companion/worktrees",
   "server/remote-host/host-operations.ts -> server/migration.ts": "Recreates a session's checkout on this machine",
+  "server/remote-host/host-operations.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
 };
 
 function sourceFiles(dir: string): string[] {

@@ -21,6 +21,8 @@ import { git } from "./landing-git.js";
 
 vi.setConfig({ testTimeout: 120_000 });
 
+const TAKODE = fileURLToPath(new URL("./takode.ts", import.meta.url));
+
 /**
  * A stand-in for Vitest: records the test paths it was given in $VITEST_ARGS and
  * writes a passing Vitest-shaped report for them (every *.test.ts under tests/
@@ -53,6 +55,11 @@ describe("takode land end to end", () => {
   let port: number;
   let leases: ResourceLeaseManager;
   let queue: LandingQueueManager;
+  /** When set, the server cannot start runners (a host offline), with this reason. */
+  let launchFailure: string | null;
+  let launchCount: number;
+  const runnerLogs: (() => string)[] = [];
+  const runners: ReturnType<typeof spawn>[] = [];
   const leaseMessages: { session: string; text: string }[] = [];
   const queueMessages: { session: string; text: string }[] = [];
 
@@ -82,11 +89,38 @@ describe("takode land end to end", () => {
       },
       new ResourceLeaseStore("e2e", join(root, "leases")),
     );
+    launchFailure = null;
+    launchCount = 0;
     queue = new LandingQueueManager(
-      { leases, notify: (session, text) => void queueMessages.push({ session, text }) },
+      {
+        leases,
+        notify: (session, text) => void queueMessages.push({ session, text }),
+        // The server starts runners as `takode land run --foreground` with the runner's own
+        // credentials, as startLandingRunner does, here with the test's HOME and port.
+        launchRunner: async (request) => {
+          if (launchFailure) throw new Error(launchFailure);
+          launchCount++;
+          const child = spawn(
+            process.execPath,
+            [TAKODE, "land", "run", "--foreground", "--branch", request.target.branch],
+            {
+              cwd: request.baseCheckout,
+              env: runnerEnv(request.sessionId, request.token),
+              stdio: ["ignore", "pipe", "pipe"],
+            },
+          );
+          let log = "";
+          child.stdout?.on("data", (chunk) => (log += String(chunk)));
+          child.stderr?.on("data", (chunk) => (log += String(chunk)));
+          runnerLogs.push(() => log);
+          runners.push(child);
+          child.once("exit", (code) => void queue.runnerExited(request.launchId, `exit code ${code}`));
+        },
+      },
       new LandingQueueStore("e2e", join(root, "queue")),
       new LandingGateStore("e2e", join(root, "gates")),
     );
+    await queue.start();
     const ctx = {
       authenticateTakodeCaller: (c: { req: { header: (name: string) => string | undefined } }) => {
         const callerId = c.req.header("x-companion-session-id") ?? "unknown";
@@ -119,6 +153,15 @@ describe("takode land end to end", () => {
   });
 
   afterEach(async () => {
+    // Stop runners still going and let the queue record their exits before the directory goes.
+    for (const child of runners.splice(0)) {
+      if (child.exitCode !== null || child.signalCode !== null) continue;
+      child.kill("SIGKILL");
+      await once(child, "exit");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await queue.snapshot({ repo: "origin", branch: "main" });
+    runnerLogs.length = 0;
     server.close();
     queue.destroy();
     leases.destroy();
@@ -146,18 +189,24 @@ describe("takode land end to end", () => {
     return takodeOn(port, session, cwd, ...args);
   }
 
+  function runnerEnv(session: string, token: string, serverPort = port): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      COMPANION_PORT: String(serverPort),
+      COMPANION_SESSION_ID: session,
+      COMPANION_AUTH_TOKEN: token,
+      GATE_COUNT: join(root, "gate-count"),
+      VITEST_ARGS: join(root, "vitest-args"),
+    };
+    delete env.TAKODE_API_PORT;
+    return env;
+  }
+
   async function takodeOn(serverPort: number, session: string, cwd: string, ...args: string[]) {
-    const child = spawn(process.execPath, [fileURLToPath(new URL("./takode.ts", import.meta.url)), ...args], {
+    const child = spawn(process.execPath, [TAKODE, ...args], {
       cwd,
-      env: {
-        ...process.env,
-        HOME: home,
-        COMPANION_PORT: String(serverPort),
-        COMPANION_SESSION_ID: session,
-        COMPANION_AUTH_TOKEN: "token",
-        GATE_COUNT: join(root, "gate-count"),
-        VITEST_ARGS: join(root, "vitest-args"),
-      },
+      env: runnerEnv(session, "token", serverPort),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";
@@ -167,13 +216,21 @@ describe("takode land end to end", () => {
     return { code: code as number, out };
   }
 
+  async function latestEntry(session: string): Promise<LandingEntry | undefined> {
+    return (await queue.snapshot({ repo: "origin", branch: "main" })).entries
+      .filter((entry) => entry.sessionId === session)
+      .at(-1);
+  }
+
   async function settled(session: string): Promise<LandingEntry> {
     for (let i = 0; i < 300; i++) {
-      const entry = await queue.latestEntryFor(session);
+      const entry = await latestEntry(session);
       if (entry && (entry.state === "landed" || entry.state === "bounced")) return entry;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    throw new Error(`Entry of ${session} did not settle`);
+    throw new Error(
+      `Entry of ${session} did not settle. Runner logs:\n${runnerLogs.map((log) => log()).join("\n---\n")}`,
+    );
   }
 
   /** The test paths each fake Vitest run was given, in order. */
@@ -206,22 +263,18 @@ describe("takode land end to end", () => {
     await takode("stopper", worker, "land", "gate", "save", draft, "--branch", "main");
 
     const pidFile = join(root, "gate.pid");
-    const child = spawn(
-      process.execPath,
-      [fileURLToPath(new URL("./takode.ts", import.meta.url)), "land", "test", "--full", "--branch", "main"],
-      {
-        cwd: worker,
-        env: {
-          ...process.env,
-          HOME: home,
-          COMPANION_PORT: String(port),
-          COMPANION_SESSION_ID: "stopper",
-          COMPANION_AUTH_TOKEN: "token",
-          GATE_PID: pidFile,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
+    const child = spawn(process.execPath, [TAKODE, "land", "test", "--full", "--branch", "main"], {
+      cwd: worker,
+      env: {
+        ...process.env,
+        HOME: home,
+        COMPANION_PORT: String(port),
+        COMPANION_SESSION_ID: "stopper",
+        COMPANION_AUTH_TOKEN: "token",
+        GATE_PID: pidFile,
       },
-    );
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let out = "";
     child.stdout?.on("data", (chunk) => (out += String(chunk)));
     child.stderr?.on("data", (chunk) => (out += String(chunk)));
@@ -245,8 +298,8 @@ describe("takode land end to end", () => {
     expect(() => process.kill(gatePid, 0)).toThrow();
   });
 
-  it("tests, submits, lands in batches and finishes through the real CLI", async () => {
-    // Single change, nothing in flight: submit takes the free lease and starts the run itself.
+  it("tests and submits through the real CLI, and the server's runners land the changes in batches", async () => {
+    // Single change, nothing in flight: the server takes the free lease and starts a runner itself.
     const solo = await workerWith("solo", "solo.txt");
     await saveGate(solo);
     expect((await takode("solo", solo, "land", "submit", "--branch", "main")).out).toContain(
@@ -256,14 +309,16 @@ describe("takode land end to end", () => {
     expect(tested.code).toBe(0);
     expect(tested.out).toContain("PASSED: full gate");
     const submitted = await takode("solo", solo, "land", "submit", "--branch", "main");
-    expect(submitted.out).toContain("background landing run started");
+    expect(submitted.code, submitted.out).toBe(0);
+    expect(submitted.out).toContain("Takode starts a landing run for it now.");
+    expect(submitted.out).toContain("You don't wait for it");
     const soloEntry = await settled("solo");
     expect(soloEntry.state).toBe("landed");
     // The full pre-submit run gated this exact tree, so the landing run reused it.
     expect(await gateRuns()).toBe(1);
     expect(await git(origin, ["rev-parse", "main"])).toBe(soloEntry.pushedTip);
 
-    // Two more changes queue behind a classic porter holding the lease.
+    // Two more changes wait behind a classic porter holding the lease; nobody has to run anything.
     await leases.acquire({ resourceKey: "port:origin:main", callerSessionId: "porter", purpose: "classic port" });
     const first = await workerWith("first", "first.txt");
     const second = await workerWith("second", "second.txt");
@@ -272,30 +327,75 @@ describe("takode land end to end", () => {
       ["second", second],
     ] as const) {
       expect((await takode(session, dir, "land", "test", "--full", "--branch", "main")).code).toBe(0);
-      expect((await takode(session, dir, "land", "submit", "--branch", "main")).out).toContain("Queued for");
+      expect((await takode(session, dir, "land", "submit", "--branch", "main")).code).toBe(0);
     }
-    // A waiting owner cannot start a run while someone else holds the lease.
-    expect((await takode("first", first, "land", "run", "--branch", "main")).out).toContain("You do not hold");
-    await leases.release("port:origin:main", "porter");
-    // Only the first waiting owner is promoted and asked to run the queue.
-    expect(leaseMessages.map((message) => message.session)).toEqual(["first"]);
-    expect(leaseMessages[0]!.text).toContain("takode land run");
+    const waiting = await takode("first", first, "land", "status", "--branch", "main");
+    expect(waiting.out).toContain("waiting for port:origin:main (a classic port holds it)");
+    const launchesBefore = launchCount;
     const runs = await gateRuns();
-    expect((await takode("first", first, "land", "run", "--branch", "main")).out).toContain("Started the background");
+    await leases.release("port:origin:main", "porter");
     const [firstEntry, secondEntry] = [await settled("first"), await settled("second")];
     expect([firstEntry.state, secondEntry.state]).toEqual(["landed", "landed"]);
-    // One gate run for the batch of two; "second" was never promoted.
+    // One runner and one gate run for the batch of two.
+    expect(launchCount).toBe(launchesBefore + 1);
     expect(await gateRuns()).toBe(runs + 1);
-    expect(leaseMessages).toHaveLength(1);
     expect(secondEntry.pushedTip).toBe(await git(origin, ["rev-parse", "main"]));
-    expect((await leases.getStatus("port:origin:main")).leases).toEqual([]);
-
-    const finished = await takode("second", second, "land", "finish", "--branch", "main");
-    expect(finished.code).toBe(0);
-    expect(finished.out).toContain(`Synced SHAs: ${secondEntry.mapping!.map((commit) => commit.target).join(",")}`);
-    expect(await git(second, ["rev-parse", "HEAD"])).toBe(secondEntry.pushedTip);
-    expect(queueMessages.find((message) => message.session === "second")!.text).toContain("takode land finish");
+    await vi.waitFor(async () => expect((await leases.getStatus("port:origin:main")).leases).toEqual([]));
+    // No session was ever promoted on the port lease or asked to run or finish anything.
+    expect(leaseMessages).toEqual([]);
+    await vi.waitFor(() =>
+      expect(queueMessages.map((message) => message.session).sort()).toEqual(["first", "second", "solo"]),
+    );
+    expect(queueMessages.find((message) => message.session === "second")!.text).not.toContain("land finish");
+    // An agent session cannot act as a runner: runs are claimed only with a runner's own credentials.
+    const asSession = await fetch(`http://localhost:${port}/api/takode/land/runs`, {
+      method: "POST",
+      headers: { "x-companion-session-id": "solo", "x-companion-auth-token": "token" },
+      body: JSON.stringify({ target: { repo: "origin", branch: "main" } }),
+    });
+    expect(asSession.status).toBe(403);
   });
+
+  it("starts a runner by hand when the server cannot, and resumes a bounced change in another worktree", async () => {
+    const owner = await workerWith("owner", "owner.txt");
+    await saveGate(owner);
+    // The change breaks the gate: the runner bounces it with the failing output.
+    await writeFile(join(owner, "broken"), "");
+    await git(owner, ["add", "broken"]);
+    await git(owner, ["commit", "--quiet", "-m", "break the gate"]);
+    launchFailure = "the host is offline";
+    expect((await takode("owner", owner, "land", "submit", "--skip-test", "fixture", "--branch", "main")).code).toBe(0);
+    await vi.waitFor(async () =>
+      expect((await takode("owner", owner, "land", "status", "--branch", "main")).out).toContain(
+        "problem: The landing runner could not start",
+      ),
+    );
+    // A session with nothing waiting cannot start runners; the owner of the waiting change can.
+    const stranger = await workerWith("stranger", "stranger.txt");
+    expect((await takode("stranger", stranger, "land", "run", "--branch", "main")).out).toContain(
+      "Only a leader or the owner of a waiting change",
+    );
+    const byHand = await takode("owner", owner, "land", "run", "--branch", "main");
+    expect(byHand.code, byHand.out).toBe(0);
+    expect(byHand.out).toContain("Started landing runner");
+    const entry = await settled("owner");
+    expect(entry.state).toBe("bounced");
+    expect(entry.reason).toContain("The landing gate failed (check)");
+    await vi.waitFor(() =>
+      expect(queueMessages.find((message) => message.session === "owner")?.text).toContain(
+        `takode land resume ${entry.id}`,
+      ),
+    );
+
+    // Another worker restores exactly the submitted change from the queue's bundle.
+    const fixer = join(root, "fixer");
+    await git(base, ["worktree", "add", "--quiet", "-b", "fixer", fixer, "origin/main"]);
+    const resumed = await takode("fixer", fixer, "land", "resume", entry.id, "--branch", "main");
+    expect(resumed.code, resumed.out).toBe(0);
+    expect(resumed.out).toContain("It bounced: The landing gate failed (check).");
+    expect(await git(fixer, ["rev-parse", "HEAD"])).toBe(entry.tip);
+  });
+
   it("runs a focused pre-submit check of chosen tests, which the landing queue never reuses", async () => {
     // The worker names the tests its change needs; the gate's other steps run whole,
     // no full-suite slot is taken, and the queue still runs the full gate on the batch.
@@ -333,7 +433,7 @@ describe("takode land end to end", () => {
     expect(await vitestArgs()).toEqual([["tests/a.test.ts"]]);
     expect((await leases.getStatus("full-suite:origin")).leases).toEqual([]);
 
-    expect((await land("submit")).out).toContain("background landing run started");
+    expect((await land("submit")).out).toContain("Takode starts a landing run for it now.");
     const entry = await settled("focus");
     expect(entry.state).toBe("landed");
     expect(entry.preSubmitTest).toMatchObject({ kind: "focused", tests: ["tests/a.test.ts"] });

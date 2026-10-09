@@ -47,6 +47,11 @@ import type { BoardRow, QuestLifecycleEventSnapshot, SessionState } from "../ses
 import type { SdkSessionInfo } from "../session-info.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
+  hasServerAuthorizedLocalCompletionTarget,
+  validateV2CompletionCodeCommitSubmission,
+  validateV2CompletionGitState,
+} from "./quest-completion-checks.js";
+import {
   QUEST_PHASE_DOCUMENTATION_WARNING_HEADER,
   resolveQuestFeedbackDocumentation,
   sameQuestFeedbackDocumentationScope,
@@ -400,80 +405,7 @@ function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
   return liveQuestFeedbackEntries(quest.feedback).some((entry) => entry.author === "human" && entry.addressed !== true);
 }
 
-function hasServerAuthorizedLocalCompletionTarget(
-  state: Partial<SessionState> | undefined,
-  launcherSession: Pick<SdkSessionInfo, "isWorktree" | "worktreePortTarget"> | undefined,
-): boolean {
-  const target = launcherSession?.worktreePortTarget;
-  return (
-    state?.is_worktree === true &&
-    launcherSession?.isWorktree === true &&
-    typeof target?.repoRoot === "string" &&
-    target.repoRoot.trim().length > 0 &&
-    typeof target.branch === "string" &&
-    target.branch.trim().length > 0 &&
-    typeof target.worktreePath === "string" &&
-    target.worktreePath.trim().length > 0
-  );
-}
-
-export function validateV2CompletionGitState(
-  state: Partial<SessionState> | undefined,
-  storedCodeCommitShas: string[] | undefined,
-  options: { localOnly?: boolean } = {},
-): string | undefined {
-  if (!state) return "Cannot verify worker git state for v2 Memory completion.";
-  if (!options.localOnly) {
-    const comparisonTarget = (state.diff_base_branch || state.git_default_branch || "").trim();
-    if (!comparisonTarget) {
-      return "Worker git comparison target is uncertain; refresh or sync before completion.";
-    }
-    if (!Number.isFinite(state.git_ahead) || !Number.isFinite(state.git_behind)) {
-      return "Worker git sync state is uncertain; refresh before completion.";
-    }
-    if (state.git_ahead !== 0) {
-      return "Worker checkout is ahead of its comparison target; sync/Port before completion.";
-    }
-    if (state.git_behind !== 0) {
-      return "Worker checkout is behind its comparison target; refresh or sync before completion.";
-    }
-  }
-  if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
-  if (state.diff_stats_skipped_reason)
-    return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
-  const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
-  if (changedLines > 0 && (storedCodeCommitShas?.length ?? 0) === 0) {
-    return "Worker has tracked project changes but Work -> Memory did not record code commit metadata.";
-  }
-  return undefined;
-}
-
-function validateV2CompletionCodeCommitSubmission(
-  currentQuest: QuestmasterTask,
-  submittedCommitShas: unknown,
-): { error: string; status: 400 | 409 } | undefined {
-  if (submittedCommitShas === undefined) return undefined;
-  if (!Array.isArray(submittedCommitShas)) {
-    return { error: "commitShas must be an array when provided.", status: 400 };
-  }
-
-  let normalizedSubmitted: string[];
-  try {
-    normalizedSubmitted = normalizeCommitShas(submittedCommitShas);
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Invalid commitShas.", status: 400 };
-  }
-  const stored = new Set((currentQuest.commitShas ?? []).map((sha) => sha.toLowerCase()));
-  const newlyIntroduced = normalizedSubmitted.filter((sha) => !stored.has(sha));
-  if (newlyIntroduced.length > 0) {
-    return {
-      error:
-        "v2 final Memory cannot attach new code commit SHAs; record synchronized target commits during Work -> Memory.",
-      status: 409,
-    };
-  }
-  return undefined;
-}
+export { validateV2CompletionGitState } from "./quest-completion-checks.js";
 
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -682,7 +614,11 @@ export function createQuestRoutes(ctx: RouteContext) {
     const localOnly =
       body.v2CompletionSync === "local-clean" &&
       hasServerAuthorizedLocalCompletionTarget(workerState, launcher.getSession(workerSessionId));
-    const gitStateError = validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly });
+    // A change still in the landing queue is ahead of the target by design; the quest waits for it in Landing.
+    const awaitingLanding = !!row.landing && !row.landing.deliveryId;
+    const gitStateError = awaitingLanding
+      ? undefined
+      : validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly });
     if (gitStateError) {
       return new Response(JSON.stringify({ error: gitStateError }), {
         status: 409,
@@ -1510,6 +1446,49 @@ export function createQuestRoutes(ctx: RouteContext) {
     }
   });
 
+  /** Complete a quest and bring the board and the owner's quest display along. */
+  const finishQuestCompletion = async (
+    questId: string,
+    items: import("../quest-types.js").QuestVerificationItem[],
+    options: Parameters<typeof questStore.completeQuest>[2] & {
+      currentQuest: QuestmasterTask;
+      targetSessionId?: string;
+    },
+  ): Promise<QuestmasterTask | null> => {
+    const { currentQuest, targetSessionId, ...completion } = options;
+    const quest = await questStore.completeQuest(questId, items, {
+      ...completion,
+      ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+    });
+    if (!quest) return null;
+    syncDoneQuestBoardState(questId, quest);
+    broadcastQuestUpdate(wsBridge, quest);
+    // Update session's quest status so browsers can show review-pending state.
+    const reviewOwnerSessionId =
+      targetSessionId || getTakodeQuestOwnerSessionId(currentQuest) || getTakodeDisplayOwnerSessionId(quest) || "";
+    if (reviewOwnerSessionId && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
+      setClaimedQuest(
+        reviewOwnerSessionId,
+        claimedQuestEvent(quest),
+        isSubmissionEdge(currentQuest, quest) ? lifecycleEvent("submitted", quest, reviewOwnerSessionId) : undefined,
+      );
+    }
+    return quest;
+  };
+  // The landing hand-off applies final Memory's completion once the quest's change has landed.
+  wsBridge.completeLandedQuest = async (questId, completion, workerSessionId) => {
+    const currentQuest = await questStore.getQuest(questId);
+    if (!currentQuest) throw new Error(`Quest not found: ${questId}`);
+    await finishQuestCompletion(questId, completion.verificationItems, {
+      currentQuest,
+      targetSessionId: workerSessionId,
+      memoryCommitShas: completion.memoryCommitShas,
+      debrief: completion.debrief,
+      debriefTldr: completion.debriefTldr,
+      ...(completion.debriefMachine ? { debriefMachine: completion.debriefMachine } : {}),
+    });
+  };
+
   api.post("/quests/:questId/complete", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
@@ -1542,30 +1521,29 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (v2GuardResponse) return v2GuardResponse;
       const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
       if (guardResponse) return guardResponse;
-      const currentOwnerSessionId = getTakodeQuestOwnerSessionId(currentQuest) ?? "";
-      const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
       const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
-      const quest = await questStore.completeQuest(c.req.param("questId"), items, {
-        commitShas,
+      // Final Memory of a quest whose change has not landed yet: the quest waits in Landing, not the worker.
+      const parked = recoveryEvent
+        ? null
+        : await wsBridge.landingHandoff?.park?.(c.req.param("questId"), {
+            verificationItems: items,
+            debrief: String(body.debrief),
+            debriefTldr: String(body.debriefTldr),
+            ...(callerMachine(auth) ? { debriefMachine: callerMachine(auth) } : {}),
+            ...(memoryCommitShas?.length ? { memoryCommitShas: normalizeCommitShas(memoryCommitShas) } : {}),
+            completedAt: Date.now(),
+          });
+      if (parked) return c.json({ ...currentQuest, landingParked: parked });
+      const quest = await finishQuestCompletion(c.req.param("questId"), items, {
+        currentQuest,
+        targetSessionId,
+        commitShas: Array.isArray(body.commitShas) ? body.commitShas : undefined,
         memoryCommitShas,
-        ...(targetSessionId ? { sessionId: targetSessionId } : {}),
         ...(typeof body.debrief === "string" ? { debrief: body.debrief, debriefMachine: callerMachine(auth) } : {}),
         ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
         ...(recoveryEvent ? { recoveryEvent } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
-      syncDoneQuestBoardState(c.req.param("questId"), quest);
-      broadcastQuestUpdate(wsBridge, quest);
-      // Update session's quest status so browsers can show review-pending state.
-      const reviewOwnerSessionId =
-        targetSessionId || currentOwnerSessionId || getTakodeDisplayOwnerSessionId(quest) || "";
-      if (reviewOwnerSessionId && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
-        setClaimedQuest(
-          reviewOwnerSessionId,
-          claimedQuestEvent(quest),
-          isSubmissionEdge(currentQuest, quest) ? lifecycleEvent("submitted", quest, reviewOwnerSessionId) : undefined,
-        );
-      }
       setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
       if (recoveryEvent) c.header(QUEST_LEADER_RECOVERY_WARNING_HEADER, formatLeaderRecoveryWarning(recoveryEvent));
       return c.json(quest);

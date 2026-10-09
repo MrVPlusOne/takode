@@ -90,6 +90,7 @@ import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { grepQuestsForCli, type QuestCliGrep } from "../server/routes/quest-cli-reads.js";
 import { runQuizCommand } from "./quest-quiz.js";
+import { reportLandingParked, type LandingParked } from "./quest-landing-parked.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
 import { parseCommaSeparatedTags } from "./quest-tag-options.js";
 import { runFeedbackEditCommand } from "./quest-feedback-edit-command.js";
@@ -978,8 +979,11 @@ async function cmdComplete(): Promise<void> {
         ...debriefOptions,
       });
   if (!quest) die(`Quest ${id} not found`);
+  const parked = (quest as { landingParked?: LandingParked }).landingParked;
   if (jsonOutput) {
     out(quest);
+  } else if (parked) {
+    await reportLandingParked(quest.questId, parked);
   } else {
     console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} user review checks`);
     console.log(formatCompletionReminder(quest.questId, { noCode }));

@@ -1,8 +1,10 @@
 /**
  * Landing queue: ready changes for a shared remote branch wait here, and one
- * landing run at a time (whoever holds the branch's port lease) stacks them on
- * the remote tip, gates the combined tree once and pushes exactly that commit.
- * Shared by the server (queue state) and the `takode land` CLI (the run).
+ * landing run at a time stacks them on the remote tip, gates the combined tree
+ * once and pushes exactly that commit. The server starts each run itself, as a
+ * runner process on a machine with a checkout of the repository, holding the
+ * branch's port lease in the queue's name. Shared by the server (queue state)
+ * and the `takode land` CLI (the runner).
  */
 
 /** Most entries one landing run takes; later ones wait for the next run. */
@@ -10,6 +12,17 @@ export const LANDING_BATCH_LIMIT = 8;
 
 /** A run whose heartbeat is older than this no longer counts as making progress. */
 export const LANDING_RUN_STALE_MS = 5 * 60_000;
+/**
+ * A run that has not reported for this long is taken back by the server: the
+ * run is abandoned and the port lease released, so a runner that died (or lost
+ * the server while reporting) holds up the queue for minutes, not until expiry.
+ * Runners report every minute.
+ */
+export const LANDING_RUN_RECLAIM_MS = 3 * 60_000;
+/** Session ID prefix of a landing runner's credentials. */
+export const LANDING_RUNNER_SESSION_PREFIX = "landing-runner:";
+/** Lease owner prefix the queue holds a branch's port lease under. */
+export const LANDING_QUEUE_OWNER_PREFIX = "landing-queue:";
 /** Lease pools `full-suite:<repo>` (per machine) cap concurrent full runs (`takode land test --full`, `gate try`). */
 export const FULL_SUITE_POOL_PREFIX = "full-suite:";
 
@@ -72,6 +85,8 @@ export interface LandingEntry {
   sessionNum?: number;
   /** Remote host of the submitting session; absent for the coordinator's machine. */
   hostId?: string;
+  /** The submitter's base checkout of the repository; a landing run can start there. */
+  baseCheckout?: string;
   questId?: string;
   /** Port-tracking preparation whose sealed commits this entry carries. */
   preparationId?: string;
@@ -110,8 +125,12 @@ export interface LandingRun {
   id: string;
   key: string;
   target: LandingTarget;
+  /** Lease owner the run holds the port lease under: the queue's `landing-queue:<repo>:<branch>`. */
   ownerSessionId: string;
+  /** Runs from before server-started runners name the session that ran them. */
   ownerSessionNum?: number;
+  /** The runner that claimed the run. */
+  launchId?: string;
   hostId?: string;
   startedAt: number;
   heartbeatAt: number;
@@ -149,6 +168,39 @@ export interface LandingQueueSnapshot {
   /** Abandoned runs that recorded a push plan and await reconciliation. */
   unreconciled: LandingRun[];
   recentRuns: LandingRun[];
+  /** Whether the queue holds the port lease, waits for it (behind classic ports), or neither. */
+  queueLease: "held" | "waiting" | "none";
+  /** The latest runner the queue started, without its credentials. */
+  launch?: Omit<LandingRunnerLaunch, "tokenHash">;
+  /** Why the last runner could not be started, and when the queue tries again. */
+  launchProblem?: { message: string; at: number; retryAt: number };
+}
+
+/**
+ * A runner process started for one queue: by the server on the machine of the
+ * oldest waiting change, or by hand with `takode land run`. It authenticates
+ * with its own one-off token, never as an agent session.
+ */
+export interface LandingRunnerLaunch {
+  id: string;
+  key: string;
+  target: LandingTarget;
+  /** Remote host it runs on; absent for the coordinator's machine. */
+  hostId?: string;
+  baseCheckout: string;
+  launchedAt: number;
+  /** SHA-256 of the runner's token. */
+  tokenHash: string;
+  /** Session that started it with `takode land run`; absent when the server did. */
+  startedBySessionId?: string;
+  /** The run it claimed. */
+  runId?: string;
+  endedAt?: number;
+}
+
+/** The lease owner a queue holds its branch's port lease under. */
+export function landingQueueOwnerId(target: LandingTarget): string {
+  return `${LANDING_QUEUE_OWNER_PREFIX}${landingQueueKey(target)}`;
 }
 
 export interface LandingGateStep {
@@ -209,6 +261,12 @@ export function parseLandingGateConfig(raw: unknown): LandingGateConfig {
 
 export function landingQueueKey(target: LandingTarget): string {
   return `${target.repo}:${target.branch}`.toLowerCase();
+}
+
+/** The target a queue key names (repository names and branches never contain a colon). */
+export function landingTargetFromKey(key: string): LandingTarget {
+  const at = key.indexOf(":");
+  return { repo: key.slice(0, at), branch: key.slice(at + 1) };
 }
 
 /** The port lease that serializes landings on a target, shared by every machine. */

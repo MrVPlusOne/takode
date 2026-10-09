@@ -49,6 +49,7 @@ import { ensureBuiltInQuestJourneyPhaseData } from "../server/quest-journey-phas
 import { ensureQuestmasterIntegration } from "../server/quest-integration.js";
 import { ensureSkillSymlinks } from "../server/skill-symlink.js";
 import { ensureTakodeIntegration } from "../server/takode-integration.js";
+import { setLandingRunnerApiPort } from "../server/landing-runner-launcher.js";
 import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "../server/startup-readiness.js";
 
 const args = process.argv.slice(2);
@@ -97,6 +98,8 @@ async function main(): Promise<void> {
   let agent: HostAgent | null = null;
   // Agent CLIs wait while the coordinator is away (e.g. restarting) instead of failing.
   const proxy = startApiProxy({ coordinatorUrl, port: apiPort, coordinatorConnected: () => agent?.connected ?? false });
+  // Landing runners the coordinator starts here reach it through the same proxy.
+  setLandingRunnerApiPort(proxy.port);
   // Agents here need the same CLI wrappers, skills and phase briefs as on the
   // coordinator, installed from this machine's own Takode checkout.
   if (!sharedCheckout) {

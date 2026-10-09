@@ -16,7 +16,6 @@ function waitText(opts: { jobs?: BackgroundTaskInfo[]; landing?: boolean; waits?
         resourceKey: "port:takode:jiayi",
         holderSessionIds: ["holder"],
         position: 1,
-        landingEntry: false,
         ...wait,
       })),
   });
@@ -46,11 +45,10 @@ describe("describeSessionWaits", () => {
     ).toBe("full-suite:takode@devbox (#2 in line); agent-browser (#1 in line)");
   });
 
-  it("calls a landing-queue wait the landing queue, and lets an active run cover it", () => {
-    // A submitted change waits for the port lease; once its batch is running,
-    // the session is still a lease waiter but the run is what it waits on.
-    expect(waitText({ waits: [{ landingEntry: true, position: 3 }] })).toBe("landing queue (#3 in line)");
-    expect(waitText({ landing: true, waits: [{ landingEntry: true }] })).toBe("landing run");
+  it("names an active landing run of the session's change next to its lease queues", () => {
+    // Submitting no longer queues the session for the port lease (the queue holds it
+    // itself), so a session waits on its landing run only while its change is in one.
+    expect(waitText({ landing: true })).toBe("landing run");
     expect(waitText({ landing: true, waits: [{ resourceKey: "agent-browser" }] })).toBe(
       "landing run; agent-browser (#1 in line)",
     );

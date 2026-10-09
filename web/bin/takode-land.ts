@@ -2,11 +2,11 @@
  * `takode land`: the landing queue for shared remote branches.
  *
  *   test     check your own branch before submitting: chosen tests, or the full gate (rerun-and-compare)
- *   submit   send your commits to the queue and join the port lease queue
- *   run      (lease holder) start the background landing run for every waiting entry
+ *   submit   send your commits to the queue; the server starts the landing run
+ *   run      (escape hatch) start a landing runner on this machine by hand
  *   status   show the queue
  *   withdraw take a waiting entry back out
- *   finish   after "landed": sync the base checkout, record port receipts, reset
+ *   resume   put a bounced change back into this worktree
  *   gate     show, list, try, save or remove the branch's gate saved on the server
  */
 import { spawn } from "node:child_process";
@@ -36,13 +36,14 @@ import {
 import { runLanding, type LandingRunApi } from "./landing-run.js";
 import { apiDelete, apiGet, apiPost, getCallerSessionId } from "./takode-core.js";
 
-export const LAND_HELP = `Usage: takode land <test|submit|run|status|withdraw|finish|gate> [flags]
+export const LAND_HELP = `Usage: takode land <test|submit|run|status|withdraw|resume|gate> [flags]
 
 Land changes on a shared remote branch through the landing queue. Waiting
 changes are stacked on the remote tip and gated once together; the exact gated
-commit is pushed. A repository branch uses the queue when a landing gate (its
-full verification commands) is saved for it on the Takode server; see
-\`takode land gate\`.
+commit is pushed. The server starts each landing run itself, on the machine of
+the oldest waiting change, so nobody waits for or runs it. A repository branch
+uses the queue when a landing gate (its full verification commands) is saved
+for it on the Takode server; see \`takode land gate\`.
 
   takode land test <test file or directory>... | --no-tests | --full
       Check your branch before submitting, with the rerun-and-compare rule
@@ -58,17 +59,17 @@ full verification commands) is saved for it on the Takode server; see
       change whose --full run tested exactly the tree it would push.
   takode land submit [q-N] [--preparation <id>] [--skip-test <reason>]
       Send your commits (merge-base with the remote branch to HEAD) to the
-      queue. Needs a passing \`takode land test\` for this change. Then end your
-      turn and wait for the Landing Queue message.
+      queue. Needs a passing \`takode land test\` for this change. You don't
+      wait for the landing: for a quest, hand it to Memory with
+      \`takode board work-to-memory q-N --landing-entry <entry-id>\`.
   takode land run
-      For the holder of port:<repo>:<branch>: start the background landing run
-      for every waiting entry. Returns immediately.
+      Escape hatch for a leader (or the owner of a waiting change) when the
+      server cannot start a run: starts a landing runner on this machine.
   takode land status [--json]
   takode land withdraw <entry-id>
-  takode land finish [q-N]
-      After your change landed: fast-forward the base checkout, record
-      port-tracking receipts, reset your worktree and print the
-      work-to-memory command.
+  takode land resume <entry-id>
+      Put a bounced or withdrawn change back into this worktree (from the
+      bundle the queue kept), with its bounce reason, to fix and resubmit.
   takode land gate [show|list|try|save|remove]
       Check, try out and save the branch's landing gate (\`takode land gate
       --help\`).
@@ -80,7 +81,6 @@ const QUEUED_EXIT_CODE = 3;
 /** Short enough that a slot whose holder died (even by SIGKILL) frees itself soon; renewed while held. */
 const TEST_LEASE_TTL_MS = 10 * 60_000;
 const TEST_LEASE_RENEW_MS = 2 * 60_000;
-const RUN_LEASE_TTL_MS = 15 * 60_000;
 const LANDING_HOME = join(homedir(), ".companion", "landing");
 
 interface LandContext {
@@ -116,8 +116,8 @@ export async function handleLand(base: string, args: string[]): Promise<void> {
       return landStatus(base, flags);
     case "withdraw":
       return landWithdraw(base, flags);
-    case "finish":
-      return landFinish(base, flags);
+    case "resume":
+      return landResume(base, flags);
     case "gate":
       return landGate(base, flags);
     default:
@@ -456,9 +456,10 @@ async function landSubmit(base: string, flags: Flags): Promise<void> {
   }
   const questId = flags.positional.find((arg) => /^q-\d+$/.test(arg));
   const bundleId = await uploadBundle(base, ctx, change.baseSha, change.head, commits);
-  const submitted = await landingApi<{ entry: LandingEntry; lease: string; position?: number }>(() =>
+  const submitted = await landingApi<{ entry: LandingEntry; ahead: number; activeRunId?: string }>(() =>
     apiPost(base, "/takode/land/submit", {
       target: ctx.target,
+      baseCheckout: ctx.baseCheckout,
       ...(questId ? { questId } : {}),
       ...(flags.values.get("--preparation") ? { preparationId: flags.values.get("--preparation") } : {}),
       bundleId,
@@ -467,25 +468,21 @@ async function landSubmit(base: string, flags: Flags): Promise<void> {
       commits,
       preSubmitTest,
     }),
-  ).catch((error: Error) => {
-    if (preSubmitTest.kind === "focused" && /preSubmitTest must record/.test(error.message))
-      throw new Error(
-        "This Takode server does not accept focused pre-submit runs yet (it needs a restart onto a newer build). Run `takode land test --full` and submit again.",
-      );
-    throw error;
-  });
-  console.log(
-    `Submitted ${commits.length} commit(s) as landing entry ${submitted.entry.id} for ${ctx.target.repo}:${ctx.target.branch}.`,
   );
-  if (submitted.lease === "queued") {
-    console.log(
-      `Queued for ${landingLeaseKey(ctx.target)} at position ${submitted.position}. End your turn. You will get a Landing Queue message when your change lands or bounces, or a Resource Lease message asking you to run \`takode land run\`.`,
-    );
-    return;
-  }
-  const logPath = await startDetachedRun(ctx);
+  const entry = submitted.entry;
+  console.log(`Submitted ${commits.length} commit(s) as landing entry ${entry.id} for ${landingQueueKey(ctx.target)}.`);
   console.log(
-    `You hold ${landingLeaseKey(ctx.target)}, so a background landing run started (log: ${logPath}). End your turn and wait for the Landing Queue message.`,
+    submitted.activeRunId
+      ? `Landing run ${submitted.activeRunId} is under way; your change goes in the next run, together with everything else waiting then.`
+      : submitted.ahead > 0
+        ? `${submitted.ahead} change(s) are ahead of yours; the next run takes all of them.`
+        : "Takode starts a landing run for it now.",
+  );
+  console.log("");
+  console.log(
+    questId
+      ? `You don't wait for it. Write your Work note, then hand the quest on: \`takode board work-to-memory ${questId} --work-note <index> --landing-entry ${entry.id}\`. The quest lands by itself after Memory; if the change bounces, your leader decides who fixes it.`
+      : "You don't wait for it: you get a Landing Queue message when it lands or bounces.",
   );
 }
 
@@ -513,78 +510,153 @@ async function uploadBundle(
   }
 }
 
-/** Start `takode land run --foreground` detached, logging to a file; returns the log path. */
-async function startDetachedRun(ctx: LandContext): Promise<string> {
+/**
+ * `takode land run`: the escape hatch. The server normally starts every landing
+ * run itself; this starts the runner on the caller's machine instead, for a
+ * leader (or the owner of a waiting change) when the server cannot.
+ */
+async function landRun(base: string, flags: Flags): Promise<void> {
+  const ctx = await resolveContext(base, flags);
+  if (flags.switches.has("--foreground")) return runAsRunner(base, ctx, flags.values.get("--log"));
+  const { runner } = await landingApi<{ runner: { launchId: string; sessionId: string; token: string } }>(() =>
+    apiPost(base, "/takode/land/runner", { target: ctx.target, baseCheckout: ctx.baseCheckout }),
+  );
   const logDir = join(LANDING_HOME, "logs");
   await mkdir(logDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const logPath = join(logDir, `${stamp}-${ctx.target.repo}-${ctx.target.branch.replace(/\//g, "_")}.log`);
+  const logPath = join(
+    logDir,
+    `${stamp}-${ctx.target.repo}-${ctx.target.branch.replace(/\//g, "_")}-${runner.launchId}.log`,
+  );
   const handle = await open(logPath, "a");
-  const script = process.argv[1]!;
   const child = spawn(
     process.execPath,
-    [script, "land", "run", "--foreground", "--branch", ctx.target.branch, "--log", logPath],
-    { cwd: ctx.worktree, detached: true, stdio: ["ignore", handle.fd, handle.fd], env: process.env },
+    [process.argv[1]!, "land", "run", "--foreground", "--branch", ctx.target.branch, "--log", logPath],
+    {
+      cwd: ctx.baseCheckout,
+      detached: true,
+      stdio: ["ignore", handle.fd, handle.fd],
+      env: {
+        ...process.env,
+        COMPANION_PORT: String(new URL(base).port),
+        COMPANION_SESSION_ID: runner.sessionId,
+        COMPANION_AUTH_TOKEN: runner.token,
+        TAKODE_API_PORT: "",
+      },
+    },
   );
   child.unref();
   await handle.close();
-  return logPath;
+  console.log(`Started landing runner ${runner.launchId} on this machine (log: ${logPath}).`);
 }
 
-async function landRun(base: string, flags: Flags): Promise<void> {
-  const ctx = await resolveContext(base, flags);
-  if (!flags.switches.has("--foreground")) {
-    const key = landingLeaseKey(ctx.target);
-    const { resource } = (await apiGet(base, `/resource-leases/${encodeURIComponent(key)}`)) as {
-      resource: { leases: { ownerSessionId: string }[] };
-    };
-    if (!resource.leases.some((lease) => lease.ownerSessionId === getCallerSessionId()))
-      throw new Error(
-        `You do not hold ${key}. If you submitted a change, end your turn: a Landing Queue or Resource Lease message will follow.`,
-      );
-    const logPath = await startDetachedRun(ctx);
-    console.log(
-      `Started the background landing run (log: ${logPath}). End your turn and wait for the Landing Queue message.`,
-    );
-    return;
-  }
-  const logPath = flags.values.get("--log");
+/** The runner process itself: one landing run for the queue, with the runner's own credentials. */
+async function runAsRunner(base: string, ctx: LandContext, logPath: string | undefined): Promise<void> {
   const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
-  const leaseKey = landingLeaseKey(ctx.target);
+  let runId = "";
   const runApi: LandingRunApi = {
-    claim: (target) => landingApi(() => apiPost(base, "/takode/land/runs", { target })),
-    heartbeat: async (runId, phase, path) => {
-      await apiPost(base, `/takode/land/runs/${runId}/heartbeat`, { phase, logPath: path });
+    claim: async (target) => {
+      const claim = await withRetry(() => apiPost(base, "/takode/land/runs", { target }));
+      runId = (claim as { run?: { id: string } }).run?.id ?? runId;
+      return claim as Awaited<ReturnType<LandingRunApi["claim"]>>;
     },
-    plan: async (runId, plan) => {
-      await withRetry(() => apiPost(base, `/takode/land/runs/${runId}/plan`, { plan }));
+    heartbeat: async (id, phase, path) => {
+      await apiPost(base, `/takode/land/runs/${id}/heartbeat`, { phase, logPath: path });
     },
-    finish: async (runId, report) => {
-      await withRetry(() => apiPost(base, `/takode/land/runs/${runId}/finish`, { report }));
+    plan: async (id, plan) => {
+      await withRetry(() => apiPost(base, `/takode/land/runs/${id}/plan`, { plan }));
     },
-    reconcile: async (runId, pushed) => {
-      await withRetry(() => apiPost(base, `/takode/land/runs/${runId}/reconcile`, { pushed }));
+    finish: async (id, report) => {
+      await withRetry(() => apiPost(base, `/takode/land/runs/${id}/finish`, { report }));
+    },
+    reconcile: async (id, pushed) => {
+      await withRetry(() => apiPost(base, `/takode/land/runs/${id}/reconcile`, { pushed }));
     },
     fetchBundle: async (bundleId) => {
-      const { data } = (await apiGet(base, `/bundles/${encodeURIComponent(bundleId)}`)) as { data: string };
+      const { data } = (await withRetry(() => apiGet(base, `/takode/land/runs/${runId}/bundles/${bundleId}`))) as {
+        data: string;
+      };
       return Buffer.from(data, "base64");
     },
-    gate: async (target) => (await savedGate(base, target))?.config ?? null,
+    gate: async (target) => (await withRetry(() => savedGate(base, target)))?.config ?? null,
+    // A heartbeat renews the queue's lease and fails once the queue no longer holds it.
     renewLease: async () => {
-      await apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/renew`, { ttlMs: RUN_LEASE_TTL_MS });
+      await apiPost(base, `/takode/land/runs/${runId}/heartbeat`, {});
     },
   };
   const slug = `${ctx.target.repo}-${ctx.target.branch.replace(/[^A-Za-z0-9._-]/g, "_")}-${await shortHash(ctx.baseCheckout)}`;
-  const result = await runLanding({
-    api: runApi,
-    target: ctx.target,
-    baseCheckout: ctx.baseCheckout,
-    landingDir: join(LANDING_HOME, "checkouts", slug),
-    scratchDir: join(LANDING_HOME, "scratch", slug),
-    log,
-    ...(logPath ? { logPath } : {}),
+  const landingDir = join(LANDING_HOME, "checkouts", slug);
+  const lockPath = `${landingDir}.runner`;
+  await takeOverLandingCheckout(lockPath, log);
+  // A stopped runner (the server or a leader stopping it) stops its gate commands with it.
+  const onStop = (signal: NodeJS.Signals) => {
+    log(`Stopped by ${signal}; stopping the gate.`);
+    stopActiveGateCommands("SIGTERM");
+    void releaseLandingCheckout(lockPath).finally(() => process.exit(128 + (osConstants.signals[signal] ?? 15)));
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onStop);
+  try {
+    const result = await runLanding({
+      api: runApi,
+      target: ctx.target,
+      baseCheckout: ctx.baseCheckout,
+      landingDir,
+      scratchDir: join(LANDING_HOME, "scratch", slug),
+      log,
+      ...(logPath ? { logPath } : {}),
+    });
+    log(result.summary);
+  } catch (error) {
+    // The server takes the run back when it stops hearing from this runner.
+    log(`The landing run could not finish reporting: ${(error as Error).message}`);
+    process.exitCode = 1;
+  } finally {
+    for (const signal of STOP_SIGNALS) process.off(signal, onStop);
+    await releaseLandingCheckout(lockPath);
+  }
+}
+
+/**
+ * One runner at a time works in a machine's landing checkout. When the server
+ * gives up on a runner that is still alive (it stopped reporting) and starts
+ * another here, the newer one stops the older one and its gate first.
+ */
+async function takeOverLandingCheckout(lockPath: string, log: (line: string) => void): Promise<void> {
+  const previous = Number((await readFile(lockPath, "utf-8").catch(() => "")).trim());
+  if (previous && previous !== process.pid && (await isLandingRunner(previous))) {
+    log(`Stopping the earlier landing runner (pid ${previous}) that still works in this landing checkout.`);
+    process.kill(previous, "SIGTERM");
+    for (let i = 0; i < 30 && isAlive(previous); i++) await new Promise((resolve) => setTimeout(resolve, 500));
+    if (isAlive(previous)) process.kill(previous, "SIGKILL");
+  }
+  await mkdir(dirname(lockPath), { recursive: true });
+  await writeFile(lockPath, String(process.pid));
+}
+
+async function releaseLandingCheckout(lockPath: string): Promise<void> {
+  const holder = Number((await readFile(lockPath, "utf-8").catch(() => "")).trim());
+  if (holder === process.pid) await rm(lockPath, { force: true });
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a live process is a landing runner, not an unrelated process that reused the PID. */
+async function isLandingRunner(pid: number): Promise<boolean> {
+  if (!isAlive(pid)) return false;
+  return new Promise((resolvePromise) => {
+    const ps = spawn("ps", ["-o", "args=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] });
+    let args = "";
+    ps.stdout.on("data", (chunk) => (args += chunk));
+    ps.on("error", () => resolvePromise(false));
+    ps.on("close", () => resolvePromise(/\bland run --foreground\b/.test(args)));
   });
-  log(result.summary);
 }
 
 async function shortHash(text: string): Promise<string> {
@@ -592,14 +664,21 @@ async function shortHash(text: string): Promise<string> {
   return createHash("sha256").update(text).digest("hex").slice(0, 8);
 }
 
-/** Retry calls that must reach the server (for example across a coordinator restart). */
+/**
+ * Retry calls that must reach the server, such as a runner's final report
+ * across a coordinator restart. A host's API proxy answers 502 while the
+ * coordinator is away, which the CLI sees as "Bad Gateway".
+ */
 async function withRetry<T>(call: () => Promise<T>, attempts = 12): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await call();
     } catch (error) {
       const message = (error as Error).message;
-      const transient = /fetch failed|ECONNREFUSED|ECONNRESET|socket|HTTP 5\d\d|unreachable/i.test(message);
+      const transient =
+        /fetch failed|ECONNREFUSED|ECONNRESET|socket|HTTP 5\d\d|unreachable|Bad Gateway|Service Unavailable|Gateway Timeout|Internal Server Error/i.test(
+          message,
+        );
       if (!transient || attempt >= attempts) throw error;
       await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 2_000 * attempt)));
     }
@@ -618,12 +697,22 @@ async function landStatus(base: string, flags: Flags): Promise<void> {
   console.log(`Landing queue ${snapshot.key} (lease ${snapshot.leaseKey})`);
   const now = Date.now();
   const age = (at: number) => `${Math.round((now - at) / 60_000)}m`;
+  const launchWhere = (launch: NonNullable<LandingQueueSnapshot["launch"]>) =>
+    `${launch.hostId ? `host ${launch.hostId}` : "the coordinator's machine"}, ${launch.baseCheckout}${launch.startedBySessionId ? ", started by hand" : ""}`;
   if (snapshot.activeRun) {
     const run = snapshot.activeRun;
     console.log(
-      `  running: ${run.id} by #${run.ownerSessionNum ?? run.ownerSessionId.slice(0, 8)}, ${run.entryIds.length} entr${run.entryIds.length === 1 ? "y" : "ies"}, ${age(run.startedAt)} so far, phase: ${run.phase}${run.logPath ? `, log ${run.logPath}` : ""}`,
+      `  running: ${run.id}, ${run.entryIds.length} entr${run.entryIds.length === 1 ? "y" : "ies"}, ${age(run.startedAt)} so far, phase: ${run.phase}${run.logPath ? `, log ${run.logPath}` : ""}${snapshot.launch?.runId === run.id ? ` (${launchWhere(snapshot.launch)})` : ""}`,
     );
+  } else if (snapshot.launch && !snapshot.launch.endedAt) {
+    console.log(`  starting a runner: ${snapshot.launch.id} on ${launchWhere(snapshot.launch)}`);
+  } else if (snapshot.queueLease === "waiting") {
+    console.log(`  waiting for ${snapshot.leaseKey} (a classic port holds it); the run starts when it is free`);
   }
+  if (snapshot.launchProblem)
+    console.log(
+      `  problem: ${snapshot.launchProblem.message} Next attempt ${snapshot.launchProblem.retryAt > now ? `in ${Math.ceil((snapshot.launchProblem.retryAt - now) / 60_000)}m` : "now"}.`,
+    );
   for (const run of snapshot.unreconciled)
     console.log(`  interrupted, awaiting the next run: ${run.id} (${run.summary ?? ""})`);
   const label = (entry: LandingEntry) =>
@@ -631,7 +720,9 @@ async function landStatus(base: string, flags: Flags): Promise<void> {
   const waiting = snapshot.entries.filter((entry) => entry.state === "pending" || entry.state === "running");
   console.log(waiting.length ? "  waiting:" : "  nothing waiting");
   for (const entry of waiting)
-    console.log(`    ${label(entry)} ${entry.state}, submitted ${age(entry.submittedAt)} ago`);
+    console.log(
+      `    ${label(entry)} ${entry.state}, submitted ${age(entry.submittedAt)} ago${entry.reason ? ` (last attempt: ${entry.reason.split("\n")[0]})` : ""}`,
+    );
   const done = snapshot.entries.filter((entry) => entry.resolvedAt).slice(-8);
   if (done.length) console.log("  recent:");
   for (const entry of done)
@@ -650,64 +741,47 @@ async function landWithdraw(base: string, flags: Flags): Promise<void> {
   console.log(`Withdrew ${entry.id}.`);
 }
 
-async function landFinish(base: string, flags: Flags): Promise<void> {
-  const questId = flags.positional.find((arg) => /^q-\d+$/.test(arg));
-  const { entry } = await landingApi<{ entry: LandingEntry }>(() =>
-    apiGet(base, `/takode/land/entries/latest${questId ? `?questId=${questId}` : ""}`),
-  );
-  if (entry.state !== "landed") {
-    console.log(`Entry ${entry.id} is ${entry.state}${entry.reason ? `: ${entry.reason}` : ""}`);
-    process.exitCode = 1;
-    return;
-  }
+/**
+ * Put a bounced (or withdrawn) change back into this worktree from the bundle
+ * the queue kept, so whoever fixes it starts from exactly what was submitted.
+ */
+async function landResume(base: string, flags: Flags): Promise<void> {
+  const id = flags.positional[0];
+  if (!id || !/^le-[0-9a-f]{8}$/.test(id)) throw new Error("Usage: takode land resume <entry-id>");
+  const { entry } = await landingApi<{ entry: LandingEntry }>(() => apiGet(base, `/takode/land/entries/${id}`));
+  if (entry.state !== "bounced" && entry.state !== "withdrawn")
+    throw new Error(`Entry ${entry.id} is ${entry.state}; only a bounced or withdrawn change is resumed.`);
   const ctx = await resolveContext(base, { ...flags, values: new Map([["--branch", entry.target.branch]]) });
-  const mapping = entry.mapping!;
-  const lastTarget = mapping.at(-1)!.target;
-  if (!(await isAncestor(ctx.baseCheckout, lastTarget, ctx.remoteRef)))
-    throw new Error(`origin/${entry.target.branch} does not contain ${lastTarget}; fetch and retry.`);
-  // Port receipts check the base checkout, so it must contain the landed commits first.
-  if (!(await isAncestor(ctx.baseCheckout, lastTarget, "HEAD"))) {
-    const branch = await git(ctx.baseCheckout, ["symbolic-ref", "--short", "HEAD"]).catch(() => "");
-    if (
-      branch !== entry.target.branch ||
-      (await git(ctx.baseCheckout, ["status", "--porcelain", "--untracked-files=no"]))
-    )
-      throw new Error(
-        `The base checkout ${ctx.baseCheckout} is not a clean checkout of ${entry.target.branch}; fast-forward it to origin/${entry.target.branch} and rerun.`,
-      );
-    await git(ctx.baseCheckout, ["merge", "--quiet", "--ff-only", ctx.remoteRef]);
-    console.log(`Fast-forwarded ${ctx.baseCheckout} to origin/${entry.target.branch}.`);
-  }
-  if (entry.preparationId && entry.questId) {
-    for (const commit of mapping) {
-      await apiPost(base, `/takode/port/${entry.questId}/landed`, {
-        id: entry.preparationId,
-        workerSha: commit.source,
-        targetSha: commit.target,
-        landingEntryId: entry.id,
-      });
-    }
-    console.log(`Recorded ${mapping.length} port receipt(s) for preparation ${entry.preparationId}.`);
-  }
+  await assertClean(ctx.worktree);
   const head = await git(ctx.worktree, ["rev-parse", "HEAD"]);
-  const clean = !(await git(ctx.worktree, ["status", "--porcelain", "--untracked-files=no"]));
-  if (clean && (head === entry.tip || (await isAncestor(ctx.worktree, head, ctx.remoteRef)))) {
-    await git(ctx.worktree, ["reset", "--quiet", "--hard", ctx.remoteRef]);
-    console.log(`Reset your worktree to origin/${entry.target.branch}.`);
-  } else {
-    console.log(
-      "Your worktree has changes beyond the landed commits; it was not reset. Preserve that work, then reset to the target branch.",
+  if (head !== entry.tip && !(await isAncestor(ctx.worktree, head, ctx.remoteRef)))
+    throw new Error(
+      `This worktree has commits that are not on origin/${entry.target.branch}; commit them to another branch or use a clean worktree first.`,
     );
+  const { data } = (await apiGet(base, `/bundles/${encodeURIComponent(entry.bundleId)}`)) as { data: string };
+  const dir = await mkdtemp(join(tmpdir(), "takode-land-resume-"));
+  try {
+    const file = join(dir, "commits.bundle");
+    await writeFile(file, Buffer.from(data, "base64"));
+    // The bundle needs its base, which is on the remote branch's history.
+    await git(ctx.worktree, ["fetch", "--quiet", file, `+${entry.tip}:refs/takode/resume/${entry.id}`]).catch(
+      async () => {
+        await git(ctx.worktree, ["fetch", "--quiet", "--no-tags", file]);
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
-  const shas = mapping.map((commit) => commit.target).join(",");
-  const integrated = mapping.filter((commit) => commit.integrated).length;
-  console.log("");
-  console.log(`Port target used: ${ctx.baseCheckout} ${entry.target.branch} (landing queue entry ${entry.id})`);
-  console.log(`Synced SHAs: ${shas}`);
-  if (integrated)
-    console.log(`${integrated} commit(s) were integrated with other changes in the same batch (same files).`);
+  await git(ctx.worktree, ["reset", "--quiet", "--hard", entry.tip]);
+  await git(ctx.worktree, ["update-ref", "-d", `refs/takode/resume/${entry.id}`]).catch(() => undefined);
   console.log(
-    `Next: takode board work-to-memory ${entry.questId ?? "q-N"} --work-note <index> --commits ${shas}${entry.preparationId ? ` --preparation ${entry.preparationId}` : ""}`,
+    `Your worktree now has the ${entry.commits.length} commit(s) of ${entry.id} (tip ${entry.tip.slice(0, 10)}).`,
+  );
+  console.log(`It ${entry.state === "bounced" ? "bounced" : "was withdrawn"}: ${entry.reason ?? "no reason recorded"}`);
+  if (entry.details) console.log(["", "```", entry.details.slice(-3000), "```"].join("\n"));
+  console.log("");
+  console.log(
+    `Next: rebase onto origin/${entry.target.branch}, fix it, rerun \`takode land test\` and \`takode land submit${entry.questId ? ` ${entry.questId}` : ""}\`.`,
   );
 }
 

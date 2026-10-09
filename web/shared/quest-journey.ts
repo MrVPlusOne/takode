@@ -2,6 +2,7 @@
  * Quest Journey state machine constants.
  * Shared between server (session-types.ts) and CLI (takode.ts).
  */
+import landingPhase from "./quest-journey-phases/landing/phase.json";
 import memoryPhase from "./quest-journey-phases/memory/phase.json";
 import alignmentPhase from "./quest-journey-phases/alignment/phase.json";
 import userCheckpointPhase from "./quest-journey-phases/user-checkpoint/phase.json";
@@ -53,7 +54,14 @@ export interface BoardQueueWarning {
  * Quest Journey state values. `QUEUED` remains a board-only pre-phase state.
  * Active rows use canonical states derived from the active phase contract.
  */
-export const QUEST_JOURNEY_STATES = ["PROPOSED", "QUEUED", "WORKING", "USER_CHECKPOINTING", "MEMORY"] as const;
+export const QUEST_JOURNEY_STATES = [
+  "PROPOSED",
+  "QUEUED",
+  "WORKING",
+  "USER_CHECKPOINTING",
+  "MEMORY",
+  "LANDING",
+] as const;
 
 export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
 /** Retained for already-created Journeys; never inserted into new plans. */
@@ -79,7 +87,7 @@ export type QuestJourneyPresentationState = "draft" | "presented";
  * assemble into a Quest Journey and are backed by canonical phase.json files.
  */
 export type QuestJourneyAssigneeRole = "worker" | "reviewer";
-const ACTIVE_QUEST_JOURNEY_PHASE_IDS = ["work", "user-checkpoint", "memory"] as const;
+const ACTIVE_QUEST_JOURNEY_PHASE_IDS = ["work", "user-checkpoint", "memory", "landing"] as const;
 
 const LEGACY_QUEST_JOURNEY_PHASE_IDS = [
   "explore",
@@ -168,6 +176,7 @@ export const QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
   defineQuestJourneyPhase("work", workPhase),
   defineQuestJourneyPhase("user-checkpoint", userCheckpointPhase),
   defineQuestJourneyPhase("memory", memoryPhase),
+  defineQuestJourneyPhase("landing", landingPhase),
 ];
 
 /** Existing Alignment occurrences retain their metadata and approval boundary. */
@@ -425,6 +434,8 @@ export const OPTIONAL_USER_CHECKPOINT_NOTE_ERROR =
 export const REQUIRED_USER_CHECKPOINT_REMOVAL_ERROR =
   "Cannot remove a User Checkpoint marked as explicitly user-requested or required. User-requested or required checkpoints must stay in the Journey until the user decision is recorded.";
 
+export const LANDING_PHASE_PLAN_ERROR =
+  "Landing is not planned by hand: Takode adds it after Memory when Work hands a submitted landing-queue change to Memory (`takode board work-to-memory --landing-entry`).";
 export const QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR =
   "Quest Journey repair required: the persisted phase plan contains an unknown or malformed occurrence. Repair the row with recognized phase IDs while preserving occurrence positions before changing it.";
 
@@ -556,6 +567,7 @@ export function validateQuestJourneyPhaseSequence(
     return `Invalid active Quest Journey phase(s): ${invalid.join(", ")}. New Journeys use work, user-checkpoint, and memory. Alignment is retained only for existing Journeys; legacy v1 phase IDs are historical-read only.`;
   }
   const phaseIds = normalizeQuestJourneyPhaseIds(values);
+  if (phaseIds.includes("landing")) return LANDING_PHASE_PLAN_ERROR;
   const allowedIndices = new Set(options.allowedAdjacentExploreImplementIndices ?? []);
   if (options.allowedAdjacentExploreImplementIndex !== undefined) {
     allowedIndices.add(options.allowedAdjacentExploreImplementIndex);
@@ -590,9 +602,11 @@ export function validateQuestJourneyPhaseSequenceMutation(
     existingMode !== "proposed" && normalizedStatus !== "PROPOSED" && normalizedStatus !== "QUEUED";
 
   for (const [index, phaseId] of nextPhaseIds.entries()) {
-    if (phaseId !== "alignment") continue;
+    if (phaseId !== "alignment" && phaseId !== "landing") continue;
     if (existingPhaseIds[index] !== phaseId) {
-      return "New Alignment occurrences are not supported; perform understanding and exception-based pauses within Work.";
+      return phaseId === "landing"
+        ? LANDING_PHASE_PLAN_ERROR
+        : "New Alignment occurrences are not supported; perform understanding and exception-based pauses within Work.";
     }
   }
 
@@ -616,7 +630,7 @@ export function validateQuestJourneyPhaseSequenceMutation(
   }
 
   return validateQuestJourneyPhaseSequence(
-    nextPhaseIds.filter((phaseId) => phaseId !== "alignment"),
+    nextPhaseIds.filter((phaseId) => phaseId !== "alignment" && phaseId !== "landing"),
     {
       allowedAdjacentExploreImplementIndices: [...allowedIndices],
     },
@@ -738,7 +752,17 @@ export function getQuestJourneyPhaseForState(status?: string | null): QuestJourn
   return canonical ? getQuestJourneyPhase(QUEST_JOURNEY_PHASE_ID_BY_STATE[canonical] ?? null) : null;
 }
 
-export function isQuestWaitForBlockingState(status?: string | null): boolean {
+/**
+ * Whether a quest in this board state still blocks `--wait-for` dependents. A
+ * quest in Memory no longer does, because its result is accepted and synced,
+ * unless its change still waits in the landing queue (then the code a
+ * dependent may need is not on the branch yet).
+ */
+export function isQuestWaitForBlockingState(
+  status?: string | null,
+  row?: { landing?: { deliveryId?: string } },
+): boolean {
+  if (row?.landing && !row.landing.deliveryId) return true;
   return canonicalizeKnownQuestJourneyState(status) !== "MEMORY";
 }
 
@@ -1276,6 +1300,7 @@ export const QUEST_JOURNEY_PRESENTATION: Record<KnownQuestJourneyState, QuestJou
   WORKING: { label: "Work" },
   USER_CHECKPOINTING: { label: "User Checkpoint" },
   MEMORY: { label: "Memory" },
+  LANDING: { label: "Landing" },
   EXPLORING: { label: "Explore" },
   IMPLEMENTING: { label: "Implement" },
   CODE_REVIEWING: { label: "Code Review" },
@@ -1295,7 +1320,7 @@ export function getQuestJourneyPresentation(status?: string | null): QuestJourne
 /** Replace embedded quest-journey enum tokens in freeform text with human labels. */
 export function formatQuestJourneyText(text: string): string {
   return text.replace(
-    /\b(PROPOSED|QUEUED|PLANNING|WORKING|USER_CHECKPOINTING|MEMORY|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|BOOKKEEPING|PORTING|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
+    /\b(PROPOSED|QUEUED|PLANNING|WORKING|USER_CHECKPOINTING|MEMORY|LANDING|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|BOOKKEEPING|PORTING|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
     (match) => getQuestJourneyPresentation(match)?.label ?? match,
   );
 }
@@ -1308,6 +1333,7 @@ export const QUEST_JOURNEY_HINTS: Record<string, string> = {
   WORKING: QUEST_JOURNEY_PHASE_BY_ID.work.nextLeaderAction,
   USER_CHECKPOINTING: QUEST_JOURNEY_PHASE_BY_ID["user-checkpoint"].nextLeaderAction,
   MEMORY: QUEST_JOURNEY_PHASE_BY_ID.memory.nextLeaderAction,
+  LANDING: QUEST_JOURNEY_PHASE_BY_ID.landing.nextLeaderAction,
   EXPLORING: QUEST_JOURNEY_PHASE_BY_ID.explore.nextLeaderAction,
   IMPLEMENTING: QUEST_JOURNEY_PHASE_BY_ID.implement.nextLeaderAction,
   CODE_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,

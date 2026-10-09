@@ -806,9 +806,7 @@ describe("WsBridge synchronized projections", () => {
     let landing = false;
     bridge.landingQueue = { isLandingActive: () => landing } as any;
     bridge.resourceLeaseManager = {
-      getLeaseWaits: () => [
-        { resourceKey: "full-suite:takode@devbox", holderSessionIds: ["other"], position: 2, landingEntry: false },
-      ],
+      getLeaseWaits: () => [{ resourceKey: "full-suite:takode@devbox", holderSessionIds: ["other"], position: 2 }],
     } as any;
     const socket = browserSocket("leader");
     const initial = bridge

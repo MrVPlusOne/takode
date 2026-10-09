@@ -3,7 +3,9 @@
  * remote branch tip in a dedicated checkout, gate the combined tree once and
  * push exactly the commit that was gated. A change that conflicts or breaks
  * the gate bounces back to its owner and the rest are re-gated without it.
- * Runs on the machine of the session holding the target's port lease.
+ * Runs as a runner process the server starts (or a leader starts by hand) on a
+ * machine with a checkout of the repository, holding the target's port lease
+ * in the queue's name.
  */
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -34,7 +36,7 @@ export interface LandingRunApi {
   fetchBundle(bundleId: string): Promise<Buffer>;
   /** The gate saved for the target on the Takode server, or null when none is. */
   gate(target: LandingTarget): Promise<LandingGateConfig | null>;
-  /** Extend the port lease; throws when this session no longer holds it. */
+  /** Extend the port lease; throws when the queue no longer holds it. */
   renewLease(): Promise<void>;
 }
 

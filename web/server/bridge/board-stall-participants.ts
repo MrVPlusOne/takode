@@ -171,9 +171,7 @@ export function describeSessionWaits(
   const landing = deps.isLandingActive?.(sessionId) ?? false;
   if (landing) parts.push("landing run");
   for (const wait of deps.getLeaseWaits?.(sessionId) ?? []) {
-    // A change in a running batch stays queued for the port lease; the run already covers it.
-    if (wait.landingEntry && landing) continue;
-    parts.push(`${wait.landingEntry ? "landing queue" : wait.resourceKey} (#${wait.position} in line)`);
+    parts.push(`${wait.resourceKey} (#${wait.position} in line)`);
   }
   return parts.length > 0 ? parts.join("; ") : null;
 }

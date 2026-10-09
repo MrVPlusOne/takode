@@ -443,6 +443,62 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(questStore.completeQuest).not.toHaveBeenCalled();
   });
 
+  describe("with a change still in the landing queue", () => {
+    const landingRow = (landing: Record<string, unknown> = {}) => ({
+      journey: {
+        phaseIds: ["alignment", "work", "memory", "landing"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+      },
+      landing: {
+        entryId: "le-0000000a",
+        workerSessionId: "worker-1",
+        workPhaseOccurrenceId: "board-leader-1-1:p2",
+        branch: "feature",
+        tip: "a".repeat(40),
+        ...landing,
+      },
+    });
+
+    it("parks final Memory in Landing instead of completing, although the worktree is ahead", async () => {
+      // The worker handed a submitted change to Memory and finished Memory before it landed:
+      // its worktree still has the submitted commits, and the quest waits in Landing.
+      const auth = installV2MemoryFixture({ row: landingRow(), workerState: { git_ahead: 1, total_lines_added: 5 } });
+      const parked = { entryId: "le-0000000a", outcome: "waiting", branch: "feature", tip: "a".repeat(40) };
+      const park = vi.fn(() => parked);
+      bridge.landingHandoff = { park };
+
+      const res = await postV2Complete({ memoryCommitShas: ["abc1234"] }, auth);
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(await res.json()).toMatchObject({ questId: "q-1", status: "in_progress", landingParked: parked });
+      expect(park).toHaveBeenCalledWith(
+        "q-1",
+        expect.objectContaining({
+          verificationItems: [],
+          debrief: "Completed the accepted work and final Memory closure.",
+          debriefTldr: "Accepted work is complete with final Memory closure.",
+          memoryCommitShas: ["abc1234"],
+        }),
+      );
+      expect(questStore.completeQuest).not.toHaveBeenCalled();
+    });
+
+    it("completes normally, with the usual git checks, once the landed commits are recorded", async () => {
+      const auth = installV2MemoryFixture({
+        row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),
+        workerState: { git_ahead: 1 },
+      });
+      bridge.landingHandoff = { park: vi.fn(() => null) };
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("ahead of its comparison target") });
+      expect(questStore.completeQuest).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not let memory-repository SHAs substitute for missing Work code evidence", () => {
     // Memory SHAs are intentionally absent from this validator's contract: only
     // code commits already stored on the quest can cover tracked project changes.

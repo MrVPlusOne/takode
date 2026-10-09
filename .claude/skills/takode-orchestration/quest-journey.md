@@ -4,6 +4,8 @@ Quest Journey v2 has one active workflow for quest-backed work:
 
 `work -> memory`
 
+On a branch that lands through the landing queue, Work ends when the change is submitted and Takode adds a final Landing phase: `work -> memory -> landing`. The quest, not the worker, waits for the change to land.
+
 `user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Direct worker errands are not Quest Journey states; they are narrow one-turn, context-rich, read-only follow-ups handled by `leader-dispatch` and promoted to a normal quest if scope expands. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
 
 The work board (`takode board show`) tracks proposed rows, queued rows, active state, worker assignment, human-input waits, timing, and next action. Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's Journey, notes, legacy compatibility labels, and timing history.
@@ -18,6 +20,7 @@ Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<p
 | Work | `WORKING` | Assigned worker completes the authorized work end-to-end, syncs tracked changes, maintains one current Work note, and attaches synchronized target code SHAs or explicit zero-code evidence through the guarded transition. |
 | User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The assigned worker resumes the current quest in Work to apply the approved routing; same-quest choices continue implementation. |
 | Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/quiz/check hygiene, cleanup/follow-up routing, and quest completion. |
+| Landing | `LANDING` | System-managed, never planned by hand. The quest waits for its submitted landing-queue change; Takode records the landed commits as Work evidence and completes the quest, or keeps it here as bounced with a Work and a Memory occurrence added for the fix. |
 
 Historical v1 phase metadata remains available only so stored Quest Detail timelines and old phase notes render intelligibly.
 
@@ -77,6 +80,21 @@ For a genuine zero-git-tracked-change quest, use the explicit zero-code mode ins
 takode board work-to-memory q-N --work-note <feedback-index> --no-code
 ```
 
+## Landing After Memory
+
+On a branch with a saved landing gate, Work ends when the change is submitted (`takode land submit q-N`), not when it lands. The worker hands the quest to Memory with the landing entry instead of synchronized SHAs:
+
+```bash
+takode board work-to-memory q-N --work-note <feedback-index> --landing-entry <entry-id>
+```
+
+Takode inserts a Landing phase after Memory and Memory runs at once, while the worker's context is fresh. Nothing counts as delivered until the change has landed, and the landing queue still pushes exactly the tree it gated:
+- **Reporting:** the accepted-Work report describes the change as submitted, not delivered or ready to test. A quest in Memory or Landing whose change has not landed still blocks `--wait-for` dependents.
+- **Completion:** when final Memory completes before the change lands, the quest moves to `LANDING` with final Memory's completion kept, and the worker is free for other work. When the change lands, Takode records the landed commits (and port receipts) as the Work occurrence's delivery and completes the quest; the leader gets a Landing Queue message with the delivery ID. A change that lands during Memory is recorded right away and Memory completes the quest normally.
+- **Bounces:** a bounce while the worker is still in Work is fixed in Work. Otherwise the quest stays in, or moves to, `LANDING` as bounced, Takode adds a Work and a Memory occurrence after it, and the leader decides who fixes it and when; `board advance` starts the fix's Work occurrence. The fix submits again, hands off with its new entry, and runs a short Memory that confirms or corrects the earlier debrief and memory notes. The Landing leader brief owns the details.
+
+Classic ports, worktree targets and zero-code quests keep `work -> memory` with synchronized SHAs or `--no-code`.
+
 When one approved optional checkpoint sits directly before Memory and Work has proved its skip condition, add the recorded reason to the same guarded command:
 
 ```bash
@@ -93,9 +111,9 @@ Leaders can still inspect or intervene, but routine Work completion does not req
 
 Final Memory is mandatory for every non-cancelled quest. It is asynchronous post-processing from the user's perspective, not an extra delay before the accepted Work result is reported. Memory normally stays with the same worker after Work. It performs catalog/direct-file memory triage, writes or defers durable memory, attaches any new file-based memory-repository commits separately, reconciles quest title/TLDR/description against delivered scope, settles genuine User review checks, records cleanup/follow-ups, writes final debrief metadata, and completes the quest. Routine completion is commentary/status; another answer is reserved for new user-relevant information that materially completes, corrects, or changes the earlier visible answer set.
 
-Memory must not first-attach accepted Work code SHAs. For tracked Work, those synchronized selected-target SHAs must already be structured quest metadata from the guarded transition. If they are absent, wrong, or only present in prose, return the assigned worker to Work instead of repairing the gap with completion-time `--commit` / `--commits`. For zero-tracked-change Work, rely on the guarded transition's explicit request evidence plus fresh git-state validation; no persisted legacy no-code marker is required. Memory-repository commits use `--memory-commit` / `--memory-commits` and never substitute for code evidence.
+Memory must not first-attach accepted Work code SHAs. For tracked Work, those synchronized selected-target SHAs must already be structured quest metadata from the guarded transition. If they are absent, wrong, or only present in prose, return the assigned worker to Work instead of repairing the gap with completion-time `--commit` / `--commits`. For zero-tracked-change Work, rely on the guarded transition's explicit request evidence plus fresh git-state validation; no persisted legacy no-code marker is required. For a landing-queue hand-off, the code evidence is the landed commits Takode records when the change lands; Memory neither waits for nor attaches them. Memory-repository commits use `--memory-commit` / `--memory-commits` and never substitute for code evidence.
 
-A quest in `MEMORY` remains technically open but is downstream-unblocking because its substantive result is accepted and synced when applicable. A dependent may proceed unless it explicitly requires an output produced by Memory; that exceptional dependency remains leader-managed. Ordinary read-only follow-up questions during Memory use accepted Work/Memory evidence or the context-rich responsible worker and do not reopen the quest. A changed accepted result or a request for new investigation, implementation, validation, or another substantive deliverable follows the normal rework lifecycle.
+A quest in `MEMORY` remains technically open but is downstream-unblocking because its substantive result is accepted and synced when applicable; a quest whose landing-queue change has not landed yet stays blocking until it lands. A dependent may proceed unless it explicitly requires an output produced by Memory; that exceptional dependency remains leader-managed. Ordinary read-only follow-up questions during Memory use accepted Work/Memory evidence or the context-rich responsible worker and do not reopen the quest. A changed accepted result or a request for new investigation, implementation, validation, or another substantive deliverable follows the normal rework lifecycle.
 
 Exactly one final memory statement is required:
 

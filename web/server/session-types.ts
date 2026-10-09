@@ -855,6 +855,46 @@ export interface BoardRow {
   updatedAt: number;
   /** Epoch ms when this row was moved to the completed list. Present only for completed items. */
   completedAt?: number;
+  /** The landing-queue change the quest waits for, from Work -> Memory until it lands. */
+  landing?: BoardRowLanding;
+}
+
+/**
+ * A quest handed to Memory with a submitted landing-queue change. The quest,
+ * not the worker, waits for it: after Memory the row moves to Landing, and
+ * Takode records the landed commits and completes the quest, or keeps it in
+ * Landing as bounced until the leader routes the fix.
+ */
+export interface BoardRowLanding {
+  entryId: string;
+  /** Worker that submitted it; the landed commits are recorded as its Work delivery. */
+  workerSessionId: string;
+  /** The Work occurrence that submitted it. */
+  workPhaseOccurrenceId: string;
+  preparationId?: string;
+  branch: string;
+  /** The submitted change's tip commit. */
+  tip: string;
+  /** Latest known outcome of the entry. */
+  outcome?: "landed" | "bounced" | "withdrawn";
+  /** Why it bounced or was withdrawn. */
+  reason?: string;
+  /** Recorded delivery of the landed commits. */
+  deliveryId?: string;
+  /** Why recording the landed commits failed; Takode retries. */
+  recordError?: string;
+  /** Final Memory's completion, applied once the change has landed and been recorded. */
+  completion?: ParkedQuestCompletion;
+}
+
+export interface ParkedQuestCompletion {
+  verificationItems: import("./quest-types.js").QuestVerificationItem[];
+  debrief: string;
+  debriefTldr: string;
+  debriefMachine?: string;
+  memoryCommitShas?: string[];
+  /** Epoch ms when final Memory completed. */
+  completedAt: number;
 }
 
 export interface BoardParticipantStatus {

@@ -147,7 +147,6 @@ describe("ResourceLeaseManager", () => {
         resourceKey: "dev-server:companion",
         holderSessionIds: ["holder-1", "holder-2"],
         position: 1,
-        landingEntry: false,
       },
     ]);
     expect(manager.getLeaseWaits("holder-1")).toEqual([]);
@@ -192,12 +191,11 @@ describe("ResourceLeaseManager", () => {
 
   it("reports each waiter's place in line and republishes everyone behind when the queue moves", async () => {
     // Session rows show "(#N in line)", so a promotion must republish every
-    // remaining waiter, not just the promoted one. Landing-queue waiters are
-    // flagged so the row can say "landing queue" instead of the port lease key.
+    // remaining waiter, not just the promoted one.
     await manager.acquire({ resourceKey: "port:takode:jiayi", callerSessionId: "owner", purpose: "Port" });
     const queue: Array<[string, Record<string, string>]> = [
       ["first", {}],
-      ["second", { landingEntry: "le-1" }],
+      ["second", {}],
       ["third", {}],
     ];
     for (const [callerSessionId, metadata] of queue) {
@@ -210,7 +208,7 @@ describe("ResourceLeaseManager", () => {
       });
     }
     expect(manager.getLeaseWaits("second")).toEqual([
-      { resourceKey: "port:takode:jiayi", holderSessionIds: ["owner"], position: 2, landingEntry: true },
+      { resourceKey: "port:takode:jiayi", holderSessionIds: ["owner"], position: 2 },
     ]);
     expect(manager.getLeaseWaits("third")[0]?.position).toBe(3);
 

@@ -45,11 +45,22 @@ export class ResourceLeaseManager {
   private loading: Promise<void> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private operationQueue: Promise<unknown> = Promise.resolve();
+  /** Owners that are server components, not sessions, keyed by owner ID prefix. */
+  private systemOwners = new Map<string, (lease: ResourceLease) => void>();
 
   constructor(
     private bridge: ResourceLeaseBridge,
     private store = new ResourceLeaseStore(),
   ) {}
+
+  /**
+   * Let a server component own leases under owner IDs starting with `prefix`.
+   * When such an owner is promoted from a pool's queue, `onPromoted` is called
+   * (outside the manager's lock) instead of messaging a session.
+   */
+  registerSystemOwner(prefix: string, onPromoted: (lease: ResourceLease) => void): void {
+    this.systemOwners.set(prefix, onPromoted);
+  }
 
   async startAll(): Promise<void> {
     await this.ensureLoaded();
@@ -222,7 +233,6 @@ export class ResourceLeaseManager {
         resourceKey,
         holderSessionIds: this.getLeases(resourceKey).map((lease) => lease.ownerSessionId),
         position: index + 1,
-        landingEntry: !!waiters[index]?.metadata.landingEntry,
       };
     });
   }
@@ -301,6 +311,13 @@ export class ResourceLeaseManager {
   }
 
   private notifyPromotedWaiter(lease: ResourceLease, queuedAt: number): void {
+    for (const [prefix, onPromoted] of this.systemOwners) {
+      if (!lease.ownerSessionId.startsWith(prefix)) continue;
+      // The owner calls back into this manager, so it runs after the current operation.
+      setTimeout(() => onPromoted(lease), 0);
+      console.log(`${LOG_TAG} Promoted ${lease.ownerSessionId} for ${lease.resourceKey}`);
+      return;
+    }
     const lines = [
       `[Resource lease acquired] You now hold \`${lease.resourceKey}\`.`,
       "",
@@ -310,10 +327,7 @@ export class ResourceLeaseManager {
       formatResourceLeaseMessageLine("waited", formatLeaseWaitDuration(lease.acquiredAt - queuedAt)),
       formatResourceLeaseMessageLine("expires", new Date(lease.expiresAt).toISOString()),
       "",
-      // A landing-queue waiter runs the queue: the landing run renews and releases the lease itself.
-      lease.metadata.landingEntry
-        ? "Your landing-queue entry is still waiting. Run `takode land run` now: it starts a background landing run for every waiting entry and returns. Then end your turn and wait for the Landing Queue message."
-        : `Heartbeat with \`takode lease renew ${lease.resourceKey}\`; release with \`takode lease release ${lease.resourceKey}\` when done.`,
+      `Heartbeat with \`takode lease renew ${lease.resourceKey}\`; release with \`takode lease release ${lease.resourceKey}\` when done.`,
     ];
     const delivery = this.bridge.injectUserMessage(lease.ownerSessionId, lines.join("\n"), {
       sessionId: `resource-lease:${lease.resourceKey}`,

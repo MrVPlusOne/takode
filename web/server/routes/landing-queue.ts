@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import * as questStore from "../quest-store.js";
 import { getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import { LandingQueueError } from "../landing-queue-manager.js";
@@ -15,16 +15,21 @@ import {
   type LandingTarget,
 } from "../../shared/landing-queue.js";
 import type { RouteContext } from "./context.js";
+import {
+  COMPANION_AUTH_TOKEN_HEADER as AUTH_TOKEN_HEADER,
+  COMPANION_SESSION_ID_HEADER as SESSION_ID_HEADER,
+} from "./auth.js";
 
 const SHA = /^[0-9a-f]{40}$/;
 const BUNDLE_ID = /^b-[0-9a-f]{8}$/;
 
 /**
- * Landing queue routes for `takode land`. Workers submit entries; the session
- * holding the target's port lease claims them as one landing run and reports
- * its plan and outcome. The queue logic lives in LandingQueueManager. Saved
- * landing gates opt a repository branch into the queue and tell every
- * machine's `takode land` what to run.
+ * Landing queue routes for `takode land`. Workers submit entries; the runner the
+ * queue starts claims them as one landing run and reports its plan and outcome.
+ * Runners authenticate with their own one-off credentials, never as a session.
+ * The queue logic lives in LandingQueueManager. Saved landing gates opt a
+ * repository branch into the queue and tell every machine's `takode land` what
+ * to run.
  */
 export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(homedir(), ".companion", "bundles")) {
   const api = new Hono();
@@ -35,6 +40,15 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
     const queue = ctx.wsBridge.landingQueue;
     if (!queue) return { response: c.json({ error: "Landing queue not available" }, 503) };
     return { auth, queue };
+  };
+
+  /** A landing runner's request, authenticated by its launch credentials. */
+  const runnerGuard = (c: Context) => {
+    const queue = ctx.wsBridge.landingQueue;
+    if (!queue) return { response: c.json({ error: "Landing queue not available" }, 503) };
+    const runner = queue.verifyRunner(c.req.header(SESSION_ID_HEADER), c.req.header(AUTH_TOKEN_HEADER));
+    if (!runner) return { response: c.json({ error: "Only the landing queue's current runner can do this." }, 403) };
+    return { runner, queue };
   };
 
   api.post("/takode/land/submit", async (c) => {
@@ -72,6 +86,7 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
         callerSessionId: g.auth.callerId,
         hostId: g.auth.caller.hostId,
         target,
+        baseCheckout: checkoutPath(body.baseCheckout),
         questId,
         preparationId,
         bundleId: body.bundleId,
@@ -97,11 +112,11 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
     }
   });
 
-  api.get("/takode/land/entries/latest", async (c) => {
+  api.get("/takode/land/entries/:id", async (c) => {
     const g = guard(c);
     if ("response" in g) return g.response;
-    const entry = await g.queue.latestEntryFor(g.auth.callerId, c.req.query("questId")?.toLowerCase() || undefined);
-    if (!entry) return c.json({ error: "This session has no landing entry." }, 404);
+    const entry = await g.queue.getEntry(c.req.param("id"));
+    if (!entry) return c.json({ error: `No landing entry ${c.req.param("id")}.` }, 404);
     return c.json({ entry });
   });
 
@@ -121,23 +136,60 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
     }
   });
 
-  api.post("/takode/land/runs", async (c) => {
+  // The escape hatch: a leader, or an owner of a waiting change, starts a runner on its own machine.
+  api.post("/takode/land/runner", async (c) => {
     const g = guard(c);
     if ("response" in g) return g.response;
     try {
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-      return c.json(await g.queue.claim(g.auth.callerId, parseTarget(body.target), g.auth.caller.hostId));
+      const target = parseTarget(body.target);
+      if (g.auth.caller.isOrchestrator !== true) {
+        const snapshot = await g.queue.snapshot(target);
+        if (!snapshot.entries.some((entry) => entry.sessionId === g.auth.callerId && entry.state === "pending"))
+          throw new LandingQueueError(403, "Only a leader or the owner of a waiting change can start a runner.");
+      }
+      const runner = await g.queue.startRunnerByHand({
+        callerSessionId: g.auth.callerId,
+        target,
+        hostId: g.auth.caller.hostId,
+        baseCheckout: checkoutPath(body.baseCheckout),
+      });
+      return c.json({ runner }, 201);
     } catch (error) {
       return landingError(c, error);
     }
   });
 
+  api.post("/takode/land/runs", async (c) => {
+    const g = runnerGuard(c);
+    if ("response" in g) return g.response;
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+      return c.json(await g.queue.claim(g.runner, parseTarget(body.target)));
+    } catch (error) {
+      return landingError(c, error);
+    }
+  });
+
+  api.get("/takode/land/runs/:id/bundles/:bundleId", async (c) => {
+    const g = runnerGuard(c);
+    if ("response" in g) return g.response;
+    const bundleId = c.req.param("bundleId");
+    if (!BUNDLE_ID.test(bundleId) || !(await g.queue.runCarriesBundle(c.req.param("id"), g.runner, bundleId)))
+      return c.json({ error: "That bundle is not part of this run." }, 404);
+    try {
+      return c.json({ data: (await readFile(join(bundleDir, `${bundleId}.bundle`))).toString("base64") });
+    } catch {
+      return c.json({ error: `Bundle ${bundleId} was not found on this server.` }, 404);
+    }
+  });
+
   api.post("/takode/land/runs/:id/:action", async (c) => {
-    const g = guard(c);
+    const g = runnerGuard(c);
     if ("response" in g) return g.response;
     try {
       const runId = c.req.param("id");
-      const caller = g.auth.callerId;
+      const caller = g.runner;
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
       switch (c.req.param("action")) {
         case "heartbeat":
@@ -167,7 +219,9 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
   });
 
   api.get("/takode/land/gate", async (c) => {
-    const g = guard(c);
+    // Runners read the gate they run; sessions read it for `land test` and `gate show`.
+    const runner = runnerGuard(c);
+    const g = "runner" in runner ? runner : guard(c);
     if ("response" in g) return g.response;
     try {
       const target = parseTarget({ repo: c.req.query("repo"), branch: c.req.query("branch") });
@@ -235,6 +289,12 @@ function parseTarget(raw: unknown): LandingTarget {
 function sha(value: unknown, name: string): string {
   if (typeof value !== "string" || !SHA.test(value))
     throw new LandingQueueError(400, `${name} must be a full lowercase SHA.`);
+  return value;
+}
+
+function checkoutPath(value: unknown): string {
+  if (typeof value !== "string" || !isAbsolute(value))
+    throw new LandingQueueError(400, "baseCheckout must be the absolute path of the base checkout.");
   return value;
 }
 

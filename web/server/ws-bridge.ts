@@ -399,6 +399,16 @@ export class WsBridge {
   timerManager: import("./timer-manager.js").TimerManager | null = null;
   resourceLeaseManager: import("./resource-lease-manager.js").ResourceLeaseManager | null = null;
   landingQueue: import("./landing-queue-manager.js").LandingQueueManager | null = null;
+  /** Moves quests through the Landing phase as their changes land or bounce. */
+  landingHandoff: import("./landing-quest-handoff.js").LandingQuestHandoff | null = null;
+  /** Applies final Memory's parked completion once the quest's change landed (set by the quest routes). */
+  completeLandedQuest:
+    | ((
+        questId: string,
+        completion: import("./session-types.js").ParkedQuestCompletion,
+        workerSessionId: string,
+      ) => Promise<void>)
+    | null = null;
   imageStore: ImageStore | null = null;
   pushoverNotifier: PushoverNotifier | null = null;
   launcher: CliLauncher | null = null;

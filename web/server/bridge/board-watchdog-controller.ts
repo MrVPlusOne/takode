@@ -905,6 +905,7 @@ export function upsertBoardRow(
     createdAt: existing?.createdAt ?? now,
     threadTabActivatedAt: existing?.threadTabActivatedAt,
     updatedAt: row.updatedAt ?? now,
+    landing: row.landing !== undefined ? row.landing : existing?.landing,
   };
   const activationAt = updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
   const becameNeverStartedScheduled =
@@ -1071,6 +1072,13 @@ export function advanceBoardRow(
       previousState,
     };
   }
+  // The landing queue, not the leader, moves a quest out of Landing, unless its change bounced.
+  if (normalizedStatus === "LANDING" && row.landing?.outcome !== "bounced" && row.landing?.outcome !== "withdrawn") {
+    return {
+      error: `Cannot advance ${questId}: it waits for its change to land. Takode completes it when the change lands, or keeps it here as bounced for you to route the fix.`,
+      previousState,
+    };
+  }
   if (normalizedStatus === "USER_CHECKPOINTING" && rawCurrentPhaseId === "work") {
     const pausedWorkIndex = rawCurrentPhaseIndex ?? normalizedJourney.activePhaseIndex;
     if (pausedWorkIndex === undefined || plannedPhaseIds[pausedWorkIndex + 1] !== "user-checkpoint") {
@@ -1149,6 +1157,13 @@ export function advanceBoardRow(
         previousState,
       };
     }
+    if (nextPhaseId === "landing") {
+      return {
+        error:
+          "Memory moves to Landing when the worker completes final Memory (`quest complete`); it cannot be advanced by hand.",
+        previousState,
+      };
+    }
     if (traversedCheckpointIndex !== undefined && nextPhaseId !== "work") {
       return {
         error: "A resolved User Checkpoint must resume into a later Work occurrence before any other phase.",
@@ -1158,6 +1173,8 @@ export function advanceBoardRow(
     const nextPhase = getQuestJourneyPhase(nextPhaseId);
     if (nextPhase) {
       const now = Date.now();
+      // The fix of a bounced change starts fresh; its next hand-off names the new entry.
+      if (normalizedStatus === "LANDING") delete row.landing;
       row.status = nextPhase.boardState;
       const phaseSkipReasons = {
         ...(row.journey?.phaseSkipReasons ?? {}),
@@ -1195,7 +1212,8 @@ export function advanceBoardRow(
     }
   }
 
-  if (currentIdx >= states.length - 1) {
+  // Rows without a usable phase plan step through the states; Landing is only ever entered by final Memory.
+  if (currentIdx >= states.length - 1 || states[currentIdx + 1] === "LANDING") {
     const { board } = completeBoardRow(session, questId, deps);
     return { board, removed: true, previousState, newState: undefined };
   }
@@ -1595,9 +1613,9 @@ function getMatchingBoardRow(rows: Iterable<BoardRow>, normalizedQuestId: string
 function isQuestDependencyBlocked(session: SessionLike, questId: string, deps: BoardWatchdogDeps): boolean {
   const normalizedQuestId = questId.toLowerCase();
   const localRow = getMatchingBoardRow(session.board.values(), normalizedQuestId);
-  if (localRow) return isQuestWaitForBlockingState(localRow.status);
+  if (localRow) return isQuestWaitForBlockingState(localRow.status, localRow);
   for (const row of deps.getBoardRowsForQuest?.(questId) ?? []) {
-    if (isQuestWaitForBlockingState(row.status)) return true;
+    if (isQuestWaitForBlockingState(row.status, row)) return true;
   }
   return false;
 }

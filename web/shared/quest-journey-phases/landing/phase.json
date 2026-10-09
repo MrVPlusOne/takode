@@ -1,0 +1,10 @@
+{
+  "id": "landing",
+  "label": "Landing",
+  "color": { "name": "landing", "accent": "#2dd4bf" },
+  "boardState": "LANDING",
+  "assigneeRole": "worker",
+  "contract": "The quest, not the worker, waits for its submitted change to land through the landing queue. Takode adds this phase when Work hands a submitted change to Memory, moves the quest here when final Memory completes, records the landed commits as the quest's code evidence and completes the quest. A bounced or withdrawn change keeps the quest here until the leader routes the fix into its next Work occurrence.",
+  "nextLeaderAction": "nothing while the change waits or lands; Takode completes the quest when it lands. When it bounces, decide who fixes it and when, then advance into the next Work occurrence",
+  "aliases": ["landing-queue", "awaiting-landing"]
+}

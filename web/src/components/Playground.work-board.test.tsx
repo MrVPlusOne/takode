@@ -273,6 +273,7 @@ describe("Playground", { timeout: 30_000 }, () => {
       { id: "work", name: "work", text: "#166534", accent: "#4ade80" },
       { id: "user-checkpoint", name: "amber", text: "#8a4b00", accent: "#fbbf24" },
       { id: "memory", name: "memory", text: "#6d28d9", accent: "#8b5cf6" },
+      { id: "landing", name: "landing", text: "#0f766e", accent: "#2dd4bf" },
     ];
 
     for (const phase of expected) {

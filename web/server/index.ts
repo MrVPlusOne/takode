@@ -26,7 +26,12 @@ import { createFileLinkBrowserRoutes } from "./routes/file-link-browser.js";
 import { blockOpaqueOriginApplicationRequest } from "./opaque-origin-guard.js";
 import { createRoutes } from "./routes.js";
 import { CodexSidecarRegistry } from "./codex-sidecar-auth.js";
-import { COMPANION_CLIENT_IP_HEADER, hasValidSessionToken } from "./routes/auth.js";
+import {
+  COMPANION_AUTH_TOKEN_HEADER,
+  COMPANION_CLIENT_IP_HEADER,
+  COMPANION_SESSION_ID_HEADER,
+  hasValidSessionToken,
+} from "./routes/auth.js";
 import { BrowserLogin, loginGate } from "./browser-login.js";
 import { createBrowserLoginRoutes } from "./routes/browser-login.js";
 import { HOST_LINK_PATH } from "../shared/host-protocol.js";
@@ -62,6 +67,8 @@ import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { LandingQueueManager } from "./landing-queue-manager.js";
+import { setLandingRunnerApiPort, startLandingRunner } from "./landing-runner-launcher.js";
+import { onMachine } from "./remote-host/host-operations.js";
 import { LandingQueueStore } from "./landing-queue-store.js";
 import { LandingGateStore } from "./landing-gate-store.js";
 import { FULL_SUITE_POOL_PREFIX } from "../shared/landing-queue.js";
@@ -308,13 +315,34 @@ async function stopNodeSessions(onHost: (hostId: string) => boolean): Promise<vo
   );
 }
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
+/** Landing runners carry their own one-off credentials instead of a session's. */
+const isLandingRunnerRequest = (request: Request): boolean =>
+  !!landingQueue.verifyRunner(
+    request.headers.get(COMPANION_SESSION_ID_HEADER) ?? undefined,
+    request.headers.get(COMPANION_AUTH_TOKEN_HEADER) ?? undefined,
+  );
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
+const notifyFromLandingQueue = (sessionId: string, text: string) => {
+  wsBridge.injectUserMessage(sessionId, text, { sessionId: "landing-queue", sessionLabel: "Landing Queue" });
+};
+setLandingRunnerApiPort(port);
 const landingQueue = new LandingQueueManager(
   {
     leases: resourceLeaseManager,
-    notify: (sessionId, text) => {
-      wsBridge.injectUserMessage(sessionId, text, { sessionId: "landing-queue", sessionLabel: "Landing Queue" });
+    notify: notifyFromLandingQueue,
+    launchRunner: async ({ hostId, ...input }) => {
+      // On this machine the server watches the runner, so a run it leaves behind is taken back at once.
+      if (!hostId)
+        await startLandingRunner(input, {
+          onExit: (detail) => void landingQueue.runnerExited(input.launchId, detail),
+        });
+      else await onMachine(hostId, "startLandingRunner", input);
+    },
+    onEntryResolved: (entry) => wsBridge.landingHandoff?.entryResolved(entry) ?? Promise.resolve(false),
+    alertLeaders: (entries, text) => {
+      const leaders = new Set(entries.map((entry) => launcher.getSession(entry.sessionId)?.herdedBy).filter(Boolean));
+      for (const leader of leaders) notifyFromLandingQueue(leader!, text);
     },
     sessionNum: (sessionId) => launcher.getSessionNum(sessionId),
     machineName: (hostId) => (hostId ? (hostRegistry.nameOf(hostId) ?? "a remote host") : thisMachine.name),
@@ -1225,14 +1253,14 @@ function handleRequest(listener: "main" | "hosts") {
     if (listener === "hosts") {
       const refused = hostPortGate(req, {
         isHostLink: wsRoute?.kind === "host",
-        hasSessionToken: (request) => hasValidSessionToken(request, launcher),
+        hasSessionToken: (request) => hasValidSessionToken(request, launcher) || isLandingRunnerRequest(request),
       });
       if (refused) return refused;
     }
 
     const loginRequired = loginGate(req, {
       login: browserLogin,
-      hasSessionToken: (request) => hasValidSessionToken(request, launcher),
+      hasSessionToken: (request) => hasValidSessionToken(request, launcher) || isLandingRunnerRequest(request),
       selfAuthenticatedPaths: [HOST_LINK_PATH],
     });
     if (loginRequired) return loginRequired;
@@ -1418,6 +1446,13 @@ await timerManager.startAll();
 // ── Global resource leases ─────────────────────────────────────────────────
 await resourceLeaseManager.startAll();
 await landingQueue.start();
+// Landed changes whose commits could not be recorded yet (a host offline, a busy checkout) are retried,
+// and outcomes missed while the server was down are picked up.
+const landingHandoffRetry = setInterval(
+  () => void wsBridge.landingHandoff?.retryPending().catch((error) => console.warn("[landing-handoff]", error)),
+  2 * 60_000,
+);
+setTimeout(() => void wsBridge.landingHandoff?.retryPending().catch(() => undefined), 10_000);
 
 const startupInjectedRelaunchSessionIds = new Set<string>();
 async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {
@@ -1499,6 +1534,7 @@ const shutdown = new ServerShutdown({
     pushoverNotifier.destroy();
     resourceLeaseManager.destroy();
     landingQueue.destroy();
+    clearInterval(landingHandoffRetry);
     settleWorkerRollout = codexWorkerV2RolloutService.destroy();
   },
   settleWork: async () => {

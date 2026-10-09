@@ -37,7 +37,7 @@ describe("Quest Journey v2 phase directory loading", () => {
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
 
     expect(phases.map((phase) => phase.id)).toEqual(QUEST_JOURNEY_PHASES.map((phase) => phase.id));
-    expect(phases.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
+    expect(phases.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory", "landing"]);
     // Existing pending Alignment needs its actual source brief, not a new authority grant.
     expect(await readFile(getQuestJourneyPhaseAssigneeBriefPath("alignment", { companionHome }), "utf-8")).toBe(
       await readFile(join(PACKAGE_ROOT, "shared", "quest-journey-phases", "alignment", "assignee.md"), "utf-8"),
@@ -142,7 +142,7 @@ describe("Quest Journey v2 phase directory loading", () => {
 
     const catalog = await loadQuestJourneyPhaseCatalog({ packageRoot: PACKAGE_ROOT, companionHome });
 
-    expect(catalog.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
+    expect(catalog.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory", "landing"]);
     expect(catalog[0]).toEqual(
       expect.objectContaining({
         id: "work",

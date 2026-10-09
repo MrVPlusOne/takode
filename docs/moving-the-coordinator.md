@@ -236,5 +236,7 @@ data is exactly as it was at the export.
 - **Terminals without a server:** a `quest` command in a terminal on the old
   machine that reaches no server may fall back to that machine's stale local
   files. Set `COMPANION_PORT` to the forwarded main port there.
-- **Landing runs** move with the coordinator and install dependencies on the new
-  machine through its own package registry configuration.
+- **Landing runs** start on the machine of the oldest waiting change (through
+  that machine's node when it is a host), not necessarily the coordinator's,
+  and install dependencies through that machine's package registry
+  configuration.

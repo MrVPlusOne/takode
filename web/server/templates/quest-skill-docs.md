@@ -166,9 +166,13 @@ After a successful Work -> Memory transition, stop the Work turn so the leader c
 ```bash
 # Tracked changes: use selected-target SHAs.
 takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"
+# Tracked changes submitted to a landing queue: the quest lands after Memory.
+takode board work-to-memory q-N --work-note <feedback-index> --landing-entry <entry-id>
 # Genuine zero-git-tracked-change Work only:
 takode board work-to-memory q-N --work-note <feedback-index> --no-code
 ```
+
+With `--landing-entry`, Takode adds a Landing phase after Memory and records the landed commits as the Work delivery when the change lands; completing final Memory before then moves the quest to Landing, where it completes by itself (the `/port-changes` skill has the details).
 
 If one approved optional User Checkpoint sits directly before Memory and Work proves its concrete skip condition, add `--skip-optional-checkpoint "<reason>"` to that guarded command; the reason is recorded. Generic `board advance --skip-optional-checkpoint` must not land directly in Memory. Required checkpoints and optional checkpoints that are actually taken must continue into a later Work occurrence before Memory; revise the suffix before checkpoint entry if necessary. Repeated plans may use generic advance to resume or skip into later Work, which applies the decision and owns the eventual guarded transition.
 

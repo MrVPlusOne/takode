@@ -11,6 +11,7 @@ const READABLE_LIGHT_PHASE_TEXT_FALLBACKS: Record<string, string> = {
   emerald: "#047857",
   fuchsia: "#a21caf",
   green: "#166534",
+  landing: "#0f766e",
   memory: "#6d28d9",
   orange: "#9a3412",
   sky: "#0369a1",

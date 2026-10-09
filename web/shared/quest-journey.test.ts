@@ -67,16 +67,23 @@ describe("quest and wait-for refs", () => {
 
 describe("active v2 phase catalog", () => {
   it("exposes only the v2 active phase library", () => {
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
+    // Landing is active but system-managed: Takode adds it when Work hands a submitted landing-queue change to Memory.
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory", "landing"]);
     // Active phases use semantic color names so their palette can change
     // without mutating the generic colors retained by historical v1 rows.
     expect(QUEST_JOURNEY_PHASES.map((phase) => ({ id: phase.id, color: phase.color }))).toEqual([
       { id: "work", color: { name: "work", accent: "#4ade80" } },
       { id: "user-checkpoint", color: { name: "amber", accent: "#fbbf24" } },
       { id: "memory", color: { name: "memory", accent: "#8b5cf6" } },
+      { id: "landing", color: { name: "landing", accent: "#2dd4bf" } },
     ]);
     expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["work", "memory"]);
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual(["WORKING", "USER_CHECKPOINTING", "MEMORY"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
+      "WORKING",
+      "USER_CHECKPOINTING",
+      "MEMORY",
+      "LANDING",
+    ]);
   });
 
   it("rejects legacy phase ids for active plans while preserving known historical metadata", () => {
@@ -204,6 +211,14 @@ describe("active Journey validation and normalization", () => {
     expect(isQuestWaitForBlockingState("WORKING")).toBe(true);
     expect(isQuestWaitForBlockingState("MEMORY")).toBe(false);
     expect(QUEST_JOURNEY_HINTS.WORKING).toContain("Work note");
+  });
+
+  it("keeps dependents waiting until a quest's landing-queue change has landed", () => {
+    // With Work -> Memory -> Landing, Memory starts before the code is on the branch.
+    const waiting = { landing: { entryId: "le-00000001" } };
+    expect(isQuestWaitForBlockingState("MEMORY", waiting)).toBe(true);
+    expect(isQuestWaitForBlockingState("LANDING", waiting)).toBe(true);
+    expect(isQuestWaitForBlockingState("MEMORY", { landing: { ...waiting.landing, deliveryId: "d-1" } })).toBe(false);
   });
 });
 
