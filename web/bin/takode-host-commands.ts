@@ -41,7 +41,11 @@ async function addHost(base: string, args: string[], json: boolean): Promise<voi
   if (!name) throw new Error("Usage: takode host add <name> [--coordinator-url <url>]");
   const urlIndex = args.indexOf("--coordinator-url");
   const coordinatorUrl = urlIndex !== -1 ? args[urlIndex + 1] : undefined;
-  const result = (await request(base, "POST", "/hosts", { name })) as { host: HostRow; token: string };
+  const result = (await request(base, "POST", "/hosts", { name })) as {
+    host: HostRow;
+    token: string;
+    hostPort: number;
+  };
   if (json) {
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -56,8 +60,10 @@ async function addHost(base: string, args: string[], json: boolean): Promise<voi
   console.log(`  bun web/bin/takode-node.ts --coordinator ${url} --token-file ~/.takode-host-token`);
   if (!coordinatorUrl) {
     console.log("");
-    console.log("Replace <coordinator-url> with an address of this server that the host can reach,");
-    console.log("for example an https:// URL of this coordinator.");
+    console.log(`Replace <coordinator-url> with an address that reaches this server's host port ${result.hostPort},`);
+    console.log(
+      `for example http://127.0.0.1:13456 through a tunnel such as ssh -R 13456:127.0.0.1:${result.hostPort} <host>.`,
+    );
   }
 }
 

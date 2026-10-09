@@ -133,6 +133,8 @@ export class HostAgent {
   /** This machine's settings as the coordinator last sent them. */
   private machineSettings: HostMachineSettings = { claudeBinary: "", codexBinary: "" };
   private machineName: string | null;
+  /** The coordinator's last reason for refusing the link, logged once until the link opens. */
+  private lastRefusal: string | null = null;
   private readonly log: (message: string) => void;
 
   constructor(private readonly options: HostAgentOptions) {
@@ -172,7 +174,10 @@ export class HostAgent {
       ? this.options.connect(url, headers)
       : (new WebSocket(url, { headers } as unknown as string[]) as unknown as AgentSocket);
     this.socket = socket;
+    let opened = false;
     socket.onopen = () => {
+      opened = true;
+      this.lastRefusal = null;
       this.lastHeardAt = Date.now();
       const details = thisMachineDetails();
       this.send({
@@ -201,11 +206,32 @@ export class HostAgent {
     socket.onclose = () => {
       if (this.socket !== socket) return;
       this.socket = null;
+      if (!opened) void this.explainRefusal(url, headers);
       this.scheduleReconnect();
     };
     socket.onerror = () => {
       // `onclose` follows and schedules the reconnect.
     };
+  }
+
+  /**
+   * A WebSocket the coordinator refused before it opened does not say why, so
+   * ask the same address over plain HTTP and log the answer, such as a host
+   * token it does not know or a tunnel that reaches the wrong port.
+   */
+  private async explainRefusal(url: string, headers: Record<string, string>): Promise<void> {
+    let reason: string;
+    try {
+      const response = await fetch(url.replace(/^ws/, "http"), { headers });
+      // 400 means the coordinator would have taken an upgrade, so the link failed for another reason.
+      if (response.status === 400) return;
+      reason = `${response.status}: ${(await response.text()).slice(0, 500)}`;
+    } catch {
+      return; // Unreachable; the reconnect message already says the link is down.
+    }
+    if (reason === this.lastRefusal) return;
+    this.lastRefusal = reason;
+    this.log(`Coordinator refused the link (${reason})`);
   }
 
   private scheduleReconnect(): void {

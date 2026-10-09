@@ -40,7 +40,7 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         const { name } = JSON.parse(String(init?.body)) as { name: string };
         const host = hostRow({ id: "h2", name, online: false, lastSeenAt: null, build: null });
         hosts = [...hosts, host];
-        return new Response(JSON.stringify({ host, token: "secret-token" }), { status: 201 });
+        return new Response(JSON.stringify({ host, token: "secret-token", hostPort: 4456 }), { status: 201 });
       }
       if (method === "PUT" && url.endsWith("/name")) {
         // PUT /api/hosts/:id/name: names are unique across machines, as on the server.
@@ -95,6 +95,8 @@ describe("SettingsHostsSection", () => {
     await act(async () => fireEvent.click(screen.getByText("Add host")));
     await waitFor(() => expect(screen.getByText(/secret-token/)).toBeTruthy());
     expect(screen.getByText(/takode-node\.ts --coordinator/)).toBeTruthy();
+    // Hosts connect to the host port, which the server reports with the registration.
+    expect(screen.getByText(/host port 4456/)).toBeTruthy();
     expect(screen.getByTestId("settings-hosts-list").textContent).toContain("laptop");
 
     fireEvent.click(screen.getAllByText("Remove")[0]!);

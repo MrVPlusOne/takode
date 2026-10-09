@@ -24,7 +24,7 @@ export function SettingsHostsSection() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [added, setAdded] = useState<{ name: string; token: string } | null>(null);
+  const [added, setAdded] = useState<{ name: string; token: string; hostPort: number } | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
 
   async function run(action: () => Promise<void>) {
@@ -41,8 +41,8 @@ export function SettingsHostsSection() {
 
   function onAdd() {
     void run(async () => {
-      const { host, token } = await registerRemoteHost(name.trim());
-      setAdded({ name: host.name, token });
+      const { host, token, hostPort } = await registerRemoteHost(name.trim());
+      setAdded({ name: host.name, token, hostPort });
       setName("");
     });
   }
@@ -136,11 +136,13 @@ export function SettingsHostsSection() {
           </p>
           <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-cc-bg px-2 py-1.5 font-mono-code text-[11px] text-cc-fg">
             {`umask 077 && printf '%s' '${added.token}' > ~/.takode-host-token\n` +
-              `bun web/bin/takode-node.ts --coordinator ${window.location.origin} --token-file ~/.takode-host-token`}
+              `bun web/bin/takode-node.ts --coordinator <address> --token-file ~/.takode-host-token`}
           </pre>
           <p className="text-cc-muted">
-            Use an address of this server that the host can reach. Addresses other than this machine need https. Add
-            --auto-update to let this server switch the host's checkout to its own commit, with a frozen install and
+            Replace &lt;address&gt; with one that reaches this server's host port {added.hostPort}, not the page's port:
+            for example http://127.0.0.1:13456 through a tunnel such as ssh -R 13456:127.0.0.1:{added.hostPort}{" "}
+            &lt;host&gt;, or an https address that leads there. Addresses other than the host's own loopback need https.
+            Add --auto-update to let this server switch the host's checkout to its own commit, with a frozen install and
             restart, whenever none of the host's sessions is in a turn. A machine that already has a name from another
             Takode setup keeps it.
           </p>

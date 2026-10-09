@@ -46,14 +46,20 @@ checkouts.
 
    `takode host remove <name>` revokes the token.
 
-2. **Give the host a way to reach the coordinator.** Any of these works:
-   - an `https://` address of the coordinator that the host can reach;
+2. **Give the host a way to reach the coordinator's host port.** Besides its
+   main port (3456 for production), the coordinator listens on a **host
+   port**, its main port plus 1000 (4456 for production; set
+   `COMPANION_HOST_LINK_PORT` to choose another). The host port serves only
+   callers with a token: the host link and agent CLIs. Point hosts at it, not
+   at the main port (see [Shared machines](#shared-machines)). Any of these
+   works:
+   - an `https://` address that leads to the coordinator's host port;
    - a reverse SSH tunnel opened from the coordinator's machine, so the host
      reaches the coordinator on its own loopback and nothing is exposed to the
      network:
 
      ```bash
-     ssh -R 13456:127.0.0.1:3456 <host>   # 3456 is the coordinator's port
+     ssh -R 13456:127.0.0.1:4456 <host>   # 4456 is the coordinator's host port
      ```
 
      The host then uses `http://127.0.0.1:13456`. `takode node` accepts plain
@@ -61,9 +67,10 @@ checkouts.
      network already encrypts the traffic).
    - a forward tunnel opened from the host, when only the host can connect to
      the coordinator's machine (for example a coordinator in a cloud workspace
-     and a laptop as the host): `ssh -L 13456:127.0.0.1:3456 <coordinator>`, or
+     and a laptop as the host): `ssh -L 13456:127.0.0.1:4456 <coordinator>`, or
      the workspace's own port forwarding. The host again uses
-     `http://127.0.0.1:13456`, which also serves the laptop's browser.
+     `http://127.0.0.1:13456`. A browser on the host needs a second forward,
+     to the main port.
 
    The coordinator listens on every network interface by default. When it
    should be reachable only through tunnels, start it with
@@ -93,6 +100,36 @@ checkouts.
    machine holding the worker's port target, and recorded delivery commits are
    read there later; these need the host's `takode node` on a build that
    includes them.
+
+## Shared machines
+
+On a machine that other people also use, such as a node of a shared compute
+cluster, every user's processes can connect to its `127.0.0.1` ports. Two
+of them lead to the coordinator: the local end of the tunnel and the API proxy
+that `takode node` serves for its agent CLIs. Anyone who could use the
+coordinator could start sessions and message agents, which runs commands as
+you on every machine, so neither may answer an anonymous caller:
+
+- **The host port takes only tokens**, whether or not browser login is on: the
+  host link needs its host token, and every other request needs a valid agent
+  session token. A tunnel that ends there gives the machine's other users
+  nothing without one.
+- **The node's API proxy** forwards to the host port, so it refuses anonymous
+  callers too. `takode`, `quest` and `memory` run outside a session on the
+  host, without a session token, are refused as well.
+- **The main port refuses other machines' hosts while browser login is off**,
+  because a tunnel to it would let anyone on the host use Takode. The node's
+  log then says `Coordinator refused the link (403: ...)` and names the host
+  port; point the tunnel there and the node connects again on its own. With
+  login on, the main port requires a login or token anyway, so hosts may still
+  use it. The coordinator's own node always may.
+
+What remains: root and administrators of the host can read your files,
+including the host token and the session tokens in your processes'
+environment, and can act as you. Keep the host token file readable only by
+you (`umask 077`, as above). On the coordinator's own machine nothing changed:
+with browser login off, its main port still serves anyone who can reach it, so
+run the coordinator on a machine you do not share, or turn login on.
 
 ## Machine names
 
@@ -158,7 +195,7 @@ in a restart loop inside `tmux` (or a service manager), for example:
 ```bash
 # On the coordinator's machine
 tmux new -d -s takode-tunnel \
-  'while true; do ssh -R 13456:127.0.0.1:3456 <host> -- "while true; do sleep 3600; done"; sleep 5; done'
+  'while true; do ssh -R 13456:127.0.0.1:4456 <host> -- "while true; do sleep 3600; done"; sleep 5; done'
 
 # On the host
 tmux new -d -s takode-node \

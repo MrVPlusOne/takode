@@ -68,6 +68,7 @@ import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-r
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { HostUpdateSessions } from "./remote-host/host-update-sessions.js";
+import { hostPortFor, hostPortGate, mainPortHostRefusal } from "./remote-host/host-port.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
@@ -131,7 +132,7 @@ import {
   classifyBrowserClientPlatform,
   closeBrowserConnectionDiagnostics,
 } from "./bridge/browser-connection-diagnostics.js";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "..");
@@ -164,6 +165,7 @@ import { refreshCodexModelCatalogOnStartup } from "./codex-model-catalog.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
+const hostPort = hostPortFor(port);
 const frontendRequired = process.env.NODE_ENV === "production";
 const frontendRoot = resolve(packageRoot, process.env.COMPANION_FRONTEND_ROOT?.trim() || "dist");
 const checkCurrentFrontendAvailability = () =>
@@ -1147,7 +1149,7 @@ app.route(
     },
   }),
 );
-app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine));
+app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
 app.route(
   "/api",
   createRoutes(
@@ -1195,11 +1197,14 @@ if (process.env.NODE_ENV === "production") {
   );
 }
 
-const server = Bun.serve<SocketData>({
-  hostname: process.env.COMPANION_HOST || "0.0.0.0",
-  port,
-  maxRequestBodySize: 1024 * 1024 * 1024, // 1 GB — needed for migration import
-  async fetch(req, server) {
+/**
+ * Requests on either listener. The main port serves browsers (behind the
+ * optional login) and this machine's own node; the host port serves only
+ * callers with a host or session token, so a tunnel from another machine can
+ * end there without opening the coordinator to that machine's other users.
+ */
+function handleRequest(listener: "main" | "hosts") {
+  return async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
     if (serverWorkAdmission.isStopping()) return new Response("Server is shutting down", { status: 503 });
     const url = new URL(req.url);
 
@@ -1208,6 +1213,14 @@ const server = Bun.serve<SocketData>({
       websocketRouteMatched: Boolean(wsRoute),
     });
     if (opaqueOriginBlock) return opaqueOriginBlock;
+
+    if (listener === "hosts") {
+      const refused = hostPortGate(req, {
+        isHostLink: wsRoute?.kind === "host",
+        hasSessionToken: (request) => hasValidSessionToken(request, launcher),
+      });
+      if (refused) return refused;
+    }
 
     const loginRequired = loginGate(req, {
       login: browserLogin,
@@ -1221,6 +1234,10 @@ const server = Bun.serve<SocketData>({
       if (!hostLinks.epoch) return new Response("Coordinator is starting", { status: 503 });
       const host = await authenticateHostRequest(req, hostRegistry);
       if (!host) return new Response("Unknown host token", { status: 401 });
+      if (listener === "main") {
+        const refusal = mainPortHostRefusal(host.id, { loginEnabled: browserLogin.enabled, mainPort: port, hostPort });
+        if (refusal) return new Response(refusal, { status: 403 });
+      }
       if (server.upgrade(req, { data: { kind: "host" as const, hostId: host.id } })) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -1251,47 +1268,75 @@ const server = Bun.serve<SocketData>({
     }
     const decoratedRequest = new Request(req, { headers });
     return serverWorkAdmission.track(Promise.resolve(app.fetch(decoratedRequest, server)));
+  };
+}
+
+const listenHost = process.env.COMPANION_HOST || "0.0.0.0";
+const maxRequestBodySize = 1024 * 1024 * 1024; // 1 GB — needed for migration import
+const websocketHandlers: WebSocketHandler<SocketData> = {
+  idleTimeout: 0, // Disable Bun's idle timeout; we manage liveness via ws.ping heartbeats
+  maxPayloadLength: 64 * 1024 * 1024, // 64MB -- generous limit for large history syncs
+  perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
+  open(ws: ServerWebSocket<SocketData>) {
+    const data = ws.data;
+    if (data.kind !== "host") appSockets.add(ws);
+    if (data.kind === "host") {
+      hostLinks.attach(data.hostId, ws);
+    } else if (data.kind === "browser") {
+      wsBridge.handleBrowserOpen(ws, data.sessionId);
+    } else if (data.kind === "terminal") {
+      terminalManager.addBrowserSocket(data.terminalId, ws);
+    }
   },
-  websocket: {
-    idleTimeout: 0, // Disable Bun's idle timeout; we manage liveness via ws.ping heartbeats
-    maxPayloadLength: 64 * 1024 * 1024, // 64MB -- generous limit for large history syncs
-    perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
-    open(ws: ServerWebSocket<SocketData>) {
-      const data = ws.data;
-      if (data.kind !== "host") appSockets.add(ws);
-      if (data.kind === "host") {
-        hostLinks.attach(data.hostId, ws);
-      } else if (data.kind === "browser") {
-        wsBridge.handleBrowserOpen(ws, data.sessionId);
-      } else if (data.kind === "terminal") {
-        terminalManager.addBrowserSocket(data.terminalId, ws);
-      }
-    },
-    message(ws: ServerWebSocket<SocketData>, msg: string | Buffer) {
-      const data = ws.data;
-      if (data.kind === "host") {
-        hostLinks.handleMessage(data.hostId, ws, typeof msg === "string" ? msg : msg.toString("utf-8"));
-      } else if (data.kind === "browser") {
-        wsBridge.handleBrowserMessage(ws, msg);
-      } else if (data.kind === "terminal") {
-        terminalManager.handleBrowserMessage(data.terminalId, ws, msg);
-      }
-    },
-    close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
-      const data = ws.data;
-      appSockets.delete(ws);
-      if (data.kind === "host") {
-        hostLinks.detach(data.hostId, ws);
-      } else if (data.kind === "browser") {
-        // Close diagnostics even if the session was removed while its socket was open.
-        closeBrowserConnectionDiagnostics(ws);
-        wsBridge.handleBrowserClose(ws, code, reason);
-      } else if (data.kind === "terminal") {
-        terminalManager.removeBrowserSocket(data.terminalId, ws);
-      }
-    },
+  message(ws: ServerWebSocket<SocketData>, msg: string | Buffer) {
+    const data = ws.data;
+    if (data.kind === "host") {
+      hostLinks.handleMessage(data.hostId, ws, typeof msg === "string" ? msg : msg.toString("utf-8"));
+    } else if (data.kind === "browser") {
+      wsBridge.handleBrowserMessage(ws, msg);
+    } else if (data.kind === "terminal") {
+      terminalManager.handleBrowserMessage(data.terminalId, ws, msg);
+    }
   },
+  close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
+    const data = ws.data;
+    appSockets.delete(ws);
+    if (data.kind === "host") {
+      hostLinks.detach(data.hostId, ws);
+    } else if (data.kind === "browser") {
+      // Close diagnostics even if the session was removed while its socket was open.
+      closeBrowserConnectionDiagnostics(ws);
+      wsBridge.handleBrowserClose(ws, code, reason);
+    } else if (data.kind === "terminal") {
+      terminalManager.removeBrowserSocket(data.terminalId, ws);
+    }
+  },
+};
+
+const server = Bun.serve<SocketData>({
+  hostname: listenHost,
+  port,
+  maxRequestBodySize,
+  fetch: handleRequest("main"),
+  websocket: websocketHandlers,
 });
+
+// A port another program holds must not keep the server from starting; only hosts are affected.
+let hostServer: Server<SocketData> | null = null;
+try {
+  hostServer = Bun.serve<SocketData>({
+    hostname: listenHost,
+    port: hostPort,
+    maxRequestBodySize,
+    fetch: handleRequest("hosts"),
+    websocket: websocketHandlers,
+  });
+} catch (error) {
+  serverLog.error("Could not listen on the host port; remote hosts cannot connect", {
+    port: hostPort,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
 
 // Claim the coordinator epoch only after binding the port: a second start that
 // cannot listen must not replace a running server, while a restart replaces a
@@ -1340,6 +1385,7 @@ wsBridge.startStuckSessionWatchdog();
 const listeningFrontendAvailability = await checkCurrentFrontendAvailability();
 console.log(`Server running on http://localhost:${server.port}`);
 console.log(`  Browser WebSocket: ws://localhost:${server.port}/ws/browser/:sessionId`);
+if (hostServer) console.log(`  Host port (hosts and their agents, tokens only): ${hostServer.port}`);
 if (frontendRequired) {
   console.log(
     `  Application ready: ${listeningFrontendAvailability.ready ? "yes" : `no (${listeningFrontendAvailability.reason})`}`,
@@ -1460,7 +1506,9 @@ const shutdown = new ServerShutdown({
     await stopNodeSessions((host) => hostLinks.status(host).online);
     await localNode.shutdown();
   },
-  stopListener: () => server.stop(true),
+  stopListener: async () => {
+    await Promise.all([hostServer?.stop(true), server.stop(true)]);
+  },
   persist: async () => {
     herdEventDispatcher.preservePendingForShutdown();
     await serverWorkAdmission.drain();

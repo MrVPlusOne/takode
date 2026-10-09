@@ -169,16 +169,23 @@ export async function renameMachine(id: string, name: string): Promise<void> {
 }
 
 /** Register a host; its token is returned only this once. */
-export async function registerRemoteHost(name: string): Promise<{ host: RemoteHost; token: string }> {
+export async function registerRemoteHost(name: string): Promise<{ host: RemoteHost; token: string; hostPort: number }> {
   const response = await fetch("/api/hosts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  const body = (await response.json().catch(() => ({}))) as { host?: RemoteHost; token?: string; error?: string };
-  if (!response.ok || !body.host || !body.token) throw new Error(body.error || `HTTP ${response.status}`);
+  const body = (await response.json().catch(() => ({}))) as {
+    host?: RemoteHost;
+    token?: string;
+    hostPort?: number;
+    error?: string;
+  };
+  if (!response.ok || !body.host || !body.token || !body.hostPort) {
+    throw new Error(body.error || `HTTP ${response.status}`);
+  }
   await refreshRemoteHosts();
-  return { host: body.host, token: body.token };
+  return { host: body.host, token: body.token, hostPort: body.hostPort };
 }
 
 /** Remove a host; its token stops working at once. */

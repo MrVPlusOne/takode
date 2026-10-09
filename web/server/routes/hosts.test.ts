@@ -23,7 +23,7 @@ describe("host routes", () => {
     links = new HostLinkManager();
     // Renaming this machine writes its machine file, kept inside the temp dir.
     thisMachine = ThisMachine.named("coordinator-box", dir);
-    app = new Hono().route("/api", createHostRoutes(registry, links, thisMachine));
+    app = new Hono().route("/api", createHostRoutes(registry, links, thisMachine, 4456));
   });
 
   afterEach(async () => {

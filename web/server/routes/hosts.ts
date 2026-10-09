@@ -7,11 +7,13 @@ import { machineNameError, type ThisMachine } from "../machine-identity.js";
  * Remote host management. Registering a host returns its token once; the
  * `takode node` helper on that machine presents it when it connects.
  * `thisMachine` holds this machine's name, which the routes may change.
+ * `hostPort` is the port hosts connect to, returned with a new registration.
  */
 export function createHostRoutes(
   registry: HostRegistry,
   links: HostLinkManager,
   thisMachine: Pick<ThisMachine, "name" | "rename">,
+  hostPort: number,
 ) {
   const api = new Hono();
 
@@ -89,7 +91,7 @@ export function createHostRoutes(
     if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
     try {
       const { host, token } = await registry.register(body.name, [thisMachine.name]);
-      return c.json({ host, token }, 201);
+      return c.json({ host, token, hostPort }, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
