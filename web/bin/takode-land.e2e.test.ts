@@ -169,6 +169,57 @@ describe("takode land end to end", () => {
     expect(saved.out).toContain("Saved the landing gate for origin:main: 1 step(s) (check)");
   }
 
+  it("frees the full-suite slot and stops the gate when a pre-submit run is stopped", async () => {
+    // A stopped `takode land test` (Ctrl-C, a killed tool call) used to leave its
+    // full-suite:<repo> slot held, blocking every later run on the machine.
+    const worker = await workerWith("stopper", "stopper.txt");
+    await writeFile(join(worker, "slow.sh"), 'echo $$ > "$GATE_PID"\nsleep 60\n');
+    await git(worker, ["add", "slow.sh"]);
+    await git(worker, ["commit", "--quiet", "-m", "slow gate step"]);
+    const draft = join(root, "slow-gate.json");
+    await writeFile(draft, JSON.stringify({ version: 1, steps: [{ name: "slow", run: ["sh", "slow.sh"] }] }));
+    await takode("stopper", worker, "land", "gate", "save", draft, "--branch", "main");
+
+    const pidFile = join(root, "gate.pid");
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(new URL("./takode.ts", import.meta.url)), "land", "test", "--branch", "main"],
+      {
+        cwd: worker,
+        env: {
+          ...process.env,
+          HOME: home,
+          COMPANION_PORT: String(port),
+          COMPANION_SESSION_ID: "stopper",
+          COMPANION_AUTH_TOKEN: "token",
+          GATE_PID: pidFile,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let out = "";
+    child.stdout?.on("data", (chunk) => (out += String(chunk)));
+    child.stderr?.on("data", (chunk) => (out += String(chunk)));
+    let gatePid = 0;
+    for (let i = 0; i < 100 && !gatePid; i++) {
+      gatePid = Number(await readFile(pidFile, "utf-8").catch(() => "0"));
+      if (!gatePid) await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    expect(gatePid, out).toBeGreaterThan(0);
+    expect((await leases.getStatus("full-suite:origin")).leases.map((lease) => lease.ownerSessionId)).toEqual([
+      "stopper",
+    ]);
+
+    child.kill("SIGTERM");
+    const [code] = await once(child, "close");
+    expect(code, out).toBe(143);
+    expect(out).toContain("releasing full-suite:origin");
+    expect((await leases.getStatus("full-suite:origin")).leases).toEqual([]);
+    // The gate command's process group was stopped too, so no test run keeps going without a slot.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(() => process.kill(gatePid, 0)).toThrow();
+  });
+
   it("tests, submits, lands in batches and finishes through the real CLI", async () => {
     // Single change, nothing in flight: submit takes the free lease and starts the run itself.
     const solo = await workerWith("solo", "solo.txt");

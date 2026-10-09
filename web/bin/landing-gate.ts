@@ -6,7 +6,7 @@
  * that also happen there are pre-existing. Only the remaining new failures fail
  * the gate.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -135,6 +135,19 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
   return result;
 }
 
+const activeCommands = new Set<ChildProcess>();
+
+/** Stop every gate command still running in this process, with its whole process group. */
+export function stopActiveGateCommands(signal: NodeJS.Signals = "SIGTERM"): void {
+  for (const child of activeCommands) {
+    try {
+      if (child.pid) process.kill(-child.pid, signal);
+    } catch {
+      child.kill(signal);
+    }
+  }
+}
+
 /** Whether a checkout still shows the failure a gate run found. */
 export async function probeFails(dir: string, probe: GateProbe, options: GateRunOptions): Promise<boolean> {
   const result = await runStep(dir, probe.step, options, probe.files);
@@ -239,7 +252,10 @@ async function runCommand(
       cwd: workdir,
       env: options.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
+      // Its own process group, so stopping the gate also stops the command's children (test workers).
+      detached: true,
     });
+    activeCommands.add(child);
     let output = "";
     const collect = (chunk: Buffer) => {
       const text = chunk.toString();
@@ -252,6 +268,7 @@ async function runCommand(
     child.stderr.on("data", collect);
     child.on("error", reject);
     child.on("close", (code) => {
+      activeCommands.delete(child);
       const lines = output.split("\n");
       resolvePromise({
         ok: code === 0,

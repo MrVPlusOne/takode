@@ -102,6 +102,42 @@ describe("landing queue manager", () => {
     expect(queue.isLandingActive("b")).toBe(false);
   });
 
+  it("keeps only the latest outcome's reason and details on an entry", async () => {
+    // An entry re-queued after a failed attempt must not show that old reason
+    // once it lands, and a later bounce must not keep an earlier bounce's output.
+    await submit("a", 1);
+    const first = await queue.claim("a", target);
+    await queue.finish(first.run!.id, "a", {
+      outcomes: [{ entryId: first.entries[0]!.id, outcome: "requeue", reason: "Dependency install failed." }],
+      summary: "Landed 0 of 1.",
+    });
+    expect((await queue.latestEntryFor("a"))!.reason).toBe("Dependency install failed.");
+    const second = await queue.claim("a", target);
+    await queue.finish(second.run!.id, "a", {
+      outcomes: [{ entryId: second.entries[0]!.id, outcome: "landed", mapping: mapping(1) }],
+      pushedTip: sha(201),
+      summary: "Landed 1 of 1.",
+    });
+    const landed = (await queue.latestEntryFor("a"))!;
+    expect(landed.state).toBe("landed");
+    expect(landed.reason).toBeUndefined();
+
+    await submit("b", 2);
+    const third = await queue.claim("b", target);
+    await queue.finish(third.run!.id, "b", {
+      outcomes: [{ entryId: third.entries[0]!.id, outcome: "requeue", reason: "The push was rejected." }],
+      summary: "Landed 0 of 1.",
+    });
+    const fourth = await queue.claim("b", target);
+    await queue.finish(fourth.run!.id, "b", {
+      outcomes: [{ entryId: fourth.entries[0]!.id, outcome: "bounced", reason: "It conflicts." }],
+      summary: "Landed 0 of 1.",
+    });
+    const bounced = (await queue.latestEntryFor("b"))!;
+    expect(bounced.reason).toBe("It conflicts.");
+    expect(bounced.details).toBeUndefined();
+  });
+
   it("bounces one entry, re-queues another and hands the lease to the next waiting owner", async () => {
     await submit("a", 1);
     await submit("b", 2);

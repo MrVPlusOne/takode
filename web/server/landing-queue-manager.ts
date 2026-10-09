@@ -405,6 +405,10 @@ export class LandingQueueManager {
         continue;
       }
       entry.resolvedAt = now;
+      // Reason and details describe the latest outcome only; an earlier
+      // re-queue's reason must not survive a later landing or bounce.
+      delete entry.reason;
+      delete entry.details;
       if (outcome.outcome === "landed") {
         entry.state = "landed";
         entry.mapping = outcome.mapping;

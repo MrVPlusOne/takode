@@ -11,7 +11,7 @@
  */
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { constants as osConstants, homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   landingLeaseKey,
@@ -25,7 +25,13 @@ import {
   type LandingTarget,
 } from "../shared/landing-queue.js";
 import { git, isAncestor } from "./landing-git.js";
-import { runGate, installDependencies, type GateResult, type GateRunOptions } from "./landing-gate.js";
+import {
+  runGate,
+  installDependencies,
+  stopActiveGateCommands,
+  type GateResult,
+  type GateRunOptions,
+} from "./landing-gate.js";
 import { runLanding, type LandingRunApi } from "./landing-run.js";
 import { apiDelete, apiGet, apiPost, getCallerSessionId } from "./takode-core.js";
 
@@ -64,7 +70,9 @@ Common flags: --branch <name> overrides the session's port target branch.
 Exit codes: 0 ok, 1 failure, 3 queued for a lease.`;
 
 const QUEUED_EXIT_CODE = 3;
-const TEST_LEASE_TTL_MS = 60 * 60_000;
+/** Short enough that a slot whose holder died (even by SIGKILL) frees itself soon; renewed while held. */
+const TEST_LEASE_TTL_MS = 10 * 60_000;
+const TEST_LEASE_RENEW_MS = 2 * 60_000;
 const RUN_LEASE_TTL_MS = 15 * 60_000;
 const LANDING_HOME = join(homedir(), ".companion", "landing");
 
@@ -276,6 +284,8 @@ async function landTest(base: string, flags: Flags): Promise<void> {
  * Take a slot of the per-machine full-suite:<repo> pool, renewed while held.
  * Returns null after printing QUEUED (exit code 3) when the pool is full.
  */
+const STOP_SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+
 async function acquireFullSuiteSlot(
   base: string,
   ctx: LandContext,
@@ -300,14 +310,24 @@ async function acquireFullSuiteSlot(
       void apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/renew`, { ttlMs: TEST_LEASE_TTL_MS }).catch(
         () => undefined,
       ),
-    5 * 60_000,
+    TEST_LEASE_RENEW_MS,
   );
-  return {
-    release: async () => {
+  let released: Promise<void> | null = null;
+  const release = () =>
+    (released ??= (async () => {
       clearInterval(renew);
+      for (const signal of STOP_SIGNALS) process.off(signal, onStop);
       await apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/release`, {}).catch(() => undefined);
-    },
+    })());
+  // A stopped run (Ctrl-C, a killed tool call) stops its gate commands and frees the slot
+  // before exiting; a run killed outright frees it when the short TTL lapses.
+  const onStop = (signal: NodeJS.Signals) => {
+    console.log(`Stopped by ${signal}; stopping the gate and releasing ${leaseKey}.`);
+    stopActiveGateCommands("SIGTERM");
+    void release().finally(() => process.exit(128 + (osConstants.signals[signal] ?? 15)));
   };
+  for (const signal of STOP_SIGNALS) process.on(signal, onStop);
+  return { release };
 }
 
 function describeGate(result: GateResult): string {
@@ -529,7 +549,8 @@ async function landStatus(base: string, flags: Flags): Promise<void> {
   if (done.length) console.log("  recent:");
   for (const entry of done)
     console.log(
-      `    ${label(entry)} ${entry.state} ${age(entry.resolvedAt!)} ago${entry.reason ? `: ${entry.reason.split("\n")[0]}` : ""}`,
+      // A landed entry's stored reason can only be left over from an earlier attempt (entries saved before the server cleared it).
+      `    ${label(entry)} ${entry.state} ${age(entry.resolvedAt!)} ago${entry.reason && entry.state !== "landed" ? `: ${entry.reason.split("\n")[0]}` : ""}`,
     );
 }
 
