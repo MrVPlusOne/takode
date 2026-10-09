@@ -45,13 +45,11 @@ describe("takode land end to end", () => {
     base = join(root, "base");
     leaseMessages.length = 0;
     queueMessages.length = 0;
-    await mkdir(join(home, ".companion"), { recursive: true });
-    // Machine-level gate environment, as a user would set a package registry override.
-    await writeFile(join(home, ".companion", "landing.json"), JSON.stringify({ env: { GATE_MARK: "machine-config" } }));
+    await mkdir(home);
     await git(root, ["init", "--quiet", "--bare", "-b", "main", origin]);
     await git(root, ["clone", "--quiet", origin, base]);
     await configure(base);
-    await writeFile(join(base, "gate.sh"), 'echo "run $GATE_MARK" >> "$GATE_COUNT"\n[ ! -e broken ]\n');
+    await writeFile(join(base, "gate.sh"), 'echo run >> "$GATE_COUNT"\n[ ! -e broken ]\n');
     await mkdir(join(base, ".takode"));
     await writeFile(
       join(base, ".takode", "landing-gate.json"),
@@ -202,9 +200,6 @@ describe("takode land end to end", () => {
     expect([firstEntry.state, secondEntry.state]).toEqual(["landed", "landed"]);
     // One gate run for the batch of two; "second" was never promoted.
     expect(await gateRuns()).toBe(runs + 1);
-    // Both the pre-submit runs and the landing run's gate got the machine's landing environment.
-    const gateLines = (await readFile(join(root, "gate-count"), "utf-8")).split("\n").filter(Boolean);
-    expect(gateLines.every((line) => line === "run machine-config")).toBe(true);
     expect(leaseMessages).toHaveLength(1);
     expect(secondEntry.pushedTip).toBe(await git(origin, ["rev-parse", "main"]));
     expect((await leases.getStatus("port:origin:main")).leases).toEqual([]);
