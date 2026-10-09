@@ -368,7 +368,8 @@ esac
 
     if (variant === "wrong-owner") {
       expect(await pathExists("/etc/ssh/ssh_config")).toBe(true);
-      await replaceConfigValue(fixture, "SSH_CONFIG_FILE", "/private/etc/ssh/ssh_config");
+      // A root-owned file reached without symlinks: on macOS /etc links to /private/etc.
+      await replaceConfigValue(fixture, "SSH_CONFIG_FILE", await realpath("/etc/ssh/ssh_config"));
       await expectPausedFatal(fixture, "ssh_config_owner");
     } else if (variant === "wrong-mode") {
       await chmod(fixture.sshConfig, 0o644);
