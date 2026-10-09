@@ -891,6 +891,42 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
+  it("routes the worker's Claude background jobs from its adapter into the stall check", async () => {
+    // The worker ended its turn while its background gate runs, as the waiting
+    // guidance tells it to. That is not a stall. Once the job ends and the worker
+    // does not resume, the leader is warned after the usual grace period.
+    const { leaderId, workerId, dispatcher } = setupBoardStallHarness({ workerLiveState: "idle" });
+    const adapter = bridge.getSession(workerId)!.claudeSdkAdapter as any;
+    expect(adapter).toBeTruthy();
+    let background = {
+      tasks: [{ taskId: "gate", description: "Run full gate", startedAt: Date.now() }],
+      changedAt: Date.now(),
+    };
+    adapter.getBackgroundTasks = () => background;
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const herdCalls = () =>
+      injectSpy.mock.calls.filter(
+        ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+      );
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(5 * 60_000);
+    await Promise.resolve();
+    expect(herdCalls()).toHaveLength(0);
+
+    background = { tasks: [], changedAt: Date.now() };
+    vi.advanceTimersByTime(2 * 60_000);
+    await Promise.resolve();
+    expect(herdCalls()).toHaveLength(0);
+    vi.advanceTimersByTime(2 * 60_000);
+    await Promise.resolve();
+    expect(herdCalls()).toHaveLength(1);
+    expect(herdCalls()[0][1]).toContain("worker idle");
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
   it("does not warn when an implementing worker is still connected and generating", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ workerLiveState: "running" });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");

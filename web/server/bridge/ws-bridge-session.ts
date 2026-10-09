@@ -3,6 +3,7 @@ import type { CodexResumeTurnSnapshot, CodexSessionMeta } from "../codex-adapter
 import type { ClaudeSdkSessionMeta } from "../claude-sdk-adapter.js";
 import type {
   BackendAdapter,
+  BackgroundTaskAwareAdapter,
   ClaudeTurnAwareAdapter,
   CompactRequestedAwareAdapter,
   CurrentTurnIdAwareAdapter,
@@ -94,7 +95,8 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
   }>;
 export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> &
   CompactRequestedAwareAdapter &
-  ClaudeTurnAwareAdapter;
+  ClaudeTurnAwareAdapter &
+  Partial<BackgroundTaskAwareAdapter>;
 
 export interface Session {
   id: string;

@@ -33,16 +33,22 @@ import type {
   TakodeEvent,
   TakodeHerdBatchSnapshot,
 } from "../session-types.js";
-import type { ResourceLeaseWait } from "../resource-lease-types.js";
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
 import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recovery-summary.js";
+import {
+  assessLeaseWait,
+  backgroundWaitEndsAt,
+  formatBoardSessionRef,
+  formatOverdueBackgroundJobs,
+  getBoardParticipantRuntime,
+  type BoardParticipantDeps,
+  type BoardStallStatus,
+} from "./board-stall-participants.js";
 
 type SessionLike = any;
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 const WORKER_OWNED_BOARD_STAGES = new Set(["PLANNING", "USER_CHECKPOINTING", "WORKING", "MEMORY"]);
-
-type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";
 
 interface BoardStallCandidate {
   signature: string;
@@ -72,17 +78,9 @@ interface LeaderWorkerCapacity {
   limit: number;
 }
 
-export interface BoardWatchdogDeps {
-  getLauncherSessionInfo: (sessionId: string) => any;
-  getSession: (sessionId: string) => SessionLike | undefined;
+export interface BoardWatchdogDeps extends BoardParticipantDeps {
   listSessions: () => any[];
   resolveSessionId: (ref: string) => string | undefined;
-  timerCount: (sessionId: string) => number;
-  /** Lease pools the session is queued for, with their current holders. */
-  getLeaseWaits?: (sessionId: string) => readonly ResourceLeaseWait[];
-  /** Whether the session runs, or has a change inside, an active landing-queue run. */
-  isLandingActive?: (sessionId: string) => boolean;
-  backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
   getBoardRowsForQuest?: (questId: string) => BoardRow[];
   getCompletedBoardRowsForQuest?: (questId: string) => BoardRow[];
@@ -1267,10 +1265,15 @@ export function getBoardDispatchableSignature(
   return buildBoardDispatchableCandidate(session, row, deps)?.signature ?? null;
 }
 
-export function getBoardStallSignature(session: SessionLike, questId: string, deps: BoardWatchdogDeps): string | null {
+export function getBoardStallSignature(
+  session: SessionLike,
+  questId: string,
+  deps: BoardWatchdogDeps,
+  now = Date.now(),
+): string | null {
   const row = session.board.get(questId);
   if (!row) return null;
-  const candidate = buildBoardStallCandidate(session, row, deps);
+  const candidate = buildBoardStallCandidate(session, row, deps, now);
   if (!candidate) return null;
   const state = session.boardStallStates.get(questId);
   if (!state || state.signature !== candidate.signature) return candidate.signature;
@@ -1288,7 +1291,7 @@ export function sweepBoardStallWarnings(sessions: Iterable<SessionLike>, now: nu
     }
 
     for (const row of session.board.values()) {
-      const candidate = buildBoardStallCandidate(session, row, deps);
+      const candidate = buildBoardStallCandidate(session, row, deps, now);
       if (!candidate) {
         session.boardStallStates.delete(row.questId);
         continue;
@@ -1706,6 +1709,7 @@ function buildBoardStallCandidate(
   session: SessionLike,
   row: BoardRow,
   deps: BoardWatchdogDeps,
+  now: number,
 ): BoardStallCandidate | null {
   const stage = (row.status || "").trim();
   if (!stage || stage === "QUEUED") return null;
@@ -1724,15 +1728,19 @@ function buildBoardStallCandidate(
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
     // An idle worker whose change is in an active landing run resumes on its Landing Queue message.
     if (deps.isLandingActive?.(workerSessionId)) return null;
+    // An idle Claude worker resumes when its background job's completion notice arrives.
+    if (backgroundWaitEndsAt(workerRuntime) > now) return null;
     const leaseWait =
-      workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set());
+      workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set(), now);
     // A queued worker resumes on the Resource Lease promotion message, so its
     // wait is legitimate while the pool's holders are still making progress.
     if (leaseWait === "progressing") return null;
     if (leaseWait) {
       const holderIds = leaseWait.holders.map((holder) => holder.sessionId);
       const holderLabels = leaseWait.holders.map(
-        (holder) => `${formatBoardSessionRef(holder.sessionId, deps)} ${holder.status}`,
+        (holder) =>
+          `${formatBoardSessionRef(holder.sessionId, deps)} ${holder.status}` +
+          (holder.backgroundJobs.length > 0 ? ` with ${formatOverdueBackgroundJobs(holder.backgroundJobs)}` : ""),
       );
       return {
         signature: `${row.questId}|${stage}|lease:${leaseWait.resourceKey}|${[...holderIds].sort().join(",")}`,
@@ -1744,10 +1752,26 @@ function buildBoardStallCandidate(
         reviewerStatus: reviewerRuntime.status,
         stalledSince: stalledSinceFrom(
           workerRuntime.lastActivityAt,
-          ...leaseWait.holders.map((holder) => holder.lastActivityAt),
+          ...leaseWait.holders.flatMap((holder) => [holder.lastActivityAt, backgroundWaitEndsAt(holder)]),
         ),
         reason: `worker queued for ${leaseWait.resourceKey}; lease ${holderLabels.length > 1 ? "holders" : "holder"} ${holderLabels.join(", ")}`,
         action: "inspect the lease holder; get it to finish and release, or force-release the lease",
+      };
+    }
+    // The worker's background jobs have run implausibly long without it resuming.
+    if (workerRuntime.backgroundJobs.length > 0) {
+      const jobIds = workerRuntime.backgroundJobs.map((job) => job.taskId).sort();
+      return {
+        signature: `${row.questId}|${stage}|background:${jobIds.join(",")}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, backgroundWaitEndsAt(workerRuntime)),
+        reason: `worker ${workerRuntime.status} with ${formatOverdueBackgroundJobs(workerRuntime.backgroundJobs)}`,
+        action: "inspect worker; check whether its background job is hung, stop it, or resume Work",
       };
     }
     return {
@@ -1822,83 +1846,6 @@ function getLeaderWorkerSlotUsage(sessionId: string, deps: BoardWatchdogDeps): n
     .filter(
       (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
     ).length;
-}
-
-function getBoardParticipantRuntime(
-  sessionId: string | undefined,
-  deps: BoardWatchdogDeps,
-  currentSession: SessionLike,
-): { status: BoardStallStatus; lastActivityAt: number; hasActiveTimer: boolean } {
-  if (!sessionId) return { status: "missing", lastActivityAt: 0, hasActiveTimer: false };
-  const launcherInfo = deps.getLauncherSessionInfo(sessionId);
-  if (launcherInfo?.archived) {
-    return { status: "missing", lastActivityAt: launcherInfo.lastActivityAt ?? 0, hasActiveTimer: false };
-  }
-
-  const session = sessionId === currentSession.id ? currentSession : deps.getSession(sessionId);
-  const hasActiveTimer = deps.timerCount(sessionId) > 0;
-  if (!session || !deps.backendConnected(session)) {
-    return {
-      status: launcherInfo ? "disconnected" : "missing",
-      lastActivityAt: launcherInfo?.lastActivityAt ?? 0,
-      hasActiveTimer,
-    };
-  }
-  if (session.isGenerating || (session.pendingPermissions?.size ?? 0) > 0) {
-    return { status: "running", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
-  }
-  return { status: "idle", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
-}
-
-interface StuckLeaseWait {
-  resourceKey: string;
-  holders: Array<{ sessionId: string; status: BoardStallStatus; lastActivityAt: number }>;
-}
-
-/**
- * Classify a session's resource-lease queue wait. Returns null when it is not
- * queued, "progressing" when every queued pool has a holder that is running,
- * has an active timer, or is itself in a progressing lease wait, and otherwise
- * the first pool whose holders have all stopped. `path` holds the sessions
- * already on this wait chain, so a lease deadlock counts as stuck.
- */
-function assessLeaseWait(
-  sessionId: string,
-  deps: BoardWatchdogDeps,
-  currentSession: SessionLike,
-  path: ReadonlySet<string>,
-): "progressing" | StuckLeaseWait | null {
-  const waits = deps.getLeaseWaits?.(sessionId) ?? [];
-  if (waits.length === 0) return null;
-  const chain = new Set([...path, sessionId]);
-  for (const wait of waits) {
-    // A pool with a free slot is promoted by the next lease sweep.
-    if (wait.holderSessionIds.length === 0) continue;
-    const holders = wait.holderSessionIds.map((holderId) => ({
-      sessionId: holderId,
-      ...getBoardParticipantRuntime(holderId, deps, currentSession),
-    }));
-    const progressing = holders.some(
-      (holder) =>
-        holder.status === "running" ||
-        holder.hasActiveTimer ||
-        deps.isLandingActive?.(holder.sessionId) ||
-        (!chain.has(holder.sessionId) &&
-          assessLeaseWait(holder.sessionId, deps, currentSession, chain) === "progressing"),
-    );
-    if (!progressing) {
-      return {
-        resourceKey: wait.resourceKey,
-        holders: holders.map(({ sessionId, status, lastActivityAt }) => ({ sessionId, status, lastActivityAt })),
-      };
-    }
-  }
-  return "progressing";
-}
-
-function formatBoardSessionRef(sessionId: string, deps: BoardWatchdogDeps): string {
-  const sessionNum = deps.getLauncherSessionInfo(sessionId)?.sessionNum;
-  return typeof sessionNum === "number" ? `#${sessionNum}` : sessionId.slice(0, 8);
 }
 
 function isLiveBoardWatchdogEvent(session: SessionLike, event: TakodeEvent, deps: BoardWatchdogDeps): boolean {

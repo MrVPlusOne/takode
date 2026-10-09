@@ -33,6 +33,9 @@ import type { RecorderManager } from "./recorder.js";
 import { trafficStats } from "./traffic-stats.js";
 import type {
   BackendAdapter,
+  BackgroundTaskAwareAdapter,
+  BackgroundTaskInfo,
+  BackgroundTaskSnapshot,
   CompactRequestedAwareAdapter,
   ClaudeTurnAwareAdapter,
   PendingOutgoingAwareAdapter,
@@ -179,7 +182,8 @@ export class ClaudeSdkAdapter
     BackendAdapter<ClaudeSdkSessionMeta>,
     PendingOutgoingAwareAdapter,
     CompactRequestedAwareAdapter,
-    ClaudeTurnAwareAdapter
+    ClaudeTurnAwareAdapter,
+    BackgroundTaskAwareAdapter
 {
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
@@ -201,6 +205,9 @@ export class ClaudeSdkAdapter
   private turnInFlight = false;
   /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
   private cachedMcpServers: Array<{ name: string; status: string }> = [];
+  /** Live background tasks of this Claude process, by task id (see `updateBackgroundTasks`). */
+  private backgroundTasks = new Map<string, BackgroundTaskInfo>();
+  private backgroundTasksChangedAt = 0;
 
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
@@ -262,6 +269,7 @@ export class ClaudeSdkAdapter
   async disconnect(): Promise<void> {
     this.connected = false;
     this.turnInFlight = false;
+    this.backgroundTasks.clear();
     try {
       // Ends Claude's input, then stops the process after a short grace period.
       this.sdkQuery?.close();
@@ -283,6 +291,10 @@ export class ClaudeSdkAdapter
   /** Whether Claude has a prompt from Takode that has not produced a result yet. */
   hasTurnInFlight(): boolean {
     return this.turnInFlight;
+  }
+
+  getBackgroundTasks(): BackgroundTaskSnapshot {
+    return { tasks: [...this.backgroundTasks.values()], changedAt: this.backgroundTasksChangedAt };
   }
 
   /** Drop user messages still waiting for the process to start; returns how many. */
@@ -483,6 +495,8 @@ export class ClaudeSdkAdapter
             output_file: msg.output_file,
             summary: msg.summary,
           } as any);
+        } else if (msg.subtype === "background_tasks_changed") {
+          this.updateBackgroundTasks(msg.tasks);
         } else if (msg.subtype === "compact_boundary") {
           // Forward compaction boundary markers so the bridge can track
           // compaction state for SDK sessions.
@@ -775,10 +789,38 @@ export class ClaudeSdkAdapter
     });
   }
 
+  /**
+   * Replace the live background task set with Claude's `background_tasks_changed`
+   * level signal, which lists every live task after each change. The level is
+   * per process, so a new adapter starts empty. Ambient tasks (watchers,
+   * housekeeping) are not work the agent waits on and are left out.
+   */
+  private updateBackgroundTasks(tasks: unknown): void {
+    if (!Array.isArray(tasks)) return;
+    const now = Date.now();
+    const next = new Map<string, BackgroundTaskInfo>();
+    for (const task of tasks) {
+      if (typeof task?.task_id !== "string" || task.ambient) continue;
+      next.set(
+        task.task_id,
+        this.backgroundTasks.get(task.task_id) ?? {
+          taskId: task.task_id,
+          description: typeof task.description === "string" ? task.description : "",
+          startedAt: now,
+        },
+      );
+    }
+    const changed =
+      next.size !== this.backgroundTasks.size || [...next.keys()].some((id) => !this.backgroundTasks.has(id));
+    if (changed) this.backgroundTasksChangedAt = now;
+    this.backgroundTasks = next;
+  }
+
   private handleDisconnect(error = "Claude process ended"): void {
     if (!this.connected) return;
     this.connected = false;
     this.turnInFlight = false;
+    this.backgroundTasks.clear();
     this.settleStarted(false);
     // Reject pending permissions
     for (const [, pending] of this.pendingPermissions) {

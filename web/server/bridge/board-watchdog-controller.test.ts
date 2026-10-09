@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QUEST_JOURNEY_STATES } from "../../shared/quest-journey.js";
 import type { BoardRow, SessionAttentionRecord } from "../session-types.js";
+import type { BackgroundTaskInfo } from "./adapter-interface.js";
 import {
   advanceBoardRow,
   completeDoneBoardRowsForQuestInAllSessions,
@@ -180,71 +181,78 @@ describe("Work Board stall occurrences", () => {
   });
 });
 
+// Fixture: an idle Work-stage worker (#10) on the leader's board, plus other
+// sessions that may hold the lease pools it waits in. Each runtime entry
+// controls whether that session is generating, has a timer, went idle when, or
+// has live background jobs (and when that set last changed).
+interface FakeRuntime {
+  sessionNum: number;
+  isGenerating?: boolean;
+  timers?: number;
+  lastActivityAt?: number;
+  archived?: boolean;
+  backgroundJobs?: BackgroundTaskInfo[];
+  backgroundChangedAt?: number;
+}
+
+function setupIdleWorkerStall(runtimes: Record<string, FakeRuntime>, waits: Record<string, Record<string, string[]>>) {
+  const leader = createSession();
+  leader.board.set("q-90", {
+    questId: "q-90",
+    title: "Port behind another landing",
+    status: "WORKING",
+    worker: "worker",
+    workerNum: 10,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const emitted: Array<Record<string, unknown>> = [];
+  const deps = {
+    getLauncherSessionInfo: vi.fn((sessionId: string) => {
+      if (sessionId === leader.id) return { isOrchestrator: true };
+      const runtime = runtimes[sessionId];
+      return runtime
+        ? { sessionNum: runtime.sessionNum, lastActivityAt: runtime.lastActivityAt ?? 0, archived: runtime.archived }
+        : undefined;
+    }),
+    getSession: vi.fn((sessionId: string) => {
+      const runtime = runtimes[sessionId];
+      return runtime
+        ? { id: sessionId, isGenerating: !!runtime.isGenerating, pendingPermissions: new Map() }
+        : undefined;
+    }),
+    listSessions: vi.fn(() => []),
+    resolveSessionId: vi.fn(() => undefined),
+    timerCount: vi.fn((sessionId: string) => runtimes[sessionId]?.timers ?? 0),
+    getBackgroundTasks: vi.fn((sessionId: string) => {
+      const runtime = runtimes[sessionId];
+      return runtime ? { tasks: runtime.backgroundJobs ?? [], changedAt: runtime.backgroundChangedAt ?? 0 } : null;
+    }),
+    getLeaseWaits: vi.fn((sessionId: string) =>
+      Object.entries(waits[sessionId] ?? {}).map(([resourceKey, holderSessionIds]) => ({
+        resourceKey,
+        holderSessionIds,
+      })),
+    ),
+    backendConnected: vi.fn(() => true),
+    getBoard: vi.fn(() => Array.from(leader.board.values())),
+    emitTakodeEvent: vi.fn((_sessionId: string, _type: string, data: Record<string, unknown>) => emitted.push(data)),
+    markNotificationDone: vi.fn(() => true),
+    isSessionIdle: vi.fn(() => true),
+  } as any;
+  // Two sweeps past the 3-minute threshold: the first records the stall, the second warns.
+  const sweepPastThreshold = () => {
+    sweepBoardStallWarnings([leader], 0, deps);
+    sweepBoardStallWarnings([leader], 180_001, deps);
+  };
+  return { leader, deps, emitted, sweepPastThreshold };
+}
+
 describe("Work Board stall check for resource-lease waits", () => {
-  // Fixture: an idle Work-stage worker (#10) on the leader's board, plus other
-  // sessions that may hold the lease pools it waits in. Each runtime entry
-  // controls whether that session is generating, has a timer, or went idle when.
-  interface FakeRuntime {
-    sessionNum: number;
-    isGenerating?: boolean;
-    timers?: number;
-    lastActivityAt?: number;
-    archived?: boolean;
-  }
-
-  function setupLeaseWaitStall(runtimes: Record<string, FakeRuntime>, waits: Record<string, Record<string, string[]>>) {
-    const leader = createSession();
-    leader.board.set("q-90", {
-      questId: "q-90",
-      title: "Port behind another landing",
-      status: "WORKING",
-      worker: "worker",
-      workerNum: 10,
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    const emitted: Array<Record<string, unknown>> = [];
-    const deps = {
-      getLauncherSessionInfo: vi.fn((sessionId: string) => {
-        if (sessionId === leader.id) return { isOrchestrator: true };
-        const runtime = runtimes[sessionId];
-        return runtime
-          ? { sessionNum: runtime.sessionNum, lastActivityAt: runtime.lastActivityAt ?? 0, archived: runtime.archived }
-          : undefined;
-      }),
-      getSession: vi.fn((sessionId: string) => {
-        const runtime = runtimes[sessionId];
-        return runtime
-          ? { id: sessionId, isGenerating: !!runtime.isGenerating, pendingPermissions: new Map() }
-          : undefined;
-      }),
-      listSessions: vi.fn(() => []),
-      resolveSessionId: vi.fn(() => undefined),
-      timerCount: vi.fn((sessionId: string) => runtimes[sessionId]?.timers ?? 0),
-      getLeaseWaits: vi.fn((sessionId: string) =>
-        Object.entries(waits[sessionId] ?? {}).map(([resourceKey, holderSessionIds]) => ({
-          resourceKey,
-          holderSessionIds,
-        })),
-      ),
-      backendConnected: vi.fn(() => true),
-      getBoard: vi.fn(() => Array.from(leader.board.values())),
-      emitTakodeEvent: vi.fn((_sessionId: string, _type: string, data: Record<string, unknown>) => emitted.push(data)),
-      markNotificationDone: vi.fn(() => true),
-      isSessionIdle: vi.fn(() => true),
-    } as any;
-    // Two sweeps past the 3-minute threshold: the first records the stall, the second warns.
-    const sweepPastThreshold = () => {
-      sweepBoardStallWarnings([leader], 0, deps);
-      sweepBoardStallWarnings([leader], 180_001, deps);
-    };
-    return { leader, deps, emitted, sweepPastThreshold };
-  }
-
   it("does not flag a worker queued behind a holder that is still working", () => {
     // The reported false alarm: the worker ended its turn to wait for the port
     // lease while the holder was landing another quest.
-    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11, isGenerating: true } },
       { worker: { "port:takode:jiayi": ["holder"] } },
     );
@@ -254,7 +262,7 @@ describe("Work Board stall check for resource-lease waits", () => {
 
   it("treats a holder with an active timer or its own progressing lease wait as working", () => {
     // Holder A waits on a timer; holder B is itself queued behind a running C.
-    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
       {
         worker: { sessionNum: 10 },
         a: { sessionNum: 11, timers: 1 },
@@ -270,7 +278,7 @@ describe("Work Board stall check for resource-lease waits", () => {
   it("treats an idle lander of an active landing run, and changes inside it, as making progress", () => {
     // The lander ends its turn after starting a background landing run; its own
     // change and the queued worker's both resume on Landing Queue messages.
-    const { deps, emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { deps, emitted, sweepPastThreshold } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
       { worker: { "port:takode:jiayi": ["holder"] } },
     );
@@ -280,7 +288,7 @@ describe("Work Board stall check for resource-lease waits", () => {
   });
 
   it("surfaces a queued worker when the lease holder itself has stalled", () => {
-    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
       { worker: { "port:takode:jiayi": ["holder"] } },
     );
@@ -296,7 +304,7 @@ describe("Work Board stall check for resource-lease waits", () => {
 
   it("surfaces a lease deadlock where the holder waits on the worker", () => {
     // Worker waits for a lease held by #11, which waits for one the worker holds.
-    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
       { worker: { "port:x": ["holder"] }, holder: { "dev-server:x": ["worker"] } },
     );
@@ -306,7 +314,7 @@ describe("Work Board stall check for resource-lease waits", () => {
   });
 
   it("surfaces an archived holder and counts the stall from the holder's last activity", () => {
-    const { leader, deps, emitted } = setupLeaseWaitStall(
+    const { leader, deps, emitted } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11, archived: true, lastActivityAt: 100_000 } },
       { worker: { "port:x": ["holder"] } },
     );
@@ -321,13 +329,100 @@ describe("Work Board stall check for resource-lease waits", () => {
   it("keeps the ordinary idle-worker alert when the worker is not queued for a lease", () => {
     // Includes the case where the worker believes it is queued but no longer is,
     // for example after a promotion message it never acted on.
-    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11, isGenerating: true } },
       { holder: {} },
     );
     sweepPastThreshold();
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toMatchObject({ reason: "worker idle", signature: "q-90|WORKING|idle|since:0" });
+  });
+});
+
+describe("Work Board stall check for background jobs", () => {
+  // Claude workers are told to run long commands in the background, end their
+  // turn, and continue on the completion notice, so an idle worker with a live
+  // background job is waiting, not stalled, until the job runs implausibly long.
+  const MINUTE = 60_000;
+  const gate = (startedAt: number): BackgroundTaskInfo => ({ taskId: "gate", description: "Run full gate", startedAt });
+
+  it("does not flag an idle worker whose background job is still running", () => {
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, backgroundJobs: [gate(0)], backgroundChangedAt: 0 } },
+      {},
+    );
+    for (const now of [0, 3 * MINUTE + 1, 20 * MINUTE]) sweepBoardStallWarnings([leader], now, deps);
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("surfaces a worker whose background job ended without it resuming, after a grace period", () => {
+    // The job left the set at 10m. The worker's resume turn may start a moment
+    // later, so the stall clock starts when the job ended, not at the worker's
+    // older last activity.
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, backgroundJobs: [], backgroundChangedAt: 10 * MINUTE } },
+      {},
+    );
+    sweepBoardStallWarnings([leader], 10 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 12 * MINUTE, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 13 * MINUTE + 1, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ reason: "worker idle", signature: `q-90|WORKING|idle|since:${10 * MINUTE}` });
+  });
+
+  it("surfaces a worker whose background job has run implausibly long", () => {
+    // For example a hung command, or a dev server left running while the worker sits idle.
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, backgroundJobs: [gate(0)], backgroundChangedAt: 0 } },
+      {},
+    );
+    sweepBoardStallWarnings([leader], 30 * MINUTE - 1, deps);
+    sweepBoardStallWarnings([leader], 30 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 33 * MINUTE - 1, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 33 * MINUTE, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      workerStatus: "idle",
+      reason: "worker idle with background job running over 30m (Run full gate)",
+      signature: `q-90|WORKING|background:gate|since:${30 * MINUTE}`,
+    });
+  });
+
+  it("does not flag a worker queued behind a lease holder waiting on its background job", () => {
+    // The reported false alarm: the port lease holder ran its full gate in the
+    // background and ended its turn; the next worker was queued for the lease.
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
+      {
+        worker: { sessionNum: 10 },
+        holder: { sessionNum: 11, backgroundJobs: [gate(0)], backgroundChangedAt: 0 },
+      },
+      { worker: { "port:takode:jiayi": ["holder"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("surfaces a queued worker once the lease holder's background job has run implausibly long", () => {
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      {
+        worker: { sessionNum: 10 },
+        holder: { sessionNum: 11, backgroundJobs: [gate(0)], backgroundChangedAt: 0 },
+      },
+      { worker: { "port:takode:jiayi": ["holder"] } },
+    );
+    sweepBoardStallWarnings([leader], 20 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 30 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 33 * MINUTE - 1, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 33 * MINUTE, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      reason:
+        "worker queued for port:takode:jiayi; lease holder #11 idle with background job running over 30m (Run full gate)",
+      signature: `q-90|WORKING|lease:port:takode:jiayi|holder|since:${30 * MINUTE}`,
+    });
   });
 });
 

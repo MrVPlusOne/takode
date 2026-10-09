@@ -59,6 +59,24 @@ export interface ClaudeTurnAwareAdapter {
   discardPendingUserMessages(): number;
 }
 
+/** A background task (shell command, subagent, workflow) whose end the agent is notified about. */
+export interface BackgroundTaskInfo {
+  taskId: string;
+  description: string;
+  /** When Takode first saw the task running. */
+  startedAt: number;
+}
+
+/** The backend process's live background tasks, and when that set last changed (0 if never). */
+export interface BackgroundTaskSnapshot {
+  tasks: readonly BackgroundTaskInfo[];
+  changedAt: number;
+}
+
+export interface BackgroundTaskAwareAdapter {
+  getBackgroundTasks(): BackgroundTaskSnapshot;
+}
+
 export interface PendingOutgoingAwareAdapter {
   drainPendingOutgoing(): BrowserOutgoingMessage[];
 }

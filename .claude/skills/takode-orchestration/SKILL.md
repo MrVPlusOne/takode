@@ -531,7 +531,7 @@ When referencing sessions, use session numbers (`#107`) which are stable -- name
 
 A `✗ disconnected` session just means its CLI process was killed (usually by the idle manager). The session history, worktree, and quest claim are fully intact. **Do not avoid disconnected sessions** -- if one is the right fit for a task, use it. `takode send` auto-relaunches the CLI before delivering the message, so no extra reconnect step is needed.
 
-If a quest is still active on the board and its worker or reviewer is `idle` or `disconnected`, treat that as a potential stall signal rather than an automatic wait state. Check the quest phase and send the next legal instruction if progress has stalled; `takode send` will auto-relaunch disconnected sessions. Idle or disconnected sessions with active timers may still be healthy, so use timer visibility in `takode` outputs as part of that judgment rather than assuming every idle/disconnected row is stalled.
+If a quest is still active on the board and its worker or reviewer is `idle` or `disconnected`, treat that as a potential stall signal rather than an automatic wait state. Check the quest phase and send the next legal instruction if progress has stalled; `takode send` will auto-relaunch disconnected sessions. Idle or disconnected sessions with active timers may still be healthy, so use timer visibility in `takode` outputs as part of that judgment rather than assuming every idle/disconnected row is stalled. An idle Claude worker may also be waiting on its own background command, which resumes it when it finishes. The board's `board_stalled` alert already treats timers, resource-lease queues and background jobs under 30 minutes as legitimate waits, and names the job when one runs longer.
 
 ## Archiving Sessions
 
