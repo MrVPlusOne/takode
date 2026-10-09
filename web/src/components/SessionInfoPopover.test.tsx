@@ -817,6 +817,10 @@ describe("SessionInfoPopover", () => {
     await waitFor(() => {
       expect(api.openSessionDirectory).toHaveBeenCalledWith("s1", "worktree");
     });
+    // The popover ignores a second open while one is pending; the working-directory
+    // button re-enables only after the first open settles, so a loaded run cannot
+    // click Base repo too early.
+    await waitFor(() => expect(screen.getByTestId("session-info-open-working-directory")).not.toBeDisabled());
 
     fireEvent.click(screen.getByRole("button", { name: "Open Base repo" }));
     await waitFor(() => {
