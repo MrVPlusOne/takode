@@ -28,6 +28,7 @@ import {
   type GateResult,
   type GateRunOptions,
 } from "./landing-gate.js";
+import { landingGateEnv } from "./landing-machine-config.js";
 import { runLanding, type LandingRunApi } from "./landing-run.js";
 import { apiGet, apiPost, getCallerSessionId } from "./takode-core.js";
 
@@ -56,6 +57,11 @@ commit is pushed. The repository declares its gate in ${LANDING_GATE_FILE}.
       After your change landed: fast-forward the base checkout, record
       port-tracking receipts, reset your worktree and print the
       work-to-memory command.
+
+Gate commands (dependency install and steps) on this machine also get the
+environment variables in ~/.companion/landing.json, for example
+{ "env": { "NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/" } } when the
+machine's default package registry lags new releases.
 
 Common flags: --branch <name> overrides the session's port target branch.
 Exit codes: 0 ok, 1 failure, 3 queued for a lease.`;
@@ -205,6 +211,8 @@ async function landTest(base: string, flags: Flags): Promise<void> {
     throw new Error(`This repository declares no landing gate (${LANDING_GATE_FILE}).`);
   });
   const config = parseGateConfig(configText);
+  // Read before taking a pool slot, so a malformed machine config fails fast.
+  const env = await landingGateEnv((line) => console.log(line));
   const pool = `full-suite:${ctx.target.repo}`;
   const acquired = (await apiPost(base, `/resource-leases/${encodeURIComponent(pool)}/acquire`, {
     purpose: "Pre-submit full gate (`takode land test`); rerun it after this lease message",
@@ -237,6 +245,7 @@ async function landTest(base: string, flags: Flags): Promise<void> {
       dir: ctx.worktree,
       config,
       log,
+      env,
       phase: (phase: string) => console.log(`[phase] ${phase}`),
       baselineDir: async () => {
         if (!baselineReady) {
@@ -432,6 +441,7 @@ async function landRun(base: string, flags: Flags): Promise<void> {
     landingDir: join(LANDING_HOME, "checkouts", slug),
     scratchDir: join(LANDING_HOME, "scratch", slug),
     log,
+    env: await landingGateEnv(log),
     ...(logPath ? { logPath } : {}),
   });
   log(result.summary);
