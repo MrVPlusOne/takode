@@ -10,6 +10,8 @@ export const LANDING_BATCH_LIMIT = 8;
 
 /** A run whose heartbeat is older than this no longer counts as making progress. */
 export const LANDING_RUN_STALE_MS = 5 * 60_000;
+/** Lease pools `full-suite:<repo>` (per machine) cap concurrent pre-submit `takode land test` runs. */
+export const FULL_SUITE_POOL_PREFIX = "full-suite:";
 
 export type LandingEntryState = "pending" | "running" | "landed" | "bounced" | "withdrawn";
 

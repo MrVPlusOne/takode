@@ -15,6 +15,7 @@ import { constants as osConstants, homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   landingLeaseKey,
+  FULL_SUITE_POOL_PREFIX,
   landingQueueKey,
   parseLandingGateConfig,
   type LandingEntry,
@@ -291,7 +292,7 @@ async function acquireFullSuiteSlot(
   ctx: LandContext,
   command: string,
 ): Promise<{ release: () => Promise<void> } | null> {
-  const pool = `full-suite:${ctx.target.repo}`;
+  const pool = `${FULL_SUITE_POOL_PREFIX}${ctx.target.repo}`;
   const acquired = (await apiPost(base, `/resource-leases/${encodeURIComponent(pool)}/acquire`, {
     purpose: `Full gate run (\`${command}\`); rerun it after this lease message`,
     wait: true,

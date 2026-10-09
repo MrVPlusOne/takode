@@ -63,6 +63,7 @@ import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { LandingQueueManager } from "./landing-queue-manager.js";
 import { LandingQueueStore } from "./landing-queue-store.js";
 import { LandingGateStore } from "./landing-gate-store.js";
+import { FULL_SUITE_POOL_PREFIX } from "../shared/landing-queue.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
@@ -320,6 +321,7 @@ const hostUpdateSessions = new HostUpdateSessions({
   bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
   coordinatorStartedAt,
   landingRunOn: (hostId) => landingQueue.isRunActiveOn(hostId),
+  testRunHolders: () => resourceLeaseManager.holdersOf(FULL_SUITE_POOL_PREFIX),
   interrupt: (sessionId, operationId) =>
     wsBridge.interruptSession(sessionId, "user", {
       interruptOrigin: "restart_prep",
@@ -343,8 +345,8 @@ const hostUpdateSessions = new HostUpdateSessions({
   },
   // Before a host's node restarts for an update.
   stopSessions: (hostId) => stopNodeSessions((host) => host === hostId),
-  continueSession: (sessionId, operationId) => {
-    sendRestartContinuation(wsBridge, sessionId, operationId);
+  continueSession: (sessionId, operationId, message) => {
+    sendRestartContinuation(wsBridge, sessionId, operationId, message);
   },
 });
 hostLinks.updateBlocker = (hostId, mode) => hostUpdateSessions.blocker(hostId, mode);

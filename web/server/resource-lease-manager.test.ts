@@ -53,6 +53,24 @@ describe("ResourceLeaseManager", () => {
     expect(result.lease.expiresAt).toBe(Date.now() + 30 * 60_000);
   });
 
+  // A host update asks who is running a pre-submit full test run: the holders
+  // of any full-suite pool, until their slot expires.
+  it("lists the holders of every pool with a key prefix until their slots expire", async () => {
+    await manager.acquire({
+      resourceKey: "full-suite:takode@devbox",
+      callerSessionId: "tester",
+      purpose: "Test",
+      ttlMs: 60_000,
+    });
+    await manager.acquire({ resourceKey: "full-suite:other", callerSessionId: "other-tester", purpose: "Test" });
+    await manager.acquire({ resourceKey: "agent-browser", callerSessionId: "browser-user", purpose: "Test" });
+    expect(manager.holdersOf("full-suite:").sort()).toEqual(["other-tester", "tester"]);
+
+    // Only the clock moves, so no expiry sweep writes after the test ends.
+    vi.setSystemTime(Date.now() + 60_001);
+    expect(manager.holdersOf("full-suite:")).toEqual(["other-tester"]);
+  });
+
   it("queues waiters and promotes the first waiter on release", async () => {
     await manager.acquire({
       resourceKey: "agent-browser",

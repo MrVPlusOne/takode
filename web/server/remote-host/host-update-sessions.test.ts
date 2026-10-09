@@ -1,5 +1,10 @@
 import type { BridgeTurnView } from "./host-restart-gate.js";
-import { HostUpdateSessions, type HostUpdateSession, type HostUpdateSessionsDeps } from "./host-update-sessions.js";
+import {
+  HostUpdateSessions,
+  TEST_RUN_STOPPED_MESSAGE,
+  type HostUpdateSession,
+  type HostUpdateSessionsDeps,
+} from "./host-update-sessions.js";
 
 const STARTED_AT = 1_000;
 const idle = (): BridgeTurnView => ({ isGenerating: false, pendingPermissions: { size: 0 }, messageHistory: [] });
@@ -14,6 +19,7 @@ describe("HostUpdateSessions", () => {
   let bridges: Map<string, BridgeTurnView>;
   let landing: boolean;
   let reattaching: Set<string>;
+  let testers: string[];
   let events: string[];
   let held: Parameters<HostUpdateSessionsDeps["holdHerdEvents"]>[0][];
 
@@ -24,6 +30,7 @@ describe("HostUpdateSessions", () => {
       bridgeSession: (sessionId) => bridges.get(sessionId),
       coordinatorStartedAt: STARTED_AT,
       landingRunOn: (hostId) => landing && hostId === "h1",
+      testRunHolders: () => testers,
       // An interrupt ends the turn, as Restart Server's does.
       interrupt: async (sessionId, operationId) => {
         events.push(`interrupt ${sessionId} ${operationId.startsWith("host-update:h1:")}`);
@@ -31,7 +38,8 @@ describe("HostUpdateSessions", () => {
       },
       holdHerdEvents: (operation) => held.push(operation),
       stopSessions: async (hostId) => void events.push(`stop ${hostId}`),
-      continueSession: (sessionId) => void events.push(`continue ${sessionId}`),
+      continueSession: (sessionId, _operationId, message) =>
+        void events.push(`continue ${sessionId}${message === TEST_RUN_STOPPED_MESSAGE ? " (rerun test)" : ""}`),
       interruptTimeoutMs: 300,
       sleep: async () => {},
       ...overrides,
@@ -56,6 +64,7 @@ describe("HostUpdateSessions", () => {
     bridges.get("exited")!.isGenerating = true;
     landing = false;
     reattaching = new Set();
+    testers = [];
     events = [];
     held = [];
   });
@@ -153,5 +162,25 @@ describe("HostUpdateSessions", () => {
     updates.hostRestarted("h1");
     expect(events).toEqual(["stop h1"]);
     expect(held).toEqual([]);
+  });
+
+  // A pre-submit full test run (a held full-suite slot) is a background job
+  // the node restart would kill. An update that waits for idle waits for it;
+  // an immediate one ends it rather than wait 10+ minutes per run, and tells
+  // the session to run it again once the host is back. Holders elsewhere do
+  // not count.
+  it("waits for a full test run on the host unless the update is immediate, which has it rerun", async () => {
+    bridges.get("busy")!.isGenerating = false;
+    bridges.get("asking")!.pendingPermissions = { size: 0 };
+    const updates = create();
+    testers = ["elsewhere"];
+    expect(updates.blocker("h1", "when_idle")).toBeNull();
+    testers = ["quiet", "elsewhere"];
+    expect(updates.blocker("h1", "when_idle")).toBe("the full test run there finishes");
+    expect(updates.blocker("h1", "immediate")).toBeNull();
+
+    await updates.prepare("h1", "immediate");
+    updates.hostRestarted("h1");
+    expect(events).toEqual(["stop h1", "continue quiet (rerun test)"]);
   });
 });

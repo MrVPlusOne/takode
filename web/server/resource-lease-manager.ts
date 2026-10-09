@@ -161,6 +161,15 @@ export class ResourceLeaseManager {
     });
   }
 
+  /** Sessions holding an unexpired slot of any pool whose key starts with `prefix`, read from loaded state. */
+  holdersOf(prefix: string): string[] {
+    const now = Date.now();
+    const keyPrefix = prefix.trim().toLowerCase();
+    return this.data.leases
+      .filter((lease) => lease.resourceKey.startsWith(keyPrefix) && lease.expiresAt > now)
+      .map((lease) => lease.ownerSessionId);
+  }
+
   /** Whether the session holds a slot of the pool, read synchronously from loaded state. */
   holdsLease(resourceKeyInput: string, sessionId: string): boolean {
     const resourceKey = resourceKeyInput.trim().toLowerCase();

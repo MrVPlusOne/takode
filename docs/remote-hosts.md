@@ -226,8 +226,10 @@ work in. When the update happens:
   is told to continue once the node is back (or if the update fails).
 - **Otherwise** (the coordinator started some other way, a host connected
   later on another build, or a host restarted on its old build after an
-  update) it waits until none of the host's sessions is in a turn and none
-  started in the last minute.
+  update) it waits until none of the host's sessions is in a turn or running a
+  pre-submit `takode land test`, and none started in the last minute. An
+  update after Restart Server does not wait for those test runs (they take
+  10+ minutes each); it ends them and tells their sessions to run them again.
 - **Never during a landing run** on that host: the update waits for it to
   finish. While the node restarts, anything the coordinator would start there
   waits for the updated node.
