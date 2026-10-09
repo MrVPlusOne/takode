@@ -1,7 +1,7 @@
 /**
  * `takode land`: the landing queue for shared remote branches.
  *
- *   test     full gate on your own branch (rerun-and-compare), before submitting
+ *   test     check your own branch before submitting: chosen tests, or the full gate (rerun-and-compare)
  *   submit   send your commits to the queue and join the port lease queue
  *   run      (lease holder) start the background landing run for every waiting entry
  *   status   show the queue
@@ -10,9 +10,9 @@
  *   gate     show, list, try, save or remove the branch's gate saved on the server
  */
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants, homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   landingLeaseKey,
   FULL_SUITE_POOL_PREFIX,
@@ -44,12 +44,18 @@ commit is pushed. A repository branch uses the queue when a landing gate (its
 full verification commands) is saved for it on the Takode server; see
 \`takode land gate\`.
 
-  takode land test
-      Run the full gate on your branch with the rerun-and-compare rule (flaky
-      tests rerun once; failures that also happen on your base don't count).
-      Holds a slot of the per-machine full-suite:<repo> pool while it runs;
-      exits 3 if queued (rerun after the Resource Lease message). Can take
-      10+ minutes: run it as a background or long-running command.
+  takode land test <test file or directory>... | --no-tests | --full
+      Check your branch before submitting, with the rerun-and-compare rule
+      (flaky tests rerun once; failures that also happen on your base don't
+      count). Name the tests that exercise your change: the gate's other steps
+      (such as typecheck and format) run whole and its test step runs only
+      those, usually in a minute or two. --no-tests runs only the other steps,
+      for a change no test covers. --full runs the whole gate, holding a slot
+      of the per-machine full-suite:<repo> pool (exits 3 if queued; rerun
+      after the Resource Lease message); it can take 10+ minutes, so run it as
+      a background or long-running command. The landing queue runs the full
+      gate on every batch either way, and skips that run only for a lone
+      change whose --full run tested exactly the tree it would push.
   takode land submit [q-N] [--preparation <id>] [--skip-test <reason>]
       Send your commits (merge-base with the remote branch to HEAD) to the
       queue. Needs a passing \`takode land test\` for this change. Then end your
@@ -92,6 +98,8 @@ interface TestRecord {
   ok: boolean;
   summary: string;
   at: number;
+  /** Test paths of a focused run; absent for a full-gate run (and records from before focused runs). */
+  tests?: string[];
 }
 
 export async function handleLand(base: string, args: string[]): Promise<void> {
@@ -236,7 +244,17 @@ async function landTest(base: string, flags: Flags): Promise<void> {
   const gate = await savedGate(base, ctx.target);
   if (!gate) throw new Error(noGateMessage(ctx.target));
   const config = gate.config;
-  const slot = await acquireFullSuiteSlot(base, ctx, "takode land test");
+  const full = flags.switches.has("--full");
+  const noTests = flags.switches.has("--no-tests");
+  const paths = flags.positional;
+  if ([full, noTests, paths.length > 0].filter(Boolean).length !== 1) {
+    console.log(testUsage(config));
+    process.exitCode = 1;
+    return;
+  }
+  // Focused runs are short, like the focused tests agents run while working, so only full runs take a pool slot.
+  const selection = full ? undefined : await selectTests(ctx, config, paths);
+  const slot = full ? await acquireFullSuiteSlot(base, ctx, "takode land test --full") : { release: async () => {} };
   if (!slot) return;
   const scratch = await mkdtemp(join(tmpdir(), "takode-land-test-"));
   const baselineDir = join(scratch, "baseline");
@@ -245,13 +263,14 @@ async function landTest(base: string, flags: Flags): Promise<void> {
   let result: GateResult;
   try {
     console.log(
-      `Gating ${change.head.slice(0, 10)} (base ${change.baseSha.slice(0, 10)}) with the landing gate saved for ${gate.key}.`,
+      `Gating ${change.head.slice(0, 10)} (base ${change.baseSha.slice(0, 10)}) with the landing gate saved for ${gate.key}${full ? "" : `, ${describeSelection(selection!)}`}.`,
     );
     const options: GateRunOptions = {
       dir: ctx.worktree,
       config,
       log,
       phase: (phase: string) => console.log(`[phase] ${phase}`),
+      ...(selection ? { testSelection: selection } : {}),
       baselineDir: async () => {
         if (!baselineReady) {
           await git(ctx.worktree, ["worktree", "add", "--quiet", "--detach", "--force", baselineDir, change.baseSha]);
@@ -267,8 +286,16 @@ async function landTest(base: string, flags: Flags): Promise<void> {
     await rm(scratch, { recursive: true, force: true });
     await slot.release();
   }
-  const summary = describeGate(result);
-  const record: TestRecord = { ...change, base: change.baseSha, ok: result.ok, summary, at: Date.now() };
+  const summary = `${full ? "full gate" : describeSelection(selection!)}: ${describeGate(result)}`;
+  const tests = selection ? Object.values(selection).flat() : undefined;
+  const record: TestRecord = {
+    ...change,
+    base: change.baseSha,
+    ok: result.ok,
+    summary,
+    at: Date.now(),
+    ...(tests ? { tests } : {}),
+  };
   await writeFile(await testRecordPath(ctx, change.patchId), JSON.stringify(record, null, 2));
   console.log("");
   console.log(result.ok ? `PASSED: ${summary}` : `FAILED: ${summary}`);
@@ -279,6 +306,64 @@ async function landTest(base: string, flags: Flags): Promise<void> {
   } else {
     console.log("Next: `takode land submit` (add your quest ID and --preparation if you use port tracking).");
   }
+}
+
+function testUsage(config: LandingGateConfig): string {
+  const testSteps = config.steps.filter((step) => step.kind === "vitest").map((step) => step.name);
+  const otherSteps = config.steps.filter((step) => step.kind !== "vitest").map((step) => step.name);
+  return [
+    "Choose what `takode land test` runs (exactly one of):",
+    `  takode land test <test file or directory>...   the gate's other steps (${otherSteps.join(", ") || "none"}) plus only these tests in its test step${testSteps.length === 1 ? "" : "s"} (${testSteps.join(", ") || "none"})`,
+    "  takode land test --no-tests                    the other steps only, for a change no test covers",
+    "  takode land test --full                        the whole gate, for a change that could break tests anywhere",
+    "Pick the tests that exercise what you changed. The landing queue runs the full gate on every batch either way.",
+  ].join("\n");
+}
+
+/**
+ * Map the named test paths (relative to the current directory) to the gate's
+ * vitest steps whose directory contains them, as paths relative to that
+ * directory. Every vitest step is in the result, with no paths when none of
+ * the named ones is under it, so runGate skips it.
+ */
+async function selectTests(
+  ctx: LandContext,
+  config: LandingGateConfig,
+  paths: string[],
+): Promise<Record<string, string[]>> {
+  const root = await realpath(ctx.worktree);
+  const steps = config.steps
+    .filter((step) => step.kind === "vitest")
+    .map((step) => ({ name: step.name, dir: resolve(root, step.cwd ?? ".") }))
+    // The deepest directory wins when test steps are nested.
+    .sort((a, b) => b.dir.length - a.dir.length);
+  const selection: Record<string, string[]> = Object.fromEntries(steps.map((step) => [step.name, []]));
+  for (const path of paths) {
+    if (steps.length === 0)
+      throw new Error(
+        `The gate for ${landingQueueKey(ctx.target)} has no vitest step to select tests in; run \`takode land test --no-tests\` or \`--full\`.`,
+      );
+    const absolute = await realpath(resolve(path)).catch(() => {
+      throw new Error(`${path} does not exist. Name test files or directories, relative to where you run this.`);
+    });
+    const step = steps.find((candidate) => isInside(candidate.dir, absolute));
+    if (!step)
+      throw new Error(
+        `${path} is not under the directory of the gate's test step${steps.length === 1 ? "" : "s"} (${steps.map((candidate) => relative(root, candidate.dir) || ".").join(", ")}).`,
+      );
+    selection[step.name]!.push(relative(step.dir, absolute) || ".");
+  }
+  return selection;
+}
+
+function isInside(dir: string, path: string): boolean {
+  const rel = relative(dir, path);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function describeSelection(selection: Record<string, string[]>): string {
+  const count = Object.values(selection).flat().length;
+  return count === 0 ? "no tests (other steps only)" : `${count} chosen test path${count === 1 ? "" : "s"}`;
 }
 
 /**
@@ -366,13 +451,8 @@ async function landSubmit(base: string, flags: Flags): Promise<void> {
           ? "The last `takode land test` of this change failed. Fix it and rerun the test before submitting."
           : "No passing `takode land test` for this change. Run it first (or pass --skip-test <reason>).",
       );
-    preSubmitTest = {
-      kind: "passed",
-      patchId: record.patchId,
-      tree: record.tree,
-      summary: record.summary,
-      at: record.at,
-    };
+    const tested = { patchId: record.patchId, tree: record.tree, summary: record.summary, at: record.at };
+    preSubmitTest = record.tests ? { kind: "focused", ...tested, tests: record.tests } : { kind: "passed", ...tested };
   }
   const questId = flags.positional.find((arg) => /^q-\d+$/.test(arg));
   const bundleId = await uploadBundle(base, ctx, change.baseSha, change.head, commits);
@@ -387,7 +467,13 @@ async function landSubmit(base: string, flags: Flags): Promise<void> {
       commits,
       preSubmitTest,
     }),
-  );
+  ).catch((error: Error) => {
+    if (preSubmitTest.kind === "focused" && /preSubmitTest must record/.test(error.message))
+      throw new Error(
+        "This Takode server does not accept focused pre-submit runs yet (it needs a restart onto a newer build). Run `takode land test --full` and submit again.",
+      );
+    throw error;
+  });
   console.log(
     `Submitted ${commits.length} commit(s) as landing entry ${submitted.entry.id} for ${ctx.target.repo}:${ctx.target.branch}.`,
   );
@@ -642,7 +728,7 @@ the classic port flow.
       List every saved gate.
   takode land gate try <file|->
       Run a draft gate on your checkout as it is now, without saving it. Takes
-      a slot of the per-machine full-suite:<repo> pool like \`takode land test\`
+      a slot of the per-machine full-suite:<repo> pool like \`takode land test --full\`
       (exit 3 when queued); can take as long as the full suite.
   takode land gate save <file|->
       Validate and save a gate for this branch, replacing the current one

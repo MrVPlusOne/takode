@@ -253,6 +253,17 @@ function parsePreSubmitTest(raw: unknown): LandingPreSubmitTest {
       at: typeof test.at === "number" ? test.at : Date.now(),
     };
   }
+  if (test?.kind === "focused" && typeof test.patchId === "string" && typeof test.tree === "string") {
+    const tests = Array.isArray(test.tests) ? test.tests.filter((path) => typeof path === "string") : [];
+    return {
+      kind: "focused",
+      patchId: test.patchId,
+      tree: sha(test.tree, "preSubmitTest.tree"),
+      tests: tests.slice(0, 100).map((path) => path.slice(0, 300)),
+      summary: String(test.summary ?? "").slice(0, 500),
+      at: typeof test.at === "number" ? test.at : Date.now(),
+    };
+  }
   if (test?.kind === "skipped" && typeof test.reason === "string" && test.reason.trim())
     return { kind: "skipped", reason: test.reason.trim().slice(0, 500) };
   throw new LandingQueueError(400, "preSubmitTest must record a passing `takode land test` or a skip reason.");

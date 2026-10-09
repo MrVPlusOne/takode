@@ -18,7 +18,7 @@ export const HOST_UPDATE_INTERRUPT_TIMEOUT_MS = 10_000;
  * would leave the session waiting for a result that never comes.
  */
 export const TEST_RUN_STOPPED_MESSAGE =
-  "Continue. Restart Server updated the takode node on this machine, which stopped your `takode land test` run; run it again.";
+  "Continue. Restart Server updated the takode node on this machine, which stopped your `takode land test --full` run; run it again.";
 
 export interface HostUpdateSession extends HostSessionView {
   herdedBy?: string | null;
@@ -32,7 +32,7 @@ export interface HostUpdateSessionsDeps {
   coordinatorStartedAt: number;
   /** Whether a landing run is under way on the host; restarting its node would cut it off. */
   landingRunOn: (hostId: string) => boolean;
-  /** Sessions holding a slot of a full-suite pool, i.e. running a pre-submit `takode land test`. */
+  /** Sessions holding a slot of a full-suite pool, i.e. running `takode land test --full` (or `gate try`). */
   testRunHolders: () => string[];
   /** Interrupt a session's turn as Restart Server does, keeping input that is still queued. */
   interrupt: (sessionId: string, operationId: string) => Promise<unknown>;

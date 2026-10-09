@@ -40,7 +40,7 @@ Use `quest complete` for the final completion handoff to `done` with review meta
 
 Before completion:
 - Confirm the accepted substantive result is complete, including implementation when the approved scope requires it.
-- Run the required self-checks yourself before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`, run where `/port-changes` says (pre-submit and landing-queue runs for a shared remote branch, otherwise the port gate); use focused tests while iterating.
+- Run the required self-checks yourself before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`, run where `/port-changes` says (the landing queue's gate for a shared remote branch, otherwise the port gate); use focused tests while iterating.
 - `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 - If a full run is infeasible, document the exception explicitly in your summary or handoff before asking for verification.
 - Worktree sessions must finish the full selected-target sync workflow before the guarded Work -> Memory transition or describing the work as accepted. Tracked Work uses `takode board work-to-memory ... --commit/--commits` with synchronized target SHAs; final Memory does not add them later.

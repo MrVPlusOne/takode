@@ -164,6 +164,7 @@ export async function runLanding(options: LandingRunOptions): Promise<{ runId?: 
       if (stack.stacked.length === 0) break;
       const tip = stack.stacked.at(-1)!.tip;
       const tree = await git(options.landingDir, ["rev-parse", `${tip}^{tree}`]);
+      // Only a full pre-submit run ("passed") stands in for the gate; a focused one ran chosen tests only.
       const only = stack.stacked.length === 1 ? stack.stacked[0]!.entry.preSubmitTest : undefined;
       if (only?.kind === "passed" && only.tree === tree) {
         log(`The stack's tree ${tree} is the one its pre-submit run gated (${only.summary}); reusing that result.`);

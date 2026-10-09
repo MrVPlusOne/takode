@@ -22,6 +22,23 @@ import { git } from "./landing-git.js";
 vi.setConfig({ testTimeout: 120_000 });
 
 /**
+ * A stand-in for Vitest: records the test paths it was given in $VITEST_ARGS and
+ * writes a passing Vitest-shaped report for them (every *.test.ts under tests/
+ * when none are given) to --outputFile.
+ */
+const FAKE_VITEST = `
+import { appendFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const args = process.argv.slice(2);
+const output = args.find((a) => a.startsWith("--outputFile=")).slice("--outputFile=".length);
+const files = args.filter((a) => !a.startsWith("-"));
+appendFileSync(process.env.VITEST_ARGS, JSON.stringify(files) + "\\n");
+const run = files.length ? files : readdirSync("tests").map((name) => join("tests", name));
+const testResults = run.map((file) => ({ name: join(process.cwd(), file), status: "passed", assertionResults: [{ fullName: "ok", status: "passed" }] }));
+writeFileSync(output, JSON.stringify({ testResults }));
+`;
+
+/**
  * End to end through the real `takode land` CLI processes, the real landing
  * queue, lease and bundle routes and managers, and real Git: workers are
  * worktrees of one base checkout cloned from a bare origin, as on a machine.
@@ -139,6 +156,7 @@ describe("takode land end to end", () => {
         COMPANION_SESSION_ID: session,
         COMPANION_AUTH_TOKEN: "token",
         GATE_COUNT: join(root, "gate-count"),
+        VITEST_ARGS: join(root, "vitest-args"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -157,6 +175,13 @@ describe("takode land end to end", () => {
     }
     throw new Error(`Entry of ${session} did not settle`);
   }
+
+  /** The test paths each fake Vitest run was given, in order. */
+  const vitestArgs = async () =>
+    (await readFile(join(root, "vitest-args"), "utf-8").catch(() => ""))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[]);
 
   const gateRuns = async () =>
     (await readFile(join(root, "gate-count"), "utf-8").catch(() => "")).split("\n").filter(Boolean).length;
@@ -183,7 +208,7 @@ describe("takode land end to end", () => {
     const pidFile = join(root, "gate.pid");
     const child = spawn(
       process.execPath,
-      [fileURLToPath(new URL("./takode.ts", import.meta.url)), "land", "test", "--branch", "main"],
+      [fileURLToPath(new URL("./takode.ts", import.meta.url)), "land", "test", "--full", "--branch", "main"],
       {
         cwd: worker,
         env: {
@@ -227,14 +252,14 @@ describe("takode land end to end", () => {
     expect((await takode("solo", solo, "land", "submit", "--branch", "main")).out).toContain(
       "No passing `takode land test`",
     );
-    const tested = await takode("solo", solo, "land", "test", "--branch", "main");
+    const tested = await takode("solo", solo, "land", "test", "--full", "--branch", "main");
     expect(tested.code).toBe(0);
-    expect(tested.out).toContain("PASSED");
+    expect(tested.out).toContain("PASSED: full gate");
     const submitted = await takode("solo", solo, "land", "submit", "--branch", "main");
     expect(submitted.out).toContain("background landing run started");
     const soloEntry = await settled("solo");
     expect(soloEntry.state).toBe("landed");
-    // The pre-submit run gated this exact tree, so the landing run reused it.
+    // The full pre-submit run gated this exact tree, so the landing run reused it.
     expect(await gateRuns()).toBe(1);
     expect(await git(origin, ["rev-parse", "main"])).toBe(soloEntry.pushedTip);
 
@@ -246,7 +271,7 @@ describe("takode land end to end", () => {
       ["first", first],
       ["second", second],
     ] as const) {
-      expect((await takode(session, dir, "land", "test", "--branch", "main")).code).toBe(0);
+      expect((await takode(session, dir, "land", "test", "--full", "--branch", "main")).code).toBe(0);
       expect((await takode(session, dir, "land", "submit", "--branch", "main")).out).toContain("Queued for");
     }
     // A waiting owner cannot start a run while someone else holds the lease.
@@ -271,6 +296,52 @@ describe("takode land end to end", () => {
     expect(await git(second, ["rev-parse", "HEAD"])).toBe(secondEntry.pushedTip);
     expect(queueMessages.find((message) => message.session === "second")!.text).toContain("takode land finish");
   });
+  it("runs a focused pre-submit check of chosen tests, which the landing queue never reuses", async () => {
+    // The worker names the tests its change needs; the gate's other steps run whole,
+    // no full-suite slot is taken, and the queue still runs the full gate on the batch.
+    const worker = await workerWith("focus", "focus.txt");
+    await writeFile(join(worker, "fake-vitest.mjs"), FAKE_VITEST);
+    await mkdir(join(worker, "tests"));
+    await writeFile(join(worker, "tests", "a.test.ts"), "");
+    await git(worker, ["add", "."]);
+    await git(worker, ["commit", "--quiet", "-m", "tests"]);
+    const draft = join(root, "vitest-gate.json");
+    await writeFile(
+      draft,
+      JSON.stringify({
+        version: 1,
+        steps: [
+          { name: "check", run: ["sh", "gate.sh"] },
+          { name: "tests", kind: "vitest", run: [process.execPath, "fake-vitest.mjs"] },
+        ],
+      }),
+    );
+    await takode("focus", worker, "land", "gate", "save", draft, "--branch", "main");
+    const land = (...args: string[]) => takode("focus", worker, "land", ...args, "--branch", "main");
+
+    const unchosen = await land("test");
+    expect(unchosen.code).toBe(1);
+    expect(unchosen.out).toContain("Choose what `takode land test` runs");
+    expect(unchosen.out).toContain("the gate's other steps (check) plus only these tests in its test step (tests)");
+    expect((await land("test", "tests/missing.test.ts")).out).toContain("tests/missing.test.ts does not exist");
+    expect((await land("test", "..")).out).toContain("is not under the directory of the gate's test step (.)");
+
+    const tested = await land("test", "tests/a.test.ts");
+    expect(tested.code, tested.out).toBe(0);
+    expect(tested.out).toContain("PASSED: 1 chosen test path: no new failures");
+    expect(await gateRuns()).toBe(1);
+    expect(await vitestArgs()).toEqual([["tests/a.test.ts"]]);
+    expect((await leases.getStatus("full-suite:origin")).leases).toEqual([]);
+
+    expect((await land("submit")).out).toContain("background landing run started");
+    const entry = await settled("focus");
+    expect(entry.state).toBe("landed");
+    expect(entry.preSubmitTest).toMatchObject({ kind: "focused", tests: ["tests/a.test.ts"] });
+    // The landing run gated the whole tree again, with every test.
+    expect(await gateRuns()).toBe(2);
+    expect(await vitestArgs()).toEqual([["tests/a.test.ts"], []]);
+  });
+
   it("checks, tries, saves and removes a branch's landing gate through the real CLI", async () => {
     const dir = await workerWith("gater", "gater.txt");
     const land = (...args: string[]) => takode("gater", dir, "land", ...args, "--branch", "main");

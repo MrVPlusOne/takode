@@ -213,6 +213,16 @@ describe("landing run", () => {
     expect(await git(origin, ["rev-parse", "main^{tree}"])).toBe(tree);
   });
 
+  it("gates a lone change whose pre-submit run was focused, even on the identical tree", async () => {
+    // A focused run (`takode land test <paths>`) ran only chosen tests, so it never stands in for the gate.
+    const only = await entry([{ "a.txt": "a\n" }]);
+    const tree = await git(worker, ["rev-parse", "HEAD^{tree}"]);
+    only.preSubmitTest = { kind: "focused", patchId: "p", tree, tests: ["a.test.ts"], summary: "ok", at: Date.now() };
+    const { report } = await land([only]);
+    expect(outcome(report, only).outcome).toBe("landed");
+    expect(await gateRuns()).toBe(1);
+  });
+
   it("requeues the batch when the remote moved before the push", async () => {
     const only = await entry([{ "a.txt": "a\n" }]);
     const intruder = await entry([{ "z.txt": "z\n" }]);

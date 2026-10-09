@@ -179,6 +179,42 @@ describe("landing gate rerun-and-compare", () => {
     expect(lint.failedStep).toBe("lint");
   });
 
+  it("runs only the selected tests in a focused run and keeps the other steps whole", async () => {
+    // A focused pre-submit run (`takode land test <paths>`): other steps such as lint still
+    // run in full, and failures outside the chosen files are left to the landing queue.
+    await tests(candidate, { "a.test.ts": { one: "pass" }, "b.test.ts": { two: "fail" } });
+    const focused = await runGate({ ...options(), testSelection: { tests: ["a.test.ts"] } });
+    expect(focused.ok).toBe(true);
+    expect(lines.some((line) => line.startsWith("$ (.) sh lint.sh"))).toBe(true);
+    expect(lines.find((line) => line.includes("fake-vitest.mjs"))).toMatch(/ a\.test\.ts$/);
+
+    // The selection also limits the rerun and the baseline check of a failing chosen file.
+    await tests(baseline, { "a.test.ts": { one: "pass" }, "b.test.ts": { two: "pass" } });
+    lines.length = 0;
+    const failing = await runGate({ ...options(), testSelection: { tests: ["b.test.ts"] } });
+    expect(failing.ok).toBe(false);
+    expect(failing.newFailures).toEqual(["b.test.ts > two"]);
+    expect(lines.filter((line) => line.includes("fake-vitest.mjs")).every((line) => line.endsWith(" b.test.ts"))).toBe(
+      true,
+    );
+
+    // --no-tests: no paths for the test step skips it, even though b.test.ts would fail.
+    lines.length = 0;
+    const checksOnly = await runGate({ ...options(), testSelection: { tests: [] } });
+    expect(lines.some((line) => line.includes("fake-vitest.mjs"))).toBe(false);
+    expect(lines).toContain("Skipping step tests: no tests selected for it.");
+    expect(checksOnly.ok).toBe(true);
+  });
+
+  it("fails a focused run whose selection matches no test file, even if the baseline matches none either", async () => {
+    // A mistyped path or a source file instead of its test must not read as a clean run.
+    await tests(candidate, { "a.test.ts": { one: "pass" } });
+    await tests(baseline, { "a.test.ts": { one: "pass" } });
+    const result = await runGate({ ...options(), testSelection: { tests: ["a.ts"] } });
+    expect(result.ok).toBe(false);
+    expect(result.newFailures).toEqual(["tests (no test files match a.ts)"]);
+  });
+
   it("rejects a malformed gate config and keeps only known fields", () => {
     expect(() => parseLandingGateConfig({ version: 1, steps: [] })).toThrow("at least one step");
     expect(() => parseLandingGateConfig({ version: 1, steps: [{ name: "x", run: [] }] })).toThrow("run command");

@@ -10,7 +10,7 @@ export const LANDING_BATCH_LIMIT = 8;
 
 /** A run whose heartbeat is older than this no longer counts as making progress. */
 export const LANDING_RUN_STALE_MS = 5 * 60_000;
-/** Lease pools `full-suite:<repo>` (per machine) cap concurrent pre-submit `takode land test` runs. */
+/** Lease pools `full-suite:<repo>` (per machine) cap concurrent full runs (`takode land test --full`, `gate try`). */
 export const FULL_SUITE_POOL_PREFIX = "full-suite:";
 
 export type LandingEntryState = "pending" | "running" | "landed" | "bounced" | "withdrawn";
@@ -38,11 +38,26 @@ export interface LandingCommitMapping {
 /** What the submitting worker ran before submitting. */
 export type LandingPreSubmitTest =
   | {
+      /** The full gate passed (`takode land test --full`). */
       kind: "passed";
       /** `git patch-id --stable` of the change, so a clean rebase keeps the record valid. */
       patchId: string;
       /** Tree the run tested; a landing run of exactly this tree reuses the result instead of re-gating. */
       tree: string;
+      summary: string;
+      at: number;
+    }
+  | {
+      /**
+       * The gate's other steps passed with only the tests the worker chose (none
+       * for `--no-tests`). A separate kind, so no landing run ever takes it for a
+       * full gate and skips its own.
+       */
+      kind: "focused";
+      patchId: string;
+      tree: string;
+      /** Test paths run, relative to their gate step's directory. */
+      tests: string[];
       summary: string;
       at: number;
     }
