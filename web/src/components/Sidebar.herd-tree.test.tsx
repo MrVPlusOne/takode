@@ -364,22 +364,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     expect(screen.queryByRole("button", { name: /Show \d+ more sessions in Default/ })).not.toBeInTheDocument();
   });
 
-  it("names the sidebar search clear button for assistive technology", () => {
-    mockState = createMockState({
-      sessions: new Map([["search-session", makeSession("search-session", { model: "search-model" })]]),
-      sdkSessions: [makeSdkSession("search-session", { name: "Searchable Session", sessionNum: 91, createdAt: 100 })],
-      sessionNames: new Map([["search-session", "Searchable Session"]]),
-      treeGroups: [{ id: "default", name: "Default" }],
-      treeAssignments: new Map([["search-session", "default"]]),
-    });
-
-    render(<Sidebar />);
-    fireEvent.change(screen.getByTitle("Search sessions"), { target: { value: "Searchable" } });
-
-    expect(screen.getByRole("button", { name: "Clear session search" })).toBeInTheDocument();
-  });
-
-  it("keeps legacy search-result attention ahead of a scheduled timer", async () => {
+  it("keeps session-row attention ahead of a scheduled timer", async () => {
     const sessionId = "legacy-search-attention";
     mockState = createMockState({
       sessions: new Map([[sessionId, makeSession(sessionId, { model: "search-attention-model" })]]),
@@ -398,26 +383,12 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       treeAssignments: new Map([[sessionId, "default"]]),
     });
 
-    mockApi.searchSessions.mockResolvedValueOnce({
-      query: "Legacy Search",
-      tookMs: 1,
-      totalMatches: 1,
-      results: [
-        {
-          sessionId,
-          score: 100,
-          matchedField: "name",
-          matchContext: "name: Legacy Search Attention",
-          matchedAt: 100,
-        },
-      ],
-    });
-
     render(<Sidebar />);
-    fireEvent.change(screen.getByTitle("Search sessions"), { target: { value: "Legacy Search" } });
 
     const row = (await screen.findAllByText("Legacy Search Attention"))[0]!.closest("button")!;
-    expect(within(row).getByTestId("session-status-stripe")).toHaveAttribute("data-status", "completed_unread");
+    // Session rows show the dot rather than the stripe the old search results used; the
+    // unread error must still win over the scheduled-timer waiting icon.
+    expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
     expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
   });
 

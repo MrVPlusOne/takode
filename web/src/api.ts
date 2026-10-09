@@ -1018,6 +1018,8 @@ export const api = {
       includeReviewers?: boolean;
       leaderOnly?: boolean;
       messageLimitPerSession?: number;
+      /** False matches session metadata only, skipping the costly message-content scan. */
+      matchMessages?: boolean;
       signal?: AbortSignal;
     },
   ) => {
@@ -1037,6 +1039,9 @@ export const api = {
     }
     if (typeof options?.messageLimitPerSession === "number") {
       params.set("messageLimitPerSession", String(options.messageLimitPerSession));
+    }
+    if (options?.matchMessages === false) {
+      params.set("content", "false");
     }
 
     const res = await fetch(`${BASE}/sessions/search?${params.toString()}`, {

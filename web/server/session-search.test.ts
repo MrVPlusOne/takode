@@ -109,6 +109,29 @@ describe("searchSessionDocuments", () => {
     });
   });
 
+  it("skips message content when matchMessages is false", () => {
+    // Metadata-only search (used for archived-session lookup) must not scan
+    // message history or archived search excerpts, which is the expensive part.
+    const docs: SessionSearchDocument[] = [
+      { sessionId: "s-name", archived: true, createdAt: 100, name: "Refactor auth middleware" },
+      {
+        sessionId: "s-message",
+        archived: false,
+        createdAt: 200,
+        messageHistory: [{ type: "user_message", content: "Please refactor auth middleware flow", timestamp: 2000 }],
+      },
+      {
+        sessionId: "s-excerpt",
+        archived: true,
+        createdAt: 300,
+        searchExcerpts: [{ id: "m1", type: "user_message", content: "auth bug", timestamp: 3000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "auth", matchMessages: false });
+    expect(out.results.map((result) => result.sessionId)).toEqual(["s-name"]);
+  });
+
   it("uses recency tie-breaker for same match category", () => {
     const docs: SessionSearchDocument[] = [
       {

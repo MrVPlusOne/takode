@@ -26,6 +26,10 @@ import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHostBadge } from "./HostBadge.js";
+import { NextAttentionButton } from "./NextAttentionButton.js";
+import { useGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
+import { useNotifyMeSummary } from "./GlobalNotifyMeMenu.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
@@ -134,6 +138,8 @@ export function TopBar({
   );
   const isSessionView = route.page === "session" || route.page === "home";
   const isQuestmasterPage = route.page === "questmaster";
+  // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
+  const compact = !useDesktopShellLayout();
   const {
     currentSessionId,
     sidebarOpen,
@@ -241,6 +247,20 @@ export function TopBar({
   const currentLeaderActiveSummarySegments = useMemo(
     () => activeBoardSummarySegments(currentLeaderBoard),
     [currentLeaderBoard],
+  );
+
+  const statusDot = (className?: string) => (
+    <SessionStatusDot
+      permCount={currentPermCount}
+      isConnected={isConnected}
+      sdkState={currentSdkState}
+      status={status}
+      hasUnread={currentHasUnread}
+      idleKilled={idleKilled}
+      activeTimerCount={activeTimerCount}
+      leaseWaitResource={leaseWaitResource}
+      className={className}
+    />
   );
 
   useEffect(() => {
@@ -361,6 +381,7 @@ export function TopBar({
           <span className="truncate text-[12px] font-semibold text-cc-fg">{fullPageLabel}</span>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
+          <NextAttentionButton compact={compact} />
           <GlobalNeedsInputMenu />
           <GlobalNotifyMeMenu />
           <SearchToggleButton
@@ -390,12 +411,18 @@ export function TopBar({
   }
 
   return (
-    <header className="shrink-0 flex items-center justify-between px-2 sm:px-4 py-2 sm:py-2.5 bg-cc-card border-b border-cc-border">
-      <div className="flex items-center gap-3 min-w-0">
+    <header
+      className={`shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
+        compact ? "gap-2 px-2 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
+      }`}
+    >
+      <div className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"}`}>
         {/* Sidebar toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="flex items-center justify-center w-7 h-7 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+          className={`relative flex items-center justify-center rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${
+            compact ? "w-9 h-9 shrink-0" : "w-7 h-7"
+          }`}
           title={getShortcutTitle("Toggle sidebar", shortcutSettings, "toggle_sidebar", shortcutPlatform)}
         >
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -405,11 +432,12 @@ export function TopBar({
               clipRule="evenodd"
             />
           </svg>
+          {compact && <SessionsPanelWaitingDot />}
         </button>
 
         {/* Current session status + title — clickable to open session info */}
         {currentSessionId && (
-          <div ref={sessionInfoAnchorRef} className="flex items-center gap-1.5 min-w-0">
+          <div ref={sessionInfoAnchorRef} className={`flex items-center gap-1.5 min-w-0 ${compact ? "flex-1" : ""}`}>
             {renamingSession ? (
               <input
                 ref={renameInputRef}
@@ -438,7 +466,9 @@ export function TopBar({
                   if (nextOpen) closeCodexSubagentInspector();
                 }}
                 style={sessionTitleLongPress.pressStyle}
-                className={`flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity ${LONG_PRESS_TARGET_CLASS}`}
+                className={`flex items-center min-w-0 cursor-pointer hover:opacity-80 transition-opacity ${
+                  compact ? "flex-1 gap-2 text-left" : "gap-1.5"
+                } ${LONG_PRESS_TARGET_CLASS}`}
                 aria-label={[
                   isCurrentLeaderSession ? "Leader" : null,
                   typeof sessionNum === "number" ? `#${sessionNum}` : null,
@@ -447,42 +477,75 @@ export function TopBar({
                   .filter(Boolean)
                   .join(" ")}
               >
-                <div className="[&>div]:mt-0 shrink-0">
-                  <SessionStatusDot
-                    permCount={currentPermCount}
-                    isConnected={isConnected}
-                    sdkState={currentSdkState}
-                    status={status}
-                    hasUnread={currentHasUnread}
-                    idleKilled={idleKilled}
-                    activeTimerCount={activeTimerCount}
-                    leaseWaitResource={leaseWaitResource}
-                  />
-                </div>
-                {typeof sessionNum === "number" && (
-                  <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
-                    #{sessionNum}
-                  </span>
+                {compact ? (
+                  <>
+                    {/* Phone: status dot on the portrait, title on its own line, #N and host below. */}
+                    <span className="relative shrink-0">
+                      {leaderProfilePortrait ? (
+                        <>
+                          <img
+                            src={leaderProfilePortrait.smallUrl}
+                            alt=""
+                            width={leaderProfilePortrait.smallSize}
+                            height={leaderProfilePortrait.smallSize}
+                            loading="eager"
+                            decoding="async"
+                            data-testid="topbar-leader-profile-portrait"
+                            className="h-8 w-8 rounded-full object-cover ring-1 ring-cc-border/70"
+                            draggable={false}
+                          />
+                          <span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-cc-card p-px">
+                            {statusDot("mt-0")}
+                          </span>
+                        </>
+                      ) : (
+                        statusDot("mt-0")
+                      )}
+                    </span>
+                    <span className="flex min-w-0 flex-col">
+                      {sessionName && (
+                        <span
+                          className="min-w-0 truncate text-[13px] font-semibold leading-tight text-cc-fg"
+                          title={sessionName}
+                        >
+                          {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                        </span>
+                      )}
+                      <span className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-cc-muted">
+                        {typeof sessionNum === "number" && <span className="shrink-0">#{sessionNum}</span>}
+                        <SessionHostBadge sessionId={currentSessionId} />
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="[&>div]:mt-0 shrink-0">{statusDot()}</div>
+                    {typeof sessionNum === "number" && (
+                      <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
+                        #{sessionNum}
+                      </span>
+                    )}
+                    {leaderProfilePortrait && (
+                      <img
+                        src={leaderProfilePortrait.smallUrl}
+                        alt=""
+                        width={leaderProfilePortrait.smallSize}
+                        height={leaderProfilePortrait.smallSize}
+                        loading="eager"
+                        decoding="async"
+                        data-testid="topbar-leader-profile-portrait"
+                        className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
+                        draggable={false}
+                      />
+                    )}
+                    {sessionName && (
+                      <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
+                        {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                      </span>
+                    )}
+                    <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
+                  </>
                 )}
-                {leaderProfilePortrait && (
-                  <img
-                    src={leaderProfilePortrait.smallUrl}
-                    alt=""
-                    width={leaderProfilePortrait.smallSize}
-                    height={leaderProfilePortrait.smallSize}
-                    loading="eager"
-                    decoding="async"
-                    data-testid="topbar-leader-profile-portrait"
-                    className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
-                    draggable={false}
-                  />
-                )}
-                {sessionName && (
-                  <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
-                    {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                  </span>
-                )}
-                <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
               </button>
             )}
             {!isConnected && !isPaused && !isArchived && (
@@ -498,7 +561,7 @@ export function TopBar({
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
+      <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
         {currentSessionId &&
           isSessionView &&
           isCurrentLeaderSession &&
@@ -531,13 +594,18 @@ export function TopBar({
             <span>Completed</span>
           </LeaderWorkboardControlButton>
         )}
-        <GlobalNeedsInputMenu />
-        <GlobalNotifyMeMenu />
-        <SearchToggleButton
-          isOpen={universalSearchOpen}
-          onOpen={onOpenUniversalSearch}
-          onClose={onCloseUniversalSearch}
-        />
+        <NextAttentionButton compact={compact} />
+        {!compact && (
+          <>
+            <GlobalNeedsInputMenu />
+            <GlobalNotifyMeMenu />
+            <SearchToggleButton
+              isOpen={universalSearchOpen}
+              onOpen={onOpenUniversalSearch}
+              onClose={onCloseUniversalSearch}
+            />
+          </>
+        )}
         {currentSessionId && isSessionView && (
           <>
             {status === "compacting" && (
@@ -550,7 +618,9 @@ export function TopBar({
                 closeCodexSubagentInspector();
                 setActiveTab(activeTab === "diff" ? "chat" : "diff");
               }}
-              className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
+              className={`relative flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                compact ? "w-9 h-9" : "w-7 h-7"
+              } ${
                 activeTab === "diff"
                   ? "text-cc-primary bg-cc-active"
                   : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
@@ -583,23 +653,25 @@ export function TopBar({
             )}
           </>
         )}
-        {/* Quests toggle — rightmost for stable position across views */}
-        <button
-          onClick={handleQuestToggle}
-          className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-            isQuestmasterPage ? "text-cc-primary bg-cc-active" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-          }`}
-          title={isQuestmasterPage ? "Back to session" : "Quests"}
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-            <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75zM4.75 8a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-4.5zM4 11.25a.75.75 0 01.75-.75h2.5a.75.75 0 010 1.5h-2.5a.75.75 0 01-.75-.75z" />
-          </svg>
-          {activeQuestCount > 0 && (
-            <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
-              {activeQuestCount}
-            </span>
-          )}
-        </button>
+        {/* Quests toggle — rightmost for stable position across views (in the sessions panel on phones) */}
+        {!compact && (
+          <button
+            onClick={handleQuestToggle}
+            className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
+              isQuestmasterPage ? "text-cc-primary bg-cc-active" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+            title={isQuestmasterPage ? "Back to session" : "Quests"}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75zM4.75 8a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-4.5zM4 11.25a.75.75 0 01.75-.75h2.5a.75.75 0 010 1.5h-2.5a.75.75 0 01-.75-.75z" />
+            </svg>
+            {activeQuestCount > 0 && (
+              <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
+                {activeQuestCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
       <SessionContextMenu
         key={currentSessionId}
@@ -646,5 +718,18 @@ function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOp
         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
       </svg>
     </button>
+  );
+}
+
+/** Amber dot on the phone sidebar toggle while the sessions panel holds needs-input prompts or Notify Me results. */
+function SessionsPanelWaitingDot() {
+  const { entries } = useGlobalNeedsInputEntries();
+  const { pending } = useNotifyMeSummary();
+  if (entries.length === 0 && pending === 0) return null;
+  return (
+    <span
+      data-testid="topbar-sessions-panel-waiting-dot"
+      className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-cc-attention ring-2 ring-cc-card"
+    />
   );
 }

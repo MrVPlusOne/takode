@@ -85,6 +85,12 @@ export interface SearchSessionDocumentsOptions {
   includeReviewers?: boolean;
   leaderOnly?: boolean;
   messageLimitPerSession?: number;
+  /**
+   * Also match message content (default true). Content matching scans each
+   * session's recent messages synchronously; over archived sessions that costs
+   * on the order of a second per query, so metadata-only callers turn it off.
+   */
+  matchMessages?: boolean;
 }
 
 export interface SearchSessionDocumentsOutput {
@@ -333,6 +339,7 @@ export function searchSessionDocuments(
   const includeArchived = options.includeArchived !== false;
   const includeReviewers = options.includeReviewers === true;
   const leaderOnly = options.leaderOnly === true;
+  const matchMessages = options.matchMessages !== false;
   const limit = clampInt(Math.floor(options.limit ?? 50), 1, 200);
   const messageLimitPerSession = clampInt(Math.floor(options.messageLimitPerSession ?? 400), 50, 2000);
 
@@ -422,7 +429,7 @@ export function searchSessionDocuments(
       });
     }
 
-    const msgCandidate = messageMatchCandidate(doc, qWords, matches_, messageLimitPerSession);
+    const msgCandidate = matchMessages ? messageMatchCandidate(doc, qWords, matches_, messageLimitPerSession) : null;
     if (msgCandidate) {
       best = pushIfBetter(best, msgCandidate);
     }

@@ -1323,3 +1323,61 @@ describe("TopBar", () => {
     expect(screen.queryByRole("button", { name: /Codex subagents/i })).toBeNull();
   });
 });
+
+describe("TopBar phone layout and Next", () => {
+  function twoPromptsState(): Partial<MockStoreState> {
+    return {
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [{ id: "n-1", category: "needs-input", summary: "Pick deployment window", timestamp: 1, messageId: "m1" }],
+        ],
+        [
+          "s2",
+          [{ id: "n-2", category: "needs-input", summary: "Confirm rollback plan", timestamp: 2, messageId: "m2" }],
+        ],
+      ]),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" },
+        { sessionId: "s2", createdAt: 20, sessionNum: 102, name: "Worker Two" },
+      ],
+    };
+  }
+
+  it("keeps only the sidebar toggle, title, Next and Diffs on a phone", () => {
+    // The phone bar was too crowded to show the title. Needs input, Notify Me,
+    // Search and Quests move to the sessions panel; a dot on ≡ says something waits there.
+    window.innerWidth = 430;
+    resetStore(twoPromptsState());
+    render(<TopBar />);
+
+    expect(screen.getByText("Worker One")).toBeInTheDocument();
+    expect(screen.getByText("#101")).toBeInTheDocument();
+    expect(screen.getByTestId("next-attention-button")).toHaveTextContent("2");
+    expect(screen.getByTestId("topbar-sessions-panel-waiting-dot")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show diffs" })).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Quests")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();
+  });
+
+  it("shows Next on desktop before the needs-input control and opens the newest prompt", () => {
+    resetStore(twoPromptsState());
+    render(<TopBar />);
+
+    const next = screen.getByTestId("next-attention-button");
+    const bell = screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" });
+    expect(next).toHaveTextContent("Next2");
+    expect(next.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(next);
+    expect(window.location.hash).toContain("m2");
+    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("Needs input · #102 Confirm rollback plan");
+    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+  });
+
+  it("hides Next while nothing needs attention", () => {
+    render(<TopBar />);
+    expect(screen.queryByTestId("next-attention-button")).not.toBeInTheDocument();
+  });
+});

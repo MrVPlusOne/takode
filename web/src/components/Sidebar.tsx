@@ -16,7 +16,7 @@ import {
   useStore,
   type PendingSession,
 } from "../store.js";
-import { api, type SessionSearchResult } from "../api.js";
+import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { connectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
@@ -31,6 +31,8 @@ import { SessionContextMenu } from "./SessionContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
+import { SidebarShortcutTiles } from "./SidebarShortcutTiles.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
@@ -45,7 +47,6 @@ import {
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
-import { isDesktopShellLayout } from "../utils/layout.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { requestAutoSessionGitStatusRefreshes } from "../utils/session-git-status-auto-refresh.js";
@@ -62,7 +63,6 @@ import {
 } from "../utils/sidebar-group-overflow.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { formatDocumentTitle, getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
-import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
 
 /** Restrict drag movement to vertical axis only. */
@@ -71,7 +71,7 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   x: 0,
 });
 
-export function Sidebar() {
+export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () => void } = {}) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -107,16 +107,7 @@ export function Sidebar() {
   const pendingSessions = useStore((s) => s.pendingSessions);
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
-  const setSearchPreviewSessionId = useStore((s) => s.setSearchPreviewSessionId);
-  const zoomLevel = useStore((s) => s.zoomLevel ?? 1);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchIncludeArchived, setSearchIncludeArchived] = useState(false);
-  const [searchLeaderOnly, setSearchLeaderOnly] = useState(false);
-  const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const [bulkSelectionGroupId, setBulkSelectionGroupId] = useState<string | null>(null);
   const [bulkSelectedSessionIds, setBulkSelectedSessionIds] = useState<Set<string>>(new Set());
   const [bulkTargetGroupId, setBulkTargetGroupId] = useState("");
@@ -124,7 +115,6 @@ export function Sidebar() {
   const [bulkSourceMenuOpen, setBulkSourceMenuOpen] = useState(false);
   const [expandedOverflowGroups, setExpandedOverflowGroups] = useState<Set<string>>(new Set());
   const [groupVisibleLimits, setGroupVisibleLimits] = useState<Map<string, number>>(new Map());
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const {
     archivedSessionPage,
@@ -138,7 +128,7 @@ export function Sidebar() {
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
   const isMemoryPage = route.page === "memory";
-  const isDesktopLayout = isDesktopShellLayout(zoomLevel);
+  const isDesktopLayout = useDesktopShellLayout();
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
   const refreshTreeGroups = useCallback(async () => {
@@ -321,9 +311,6 @@ export function Sidebar() {
 
   function handleSelectSession(sessionId: string) {
     setContextMenu(null);
-    setSearchQuery("");
-    setActiveSearchResultIndex(0);
-    setSearchPreviewSessionId(null);
     api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
@@ -341,25 +328,6 @@ export function Sidebar() {
       useStore.getState().setSidebarOpen(false);
     }
   }
-
-  function handlePreviewSearchSession(sessionId: string) {
-    if (currentSessionId === sessionId) {
-      setSearchPreviewSessionId(null);
-      return;
-    }
-    setSearchPreviewSessionId(sessionId);
-  }
-
-  useEffect(() => {
-    function handleFocusGlobalSearch() {
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
-    }
-    window.addEventListener("takode:focus-global-search", handleFocusGlobalSearch);
-    return () => window.removeEventListener("takode:focus-global-search", handleFocusGlobalSearch);
-  }, []);
 
   /** Tree view variant: assigns new session to the tree group after creation. */
   function handleCreateSessionInTreeGroup(treeGroupId: string) {
@@ -680,102 +648,10 @@ export function Sidebar() {
     [handleTreeGroupDragEnd, handleTreeSessionDragEnd, treeGroupIds],
   );
 
-  // Server-side session search (debounced, abort on query change).
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchResults(null);
-      setIsSearching(false);
-      setActiveSearchResultIndex(0);
-      setSearchPreviewSessionId(null);
-      return;
-    }
-
-    setIsSearching(true);
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const resp = await api.searchSessions(q, {
-          includeArchived: searchIncludeArchived,
-          includeReviewers: false,
-          leaderOnly: searchLeaderOnly,
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        setSearchResults(resp.results);
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        console.warn("[sidebar] session search failed:", err);
-        setSearchResults([]);
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsSearching(false);
-        }
-      }
-    }, 220);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchIncludeArchived, searchLeaderOnly, searchQuery]);
-
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      setBulkSourceMenuOpen(false);
-    }
-  }, [searchQuery]);
-
-  // Search filtering: map server-side results back to current session rows.
-  const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return null;
-    if (!searchResults) return [];
-
-    const sessionsById = new Map(allSessionList.map((s) => [s.id, s]));
-    const results: Array<{
-      session: SidebarSessionItem;
-      sessionName?: string;
-      sessionPreview?: string;
-      matchContext: string | null;
-      matchedField: SessionSearchResult["matchedField"];
-    }> = [];
-    for (const match of searchResults) {
-      const localSession = sessionsById.get(match.sessionId);
-      const session = localSession ?? buildSidebarItemFromSearchResult(match);
-      if (!session) continue;
-      results.push({
-        session,
-        sessionName: localSession ? undefined : match.session?.name,
-        sessionPreview: localSession ? undefined : match.messageMatch?.snippet,
-        matchContext: match.matchContext,
-        matchedField: match.matchedField,
-      });
-    }
-    return results;
-  }, [searchQuery, searchResults, allSessionList]);
-
-  useEffect(() => {
-    if (!filteredSessions || filteredSessions.length === 0) {
-      setActiveSearchResultIndex(0);
-      setSearchPreviewSessionId(null);
-      return;
-    }
-    setActiveSearchResultIndex((prev) => Math.min(prev, filteredSessions.length - 1));
-  }, [filteredSessions]);
-
-  useEffect(() => {
-    if (!filteredSessions || filteredSessions.length === 0) return;
-    const selected = filteredSessions[activeSearchResultIndex];
-    if (!selected) return;
-    handlePreviewSearchSession(selected.session.id);
-  }, [activeSearchResultIndex, filteredSessions]);
-
-  const highlightedSidebarSessionId = filteredSessions?.[activeSearchResultIndex]?.session.id ?? currentSessionId;
-  const highlightedSidebarSelector = filteredSessions
-    ? "button[data-search-selected='true']"
-    : highlightedSidebarSessionId
-      ? `button[data-session-id='${highlightedSidebarSessionId}'][data-active-session='true']`
-      : null;
+  const highlightedSidebarSessionId = currentSessionId;
+  const highlightedSidebarSelector = highlightedSidebarSessionId
+    ? `button[data-session-id='${highlightedSidebarSessionId}'][data-active-session='true']`
+    : null;
 
   useEffect(() => {
     if (!highlightedSidebarSessionId || !highlightedSidebarSelector) return;
@@ -786,12 +662,11 @@ export function Sidebar() {
     highlightedRow.scrollIntoView({ block: "nearest" });
   }, [highlightedSidebarSessionId, highlightedSidebarSelector]);
 
-  const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
+  const showSortControls = activeSessions.length > 1;
   const bulkSourceGroups = treeViewGroups.filter((group) => group.nodes.length > 0);
   const activeBulkSourceGroup = bulkSelectionGroupId
     ? treeViewGroups.find((group) => group.id === bulkSelectionGroupId)
     : undefined;
-  const bulkDisabledBySearch = searchQuery.trim().length > 0;
   const hasNoActiveSessionRows =
     treeViewGroups.every((group) => group.nodes.length === 0) &&
     activeSessions.length === 0 &&
@@ -884,6 +759,7 @@ export function Sidebar() {
             </span>
           )}
         </div>
+        {!isDesktopLayout && <SidebarShortcutTiles onOpenUniversalSearch={onOpenUniversalSearch} />}
       </div>
 
       <div
@@ -898,108 +774,22 @@ export function Sidebar() {
         }}
       >
         {allSessionList.length > 0 && (
-          <div className="px-2 pb-1.5 flex items-center gap-1">
-            <div className="relative flex-1 transition-all duration-200 ease-in-out">
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-cc-muted pointer-events-none"
-              >
-                <circle cx="6.5" cy="6.5" r="4.5" />
-                <path d="M10 10l3.5 3.5" strokeLinecap="round" />
-              </svg>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setActiveSearchResultIndex(0);
-                  setSearchQuery(e.target.value);
-                }}
-                onFocus={() => setSearchFocused(true)}
-                onBlur={() => setSearchFocused(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setSearchQuery("");
-                    setSearchPreviewSessionId(null);
-                    searchInputRef.current?.blur();
-                    return;
-                  }
-                  if (!filteredSessions || filteredSessions.length === 0) {
-                    return;
-                  }
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setActiveSearchResultIndex((prev) => (prev + 1) % filteredSessions.length);
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setActiveSearchResultIndex(
-                      (prev) => (prev - 1 + filteredSessions.length) % filteredSessions.length,
-                    );
-                    return;
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const selected = filteredSessions[activeSearchResultIndex];
-                    if (selected) {
-                      setSearchQuery("");
-                      setActiveSearchResultIndex(0);
-                      setSearchPreviewSessionId(null);
-                      handleSelectSession(selected.session.id);
-                    }
-                  }
-                }}
-                placeholder="Search..."
-                title="Search sessions"
-                className="w-full pl-6 pr-6 py-1.5 text-[11px] bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder-cc-muted outline-none focus:border-cc-primary/60 transition-colors"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  aria-label="Clear session search"
-                  title="Clear session search"
-                  onClick={() => {
-                    setSearchQuery("");
-                    setSearchPreviewSessionId(null);
-                    searchInputRef.current?.focus();
-                  }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-cc-muted hover:text-cc-fg cursor-pointer"
-                >
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                  </svg>
-                </button>
-              )}
-            </div>
+          <div className="px-2 pb-1.5 flex items-center justify-end gap-1">
             {bulkSourceGroups.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (bulkDisabledBySearch) return;
-                  setBulkSourceMenuOpen((open) => !open);
-                }}
-                disabled={bulkDisabledBySearch}
+                onClick={() => setBulkSourceMenuOpen((open) => !open)}
                 title={
-                  bulkDisabledBySearch
-                    ? "Clear search to bulk organize Session Spaces"
-                    : activeBulkSourceGroup
-                      ? `Bulk organizing ${activeBulkSourceGroup.name} Session Space`
-                      : "Bulk organize sessions by source Session Space"
-                }
-                aria-label={
-                  bulkDisabledBySearch
-                    ? "Clear search to bulk organize Session Spaces"
+                  activeBulkSourceGroup
+                    ? `Bulk organizing ${activeBulkSourceGroup.name} Session Space`
                     : "Bulk organize sessions by source Session Space"
                 }
-                className={`shrink-0 h-7 px-2 inline-flex items-center justify-center rounded-md text-[10px] font-semibold transition-colors ${
+                aria-label="Bulk organize sessions by source Session Space"
+                className={`shrink-0 h-7 px-2 inline-flex items-center justify-center rounded-md text-[10px] font-semibold transition-colors cursor-pointer ${
                   bulkSelectionGroupId
                     ? "bg-cc-primary/15 text-cc-primary"
                     : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-                } ${bulkDisabledBySearch ? "opacity-45 cursor-not-allowed" : "cursor-pointer"}`}
+                }`}
               >
                 Bulk
               </button>
@@ -1039,42 +829,7 @@ export function Sidebar() {
           </div>
         )}
 
-        {searchQuery.trim() && (
-          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              aria-pressed={searchIncludeArchived}
-              onClick={() => {
-                setActiveSearchResultIndex(0);
-                setSearchIncludeArchived((current) => !current);
-              }}
-              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
-                searchIncludeArchived
-                  ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
-                  : "border-cc-border/70 bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
-              }`}
-            >
-              Include archived
-            </button>
-            <button
-              type="button"
-              aria-pressed={searchLeaderOnly}
-              onClick={() => {
-                setActiveSearchResultIndex(0);
-                setSearchLeaderOnly((current) => !current);
-              }}
-              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
-                searchLeaderOnly
-                  ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
-                  : "border-cc-border/70 bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
-              }`}
-            >
-              Leaders only
-            </button>
-          </div>
-        )}
-
-        {bulkSourceMenuOpen && !bulkDisabledBySearch && bulkSourceGroups.length > 0 && (
+        {bulkSourceMenuOpen && bulkSourceGroups.length > 0 && (
           <div className="mx-2 mb-1.5 rounded-md border border-cc-border/70 bg-cc-card/70 p-1.5 shadow-sm">
             <div className="px-1 pb-1 text-[10px] font-medium text-cc-muted">Choose source Session Space</div>
             <div className="space-y-1">
@@ -1102,43 +857,11 @@ export function Sidebar() {
           </div>
         )}
 
-        {filteredSessions !== null ? (
-          /* Search results: flat list across all sessions */
-          filteredSessions.length === 0 ? (
-            <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">
-              {isSearching ? "Searching..." : "No matching sessions."}
-            </p>
-          ) : (
-            <div className="space-y-2 sm:space-y-0.5">
-              {filteredSessions.map(({ session: s, sessionName, sessionPreview, matchContext, matchedField }) => (
-                <SessionItem
-                  key={s.id}
-                  session={s}
-                  isActive={currentSessionId === s.id}
-                  isSearchSelected={filteredSessions[activeSearchResultIndex]?.session.id === s.id}
-                  isArchived={s.archived}
-                  sessionName={sessionName ?? s.name ?? undefined}
-                  sessionPreview={sessionPreview ?? (s.lastMessagePreview || undefined)}
-                  permCount={s.permCount}
-                  attention={sessionSetAttention.get(s.id) ?? null}
-                  hasUnread={hasUnreadSessionAttention(sessionSetAttention.get(s.id))}
-                  isRecentlyRenamed={recentlyRenamed.has(s.id)}
-                  herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
-                  herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                  matchContext={matchContext}
-                  matchedField={matchedField}
-                  matchQuery={searchQuery}
-                  useStatusBar
-                  {...sessionItemProps}
-                />
-              ))}
-            </div>
-          )
-        ) : treeViewGroups.length === 0 &&
-          activeSessions.length === 0 &&
-          cronSessions.length === 0 &&
-          archivedSessionPage.loaded &&
-          (archivedSessionPage.total ?? 0) === 0 ? (
+        {treeViewGroups.length === 0 &&
+        activeSessions.length === 0 &&
+        cronSessions.length === 0 &&
+        archivedSessionPage.loaded &&
+        (archivedSessionPage.total ?? 0) === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>

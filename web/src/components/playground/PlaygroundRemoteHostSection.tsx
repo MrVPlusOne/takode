@@ -29,28 +29,31 @@ const OTHER_BUILD = mockHost({ build: "a".repeat(40), buildMismatch: true });
 const LONG_NAME = mockHost({ name: "gpu-workstation-west-2" });
 
 /**
- * Mock of the top bar's session title in a 390px bar. Like the real top bar,
- * the chip shrinks to a host icon on phone-width screens.
+ * Mock of the phone top bar's session title in a 390px bar: the host chip sits
+ * on the second line next to the session number, below the title.
  */
 function TitleBar({ host }: { host: RemoteHost }) {
   return (
-    <div className="w-[390px] shrink-0 rounded-lg border border-cc-border bg-cc-card px-2 py-2">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="h-7 w-7 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-cc-success" aria-hidden="true" />
-          <span className="shrink-0 text-[11px] font-medium text-cc-muted">#2849</span>
-          <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg">
-            Show each session's host everywhere it appears
-          </span>
-          <HostChip host={host} serverBuild={SERVER_BUILD} iconOnPhone />
-        </div>
-        <span className="ml-auto flex shrink-0 gap-2" aria-hidden="true">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <span key={index} className="h-7 w-7 rounded-lg bg-cc-hover/60" />
-          ))}
+    <div className="flex w-[390px] shrink-0 items-center gap-2 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5">
+      <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
+      <span className="relative shrink-0" aria-hidden="true">
+        <span className="block h-8 w-8 rounded-full bg-cc-hover" />
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-cc-success ring-2 ring-cc-card" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[13px] font-semibold leading-tight text-cc-fg">
+          Show each session's host everywhere it appears
         </span>
-      </div>
+        <span className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-cc-muted">
+          <span className="shrink-0">#2849</span>
+          <HostChip host={host} serverBuild={SERVER_BUILD} />
+        </span>
+      </span>
+      <span className="flex shrink-0 gap-1.5" aria-hidden="true">
+        {[0, 1].map((index) => (
+          <span key={index} className="h-9 w-9 rounded-lg bg-cc-hover/60" />
+        ))}
+      </span>
     </div>
   );
 }
@@ -60,7 +63,7 @@ export function PlaygroundRemoteHostSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Remote Host Indicators"
-        description="Where a session runs. Remote sessions get a host chip in the sidebar, top bar (an icon on phones), hover cards, quest participant chips, worker preview and board; local sessions stay unlabeled except in the session info panel while some session runs remotely."
+        description="Where a session runs. Remote sessions get a host chip in the sidebar, top bar (below the title on phones), hover cards, quest participant chips, worker preview and board; local sessions stay unlabeled except in the session info panel while some session runs remotely."
       >
         <div className="grid gap-4" data-testid="playground-remote-host-indicators">
           <Card label="Host chip states">
@@ -72,7 +75,7 @@ export function PlaygroundRemoteHostSection() {
               <HostChip host={LONG_NAME} serverBuild={SERVER_BUILD} />
             </div>
           </Card>
-          <Card label="Top bar title (host icon only on phones)">
+          <Card label="Phone top bar title (host chip below the title)">
             {/* Fixed 390px bars scroll sideways here, so they keep a real phone's width. */}
             <div className="flex flex-col gap-2 overflow-x-auto">
               <TitleBar host={ONLINE} />

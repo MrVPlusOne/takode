@@ -36,6 +36,7 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
     const includeArchived = parseIncludeArchived(c.req.query("includeArchived"));
     const includeReviewers = parseAffirmativeBoolean(c.req.query("includeReviewers"));
     const leaderOnly = parseAffirmativeBoolean(c.req.query("leaderOnly"));
+    const matchMessages = c.req.query("content") !== "false";
 
     const startedAt = Date.now();
     const sessions = launcher.listSessions();
@@ -81,6 +82,7 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
       includeReviewers,
       leaderOnly,
       messageLimitPerSession,
+      matchMessages,
     });
 
     return c.json({

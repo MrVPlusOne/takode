@@ -18,6 +18,7 @@ import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 import { QuestRecordFetchContext } from "./QuestSummaryCard.js";
 import { PlaygroundSessionHeaderMenu } from "./playground/PlaygroundSessionHeaderMenu.js";
 import { PlaygroundRemoteHostSection } from "./playground/PlaygroundRemoteHostSection.js";
+import { PlaygroundNextAttentionSection } from "./playground/PlaygroundNextAttentionSection.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -107,6 +108,7 @@ export function Playground() {
             <PlaygroundSessionHeaderMenu />
             <PlaygroundOverviewSections />
             <PlaygroundRemoteHostSection />
+            <PlaygroundNextAttentionSection />
             <PlaygroundInlineQuestPreviewSection />
             <PlaygroundCommitDeliverySection />
             <PlaygroundThreadResponseSection />

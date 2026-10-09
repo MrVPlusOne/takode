@@ -24,6 +24,7 @@ import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId }
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
+import { useArchivedSessionMatches } from "./universal-search-archived-sessions.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { isAllThreadsKey } from "../utils/thread-projection.js";
 import { compareSearchRanks, rankSearchFields, type SearchRank } from "../../shared/search-utils.js";
@@ -75,6 +76,11 @@ const DEBOUNCE_MS = 300;
 const LAST_MODE_STORAGE_KEY = "cc-universal-search-mode";
 const LAST_QUERY_STORAGE_KEY = "cc-universal-search-query";
 const MESSAGE_SETTINGS_STORAGE_KEY = "cc-universal-search-message-settings";
+const SESSION_FILTERS: Array<{ id: "includeArchived" | "leadersOnly"; label: string }> = [
+  { id: "includeArchived", label: "Include archived" },
+  { id: "leadersOnly", label: "Leaders only" },
+];
+
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "recent", label: "Recent" },
   { id: "quests", label: "Quests" },
@@ -367,6 +373,7 @@ export function UniversalSearchOverlay({
   const [recentFilter, setRecentFilter] = useState<RecentAskFilter>("all");
   const [recentSessionSpaceId, setRecentSessionSpaceId] = useState<string | null>(null);
   const [messageSettings, setMessageSettings] = useState<MessageSearchSettings>(() => readMessageSearchSettings());
+  const [sessionFilters, setSessionFilters] = useState({ includeArchived: false, leadersOnly: false });
   const [copiedQuestId, setCopiedQuestId] = useState<string | null>(null);
   const [questActionMenu, setQuestActionMenu] = useState<{ resultId: string; selectedActionIndex: number } | null>(
     null,
@@ -399,22 +406,33 @@ export function UniversalSearchOverlay({
         ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
         : "Open a session to search messages";
   const recentMeta = remoteState.mode === "recent" ? remoteState.recentMeta : undefined;
+  const archivedSessionMatches = useArchivedSessionMatches(
+    debouncedQuery,
+    mode === "sessions" && sessionFilters.includeArchived,
+    sessionFilters.leadersOnly,
+  );
+  const allSessionMatches = useMemo(() => {
+    const candidates = sessionFilters.leadersOnly
+      ? sessions.filter((session) => session.isOrchestrator === true)
+      : sessions;
+    const active = searchSessionsForOverlay(candidates, debouncedQuery);
+    const activeIds = new Set(active.map(({ session }) => session.sessionId));
+    const archived = archivedSessionMatches
+      .filter((session) => !activeIds.has(session.sessionId))
+      .map((session) => ({ session, rank: null }));
+    return [...active, ...archived];
+  }, [archivedSessionMatches, debouncedQuery, sessionFilters.leadersOnly, sessions]);
   const sessionResults = useMemo(
     () =>
-      searchSessionsForOverlay(sessions, debouncedQuery)
-        .slice(0, visibleLimit)
-        .map(({ session, rank }) => ({
-          kind: "session" as const,
-          id: session.sessionId,
-          session,
-          rank,
-        })),
-    [debouncedQuery, sessions, visibleLimit],
+      allSessionMatches.slice(0, visibleLimit).map(({ session, rank }) => ({
+        kind: "session" as const,
+        id: session.sessionId,
+        session,
+        rank,
+      })),
+    [allSessionMatches, visibleLimit],
   );
-  const totalSessionResults = useMemo(
-    () => searchSessionsForOverlay(sessions, debouncedQuery).length,
-    [debouncedQuery, sessions],
-  );
+  const totalSessionResults = allSessionMatches.length;
 
   useEffect(() => {
     sessionByIdRef.current = sessionById;
@@ -1112,6 +1130,28 @@ export function UniversalSearchOverlay({
               </span>
             </div>
           )}
+          {mode === "sessions" && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {SESSION_FILTERS.map((filter) => {
+                const active = sessionFilters[filter.id];
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSessionFilters((current) => ({ ...current, [filter.id]: !current[filter.id] }))}
+                    className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                      active
+                        ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
+                        : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {mode === "messages" && currentSessionAvailable && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-[11px] text-cc-muted">{messageScopeLabel}</span>
@@ -1582,6 +1622,7 @@ function SessionResultRow({
   const displayName = sessionDisplayName(session);
   const nameParts = getHighlightParts(displayName, query);
   const metadata = [
+    session.archived ? "archived" : null,
     session.gitBranch ? `branch ${session.gitBranch}` : null,
     session.cwd || session.repoRoot || null,
     session.backendType ?? null,

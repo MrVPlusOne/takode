@@ -829,7 +829,7 @@ export default function App() {
             overscrollBehaviorX: "none",
           }}
         >
-          <Sidebar />
+          <Sidebar onOpenUniversalSearch={openUniversalSearch} />
         </div>
       )}
 

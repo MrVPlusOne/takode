@@ -28,6 +28,7 @@ import {
   type GlobalNeedsInputEntry,
   type GlobalNeedsInputState,
 } from "../utils/global-needs-input.js";
+import { ShortcutTile } from "./ShortcutTile.js";
 
 const MENU_TOP_PX = 44;
 const CHAT_FEED_WIDTH_SOURCE_SELECTOR = '[data-chat-feed-width-source="true"]';
@@ -127,7 +128,7 @@ function markLocalNotificationMuted(sessionId: string, notificationId: string, m
   applySessionNotifications(sessionId, nextNotifications, getCurrentNotificationStatus(sessionId));
 }
 
-function BellIcon({ className = "" }: { className?: string }) {
+export function BellIcon({ className = "" }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -466,16 +467,21 @@ function GlobalNeedsInputPopover({
   );
 }
 
-export function GlobalNeedsInputMenu() {
+/** Session keys whose notifications were already requested, shared by every hook instance. */
+const fetchedNeedsInputKeys = new Set<string>();
+
+/**
+ * Active and muted needs-input entries across sessions. Loads each session's
+ * notification list when its server summary says it has prompts; every caller
+ * shares one request per summary version.
+ */
+export function useGlobalNeedsInputEntries() {
   const { sessionNotifications, sdkSessions } = useStore(
     useShallow((s) => ({
       sessionNotifications: s.sessionNotifications,
       sdkSessions: s.sdkSessions,
     })),
   );
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const fetchedKeysRef = useRef(new Set<string>());
   const state = useMemo(() => ({ sessionNotifications, sdkSessions }), [sessionNotifications, sdkSessions]);
   const entries = useMemo(() => getGlobalNeedsInputEntries(state), [state]);
   const mutedEntries = useMemo(() => getGlobalMutedNeedsInputEntries(state), [state]);
@@ -483,43 +489,78 @@ export function GlobalNeedsInputMenu() {
 
   useEffect(() => {
     for (const request of fetchRequests) {
-      if (fetchedKeysRef.current.has(request.key)) continue;
-      fetchedKeysRef.current.add(request.key);
+      if (fetchedNeedsInputKeys.has(request.key)) continue;
+      fetchedNeedsInputKeys.add(request.key);
       api
         .getSessionNotifications(request.sessionId)
         .then((notifications) => applySessionNotifications(request.sessionId, notifications, request.status))
         .catch((error) => {
           console.warn("Failed to load global needs-input notifications", error);
-          fetchedKeysRef.current.delete(request.key);
+          fetchedNeedsInputKeys.delete(request.key);
         });
     }
   }, [fetchRequests]);
 
+  return { entries, mutedEntries, sdkSessions };
+}
+
+/**
+ * Needs-input count button and its cross-session panel. `variant="tile"` is the
+ * phone sessions-panel shortcut; `onOpen` lets that panel close itself first.
+ */
+export function GlobalNeedsInputMenu({
+  variant = "chip",
+  onOpen,
+}: {
+  variant?: "chip" | "tile";
+  onOpen?: () => void;
+} = {}) {
+  const { entries, mutedEntries, sdkSessions } = useGlobalNeedsInputEntries();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
   const close = useCallback(() => setOpen(false), []);
   const count = entries.length;
   const hasMuted = mutedEntries.length > 0;
+  const label = `${count} unresolved needs-input ${count === 1 ? "notification" : "notifications"} across sessions`;
+  const toggle = () => {
+    if (!open) onOpen?.();
+    setOpen((value) => !value);
+  };
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
-          count > 0
-            ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention hover:bg-cc-attention-bg/80"
-            : "border-cc-border bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        }`}
-        aria-label={`${count} unresolved needs-input ${count === 1 ? "notification" : "notifications"} across sessions`}
-        title={
-          hasMuted
-            ? "Needs-input notifications across sessions, including muted"
-            : "Needs-input notifications across sessions"
-        }
-      >
-        <span>{count}</span>
-        <BellIcon className={`h-3.5 w-3.5 shrink-0 ${count > 0 ? "text-cc-attention" : "text-cc-muted"}`} />
-      </button>
+      {variant === "tile" ? (
+        <ShortcutTile
+          ref={triggerRef}
+          onClick={toggle}
+          icon={<BellIcon className="h-3.5 w-3.5 shrink-0" />}
+          count={count}
+          label="Needs input"
+          tone={count > 0 ? "attention" : undefined}
+          ariaLabel={label}
+        />
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={toggle}
+          className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
+            count > 0
+              ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention hover:bg-cc-attention-bg/80"
+              : "border-cc-border bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          }`}
+          aria-label={label}
+          title={
+            hasMuted
+              ? "Needs-input notifications across sessions, including muted"
+              : "Needs-input notifications across sessions"
+          }
+        >
+          <span>{count}</span>
+          <BellIcon className={`h-3.5 w-3.5 shrink-0 ${count > 0 ? "text-cc-attention" : "text-cc-muted"}`} />
+        </button>
+      )}
       {open && (
         <GlobalNeedsInputPopover
           activeEntries={entries}

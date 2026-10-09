@@ -10,6 +10,7 @@ const mockFetchRecentAskBundles = vi.fn();
 const mockFetchMessagePreview = vi.fn();
 const mockGetQuestValidated = vi.fn();
 const mockClipboardWriteText = vi.fn();
+const mockSearchSessions = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -19,6 +20,7 @@ vi.mock("../api.js", () => ({
     fetchRecentAskBundles: (...args: unknown[]) => mockFetchRecentAskBundles(...args),
     fetchMessagePreview: (...args: unknown[]) => mockFetchMessagePreview(...args),
     getQuestValidated: (...args: unknown[]) => mockGetQuestValidated(...args),
+    searchSessions: (...args: unknown[]) => mockSearchSessions(...args),
   },
 }));
 
@@ -787,6 +789,56 @@ describe("UniversalSearchOverlay", () => {
     expect(screen.queryByText("Review thread")).not.toBeInTheDocument();
     expect(mockListQuestPage).not.toHaveBeenCalled();
     expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("filters Session mode to leaders and adds archived matches from metadata-only server search", async () => {
+    // The removed sidebar search offered "Leaders only" and "Include archived";
+    // Session mode now owns both. Archived sessions are not in the browser, so
+    // they come from the server, without the costly message-content scan. The
+    // query matches folders so result names are not split by highlighting.
+    const leaderSessions: SdkSessionInfo[] = [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!];
+    mockSearchSessions.mockResolvedValue({
+      query: "repo",
+      tookMs: 1,
+      totalMatches: 2,
+      results: [
+        { sessionId: "s-new", score: 1000, matchedField: "name", matchContext: null, matchedAt: now },
+        {
+          sessionId: "s-archived",
+          score: 1000,
+          matchedField: "name",
+          matchContext: null,
+          matchedAt: now,
+          session: {
+            sessionId: "s-archived",
+            sessionNum: 7,
+            state: "exited",
+            cwd: "/repo/archived",
+            createdAt: now - 90_000,
+            archived: true,
+            isOrchestrator: true,
+            name: "Archived leader session",
+          },
+        },
+      ],
+    });
+    renderOverlay({ sessions: leaderSessions });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leaders only" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "repo" } });
+    await advanceSearchDebounce();
+    expect(await screen.findByText("New session")).toBeInTheDocument();
+    expect(screen.queryByText("Old session")).not.toBeInTheDocument();
+    expect(mockSearchSessions).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Include archived" }));
+    expect(await screen.findByText("Archived leader session")).toBeInTheDocument();
+    expect(screen.getByText("archived")).toBeInTheDocument();
+    expect(mockSearchSessions).toHaveBeenCalledWith(
+      "repo",
+      expect.objectContaining({ includeArchived: true, leaderOnly: true, matchMessages: false }),
+    );
   });
 
   it("opens the selected Session mode result", async () => {

@@ -88,6 +88,7 @@ interface MockStoreState {
   sessionTaskHistory: Map<string, Array<{ title: string; action: string; timestamp: number }>>;
   sessionKeywords: Map<string, string[]>;
   sessionNotifications: Map<string, SessionNotification[]>;
+  quests: never[];
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -196,6 +197,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionTaskHistory: new Map(),
     sessionKeywords: new Map(),
     sessionNotifications: new Map(),
+    quests: [],
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
@@ -335,6 +337,13 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
   it("keeps narrow touch session navigation view-only", () => {
     // iPhone-style navigation should close the sidebar without emitting the
     // delayed global focus request that opens the destination virtual keyboard.
+    // Restore the desktop viewport afterwards so later tests do not run as a phone.
+    const originalInnerWidth = window.innerWidth;
+    const originalMatchMedia = window.matchMedia;
+    onTestFinished(() => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+      Object.defineProperty(window, "matchMedia", { writable: true, value: originalMatchMedia });
+    });
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -358,6 +367,29 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(window.location.hash).toBe("#/session/s1");
     expect(mockState.focusComposer).not.toHaveBeenCalled();
     expect(mockState.setSidebarOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("shows the phone shortcut tiles and no separate session search box", () => {
+    // Universal Search replaced the sidebar search box; on phones the panel instead
+    // carries the actions removed from the crowded top bar.
+    const originalInnerWidth = window.innerWidth;
+    onTestFinished(() => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+    });
+    mockState = createMockState({
+      sessions: new Map([["s1", makeSession("s1")]]),
+      sdkSessions: [makeSdkSession("s1")],
+    });
+
+    const { unmount } = render(<Sidebar />);
+    expect(screen.queryByTestId("sidebar-shortcut-tiles")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Search sessions")).not.toBeInTheDocument();
+    unmount();
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
+    render(<Sidebar />);
+    expect(screen.getByTestId("sidebar-shortcut-tiles")).toBeInTheDocument();
+    expect(screen.queryByTitle("Search sessions")).not.toBeInTheDocument();
   });
 
   it("default tree group plus button opens new session modal with tree defaults", () => {
@@ -416,97 +448,6 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(screen.queryByTitle("Linear view (project groups)")).not.toBeInTheDocument();
   });
 
-  it("passes non-empty search filter controls to backend session search", async () => {
-    const leaderSession = makeSession("leader-1", { cwd: "/repo/leader" });
-    const leaderSdk = makeSdkSession("leader-1", {
-      archived: true,
-      createdAt: 1000,
-      isOrchestrator: true,
-      sessionNum: 41,
-    });
-    mockState = createMockState({
-      sessions: new Map([["leader-1", leaderSession]]),
-      sdkSessions: [leaderSdk],
-      sessionNames: new Map([["leader-1", "Archived leader"]]),
-    });
-    mockApi.searchSessions.mockResolvedValue({
-      query: "leader",
-      tookMs: 3,
-      totalMatches: 1,
-      results: [
-        {
-          sessionId: "leader-1",
-          score: 500,
-          matchedField: "name",
-          matchContext: "name: Archived leader",
-          matchedAt: 12345,
-        },
-      ],
-    });
-
-    render(<Sidebar />);
-    fireEvent.change(screen.getByPlaceholderText("Search..."), { target: { value: "leader" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Include archived" }));
-    fireEvent.click(screen.getByRole("button", { name: "Leaders only" }));
-
-    await waitFor(() => {
-      expect(mockApi.searchSessions).toHaveBeenLastCalledWith(
-        "leader",
-        expect.objectContaining({
-          includeArchived: true,
-          includeReviewers: false,
-          leaderOnly: true,
-          signal: expect.any(AbortSignal),
-        }),
-      );
-    });
-  });
-
-  it("renders backend-only search result summaries without requiring local session metadata", async () => {
-    mockState = createMockState({
-      sessions: new Map(),
-      sdkSessions: [makeSdkSession("visible", { createdAt: 1000 })],
-    });
-    mockApi.searchSessions.mockResolvedValueOnce({
-      query: "archived",
-      tookMs: 3,
-      totalMatches: 1,
-      results: [
-        {
-          sessionId: "archived-result",
-          score: 500,
-          matchedField: "user_message",
-          matchContext: "message: archived backend-only result",
-          matchedAt: 12345,
-          messageMatch: {
-            id: "msg-1",
-            timestamp: 12345,
-            snippet: "archived backend-only result",
-          },
-          session: {
-            sessionId: "archived-result",
-            sessionNum: 55,
-            state: "exited",
-            backendType: "codex",
-            archived: true,
-            isOrchestrator: true,
-            createdAt: 900,
-            name: "Archived leader result",
-            cwd: "/repo/archived",
-            gitBranch: "archive/search",
-          },
-        },
-      ],
-    });
-
-    render(<Sidebar />);
-    fireEvent.change(screen.getByPlaceholderText("Search..."), { target: { value: "archived" } });
-
-    expect(await screen.findByText("Archived leader result")).toBeInTheDocument();
-    expect(screen.getByText("message:")).toBeInTheDocument();
-    expect(screen.getByText(/backend-only/)).toBeInTheDocument();
-  });
-
   it("double-clicking a session enters edit mode", async () => {
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1");
@@ -524,6 +465,9 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
   });
 
   it("does not steal focus back to the composer after double-click rename starts", async () => {
+    // Earlier tests' clicks schedule real two-frame focus callbacks. Let them drain first,
+    // or a stale outer frame lands in this test's stubbed queue and calls focusComposer.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1");
     const animationFrameCallbacks: FrameRequestCallback[] = [];
