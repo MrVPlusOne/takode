@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -52,8 +52,13 @@ describe("landing gate rerun-and-compare", () => {
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "landing-gate-"));
-    candidate = join(root, "candidate");
-    baseline = join(root, "baseline");
+    // Reach the fixtures through a symlinked directory, as macOS does for every
+    // temp path (/var -> /private/var): test runners report resolved paths, so
+    // the gate must not assume they start with the path it was given.
+    await mkdir(join(root, "real"));
+    await symlink(join(root, "real"), join(root, "link"));
+    candidate = join(root, "link", "candidate");
+    baseline = join(root, "link", "baseline");
     for (const dir of [candidate, baseline]) {
       await mkdir(dir);
       await writeFile(join(dir, "fake-vitest.mjs"), FAKE_VITEST);
@@ -96,6 +101,16 @@ describe("landing gate rerun-and-compare", () => {
     await tests(candidate, { "env.test.ts": { owner: "fail" }, "a.test.ts": { one: "pass" } });
     await tests(baseline, { "env.test.ts": { owner: "fail" }, "a.test.ts": { one: "pass" } });
     const result = await runGate(options());
+    expect(result.ok).toBe(true);
+    expect(result.preexisting).toEqual(["env.test.ts > owner"]);
+  });
+
+  it("matches failures between a checkout reached through a symlink and a baseline reached directly", async () => {
+    // `takode land test` gates the worktree but runs the baseline in a temp
+    // checkout; on macOS only one of them sits behind the /var symlink.
+    await tests(candidate, { "env.test.ts": { owner: "fail" }, "a.test.ts": { one: "pass" } });
+    await tests(baseline, { "env.test.ts": { owner: "fail" }, "a.test.ts": { one: "pass" } });
+    const result = await runGate({ ...options(), baselineDir: async () => join(root, "real", "baseline") });
     expect(result.ok).toBe(true);
     expect(result.preexisting).toEqual(["env.test.ts > owner"]);
   });

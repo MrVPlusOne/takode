@@ -7,7 +7,7 @@
  * the gate.
  */
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import type { LandingGateConfig, LandingGateStep } from "../shared/landing-queue.js";
@@ -163,7 +163,7 @@ export async function runStep(
       [...step.run, "--reporter=dot", "--reporter=json", `--outputFile=${report}`, ...(files ?? [])],
       options,
     );
-    const failures = await readVitestFailures(report, resolve(dir, step.cwd ?? "."));
+    const failures = await readVitestFailures(report, await resolvedPath(resolve(dir, step.cwd ?? ".")));
     return failures ? { ...result, failures } : result;
   } finally {
     await rm(reportDir, { recursive: true, force: true });
@@ -178,8 +178,12 @@ export async function readVitestFailures(reportPath: string, stepDir: string): P
     };
     if (!Array.isArray(report.testResults)) return undefined;
     const failures: string[] = [];
+    // Test runners report resolved paths (on macOS every temp path is under the
+    // /var -> /private/var symlink), so IDs compare resolved paths on both sides;
+    // otherwise a checkout reached through a symlink gets IDs that never match.
+    const root = await resolvedPath(stepDir);
     for (const file of report.testResults) {
-      const name = relative(stepDir, file.name);
+      const name = relative(root, await resolvedPath(file.name));
       const failed = (file.assertionResults ?? []).filter((test) => test.status === "failed");
       for (const test of failed) failures.push(`${name} > ${test.fullName}`);
       if (failed.length === 0 && file.status === "failed") failures.push(`${name} > (file)`);
@@ -200,13 +204,17 @@ function newLines(candidate: string[], base: string[]): string[] {
   return candidate.filter((line) => !known.has(line));
 }
 
-function normalize(output: string, dir: string): string[] {
+/** The path with symlinks resolved, or unchanged when it does not exist. */
+async function resolvedPath(path: string): Promise<string> {
+  return realpath(path).catch(() => path);
+}
+
+function normalize(output: string, dirs: string[]): string[] {
   return output
     .split("\n")
     .map((line) =>
-      line
-        .split(dir)
-        .join("<checkout>")
+      dirs
+        .reduce((text, dir) => text.split(dir).join("<checkout>"), line)
         // biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colors
         .replace(/\u001b\[[0-9;]*m/g, "")
         .replace(/\d+/g, "#")
@@ -222,6 +230,9 @@ async function runCommand(
   options: Pick<GateRunOptions, "log" | "env">,
 ): Promise<StepResult> {
   const workdir = resolve(dir, cwd ?? ".");
+  // Output may name the checkout by either spelling; both normalize the same way.
+  const realDir = await resolvedPath(dir);
+  const dirs = realDir === dir ? [dir] : [realDir, dir];
   options.log(`$ (${relative(dir, workdir) || "."}) ${argv.join(" ")}`);
   return new Promise((resolvePromise, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), {
@@ -245,7 +256,7 @@ async function runCommand(
       resolvePromise({
         ok: code === 0,
         tail: lines.slice(-80).join("\n"),
-        lines: code === 0 ? [] : normalize(output, dir),
+        lines: code === 0 ? [] : normalize(output, dirs),
       });
     });
   });
