@@ -185,7 +185,9 @@ The coordinator's own sessions survive its restarts the same way: the server
 starts a `takode node` on its own machine and runs the processes of sessions
 without a host under it. After a restart, the new server takes them over when
 that node reconnects: a turn in progress keeps running, its output arrives, and
-a pending permission prompt is asked again. **Settings → Hosts** shows the
+a pending permission prompt is asked again. When the restart brings new code,
+the node is then updated right away (see [Updating Takode](#updating-takode)),
+which interrupts such turns and continues them on the new build. **Settings → Hosts** shows the
 node's status on the coordinator's own machine, the first entry. Sessions that start
 while the node is still connecting, such as just after the server starts, wait
 for it; if it does not connect within 30 seconds, they start without it.
@@ -193,8 +195,8 @@ for it; if it does not connect within 30 seconds, they start without it.
 The server supervises this node itself: it starts it with the server (also
 after a reboot), lets a running one reconnect after a restart, and replaces one
 that has exited or stays disconnected for 30 seconds. The node runs from the
-server's own checkout, so an update restarts it on that checkout's code, only
-while none of its sessions is in a turn. Its log is
+server's own checkout, so an update restarts it on that checkout's code (see
+[Updating Takode](#updating-takode) for when). Its log is
 `~/.companion/logs/local-node-<serverId>.log`.
 
 Only a restart (the Restart Server button) leaves the node and its sessions
@@ -210,12 +212,28 @@ host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.
 
 Start `takode node` with `--auto-update` to let the coordinator keep it in
-step: whenever the host runs another commit, none of its sessions is in a
-turn and none started in the last minute, the coordinator stops the host's
+step. When the host runs another commit, the coordinator stops the host's
 sessions and the node checks out the coordinator's commit (fetching it from
 the checkout's remote if needed), runs a frozen install and restarts. Its
-sessions relaunch on their next message. It refuses to update a checkout with uncommitted changes, so give the
-node a checkout of its own rather than one you work in.
+sessions relaunch on their next message. It refuses to update a checkout with
+uncommitted changes, so give the node a checkout of its own rather than one you
+work in. When the update happens:
+
+- **After Restart Server**, every such host (and the coordinator's own node)
+  updates right away, so all sessions run the new build as on a single
+  machine: once the host has reconnected and its sessions are taken over, turns
+  in progress are interrupted, the sessions stop, and each interrupted session
+  is told to continue once the node is back (or if the update fails).
+- **Otherwise** (the coordinator started some other way, a host connected
+  later on another build, or a host restarted on its old build after an
+  update) it waits until none of the host's sessions is in a turn and none
+  started in the last minute.
+- **Never during a landing run** on that host: the update waits for it to
+  finish. While the node restarts, anything the coordinator would start there
+  waits for the updated node.
+
+`takode host list` and **Settings → Hosts** say what a pending update is
+waiting for.
 
 Without `--auto-update`, update the host's checkout and restart `takode node`
 yourself whenever the coordinator is updated.
