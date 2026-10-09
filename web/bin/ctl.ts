@@ -5,7 +5,7 @@
  * All output is JSON to stdout for easy parsing by both humans and AI agents.
  */
 
-import { readOptionalRichTextOption, readStdinText } from "./takode-core.js";
+import { readOptionalRichTextOption, readStdinText, takodeOptionalAuthHeaders } from "./takode-core.js";
 
 const DEFAULT_PORT = 3456;
 
@@ -55,20 +55,11 @@ function stripGlobalFlags(argv: string[]): string[] {
   return result;
 }
 
-async function apiGet(base: string, path: string): Promise<unknown> {
-  const res = await fetch(`${base}${path}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-async function apiPost(base: string, path: string, body?: unknown): Promise<unknown> {
+async function apiRequest(base: string, method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
+    method,
+    headers: takodeOptionalAuthHeaders(method === "GET" ? undefined : { "Content-Type": "application/json" }),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }));
@@ -77,44 +68,11 @@ async function apiPost(base: string, path: string, body?: unknown): Promise<unkn
   return res.json();
 }
 
-async function apiPut(base: string, path: string, body: unknown): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-async function apiPatch(base: string, path: string, body: unknown): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-async function apiDelete(base: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
+const apiGet = (base: string, path: string) => apiRequest(base, "GET", path);
+const apiPost = (base: string, path: string, body?: unknown) => apiRequest(base, "POST", path, body);
+const apiPut = (base: string, path: string, body: unknown) => apiRequest(base, "PUT", path, body);
+const apiPatch = (base: string, path: string, body: unknown) => apiRequest(base, "PATCH", path, body);
+const apiDelete = (base: string, path: string) => apiRequest(base, "DELETE", path);
 
 function out(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));

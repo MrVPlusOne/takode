@@ -227,16 +227,6 @@ export function getCallerSessionId(): string {
   return creds.sessionId;
 }
 
-/** Get auth headers for API requests. Returns empty object if no credentials. */
-export function getAuthHeaders(): Record<string, string> {
-  const creds = getCredentials();
-  if (!creds) return {};
-  return {
-    "x-companion-session": creds.sessionId,
-    "x-companion-auth": creds.authToken,
-  };
-}
-
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
 const TAKODE_SESSION_ID_HEADER = "x-companion-session-id";
@@ -258,7 +248,12 @@ export function takodeAuthHeaders(extra?: Record<string, string>): Record<string
   };
 }
 
-function takodeOptionalAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+/**
+ * Session headers when this CLI runs in a session, otherwise just `extra`. Commands
+ * that also work from a plain terminal send these so they still pass the login gate
+ * and the token-only host port when run from a session.
+ */
+export function takodeOptionalAuthHeaders(extra?: Record<string, string>): Record<string, string> {
   const creds = getCredentials();
   if (!creds) return { ...extra };
   return {

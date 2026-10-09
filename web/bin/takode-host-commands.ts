@@ -4,6 +4,8 @@
  * command that starts `takode node` on that machine.
  */
 
+import { takodeOptionalAuthHeaders } from "./takode-core.js";
+
 export type HostRow = {
   id: string;
   name: string;
@@ -123,7 +125,8 @@ async function removeHost(base: string, args: string[]): Promise<void> {
 async function request(base: string, method: string, path: string, body?: unknown): Promise<unknown> {
   const response = await fetch(`${base}${path}`, {
     method,
-    ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    headers: takodeOptionalAuthHeaders(body === undefined ? undefined : { "Content-Type": "application/json" }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const value = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) throw new Error(value.error || `HTTP ${response.status}`);
