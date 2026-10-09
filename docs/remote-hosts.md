@@ -19,6 +19,13 @@ Takode as everything else.
 - The agent CLIs its sessions use (`claude`, `codex`), each signed in on that
   machine. Credentials are never copied between machines.
 - The project checkouts the sessions will work in.
+- Git 2.36 or newer (check with `git --version`). Takode uses Git options that
+  older versions lack, such as `git worktree list -z`. Sessions look for tools
+  in `~/.local/bin` and the standard system directories (such as
+  `/usr/local/bin` and `/usr/bin`) before directories that are only on
+  `takode node`'s own `PATH`. So starting the node with a newer Git first on its
+  `PATH` is not enough when an older one is installed system-wide: install or
+  link the newer one into `~/.local/bin`.
 
 Do not start a Takode server on the host. `takode node` is the only Takode
 process it needs.
