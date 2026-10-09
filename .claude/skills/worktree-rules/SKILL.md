@@ -63,7 +63,7 @@ The target branch is shared by every worker that ports to it, from any machine, 
 takode lease acquire port:<REPO>:<BASE_BRANCH> --purpose "Port <quest or change> to <BASE_BRANCH>" --ttl 30m --wait
 ```
 
-Run this command on its own; never chain fetch, pull or any other port step after it. Exit 0 means you hold the lease. Exit 3 with `QUEUED` means you do not: run nothing against the target, end your turn, and continue from the status check below only after the Resource Lease message says you hold `port:<REPO>:<BASE_BRANCH>`.
+Run this command on its own; never chain fetch, pull or any other port step after it. Exit 0 means you hold the lease. Exit 3 with `QUEUED` means you do not: run nothing against the target, end your turn, and continue from the status check below only after the Resource Lease message says you hold `port:<REPO>:<BASE_BRANCH>`. A long wait here is the signal described in "Suggest the landing queue when ports are slow" below.
 
 While you hold the lease, nothing else lands on the target, so the gate you run in your worktree (step 3) covers exactly what you will push. Renew the lease if the gate runs long. If you stop before landing anything (gate failure, rebase conflict, a question for the user), release the lease, and start again from this step when ready because the target may have moved. If you stop after landing commits but before pushing, keep the lease and report.
 
@@ -180,6 +180,10 @@ Do not run `git checkout <BASE_BRANCH>` in the base repo as a cleanup shortcut. 
 ### 9. Run post-sync verification
 
 After resetting, verify that the worker worktree and selected target are synced. Run cheap consistency checks such as `git status`, `git log --oneline -5`, and `git diff --check` in both the worker worktree and selected target, plus any post-push/post-handoff reruns required by the Port handoff or by non-obvious verification risk. If post-sync verification fails, report it explicitly and route a fix before final quest closure.
+
+## Suggest the landing queue when ports are slow
+
+When a classic port to a remote-backed target waits a long time for its port lease, for example queued behind several other ports or for longer than a full gate run, and the branch has no saved landing gate (`takode land gate show` says none is saved), the repository may be ready for the landing queue. Do not stop or change your port; finish it on the classic path. Then mention the wait and the possible fix once in your next report to your leader, who decides whether to bring it to the user. Without a leader, suggest it to the user at the end of your turn, unless they already declined it for that repository. If the user takes it up, [landing-gate-setup.md](references/landing-gate-setup.md) has what to explain and how to draft and try the gate for their approval; never save a gate the user has not approved.
 
 ## Completion Checklist
 
