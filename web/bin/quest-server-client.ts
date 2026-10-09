@@ -73,20 +73,38 @@ export function createQuestServerClient(deps: {
         return undefined;
       }
       let response: Response;
+      let text: string;
       try {
         response = await fetch(`http://localhost:${port}/api${path}`, {
           headers: deps.authHeaders(),
           // On a remote host the node's proxy holds requests while the coordinator restarts.
           signal: AbortSignal.timeout(deps.remoteHost ? QUEST_SERVER_TIMEOUT_MS : QUEST_SERVER_READ_TIMEOUT_MS),
         });
+        text = await response.text();
       } catch (error) {
         if (deps.remoteHost) deps.die(remoteHostNeedsServer(describeReadFailure(error, port)));
         // Reads are safe to answer from the local store when the server on this machine is down.
         return undefined;
       }
-      if (response.ok) return (await response.json()) as T;
+      let body: { error?: unknown } | null;
+      try {
+        body = JSON.parse(text) as { error?: unknown } | null;
+      } catch {
+        // Not an answer from this route: an older server without it (its frontend page or a
+        // plain 404), or a remote host's proxy reporting that the coordinator is unreachable.
+        if (!deps.remoteHost) return undefined;
+        deps.die(
+          remoteHostNeedsServer(
+            response.ok || response.status === 404
+              ? "The Takode server does not support this read yet; restart it on the current build."
+              : text.trim() || `The Takode server returned HTTP ${response.status}.`,
+          ),
+        );
+      }
+      if (response.ok) return body as T;
       if (response.status === 404 && options.allowNotFound) return null;
-      deps.die(await responseError(response));
+      const error = body?.error;
+      deps.die(typeof error === "string" && error ? error : `The Takode server returned HTTP ${response.status}.`);
     },
   };
 }

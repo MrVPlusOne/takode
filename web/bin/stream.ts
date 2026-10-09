@@ -89,6 +89,8 @@ async function runOnServer(origin: string): Promise<StreamCommandResult> {
   }
   if (!response.ok) {
     if (response.status === 404 && !value.error) {
+      // An older server without the command route: its own machine's streams still answer reads.
+      if (mayRunLocally()) return runLocally();
       return failure("The Takode server does not support stream commands yet; restart it on the current build.");
     }
     return failure(

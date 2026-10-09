@@ -23,6 +23,17 @@ Takode as everything else.
 Do not start a Takode server on the host. `takode node` is the only Takode
 process it needs.
 
+The host keeps no Takode configuration or data of its own. Settings come from
+the coordinator, which stores the ones that differ per machine (such as which
+Claude Code and Codex to run) for each host, and the `quest`, `memory` and
+`stream` commands of its sessions read and write through the coordinator.
+Session processes on the host get `TAKODE_REMOTE_HOST=1`, so these commands
+never answer from files the machine may still have under `~/.companion` (for
+example from a time it ran its own server); while the coordinator is
+unreachable they say so instead. Only facts of the machine stay on it: its
+name, its host token, the options `takode node` was started with, and working
+checkouts.
+
 ## Setup
 
 1. **Register the host on the coordinator.** Run `takode host add <name>` or use
@@ -64,7 +75,7 @@ process it needs.
    bun web/bin/takode-node.ts --coordinator http://127.0.0.1:13456 --token-file ~/.takode-host-token
    ```
 
-   It installs the `takode`, `quest` and `memory` CLI wrappers, skills and
+   It installs the `takode`, `quest`, `memory` and `stream` CLI wrappers, skills and
    Quest Journey phase briefs from that checkout, then connects. `takode host
    list` on the coordinator shows the host as online.
 
@@ -289,7 +300,7 @@ made on the new machine after the move are not carried back.
 
 ## Latency
 
-Every command an agent on the host runs (`takode`, `quest`, `memory`) is a
+Every command an agent on the host runs (`takode`, `quest`, `memory`, `stream`) is a
 round trip to the coordinator, through the tunnel if you use one.
 `takode latency` on the host shows that time as transport. A remote terminal
 echoes each keystroke after one round trip.

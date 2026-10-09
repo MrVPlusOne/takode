@@ -23,6 +23,7 @@ stream handoff ai-judging
 ```
 
 Important stream concepts:
+- Streams are kept by the Takode server: `stream` sends each command to it, so streams are the same from every machine.
 - By default, `stream` uses the current Takode session group when `COMPANION_SESSION_ID` is available. Outside Takode/session context, it falls back to a collision-resistant git project scope that maps linked worktrees together, then to the current directory name. Use `--scope` only for deliberate isolation or migration.
 - `stream show` is current-state-first: summary, health, ownership, pinned facts, links, then timeline.
 - Timeline entries are typed: `state-change`, `decision`, `artifact`, `metric`, `alert`, `contradiction`, `supersession`, `handoff`, `ownership`, `verification`, or `note`.

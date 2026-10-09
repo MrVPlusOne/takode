@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,6 +87,31 @@ describe("quest CLI on a machine without the quest store", () => {
     } finally {
       await emptyServer.stop();
       await rm(emptyHome, { recursive: true, force: true });
+    }
+  });
+
+  // An older server without a read route answers with its frontend page. That
+  // is no answer from the route: on the server's own machine the CLI reads the
+  // local store as before, while on a remote host it says the server is too old.
+  it("treats a missing read route as no answer, and fails clearly on a remote host", async () => {
+    expect((await runQuest(["create", "Read before restart"], serverHome, server.port)).status).toBe(0);
+    const older: Server = createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<!doctype html><html></html>");
+    });
+    older.listen(0, "127.0.0.1");
+    await once(older, "listening");
+    const olderPort = (older.address() as AddressInfo).port;
+    try {
+      const local = await runQuest(["show", "q-1"], serverHome, olderPort);
+      expect(local.status).toBe(0);
+      expect(local.stdout).toContain("Read before restart");
+
+      const onHost = await runQuest(["show", "q-1"], serverHome, olderPort, { TAKODE_REMOTE_HOST: "1" });
+      expect(onHost.status).toBe(1);
+      expect(onHost.stderr).toContain("does not support this read yet");
+    } finally {
+      older.close();
     }
   });
 

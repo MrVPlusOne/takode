@@ -241,6 +241,12 @@ describe("quest CLI feedback inspection", () => {
     seedQuest(tmp, quest);
     const seenBodies: JsonObject[] = [];
     const server = createServer(async (req, res) => {
+      // The server is authoritative for reads, so it serves the quest the CLI inspects for an existing summary.
+      if (req.method === "GET" && req.url === "/api/quests/q-4") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(quest));
+        return;
+      }
       if (req.method === "POST" && req.url === "/api/quests/q-4/feedback") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
