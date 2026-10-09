@@ -139,6 +139,8 @@ async function buildLaptop(): Promise<void> {
   // The server has already stamped older notes with this machine's name.
   await put(laptopHome, "questmaster-live/machine-stamps.json", { coordinatorMachine: "laptop" });
   await put(laptopHome, "todos/todo-list.json", { items: [] });
+  await put(laptopHome, `landing-gates/${SERVER_ID}.json`, { gates: [] });
+  await put(laptopHome, `landing-queue/${SERVER_ID}.json`, { version: 1, entries: [{ state: "landed" }], runs: [] });
   await put(laptopHome, "worktrees.json", [
     { sessionId: LAPTOP_SESSION, worktreePath: "/laptop/wt" },
     { sessionId: ARCHIVED_SESSION, worktreePath: "/laptop/old" },
@@ -274,6 +276,7 @@ describe("coordinator handoff", () => {
     expect(await readJsonAt(devboxHome, "settings-secrets-3456.json")).toEqual({
       transcriptionApiKey: "secret",
     });
+    expect(await readJsonAt(devboxHome, `landing-gates/${SERVER_ID}.json`)).toEqual({ gates: [] });
 
     // Memory repos arrive whole, with helper paths pointing into this machine's home.
     const repo = join(devboxHome, ".companion", "memory", "prod", "Takode");
@@ -320,6 +323,13 @@ describe("coordinator handoff", () => {
 
     await expect(importCoordinatorHandoff({ home: devboxHome, packageDir })).rejects.toThrow(/todos\/todo-list.json/);
     expect(await readdir(join(devboxHome, ".companion"))).toEqual(["machine.json"]);
+  });
+
+  // A landing run uses a checkout on the departing machine, so it must finish there.
+  it("refuses to export during a landing run", async () => {
+    await put(laptopHome, `landing-queue/${SERVER_ID}.json`, { version: 1, entries: [{ state: "running" }], runs: [] });
+
+    await expect(exportReal()).rejects.toThrow(/landing run is in progress/);
   });
 
   it("refuses to export while the server runs", async () => {

@@ -232,7 +232,8 @@ move:
 - **What moves:** settings (the server keeps its identity), quests with their
   images and evidence, memory repos (whole, with their Git history and
   remotes), unarchived sessions with their timers, notifications, boards and
-  attachments, registered hosts, to-dos and the other server state.
+  attachments, registered hosts, landing gates and the landing queue, to-dos
+  and the other server state. Export waits for a running landing to finish.
 - **What stays:** archived sessions (their history remains in the old
   machine's files), logs, resource leases, worktree checkouts and agent
   artifacts.

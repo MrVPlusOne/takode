@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, readdir, readFile, readlink, rename, symlink, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -142,7 +141,10 @@ export async function exportCoordinatorHandoff(options: HandoffExportOptions): P
   const fromMachine = await readMachineName(home);
   if (!fromMachine) throw new Error("This machine has no name yet; start Takode on it once first.");
   if (fromMachine === options.toMachine) throw new Error(`The coordinator already runs on ${fromMachine}.`);
-  if (!rehearsal) await assertStopped(companion, serverId);
+  if (!rehearsal) {
+    await assertStopped(companion, serverId);
+    await assertNoLandingRun(companion, serverId);
+  }
   const memoryRepos = await describeMemoryRepos(companion, serverSlug);
   const stampNotes = await checkMachineStamps(companion, serverSlug, memoryRepos, {
     fromMachine,
@@ -229,7 +231,7 @@ export async function importCoordinatorHandoff(options: HandoffImportOptions): P
   const mismatched: string[] = [];
   for (const file of manifest.files) {
     if (!("sha256" in file)) continue;
-    const actual = await sha256File(join(options.packageDir, FILES_DIR, file.path)).catch(() => "missing");
+    const actual = await readFile(join(options.packageDir, FILES_DIR, file.path)).then(sha256, () => "missing");
     if (actual !== file.sha256) mismatched.push(file.path);
   }
   if (mismatched.length > 0) {
@@ -337,7 +339,7 @@ async function planHandoff(input: {
         id: fromHostId,
         name: fromMachine,
         createdAt: now.getTime(),
-        tokenSha256: createHash("sha256").update(fromHostToken).digest("hex"),
+        tokenSha256: sha256(fromHostToken),
         ...(isRecord(local.settings) ? { settings: local.settings } : {}),
       },
     ],
@@ -385,6 +387,8 @@ async function planHandoff(input: {
   await copyRoot(`memory/${settings.serverSlug as string}`);
   for (const path of [
     `browser-login/${serverId}.json`,
+    `landing-gates/${serverId}.json`,
+    `landing-queue/${serverId}.json`,
     `tree-groups/${serverId}.json`,
     `new-session-defaults/${serverId}.json`,
     "session-names.json",
@@ -521,6 +525,15 @@ async function assertStopped(companion: string, serverId: string): Promise<void>
   }
 }
 
+/** A landing run works in a checkout on this machine, so it must finish here first; pending entries move. */
+async function assertNoLandingRun(companion: string, serverId: string): Promise<void> {
+  const queue = await readJsonIfExists<{ entries?: JsonRecord[]; runs?: JsonRecord[] }>(
+    join(companion, "landing-queue", `${serverId}.json`),
+  );
+  const running = [...(queue?.entries ?? []), ...(queue?.runs ?? [])].some((item) => item.state === "running");
+  if (running) throw new Error("A landing run is in progress; let it finish, then stop the server and export again.");
+}
+
 function isAlive(pid: number): boolean {
   if (pid === process.pid) return false;
   try {
@@ -553,7 +566,7 @@ async function listFiles(root: string, path: string): Promise<string[]> {
   return files;
 }
 
-/** Copy one file into the package and check that the copy matches the source as read before and after. */
+/** Copy one file into the package and check that the source still matches what was copied. */
 async function copyVerified(path: string, source: string, target: string): Promise<HandoffFile> {
   await mkdir(dirname(target), { recursive: true });
   const info = await lstat(source);
@@ -562,27 +575,24 @@ async function copyVerified(path: string, source: string, target: string): Promi
     await symlink(link, target);
     return { path, symlink: link };
   }
-  const before = await sha256File(source);
-  await copyFile(source, target);
-  const after = await sha256File(target);
-  if (before !== after) throw new Error(`${source} changed while it was copied; stop the server and export again.`);
-  return { path, bytes: info.size, sha256: after };
+  // Whole-file reads: a stream-based copy of the live store once stalled for good under Bun.
+  const content = await readFile(source);
+  await writeFile(target, content);
+  const digest = sha256(content);
+  if (sha256(await readFile(source)) !== digest) {
+    throw new Error(`${source} changed while it was copied; stop the server and export again.`);
+  }
+  return { path, bytes: content.length, sha256: digest };
 }
 
 async function writePackaged(path: string, target: string, content: string): Promise<HandoffFile> {
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content);
-  return { path, bytes: Buffer.byteLength(content), sha256: createHash("sha256").update(content).digest("hex") };
+  return { path, bytes: Buffer.byteLength(content), sha256: sha256(content) };
 }
 
-function sha256File(path: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    createReadStream(path)
-      .on("data", (chunk) => hash.update(chunk))
-      .on("error", reject)
-      .on("end", () => resolve(hash.digest("hex")));
-  });
+function sha256(content: string | Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 /** Map a package path written for one port to the port the coordinator uses here. */
