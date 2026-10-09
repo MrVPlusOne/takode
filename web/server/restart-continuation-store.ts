@@ -5,6 +5,7 @@ import type { ProgrammaticHistoryFollowUp } from "./session-types.js";
 export const RESTART_CONTINUE_MESSAGE = "Continue.";
 
 const FILE_NAME = "restart-continuations.json";
+const HOST_UPDATE_REQUEST_FILE_NAME = "restart-host-updates.json";
 
 export interface RestartContinuationTarget {
   sessionId: string;
@@ -89,15 +90,8 @@ export async function resumeRestartContinuations(
   result.plan = plan;
   if (!plan) return result;
 
-  const agentSource = {
-    sessionId: `system:restart-continuation:${plan.operationId}`,
-    sessionLabel: "System",
-  };
   for (const target of plan.sessions) {
-    const status = bridge.injectUserMessage(target.sessionId, plan.message, agentSource, undefined, undefined, {
-      deliveryContent: plan.message,
-      historyFollowUps: [],
-    });
+    const status = sendRestartContinuation(bridge, target.sessionId, plan.operationId, plan.message);
     if (status === "sent") result.sent += 1;
     else if (status === "queued" || status === "paused_queued") result.queued += 1;
     else if (status === "dropped") result.dropped += 1;
@@ -105,6 +99,61 @@ export async function resumeRestartContinuations(
   }
 
   return result;
+}
+
+/** Tell a session whose turn a restart interrupted to go on. */
+export function sendRestartContinuation(
+  bridge: RestartContinuationBridge,
+  sessionId: string,
+  operationId: string,
+  message = RESTART_CONTINUE_MESSAGE,
+): ReturnType<RestartContinuationBridge["injectUserMessage"]> {
+  const agentSource = { sessionId: `system:restart-continuation:${operationId}`, sessionLabel: "System" };
+  return bridge.injectUserMessage(sessionId, message, agentSource, undefined, undefined, {
+    deliveryContent: message,
+    historyFollowUps: [],
+  });
+}
+
+/**
+ * How long a Restart Server request stays valid for the server it starts. A
+ * later start, say by hand after the restart failed, is no user's restart.
+ */
+export const HOST_UPDATE_REQUEST_MAX_AGE_MS = 10 * 60_000;
+
+/**
+ * Record that the user asked for this restart, so the next server updates
+ * its auto-updating hosts right away instead of when they are idle.
+ */
+export async function saveHostUpdateRequest(directory: string, now = Date.now()): Promise<void> {
+  await mkdir(directory, { recursive: true });
+  await writeFile(hostUpdateRequestPath(directory), JSON.stringify({ version: 1, requestedAt: now }), "utf-8");
+}
+
+/** Whether the user's Restart Server started this server; reads the request once and removes it. */
+export async function takeHostUpdateRequest(directory: string, now = Date.now()): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(hostUpdateRequestPath(directory), "utf-8");
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  await unlink(hostUpdateRequestPath(directory)).catch((error) => {
+    if (error?.code !== "ENOENT") throw error;
+  });
+  try {
+    const { requestedAt } = JSON.parse(raw) as { requestedAt?: unknown };
+    return (
+      typeof requestedAt === "number" && now - requestedAt >= 0 && now - requestedAt <= HOST_UPDATE_REQUEST_MAX_AGE_MS
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hostUpdateRequestPath(directory: string): string {
+  return join(directory, HOST_UPDATE_REQUEST_FILE_NAME);
 }
 
 function filePath(directory: string): string {

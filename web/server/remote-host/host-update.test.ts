@@ -86,7 +86,7 @@ describe("host builds and auto-update over the link", () => {
   // gate says no turn would end, and only once per host instance.
   it("asks an auto-updating host to switch to the coordinator's commit once it can restart", async () => {
     let idle = false;
-    manager.canRestartHost = () => idle;
+    manager.updateBlocker = () => (idle ? null : "its sessions finish their turns");
     const requested: string[] = [];
     agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
     await waitFor(() => manager.status(hostId).online);
@@ -109,7 +109,7 @@ describe("host builds and auto-update over the link", () => {
   // they resume a turn or ask again for a permission. The update waits until
   // nothing has started on the host for the settle time.
   it("waits until nothing has started on the host for a while", async () => {
-    manager.canRestartHost = () => true;
+    manager.updateBlocker = () => null;
     const requested: string[] = [];
     agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
     await waitFor(() => manager.status(hostId).online);
@@ -129,12 +129,12 @@ describe("host builds and auto-update over the link", () => {
   // (as an idle stop would), so they relaunch on their next message instead of
   // reporting a crashed process; only then is the host asked to update.
   it("stops the host's sessions before asking it to update", async () => {
-    manager.canRestartHost = () => true;
+    manager.updateBlocker = () => null;
     const events: string[] = [];
     let finishStopping = () => {};
-    manager.stopHostSessions = (stoppingHost) => {
+    manager.prepareHostUpdate = (stoppingHost) => {
       events.push(`stop ${stoppingHost}`);
-      return new Promise<void>((resolve) => (finishStopping = resolve));
+      return new Promise<boolean>((resolve) => (finishStopping = () => resolve(true)));
     };
     agent = startAgent({ build: HOST_BUILD, update: async (commit) => void events.push(`update ${commit}`) });
     await waitFor(() => manager.status(hostId).online);
@@ -153,9 +153,9 @@ describe("host builds and auto-update over the link", () => {
   // If the link drops while the sessions are being stopped, the update is not
   // lost: the same host instance is asked again once it is back and settled.
   it("asks again when the host dropped off while its sessions were stopping", async () => {
-    manager.canRestartHost = () => true;
+    manager.updateBlocker = () => null;
     let finishStopping = () => {};
-    manager.stopHostSessions = () => new Promise<void>((resolve) => (finishStopping = resolve));
+    manager.prepareHostUpdate = () => new Promise<boolean>((resolve) => (finishStopping = () => resolve(true)));
     const requested: string[] = [];
     agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
     await waitFor(() => manager.status(hostId).online);
@@ -168,14 +168,14 @@ describe("host builds and auto-update over the link", () => {
     expect(requested).toEqual([]);
 
     await waitFor(() => manager.status(hostId).online);
-    manager.stopHostSessions = async () => {};
+    manager.prepareHostUpdate = async () => true;
     tick();
     await waitFor(() => requested.length === 1);
   });
 
   // A host without --auto-update is never asked, however idle it is.
   it("never updates a host that did not opt in", async () => {
-    manager.canRestartHost = () => true;
+    manager.updateBlocker = () => null;
     agent = startAgent({ build: HOST_BUILD });
     await waitFor(() => manager.status(hostId).online);
     const sent: string[] = [];
@@ -193,7 +193,7 @@ describe("host builds and auto-update over the link", () => {
 
   // A failed switch is reported back and shown; the host keeps running.
   it("records why a host could not update", async () => {
-    manager.canRestartHost = () => true;
+    manager.updateBlocker = () => null;
     agent = startAgent({
       build: HOST_BUILD,
       update: async () => {

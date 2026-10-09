@@ -262,4 +262,23 @@ describe("landing queue manager", () => {
     await queue.heartbeat(claim.run!.id, "a", "gating 1 change(s)");
     expect(queue.isLandingActive("a")).toBe(true);
   });
+
+  // A host update must not restart a node while a landing run on that host is
+  // under way; a run that stopped reporting no longer holds the update back.
+  it("tells whether a landing run is under way on a host", async () => {
+    await submit("a", 1);
+    const claim = await queue.claim("a", target, "devbox");
+    expect(queue.isRunActiveOn("devbox")).toBe(true);
+    expect(queue.isRunActiveOn("other-host")).toBe(false);
+    now += 6 * 60_000;
+    expect(queue.isRunActiveOn("devbox")).toBe(false);
+    await queue.heartbeat(claim.run!.id, "a", "gating 1 change(s)");
+    expect(queue.isRunActiveOn("devbox")).toBe(true);
+    await queue.finish(claim.run!.id, "a", {
+      outcomes: [{ entryId: claim.entries[0]!.id, outcome: "landed", mapping: mapping(1) }],
+      pushedTip: sha(201),
+      summary: "Landed 1 of 1.",
+    });
+    expect(queue.isRunActiveOn("devbox")).toBe(false);
+  });
 });

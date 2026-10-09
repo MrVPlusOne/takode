@@ -17,6 +17,7 @@ function mockHost(overrides: Partial<RemoteHost>): RemoteHost {
     autoUpdate: true,
     updating: false,
     updateError: null,
+    updateWaitingFor: null,
     settings: { claudeBinary: "", codexBinary: "" },
     commandOverrides: {},
     ...overrides,
@@ -25,7 +26,11 @@ function mockHost(overrides: Partial<RemoteHost>): RemoteHost {
 
 const ONLINE = mockHost({});
 const OFFLINE = mockHost({ online: false });
-const OTHER_BUILD = mockHost({ build: "a".repeat(40), buildMismatch: true });
+const OTHER_BUILD = mockHost({
+  build: "a".repeat(40),
+  buildMismatch: true,
+  updateWaitingFor: "the landing run there finishes",
+});
 const LONG_NAME = mockHost({ name: "gpu-workstation-west-2" });
 
 /**

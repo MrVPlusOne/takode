@@ -16,6 +16,7 @@ import {
 } from "../../shared/host-protocol.js";
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
+import type { HostUpdateMode } from "./host-update-sessions.js";
 
 /**
  * How long after a host connects, or a process starts there, before an update
@@ -24,6 +25,13 @@ import { shortCommit } from "./host-update.js";
  * see yet.
  */
 export const HOST_UPDATE_SETTLE_MS = 60_000;
+
+/**
+ * The settle time for an immediate update after the user's Restart Server:
+ * turns are interrupted and continued anyway, so it only lets takeovers and
+ * just-started sessions get going.
+ */
+export const HOST_IMMEDIATE_UPDATE_SETTLE_MS = 5_000;
 
 /** The host could not be asked: it is offline or the link dropped before it answered. */
 export class HostUnavailableError extends Error {
@@ -61,6 +69,8 @@ export interface HostLinkStatus {
   updating: boolean;
   /** Why the host's last update attempt failed, until it restarts. */
   updateError: string | null;
+  /** What a pending auto-update waits for, worded to follow "It updates once"; null when none is waiting on anything. */
+  updateWaitingFor: string | null;
   /** Programs the host's `takode node` was started with (`--claude`, `--codex`), which win over its settings. */
   commandOverrides: Partial<Record<HostProgramRole, string>>;
 }
@@ -106,6 +116,13 @@ interface HostLink {
   lastStartAt: number;
   /** Commit this coordinator asked the current host instance to switch to. */
   updateRequested: string | null;
+  /**
+   * The update was sent and the node will restart: commands wait for its next
+   * instance, so nothing starts on the old one only to end with it.
+   */
+  updateSent: boolean;
+  /** This coordinator already sent the host an immediate update; later ones wait for idle. */
+  immediateUpdateSent: boolean;
   updateError: string | null;
   /** A host operation was already logged as sent to a mismatched build of this host instance. */
   mismatchWarned: boolean;
@@ -143,16 +160,25 @@ export class HostLinkManager {
    */
   build: string | null;
   /**
-   * Whether a host can be restarted now without ending a turn. Hosts are
-   * auto-updated only when this says yes; without it they never are.
+   * This coordinator was started by the user's Restart Server: each
+   * auto-updating host on another build is updated right away, once,
+   * instead of when none of its sessions is in a turn.
    */
-  canRestartHost: ((hostId: string) => boolean) | null = null;
+  immediateUpdates = false;
   /**
-   * Stop the host's sessions just before an update restarts it. The restart
-   * ends every process there; stopped first, the sessions relaunch on their
-   * next message instead of reporting a crashed process.
+   * What updating a host must wait for now (see {@link HostUpdateSessions.blocker}),
+   * or null when it may update. Without it hosts are never auto-updated.
    */
-  stopHostSessions: ((hostId: string) => Promise<void>) | null = null;
+  updateBlocker: ((hostId: string, mode: HostUpdateMode) => string | null) | null = null;
+  /**
+   * Get the host's sessions ready just before an update restarts it. The
+   * restart ends every process there; stopped first, the sessions relaunch on
+   * their next message instead of reporting a crashed process. False calls the
+   * update off for now; it is tried again later.
+   */
+  prepareHostUpdate: ((hostId: string, mode: HostUpdateMode) => Promise<boolean>) | null = null;
+  /** A host's node restarted (a new instance connected) or reported that it could not update. */
+  onHostRestarted: ((hostId: string) => void) | null = null;
   /** Each host's machine settings, sent to it on every connect and by {@link pushSettings}. */
   machineSettingsFor: ((hostId: string) => HostMachineSettings) | null = null;
   /**
@@ -197,6 +223,10 @@ export class HostLinkManager {
       autoUpdate: link?.autoUpdate ?? false,
       updating: Boolean(link?.updateRequested && link.updateRequested === this.build && !link.updateError),
       updateError: link?.updateError ?? null,
+      updateWaitingFor:
+        link && this.wantsUpdate(link) && link.updateRequested !== this.build
+          ? (this.updateBlocker?.(hostId, this.updateMode(link)) ?? null)
+          : null,
       commandOverrides: { ...link?.commandOverrides },
     };
   }
@@ -253,6 +283,11 @@ export class HostLinkManager {
         if (message.commit !== link.updateRequested) return;
         link.updateError = message.error;
         console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(message.commit)}: ${message.error}`);
+        // The node keeps running on its build; send what waited for its restart.
+        link.updateSent = false;
+        for (const queued of link.unacked) send(socket, { t: "command", seq: queued.seq, command: queued.command });
+        this.onHostRestarted?.(hostId);
+        this.notifyStatus(hostId);
         return;
     }
   }
@@ -269,6 +304,10 @@ export class HostLinkManager {
   ): Promise<Extract<HostResponse, { kind: K }>> {
     const link = this.links.get(hostId);
     if (!link?.online || !link.socket) return Promise.reject(new HostUnavailableError(hostId));
+    // Its launch would be prepared on the instance that is about to end.
+    if (request.kind === "prepare_codex" && link.updateSent) {
+      return Promise.reject(new Error(`Host ${hostId} is restarting for an update`));
+    }
     const socket = link.socket;
     const id = randomUUID();
     const operation = request.kind === "operation" ? (request as { name: string }).name : null;
@@ -436,6 +475,7 @@ export class HostLinkManager {
       socket.close(4001, "Unsupported protocol");
       return;
     }
+    let restarted = false;
     if (link.hostInstanceId !== hello.instanceId) {
       // The first host instance since this coordinator started keeps the
       // processes it reports, which this coordinator may have adopted. A later
@@ -443,6 +483,7 @@ export class HostLinkManager {
       // one ran. Either way command numbering starts over, and commands for
       // processes that never started (queued while no host was connected) still apply.
       const firstContact = link.hostInstanceId === null;
+      restarted = !firstContact;
       const running = new Set(firstContact ? (hello.processes ?? []) : []);
       for (const proc of link.processes.values()) {
         if (!proc.started || running.has(proc.procId)) continue;
@@ -457,6 +498,7 @@ export class HostLinkManager {
       link.build = hello.build ?? null;
       link.autoUpdate = hello.autoUpdate === true;
       link.updateRequested = null;
+      link.updateSent = false;
       link.updateError = null;
       link.mismatchWarned = false;
       link.commandOverrides = { ...hello.commandOverrides };
@@ -480,9 +522,11 @@ export class HostLinkManager {
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
     const applied = hello.appliedFrom === this.instanceId ? hello.appliedCommandSeq : 0;
     for (const queued of link.unacked) {
-      if (queued.seq > applied) send(socket, { t: "command", seq: queued.seq, command: queued.command });
+      if (queued.seq > applied && !link.updateSent)
+        send(socket, { t: "command", seq: queued.seq, command: queued.command });
     }
     this.setOnline(hostId, link, true);
+    if (restarted) this.onHostRestarted?.(hostId);
   }
 
   /** Whether the host runs a build other than this coordinator's, or one it does not report. */
@@ -495,30 +539,49 @@ export class HostLinkManager {
     return `host ${hostId} runs ${hostBuild} and this server runs ${shortCommit(this.build ?? "")}`;
   }
 
+  /** Whether the host is one this coordinator should update: connected, opted in and on another build. */
+  private wantsUpdate(link: HostLink): boolean {
+    return Boolean(link.online && link.socket && link.autoUpdate && this.build && this.buildMismatch(link));
+  }
+
+  private updateMode(link: HostLink): HostUpdateMode {
+    return this.immediateUpdates && !link.immediateUpdateSent ? "immediate" : "when_idle";
+  }
+
   /**
    * Ask an auto-updating host that runs another build to switch to this
-   * coordinator's commit, once per host instance, when it can restart without
-   * ending a turn and nothing started there recently. Its sessions are stopped
-   * first. A failed attempt is not repeated until the host restarts.
+   * coordinator's commit, once per host instance, when nothing started there
+   * recently and nothing the update must wait for is under way: right after
+   * the user's Restart Server even while sessions are in turns, otherwise only
+   * when none is. Its sessions are stopped first. A failed attempt is not
+   * repeated until the host restarts.
    */
-  private updateIfIdle(hostId: string, link: HostLink): void {
-    if (!link.online || !link.socket || !link.autoUpdate || !this.build || !this.buildMismatch(link)) return;
-    if (link.updateRequested === this.build || this.now() - link.lastStartAt < HOST_UPDATE_SETTLE_MS) return;
-    if (!this.canRestartHost?.(hostId)) return;
-    const commit = this.build;
+  private maybeUpdate(hostId: string, link: HostLink): void {
+    if (!this.wantsUpdate(link) || link.updateRequested === this.build) return;
+    const mode = this.updateMode(link);
+    const settleMs = mode === "immediate" ? HOST_IMMEDIATE_UPDATE_SETTLE_MS : HOST_UPDATE_SETTLE_MS;
+    if (this.now() - link.lastStartAt < settleMs) return;
+    if (!this.updateBlocker || this.updateBlocker(hostId, mode) !== null) return;
+    const commit = this.build!;
     const instanceId = link.hostInstanceId;
     link.updateRequested = commit;
     link.updateError = null;
-    console.log(`[host-link] Updating host ${hostId} to ${shortCommit(commit)}`);
-    void Promise.resolve(this.stopHostSessions?.(hostId))
-      .catch((error) =>
-        console.warn(`[host-link] Could not stop the sessions on host ${hostId} before updating it:`, error),
-      )
-      .then(() => {
+    console.log(`[host-link] Updating host ${hostId} to ${shortCommit(commit)}${mode === "immediate" ? " now" : ""}`);
+    void Promise.resolve(this.prepareHostUpdate?.(hostId, mode) ?? true)
+      .catch((error) => {
+        console.warn(`[host-link] Could not stop the sessions on host ${hostId} before updating it:`, error);
+        return true;
+      })
+      .then((ready) => {
         // A new host instance starts over; one that dropped off is asked again once it is back.
         if (link.hostInstanceId !== instanceId || link.updateRequested !== commit) return;
-        if (link.online && link.socket) send(link.socket, { t: "update", commit });
-        else link.updateRequested = null;
+        if (!ready || !link.online || !link.socket) {
+          link.updateRequested = null;
+          return;
+        }
+        if (mode === "immediate") link.immediateUpdateSent = true;
+        link.updateSent = true;
+        send(link.socket, { t: "update", commit });
       });
   }
 
@@ -542,7 +605,7 @@ export class HostLinkManager {
   private enqueue(link: HostLink, command: HostCommand): void {
     const queued = { seq: link.nextCommandSeq++, command };
     link.unacked.push(queued);
-    if (link.online && link.socket) send(link.socket, { t: "command", seq: queued.seq, command });
+    if (link.online && link.socket && !link.updateSent) send(link.socket, { t: "command", seq: queued.seq, command });
   }
 
   private link(hostId: string): HostLink {
@@ -561,6 +624,8 @@ export class HostLinkManager {
         autoUpdate: false,
         lastStartAt: 0,
         updateRequested: null,
+        updateSent: false,
+        immediateUpdateSent: false,
         updateError: null,
         mismatchWarned: false,
         commandOverrides: {},
@@ -584,6 +649,10 @@ export class HostLinkManager {
       }
       link.requests.clear();
     }
+    this.notifyStatus(hostId);
+  }
+
+  private notifyStatus(hostId: string): void {
     const status = this.status(hostId);
     for (const listener of this.statusListeners) listener(status);
   }
@@ -600,7 +669,7 @@ export class HostLinkManager {
         continue;
       }
       send(link.socket, { t: "heartbeat" });
-      this.updateIfIdle(hostId, link);
+      this.maybeUpdate(hostId, link);
     }
   }
 }

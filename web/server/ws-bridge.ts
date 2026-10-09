@@ -759,6 +759,13 @@ export class WsBridge {
     return killSessionController(this.sessions, sessionId, {
       killLauncher: async (targetSessionId: string) =>
         this.launcher ? await this.launcher.kill(targetSessionId) : false,
+      endInterruptedTurn: (target) => {
+        const session = target as Session;
+        this.markTurnInterrupted(session, "system");
+        setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "session_stopped");
+        this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+        this.persistSession(session);
+      },
     });
   }
 

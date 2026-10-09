@@ -7,6 +7,7 @@ import type { RestartPrepOperationSnapshot, RestartPrepSessionSummary } from "..
 import {
   buildRestartContinuationPlan,
   clearRestartContinuationPlan,
+  saveHostUpdateRequest,
   saveRestartContinuationPlan,
   type RestartContinuationTarget,
 } from "../restart-continuation-store.js";
@@ -512,6 +513,19 @@ export function createSettingsRoutes(ctx: RouteContext) {
     }
   }
 
+  /**
+   * Have the next server update every auto-updating host right away, so their
+   * sessions run the new build too. Without it they update once idle, so a
+   * failure here does not block the restart.
+   */
+  async function requestHostUpdates(): Promise<void> {
+    try {
+      await saveHostUpdateRequest(sessionStore.directory);
+    } catch (error) {
+      console.warn("[restart] Could not record that hosts should update right after the restart:", error);
+    }
+  }
+
   // ─── Server restart ───────────────────────────────────────────────
 
   const handleServerRestart = async (c: Context): Promise<Response> => {
@@ -672,6 +686,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
           );
         }
 
+        await requestHostUpdates();
         options.requestRestart();
         restartScheduled = true;
         return c.json({ ...result, replacementBuildId: preparedRestart?.buildId ?? null });
@@ -685,6 +700,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
           500,
         );
       }
+      await requestHostUpdates();
       options.requestRestart();
       restartScheduled = true;
       return c.json({ ok: true, restartRequested: true, replacementBuildId: preparedRestart?.buildId ?? null });

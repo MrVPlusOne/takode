@@ -25,6 +25,8 @@ export interface RemoteHost {
   updating: boolean;
   /** Why the host's last update attempt failed. */
   updateError: string | null;
+  /** What a pending auto-update waits for, worded to follow "It updates once"; null when nothing holds it. */
+  updateWaitingFor: string | null;
   settings: MachineSettings;
   /** Programs the host's `takode node` was started with (`--claude`, `--codex`); they win over `settings`. */
   commandOverrides: { claude?: string; codex?: string };
@@ -84,7 +86,7 @@ export async function refreshRemoteHosts(): Promise<void> {
  * and what auto-update is doing about it; null when the builds match.
  */
 export function hostBuildWarning(
-  host: Pick<RemoteHost, "build" | "buildMismatch" | "autoUpdate" | "updating" | "updateError">,
+  host: Pick<RemoteHost, "build" | "buildMismatch" | "autoUpdate" | "updating" | "updateError" | "updateWaitingFor">,
   serverBuild: string | null,
 ): string | null {
   if (!host.buildMismatch) return null;
@@ -94,7 +96,8 @@ export function hostBuildWarning(
   if (!host.autoUpdate) return `${mismatch} Update takode on the host, or start it with --auto-update.`;
   if (host.updateError) return `${mismatch} Auto-update failed: ${host.updateError}`;
   if (host.updating) return `${mismatch} Updating now.`;
-  return `${mismatch} It updates when none of its sessions is in a turn.`;
+  if (host.updateWaitingFor) return `${mismatch} It updates once ${host.updateWaitingFor}.`;
+  return `${mismatch} It updates shortly.`;
 }
 
 function shortCommit(commit: string): string {

@@ -16,6 +16,7 @@ function serveHosts(hosts: Array<{ id: string; name: string; online: boolean; bu
       autoUpdate: false,
       updating: false,
       updateError: null,
+      updateWaitingFor: null,
     };
   };
   vi.stubGlobal(

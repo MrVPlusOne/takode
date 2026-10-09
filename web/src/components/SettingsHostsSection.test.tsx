@@ -17,6 +17,7 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
     autoUpdate: false,
     updating: false,
     updateError: null,
+    updateWaitingFor: null,
     settings: { claudeBinary: "", codexBinary: "" },
     commandOverrides: {},
     ...overrides,
@@ -108,7 +109,14 @@ describe("SettingsHostsSection", () => {
   it("warns about hosts running another build", async () => {
     serveHostRoutes([
       hostRow({ id: "h1", name: "manual", build: "a".repeat(40), buildMismatch: true }),
-      hostRow({ id: "h2", name: "auto", build: "a".repeat(40), buildMismatch: true, autoUpdate: true }),
+      hostRow({
+        id: "h2",
+        name: "auto",
+        build: "a".repeat(40),
+        buildMismatch: true,
+        autoUpdate: true,
+        updateWaitingFor: "its sessions finish their turns",
+      }),
       hostRow({
         id: "h3",
         name: "broken",
@@ -124,7 +132,7 @@ describe("SettingsHostsSection", () => {
     const [manual, auto, broken] = screen.getAllByTestId("host-build-warning").map((node) => node.textContent);
     expect(manual).toContain("Runs Takode aaaaaaaa, this server runs bbbbbbbb");
     expect(manual).toContain("--auto-update");
-    expect(auto).toContain("updates when none of its sessions is in a turn");
+    expect(auto).toContain("It updates once its sessions finish their turns.");
     expect(broken).toContain("Auto-update failed: uncommitted changes");
     expect(screen.getByTestId("settings-hosts-list").textContent).toContain("Takode bbbbbbbb · auto-update on");
   });

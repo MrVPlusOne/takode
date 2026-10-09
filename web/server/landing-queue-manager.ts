@@ -359,6 +359,14 @@ export class LandingQueueManager {
     );
   }
 
+  /** Whether a landing run is under way on a remote host; one that stopped reporting no longer counts. */
+  isRunActiveOn(hostId: string): boolean {
+    const now = this.now();
+    return this.data.runs.some(
+      (run) => run.state === "running" && run.hostId === hostId && now - run.heartbeatAt < LANDING_RUN_STALE_MS,
+    );
+  }
+
   /** Abandon runs whose lander lost the port lease, and keep every waiting entry's owner in the lease queue. */
   async sweep(): Promise<void> {
     return this.exclusive(async () => {

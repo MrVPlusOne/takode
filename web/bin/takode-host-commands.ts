@@ -4,7 +4,7 @@
  * command that starts `takode node` on that machine.
  */
 
-type HostRow = {
+export type HostRow = {
   id: string;
   name: string;
   online?: boolean;
@@ -15,6 +15,7 @@ type HostRow = {
   autoUpdate?: boolean;
   updating?: boolean;
   updateError?: string | null;
+  updateWaitingFor?: string | null;
 };
 
 export async function handleHost(base: string, args: string[]): Promise<void> {
@@ -80,7 +81,7 @@ async function listHosts(base: string, json: boolean): Promise<void> {
 }
 
 /** The host's Takode build compared with this server's, and its auto-update state. */
-function hostVersionLine(host: HostRow, serverBuild: string | null): string {
+export function hostVersionLine(host: HostRow, serverBuild: string | null): string {
   const parts: string[] = [];
   if (host.build) parts.push(`takode ${host.build.slice(0, 8)}`);
   if (host.buildMismatch) {
@@ -94,7 +95,9 @@ function hostVersionLine(host: HostRow, serverBuild: string | null): string {
         : host.updating
           ? "updating"
           : host.buildMismatch
-            ? "auto-update waits until its sessions are idle"
+            ? host.updateWaitingFor
+              ? `auto-update waits until ${host.updateWaitingFor}`
+              : "auto-update pending"
             : "auto-update on",
     );
   }

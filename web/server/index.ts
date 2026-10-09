@@ -66,7 +66,7 @@ import { LandingGateStore } from "./landing-gate-store.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
-import { hostCanRestart } from "./remote-host/host-restart-gate.js";
+import { HostUpdateSessions } from "./remote-host/host-update-sessions.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
@@ -83,7 +83,11 @@ import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-delivery-tracker.js";
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
-import { resumeRestartContinuations } from "./restart-continuation-store.js";
+import {
+  resumeRestartContinuations,
+  sendRestartContinuation,
+  takeHostUpdateRequest,
+} from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { serveFrontendAssets } from "./frontend-static.js";
@@ -273,14 +277,12 @@ configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const hostLinks = new HostLinkManager({ build: await readCheckoutCommit(packageRoot) });
 const coordinatorStartedAt = Date.now();
-// Hosts that opted in are updated to this server's commit only while none of their sessions is in a turn.
-hostLinks.canRestartHost = (hostId) =>
-  hostCanRestart(hostId, {
-    sessions: launcher.listSessions(),
-    awaitingReattach: (sessionId) => launcher.isAwaitingHostReattach(sessionId),
-    bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
-    coordinatorStartedAt,
-  });
+// After the user's Restart Server, hosts that opted in are updated to this
+// server's commit right away; otherwise only while none of their sessions is in a turn.
+hostLinks.immediateUpdates = await takeHostUpdateRequest(sessionStore.directory).catch((error) => {
+  console.warn("[host-link] Could not read the Restart Server request for host updates:", error);
+  return false;
+});
 /**
  * Stop the live sessions whose processes run under a node on the matching
  * hosts. Stopped like idle sessions, they relaunch on their next message.
@@ -297,8 +299,6 @@ async function stopNodeSessions(onHost: (hostId: string) => boolean): Promise<vo
     }),
   );
 }
-// Before a host's node restarts for an update.
-hostLinks.stopHostSessions = (hostId) => stopNodeSessions((host) => host === hostId);
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
@@ -314,6 +314,42 @@ const landingQueue = new LandingQueueManager(
   new LandingQueueStore(serverId),
   new LandingGateStore(serverId),
 );
+const hostUpdateSessions = new HostUpdateSessions({
+  sessions: () => launcher.listSessions(),
+  awaitingReattach: (sessionId) => launcher.isAwaitingHostReattach(sessionId),
+  bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
+  coordinatorStartedAt,
+  landingRunOn: (hostId) => landingQueue.isRunActiveOn(hostId),
+  interrupt: (sessionId, operationId) =>
+    wsBridge.interruptSession(sessionId, "user", {
+      interruptOrigin: "restart_prep",
+      restartPrepOperationId: operationId,
+    }),
+  holdHerdEvents: ({ operationId, sessionIds, leaderIds, timeoutMs }) => {
+    const summary = (sessionId: string) => {
+      const sessionNum = launcher.getSessionNum(sessionId);
+      return {
+        sessionId,
+        label: launcher.getSession(sessionId)?.name || (sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8)),
+      };
+    };
+    herdEventDispatcher.beginRestartPrepOperation({
+      operationId,
+      mode: "restart",
+      targetSessions: sessionIds.map(summary),
+      protectedLeaders: leaderIds.map(summary),
+      timeoutMs,
+    });
+  },
+  // Before a host's node restarts for an update.
+  stopSessions: (hostId) => stopNodeSessions((host) => host === hostId),
+  continueSession: (sessionId, operationId) => {
+    sendRestartContinuation(wsBridge, sessionId, operationId);
+  },
+});
+hostLinks.updateBlocker = (hostId, mode) => hostUpdateSessions.blocker(hostId, mode);
+hostLinks.prepareHostUpdate = (hostId, mode) => hostUpdateSessions.prepare(hostId, mode);
+hostLinks.onHostRestarted = (hostId) => hostUpdateSessions.hostRestarted(hostId);
 hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
 configureMachines({
   local: () => ({ name: thisMachine.name, ...thisMachineDetails() }),

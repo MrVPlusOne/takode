@@ -413,6 +413,23 @@ describe("server restart controls", () => {
     expect(requestRestart).toHaveBeenCalledOnce();
   });
 
+  // Host sessions keep running through the restart; the request tells the next
+  // server to update their hosts right away, which interrupts and continues
+  // their turns then. A restart that does not happen leaves no request.
+  it("asks the next server to update hosts right away only when the restart goes ahead", async () => {
+    const requestFile = join(tempDir, "restart-host-updates.json");
+    prepareRestart.mockRejectedValueOnce(new Error("Vite build failed"));
+    expect((await app.request("/api/server/restart", { method: "POST" })).status).toBe(500);
+    await expect(access(requestFile)).rejects.toThrow();
+
+    expect((await app.request("/api/server/restart", { method: "POST" })).status).toBe(200);
+    expect(requestRestart).toHaveBeenCalledOnce();
+    expect(JSON.parse(await readFile(requestFile, "utf-8"))).toMatchObject({
+      version: 1,
+      requestedAt: expect.any(Number),
+    });
+  });
+
   it("interrupts restart blockers through the live bridge surface in child-before-leader order", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "leader", state: "connected", name: "Leader session" },

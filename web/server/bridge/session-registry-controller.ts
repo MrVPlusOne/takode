@@ -1340,7 +1340,11 @@ export function isSessionBusy(sessions: Map<string, SessionLike>, sessionId: str
 export async function killSession(
   sessions: Map<string, SessionLike>,
   sessionId: string,
-  deps: { killLauncher: (sessionId: string) => Promise<boolean> },
+  deps: {
+    killLauncher: (sessionId: string) => Promise<boolean>;
+    /** Settle a turn the stopped Claude adapter can no longer report the end of. */
+    endInterruptedTurn?: (session: SessionLike) => void;
+  },
 ): Promise<boolean> {
   const session = sessions.get(sessionId);
   if (session?.claudeSdkAdapter) {
@@ -1352,6 +1356,7 @@ export async function killSession(
     try {
       await adapter.disconnect();
     } catch {}
+    if (session.isGenerating) deps.endInterruptedTurn?.(session);
   }
   return deps.killLauncher(sessionId);
 }

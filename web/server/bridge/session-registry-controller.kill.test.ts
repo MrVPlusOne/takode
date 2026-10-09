@@ -17,4 +17,24 @@ describe("killSession", () => {
     expect(backendAttached(session)).toBe(false);
     expect(session.cliInitReceived).toBe(false);
   });
+
+  // Detached first, the stopped adapter can no longer report how a running
+  // turn ended (a host update may stop a session mid-turn), so the turn is
+  // settled here; otherwise the session would look busy forever.
+  it("settles a turn that was running when the Claude session stopped", async () => {
+    const endInterruptedTurn = vi.fn();
+    const running = { claudeSdkAdapter: { disconnect: async () => {} }, codexAdapter: null, isGenerating: true };
+    const idle = { claudeSdkAdapter: { disconnect: async () => {} }, codexAdapter: null, isGenerating: false };
+    const sessions = new Map<string, any>([
+      ["running", running],
+      ["idle", idle],
+    ]);
+    const deps = { killLauncher: async () => true, endInterruptedTurn };
+
+    await killSession(sessions, "running", deps);
+    await killSession(sessions, "idle", deps);
+
+    expect(endInterruptedTurn).toHaveBeenCalledTimes(1);
+    expect(endInterruptedTurn).toHaveBeenCalledWith(running);
+  });
 });
