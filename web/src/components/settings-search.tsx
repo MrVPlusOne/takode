@@ -256,13 +256,18 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "server",
     title: "Server & Login",
-    description: "Browser login password, server identity, logs, release notes, and restart.",
+    description: "Browser login password, server identity, time zone, logs, release notes, and restart.",
     aliases: ["diagnostics", "server", "security", "access"],
     items: [
       {
         id: "login",
         text: "Login password browser log in log out sign out devices security access remote phone",
         aliases: ["password", "security"],
+      },
+      {
+        id: "server-time-zone",
+        text: "Time Zone server timezone TZ IANA local time clock hours chat source tags herd timers UTC",
+        aliases: ["timezone", "clock"],
       },
       {
         id: "server-slug",

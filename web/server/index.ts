@@ -153,6 +153,7 @@ import {
   readCoordinatorMove,
 } from "./coordinator-lock.js";
 import { checkBackendStartup } from "./backend-startup-check.js";
+import { applyServerTimeZone, timeZoneInEffect } from "./server-time-zone.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
 import {
   getState as getTreeGroupState,
@@ -230,6 +231,9 @@ if (
 }
 
 await initWithPort(port);
+// Before anything formats a local time; a supervised Restart Server reapplies a changed setting.
+applyServerTimeZone(getSettings().serverTimeZone ?? "");
+serverLog.info("Server time zone", { timeZone: timeZoneInEffect() });
 // A coordinator handed off to another machine must not start here, before it touches any shared state.
 const coordinatorMove = await readCoordinatorMove(coordinatorMovePath(getServerId()));
 if (coordinatorMove) {

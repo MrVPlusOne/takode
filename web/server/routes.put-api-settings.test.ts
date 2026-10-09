@@ -851,6 +851,52 @@ describe("PUT /api/settings", () => {
     expect(json.error).toContain("serverSlug must use");
   });
 
+  it("saves the server time zone under its canonical IANA name and reports the zone in effect", async () => {
+    // The zone applies at the next server start, so the response also carries the zone this process uses now.
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      serverTimeZone: "America/Los_Angeles",
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverTimeZone: " america/los_angeles " }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ serverTimeZone: "America/Los_Angeles" }),
+    );
+    const json = await res.json();
+    expect(json.serverTimeZone).toBe("America/Los_Angeles");
+    expect(json.serverTimeZoneInEffect).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it("clears the server time zone with an empty value", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverTimeZone: "" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ serverTimeZone: "" }));
+  });
+
+  it("returns 400 for a server time zone that is not an IANA zone", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverTimeZone: "Pacific Standard Time" }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('"Pacific Standard Time" is not a time zone');
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for non-string pushoverUserKey", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

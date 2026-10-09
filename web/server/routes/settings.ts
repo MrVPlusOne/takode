@@ -59,6 +59,7 @@ import {
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
 import { processHostOf } from "../remote-host/host-registry.js";
+import { canonicalTimeZone, serverDefaultTimeZone, timeZoneInEffect } from "../server-time-zone.js";
 import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
@@ -930,6 +931,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       serverName: getServerName(),
       serverId: getServerId(),
       serverSlug: settings.serverSlug,
+      serverTimeZone: settings.serverTimeZone ?? "",
+      serverTimeZoneInEffect: timeZoneInEffect(),
+      serverTimeZoneDefault: serverDefaultTimeZone(),
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
@@ -1029,6 +1033,20 @@ export function createSettingsRoutes(ctx: RouteContext) {
         },
         400,
       );
+    }
+    if (body.serverTimeZone !== undefined && typeof body.serverTimeZone !== "string") {
+      return c.json({ error: "serverTimeZone must be a string" }, 400);
+    }
+    let normalizedServerTimeZone: string | undefined;
+    if (typeof body.serverTimeZone === "string") {
+      const zone = body.serverTimeZone.trim() ? canonicalTimeZone(body.serverTimeZone) : "";
+      if (zone === null) {
+        return c.json(
+          { error: `"${body.serverTimeZone.trim()}" is not a time zone; use an IANA name such as America/Los_Angeles` },
+          400,
+        );
+      }
+      normalizedServerTimeZone = zone;
     }
     if (body.pushoverUserKey !== undefined && typeof body.pushoverUserKey !== "string") {
       return c.json({ error: "pushoverUserKey must be a string" }, 400);
@@ -1255,6 +1273,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     const knownFields = [
       "serverName",
       "serverSlug",
+      "serverTimeZone",
       "pushoverUserKey",
       "pushoverApiToken",
       "pushoverDelaySeconds",
@@ -1349,6 +1368,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
           : undefined,
       sessionDefaults: parsedSessionDefaults,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
+      serverTimeZone: normalizedServerTimeZone,
     };
     const settings = updateSettings(settingsPatch);
     if (normalizedServerSlug !== undefined && typeof launcher.setServerSlug === "function") {

@@ -41,6 +41,7 @@ describe("settings-manager", () => {
       serverName: "",
       serverId: "",
       serverSlug: "local",
+      serverTimeZone: "",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -87,6 +88,24 @@ describe("settings-manager", () => {
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.serverSlug).toBe("dev_custom");
+  });
+
+  it("stores the server time zone by its canonical IANA name and keeps the old one on invalid input", async () => {
+    // The route rejects invalid names; the store also refuses them so TZ never receives a non-zone.
+    expect(updateSettings({ serverTimeZone: " america/los_angeles " }).serverTimeZone).toBe("America/Los_Angeles");
+    expect(updateSettings({ serverTimeZone: "Not/AZone" }).serverTimeZone).toBe("America/Los_Angeles");
+
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).serverTimeZone).toBe("America/Los_Angeles");
+
+    // An empty value returns to the machine's zone.
+    expect(updateSettings({ serverTimeZone: "  " }).serverTimeZone).toBe("");
+  });
+
+  it("drops an invalid hand-edited server time zone when loading", () => {
+    writeFileSync(settingsPath, JSON.stringify({ serverTimeZone: "Mars/Olympus_Mons" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().serverTimeZone).toBe("");
   });
 
   it("rejects invalid direct serverSlug updates", () => {
@@ -567,6 +586,7 @@ describe("settings-manager", () => {
       serverName: "",
       serverId: "",
       serverSlug: "local",
+      serverTimeZone: "",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

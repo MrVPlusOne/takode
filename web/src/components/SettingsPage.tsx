@@ -24,6 +24,7 @@ import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
+import { SettingsServerTimeZoneSection } from "./SettingsServerTimeZoneSection.js";
 import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import { SettingsPhoneAlertRules, SettingsPushoverSection } from "./SettingsPhoneAlertsSection.js";
 import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
@@ -1026,6 +1027,10 @@ export function SettingsPage({
             {/* ── Server ───────────────────────────────────────────── */}
             <CollapsibleSection {...settingsSearch.sectionProps("server")}>
               <SettingsLoginSection hidden={settingsSearch.rowHidden("server", "login")} />
+              <SettingsServerTimeZoneSection
+                initial={loadedSettings}
+                hidden={settingsSearch.rowHidden("server", "server-time-zone")}
+              />
               <SettingsServerDiagnosticsSection
                 logFile={logFile}
                 serverSlug={serverSlug}

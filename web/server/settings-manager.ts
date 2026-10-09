@@ -13,6 +13,7 @@ import {
 import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
 import { DEFAULT_SEND_KEY_SCHEME, normalizeSendKeyScheme, type SendKeyScheme } from "../shared/send-key-scheme.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
+import { canonicalTimeZone } from "./server-time-zone.js";
 import {
   DEFAULT_SESSION_DEFAULTS,
   normalizeSessionDefaults,
@@ -38,6 +39,8 @@ export interface CompanionSettings {
   serverId: string;
   /** Renameable user/model-facing slug for this server instance */
   serverSlug: string;
+  /** Canonical IANA zone the server formats local times in, applied at startup; "" uses the machine's zone. Optional for backward-compatible tests/mocks. */
+  serverTimeZone?: string;
   /** Pushover user key for push notifications */
   pushoverUserKey: string;
   /** Pushover API/app token */
@@ -209,6 +212,7 @@ let settings: CompanionSettings = {
   serverName: "",
   serverId: "",
   serverSlug: "",
+  serverTimeZone: "",
   pushoverUserKey: "",
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
@@ -488,6 +492,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     serverName: typeof raw?.serverName === "string" ? raw.serverName : "",
     serverId: typeof raw?.serverId === "string" ? raw.serverId : "",
     serverSlug: serverSlug && isValidServerSlug(serverSlug) ? serverSlug : "",
+    serverTimeZone: typeof raw?.serverTimeZone === "string" ? (canonicalTimeZone(raw.serverTimeZone) ?? "") : "",
     pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
     pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
     pushoverDelaySeconds:
@@ -673,6 +678,7 @@ export function updateSettings(
       | "shortcutSettings"
       | "sessionDefaults"
       | "serverSlug"
+      | "serverTimeZone"
     >
   >,
 ): CompanionSettings {
@@ -695,6 +701,11 @@ export function updateSettings(
     } else {
       defined.serverSlug = normalizedSlug;
     }
+  }
+  if (typeof defined.serverTimeZone === "string") {
+    const zone = defined.serverTimeZone.trim() ? canonicalTimeZone(defined.serverTimeZone) : "";
+    if (zone === null) delete defined.serverTimeZone;
+    else defined.serverTimeZone = zone;
   }
 
   if (defined.namerConfig) {

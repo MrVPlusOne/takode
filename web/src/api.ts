@@ -647,6 +647,12 @@ export interface AppSettings {
   serverName: string;
   serverId: string;
   serverSlug: string;
+  /** Configured IANA zone the server formats local times in; "" uses the machine's zone. */
+  serverTimeZone: string;
+  /** The zone the running server uses; differs from the setting until the next restart. */
+  serverTimeZoneInEffect: string;
+  /** The zone an empty setting gives at the next start. */
+  serverTimeZoneDefault: string;
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
   pushoverEventFilters?: PushoverEventFilters;
@@ -1369,6 +1375,7 @@ export const api = {
   updateSettings: (data: {
     serverName?: string;
     serverSlug?: string;
+    serverTimeZone?: string;
     pushoverUserKey?: string;
     pushoverApiToken?: string;
     pushoverDelaySeconds?: number;
