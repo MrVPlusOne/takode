@@ -200,6 +200,7 @@ Recordings are ephemeral debugging artifacts under `$TMPDIR/companion-recordings
 - [Changelog](CHANGELOG.md)
 - [Using Takode with GitHub Copilot](docs/github-copilot.md)
 - [Running sessions on another machine](docs/remote-hosts.md)
+- [Moving the coordinator to another machine](docs/moving-the-coordinator.md)
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
 - [Dependency and Install Policy](docs/dependency-policy.md)

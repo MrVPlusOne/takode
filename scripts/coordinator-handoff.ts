@@ -20,6 +20,9 @@
  * other machine; hosts that followed the coordinator there refuse a lower one.
  *
  * `--port` names the server's port on this machine (default 3456).
+ *
+ * The whole procedure (connectivity, rehearsal, cutover, rollback, pitfalls)
+ * is in docs/moving-the-coordinator.md.
  */
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";

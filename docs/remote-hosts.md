@@ -279,82 +279,13 @@ yourself whenever the coordinator is updated.
 
 ## Moving the coordinator to another machine
 
-The coordinator role can move to a machine that already runs its sessions as
-a host, for example from a laptop to an always-on workstation. Sessions stay
-on the machines where they run: the old coordinator's own sessions become
-sessions on a host named after that machine, and the receiving host's sessions
-become the new coordinator's own. `scripts/coordinator-handoff.ts` does the
-move:
-
-- **What moves:** settings (the server keeps its identity), quests with their
-  images and evidence, memory repos (whole, with their Git history and
-  remotes), unarchived sessions with their timers, notifications, boards and
-  attachments, registered hosts, landing gates and the landing queue, to-dos
-  and the other server state. Export waits for a running landing to finish.
-- **What stays:** archived sessions (their history remains in the old
-  machine's files), logs, resource leases, worktree checkouts and agent
-  artifacts.
-
-1. **Rehearse first** (optional, recommended). On the old coordinator, without
-   stopping it:
-
-   ```bash
-   bun scripts/coordinator-handoff.ts export --rehearsal --to <new machine> --address <new URL> --package-dir <empty dir>
-   ```
-
-   Copy the package folder to the new machine and import it under a separate
-   `HOME` and port, then start a server there with that `HOME` and port. A
-   rehearsal copy starts no agents (both machines' Claude and Codex settings
-   point to a program that does not exist) and sends no phone alerts, so
-   copied timers cannot resume real sessions next to the live ones. Connect a
-   node to it under another host name to try the path from the old machine.
-   Copying the rehearsal package ahead of time also lets the real move send
-   only what changed since (for example with `rsync`).
-
-2. **Stop the old coordinator** with a normal stop (not Restart Server). This
-   also stops its own `takode node`, so every session process ends; sessions
-   resume their conversations the next time they are used.
-
-3. **Export** on the old machine:
-
-   ```bash
-   bun scripts/coordinator-handoff.ts export --to <new machine> --address <new URL> --package-dir <empty dir>
-   ```
-
-   It refuses while the server or its node still runs. It writes the package
-   with a SHA-256 for every file, a token file for the old machine's
-   `takode node`, and a **fence**: from now on a server with this identity
-   refuses to start on the old machine and prints where it moved, so two
-   coordinators can never change the same quests, memory and sessions.
-
-4. **Copy the package** to the new machine and stop its `takode node` (its
-   sessions are now the coordinator's own and start under the coordinator).
-
-5. **Import** on the new machine:
-
-   ```bash
-   bun scripts/coordinator-handoff.ts import --package-dir <dir> --check
-   bun scripts/coordinator-handoff.ts import --package-dir <dir> --replace-existing
-   ```
-
-   It checks every file against its checksum before writing anything and
-   moves paths it replaces into `~/.companion/coordinator-handoff-backups/`.
-   It only imports on the machine the package names.
-
-6. **Start the server** on the new machine, then check **Settings → Hosts**:
-   the new coordinator's own machine has the Claude Code and Codex settings
-   the host had (a `--claude` or `--codex` flag on its old node is not
-   carried over).
-
-7. **Start `takode node` on the old machine** with the token file the export
-   printed, pointed at the new coordinator. Give it a checkout of its own if
-   it uses `--auto-update`.
-
-**Rolling back:** stop the new coordinator, then on the old machine run
-`bun scripts/coordinator-handoff.ts reclaim --after-epoch <n>`, where `<n>` is
-the `epoch` in `~/.companion/coordinator/<serverId>.json` on the new machine,
-and start the old server again. Its data is as it was at the export; changes
-made on the new machine after the move are not carried back.
+The coordinator role can move to a machine that already runs its sessions as a
+host, for example from a laptop to an always-on workstation, while every
+session stays on the machine where it runs. `scripts/coordinator-handoff.ts`
+moves the data with checksums, relabels sessions to their machines and fences
+the old machine; see [Moving the coordinator](moving-the-coordinator.md) for
+prerequisites, connectivity, rehearsal, cutover, verification, rollback and
+pitfalls.
 
 ## Latency
 
