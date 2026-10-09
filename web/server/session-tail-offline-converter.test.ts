@@ -84,13 +84,16 @@ it("streams a giant source line, preserves originals/pending metadata and can re
   expect(restored!.toolResults).toEqual([["tool", { content: "\0literal", timestamp: 2, is_error: false }]]);
   expect(restored!.pendingCodexInputs).toEqual(f.hot.pendingCodexInputs);
   expect((restored as unknown as typeof f.hot).unknownMetadata).toEqual(f.hot.unknownMetadata);
-  expect(await readFile(join(f.backupDirectory, f.id, "originals", "source.tail.jsonl"))).toEqual(originalTail);
+  // Buffer.equals: a deep toEqual walks the ~0.8 MB tail byte by byte and took seconds per check.
+  expect((await readFile(join(f.backupDirectory, f.id, "originals", "source.tail.jsonl"))).equals(originalTail)).toBe(
+    true,
+  );
   expect(await readFile(join(f.backupDirectory, f.id, "originals", "source.json"))).toEqual(originalHot);
   expect(await migrateExperimentalSessionTail(f.options)).toEqual(result);
   expect((await readdir(f.sessionsDirectory)).filter((p) => p.endsWith(".data"))).toHaveLength(1);
   expect((await migrateExperimentalSessionTail({ ...f.options, rollback: true })).status).toBe("rolled-back");
   expect(await readFile(join(f.sessionsDirectory, "source.json"))).toEqual(originalHot);
-  expect(await readFile(join(f.sessionsDirectory, "source.tail.jsonl"))).toEqual(originalTail);
+  expect((await readFile(join(f.sessionsDirectory, "source.tail.jsonl"))).equals(originalTail)).toBe(true);
 });
 
 it("reconciles exact frozen overlap and rejects conflicting or incomplete frozen content", async () => {

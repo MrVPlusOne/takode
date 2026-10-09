@@ -15,6 +15,17 @@ export type SourceNode =
   | ({ kind: "object"; entries: [StringNode, SourceNode][] } & JsonRange)
   | ({ kind: "scalar"; value: null | boolean | number } & JsonRange);
 
+const SIMPLE_ESCAPES: Record<number, string> = {
+  34: '"',
+  92: "\\",
+  47: "/",
+  98: "\b",
+  102: "\f",
+  110: "\n",
+  114: "\r",
+  116: "\t",
+};
+
 /** Byte-indexed JSON reader. Strings are validated in pieces and represented by file ranges. */
 export class SourceJson {
   private buffer = Buffer.alloc(0);
@@ -34,19 +45,27 @@ export class SourceJson {
     const file = await open(path, "r");
     return new SourceJson(file, end ?? (await file.stat()).size);
   }
-  async peek(): Promise<number> {
+  /**
+   * The byte at the cursor when it is already buffered (-1 at the end), else undefined.
+   * Hot loops use `buffered() ?? (await peek())` so buffered bytes cost no promise.
+   */
+  private buffered(): number | undefined {
     if (this.position >= this.end) return -1;
-    if (this.position < this.bufferStart || this.position >= this.bufferStart + this.buffer.length) {
-      const buffer = Buffer.alloc(Math.min(64 * 1024, this.end - this.position));
-      const { bytesRead } = await this.file.read(buffer, 0, buffer.length, this.position);
-      if (!bytesRead) throw new Error("Source ended before its declared extent");
-      this.buffer = buffer.subarray(0, bytesRead);
-      this.bufferStart = this.position;
-    }
-    return this.buffer[this.position - this.bufferStart];
+    const offset = this.position - this.bufferStart;
+    return offset >= 0 && offset < this.buffer.length ? this.buffer[offset] : undefined;
+  }
+  async peek(): Promise<number> {
+    const byte = this.buffered();
+    if (byte !== undefined) return byte;
+    const buffer = Buffer.alloc(Math.min(64 * 1024, this.end - this.position));
+    const { bytesRead } = await this.file.read(buffer, 0, buffer.length, this.position);
+    if (!bytesRead) throw new Error("Source ended before its declared extent");
+    this.buffer = buffer.subarray(0, bytesRead);
+    this.bufferStart = this.position;
+    return this.buffer[0];
   }
   async whitespace(): Promise<void> {
-    while ([32, 9, 10, 13].includes(await this.peek())) this.position++;
+    while ([32, 9, 10, 13].includes(this.buffered() ?? (await this.peek()))) this.position++;
   }
   async expect(byte: number): Promise<void> {
     await this.whitespace();
@@ -59,7 +78,7 @@ export class SourceJson {
     const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
     let pending = "";
     for (;;) {
-      const byte = await this.peek();
+      const byte = this.buffered() ?? (await this.peek());
       if (byte < 0) throw new Error("Incomplete source JSON string");
       if (byte === 34) {
         this.position++;
@@ -70,27 +89,18 @@ export class SourceJson {
       if (byte === 92) {
         pending += decoder.decode();
         this.position++;
-        const escape = await this.peek();
+        const escape = this.buffered() ?? (await this.peek());
         this.position++;
-        const simple: Record<number, string> = {
-          34: '"',
-          92: "\\",
-          47: "/",
-          98: "\b",
-          102: "\f",
-          110: "\n",
-          114: "\r",
-          116: "\t",
-        };
         if (escape === 117) {
-          let digits = "";
+          let code = 0;
           for (let i = 0; i < 4; i++) {
-            digits += String.fromCharCode(await this.peek());
+            const digit = hexDigit(this.buffered() ?? (await this.peek()));
+            if (digit < 0) throw new Error("Invalid source Unicode escape");
+            code = code * 16 + digit;
             this.position++;
           }
-          if (!/^[a-fA-F0-9]{4}$/.test(digits)) throw new Error("Invalid source Unicode escape");
-          pending += String.fromCharCode(parseInt(digits, 16));
-        } else if (Object.hasOwn(simple, escape)) pending += simple[escape];
+          pending += String.fromCharCode(code);
+        } else if (Object.hasOwn(SIMPLE_ESCAPES, escape)) pending += SIMPLE_ESCAPES[escape];
         else throw new Error("Invalid source JSON escape");
       } else {
         const start = this.position - this.bufferStart;
@@ -203,4 +213,12 @@ export class SourceJson {
       Object.defineProperty(result, await this.text(key), { value: await this.small(child), enumerable: true });
     return result;
   }
+}
+
+/** Value of an ASCII hex digit byte, or -1. */
+function hexDigit(byte: number): number {
+  if (byte >= 48 && byte <= 57) return byte - 48;
+  if (byte >= 65 && byte <= 70) return byte - 55;
+  if (byte >= 97 && byte <= 102) return byte - 87;
+  return -1;
 }
