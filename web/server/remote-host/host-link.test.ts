@@ -285,6 +285,45 @@ describe("host link", () => {
     expect(env.port).toBe("45678");
   });
 
+  // A node started from inside a Claude Code session (say, restarted by an
+  // agent's Bash tool) must not hand that session's login routing to the
+  // processes it runs, or every Claude there reports "Not logged in". The
+  // node's own provider settings still apply.
+  it("does not pass a parent Claude Code session's variables to processes on a host", async () => {
+    const parent = {
+      CLAUDE_CODE_ENTRYPOINT: "claude-desktop-3p",
+      CLAUDE_CODE_HOST_AUTH_ENV_VAR: "ANTHROPIC_AUTH_TOKEN",
+      ANTHROPIC_AUTH_TOKEN: "desktop-host-token",
+      ANTHROPIC_BASE_URL: "https://proxy.example",
+    };
+    const saved = Object.fromEntries(Object.keys(parent).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, parent);
+    try {
+      agent = startAgent();
+      const proc = manager.spawn(hostId, {
+        command: process.execPath,
+        args: [
+          "-e",
+          `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(Object.keys(parent))}.map((k) => [k, process.env[k] ?? null]))))`,
+        ],
+        env: {},
+      });
+      const output = collect(proc);
+      await once(proc, "exit");
+      expect(JSON.parse(output.text())).toEqual({
+        CLAUDE_CODE_ENTRYPOINT: null,
+        CLAUDE_CODE_HOST_AUTH_ENV_VAR: null,
+        ANTHROPIC_AUTH_TOKEN: null,
+        ANTHROPIC_BASE_URL: "https://proxy.example",
+      });
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   // When a host will not connect again (this machine's node was turned off and
   // stopped), its processes end, including ones waiting to be taken over, so
   // their sessions start anew instead of waiting forever.

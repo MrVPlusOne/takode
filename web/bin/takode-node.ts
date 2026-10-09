@@ -37,6 +37,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parentClaudeSessionWarning } from "../server/cli-launcher-env.js";
 import { HostAgent, insecureCoordinatorUrlProblem, startApiProxy } from "../server/remote-host/host-agent.js";
 import { readMachineName, saveMachineName } from "../server/machine-identity.js";
 import {
@@ -73,6 +74,8 @@ async function main(): Promise<void> {
   }
   const autoUpdate = args.includes("--auto-update");
   if (autoUpdate && !process.env[SUPERVISED_ENV]) return supervise();
+  const parentSessionWarning = parentClaudeSessionWarning(process.env);
+  if (parentSessionWarning) console.warn(`[takode node] ${parentSessionWarning}`);
   const coordinatorUrl = option("coordinator") ?? process.env.TAKODE_COORDINATOR_URL;
   if (!coordinatorUrl) fail("--coordinator <url> (or TAKODE_COORDINATOR_URL) is required");
   const urlProblem = insecureCoordinatorUrlProblem(coordinatorUrl, args.includes("--allow-insecure"));

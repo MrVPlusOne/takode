@@ -24,7 +24,7 @@ import { codexComputerUseLaunchArgs } from "./codex-computer-use.js";
 import { resolveCodexLaunchPolicy, type CodexSandboxMode } from "./codex-launch-policy.js";
 import {
   NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
-  stripInheritedTelemetryEnv,
+  inheritedLaunchEnv,
   withNonInteractiveGitEditorEnv,
 } from "./cli-launcher-env.js";
 import {
@@ -1854,9 +1854,8 @@ export async function prepareCodexSpawn(
     return {
       spawnCmd,
       spawnEnv: withNonInteractiveGitEditorEnv({
-        ...stripInheritedTelemetryEnv(process.env),
+        ...inheritedLaunchEnv(process.env),
         ...shellEnv,
-        CLAUDECODE: undefined,
         MAI_CODEX_DEBUG_WRAPPER: "1",
         ...options.env,
         CODEX_HOME: codexHome,

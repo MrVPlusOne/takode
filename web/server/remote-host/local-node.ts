@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { HOST_HEARTBEAT_MS, HOST_LINK_STALE_MS } from "../../shared/host-protocol.js";
+import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import type { HostLinkManager } from "./host-link-manager.js";
 import { LOCAL_HOST_ID, type HostRegistry } from "./host-registry.js";
 
@@ -203,7 +204,11 @@ export function localCoordinatorUrl(listenHost: string, port: number): string {
 async function startDetached(args: string[], logPath: string): Promise<number> {
   const log = await open(logPath, "a");
   try {
-    const child = spawn(process.execPath, args, { detached: true, stdio: ["ignore", log.fd, log.fd] });
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: ["ignore", log.fd, log.fd],
+      env: inheritedLaunchEnv(process.env),
+    });
     child.once("error", (error) => console.error(`[local-node] Could not start the local node: ${error.message}`));
     child.unref();
     if (!child.pid) throw new Error("The local node did not start");

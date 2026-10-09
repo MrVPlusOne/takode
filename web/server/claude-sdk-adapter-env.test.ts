@@ -137,11 +137,33 @@ describe("ClaudeSdkAdapter launch env", () => {
     }
   });
 
-  it("strips an inherited CLAUDECODE so Claude's nesting guard does not trip", async () => {
-    process.env.CLAUDECODE = "1";
-    const { options } = await launchOptions();
-
-    expect(options.env.CLAUDECODE).toBeUndefined();
+  it("does not hand a parent Claude Code session's variables or login to Claude", async () => {
+    // A server started inside Claude Desktop inherits its host-auth markers;
+    // passed on, they make Claude wait for a login the host never supplies
+    // ("Not logged in"). CLAUDECODE would also trip Claude's nesting guard.
+    const parent = {
+      CLAUDECODE: "1",
+      CLAUDE_CODE_ENTRYPOINT: "claude-desktop-3p",
+      CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
+      CLAUDE_CODE_HOST_AUTH_ENV_VAR: "ANTHROPIC_AUTH_TOKEN",
+      ANTHROPIC_AUTH_TOKEN: "desktop-host-token",
+      CLAUDE_CODE_SESSION_ID: "parent-session",
+      ANTHROPIC_BASE_URL: "https://proxy.example",
+    };
+    const saved = Object.fromEntries(Object.keys(parent).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, parent);
+    try {
+      const { options } = await launchOptions();
+      for (const key of Object.keys(parent).filter((key) => key !== "ANTHROPIC_BASE_URL")) {
+        expect(options.env[key], key).toBeUndefined();
+      }
+      expect(options.env.ANTHROPIC_BASE_URL).toBe("https://proxy.example");
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("passes allowed tools into the SDK query options", async () => {

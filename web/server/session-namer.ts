@@ -13,6 +13,7 @@
 import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
 import { resolveBinary, getEnrichedPath } from "./path-resolver.js";
+import { inheritedLaunchEnv } from "./cli-launcher-env.js";
 import { getSettings, type NamerConfig } from "./settings-manager.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -642,7 +643,7 @@ async function callHaiku(prompt: string, model?: string, signal?: AbortSignal): 
     const proc = Bun.spawn(args, {
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...process.env, PATH: getEnrichedPath() },
+      env: { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() },
     });
 
     // Kill subprocess if caller aborts (e.g. new namer call for same session)

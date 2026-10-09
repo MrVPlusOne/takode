@@ -31,6 +31,7 @@ import { BrowserLogin, loginGate } from "./browser-login.js";
 import { createBrowserLoginRoutes } from "./routes/browser-login.js";
 import { HOST_LINK_PATH } from "../shared/host-protocol.js";
 import { CliLauncher } from "./cli-launcher.js";
+import { parentClaudeSessionWarning } from "./cli-launcher-env.js";
 import { WsBridge } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { WorktreeTracker } from "./worktree-tracker.js";
@@ -1128,6 +1129,8 @@ wsBridge.onTurnCompleted = async (sessionId, history, cwd) => {
 };
 
 console.log(`[server] Session persistence: ${sessionStore.directory}`);
+const parentSessionWarning = parentClaudeSessionWarning(process.env);
+if (parentSessionWarning) console.warn(`[server] ${parentSessionWarning}`);
 if (recorder.isGloballyEnabled()) {
   console.log(`[server] Recording enabled (dir: ${recorder.getRecordingsDir()}, max: ${recorder.getMaxLines()} lines)`);
 }

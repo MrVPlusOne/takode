@@ -1,4 +1,5 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { inheritedLaunchEnv } from "./cli-launcher-env.js";
 
 /** A login shell running in a pseudo-terminal, on this machine or on a remote host. */
 export interface TerminalProcess {
@@ -42,7 +43,7 @@ export function spawnLocalTerminal(cwd: string, cols: number, rows: number, outp
   };
   const proc = Bun.spawn([resolveShell(), "-l"], {
     cwd,
-    env: { ...process.env, TERM: "xterm-256color", CLAUDECODE: undefined },
+    env: { ...inheritedLaunchEnv(process.env), TERM: "xterm-256color" },
     terminal: {
       cols,
       rows,

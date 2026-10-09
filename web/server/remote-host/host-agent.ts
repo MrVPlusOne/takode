@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { hasUsableNetwork } from "../network-availability.js";
 import { dirname } from "node:path";
 import { getEnrichedPath } from "../path-resolver.js";
+import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
@@ -467,7 +468,7 @@ export class HostAgent {
       ...(command.fullEnv
         ? command.env
         : {
-            ...process.env,
+            ...inheritedLaunchEnv(process.env),
             ...(prepared?.env ?? command.env),
             // Like on the coordinator, agents find Takode's CLI wrappers and the user's
             // shell tools first. A prepared Codex launch already built this PATH here.

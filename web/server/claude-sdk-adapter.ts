@@ -18,7 +18,7 @@ import type {
   PermissionMode as SdkPermissionMode,
   Query as SdkQuery,
 } from "@anthropic-ai/claude-agent-sdk";
-import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
+import { inheritedLaunchEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
 import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import {
@@ -321,16 +321,15 @@ export class ClaudeSdkAdapter
     }
 
     // Merge process.env (inherits ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN from
-    // claude.sh) with session-specific vars (COMPANION_SESSION_ID, etc.)
+    // claude.sh) with session-specific vars (COMPANION_SESSION_ID, etc.), minus
+    // a parent Claude Code session's variables (see inheritedLaunchEnv).
     // Enrich PATH so the SDK can find the `claude` binary and companion skills
     // (e.g., quest CLI in ~/.companion/bin). Without this, SDK sessions can't
     // find binaries that aren't on the default system PATH.
     const mergedEnv: Record<string, string | undefined> = withNonInteractiveGitEditorEnv({
       CLAUDE_CODE_MAX_RETRIES: CLAUDE_MAX_RETRIES_DEFAULT,
-      ...stripInheritedTelemetryEnv(process.env),
+      ...inheritedLaunchEnv(process.env),
       ...(this.options.env || {}),
-      // A Takode server started from inside Claude Code must not trip the CLI's nesting guard.
-      CLAUDECODE: undefined,
       PATH: getEnrichedPath({ serverId: this.options.env?.COMPANION_SERVER_ID }),
     });
 

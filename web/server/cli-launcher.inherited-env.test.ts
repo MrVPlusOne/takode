@@ -71,21 +71,38 @@ async function waitForSpawnCalls(count: number) {
   }
 }
 
-async function withInheritedOtelEnv(run: () => Promise<void>) {
-  const previousLogsEndpoint = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
-  const previousProtocol = process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
-  const previousServiceName = process.env.OTEL_SERVICE_NAME;
+const INHERITED_OTEL_ENV = {
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://localhost:14318/v1/logs",
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+  OTEL_SERVICE_NAME: "companion-test",
+};
 
-  process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = "http://localhost:14318/v1/logs";
-  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf";
-  process.env.OTEL_SERVICE_NAME = "companion-test";
+/** What a server started inside Claude Desktop inherits (abridged), plus a provider setting to keep. */
+const INHERITED_PARENT_CLAUDE_ENV = {
+  CLAUDECODE: "1",
+  CLAUDE_CODE_ENTRYPOINT: "claude-desktop-3p",
+  CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
+  CLAUDE_CODE_HOST_AUTH_ENV_VAR: "ANTHROPIC_AUTH_TOKEN",
+  ANTHROPIC_AUTH_TOKEN: "desktop-host-token",
+  CLAUDE_CODE_SESSION_ID: "parent-session",
+  ANTHROPIC_BASE_URL: "https://proxy.example",
+};
 
+async function withInheritedEnv(vars: Record<string, string>, run: () => Promise<void>) {
+  const previous = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, vars);
   try {
     await run();
   } finally {
-    restoreEnvValue("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", previousLogsEndpoint);
-    restoreEnvValue("OTEL_EXPORTER_OTLP_PROTOCOL", previousProtocol);
-    restoreEnvValue("OTEL_SERVICE_NAME", previousServiceName);
+    for (const [key, value] of Object.entries(previous)) restoreEnvValue(key, value);
+  }
+}
+
+/** The parent session's variables are gone; the user's provider setting stays. */
+function expectNoParentClaudeEnv(env: Record<string, string | undefined>) {
+  for (const key of Object.keys(INHERITED_PARENT_CLAUDE_ENV)) {
+    if (key === "ANTHROPIC_BASE_URL") expect(env[key]).toBe("https://proxy.example");
+    else expect(env[key], key).toBeUndefined();
   }
 }
 
@@ -139,7 +156,7 @@ afterAll(() => {
 
 describe("launcher telemetry env stripping", () => {
   it("strips inherited OTEL env vars from host Claude sessions", async () => {
-    await withInheritedOtelEnv(async () => {
+    await withInheritedEnv(INHERITED_OTEL_ENV, async () => {
       await launcher.launch({ cwd: "/tmp/project" });
 
       await vi.waitFor(() => expect(sdkQueryOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
@@ -151,7 +168,7 @@ describe("launcher telemetry env stripping", () => {
   });
 
   it("strips inherited OTEL env vars from host Codex sessions", async () => {
-    await withInheritedOtelEnv(async () => {
+    await withInheritedEnv(INHERITED_OTEL_ENV, async () => {
       const customHome = mkdtempSync(join(tempDir, "codex-home-"));
       mockResolveBinary.mockReturnValue("/opt/fake/codex");
       mockSpawn.mockImplementation(() => createMockCodexProc());
@@ -168,6 +185,38 @@ describe("launcher telemetry env stripping", () => {
       expect(options.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toBeUndefined();
       expect(options.env.OTEL_EXPORTER_OTLP_PROTOCOL).toBeUndefined();
       expect(options.env.OTEL_SERVICE_NAME).toBeUndefined();
+    });
+  });
+});
+
+describe("launcher parent Claude Code session env stripping", () => {
+  // A Takode server started from inside a Claude Code session must not pass
+  // that session's login routing on: launched Claudes would report "Not logged in".
+  it("strips a parent Claude session's variables from host Claude sessions", async () => {
+    await withInheritedEnv(INHERITED_PARENT_CLAUDE_ENV, async () => {
+      await launcher.launch({ cwd: "/tmp/project" });
+
+      await vi.waitFor(() => expect(sdkQueryOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
+      expectNoParentClaudeEnv(sdkQueryOptions.at(-1).env);
+    });
+  });
+
+  it("strips a parent Claude session's variables from host Codex sessions", async () => {
+    await withInheritedEnv(INHERITED_PARENT_CLAUDE_ENV, async () => {
+      const customHome = mkdtempSync(join(tempDir, "codex-home-"));
+      mockResolveBinary.mockReturnValue("/opt/fake/codex");
+      mockSpawn.mockImplementation(() => createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const [, options] = mockSpawn.mock.calls[0];
+      expectNoParentClaudeEnv(options.env);
     });
   });
 });
