@@ -42,8 +42,10 @@ describe("Compact tool activity Playground states", () => {
     expect(lineTexts(expanded)).toHaveLength(10);
     expect(lineTexts(expanded)[0]).toBe("ThoughtCheck where the preview falls back");
 
-    // Live: the newest activity is running, and the next one rolls the window.
+    // Live: the newest activity is running, its heading total counts live, and the
+    // next one rolls the window.
     const live = screen.getByTestId("playground-activity-live");
+    expect(within(live).getByTestId("compact-tool-activity-total")).toHaveClass("text-cc-primary");
     expect(within(live).getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+3 earlier");
     fireEvent.click(within(live).getByRole("button", { name: "Next activity arrives" }));
     expect(within(live).getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+4 earlier");

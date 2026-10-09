@@ -304,7 +304,8 @@ function useSeededActivityResults(sessionId: string, results: ToolResultPreview[
       toolResults: new Map(state.toolResults).set(sessionId, new Map(results.map((r) => [r.tool_use_id, r]))),
       toolStartTimestamps: new Map(state.toolStartTimestamps).set(
         sessionId,
-        new Map(runningIds.map((id) => [id, Date.now() - 4_000])),
+        // A long-running newest call, so the heading's live total is visibly larger than its line's time.
+        new Map(runningIds.map((id) => [id, Date.now() - 85_000])),
       ),
     }));
   }, [sessionId, results, runningIds]);
@@ -362,7 +363,10 @@ function PlaygroundExpandedActivityGroup() {
   );
 }
 
-/** A live group: the newest activity is running, and adding one rolls the oldest into "+N earlier". */
+/**
+ * A live group: the newest activity is running, its heading counts the group's total time
+ * live, and adding an activity rolls the oldest into "+N earlier".
+ */
 function PlaygroundLiveActivityGroup() {
   const [count, setCount] = useState(5);
   const tools = useMemo(() => ACTIVITY_TOOLS.slice(0, count), [count]);
@@ -420,7 +424,7 @@ export function PlaygroundCompactToolActivityStates() {
   return (
     <Section
       title="Compact Tool Activity"
-      description="Only agent text splits activity: tools of any type, thoughts and routine worker events between two pieces of text form one group. A lone activity is one light line; a group is a card with a summary heading. While the group is active (nothing has followed it yet), the heading sits over a rolling window of its newest three activities, older ones folded into +N earlier; once later content follows, the collapsed group shows only its heading. Expanding fills older lines in place, and every line opens to its own details."
+      description="Only agent text splits activity: tools of any type, thoughts and routine worker events between two pieces of text form one group. A lone activity is one light line; a group is a card with a summary heading. While the group is active (nothing has followed it yet), the heading sits over a rolling window of its newest three activities, older ones folded into +N earlier; once later content follows, the collapsed group shows only its heading. The heading's total time counts live while any call is still running. Expanding fills older lines in place, and every line opens to its own details."
     >
       <div className="space-y-4 max-w-3xl">
         <Card label="Conversation: agent text alternates with inactive activity groups (collapsed to headings)">
@@ -429,7 +433,7 @@ export function PlaygroundCompactToolActivityStates() {
         <Card label="Group expanded: older lines fill in above">
           <PlaygroundExpandedActivityGroup />
         </Card>
-        <Card label="Live group: active, rolling window of the newest three, newest activity running">
+        <Card label="Live group: active, rolling window of the newest three, newest activity running, heading total counting live">
           <PlaygroundLiveActivityGroup />
         </Card>
         <Card label="Line previews: skill names, long paths cut like diff headers, multi-file edits, MCP names">

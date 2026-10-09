@@ -200,6 +200,8 @@ interface LineStatus {
   running: boolean;
   failed: boolean;
   durationSeconds?: number;
+  /** Server start time of a running tool, for the group's live total. */
+  startTimestamp?: number;
 }
 
 function itemKey(item: CompactToolActivityItem): string {
@@ -280,14 +282,28 @@ function useLineStatuses(sessionId: string | undefined, items: CompactToolActivi
         continue;
       }
       const result = item.resultOverride ?? results?.get(item.id);
+      const startTimestamp = result ? undefined : startTimes?.get(item.id);
       statuses.set(itemKey(item), {
-        running: !result && startTimes?.has(item.id) === true,
+        running: startTimestamp != null,
         failed: result?.is_error === true,
         durationSeconds: result?.duration_seconds,
+        startTimestamp,
       });
     }
     return statuses;
   }, [items, results, startTimes]);
+}
+
+/** The current time, ticking every second while enabled. */
+function useLiveClock(enabled: boolean): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [enabled]);
+  return now;
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -423,7 +439,15 @@ function ActivityHeading({
   const knownDurations = lineStatuses.flatMap((status) =>
     status?.durationSeconds != null ? [status.durationSeconds] : [],
   );
-  const totalSeconds = knownDurations.reduce((sum, seconds) => sum + seconds, 0);
+  // Running tools have no duration yet, so their elapsed time joins the total live,
+  // counted the way their own line badges count it.
+  const runningStarts = lineStatuses.flatMap((status) =>
+    status?.running && status.startTimestamp != null ? [status.startTimestamp] : [],
+  );
+  const live = runningStarts.length > 0;
+  const now = useLiveClock(live);
+  const liveSeconds = runningStarts.reduce((sum, start) => sum + Math.max(0, Math.round((now - start) / 1000)), 0);
+  const totalSeconds = knownDurations.reduce((sum, seconds) => sum + seconds, 0) + liveSeconds;
   // Per-type counts only add information when the group mixes activity types.
   const typeCounts = new Map<string, number>();
   for (const item of items) typeCounts.set(lineLabel(item), (typeCounts.get(lineLabel(item)) ?? 0) + 1);
@@ -445,8 +469,13 @@ function ActivityHeading({
           ))}
         </span>
       )}
-      {!running && knownDurations.length > 0 && (
-        <span className="shrink-0 text-[10px] tabular-nums text-cc-muted">{formatDuration(totalSeconds)}</span>
+      {(live || knownDurations.length > 0) && (
+        <span
+          className={`shrink-0 text-[10px] tabular-nums ${live ? "text-cc-primary" : "text-cc-muted"}`}
+          data-testid="compact-tool-activity-total"
+        >
+          {formatDuration(totalSeconds)}
+        </span>
       )}
     </>
   );

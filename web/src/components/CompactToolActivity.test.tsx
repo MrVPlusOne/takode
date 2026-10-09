@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 import type { ToolResultPreview } from "../types.js";
 import {
@@ -392,7 +392,7 @@ describe("CompactToolActivity", () => {
 
   it("marks failed and running lines from the session's tool results", () => {
     // Line status comes from the stored results: an error result is "failed", and a
-    // started tool without a result is still running, which hides the total time.
+    // started tool without a result is still running.
     useStore.setState({
       toolResults: new Map([
         [
@@ -413,7 +413,59 @@ describe("CompactToolActivity", () => {
     expect(screen.getByText("3.0s")).toBeTruthy();
 
     rerender(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
-    expect(screen.queryByText("3.0s")).toBeNull();
+    expect(screen.getAllByTestId("compact-tool-activity-line")[2].querySelector(".animate-pulse")).toBeTruthy();
+  });
+
+  it("counts a running group's total time live in its heading", () => {
+    // The heading total used to appear only after every call finished, because a running
+    // call has no duration yet. It now adds each running call's elapsed time to the
+    // finished durations and keeps counting until the group is done.
+    vi.useFakeTimers();
+    try {
+      const start = Date.now();
+      useStore.setState({
+        toolResults: new Map([
+          [
+            "s1",
+            new Map([
+              ["bash-1", toolResult("bash-1", { duration_seconds: 20 })],
+              ["bash-2", toolResult("bash-2", { duration_seconds: 10 })],
+            ]),
+          ],
+        ]),
+        toolStartTimestamps: new Map([["s1", new Map([["bash-3", start - 85_000]])]]),
+      });
+      render(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
+      const total = screen.getByTestId("compact-tool-activity-total");
+      expect(total.textContent).toBe("1m55s");
+      expect(total.className).toContain("text-cc-primary");
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("2m0s");
+
+      // Once the last call finishes, the heading settles on the static sum of durations.
+      act(() => {
+        useStore.setState({
+          toolResults: new Map([
+            [
+              "s1",
+              new Map([
+                ["bash-1", toolResult("bash-1", { duration_seconds: 20 })],
+                ["bash-2", toolResult("bash-2", { duration_seconds: 10 })],
+                ["bash-3", toolResult("bash-3", { duration_seconds: 92 })],
+              ]),
+            ],
+          ]),
+        });
+      });
+      const settled = screen.getByTestId("compact-tool-activity-total");
+      expect(settled.textContent).toBe("2m2s");
+      expect(settled.className).toContain("text-cc-muted");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("colors only the failed line's label as an error", () => {
