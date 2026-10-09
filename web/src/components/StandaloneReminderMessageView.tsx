@@ -174,6 +174,11 @@ function SystemReminderChip({
           <span className="text-cc-fg/85">{renderedTitle}</span>
           {reminder.summary && <span className="text-cc-muted/75"> · {renderedSummary}</span>}
         </span>
+        {reminder.meta && (
+          <span className="shrink-0 text-[12px] leading-snug text-cc-muted/75" data-testid="system-reminder-meta">
+            {reminder.meta}
+          </span>
+        )}
         <span
           className={`shrink-0 rounded-full border px-1.5 py-0.5 font-mono-code text-[9px] leading-none ${tone.badge}`}
         >
@@ -182,8 +187,32 @@ function SystemReminderChip({
       </button>
       {expanded && (
         <div className="mt-1.5 rounded-md border border-cc-border/25 bg-cc-card/35 px-2.5 py-2">
+          {reminder.detailFacts.length > 0 && (
+            <dl
+              className="mb-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-[12px] leading-snug"
+              data-testid="system-reminder-detail-facts"
+            >
+              {reminder.detailFacts.map((fact) => (
+                <div key={fact.label} className="contents">
+                  <dt className="text-cc-muted/75">{fact.label}</dt>
+                  <dd className="min-w-0 break-words text-cc-fg/85">
+                    {searchHighlight?.query ? (
+                      <HighlightedText
+                        text={fact.value}
+                        query={searchHighlight.query}
+                        mode={searchHighlight.mode}
+                        isCurrent={searchHighlight.isCurrent}
+                      />
+                    ) : (
+                      fact.value
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
           <MarkdownContent
-            text={reminder.rawContent}
+            text={reminder.detailContent}
             variant="conservative"
             sessionId={sessionId}
             searchHighlight={searchHighlight}

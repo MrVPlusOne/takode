@@ -91,6 +91,26 @@ describe("ResourceLeaseManager", () => {
     );
   });
 
+  it("tells the promoted waiter when it got the lease and how long it queued", async () => {
+    // The feed's lease chip reads the Acquired and Waited lines, so the wait
+    // must be measured from when the session joined the queue.
+    await manager.acquire({ resourceKey: "agent-browser", callerSessionId: "owner", purpose: "Inspect UI" });
+    await manager.acquire({
+      resourceKey: "agent-browser",
+      callerSessionId: "waiter",
+      purpose: "Run mobile check",
+      waitIfUnavailable: true,
+    });
+    vi.advanceTimersByTime(3 * 60_000 + 12_000);
+
+    await manager.release("agent-browser", "owner");
+
+    const [, message] = bridge.injectUserMessage.mock.calls[0] as unknown as [string, string];
+    expect(message).toContain("Purpose: Run mobile check");
+    expect(message).toContain("Acquired: 2026-04-29T12:03:12.000Z");
+    expect(message).toContain("Waited: 3m 12s");
+  });
+
   it("reports each queued pool with its current holders for the board stall check", async () => {
     // The stall check decides whether a queued worker's wait is healthy by
     // inspecting who holds the pool, including every slot of a counted pool.

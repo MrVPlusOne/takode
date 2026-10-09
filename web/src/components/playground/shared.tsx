@@ -1361,7 +1361,10 @@ export function PlaygroundResourceLeaseMessage() {
     content: [
       "[Resource lease acquired] You now hold `agent-browser`.",
       "",
+      "Slot: 1 of 1",
       "Purpose: Validate injected reminder chips",
+      "Acquired: 2026-05-10T03:30:00.000Z",
+      "Waited: 3m 12s",
       "Expires: 2026-05-10T04:00:00.000Z",
       "",
       "Heartbeat with `takode lease renew agent-browser`; release with `takode lease release agent-browser` when done.",

@@ -12,6 +12,7 @@ import type {
   ResourceLeaseWaitInput,
 } from "./resource-lease-types.js";
 import { emptyResourceLeaseFile, ResourceLeaseStore } from "./resource-lease-store.js";
+import { formatLeaseWaitDuration, formatResourceLeaseMessageLine } from "../shared/resource-lease-message.js";
 
 const MAX_PURPOSE_LENGTH = 300;
 const MAX_RESOURCE_KEY_LENGTH = 120;
@@ -275,7 +276,7 @@ export class ResourceLeaseManager {
       );
       this.data.leases.push(lease);
       promoted.push(lease);
-      this.notifyPromotedWaiter(lease);
+      this.notifyPromotedWaiter(lease, waiter.queuedAt);
       slot = this.lowestFreeSlot(resourceKey);
     }
     this.setWaiters(resourceKey, waiters);
@@ -283,13 +284,15 @@ export class ResourceLeaseManager {
     return promoted;
   }
 
-  private notifyPromotedWaiter(lease: ResourceLease): void {
+  private notifyPromotedWaiter(lease: ResourceLease, queuedAt: number): void {
     const lines = [
       `[Resource lease acquired] You now hold \`${lease.resourceKey}\`.`,
       "",
-      `Slot: ${lease.slot} of ${this.getCapacity(lease.resourceKey)}`,
-      `Purpose: ${lease.purpose}`,
-      `Expires: ${new Date(lease.expiresAt).toISOString()}`,
+      formatResourceLeaseMessageLine("slot", `${lease.slot} of ${this.getCapacity(lease.resourceKey)}`),
+      formatResourceLeaseMessageLine("purpose", lease.purpose),
+      formatResourceLeaseMessageLine("acquired", new Date(lease.acquiredAt).toISOString()),
+      formatResourceLeaseMessageLine("waited", formatLeaseWaitDuration(lease.acquiredAt - queuedAt)),
+      formatResourceLeaseMessageLine("expires", new Date(lease.expiresAt).toISOString()),
       "",
       // A landing-queue waiter runs the queue: the landing run renews and releases the lease itself.
       lease.metadata.landingEntry
