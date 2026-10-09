@@ -48,6 +48,15 @@ process it needs.
      The host then uses `http://127.0.0.1:13456`. `takode node` accepts plain
      `http://` only for loopback addresses (or with `--allow-insecure` when the
      network already encrypts the traffic).
+   - a forward tunnel opened from the host, when only the host can connect to
+     the coordinator's machine (for example a coordinator in a cloud workspace
+     and a laptop as the host): `ssh -L 13456:127.0.0.1:3456 <coordinator>`, or
+     the workspace's own port forwarding. The host again uses
+     `http://127.0.0.1:13456`, which also serves the laptop's browser.
+
+   The coordinator listens on every network interface by default. When it
+   should be reachable only through tunnels, start it with
+   `COMPANION_HOST=127.0.0.1`.
 
 3. **Start `takode node` on the host** from its Takode checkout:
 
