@@ -379,6 +379,17 @@ function renderedQuestIds(): string[] {
   return questElements.map((el) => el.dataset.questId).filter((questId): questId is string => !!questId);
 }
 
+/**
+ * Whether any button carries this name. A document-wide `queryByRole` with a
+ * name resolves every control's accessible name and took ~3 s per call with
+ * 50 rendered rows; an absence check only needs the label and text.
+ */
+function hasButtonNamed(name: string): boolean {
+  return [...document.querySelectorAll<HTMLElement>("button, [role='button']")].some((el) =>
+    el.hasAttribute("aria-label") ? el.getAttribute("aria-label") === name : el.textContent?.trim() === name,
+  );
+}
+
 function getQuestmasterScrollContainer() {
   return screen.getByTestId("questmaster-scroll-container");
 }
@@ -961,8 +972,8 @@ describe("QuestmasterPage status display", () => {
     });
     await settleLatestQuestPageRequest();
 
-    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+    expect(hasButtonNamed("Load more")).toBe(false);
+    expect(hasButtonNamed("Previous")).toBe(false);
 
     scrollNearQuestmasterBottom();
     await waitFor(() => {
