@@ -67,12 +67,6 @@ import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-r
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
-import {
-  handlePermissionRequest as handlePermissionRequestPipeline,
-  type PermissionPipelineResult,
-  isSensitiveBashCommand as isSensitiveBashCommandPolicy,
-  isSensitiveConfigPath as isSensitiveConfigPathPolicy,
-} from "./bridge/permission-pipeline.js";
 import { detectLongSleepBashCommand, LONG_SLEEP_REMINDER_TEXT } from "./bridge/bash-sleep-policy.js";
 import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
 import { listCodexReasoningPreviews } from "./bridge/codex-reasoning-preview-state.js";

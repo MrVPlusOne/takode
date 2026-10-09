@@ -26,9 +26,8 @@ interfaces rather than full bridge state.
 
 - [permission-pipeline.ts](./permission-pipeline.ts)
   - Permission request normalization and policy flow:
+    - hard denies (read-only Side Chat mutations, long sleeps)
     - mode-based auto-approve rules
-    - sensitive path/command guards
-    - settings.json allow-rule matching
     - human-review fallback path
 
 - [permission-response-controller.ts](./permission-response-controller.ts)
@@ -36,9 +35,6 @@ interfaces rather than full bridge state.
 
 - [permission-summaries.ts](./permission-summaries.ts)
   - Formats permission request summaries (including Codex image drafts).
-
-- [settings-rule-matcher.ts](./settings-rule-matcher.ts)
-  - Matches SDK permission requests against settings.json rules.
 
 ### Lifecycle & state
 
@@ -126,7 +122,7 @@ interfaces rather than full bridge state.
 
 - Incoming permission request:
   - bridge normalizes backend payload
-  - `permission-pipeline.ts` decides mode-auto-approve vs settings-rule approval vs queue-human
+  - `permission-pipeline.ts` decides hard-deny vs mode-auto-approve vs queue-human
   - bridge continues with approval or pending-permission updates
 
 - Generation state update:

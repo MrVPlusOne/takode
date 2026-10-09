@@ -591,25 +591,8 @@ export function handleSdkPermissionRequest(
   session: AdapterBrowserRoutingSessionLike,
   perm: PermissionRequest,
   deps: AdapterBrowserRoutingDeps,
-): void | Promise<void> {
-  const applyResult = (result: PermissionPipelineResult): void => {
-    if (result.kind === "hard_denied") {
-      applyHardDeniedPermission(session, result, deps);
-      return;
-    }
-    if (result.kind === "mode_auto_approved" || result.kind === "settings_rule_approved") {
-      if (session.claudeSdkAdapter) {
-        session.claudeSdkAdapter.sendBrowserMessage({
-          type: "permission_response",
-          request_id: result.request.request_id,
-          behavior: "allow",
-          updated_input: result.request.input,
-        });
-      }
-      broadcastAutoApproval(session, result.request, deps);
-    }
-  };
-  const resultOrPromise = handlePermissionRequestPipeline(
+): void {
+  const result = handlePermissionRequestPipeline(
     session as never,
     enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "claude-sdk",
@@ -629,36 +612,29 @@ export function handleSdkPermissionRequest(
     },
     { activityReason: "sdk_permission_request" },
   );
-  if (resultOrPromise instanceof Promise) {
-    return resultOrPromise.then(applyResult);
+  if (result.kind === "hard_denied") {
+    applyHardDeniedPermission(session, result, deps);
+    return;
   }
-  applyResult(resultOrPromise);
+  if (result.kind === "mode_auto_approved") {
+    if (session.claudeSdkAdapter) {
+      session.claudeSdkAdapter.sendBrowserMessage({
+        type: "permission_response",
+        request_id: result.request.request_id,
+        behavior: "allow",
+        updated_input: result.request.input,
+      });
+    }
+    broadcastAutoApproval(session, result.request, deps);
+  }
 }
 
 export function handleCodexPermissionRequest(
   session: AdapterBrowserRoutingSessionLike,
   perm: PermissionRequest,
   deps: AdapterBrowserRoutingDeps,
-): void | Promise<void> {
-  const applyResult = (result: PermissionPipelineResult): void => {
-    if (result.kind === "hard_denied") {
-      applyHardDeniedPermission(session, result, deps);
-      return;
-    }
-    if (result.kind === "mode_auto_approved" || result.kind === "settings_rule_approved") {
-      if (session.codexAdapter) {
-        session.codexAdapter.sendBrowserMessage({
-          type: "permission_response",
-          request_id: result.request.request_id,
-          behavior: "allow",
-          updated_input: result.request.input,
-        });
-      }
-      broadcastAutoApproval(session, result.request, deps);
-    }
-  };
-
-  const resultOrPromise = handlePermissionRequestPipeline(
+): void {
+  const result = handlePermissionRequestPipeline(
     session as never,
     enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "codex",
@@ -678,17 +654,21 @@ export function handleCodexPermissionRequest(
     },
     { activityReason: "codex_permission_request" },
   );
-
-  if (resultOrPromise instanceof Promise) {
-    return resultOrPromise.then(applyResult).catch((err) => {
-      console.error(
-        `[ws-bridge] Failed to process Codex permission_request for session ${sessionTag(session.id)}:`,
-        err,
-      );
-    });
+  if (result.kind === "hard_denied") {
+    applyHardDeniedPermission(session, result, deps);
+    return;
   }
-
-  applyResult(resultOrPromise);
+  if (result.kind === "mode_auto_approved") {
+    if (session.codexAdapter) {
+      session.codexAdapter.sendBrowserMessage({
+        type: "permission_response",
+        request_id: result.request.request_id,
+        behavior: "allow",
+        updated_input: result.request.input,
+      });
+    }
+    broadcastAutoApproval(session, result.request, deps);
+  }
 }
 
 export function handleInterrupt(

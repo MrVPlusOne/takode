@@ -736,10 +736,7 @@ export interface CodexAdapterBrowserMessageDeps {
   queueCodexPendingStartBatch: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   dispatchQueuedCodexTurns: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   maybeFlushQueuedCodexMessages: (session: CodexBrowserMessageSessionLike, reason: string) => void;
-  handleCodexPermissionRequest: (
-    session: CodexBrowserMessageSessionLike,
-    permission: PermissionRequest,
-  ) => Promise<void> | void;
+  handleCodexPermissionRequest: (session: CodexBrowserMessageSessionLike, permission: PermissionRequest) => void;
   requestCodexLeaderRecycle: (
     session: CodexBrowserMessageSessionLike,
     trigger: CodexLeaderRecycleTrigger,
@@ -1516,10 +1513,7 @@ export async function handleCodexAdapterBrowserMessage(
   }
 
   if (outgoing?.type === "permission_request") {
-    const maybe = deps.handleCodexPermissionRequest(session, outgoing.request);
-    if (maybe instanceof Promise) {
-      await maybe;
-    }
+    deps.handleCodexPermissionRequest(session, outgoing.request);
     outgoing = null;
   }
 

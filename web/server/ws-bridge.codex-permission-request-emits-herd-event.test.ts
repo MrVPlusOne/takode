@@ -2,18 +2,8 @@ import { vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
-const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
-// Mock settings rule loading so real user ~/.claude/settings.json rules don't
-// interfere with tests. Tests that need specific rules override this per-call.
-vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./bridge/settings-rule-matcher.js")>();
-  return {
-    ...original,
-    shouldSettingsRuleApprove: mockShouldSettingsRuleApprove,
-  };
-});
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
@@ -538,7 +528,6 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
-  mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
   mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
@@ -595,7 +584,7 @@ describe("Codex permission_request emits herd event", () => {
         input: { command: "rm -rf node_modules" },
       },
     });
-    await new Promise((r) => setTimeout(r, 50)); // flush async permission pipeline (settings rule check reads from disk)
+    await new Promise((r) => setTimeout(r, 50)); // flush the async Codex message handler
 
     // Verify herd event was emitted with correct data
     expect(spy).toHaveBeenCalledWith(
@@ -626,11 +615,10 @@ describe("Codex permission_request emits herd event", () => {
       request: {
         request_id: "perm-2",
         tool_name: "Write",
-        // Use a path that won't match any settings.json allow rules (e.g. Write(/tmp/**))
         input: { file_path: "/home/user/project/test.txt" },
       },
     });
-    await new Promise((r) => setTimeout(r, 50)); // flush async permission pipeline (settings rule check reads from disk)
+    await new Promise((r) => setTimeout(r, 50)); // flush the async Codex message handler
 
     expect(spy).toHaveBeenCalledWith(
       "s1",

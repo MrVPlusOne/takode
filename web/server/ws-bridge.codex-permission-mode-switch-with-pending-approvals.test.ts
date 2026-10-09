@@ -2,18 +2,8 @@ import { vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
-const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
-// Mock settings rule loading so real user ~/.claude/settings.json rules don't
-// interfere with tests. Tests that need specific rules override this per-call.
-vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./bridge/settings-rule-matcher.js")>();
-  return {
-    ...original,
-    shouldSettingsRuleApprove: mockShouldSettingsRuleApprove,
-  };
-});
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
@@ -538,7 +528,6 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
-  mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
   mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
@@ -604,7 +593,7 @@ describe("Codex permission mode switch with pending approvals", () => {
         input: { command: "rm -rf node_modules" },
       },
     });
-    // Flush async permission pipeline — settings rule check reads from disk
+    // Flush the async Codex message handler
     await new Promise((r) => setTimeout(r, 50));
     const session = bridge.getSession(sid)!;
     expect(session.pendingPermissions.has("perm-stuck")).toBe(true);
@@ -845,7 +834,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     bridge.attachCodexAdapter(sid, adapter as any);
     bridge.handleBrowserOpen(browser, sid);
 
-    // Simulate a pending permission (use a command that won't match settings rules)
+    // Simulate a pending permission
     adapter.emitBrowserMessage({
       type: "permission_request",
       request: {
@@ -855,7 +844,7 @@ describe("Codex permission mode switch with pending approvals", () => {
         input: { file: "test.ts" },
       },
     });
-    // Flush async permission pipeline — settings rule check reads from disk
+    // Flush the async Codex message handler
     await new Promise((r) => setTimeout(r, 50));
     const session = bridge.getSession(sid)!;
     expect(session.pendingPermissions.has("perm-cancel")).toBe(true);

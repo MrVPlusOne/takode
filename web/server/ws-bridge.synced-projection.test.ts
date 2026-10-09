@@ -2,13 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
-const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./bridge/settings-rule-matcher.js")>();
-  return { ...original, shouldSettingsRuleApprove: mockShouldSettingsRuleApprove };
-});
 
 import {
   clearAttentionAndMarkRead,

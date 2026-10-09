@@ -14,7 +14,7 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   handleSdkBrowserMessage: (session: any, msg: any) => boolean;
   refreshGitInfoThenRecomputeDiff: (session: any, options: { notifyPoller: boolean }) => void;
   persistSession: (session: any) => void;
-  handleSdkPermissionRequest: (session: any, request: any) => Promise<void> | void;
+  handleSdkPermissionRequest: (session: any, request: any) => void;
   syncSideChatParent?: (session: any) => void;
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   markTurnInterrupted: (session: any, source: "user" | "leader" | "system") => void;
@@ -183,12 +183,7 @@ export function attachClaudeSdkAdapterLifecycle(
     }
 
     if (msg.type === "permission_request") {
-      const maybe = deps.handleSdkPermissionRequest(session, (msg as any).request);
-      if (maybe instanceof Promise) {
-        void maybe.catch((err) => {
-          console.error(`[ws-bridge] SDK permission request error for session ${sessionTag(session.id)}:`, err);
-        });
-      }
+      deps.handleSdkPermissionRequest(session, (msg as any).request);
       return;
     }
 

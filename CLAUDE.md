@@ -243,10 +243,9 @@ Claude's former native `--sdk-url` WebSocket backend is retired; see [Claude bac
   - `adapter-interface.ts` — Shared `AdapterSessionMeta` interface and base adapter contract.
 
   *Permissions:*
-  - `permission-pipeline.ts` — Permission request normalization, mode-based auto-approve, settings-rule approval, human-review fallback.
+  - `permission-pipeline.ts` — Permission request normalization, hard denies, mode-based auto-approve, human-review fallback.
   - `permission-response-controller.ts` — Handles permission responses from browser back to backend.
   - `permission-summaries.ts` — Formats permission request summaries (including Codex image drafts).
-  - `settings-rule-matcher.ts` — Matches SDK permission requests against settings.json rules.
 
   *Lifecycle & state:*
   - `generation-lifecycle.ts` — Turn lifecycle state machine: running/idle transitions, interruption, turn event emission.

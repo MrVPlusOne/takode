@@ -14,13 +14,6 @@ import {
   type PermissionPipelineDeps,
 } from "./permission-pipeline.js";
 
-// Mock the async dependencies so we can control the pipeline
-vi.mock("./settings-rule-matcher.js", () => ({
-  shouldSettingsRuleApprove: vi.fn(),
-}));
-
-import { shouldSettingsRuleApprove } from "./settings-rule-matcher.js";
-
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeSession(overrides: Partial<PermissionPipelineSession> = {}): PermissionPipelineSession {
@@ -49,8 +42,6 @@ function makeDeps(): PermissionPipelineDeps<PermissionPipelineSession> {
 describe("permission pipeline takode event emission (q-205)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: settings rules don't match
-    vi.mocked(shouldSettingsRuleApprove).mockResolvedValue(null);
   });
 
   it("emits takode permission_request and schedules a notification when permission is pending_human", async () => {
@@ -239,32 +230,6 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(session.pendingPermissions.has("req-ask-interactive")).toBe(true);
     expect(session.pendingPermissions.has("req-plan-interactive")).toBe(true);
     expect(deps.broadcastPermissionRequest).toHaveBeenCalledTimes(2);
-  });
-
-  it("does NOT emit takode permission_request for settings_rule_approved", async () => {
-    // Settings-rule-approved permissions are resolved instantly (like mode
-    // auto-approve) and never need leader attention. The pipeline should
-    // return settings_rule_approved without emitting a takode event.
-    vi.mocked(shouldSettingsRuleApprove).mockResolvedValue("Bash(mkdir *)");
-
-    const session = makeSession({ backendType: "claude-sdk" });
-    const deps = makeDeps();
-
-    const result = await handlePermissionRequest(
-      session,
-      {
-        request_id: "req-5",
-        tool_name: "Bash",
-        input: { command: "mkdir -p /tmp/test-dir" },
-        tool_use_id: "tu-5",
-      },
-      "claude-sdk",
-      deps,
-      { activityReason: "permission_request" },
-    );
-
-    expect(result.kind).toBe("settings_rule_approved");
-    expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
   });
 
   it("hard-denies file mutation tools in read-only Side Chat sessions before mode auto-approval", () => {

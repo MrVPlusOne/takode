@@ -1,8 +1,5 @@
-import { basename } from "node:path";
-import { homedir } from "node:os";
 import type { BackendType, PermissionRequest, PermissionUpdate } from "../session-types.js";
 import { detectLongSleepBashCommand, LONG_SLEEP_DENY_MESSAGE, LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
-import { shouldSettingsRuleApprove } from "./settings-rule-matcher.js";
 
 export type PermissionRequestBackend = "claude-sdk" | "codex";
 
@@ -39,18 +36,12 @@ export interface PermissionPipelineDeps<S extends PermissionPipelineSession> {
 export interface HandlePermissionRequestOptions {
   activityReason: string;
   enableModeAutoApprove?: boolean;
-  enableSettingsRuleApprove?: boolean;
 }
 
 export type PermissionPipelineResult =
   | {
       kind: "mode_auto_approved";
       request: PermissionRequest;
-    }
-  | {
-      kind: "settings_rule_approved";
-      request: PermissionRequest;
-      matchedRule: string;
     }
   | {
       kind: "hard_denied";
@@ -95,48 +86,6 @@ const THREAD_READ_ONLY_MUTATING_TOOLS: ReadonlySet<string> = new Set([
 
 const THREAD_READ_ONLY_BASH_WRITE_RE =
   /(?:^|[;&|]\s*)(?:(?:echo|printf|cat)\b[^;&|]*>\s*|tee\b|sed\s+-i\b|perl\s+-pi\b|touch\b|rm\b|mv\b|cp\b|mkdir\b|rmdir\b|chmod\b|chown\b|ln\b|truncate\b|dd\b|install\b|bun\s+(?:add|install|update|remove)\b|npm\s+(?:install|i|update|uninstall|remove|ci)\b|pnpm\s+(?:install|add|update|remove)\b|yarn\s+(?:install|add|remove|upgrade)\b|git\s+(?:checkout|switch|reset|clean|commit|merge|rebase|pull|push|add|restore)\b)/i;
-
-export function isSensitiveConfigPath(filePath: string): boolean {
-  if (!filePath) return false;
-  const name = basename(filePath);
-  if (name === "CLAUDE.md") return true;
-  if (name === ".mcp.json" || name === ".claude.json") return true;
-  if (filePath.includes("/.claude/")) {
-    if (name === "settings.json" || name === "settings.local.json" || name === ".credentials.json") return true;
-    if (/\/\.claude\/(commands|agents|skills|hooks)\//.test(filePath)) return true;
-  }
-  const home = homedir();
-  if (
-    filePath.startsWith(`${home}/.companion/settings.json`) ||
-    filePath.startsWith(`${home}/.companion/envs/`) ||
-    filePath.startsWith(`${home}/.companion/auto-approval/`)
-  ) {
-    return true;
-  }
-  if (filePath.startsWith(`${home}/.companion/`) && /settings(-\d+)?\.json$/.test(filePath)) {
-    return true;
-  }
-  if (filePath === `${home}/.claude.json`) return true;
-  return false;
-}
-
-export function isSensitiveBashCommand(command: string): boolean {
-  if (!command) return false;
-  const sensitive = [
-    "CLAUDE.md",
-    ".claude/settings",
-    ".claude/hooks/",
-    ".claude/commands/",
-    ".claude/agents/",
-    ".claude/skills/",
-    ".mcp.json",
-    ".claude.json",
-    ".companion/settings",
-    ".companion/auto-approval/",
-    ".companion/envs/",
-  ];
-  return sensitive.some((p) => command.includes(p));
-}
 
 function shouldModeAutoApprove(permissionMode: string | undefined, toolName: string): boolean {
   return (
@@ -203,36 +152,23 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
   _backend: PermissionRequestBackend,
   deps: PermissionPipelineDeps<S>,
   options: HandlePermissionRequestOptions,
-): PermissionPipelineResult | Promise<PermissionPipelineResult> {
+): PermissionPipelineResult {
   const perm = toPermissionRequest(request);
   const toolName = perm.tool_name;
 
   const hardDenied = getHardDeniedPermission(session, perm);
   if (hardDenied) return hardDenied;
 
-  const pendingHuman = (): PermissionPipelineResult => {
-    session.pendingPermissions.set(perm.request_id, perm);
-    deps.onSessionActivityStateChanged(session.id, options.activityReason);
-    deps.broadcastPermissionRequest(session, perm);
-    deps.emitTakodePermissionRequest(session, perm);
-    deps.setAttentionAction(session);
-    deps.persistSession(session);
-    deps.schedulePermissionNotification?.(session, perm);
-    return { kind: "pending_human", request: perm };
-  };
-
   if (options.enableModeAutoApprove !== false && shouldModeAutoApprove(session.state.permissionMode, toolName)) {
     return { kind: "mode_auto_approved", request: perm };
   }
 
-  // Settings.json rule matching -- fast static check against user allow rules.
-  // Enabled for all backends. SDK sessions bypass the CLI's built-in rule engine
-  // (--permission-prompt-tool stdio) and Codex has no CLI-side engine.
-  // Skip tools that can never be auto-approved (they'd just return null anyway).
-  if (options.enableSettingsRuleApprove === false || NEVER_AUTO_APPROVE.has(toolName)) {
-    return pendingHuman();
-  }
-  return shouldSettingsRuleApprove(toolName, perm.input, session.state.cwd).then((matchedRule) =>
-    matchedRule ? { kind: "settings_rule_approved" as const, request: perm, matchedRule } : pendingHuman(),
-  );
+  session.pendingPermissions.set(perm.request_id, perm);
+  deps.onSessionActivityStateChanged(session.id, options.activityReason);
+  deps.broadcastPermissionRequest(session, perm);
+  deps.emitTakodePermissionRequest(session, perm);
+  deps.setAttentionAction(session);
+  deps.persistSession(session);
+  deps.schedulePermissionNotification?.(session, perm);
+  return { kind: "pending_human", request: perm };
 }

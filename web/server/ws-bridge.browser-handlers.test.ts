@@ -2,18 +2,8 @@ import { vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
-const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
-// Mock settings rule loading so real user ~/.claude/settings.json rules don't
-// interfere with tests. Tests that need specific rules override this per-call.
-vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./bridge/settings-rule-matcher.js")>();
-  return {
-    ...original,
-    shouldSettingsRuleApprove: mockShouldSettingsRuleApprove,
-  };
-});
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
@@ -46,6 +36,7 @@ import {
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "./bridge/session-git-state.js";
 import { trafficStats } from "./traffic-stats.js";
+import { waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
   addTaskEntry as addTaskEntryController,
@@ -536,7 +527,6 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
-  mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
   mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
@@ -818,11 +808,8 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const permMsg = calls.find((c: any) => c.type === "permission_request");
-    expect(permMsg).toBeDefined();
+    // Subscribe output arrives after lazy imports, so wait for the message itself.
+    const permMsg = await waitForBrowserMessage(browser, (c: any) => c.type === "permission_request");
     expect(permMsg.request.tool_name).toBe("Edit");
     expect(permMsg.request.request_id).toBe("req-1");
   });
@@ -956,11 +943,8 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const replay = calls.find((c: any) => c.type === "event_replay");
-    expect(replay).toBeDefined();
+    // Subscribe output arrives after lazy imports, so wait for the message itself.
+    const replay = await waitForBrowserMessage(browser, (c: any) => c.type === "event_replay");
     expect(replay.events).toHaveLength(2);
     expect(replay.events[0].seq).toBe(2);
     expect(replay.events[0].message.type).toBe("stream_event");
@@ -1012,11 +996,11 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
+    // state_snapshot is the last subscribe message, so any replay would already have been sent.
+    await waitForBrowserMessage(browser, (c: any) => c.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.find((c: any) => c.type === "history_window_sync")).toBeDefined();
-    expect(calls.find((c: any) => c.type === "state_snapshot")).toBeDefined();
     expect(calls.find((c: any) => c.type === "event_replay")).toBeUndefined();
   });
 
