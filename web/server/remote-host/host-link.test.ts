@@ -226,8 +226,8 @@ describe("host link", () => {
   // started it, except that agent CLIs reach the coordinator through the node.
   it("runs a process on this machine's node with the coordinator's complete environment", async () => {
     const program = [
-      "const { PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE } = process.env;",
-      "console.log(JSON.stringify({ PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE: NODE_ONLY_VALUE ?? null }));",
+      "const { PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE, TAKODE_REMOTE_HOST } = process.env;",
+      "console.log(JSON.stringify({ PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE: NODE_ONLY_VALUE ?? null, TAKODE_REMOTE_HOST: TAKODE_REMOTE_HOST ?? null }));",
     ].join("\n");
     process.env.NODE_ONLY_VALUE = "from the node's own environment";
     try {
@@ -257,10 +257,32 @@ describe("host link", () => {
         SESSION_VALUE: "1",
         COMPANION_PORT: "45678",
         NODE_ONLY_VALUE: null,
+        // Same machine as the coordinator: its data is here, so no remote-host marker.
+        TAKODE_REMOTE_HOST: null,
       });
     } finally {
       delete process.env.NODE_ONLY_VALUE;
     }
+  });
+
+  // A process on a remote host is marked as such, so agent CLIs there never
+  // answer from that machine's own ~/.companion files: the coordinator holds
+  // all Takode data. CLIs still reach the coordinator through the node's proxy.
+  it("marks processes on a remote host so their CLIs use only the coordinator's data", async () => {
+    agent = startAgent();
+    const proc = manager.spawn(hostId, {
+      command: process.execPath,
+      args: [
+        "-e",
+        "console.log(JSON.stringify({ port: process.env.COMPANION_PORT, remote: process.env.TAKODE_REMOTE_HOST }))",
+      ],
+      env: { COMPANION_PORT: "3456" },
+    });
+    const output = collect(proc);
+    await once(proc, "exit");
+    const env = JSON.parse(output.text()) as { port: string; remote: string };
+    expect(env.remote).toBe("1");
+    expect(env.port).toBe("45678");
   });
 
   // When a host will not connect again (this machine's node was turned off and

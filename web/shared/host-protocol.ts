@@ -33,6 +33,9 @@ export const HOST_LINK_STALE_MS = 30_000;
 /** Interval at which each side sends a heartbeat. */
 export const HOST_HEARTBEAT_MS = 10_000;
 
+/** Host id of the coordinator's own machine, which always exists and is not registered. */
+export const LOCAL_HOST_ID = "local";
+
 /** Programs the coordinator names by role; each host resolves them to its own installation. */
 export type HostProgramRole = "claude" | "codex";
 

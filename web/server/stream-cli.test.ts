@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { startCliWriteServer, type CliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
 
 async function runStream(
   args: string[],
@@ -37,22 +38,33 @@ async function runStream(
   return { status: code as number | null, stdout, stderr };
 }
 
+// The stream CLI sends its commands to the Takode server, which alone keeps
+// stream data. `home` is the server's HOME (where streams live); the CLI runs
+// over a separate, empty HOME, as an agent on a remote host would.
 describe("stream CLI", () => {
   let home: string;
+  let cliHome: string;
+  let server: CliWriteServer;
   let env: Record<string, string | undefined>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     home = mkdtempSync(join(tmpdir(), "stream-cli-"));
+    cliHome = mkdtempSync(join(tmpdir(), "stream-cli-caller-"));
+    server = await startCliWriteServer(home);
     env = {
       ...process.env,
-      HOME: home,
+      HOME: cliHome,
+      COMPANION_PORT: String(server.port),
       COMPANION_SERVER_ID: "server-test",
       COMPANION_SESSION_ID: "session-test",
+      TAKODE_REMOTE_HOST: undefined,
     };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await server.stop();
     rmSync(home, { recursive: true, force: true });
+    rmSync(cliHome, { recursive: true, force: true });
   });
 
   function scopeFile(scope: string): string {
@@ -129,6 +141,41 @@ describe("stream CLI", () => {
     expect(list.stdout).toContain("No streams found.");
     const archived = await runStream(["list", "--archived"], env);
     expect(archived.stdout).toContain("ai-judging (archived)");
+    // Everything was written by the server; the caller's machine keeps no copy.
+    expect(existsSync(join(cliHome, ".companion", "streams"))).toBe(false);
+  });
+
+  // Without a reachable server, reads may answer from this machine's streams
+  // (the server's own machine), but writes never touch them.
+  it("reads this machine's streams when no server is named, and refuses writes", async () => {
+    expect((await runStream(["create", "Local read", "--summary", "kept"], env)).status).toBe(0);
+    const local = { ...env, HOME: home, COMPANION_PORT: undefined };
+
+    const show = await runStream(["show", "local-read"], local);
+    expect(show.status).toBe(0);
+    expect(show.stdout).toContain("kept");
+
+    const write = await runStream(["update", "local-read", "--entry", "offline"], local);
+    expect(write.status).toBe(1);
+    expect(write.stderr).toContain("No Takode server is configured");
+  });
+
+  // On a remote host the coordinator holds the only copy of the streams, so a
+  // stale copy on that machine is never read, even when the server is away.
+  it("never reads local streams on a remote host", async () => {
+    expect((await runStream(["create", "Host stale", "--summary", "stale copy"], env)).status).toBe(0);
+    const unreachablePort = String(server.port);
+    await server.stop();
+    const onHost = { ...env, HOME: home, COMPANION_PORT: unreachablePort, TAKODE_REMOTE_HOST: "1" };
+
+    const show = await runStream(["show", "host-stale"], onHost);
+    expect(show.status).toBe(1);
+    expect(show.stderr).toContain("Cannot reach the Takode server");
+    expect(show.stdout).not.toContain("stale copy");
+
+    const unnamed = await runStream(["list"], { ...onHost, COMPANION_PORT: undefined });
+    expect(unnamed.status).toBe(1);
+    expect(unnamed.stderr).toContain("No Takode server is configured");
   });
 
   it("prints a compact handoff for reviewer usability checks", async () => {

@@ -9,6 +9,7 @@ import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import { thisMachineDetails } from "../machine-identity.js";
+import { REMOTE_HOST_ENV } from "../../shared/remote-host-env.js";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -450,6 +451,9 @@ export class HostAgent {
       // which holds their calls while the coordinator restarts.
       COMPANION_PORT: port,
       ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
+      // A coordinator on another machine holds all Takode data, so CLIs here
+      // must not answer from this machine's files.
+      ...(command.fullEnv ? {} : { [REMOTE_HOST_ENV]: "1" }),
     };
     const program = prepared ? prepared.argv[0]! : this.program(command.command);
     const programArgs = prepared ? prepared.argv.slice(1) : command.args;

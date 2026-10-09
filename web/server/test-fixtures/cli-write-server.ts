@@ -1,6 +1,6 @@
 /**
- * A real quest and memory write server for CLI tests. It mounts the production
- * quest routes and memory command route over the quest and memory stores of
+ * A real quest, memory and stream write server for CLI tests. It mounts the
+ * production quest routes and the memory and stream command routes over the stores of
  * whatever HOME it starts with, so tests must start it with a disposable HOME
  * (see `startCliWriteServer`). Sessions are stubs: every session id is known,
  * every auth token is accepted, and ids listed in TAKODE_TEST_LEADER_IDS act as
@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { validateCompanionAuth } from "../routes/auth.js";
 import { createMemoryRoutes } from "../routes/memory.js";
 import { createQuestRoutes } from "../routes/quests.js";
+import { createStreamRoutes } from "../routes/streams.js";
 import type { RouteContext } from "../routes/context.js";
 import { _flushForTest, getServerSlug, initWithPort, updateSettings } from "../settings-manager.js";
 
@@ -38,6 +39,7 @@ const ctx = {
 const app = new Hono();
 app.route("/api", createQuestRoutes(ctx));
 app.route("/api", createMemoryRoutes(ctx));
+app.route("/api", createStreamRoutes(ctx));
 
 const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch });
 // Like the real server, settings (server slug and id) belong to the listening port.

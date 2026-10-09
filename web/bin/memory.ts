@@ -8,12 +8,13 @@ import {
   splitMemoryCommand,
   type MemoryCommandResult,
 } from "../server/memory-command.js";
-import { getServerSlug, initWithPort } from "../server/settings-manager.js";
+import { readServerSlugForPort } from "../server/settings-manager.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import {
   MEMORY_SERVER_COMMAND_TIMEOUT_MS,
   type MemoryServerCommandRequest,
 } from "../shared/memory-command-transport.js";
+import { runsOnRemoteHost } from "../shared/remote-host-env.js";
 import { getCodexQuestInvocationContext } from "./quest-codex-invocation.js";
 import { resolveTakodeSidecarConnection } from "./takode-sidecar-client.js";
 import { trackCliLatency } from "./cli-latency.js";
@@ -25,14 +26,19 @@ trackCliLatency("memory", command, rest);
 /**
  * Commands run on the Takode server that owns the repo, so they work the same
  * on machines without a copy of it. Reading commands fall back to the local
- * repo when no server is named or reachable; writing commands never do.
+ * repo when no server is named or reachable; writing commands never do, and
+ * nothing does on a remote host, whose coordinator holds the only repo.
  */
 async function main(): Promise<void> {
   const origin = await serverOrigin();
-  const result = origin ? await runOnServer(origin) : isMemoryServerCommand(args) ? noServer() : await runLocally();
+  const result = origin ? await runOnServer(origin) : mayRunLocally() ? await runLocally() : noServer();
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   process.exitCode = result.exitCode;
+}
+
+function mayRunLocally(): boolean {
+  return !isMemoryServerCommand(args) && !runsOnRemoteHost();
 }
 
 /** Reads run here without creating, migrating or indexing any repo. */
@@ -83,7 +89,7 @@ async function runOnServer(origin: string): Promise<MemoryCommandResult> {
     });
   } catch (error) {
     const name = (error as { name?: string } | null)?.name;
-    if (!isMemoryServerCommand(args) && name !== "TimeoutError" && name !== "AbortError") return runLocally();
+    if (mayRunLocally() && name !== "TimeoutError" && name !== "AbortError") return runLocally();
     return failure(
       name === "TimeoutError" || name === "AbortError"
         ? `The Takode server at ${origin} did not answer within ${MEMORY_SERVER_COMMAND_TIMEOUT_MS / 1000}s. ` +
@@ -147,9 +153,8 @@ function validPort(raw: string | undefined): number | undefined {
 async function scopeSettingsFromEnv(): Promise<void> {
   const port = validPort(process.env.COMPANION_PORT);
   if (!port) return;
-  await initWithPort(port);
   if (!args.includes("--server-slug")) {
-    process.env.COMPANION_SERVER_SLUG = getServerSlug();
+    process.env.COMPANION_SERVER_SLUG = await readServerSlugForPort(port);
   }
 }
 

@@ -1,10 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { promisify } from "node:util";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import type {
   StreamCreateInput,
   StreamCurrentState,
@@ -20,9 +18,9 @@ import type {
   StreamUpdateInput,
 } from "./stream-types.js";
 import { getGroupForSession } from "./tree-group-store.js";
+import { projectStreamScope } from "./stream-project-scope.js";
 
 const STREAMS_DIR = join(process.env.HOME || homedir(), ".companion", "streams");
-const execFileAsync = promisify(execFile);
 
 mkdirSync(STREAMS_DIR, { recursive: true }); // sync-ok: cold path, once at module load
 
@@ -305,29 +303,6 @@ async function saveScopeFile(data: StreamScopeFile): Promise<void> {
   }
 }
 
-function projectScopeComponentFromGitCommonDir(gitCommonDir: string): string {
-  const commonDir = resolve(gitCommonDir);
-  const name = basename(commonDir);
-  const projectName =
-    name === ".git" ? basename(dirname(commonDir)) || "project" : name.endsWith(".git") ? name.slice(0, -4) : name;
-  const digest = createHash("sha1").update(commonDir).digest("hex").slice(0, 8);
-  return `${projectName || "project"}-${digest}`;
-}
-
-async function resolveGitProjectScopeComponent(cwd: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["--no-optional-locks", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd },
-    );
-    const gitCommonDir = stdout.trim();
-    return gitCommonDir ? projectScopeComponentFromGitCommonDir(gitCommonDir) : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function defaultStreamScope(
   cwd = process.cwd(),
   serverId = process.env.COMPANION_SERVER_ID,
@@ -339,8 +314,7 @@ export async function defaultStreamScope(
     const groupId = await getGroupForSession(session);
     return streamScopeForSessionGroup(groupId ?? "default", server);
   }
-  const project = (await resolveGitProjectScopeComponent(cwd)) ?? basename(resolve(cwd)) ?? "project";
-  return [server, "project", project].join(":");
+  return projectStreamScope(cwd, server);
 }
 
 export function streamScopeForSessionGroup(groupId: string, serverId = process.env.COMPANION_SERVER_ID): string {

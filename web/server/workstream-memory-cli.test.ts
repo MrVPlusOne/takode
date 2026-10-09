@@ -688,6 +688,30 @@ source:
     await expect(readFile(join(root, ".git", "HEAD"), "utf-8")).rejects.toThrow();
   });
 
+  // Reading this machine's repo while its server is down saves nothing either:
+  // not even the settings file of the port the CLI was pointed at.
+  it("keeps local fallback reads from creating settings for an unreachable port", async () => {
+    const unreachable = { ...env, COMPANION_PORT: "1" };
+    const result = await runMemory(["repo", "path"], unreachable);
+    expect(result.status).toBe(0);
+    await expect(readFile(join(tempDir, ".companion", "settings-1.json"), "utf-8")).rejects.toThrow();
+  });
+
+  // On a remote host the coordinator holds the only memory repo, so reads never
+  // answer from this machine's files, even when the coordinator is away.
+  it("never reads a local repo on a remote host", async () => {
+    const [server] = servers.splice(0);
+    await server!.stop();
+    const onHost = { ...env, TAKODE_REMOTE_HOST: "1" };
+
+    const unreachable = await runMemory(["repo", "path"], onHost);
+    expect(unreachable.status).toBe(1);
+    expect(unreachable.stderr).toContain(`Cannot reach the Takode server at http://localhost:${env.COMPANION_PORT}`);
+    const unnamed = await runMemory(["status"], { ...onHost, COMPANION_PORT: "" });
+    expect(unnamed.status).toBe(1);
+    expect(unnamed.stderr).toContain("No Takode server is configured for this command");
+  });
+
   it("records the authenticated caller session on locks the server takes", async () => {
     const lock = await runMemory(["lock", "acquire", "--owner", "worker", "--json"], {
       ...env,

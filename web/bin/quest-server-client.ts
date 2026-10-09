@@ -9,18 +9,24 @@ export const QUEST_SERVER_TIMEOUT_MS = 30_000;
 
 export type QuestServerResponse<T> = { value: T; headers: Headers };
 
-/** Reads give up on the server sooner than writes and fall back to the local store. */
+/**
+ * Reads give up on the server sooner than writes and fall back to the local
+ * store, except on a remote host, which has no copy of the server's store.
+ */
 export const QUEST_SERVER_READ_TIMEOUT_MS = 5_000;
 
 export interface QuestServerClient {
   /** Send one request to `/api<path>` and return the parsed JSON body, or exit with a clear error. */
   request<T>(method: string, path: string, body?: unknown): Promise<QuestServerResponse<T>>;
   /**
-   * GET `/api<path>` from the server's cached store. Returns undefined when no
-   * server is configured or it does not answer with the data (including 404),
-   * so the caller reads the local store instead and keeps its usual messages.
+   * GET `/api<path>` from the server's cached store. A server that answers is
+   * authoritative: this returns its data, `null` for a 404 when `allowNotFound`
+   * is set, and exits with any other error. Only when no server is configured
+   * or none answers does it return undefined, so the caller reads this
+   * machine's store; on a remote host, which has none of the server's data, it
+   * exits instead.
    */
-  read<T>(path: string): Promise<T | undefined>;
+  read<T>(path: string, options?: { allowNotFound?: boolean }): Promise<T | null | undefined>;
 }
 
 /**
@@ -32,6 +38,8 @@ export function createQuestServerClient(deps: {
   port: string | undefined;
   authHeaders: (extra?: Record<string, string>) => Record<string, string>;
   die: (message: string) => never;
+  /** This CLI runs on a remote host: the coordinator holds the store, so reads never fall back to local files. */
+  remoteHost?: boolean;
 }): QuestServerClient {
   return {
     async request<T>(method: string, path: string, body?: unknown): Promise<QuestServerResponse<T>> {
@@ -55,26 +63,55 @@ export function createQuestServerClient(deps: {
       } catch (error) {
         deps.die(describeRequestFailure(error, port));
       }
-      if (!response.ok) {
-        const failure = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
-        deps.die(failure.error || response.statusText);
-      }
+      if (!response.ok) deps.die(await responseError(response));
       return { value: (await response.json()) as T, headers: response.headers };
     },
-    async read<T>(path: string): Promise<T | undefined> {
-      if (!deps.port) return undefined;
-      try {
-        const response = await fetch(`http://localhost:${deps.port}/api${path}`, {
-          headers: deps.authHeaders(),
-          signal: AbortSignal.timeout(QUEST_SERVER_READ_TIMEOUT_MS),
-        });
-        return response.ok ? ((await response.json()) as T) : undefined;
-      } catch {
-        // Reads are safe to answer from the local store when the server is down.
+    async read<T>(path: string, options: { allowNotFound?: boolean } = {}): Promise<T | null | undefined> {
+      const port = deps.port;
+      if (!port) {
+        if (deps.remoteHost) deps.die(remoteHostNeedsServer("No Takode server is configured for this command."));
         return undefined;
       }
+      let response: Response;
+      try {
+        response = await fetch(`http://localhost:${port}/api${path}`, {
+          headers: deps.authHeaders(),
+          // On a remote host the node's proxy holds requests while the coordinator restarts.
+          signal: AbortSignal.timeout(deps.remoteHost ? QUEST_SERVER_TIMEOUT_MS : QUEST_SERVER_READ_TIMEOUT_MS),
+        });
+      } catch (error) {
+        if (deps.remoteHost) deps.die(remoteHostNeedsServer(describeReadFailure(error, port)));
+        // Reads are safe to answer from the local store when the server on this machine is down.
+        return undefined;
+      }
+      if (response.ok) return (await response.json()) as T;
+      if (response.status === 404 && options.allowNotFound) return null;
+      deps.die(await responseError(response));
     },
   };
+}
+
+async function responseError(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed.error === "string" && parsed.error) return parsed.error;
+  } catch {
+    // Not JSON, e.g. the node's proxy reporting an unreachable coordinator.
+  }
+  return text.trim() || response.statusText || `HTTP ${response.status}`;
+}
+
+function remoteHostNeedsServer(problem: string): string {
+  return `${problem} This machine is a remote Takode host and keeps no copy of the quest store, so quest reads need the coordinator.`;
+}
+
+function describeReadFailure(error: unknown, port: string): string {
+  const name = (error as { name?: string } | null)?.name;
+  const server = `the Takode server at http://localhost:${port}`;
+  return name === "TimeoutError" || name === "AbortError"
+    ? `${capitalize(server)} did not answer within ${QUEST_SERVER_TIMEOUT_MS / 1000}s.`
+    : `Cannot reach ${server}.`;
 }
 
 function describeRequestFailure(error: unknown, port: string): string {

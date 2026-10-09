@@ -1,4 +1,5 @@
-import { LOCAL_HOST_ID, type MachineSettings } from "./host-registry.js";
+import { LOCAL_HOST_ID } from "../../shared/host-protocol.js";
+import type { MachineSettings } from "./host-registry.js";
 
 /** Where machine settings come from: the host registry, or a stand-in in tests. */
 export interface MachineSettingsSource {

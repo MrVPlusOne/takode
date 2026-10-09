@@ -104,6 +104,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getQuestDisplayOwner, getQuestOwner, sameQuestOwner } from "../shared/quest-owner.js";
 import { isDeletedQuestFeedbackEntry } from "../shared/quest-feedback.js";
+import { runsOnRemoteHost } from "../shared/remote-host-env.js";
 import {
   codexQuestOwner,
   codexQuestProvenance,
@@ -336,16 +337,23 @@ const currentSessionId = getCurrentSessionId();
 const companionPort = getCompanionPort();
 // Every quest write goes through the server. The only exception is the server's
 // own Codex Quest command worker (`directCodexExecution`), which it runs itself.
-const questServer = createQuestServerClient({ port: companionPort, authHeaders: companionAuthHeaders, die });
+const questServer = createQuestServerClient({
+  port: companionPort,
+  authHeaders: companionAuthHeaders,
+  die,
+  remoteHost: runsOnRemoteHost(),
+});
 
 /**
  * Single-quest reads come from the server's in-memory store in a few ms instead
  * of parsing the whole store file in this process. The server's own Codex
- * Quest command worker, and a CLI without a reachable server, read the local store.
+ * Quest command worker, and a CLI without a reachable server on the server's
+ * own machine, read the local store.
  */
 async function getQuest(id: string): Promise<QuestmasterTask | null> {
   if (directCodexExecution) return getStoredQuest(id);
-  return (await questServer.read<QuestmasterTask>(`/quests/${encodeURIComponent(id)}`)) ?? getStoredQuest(id);
+  const quest = await questServer.read<QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, { allowNotFound: true });
+  return quest === undefined ? getStoredQuest(id) : quest;
 }
 
 async function getQuestHistoryView(id: string): Promise<QuestHistoryView> {
@@ -369,7 +377,8 @@ async function readDeliveryRangeFromServer(
 /**
  * Whole-store reads (`list`, `mine`, `grep`, `tags`) ask the server too, so a
  * CLI on a machine without the quest store sees the same quests. `local`
- * answers from this machine's store when no server answers.
+ * answers from this machine's store only when no server answers, and never on
+ * a remote host.
  */
 async function readQuestsFromServer<T>(
   path: string,

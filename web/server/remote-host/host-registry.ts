@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { HostMachineSettings } from "../../shared/host-protocol.js";
+import { LOCAL_HOST_ID, type HostMachineSettings } from "../../shared/host-protocol.js";
 import { machineNameError } from "../machine-identity.js";
 
 /** A machine registered to run sessions for this coordinator. */
@@ -23,8 +23,7 @@ export interface RegisteredHost {
  */
 export type MachineSettings = HostMachineSettings;
 
-/** Host id of the coordinator's own machine, which always exists and is not registered. */
-export const LOCAL_HOST_ID = "local";
+export { LOCAL_HOST_ID } from "../../shared/host-protocol.js";
 
 /**
  * The host whose `takode node` runs a session's current process, which then

@@ -260,6 +260,24 @@ export function normalizeServerSlug(slug: string): string {
   return slug.trim().toLowerCase();
 }
 
+/**
+ * The server slug of the server on `port` on this machine, read from its
+ * settings file without creating, migrating or saving anything. For CLIs that
+ * answer reads from this machine's files when that server does not respond.
+ */
+export async function readServerSlugForPort(port: number, home = homedir()): Promise<string> {
+  try {
+    const raw = JSON.parse(await readFile(join(home, ".companion", `settings-${port}.json`), "utf-8")) as {
+      serverSlug?: unknown;
+    };
+    const slug = typeof raw.serverSlug === "string" ? normalizeServerSlug(raw.serverSlug) : "";
+    if (slug) return slug;
+  } catch {
+    // No settings for that port on this machine: the server would use its default.
+  }
+  return defaultServerSlugForPort(port);
+}
+
 export function isValidServerSlug(slug: string): boolean {
   return /^[a-z0-9][a-z0-9._-]{0,79}$/.test(slug);
 }
