@@ -1305,6 +1305,7 @@ export function getBoardWatchdogDeps(host: any) {
     resolveSessionId: (ref: string) => host.launcher?.resolveSessionId?.(ref) ?? undefined,
     timerCount: (sessionId: string) => host.timerManager?.listTimers(sessionId).length ?? 0,
     getLeaseWaits: (sessionId: string) => host.resourceLeaseManager?.getLeaseWaits(sessionId) ?? [],
+    isLandingActive: (sessionId: string) => host.landingQueue?.isLandingActive(sessionId) ?? false,
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
     getBoardRowsForQuest: (questId: string) => {

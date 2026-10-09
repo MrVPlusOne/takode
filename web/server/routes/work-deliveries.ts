@@ -70,23 +70,35 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       if (!release) throw new WorkRouteError("Another Work evidence operation is active.", 409);
       const id = typeof body.id === "string" ? body.id : "";
       let command: PortCommand;
+      const landingQueue = deps.wsBridge.landingQueue;
       if (action === "prepare") {
+        const previousId = typeof body.previousId === "string" ? body.previousId : undefined;
         command = {
           action,
           baseSha: typeof body.baseSha === "string" ? body.baseSha : "",
           groupTips: body.groupTips === undefined ? undefined : normalizeCommitShas(body.groupTips),
           confirmPrivate: body.confirmPrivate === true,
-          previousId: typeof body.previousId === "string" ? body.previousId : undefined,
+          previousId,
+          // A bounced or withdrawn landing-queue entry proves its sealed preparation never landed.
+          ...(previousId && (await landingQueue?.attestsUnlanded(previousId, worker.auth.callerId))
+            ? { previousUnlanded: true }
+            : {}),
         };
       } else if (action === "seal") {
         command = { action, id, commitShas: normalizeCommitShas(body.commitShas) };
       } else if (action === "landed") {
-        command = {
-          action,
-          id,
-          workerSha: typeof body.workerSha === "string" ? body.workerSha : "",
-          targetSha: typeof body.targetSha === "string" ? body.targetSha : "",
-        };
+        const workerSha = typeof body.workerSha === "string" ? body.workerSha : "";
+        const targetSha = typeof body.targetSha === "string" ? body.targetSha : "";
+        const entryId = typeof body.landingEntryId === "string" ? body.landingEntryId : "";
+        const attested =
+          entryId !== "" &&
+          (await landingQueue?.attestsLanding(entryId, worker.auth.callerId, id, workerSha, targetSha)) === true;
+        if (entryId && !attested)
+          throw new WorkRouteError(
+            `Landing entry ${entryId} does not record ${workerSha} landing as ${targetSha}.`,
+            409,
+          );
+        command = { action, id, workerSha, targetSha, ...(attested ? { attested } : {}) };
       } else {
         throw new WorkRouteError("Unknown port action; use prepare, seal, or landed.", 400);
       }

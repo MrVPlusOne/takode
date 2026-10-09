@@ -80,6 +80,8 @@ export interface BoardWatchdogDeps {
   timerCount: (sessionId: string) => number;
   /** Lease pools the session is queued for, with their current holders. */
   getLeaseWaits?: (sessionId: string) => readonly ResourceLeaseWait[];
+  /** Whether the session runs, or has a change inside, an active landing-queue run. */
+  isLandingActive?: (sessionId: string) => boolean;
   backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
   getBoardRowsForQuest?: (questId: string) => BoardRow[];
@@ -1720,6 +1722,8 @@ function buildBoardStallCandidate(
 
   if (isActiveWorkerOwnedBoardRow(row)) {
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+    // An idle worker whose change is in an active landing run resumes on its Landing Queue message.
+    if (deps.isLandingActive?.(workerSessionId)) return null;
     const leaseWait =
       workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set());
     // A queued worker resumes on the Resource Lease promotion message, so its
@@ -1878,6 +1882,7 @@ function assessLeaseWait(
       (holder) =>
         holder.status === "running" ||
         holder.hasActiveTimer ||
+        deps.isLandingActive?.(holder.sessionId) ||
         (!chain.has(holder.sessionId) &&
           assessLeaseWait(holder.sessionId, deps, currentSession, chain) === "progressing"),
     );

@@ -17,11 +17,30 @@ Every worktree session has these variables injected via system prompt:
 - **Base branch / port target**: the branch to sync to. For workers spawned by a worktree-backed leader, this is the leader's target branch/worktree branch, not the leader worktree's parent/default branch.
 - **Port target worktree**: optional. When present, this is the exact checkout that should receive the cherry-picked commits. This is how workers port to a leader's current local worktree branch when that branch is not remote-backed.
 
-## Port Workflow
-
 If approved delivery work requires an additional checkout, follow the shared **Additional Worktrees** launch guidance and register it with `takode worktree register` immediately after creation. Use `retained` for publication/shared/long-running targets or uncertain ownership; a temporary registration needs an explicit cleanup base. Registration does not authorize adopting old paths. Checkout removal and branch deletion are separate decisions. Original-worker archive keeps force-removal and may retire only proven disposable, exclusively owned branch names with committed-tip recovery; shared/user-owned/retained branches stay. Follow the shared launch guidance for an explicit branch-retention flag; inspect registration and cleanup outcomes with `takode worktree list`.
 
-Follow this workflow **exactly** when asked to port, sync, or push commits:
+## Choose the landing path
+
+- **Remote-backed target in a repository that declares a landing gate** (`.takode/landing-gate.json` on the target branch, as Takode's does): land through the **landing queue** below. It replaces the classic remote-backed port for these repositories.
+- **Worktree target**, a remote-backed target **without** a landing gate, or a server that answers that it has no landing queue yet (it needs a restart onto a build with `takode land`): use the **classic port workflow** further down.
+- **Approved independent publication** outside the inherited target: the "Independent published targets" section of [port-tracking.md](references/port-tracking.md).
+
+## Landing queue (remote-backed targets with a landing gate)
+
+Ready changes wait in a queue per remote branch. One landing run at a time, started by whoever holds the branch's port lease `port:<REPO>:<BASE_BRANCH>`, stacks every waiting change on the remote tip, runs the gate once on the combined tree and pushes exactly the commit it gated. A change that conflicts or brings new gate failures bounces back to its owner; the rest land after a fresh gate without it. `<REPO>` is the repository name from the base checkout's `origin` URL (`port:takode:jiayi` for Takode on `jiayi`, on every machine). Run `takode land --help` for the commands.
+
+1. **Rebase onto the remote branch.** `git fetch origin <BASE_BRANCH>`, then rebase only your verified private suffix in your worktree: `git rebase --onto origin/<BASE_BRANCH> <VERIFIED_PRIVATE_BASE_SHA>`. Resolve conflicts here. If you use port tracking, first bring the base checkout to the same commit with `git -C <BASE_REPO> pull --ff-only origin <BASE_BRANCH>` (only when it is on `<BASE_BRANCH>` and clean; otherwise stop and report), then prepare, squash and seal as described in [port-tracking.md](references/port-tracking.md). No lease is needed for any of this.
+2. **Run the pre-submit gate:** `takode land test`. It runs the repository's full gate on your branch, reruns failing test files once (tests that then pass are flaky) and checks still-failing tests on your base commit (failures that also happen there are pre-existing, such as a machine's environment-only failures). Only new failures fail it; fix them. It takes a slot of the per-machine `full-suite:<REPO>` lease pool, which caps concurrent full runs on that machine; if it exits 3 (queued), end your turn and rerun it when the Resource Lease message arrives. The run can take 10+ minutes, so run it as a background or long-running command. If a full run is infeasible, `takode land submit --skip-test "<reason>"` records the exception.
+3. **Submit:** `takode land submit q-N [--preparation <id>]`, then end your turn. Your commits travel to the queue as a bundle, so this works the same from any machine; a worker on another machine than its port target submits directly instead of using `takode bundle send`.
+4. **If a Resource Lease message for `port:<REPO>:<BASE_BRANCH>` arrives,** your change is still waiting and you are next: run `takode land run` (it starts the background landing run for every waiting change and returns), then end your turn. The run renews and releases the lease itself. Never hold the port lease while testing or editing.
+5. **On "landed"** (a Landing Queue message with your target SHAs): run `takode land finish q-N` in your worktree. It fast-forwards the base checkout, records port-tracking receipts (including changes integrated with others in the same batch), resets your worktree to the branch and prints the `Synced SHAs:` line and the `work-to-memory` command. Then write the Work note and run the guarded transition below.
+6. **On "bounced":** read the reason and failing output, fix or rebase onto `origin/<BASE_BRANCH>`, rerun `takode land test`, re-prepare with `--previous <id>` if you use port tracking (allowed after a bounce), squash, seal and submit again.
+
+`takode land status` shows the queue, the running batch and its phase. An owner or its leader can `takode land withdraw <entry-id>` a waiting change. If a landing run dies, its lease expires (or a leader force-releases it) and the next run checks whether its push reached the remote before landing anything else. Do not cherry-pick into or push the shared base checkout yourself on this path.
+
+## Classic port workflow
+
+Follow this workflow **exactly** when the landing queue does not apply (see "Choose the landing path"):
 
 ### 1. Resolve and check the port target
 
@@ -68,7 +87,7 @@ If the selected target has uncommitted changes, **stop and tell the user** -- an
 
 Read any new commits briefly to understand what changed since your branch diverged.
 
-Before rewriting new private Work, read [port-tracking.md](references/port-tracking.md). Use `takode port prepare` to retain reviewed increments and verify the private boundary; the helper records exact source/squashed/target relationships and flags partial or uncertain ports. Keep already-landed history and independent meaningful changes intact.
+Before rewriting new private Work, read [port-tracking.md](references/port-tracking.md). Prepare and seal only after taking the lease and rebasing (step 2), so the target cannot move under a sealed preparation. Use `takode port prepare` to retain reviewed increments and verify the private boundary; the helper records exact source/squashed/target relationships and flags partial or uncertain ports. Keep already-landed history and independent meaningful changes intact.
 
 ### 2. Rebase in the worktree
 
@@ -89,7 +108,7 @@ For tracked code/test changes, run the full gate:
 
 `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 
-This gate is the delivery's one full test-suite run. Use focused tests while iterating in Work rather than also running the full suite there.
+On this classic path this gate is the delivery's full test-suite run. Use focused tests while iterating in Work rather than also running the full suite there.
 
 For a remote-backed target, run it now in your worker worktree (`<GATE_CHECKOUT>` is the worktree), after the rebase and seal and while holding the port lease. Your worktree then has exactly the tree the target will have after the cherry-picks, so this is the pre-push gate, and nothing unverified ever sits on the shared checkout.
 
@@ -164,7 +183,9 @@ After resetting, verify that the worker worktree and selected target are synced.
 
 ## Completion Checklist
 
-Do NOT report the sync as complete until ALL of the following are true:
+On the landing queue, the sync is complete once the Landing Queue message says your change landed and `takode land finish` has run cleanly: the landing run already gated the pushed tree, pushed it and fast-forwarded the base checkout, and `finish` reset your worktree and printed the `Synced SHAs:` line.
+
+On the classic workflow, do NOT report the sync as complete until ALL of the following are true:
 - [ ] Selected target log shows the cherry-picked commits
 - [ ] Required verification passed (in the worker worktree before landing for a remote-backed target, in the target for a worktree target), or an explicitly documented infeasibility exception is visible before final acceptance
 - [ ] Worker worktree has been reset to match the target branch

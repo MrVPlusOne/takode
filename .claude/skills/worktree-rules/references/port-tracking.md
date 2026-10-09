@@ -59,7 +59,7 @@ Before landing, inspect `takode port status q-N <preparation-id>` and report onl
 
 ## 3. Port and record each landing
 
-Check the target again and perform the existing chronological cherry-picks. For a remote-backed target this happens while holding the port lease and after the worktree gate, as the main skill describes. Immediately record each successful target SHA before any subsequent port or cleanup:
+Check the target again and perform the existing chronological cherry-picks. For a classic remote-backed port this happens while holding the port lease and after the worktree gate, as the main skill describes; prepare and seal only after taking that lease and rebasing, so the target cannot advance under a sealed preparation. Immediately record each successful target SHA before any subsequent port or cleanup:
 
 ```bash
 git -C <selected-target-checkout> cherry-pick <final-worker-sha>
@@ -70,6 +70,15 @@ takode port status q-N <preparation-id>
 The helper verifies target ancestry, the landed prefix, and the resulting tree. After unrelated target advancement, it may accept an already-performed port only when every changed path, file mode, and before/after blob is identical to the sealed change. This supports disjoint intervening work without using patch similarity; shared-file integration changes remain uncertain and require review. It distinguishes `retained`, `needs-rebase`, `ready-to-port`, `partial`, `landed`, `uncertain`, and `superseded`. Before sealing, remaining entries are review-group tips, not commands to cherry-pick. After sealing, they are exact prepared commits. Read the state and next action together.
 
 A successful target write is a boundary even if validation, push, or metadata recording later fails. The original source SHA may differ from the target SHA. A missing receipt is not evidence that no write happened. If the target advanced after sealing or a partial port changed base, stop further rewriting and reconcile the actual history/receipts; this helper deliberately does not guess equivalence across that uncertainty. Do not erase a journal, discard refs, or start another preparation to bypass it. Preserve any additional worker HEAD changes before reset/cleanup.
+
+## 3a. With the landing queue
+
+On the landing-queue path (see the main skill) you do not cherry-pick or run `landed` yourself. Prepare and seal right before `takode land submit`, and pass `--preparation <id>`. The landing run cherry-picks your sealed commits onto the other waiting changes, so the target usually moves between your seal and the landing; that is expected and does not strand the preparation:
+
+- `takode land finish q-N` records each receipt with the queue's landing record as proof. When an earlier change in the same batch touched one of your files, your target commit's file changes differ from the sealed ones; the queue's record of a conflict-free cherry-pick inside a gated, pushed batch is accepted for exactly that receipt, which is marked *integrated* in `takode port status` instead of being refused.
+- If your entry bounced or you withdrew it, the queue proves nothing of it landed, so `takode port prepare --previous <id>` accepts the rebased range even though the target advanced after sealing.
+
+Outside the queue the byte-identical rule below is unchanged.
 
 ## 4. Verify, publish, and attach delivery evidence
 

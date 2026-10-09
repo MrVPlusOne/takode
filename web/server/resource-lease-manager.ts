@@ -141,6 +141,34 @@ export class ResourceLeaseManager {
     });
   }
 
+  /**
+   * Leave a pool's queue without having been promoted. Returns whether the
+   * session was queued. A held slot is untouched; release it instead.
+   */
+  async withdraw(resourceKeyInput: string, callerSessionIdInput: string): Promise<boolean> {
+    return this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const resourceKey = normalizeResourceKey(resourceKeyInput);
+      const callerSessionId = normalizeSessionId(callerSessionIdInput);
+      const waiters = this.getWaiters(resourceKey);
+      const remaining = waiters.filter((waiter) => waiter.waiterSessionId !== callerSessionId);
+      if (remaining.length === waiters.length) return false;
+      this.setWaiters(resourceKey, remaining);
+      await this.persistIfNeeded(true);
+      this.bridge.invalidateSessionNavigation(callerSessionId);
+      return true;
+    });
+  }
+
+  /** Whether the session holds a slot of the pool, read synchronously from loaded state. */
+  holdsLease(resourceKeyInput: string, sessionId: string): boolean {
+    const resourceKey = resourceKeyInput.trim().toLowerCase();
+    const now = Date.now();
+    return this.data.leases.some(
+      (lease) => lease.resourceKey === resourceKey && lease.ownerSessionId === sessionId && lease.expiresAt > now,
+    );
+  }
+
   async getStatus(resourceKeyInput: string): Promise<ResourceLeaseStatus> {
     return this.runExclusive(async () => {
       await this.ensureLoaded();
@@ -263,7 +291,10 @@ export class ResourceLeaseManager {
       `Purpose: ${lease.purpose}`,
       `Expires: ${new Date(lease.expiresAt).toISOString()}`,
       "",
-      `Heartbeat with \`takode lease renew ${lease.resourceKey}\`; release with \`takode lease release ${lease.resourceKey}\` when done.`,
+      // A landing-queue waiter runs the queue: the landing run renews and releases the lease itself.
+      lease.metadata.landingEntry
+        ? "Your landing-queue entry is still waiting. Run `takode land run` now: it starts a background landing run for every waiting entry and returns. Then end your turn and wait for the Landing Queue message."
+        : `Heartbeat with \`takode lease renew ${lease.resourceKey}\`; release with \`takode lease release ${lease.resourceKey}\` when done.`,
     ];
     const delivery = this.bridge.injectUserMessage(lease.ownerSessionId, lines.join("\n"), {
       sessionId: `resource-lease:${lease.resourceKey}`,

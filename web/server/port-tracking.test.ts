@@ -251,6 +251,52 @@ describe("squash-aware port tracking in disposable repositories", () => {
     expect((await inspectPort(context, plan.id)).state).toBe("uncertain");
   });
 
+  it("accepts a landing-queue-attested receipt for a same-file batch integration and marks it integrated", async () => {
+    // The landing queue cherry-picks sealed commits onto other batch changes; a
+    // conflict-free merge in a shared file changes the target blobs, which only
+    // the queue's own landing record may vouch for.
+    await commit(repo, "line one\nline two\nline three\nline four\nline five\n", "shared.txt");
+    const newBase = await readGit(repo, ["rev-parse", "HEAD"]);
+    await readGit(worker, ["rebase", "--quiet", "integration"]);
+    await writeFile(join(worker, "shared.txt"), "line one\nline two\nline three\nline four\nworker five\n");
+    await readGit(worker, ["commit", "-qam", "Worker edits the end of the shared file"]);
+    const sealed = await readGit(worker, ["rev-parse", "HEAD"]);
+    const plan = await preparePort(context, { baseSha: newBase, confirmPrivate: true });
+    await sealPort(context, plan.id, [sealed]);
+    // Another change in the same batch edits the start of the same file first.
+    await commit(repo, "batch one\nline two\nline three\nline four\nline five\n", "shared.txt");
+    const target = await land(sealed);
+    await expect(recordLandedCommit(context, plan.id, sealed, target)).rejects.toThrow("file/blob changes");
+    await recordLandedCommit(context, plan.id, sealed, target, { attested: true });
+    const status = await inspectPort(context, plan.id);
+    expect(status.state).toBe("landed");
+    expect(status.landed).toEqual([{ workerSha: sealed, targetSha: target, integrated: true }]);
+  });
+
+  it("lets a bounced landing-queue preparation be re-prepared after the target moved", async () => {
+    // Without the queue's proof that nothing landed, a sealed preparation whose
+    // target advanced stays blocked (the trap leaders hit). With it, a rebased
+    // range can be prepared against the earlier one.
+    await commit(worker, "private\n");
+    const sealed = await readGit(worker, ["rev-parse", "HEAD"]);
+    const plan = await preparePort(context, { baseSha: base, confirmPrivate: true });
+    await sealPort(context, plan.id, [sealed]);
+    await commit(repo, "someone else landed\n", "independent.txt");
+    await readGit(worker, ["rebase", "--quiet", "integration"]);
+    const newBase = await readGit(repo, ["rev-parse", "HEAD"]);
+    await expect(preparePort(context, { baseSha: newBase, confirmPrivate: true, previousId: plan.id })).rejects.toThrow(
+      "target advanced after sealing",
+    );
+    const refreshed = await preparePort(context, {
+      baseSha: newBase,
+      confirmPrivate: true,
+      previousId: plan.id,
+      previousUnlanded: true,
+    });
+    expect((await inspectPort(context, refreshed.id)).state).toBe("retained");
+    expect((await inspectPort(context, plan.id)).state).toBe("superseded");
+  });
+
   it("rejects content-changing replacements, dirty work, published commits, and mixed authors", async () => {
     const first = await commit(worker, "reviewed\n");
     const plan = await preparePort(context, { baseSha: base, confirmPrivate: true });

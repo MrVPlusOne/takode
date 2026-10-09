@@ -15,7 +15,7 @@ export interface PortTrackingContext {
 export interface PortTrackingStatus {
   id: string;
   state: "retained" | "needs-rebase" | "ready-to-port" | "partial" | "landed" | "uncertain" | "superseded";
-  landed: Array<{ workerSha: string; targetSha: string }>;
+  landed: Array<{ workerSha: string; targetSha: string; integrated?: boolean }>;
   remaining: string[];
   nextAction: string;
 }
@@ -23,7 +23,14 @@ export interface PortTrackingStatus {
 /** Retain explicit private review groups. This never rewrites a branch. */
 export async function preparePort(
   context: PortTrackingContext,
-  input: { baseSha: string; groupTips?: string[]; confirmPrivate: boolean; previousId?: string },
+  input: {
+    baseSha: string;
+    groupTips?: string[];
+    confirmPrivate: boolean;
+    previousId?: string;
+    /** The landing queue attests the previous sealed preparation never landed (its entry bounced or was withdrawn). */
+    previousUnlanded?: boolean;
+  },
 ): Promise<PortPlan> {
   if (!input.confirmPrivate) throw new Error("Explicitly confirm this exact range is private and owned by this work.");
   await assertSharedRepository(context);
@@ -92,7 +99,12 @@ export async function preparePort(
       "A partial/landed port cannot be replaced. Start a new preparation for only the remaining private work.",
     );
   }
-  if (previous && previous.targetHeadSha !== targetHeadSha && previous.groups.some((group) => group.workerSha)) {
+  if (
+    previous &&
+    !input.previousUnlanded &&
+    previous.targetHeadSha !== targetHeadSha &&
+    previous.groups.some((group) => group.workerSha)
+  ) {
     throw new Error(
       "The target advanced after sealing. Reconcile possible partial port receipts before preparing new work.",
     );
@@ -187,6 +199,7 @@ export async function recordLandedCommit(
   id: string,
   workerSha: string,
   targetSha: string,
+  options: { attested?: boolean } = {},
 ): Promise<PortPlan> {
   const plan = await ownedPlan(context, id);
   if (plan.supersededBy) throw new Error("This preparation was superseded.");
@@ -208,6 +221,7 @@ export async function recordLandedCommit(
     readGit(context.target.checkoutPath, ["rev-parse", `${target}^{tree}`]),
     readGit(context.cwd, ["rev-parse", `${source}^{tree}`]),
   ]);
+  let integrated = false;
   if (parent !== expectedParent || targetTree !== sourceTree) {
     if (!/^[a-f0-9]{40}$/.test(parent) || !(await isAncestor(context.target.checkoutPath, expectedParent, parent))) {
       throw new Error("Target commit does not preserve the already-landed prefix.");
@@ -220,7 +234,11 @@ export async function recordLandedCommit(
     ]);
     // Exact path/mode/before-blob/after-blob equality permits unrelated intervening files;
     // unlike patch-id or textual similarity, it cannot hide overwritten shared-file changes.
-    if (sourceChange !== targetChange) {
+    // The landing queue's own record of a conflict-free cherry-pick inside a gated,
+    // pushed batch is the one accepted exception; the receipt is marked integrated.
+    if (sourceChange !== targetChange && options.attested) {
+      integrated = true;
+    } else if (sourceChange !== targetChange) {
       throw new Error(
         "Target changes differ from the retained file/blob changes. Reconcile and review this changed-base port explicitly.",
       );
@@ -230,7 +248,9 @@ export async function recordLandedCommit(
     throw new Error("Target changed during receipt verification; retry after inspecting it.");
   const updated = {
     ...plan,
-    groups: plan.groups.map((group, i) => (i === index ? { ...group, targetSha: target } : group)),
+    groups: plan.groups.map((group, i) =>
+      i === index ? { ...group, targetSha: target, ...(integrated ? { integrated } : {}) } : group,
+    ),
   };
   await savePortPlan(context.cwd, updated);
   return updated;
@@ -240,7 +260,11 @@ export async function inspectPort(context: PortTrackingContext, id: string): Pro
   const plan = await ownedPlan(context, id);
   const landed = plan.groups
     .filter((group) => group.targetSha)
-    .map((group) => ({ workerSha: group.workerSha!, targetSha: group.targetSha! }));
+    .map((group) => ({
+      workerSha: group.workerSha!,
+      targetSha: group.targetSha!,
+      ...(group.integrated ? { integrated: true } : {}),
+    }));
   const remaining = plan.groups.filter((group) => !group.targetSha).map((group) => group.workerSha ?? group.tipSha);
   const status = (state: PortTrackingStatus["state"], nextAction: string): PortTrackingStatus => ({
     id,

@@ -26,6 +26,7 @@ let callerHostId: string | undefined;
 let release = vi.fn(() => {});
 let locked: boolean;
 let broadcast: ReturnType<typeof vi.fn>;
+const landingQueue = { attestsLanding: vi.fn(async () => false), attestsUnlanded: vi.fn(async () => false) };
 const delivery = {
   ...deliveryFixture,
   commits: [deliveryFixture.commits[0]!],
@@ -94,6 +95,7 @@ beforeEach(() => {
     wsBridge: {
       findAssignedBoardRowsForWorker: () => [{ leaderSessionId: "leader", row }],
       broadcastGlobal: broadcast,
+      landingQueue,
     } as never,
     acquireWorkEvidenceMutationLock: () => {
       if (locked) return null;
@@ -109,6 +111,50 @@ function recordDelivery() {
     body: JSON.stringify({ questId: "q-9904", commitShas: [FIRST_DELIVERY_SHA], workFeedbackIndex: 0 }),
   });
 }
+
+describe("landing queue attestations on port tracking", () => {
+  const SOURCE = "a".repeat(40);
+  const TARGET = "b".repeat(40);
+  const status = { id: delivery.id, state: "landed" as const, landed: [], remaining: [], nextAction: "Recorded" };
+
+  it("passes a receipt the landing queue vouches for as attested, and refuses one it does not", async () => {
+    // `takode land finish` names its entry; only the queue's own record can relax the blob check.
+    vi.mocked(runPortCommand).mockResolvedValue(status);
+    landingQueue.attestsLanding.mockResolvedValueOnce(true);
+    const landed = (landingEntryId: string) =>
+      app.request("/takode/port/q-9904/landed", {
+        method: "POST",
+        body: JSON.stringify({ id: delivery.id, workerSha: SOURCE, targetSha: TARGET, landingEntryId }),
+      });
+    expect((await landed("le-00000001")).status).toBe(200);
+    expect(landingQueue.attestsLanding).toHaveBeenCalledWith("le-00000001", "worker", delivery.id, SOURCE, TARGET);
+    expect(runPortCommand).toHaveBeenCalledWith(expect.anything(), {
+      action: "landed",
+      id: delivery.id,
+      workerSha: SOURCE,
+      targetSha: TARGET,
+      attested: true,
+    });
+    vi.mocked(runPortCommand).mockClear();
+    const refused = await landed("le-00000002");
+    expect(refused.status).toBe(409);
+    expect(runPortCommand).not.toHaveBeenCalled();
+  });
+
+  it("lets a re-prepare replace a preparation whose landing entry bounced", async () => {
+    vi.mocked(runPortCommand).mockResolvedValue({ ...status, state: "retained" });
+    landingQueue.attestsUnlanded.mockResolvedValueOnce(true);
+    const response = await app.request("/takode/port/q-9904/prepare", {
+      method: "POST",
+      body: JSON.stringify({ baseSha: TARGET, confirmPrivate: true, previousId: delivery.id }),
+    });
+    expect(response.status).toBe(200);
+    expect(runPortCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "prepare", previousId: delivery.id, previousUnlanded: true }),
+    );
+  });
+});
 
 describe("guarded delivery recording before Memory", () => {
   it("allows read-only receipt inspection after Work while mutation remains gated", async () => {

@@ -184,9 +184,16 @@ type PortContextInput = {
 };
 
 export type PortCommand =
-  | { action: "prepare"; baseSha: string; groupTips?: string[]; confirmPrivate: boolean; previousId?: string }
+  | {
+      action: "prepare";
+      baseSha: string;
+      groupTips?: string[];
+      confirmPrivate: boolean;
+      previousId?: string;
+      previousUnlanded?: boolean;
+    }
   | { action: "seal"; id: string; commitShas: string[] }
-  | { action: "landed"; id: string; workerSha: string; targetSha: string }
+  | { action: "landed"; id: string; workerSha: string; targetSha: string; attested?: boolean }
   | { action: "inspect"; id: string };
 
 /** One port-tracking step and the resulting status; it runs on the machine holding the worker's checkout. */
@@ -198,7 +205,8 @@ export async function runPortCommand(input: PortContextInput, command: PortComma
   } else {
     id = command.id;
     if (command.action === "seal") await sealPort(context, id, command.commitShas);
-    if (command.action === "landed") await recordLandedCommit(context, id, command.workerSha, command.targetSha);
+    if (command.action === "landed")
+      await recordLandedCommit(context, id, command.workerSha, command.targetSha, { attested: command.attested });
   }
   return inspectPort(context, id);
 }

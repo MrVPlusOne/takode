@@ -267,6 +267,18 @@ describe("Work Board stall check for resource-lease waits", () => {
     expect(emitted).toHaveLength(0);
   });
 
+  it("treats an idle lander of an active landing run, and changes inside it, as making progress", () => {
+    // The lander ends its turn after starting a background landing run; its own
+    // change and the queued worker's both resume on Landing Queue messages.
+    const { deps, emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
+      { worker: { "port:takode:jiayi": ["holder"] } },
+    );
+    deps.isLandingActive = vi.fn((sessionId: string) => sessionId === "holder");
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
+  });
+
   it("surfaces a queued worker when the lease holder itself has stalled", () => {
     const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
       { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },

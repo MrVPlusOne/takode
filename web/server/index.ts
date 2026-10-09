@@ -60,6 +60,8 @@ import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
+import { LandingQueueManager } from "./landing-queue-manager.js";
+import { LandingQueueStore } from "./landing-queue-store.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
@@ -299,6 +301,17 @@ hostLinks.stopHostSessions = (hostId) => stopNodeSessions((host) => host === hos
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
+const landingQueue = new LandingQueueManager(
+  {
+    leases: resourceLeaseManager,
+    notify: (sessionId, text) => {
+      wsBridge.injectUserMessage(sessionId, text, { sessionId: "landing-queue", sessionLabel: "Landing Queue" });
+    },
+    sessionNum: (sessionId) => launcher.getSessionNum(sessionId),
+    machineName: (hostId) => (hostId ? (hostRegistry.nameOf(hostId) ?? "a remote host") : thisMachine.name),
+  },
+  new LandingQueueStore(serverId),
+);
 hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
 configureMachines({
   local: () => ({ name: thisMachine.name, ...thisMachineDetails() }),
@@ -433,6 +446,7 @@ wsBridge.recorder = recorder;
 wsBridge.imageStore = imageStore;
 wsBridge.timerManager = timerManager;
 wsBridge.resourceLeaseManager = resourceLeaseManager;
+wsBridge.landingQueue = landingQueue;
 wsBridge.pushoverNotifier = pushoverNotifier;
 wsBridge.launcher = launcher;
 const bridgeAny = wsBridge as any;
@@ -1309,6 +1323,7 @@ await timerManager.startAll();
 
 // ── Global resource leases ─────────────────────────────────────────────────
 await resourceLeaseManager.startAll();
+await landingQueue.start();
 
 const startupInjectedRelaunchSessionIds = new Set<string>();
 async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {
@@ -1389,6 +1404,7 @@ const shutdown = new ServerShutdown({
     sleepInhibitor.stop();
     pushoverNotifier.destroy();
     resourceLeaseManager.destroy();
+    landingQueue.destroy();
     settleWorkerRollout = codexWorkerV2RolloutService.destroy();
   },
   settleWork: async () => {

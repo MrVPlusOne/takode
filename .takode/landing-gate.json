@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "install": { "cwd": "web", "run": ["bun", "install", "--frozen-lockfile"] },
+  "steps": [
+    { "name": "typecheck", "cwd": "web", "run": ["bun", "--no-install", "run", "typecheck"] },
+    { "name": "format", "cwd": "web", "run": ["bun", "--no-install", "run", "format:check"] },
+    { "name": "tests", "cwd": "web", "kind": "vitest", "run": ["bun", "--no-install", "--bun", "./node_modules/.bin/vitest", "run", "--silent"] }
+  ]
+}

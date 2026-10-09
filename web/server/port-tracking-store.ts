@@ -16,7 +16,14 @@ export interface PortPlan {
   headSha: string;
   target: import("../shared/quest-delivery.js").DeliveryTarget;
   targetHeadSha: string;
-  groups: Array<import("../shared/quest-delivery.js").RetainedReviewRange & { workerSha?: string; targetSha?: string }>;
+  groups: Array<
+    import("../shared/quest-delivery.js").RetainedReviewRange & {
+      workerSha?: string;
+      targetSha?: string;
+      /** Landed through the landing queue with file changes merged against other batch changes. */
+      integrated?: boolean;
+    }
+  >;
   earlierReviews?: import("../shared/quest-delivery.js").RetainedReviewRange[];
   supersededBy?: string;
 }

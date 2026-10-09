@@ -398,6 +398,7 @@ export class WsBridge {
   recorder: RecorderManager | null = null;
   timerManager: import("./timer-manager.js").TimerManager | null = null;
   resourceLeaseManager: import("./resource-lease-manager.js").ResourceLeaseManager | null = null;
+  landingQueue: import("./landing-queue-manager.js").LandingQueueManager | null = null;
   imageStore: ImageStore | null = null;
   pushoverNotifier: PushoverNotifier | null = null;
   launcher: CliLauncher | null = null;
