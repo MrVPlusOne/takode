@@ -3,7 +3,13 @@ import { vi } from "vitest";
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+// Keep the real module apart from randomUUID: session persistence hashes history with
+// createHash, and a debounced save failing on a missing export logs a warning that,
+// on a loaded machine, lands inside tests asserting that nothing warned.
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomUUID: () => "test-uuid",
+}));
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
@@ -68,6 +74,14 @@ function makeBrowserSocket(sessionId: string) {
 }
 
 /** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
+/**
+ * Warnings other than slow-path timing diagnostics ("Slow JSON.stringify ...").
+ * Those depend on machine load, not on the behavior these tests check.
+ */
+function behaviorWarnings(warnSpy: { mock: { calls: unknown[][] } }): unknown[][] {
+  return warnSpy.mock.calls.filter((call) => !/\bSlow\b/.test(String(call[0])));
+}
+
 async function flushAsync() {
   for (let pass = 0; pass < 3; pass++) {
     await Promise.resolve();
@@ -794,7 +808,9 @@ describe("Browser handlers", () => {
       },
     });
     cli.message(controlReq);
-    await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
+    // The bridge handles the request asynchronously; subscribe only once it is pending,
+    // so the assertion below proves subscribe delivers it (not a later live broadcast).
+    await vi.waitFor(() => expect(bridge.getSession("s1")!.pendingPermissions.has("req-1")).toBe(true));
 
     // Now connect a browser and send session_subscribe
     const browser = makeBrowserSocket("s1");
@@ -1069,7 +1085,8 @@ describe("Browser handlers", () => {
         known_frozen_count: 99,
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
@@ -1081,7 +1098,7 @@ describe("Browser handlers", () => {
     expect(replayMsg).toBeDefined();
     expect(replayMsg.events.some((e: any) => e.message.type === "stream_event")).toBe(true);
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(behaviorWarnings(warnSpy)).toEqual([]);
     warnSpy.mockRestore();
   });
 
@@ -1149,7 +1166,8 @@ describe("Browser handlers", () => {
         known_frozen_hash: "deadbeef",
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     // Current-build explicit recovery uses history_sync with no ordinary full-history frame.
@@ -1157,7 +1175,7 @@ describe("Browser handlers", () => {
     const historySync = calls.find((c: any) => c.type === "history_sync");
     expect(historySync).toBeDefined();
     expect(historySync.frozen_base_count).toBe(0);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(behaviorWarnings(warnSpy)).toEqual([]);
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
     warnSpy.mockRestore();
   });
@@ -1231,13 +1249,14 @@ describe("Browser handlers", () => {
         known_frozen_hash: "stale-gap-hash",
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const historySync = calls.find((c: any) => c.type === "history_sync");
     expect(historySync).toBeDefined();
     expect(historySync.frozen_base_count).toBe(0);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(behaviorWarnings(warnSpy)).toEqual([]);
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
     warnSpy.mockRestore();
   });
@@ -1316,7 +1335,8 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     // Should send history_sync because history-backed events were missed
@@ -1371,7 +1391,8 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.find((c: any) => c.type === "history_window_sync")).toBeDefined();
@@ -1507,7 +1528,8 @@ describe("Browser handlers", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync();
+    // Subscribe handling is asynchronous; state_snapshot is its last message.
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const historyMsg = calls.find((c: any) => c.type === "history_window_sync");
