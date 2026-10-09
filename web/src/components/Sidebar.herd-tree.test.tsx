@@ -139,6 +139,7 @@ interface MockStoreState {
   sessionTaskHistory: Map<string, Array<{ title: string; action: string; timestamp: number }>>;
   sessionKeywords: Map<string, string[]>;
   sessionNotifications: Map<string, Array<unknown>>;
+  quests: never[];
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -249,6 +250,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionTaskHistory: new Map(),
     sessionKeywords: new Map(),
     sessionNotifications: new Map(),
+    quests: [],
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),

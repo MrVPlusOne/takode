@@ -1,6 +1,6 @@
 import type { NextAttentionLanding } from "../../hooks/useNextAttention.js";
 import { NextAttentionPill, NextAttentionToast } from "../NextAttentionButton.js";
-import { SidebarShortcutTiles } from "../SidebarShortcutTiles.js";
+import { SidebarQuickActions } from "../SidebarQuickActions.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const LANDINGS: NextAttentionLanding[] = [
@@ -60,7 +60,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Next Attention and Phone Top Bar"
-        description="Next opens the next item that needs the user: needs-input prompts, then Notify Me results, then unread Ready results, newest first in each group; a toast says where it landed. On phones the top bar keeps only ≡, the title, Next and Diffs, and the moved actions sit as tiles at the top of the sessions panel."
+        description="Next opens the next item that needs the user: needs-input prompts, then Notify Me results, then unread Ready results, newest first in each group; a toast says where it landed. The top bar keeps only ≡, the title, Next and Diffs; Search, Needs input, Notify Me and Quests sit as a search field and chips at the top of the sessions panel, on desktop and phone."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Next pill (desktop and phone)">
@@ -81,9 +81,9 @@ export function PlaygroundNextAttentionSection() {
               <PhoneTopBar />
             </div>
           </Card>
-          <Card label="Sessions panel shortcut tiles (phone)">
-            <div className="w-[340px]">
-              <SidebarShortcutTiles />
+          <Card label="Sessions panel quick actions (desktop and phone)">
+            <div className="w-[228px]">
+              <SidebarQuickActions closePanelOnOpen={false} />
             </div>
           </Card>
         </div>

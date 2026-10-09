@@ -145,6 +145,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionTaskHistory: new Map(),
     sessionKeywords: new Map(),
     sessionNotifications: new Map(),
+    quests: [],
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),

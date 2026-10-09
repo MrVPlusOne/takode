@@ -31,7 +31,7 @@ import { SessionContextMenu } from "./SessionContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
-import { SidebarShortcutTiles } from "./SidebarShortcutTiles.js";
+import { SidebarQuickActions } from "./SidebarQuickActions.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
@@ -713,7 +713,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
 
   return (
     <aside className="w-full sm:w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
-      <div className="p-4 pb-3">
+      <div className="p-4 pb-3 border-b border-cc-border/60">
         <div className="flex items-center gap-2 mb-4">
           <img src={logoSrc} alt="" className="h-12 w-12 shrink-0 rounded-xl object-contain" />
           {editingServerName ? (
@@ -759,7 +759,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
             </span>
           )}
         </div>
-        {!isDesktopLayout && <SidebarShortcutTiles onOpenUniversalSearch={onOpenUniversalSearch} />}
+        <SidebarQuickActions onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />
       </div>
 
       <div
@@ -774,7 +774,10 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
         }}
       >
         {allSessionList.length > 0 && (
-          <div className="px-2 pb-1.5 flex items-center justify-end gap-1">
+          <div className="px-2 pt-2 pb-1.5 flex items-center gap-1">
+            <span className="flex-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-cc-muted">
+              Sessions
+            </span>
             {bulkSourceGroups.length > 0 && (
               <button
                 type="button"

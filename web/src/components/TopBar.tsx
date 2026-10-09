@@ -432,7 +432,7 @@ export function TopBar({
               clipRule="evenodd"
             />
           </svg>
-          {compact && <SessionsPanelWaitingDot />}
+          {!sidebarOpen && <SessionsPanelWaitingDot />}
         </button>
 
         {/* Current session status + title — clickable to open session info */}
@@ -594,18 +594,8 @@ export function TopBar({
             <span>Completed</span>
           </LeaderWorkboardControlButton>
         )}
+        {/* Needs input, Notify Me, Search and Quests live in the sessions panel (SidebarQuickActions). */}
         <NextAttentionButton compact={compact} />
-        {!compact && (
-          <>
-            <GlobalNeedsInputMenu />
-            <GlobalNotifyMeMenu />
-            <SearchToggleButton
-              isOpen={universalSearchOpen}
-              onOpen={onOpenUniversalSearch}
-              onClose={onCloseUniversalSearch}
-            />
-          </>
-        )}
         {currentSessionId && isSessionView && (
           <>
             {status === "compacting" && (
@@ -652,25 +642,6 @@ export function TopBar({
               <ConfigureSessionModal sessionId={configureSessionId} onClose={() => setConfigureSessionId(null)} />
             )}
           </>
-        )}
-        {/* Quests toggle — rightmost for stable position across views (in the sessions panel on phones) */}
-        {!compact && (
-          <button
-            onClick={handleQuestToggle}
-            className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              isQuestmasterPage ? "text-cc-primary bg-cc-active" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-            }`}
-            title={isQuestmasterPage ? "Back to session" : "Quests"}
-          >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-              <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75zM4.75 8a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-4.5zM4 11.25a.75.75 0 01.75-.75h2.5a.75.75 0 010 1.5h-2.5a.75.75 0 01-.75-.75z" />
-            </svg>
-            {activeQuestCount > 0 && (
-              <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
-                {activeQuestCount}
-              </span>
-            )}
-          </button>
         )}
       </div>
       <SessionContextMenu
@@ -721,7 +692,7 @@ function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOp
   );
 }
 
-/** Amber dot on the phone sidebar toggle while the sessions panel holds needs-input prompts or Notify Me results. */
+/** Amber dot on the closed sidebar toggle while the sessions panel holds needs-input prompts or Notify Me results. */
 function SessionsPanelWaitingDot() {
   const { entries } = useGlobalNeedsInputEntries();
   const { pending } = useNotifyMeSummary();

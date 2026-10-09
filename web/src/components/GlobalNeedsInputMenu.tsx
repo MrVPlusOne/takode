@@ -28,7 +28,8 @@ import {
   type GlobalNeedsInputEntry,
   type GlobalNeedsInputState,
 } from "../utils/global-needs-input.js";
-import { ShortcutTile } from "./ShortcutTile.js";
+import { PanelChip } from "./PanelChip.js";
+import { anchoredPopoverStyle } from "../utils/anchored-popover.js";
 
 const MENU_TOP_PX = 44;
 const CHAT_FEED_WIDTH_SOURCE_SELECTOR = '[data-chat-feed-width-source="true"]';
@@ -408,8 +409,8 @@ function GlobalNeedsInputPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed right-3 z-50 flex max-h-[min(78vh,38rem)] w-[min(42rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card/98 shadow-xl"
-      style={{ top: MENU_TOP_PX }}
+      className="fixed z-50 flex max-h-[min(78vh,38rem)] w-[min(42rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card/98 shadow-xl"
+      style={anchoredPopoverStyle(triggerRef.current, 672, { fallbackTop: MENU_TOP_PX })}
       role="dialog"
       aria-label="Global needs-input notifications"
     >
@@ -505,14 +506,14 @@ export function useGlobalNeedsInputEntries() {
 }
 
 /**
- * Needs-input count button and its cross-session panel. `variant="tile"` is the
- * phone sessions-panel shortcut; `onOpen` lets that panel close itself first.
+ * Needs-input count button and its cross-session panel. `variant="panel"` is the
+ * sessions-panel quick-action chip; `onOpen` lets the phone panel close itself first.
  */
 export function GlobalNeedsInputMenu({
   variant = "chip",
   onOpen,
 }: {
-  variant?: "chip" | "tile";
+  variant?: "chip" | "panel";
   onOpen?: () => void;
 } = {}) {
   const { entries, mutedEntries, sdkSessions } = useGlobalNeedsInputEntries();
@@ -530,13 +531,12 @@ export function GlobalNeedsInputMenu({
 
   return (
     <>
-      {variant === "tile" ? (
-        <ShortcutTile
+      {variant === "panel" ? (
+        <PanelChip
           ref={triggerRef}
           onClick={toggle}
           icon={<BellIcon className="h-3.5 w-3.5 shrink-0" />}
-          count={count}
-          label="Needs input"
+          label={count}
           tone={count > 0 ? "attention" : undefined}
           ariaLabel={label}
         />

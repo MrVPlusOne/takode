@@ -11,7 +11,8 @@ import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { fetchThreadMonitoring, updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
-import { ShortcutTile } from "./ShortcutTile.js";
+import { PanelChip } from "./PanelChip.js";
+import { anchoredPopoverStyle } from "../utils/anchored-popover.js";
 import type { SdkSessionInfo } from "../types.js";
 
 export function NotifyMeResults({
@@ -134,14 +135,14 @@ export function openNotifyMeEntry(entry: ThreadMonitoringEntry, sdkSessions: Sdk
 }
 
 /**
- * Notify Me count button and its results panel. `variant="tile"` is the phone
- * sessions-panel shortcut; `onOpen` lets that panel close itself first.
+ * Notify Me count button and its results panel. `variant="panel"` is the
+ * sessions-panel quick-action chip; `onOpen` lets the phone panel close itself first.
  */
 export function GlobalNotifyMeMenu({
   variant = "chip",
   onOpen,
 }: {
-  variant?: "chip" | "tile";
+  variant?: "chip" | "panel";
   onOpen?: () => void;
 } = {}) {
   const { sdkSessions, ...summary } = useNotifyMeSummary();
@@ -218,16 +219,14 @@ export function GlobalNotifyMeMenu({
   }
   const label = `Notify Me: ${summary.pending} ${summary.pending === 1 ? "task" : "tasks"} with results`;
 
-  const top = Math.min((triggerRef.current?.getBoundingClientRect().bottom ?? 40) + 6, window.innerHeight - 180);
   return (
     <>
-      {variant === "tile" ? (
-        <ShortcutTile
+      {variant === "panel" ? (
+        <PanelChip
           ref={triggerRef}
           onClick={toggle}
           icon={<NotifyMeIcon pending={summary.pending > 0} monitored={summary.tracked > 0} className="h-3.5 w-3.5" />}
-          count={summary.pending}
-          label="Notify Me"
+          label={summary.pending}
           tone={summary.pending > 0 ? "info" : undefined}
           ariaLabel={label}
         />
@@ -252,7 +251,7 @@ export function GlobalNotifyMeMenu({
             role="dialog"
             aria-label="Notify Me"
             className="fixed z-[90] flex max-h-[min(70vh,560px)] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-cc-border bg-cc-card shadow-xl"
-            style={{ top, right: 12 }}
+            style={anchoredPopoverStyle(triggerRef.current, 400, { fallbackTop: 46 })}
           >
             <div className="flex items-center justify-between border-b border-cc-border px-3 py-2">
               <span className="text-sm font-semibold text-cc-fg">Notify Me</span>

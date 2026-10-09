@@ -539,7 +539,8 @@ describe("TopBar", () => {
       ]),
     });
 
-    render(<TopBar />);
+    // The session header moved this control to the sessions panel; full-page headers keep it.
+    render(<TopBar fullPageLabel="Quests" />);
 
     expect(
       screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
@@ -793,7 +794,8 @@ describe("TopBar", () => {
       ],
     });
 
-    render(<TopBar />);
+    // The session header moved this control to the sessions panel; full-page headers keep it.
+    render(<TopBar fullPageLabel="Quests" />);
 
     fireEvent.click(screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" }));
 
@@ -1034,7 +1036,7 @@ describe("TopBar", () => {
     expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("1Completed");
   });
 
-  it("places desktop leader shortcuts before the notification bell and search controls", () => {
+  it("places desktop leader shortcuts before Next and the session controls", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" },
@@ -1054,11 +1056,10 @@ describe("TopBar", () => {
 
     const workboard = screen.getByTestId("topbar-workboard-shortcut");
     const completed = screen.getByTestId("topbar-completed-shortcut");
-    const bell = screen.getByTitle("Needs-input notifications across sessions");
-    const search = screen.getByTitle("Universal Search");
-    expect(workboard.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(completed.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(bell.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The bell and search moved to the sessions panel; Next now leads the session controls.
+    const next = screen.getByTestId("next-attention-button");
+    expect(workboard.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(completed.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens desktop leader shortcuts in place without routing away from the current thread", () => {
@@ -1282,15 +1283,16 @@ describe("TopBar", () => {
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
 
-    render(<TopBar />);
+    render(<TopBar fullPageLabel="Quests" />);
     expect(screen.getByTitle("Universal Search (Ctrl+Shift+F)")).toBeInTheDocument();
   });
 
   it("opens the single app-level Universal Search affordance", () => {
-    // Keep one top-bar control for the shared Universal Search/Recent modal.
+    // Full-page headers keep one control for the shared Universal Search/Recent modal;
+    // session views open it from the sessions panel instead.
     const onOpenUniversalSearch = vi.fn();
 
-    render(<TopBar onOpenUniversalSearch={onOpenUniversalSearch} />);
+    render(<TopBar fullPageLabel="Quests" onOpenUniversalSearch={onOpenUniversalSearch} />);
 
     expect(screen.queryByRole("button", { name: "Open Recent asks" })).toBeNull();
     expect(screen.getAllByTestId("topbar-universal-search")).toHaveLength(1);
@@ -1348,7 +1350,7 @@ describe("TopBar phone layout and Next", () => {
     // The phone bar was too crowded to show the title. Needs input, Notify Me,
     // Search and Quests move to the sessions panel; a dot on ≡ says something waits there.
     window.innerWidth = 430;
-    resetStore(twoPromptsState());
+    resetStore({ ...twoPromptsState(), sidebarOpen: false });
     render(<TopBar />);
 
     expect(screen.getByText("Worker One")).toBeInTheDocument();
@@ -1361,14 +1363,16 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();
   });
 
-  it("shows Next on desktop before the needs-input control and opens the newest prompt", () => {
+  it("keeps only Next and Diffs on the desktop session bar and opens the newest prompt", () => {
     resetStore(twoPromptsState());
     render(<TopBar />);
 
+    // Desktop matches the phone: Needs input, Notify Me, Search and Quests live in the sessions panel.
     const next = screen.getByTestId("next-attention-button");
-    const bell = screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" });
     expect(next).toHaveTextContent("Next2");
-    expect(next.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Quests")).not.toBeInTheDocument();
 
     fireEvent.click(next);
     expect(window.location.hash).toContain("m2");

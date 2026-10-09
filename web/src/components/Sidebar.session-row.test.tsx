@@ -369,9 +369,9 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(mockState.setSidebarOpen).toHaveBeenCalledWith(false);
   });
 
-  it("shows the phone shortcut tiles and no separate session search box", () => {
-    // Universal Search replaced the sidebar search box; on phones the panel instead
-    // carries the actions removed from the crowded top bar.
+  it("shows the quick actions on desktop and phone, with no separate session search box", () => {
+    // Universal Search replaced the sidebar search box. The panel now carries a search
+    // field plus the needs-input, Notify Me and Quests chips on both layouts.
     const originalInnerWidth = window.innerWidth;
     onTestFinished(() => {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
@@ -382,13 +382,14 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     });
 
     const { unmount } = render(<Sidebar />);
-    expect(screen.queryByTestId("sidebar-shortcut-tiles")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-quick-actions")).toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
     expect(screen.queryByTitle("Search sessions")).not.toBeInTheDocument();
     unmount();
 
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
     render(<Sidebar />);
-    expect(screen.getByTestId("sidebar-shortcut-tiles")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-quick-actions")).toBeInTheDocument();
     expect(screen.queryByTitle("Search sessions")).not.toBeInTheDocument();
   });
 
