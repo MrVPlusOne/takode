@@ -29,10 +29,16 @@ export async function vitestWorkerCount(root = "/", sampleMs = 300): Promise<num
   return workersFor(budget, busy);
 }
 
-/** Leave one CPU for the main process; never go below four workers (or the budget) on a busy machine. */
+/**
+ * Leave one CPU for the main process, and on a busy machine keep at least half
+ * the budget (and four workers). The pool is fixed for the whole run, while the
+ * load that shrank it usually ends first: a run sized at four workers next to
+ * another run kept four workers after that run finished and took twice as long.
+ */
 export function workersFor(budget: number, busyCpus: number): number {
   const idle = Math.round(budget - busyCpus);
-  return Math.max(1, Math.min(budget - 1, Math.max(4, idle)));
+  const floor = Math.max(4, Math.ceil(budget / 2));
+  return Math.max(1, Math.min(budget - 1, Math.max(floor, idle)));
 }
 
 export interface CpuLimit {

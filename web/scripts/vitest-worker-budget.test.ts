@@ -110,9 +110,10 @@ describe("workersFor", () => {
     expect(workersFor(15, 0)).toBe(14);
   });
 
-  it("subtracts busy CPUs but keeps at least four workers", () => {
-    expect(workersFor(15, 6)).toBe(9);
-    expect(workersFor(15, 40)).toBe(4);
+  it("subtracts busy CPUs but keeps at least half the budget and four workers", () => {
+    expect(workersFor(15, 4)).toBe(11);
+    expect(workersFor(15, 40)).toBe(8);
+    expect(workersFor(6, 40)).toBe(4);
   });
 
   it("never exceeds the budget on small machines", () => {
