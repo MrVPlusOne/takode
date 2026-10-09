@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { handleBoard } from "./takode-board.js";
 import { apiPost } from "./takode-core.js";
 import { deliveryFixture } from "../src/test-fixtures/commit-delivery-fixture.js";
@@ -8,6 +8,13 @@ vi.mock("./takode-core.js", async (original) => ({
   ...(await original<typeof import("./takode-core.js")>()),
   apiPost: vi.fn(),
 }));
+
+// The guarded handoff identifies its calling worker; give it a session.
+beforeEach(() => {
+  vi.stubEnv("COMPANION_SESSION_ID", "session-1");
+  vi.stubEnv("COMPANION_AUTH_TOKEN", "token-1");
+});
+afterEach(() => vi.unstubAllEnvs());
 
 it("forwards the preparation and returns a compact delivery hint at the guarded CLI handoff", async () => {
   const log = vi.spyOn(console, "log").mockImplementation(() => {});

@@ -22,11 +22,15 @@ const id = "c".repeat(32);
 const sha = deliveryFixture.commits[0]!.sha;
 beforeEach(() => {
   vi.clearAllMocks();
+  // These leader and worker commands identify their caller; give them a session.
+  vi.stubEnv("COMPANION_SESSION_ID", "session-1");
+  vi.stubEnv("COMPANION_AUTH_TOKEN", "token-1");
   vi.spyOn(console, "log").mockImplementation(() => {});
   root = mkdtempSync(join(tmpdir(), "delivery-target-cli-test-"));
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
 
