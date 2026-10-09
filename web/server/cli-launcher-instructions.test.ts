@@ -43,6 +43,9 @@ describe("buildCompanionInstructions", () => {
     const result = buildCompanionInstructions({ backend });
     expect(result.includes("## Responding to Leaders")).toBe(backend !== "codex");
     expect(result.includes("## Native Computer Use")).toBe(backend === "codex");
+    // Only Claude Code notifies the agent when a background command exits, so
+    // only Claude sessions may be told to wait on one with this tool argument.
+    expect(result.includes("run_in_background: true")).toBe(backend !== "codex");
   });
 
   it("includes session identity only when a session number is supplied", () => {

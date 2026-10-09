@@ -194,11 +194,23 @@ ${
       "Each item is one Markdown body: its first non-empty line is the derived title and later lines are collapsible details. Prefer `--markdown-file` (or `-` for stdin) for Markdown or shell-sensitive content; legacy split input flags remain compatibility-only. Active Todo/Doing items have server-owned manual order; Done remains completion-time grouped. Use `takode todo --help` for compact list/show/find, ordering, item/category actions, proposals, and grant commands. Personal to-dos are durable user data: prefer reversible archive/restore, never run destructive tests against the live store, and stop for approval if target isolation or recovery is uncertain.",
   );
 
+  // Claude Code re-invokes the agent when a background command exits; Codex
+  // has no such notice, so its agents wait on a timer and check the output.
+  const waitForCommand =
+    opts?.backend === "codex"
+      ? "You get no notice when a background command finishes. To wait for a long-running command, start it so it keeps running after your turn ends and writes its output and exit status to a log file, for example `nohup sh -c '<command>; echo \"exit $?\"' > /tmp/<name>.log 2>&1 < /dev/null &`. Then create a `takode timer` for when you expect it to finish and end your turn. When the timer fires, read the log; if the command is still running, set another timer. Do not keep polling the command with repeated tool calls in one turn."
+      : "To wait for a long-running command, run it with `run_in_background: true`, end your turn, and continue when its completion notice arrives. Do not sleep or poll while it runs.";
+  parts.push(
+    "## Waiting\n\n" +
+      "**Don't block your turn waiting.** While your turn runs, the user and your leader cannot interject and you cannot react to herd events. Never chain or loop `sleep` calls or polling checks: five `sleep 59` calls block you as long as one five-minute sleep. A single sleep under a minute is fine only when what you wait for is moments away, such as a server finishing startup.\n\n" +
+      waitForCommand +
+      "\n\nFor any wait based on time rather than a command finishing, create a `takode timer` and end your turn.",
+  );
+
   parts.push(
     "## Session Timers\n\n" +
       "Use `takode timer` to create session-scoped timers that fire within this session.\n" +
       "Do NOT use CronCreate or ScheduleWakeup -- they are not available. Use `takode timer` instead.\n\n" +
-      "**Never sleep longer than 1 minute.** For any wait exceeding 1 minute, use `takode timer` instead of `sleep`, `ScheduleWakeup`, or polling loops. Timers free up your session for herd events and other work while you wait; sleeping blocks you.\n\n" +
       "Keep timer titles concise and human-scannable. Use the description only for extra detail.\n" +
       "For recurring timers, keep the description general so it does not go stale across repeated firings.\n\n" +
       '    takode timer create "Check build health" --desc "Inspect the latest failing shard if the build is red." --in 30m\n' +
