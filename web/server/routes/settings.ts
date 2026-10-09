@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { exec as execCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
@@ -33,7 +33,8 @@ import {
 } from "../settings-manager.js";
 import { normalizeGptTranscribeLanguageHints } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
-import { getLogPath } from "../server-logger.js";
+import { createLogger, getLogPath } from "../server-logger.js";
+import { COMPANION_SESSION_ID_HEADER } from "./auth.js";
 import type { RouteContext } from "./context.js";
 import {
   FALLBACK_LEADER_PROFILE_PORTRAIT,
@@ -61,6 +62,8 @@ import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
+
+const restartLog = createLogger("server-restart");
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -511,7 +514,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   // ─── Server restart ───────────────────────────────────────────────
 
-  api.post("/server/restart", async (c) => {
+  const handleServerRestart = async (c: Context): Promise<Response> => {
     if (!options?.requestRestart || options.restartSupported === false) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
@@ -556,9 +559,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
       }
 
       if (options.prepareRestart) {
+        const prepareStartedAt = Date.now();
+        restartLog.info("Building the replacement frontend for restart");
         try {
           // Production builds the candidate before interrupting sessions or stopping the current compatible pair.
           preparedRestart = await options.prepareRestart();
+          restartLog.info("Replacement frontend ready", {
+            buildId: preparedRestart.buildId,
+            durationMs: Date.now() - prepareStartedAt,
+          });
         } catch (error) {
           return c.json(
             {
@@ -572,6 +581,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       // Block restart while sessions are still holding the restart readiness gate.
       const busySessions = getRestartBlockingSessions();
       if (busySessions.length > 0) {
+        restartLog.info("Stopping sessions that block restart", {
+          sessions: busySessions.map((session) => session.label),
+        });
         const timeoutMs = restartPrepTimeoutMs;
         const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
         const protectedLeaders = getProtectedLeaders(busySessions);
@@ -693,6 +705,32 @@ export function createSettingsRoutes(ctx: RouteContext) {
     } finally {
       if (!restartScheduled) restartRequestInFlight = false;
     }
+  };
+
+  // Every request is logged with its source and outcome, so a restart that never
+  // happens can be told apart from one that failed or was rejected.
+  api.post("/server/restart", async (c) => {
+    const startedAt = Date.now();
+    const callerSessionId = c.req.header(COMPANION_SESSION_ID_HEADER)?.trim();
+    const source = callerSessionId ? `session ${callerSessionId}` : "browser";
+    restartLog.info("Server restart requested", { source, userAgent: c.req.header("user-agent") ?? null });
+    const response = await handleServerRestart(c);
+    const durationMs = Date.now() - startedAt;
+    if (response.ok) {
+      restartLog.info("Server restart scheduled", { source, durationMs });
+    } else {
+      const body = (await response
+        .clone()
+        .json()
+        .catch(() => null)) as { error?: unknown } | null;
+      restartLog.warn("Server restart not started", {
+        source,
+        status: response.status,
+        error: typeof body?.error === "string" ? body.error : null,
+        durationMs,
+      });
+    }
+    return response;
   });
 
   api.post("/server/interrupt-all", async (c) => {

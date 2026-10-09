@@ -29,6 +29,13 @@ import type {
 
 export type LeaderWorkboardView = "active" | "completed" | "other";
 
+/**
+ * Restart Server progress in the tab that requested it: the old server checks
+ * and builds the replacement ("preparing"), the server is down or starting
+ * ("restarting"), then the new build is ready and the tab reloads ("reloading").
+ */
+export type ServerRestartPhase = "preparing" | "restarting" | "reloading";
+
 export interface PendingSession {
   id: string;
   backend: "claude" | "codex" | "claude-sdk";
@@ -184,8 +191,9 @@ export interface AppState {
   setServerName: (name: string) => void;
   serverReachable: boolean;
   setServerReachable: (reachable: boolean) => void;
-  serverRestarting: boolean;
-  setServerRestarting: (v: boolean) => void;
+  /** Progress of a Restart Server request made from this tab; null when none is running. */
+  serverRestartPhase: ServerRestartPhase | null;
+  setServerRestartPhase: (phase: ServerRestartPhase | null) => void;
   colorTheme: "light" | "dark" | "vscode-dark";
   darkMode: boolean;
   zoomLevel: number;

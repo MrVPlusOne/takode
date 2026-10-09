@@ -51,7 +51,7 @@ export interface MockStoreState {
   setZoomLevel: ReturnType<typeof vi.fn>;
   serverReachable: boolean;
   setServerReachable: ReturnType<typeof vi.fn>;
-  setServerRestarting: ReturnType<typeof vi.fn>;
+  setServerRestartPhase: ReturnType<typeof vi.fn>;
 }
 
 function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreState {
@@ -87,7 +87,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setZoomLevel: vi.fn(),
     serverReachable: true,
     setServerReachable: vi.fn(),
-    setServerRestarting: vi.fn(),
+    setServerRestartPhase: vi.fn(),
     ...overrides,
   };
 }

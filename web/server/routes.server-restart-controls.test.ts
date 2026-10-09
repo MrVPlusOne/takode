@@ -20,6 +20,17 @@ vi.mock("./settings-manager.js", () => ({
   STT_MODELS: [],
 }));
 
+// Capture only the restart route's own log lines; every other component keeps the real logger.
+const restartLog = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn() }));
+vi.mock("./server-logger.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./server-logger.js")>();
+  return {
+    ...actual,
+    createLogger: (component: string, options?: Parameters<typeof actual.createLogger>[1]) =>
+      component === "server-restart" ? restartLog : actual.createLogger(component, options),
+  };
+});
+
 vi.mock("./path-resolver.js", () => ({
   resolveBinary: vi.fn(() => null),
   getEnrichedPath: vi.fn(() => process.env.PATH ?? ""),
@@ -209,6 +220,15 @@ describe("server restart controls", () => {
     expect(requestRestart).not.toHaveBeenCalled();
     expect(publishPreparedRestart).not.toHaveBeenCalled();
     expect(discardPreparedRestart).not.toHaveBeenCalled();
+    // A failed restart leaves a log line naming why, so an unexplained "nothing happened" can be traced.
+    expect(restartLog.warn).toHaveBeenCalledWith(
+      "Server restart not started",
+      expect.objectContaining({
+        source: "browser",
+        status: 500,
+        error: "Frontend restart preparation failed: Vite build failed",
+      }),
+    );
   });
 
   it("blocks restart before building or interrupting anything when the backend on disk cannot start", async () => {
@@ -321,11 +341,23 @@ describe("server restart controls", () => {
       } as any),
     );
 
-    const res = await devApp.request("/api/server/restart", { method: "POST" });
+    const res = await devApp.request("/api/server/restart", {
+      method: "POST",
+      headers: { "x-companion-session-id": "leader-7", "user-agent": "takode-cli" },
+    });
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true, restartRequested: true, replacementBuildId: null });
     expect(devRequestRestart).toHaveBeenCalledOnce();
+    // Requests record who asked, so a Settings click can be told apart from an agent's request.
+    expect(restartLog.info).toHaveBeenCalledWith("Server restart requested", {
+      source: "session leader-7",
+      userAgent: "takode-cli",
+    });
+    expect(restartLog.info).toHaveBeenCalledWith(
+      "Server restart scheduled",
+      expect.objectContaining({ source: "session leader-7" }),
+    );
   });
 
   it("blocks restart when a session only has pending permissions", async () => {

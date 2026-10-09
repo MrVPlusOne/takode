@@ -71,7 +71,7 @@ interface MockStoreState {
   activeTab: "chat" | "diff";
   codexSubagentInspector: { sessionId: string } | null;
   newSessionModalState: null;
-  serverRestarting: boolean;
+  serverRestartPhase: string | null;
   serverReachable: boolean;
   setServerReachable: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
@@ -142,7 +142,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     activeTab: "chat",
     codexSubagentInspector: null,
     newSessionModalState: null,
-    serverRestarting: false,
+    serverRestartPhase: null,
     serverReachable: true,
     setServerReachable: vi.fn(),
     setCurrentSession: vi.fn(),

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
 import { SettingsSubsection } from "./settings-controls.js";
 
@@ -144,6 +145,7 @@ export function SettingsServerDiagnosticsSection({
   serverSlugError,
   restartSupported,
   restartError,
+  restartSuccess = "",
   restartPrepResult,
   restarting,
   onSaveServerSlug,
@@ -157,6 +159,8 @@ export function SettingsServerDiagnosticsSection({
   serverSlugError: string;
   restartSupported: boolean;
   restartError: string;
+  /** Confirmation after the server came back from a restart this tab requested. */
+  restartSuccess?: string;
   restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
   onSaveServerSlug: (value: string) => void;
@@ -165,6 +169,7 @@ export function SettingsServerDiagnosticsSection({
   isRowHidden?: (itemId: string) => boolean;
 }) {
   const visibleRestartPrepResult = restartPrepResult ?? null;
+  const [confirmingRestart, setConfirmingRestart] = useState(false);
 
   return (
     <>
@@ -267,20 +272,55 @@ export function SettingsServerDiagnosticsSection({
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onRestartServer}
-              disabled={restarting || !restartSupported}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                restarting || !restartSupported
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-              }`}
-            >
-              {restarting ? "Restarting..." : "Restart Server"}
-            </button>
-          </div>
+          {restartSuccess && !restarting && (
+            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
+              {restartSuccess}
+            </div>
+          )}
+
+          {confirmingRestart && !restarting ? (
+            <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+              <p className="text-xs text-cc-fg">
+                Restart the server now? Running turns are stopped first and browsers briefly disconnect while the server
+                restarts.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRestart(false)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => {
+                    setConfirmingRestart(false);
+                    onRestartServer();
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer"
+                >
+                  Restart now
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmingRestart(true)}
+                disabled={restarting || !restartSupported}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  restarting || !restartSupported
+                    ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                    : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                }`}
+              >
+                {restarting ? "Restarting..." : "Restart Server"}
+              </button>
+            </div>
+          )}
 
           {visibleRestartPrepResult && (
             <RestartPrepResultPanel result={visibleRestartPrepResult} title="Restart Prep Result" />

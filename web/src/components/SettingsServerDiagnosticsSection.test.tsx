@@ -64,6 +64,51 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(screen.getByText(/Current held unrelated events: 0/)).toBeInTheDocument();
   });
 
+  it("confirms Restart Server inside the page instead of a native dialog", () => {
+    // Native confirm() is silently suppressed in some browser contexts (for example
+    // cross-origin or sandboxed frames), which made the button do nothing at all.
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    const onRestartServer = vi.fn();
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported
+        restartError=""
+        restarting={false}
+        onRestartServer={onRestartServer}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+    expect(screen.getByText(/Restart the server now\?/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onRestartServer).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Restart now" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+    expect(onRestartServer).toHaveBeenCalledOnce();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    nativeConfirm.mockRestore();
+  });
+
+  it("shows the restart confirmation note only once the restart has finished", () => {
+    const props = {
+      logFile: "",
+      ...serverSlugProps,
+      restartSupported: true,
+      restartError: "",
+      restartSuccess: "Server restarted at 8:01 PM.",
+      onRestartServer: vi.fn(),
+    };
+    const { rerender } = render(<SettingsServerDiagnosticsSection {...props} restarting />);
+    expect(screen.queryByText("Server restarted at 8:01 PM.")).not.toBeInTheDocument();
+
+    rerender(<SettingsServerDiagnosticsSection {...props} restarting={false} />);
+    expect(screen.getByText("Server restarted at 8:01 PM.")).toBeInTheDocument();
+  });
+
   it("does not render a separate standalone interrupt-all button", () => {
     render(
       <SettingsServerDiagnosticsSection

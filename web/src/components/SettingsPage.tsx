@@ -76,6 +76,36 @@ function reloadCurrentPage(): void {
   window.location.reload();
 }
 
+// Carries "the restart finished" across the initiating tab's automatic reload.
+const RESTART_COMPLETED_STORAGE_KEY = "cc-server-restart-completed-at";
+const RESTART_COMPLETED_NOTICE_MAX_AGE_MS = 5 * 60_000;
+
+function restartCompletedMessage(completedAt: number): string {
+  const time = new Date(completedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `Server restarted at ${time}.`;
+}
+
+function rememberRestartCompletedForReload(completedAt: number): void {
+  try {
+    sessionStorage.setItem(RESTART_COMPLETED_STORAGE_KEY, String(completedAt));
+  } catch {
+    // Storage can be unavailable; the overlay already said the server is back.
+  }
+}
+
+function takeRestartCompletedAfterReload(): string {
+  try {
+    const raw = sessionStorage.getItem(RESTART_COMPLETED_STORAGE_KEY);
+    if (raw === null) return "";
+    sessionStorage.removeItem(RESTART_COMPLETED_STORAGE_KEY);
+    const completedAt = Number(raw);
+    if (!Number.isFinite(completedAt) || Date.now() - completedAt > RESTART_COMPLETED_NOTICE_MAX_AGE_MS) return "";
+    return `${restartCompletedMessage(completedAt)} This page loaded the new build.`;
+  } catch {
+    return "";
+  }
+}
+
 export function SettingsPage({
   embedded = false,
   isActive = true,
@@ -164,6 +194,7 @@ export function SettingsPage({
   // Server restart state
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState("");
+  const [restartSuccess, setRestartSuccess] = useState("");
   const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
   const [serverSlug, setServerSlug] = useState("");
@@ -245,6 +276,11 @@ export function SettingsPage({
   }, [isActive]);
 
   useEffect(() => {
+    const completedNotice = takeRestartCompletedAfterReload();
+    if (completedNotice) setRestartSuccess(completedNotice);
+  }, []);
+
+  useEffect(() => {
     return () => {
       restartAttemptSequenceRef.current += 1;
       restartIntentRef.current?.cancel();
@@ -253,7 +289,7 @@ export function SettingsPage({
       if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
       healthPollRef.current = null;
       healthTimeoutRef.current = null;
-      useStore.getState().setServerRestarting(false);
+      useStore.getState().setServerRestartPhase(null);
     };
   }, []);
 
@@ -458,10 +494,9 @@ export function SettingsPage({
     }
   }
 
+  // Confirmation happens in the Restart section itself: native confirm() is
+  // silently suppressed in some browser contexts, which made the click a no-op.
   async function onRestartServer() {
-    if (!confirm("Restart server? Browsers briefly disconnect. Sessions reconnect on demand when work needs backend."))
-      return;
-
     restartAttemptSequenceRef.current += 1;
     const attemptSequence = restartAttemptSequenceRef.current;
     restartIntentRef.current?.cancel();
@@ -477,7 +512,7 @@ export function SettingsPage({
         ? preRestartCompatibility.backendBuildId
         : null;
 
-    const finishRestartAttempt = (serverIsReady = false): boolean => {
+    const finishRestartAttempt = (serverIsReady = false, keepOverlayForReload = false): boolean => {
       if (restartAttemptSequenceRef.current !== attemptSequence) return false;
       restartAttemptSequenceRef.current += 1;
       restartIntentRef.current?.cancel();
@@ -487,7 +522,8 @@ export function SettingsPage({
       healthPollRef.current = null;
       healthTimeoutRef.current = null;
       const store = useStore.getState();
-      store.setServerRestarting(false);
+      // A reload keeps the overlay up until the page navigates away.
+      store.setServerRestartPhase(keepOverlayForReload ? "reloading" : null);
       if (serverIsReady && !store.serverReachable) store.setServerReachable(true);
       setRestarting(false);
       return true;
@@ -495,12 +531,16 @@ export function SettingsPage({
 
     setRestarting(true);
     setRestartError("");
+    setRestartSuccess("");
     setRestartPrepResult(null);
-    useStore.getState().setServerRestarting(true);
+    useStore.getState().setServerRestartPhase("preparing");
 
+    // Whether the old server confirmed it scheduled the restart; a lost response leaves this false.
+    let restartConfirmed = false;
     try {
       const result = await api.restartServer();
       if (restartAttemptSequenceRef.current !== attemptSequence) return;
+      restartConfirmed = result.restartRequested === true;
       const replacementBuildId =
         result.restartRequested === true && typeof result.replacementBuildId === "string"
           ? result.replacementBuildId.trim()
@@ -529,6 +569,9 @@ export function SettingsPage({
         return;
       }
     }
+    // The old server accepted the restart (or dropped the connection while
+    // exiting); from here the browser waits for the replacement to come up.
+    useStore.getState().setServerRestartPhase("restarting");
 
     // Wait for both the backend and its production frontend to become usable.
     // Only the initiating tab receives the exact prepared build ID. Other tabs,
@@ -546,8 +589,17 @@ export function SettingsPage({
       );
       const decision = restartIntentRef.current?.observe(readiness, compatibility) ?? "stop";
       if (decision === "wait") return;
-      if (!finishRestartAttempt(true)) return;
-      if (decision === "reload") onReloadAfterRestart();
+      if (!finishRestartAttempt(true, decision === "reload")) return;
+      if (decision === "reload") {
+        rememberRestartCompletedForReload(Date.now());
+        onReloadAfterRestart();
+        return;
+      }
+      if (restartConfirmed) setRestartSuccess(restartCompletedMessage(Date.now()));
+      else
+        setRestartError(
+          "The server is responding, but its restart reply was lost, so this page cannot confirm it restarted.",
+        );
     }, 2000);
 
     // Timeout after 120s
@@ -982,6 +1034,7 @@ export function SettingsPage({
                 serverSlugError={serverSlugError}
                 restartSupported={restartSupported}
                 restartError={restartError}
+                restartSuccess={restartSuccess}
                 restartPrepResult={restartPrepResult}
                 restarting={restarting}
                 onSaveServerSlug={onSaveServerSlug}

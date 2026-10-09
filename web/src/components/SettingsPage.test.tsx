@@ -71,6 +71,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** Click Restart Server and accept the in-page confirmation. */
+function requestRestartFromSettings() {
+  fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+  fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+}
+
 function settingsWithChatLineHeight(chatMessageLineHeight: number) {
   return {
     serverName: "",
@@ -109,7 +115,6 @@ describe("SettingsPage", () => {
       buildId: "backend-after-restart",
       servedFrontendBuildId: "backend-after-restart",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -118,7 +123,7 @@ describe("SettingsPage", () => {
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
       await act(async () => {
         await Promise.resolve();
         await vi.advanceTimersByTimeAsync(2_000);
@@ -126,8 +131,10 @@ describe("SettingsPage", () => {
 
       expect(mockApi.restartServer).toHaveBeenCalledOnce();
       expect(mockCheckReadinessStatus).toHaveBeenCalled();
-      expect(mockState.setServerRestarting).toHaveBeenNthCalledWith(1, true);
-      expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
+      expect(mockState.setServerRestartPhase).toHaveBeenNthCalledWith(1, "preparing");
+      expect(mockState.setServerRestartPhase).toHaveBeenNthCalledWith(2, "restarting");
+      // The overlay stays up while the tab reloads into the new build.
+      expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith("reloading");
       expect(screen.getByRole("button", { name: "Restart Server" })).toBeEnabled();
       expect(onReloadAfterRestart).toHaveBeenCalledOnce();
       expect(getBuildCompatibilitySnapshot()).toMatchObject({
@@ -160,7 +167,6 @@ describe("SettingsPage", () => {
         buildId: "build-target",
         servedFrontendBuildId: "build-target",
       });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -168,7 +174,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -207,7 +213,6 @@ describe("SettingsPage", () => {
         buildId: "build-target",
         servedFrontendBuildId: "build-target",
       });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -215,7 +220,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -245,7 +250,6 @@ describe("SettingsPage", () => {
       buildId: "build-other",
       servedFrontendBuildId: "build-other",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -253,7 +257,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -285,7 +289,6 @@ describe("SettingsPage", () => {
       buildId: "build-target",
       servedFrontendBuildId: "build-stale",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -293,7 +296,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -321,7 +324,6 @@ describe("SettingsPage", () => {
       buildId: "build-after-transport-loss",
       servedFrontendBuildId: "build-after-transport-loss",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -329,7 +331,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -342,6 +344,9 @@ describe("SettingsPage", () => {
         servedFrontendBuildId: "build-after-transport-loss",
         status: "reload-required",
       });
+      // Without the server's reply the page must not claim the restart happened.
+      expect(screen.queryByText(/^Server restarted at /)).not.toBeInTheDocument();
+      expect(screen.getByText(/restart reply was lost/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -368,7 +373,6 @@ describe("SettingsPage", () => {
     mockCheckReadinessStatus
       .mockImplementationOnce(() => firstProbe.promise)
       .mockImplementationOnce(() => secondProbe.promise);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -376,7 +380,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -408,6 +412,79 @@ describe("SettingsPage", () => {
     }
   });
 
+  it("reports each restart phase and confirms when a restart without a reload finishes", async () => {
+    // Development restarts return no replacement build ID, so the tab does not reload;
+    // the user still needs to see the server come back.
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    mockApi.restartServer.mockResolvedValue({ ok: true, restartRequested: true, replacementBuildId: null });
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      requestRestartFromSettings();
+      expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith("preparing");
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith("restarting");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith(null);
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+      expect(screen.getByText(/^Server restarted at /)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("confirms the finished restart after the initiating tab reloads", async () => {
+    // The reload replaces the page, so the completion note is carried in sessionStorage
+    // and shown once by the freshly loaded Settings page.
+    vi.useFakeTimers();
+    sessionStorage.clear();
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "backend-after-reload-note",
+    });
+    mockCheckReadinessStatus.mockResolvedValue({
+      ok: true,
+      buildId: "backend-after-reload-note",
+      servedFrontendBuildId: "backend-after-reload-note",
+    });
+
+    try {
+      const onReloadAfterRestart = vi.fn();
+      const { unmount } = render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      requestRestartFromSettings();
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
+      unmount();
+
+      render(<SettingsPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText(/This page loaded the new build\./)).toBeInTheDocument();
+      expect(sessionStorage.getItem("cc-server-restart-completed-at")).toBeNull();
+    } finally {
+      sessionStorage.clear();
+      vi.useRealTimers();
+    }
+  });
+
   it("cancels a pending initiating-tab reload when Settings unmounts", async () => {
     vi.useFakeTimers();
     const onReloadAfterRestart = vi.fn();
@@ -423,7 +500,6 @@ describe("SettingsPage", () => {
       replacementBuildId: "build-target",
     });
     mockCheckReadinessStatus.mockImplementationOnce(() => pendingProbe.promise);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
       const { unmount } = render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
@@ -431,7 +507,7 @@ describe("SettingsPage", () => {
         await Promise.resolve();
       });
       expect(settingsSection("Server & Login")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      requestRestartFromSettings();
 
       await act(async () => {
         await Promise.resolve();
@@ -440,7 +516,7 @@ describe("SettingsPage", () => {
       expect(mockCheckReadinessStatus).toHaveBeenCalledOnce();
 
       unmount();
-      expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
+      expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith(null);
 
       await act(async () => {
         pendingProbe.resolve({
@@ -463,15 +539,14 @@ describe("SettingsPage", () => {
         error: "Failed to resolve import while preparing the frontend",
       }),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(<SettingsPage />);
     await waitForSettingsPage();
-    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+    requestRestartFromSettings();
 
     expect(await screen.findByText("Failed to resolve import while preparing the frontend")).toBeInTheDocument();
     expect(mockCheckReadinessStatus).not.toHaveBeenCalled();
-    expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
+    expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith(null);
   });
 
   it("surfaces rich restart-prep details when Restart Server auto-prep fails", async () => {
@@ -519,12 +594,11 @@ describe("SettingsPage", () => {
         },
       ),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+    requestRestartFromSettings();
 
     expect(await screen.findByText("Restart Prep Result")).toBeInTheDocument();
     expect(screen.getByText("Worker session")).toBeInTheDocument();
