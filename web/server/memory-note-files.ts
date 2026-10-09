@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, realpath, rmdir, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { stampNoteMachine } from "./memory-note-machines.js";
-import { assertActiveMemoryLock, ensureMemoryRepo, resolveMemoryRepo } from "./workstream-memory-store.js";
+import { assertMemoryLockHolder, ensureMemoryRepo, resolveMemoryRepo } from "./workstream-memory-store.js";
 import type { MemoryRepoOptions } from "./workstream-memory-types.js";
 
 /**
@@ -79,7 +79,7 @@ export async function writeMemoryNote(
   machine?: string,
 ): Promise<string> {
   const repo = await ensureMemoryRepo(options);
-  await assertActiveMemoryLock(repo.root);
+  await assertMemoryLockHolder(repo.root, options.lockHolder);
   const root = await realpath(repo.root);
   const relativePath = syntacticRelativePath(root, path);
   const absolute = join(root, relativePath);
@@ -101,7 +101,7 @@ export async function writeMemoryNote(
 /** Delete one note, and its folder when that leaves it empty. Requires the repo lock. */
 export async function removeMemoryNote(path: string, options: MemoryRepoOptions): Promise<string> {
   const repo = await ensureMemoryRepo(options);
-  await assertActiveMemoryLock(repo.root);
+  await assertMemoryLockHolder(repo.root, options.lockHolder);
   const root = await realpath(repo.root);
   const absolute = await existingNotePath(root, path);
   await unlink(absolute);

@@ -66,6 +66,8 @@ Good folder names are short subject nouns a reader would look for (`codex-recove
    5. `memory commit --message "..." --source q-N --memory-id <path>` (one coherent update per commit)
    6. `memory lock release`
 
+The lock belongs to the session that acquired it: only that session can write, remove, move or commit. If `memory lock acquire` reports the repo locked by another session, wait and retry. A lock whose holder session has ended, or that expired (10 minutes), is taken over by the next `memory lock acquire`.
+
 `memory commit` refuses a commit when a note it changes breaks a per-note rule: a description over 250 characters, a missing or unknown `type:`, a note at the repo root, or a file name used twice. Fix the note and commit again. Notes you did not change never block your commit.
 
 ## Keeping the repo healthy

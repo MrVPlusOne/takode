@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rename, rmdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative } from "node:path";
 import { readHelpfulMarks, setFrontmatterField, writeHelpfulMarks } from "./memory-repo-layout.js";
-import { assertActiveMemoryLock, ensureMemoryRepo, scanMemoryCatalog } from "./workstream-memory-store.js";
+import { assertMemoryLockHolder, ensureMemoryRepo, scanMemoryCatalog } from "./workstream-memory-store.js";
 import type { MemoryRepoOptions } from "./workstream-memory-types.js";
 
 const MARKDOWN_LINK_TARGET = /\]\(([^)\s]+)\)/g;
@@ -26,7 +26,7 @@ export interface MemoryMoveResult {
  */
 export async function moveMemoryNotes(options: MemoryRepoOptions, moves: MemoryMove[]): Promise<MemoryMoveResult> {
   const repo = await ensureMemoryRepo(options);
-  await assertActiveMemoryLock(repo.root);
+  await assertMemoryLockHolder(repo.root, options.lockHolder);
   const catalog = await scanMemoryCatalog(options);
   const entries = new Map(catalog.entries.map((entry) => [entry.path, entry]));
   const table = validateMoves(moves, entries, repo.root);

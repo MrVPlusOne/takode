@@ -59,6 +59,8 @@ const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
 const CATALOG_SEEN_DIR_NAME = "takode-memory-catalog-seen";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
+/** This server run, recorded on locks it grants. */
+const SERVER_RUN = randomUUID();
 const DEFAULT_CATALOG_READ_CONCURRENCY = 16;
 const LEGACY_TYPE_FOLDER_NAMES = Object.keys(LEGACY_TYPE_FOLDERS);
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
@@ -531,7 +533,8 @@ export async function acquireMemoryLock(input: MemoryLockAcquireInput = {}): Pro
   const expiresAt = new Date(now + (input.ttlMs ?? DEFAULT_LOCK_TTL_MS)).toISOString();
   const lockInfo = {
     owner: input.owner?.trim() || "takode-memory",
-    session: input.session?.trim() || process.env.COMPANION_SESSION_ID || process.env.COMPANION_SESSION_NUM,
+    session: input.lockHolder?.trim() || undefined,
+    serverRun: SERVER_RUN,
     acquiredAt: new Date(now).toISOString(),
     expiresAt,
     token: randomUUID(),
@@ -541,12 +544,9 @@ export async function acquireMemoryLock(input: MemoryLockAcquireInput = {}): Pro
     await mkdir(lockPath);
   } catch (error) {
     const existing = await readLockInfo(repo.root);
-    if (existing.stale && input.stealStale !== false) {
-      await rm(lockPath, { recursive: true, force: true });
-      await mkdir(lockPath);
-    } else {
-      throw new Error(formatLockConflict(existing));
-    }
+    if (!canTakeOverLock(existing, lockInfo.session, input)) throw new Error(formatLockConflict(existing));
+    await rm(lockPath, { recursive: true, force: true });
+    await mkdir(lockPath);
   }
 
   await writeFile(join(lockPath, LOCK_INFO_FILE), JSON.stringify(lockInfo, null, 2), "utf-8");
@@ -732,7 +732,7 @@ export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<st
 export async function commitMemory(input: MemoryCommitInput): Promise<MemoryCommitResult> {
   const repo = await ensureMemoryRepo(input);
   validateMemoryCommitInput(input);
-  await assertActiveMemoryLock(repo.root);
+  await assertMemoryLockHolder(repo.root, input.lockHolder);
   const changedPaths = await changedMemoryPaths(repo.root);
   // A repair (moves, reference rewrites, README and description fixes) doesn't change what notes
   // say: it neither makes them look recently updated nor holds the notes it touched to the
@@ -1152,6 +1152,7 @@ async function readLockInfo(root: string): Promise<MemoryLockInfo> {
       session?: string;
       acquiredAt?: string;
       expiresAt?: string;
+      serverRun?: string;
     };
     const expiresAt = raw.expiresAt;
     return {
@@ -1162,11 +1163,25 @@ async function readLockInfo(root: string): Promise<MemoryLockInfo> {
       acquiredAt: raw.acquiredAt,
       expiresAt,
       stale: expiresAt ? Date.parse(expiresAt) <= Date.now() : false,
+      serverRun: raw.serverRun,
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { locked: false, lockPath };
     throw error;
   }
+}
+
+/**
+ * Whether `holder` may replace an existing lock: its own lock (a session acquiring again, for
+ * example after its process restarted), or one whose holder is gone. A holder is gone when the
+ * lock expired, its session has ended, or, for a sessionless holder that cannot be checked,
+ * when the lock was granted by an earlier server run.
+ */
+function canTakeOverLock(lock: MemoryLockInfo, holder: string | undefined, input: MemoryLockAcquireInput): boolean {
+  if (holder && lock.session === holder) return true;
+  if (input.stealStale === false) return false;
+  if (lock.stale) return true;
+  return lock.session ? input.isSessionGone?.(lock.session) === true : lock.serverRun !== SERVER_RUN;
 }
 
 function formatLockConflict(info: MemoryLockInfo): string {
@@ -1222,13 +1237,23 @@ function buildCommitMessage(input: MemoryCommitInput): string {
   return lines.join("\n");
 }
 
-export async function assertActiveMemoryLock(root: string): Promise<void> {
+/** Throw unless the repo lock is held, unexpired, by `holder` (see `MemoryRepoOptions.lockHolder`). */
+export async function assertMemoryLockHolder(root: string, holder: string | undefined): Promise<void> {
   const lock = await readLockInfo(root);
   if (!lock.locked) {
-    throw new Error("Acquire the memory repo lock before committing or moving memory notes (`memory lock acquire`).");
+    throw new Error("Acquire the memory repo lock before changing memory notes (`memory lock acquire`).");
   }
   if (lock.stale) {
-    throw new Error("Memory repo lock is stale; acquire a fresh lock before committing or moving memory notes.");
+    throw new Error("Memory repo lock is stale; acquire a fresh lock before changing memory notes.");
+  }
+  const caller = holder?.trim() || undefined;
+  if (lock.session !== caller) {
+    const heldBy = lock.session ? `session ${lock.session}` : "a caller without a session";
+    const self = caller ? `session ${caller}` : "this caller";
+    throw new Error(
+      `The memory repo lock is held by ${heldBy} (owner ${lock.owner ?? "unknown"}), not by ${self}. ` +
+        "Wait for it to be released, then run `memory lock acquire`.",
+    );
   }
 }
 

@@ -134,4 +134,39 @@ describe("runMemoryCommand", () => {
     expect((await run(["rm", "voice/b.md"])).stdout).toBe("Removed voice/b.md.\n");
     expect((await run(["read", "voice/b.md"])).stderr).toBe("Error: Not a memory note: voice/b.md\n");
   });
+
+  // The lock belongs to the requesting session: others cannot write under it while its holder
+  // lives, and the next writer takes it over as soon as the holder session has ended.
+  it("enforces the lock holder and recovers a dead holder's lock", async () => {
+    const draft = '---\ndescription: "Read when c."\ntype: decision\nsource: [q-1]\n---\n\nC.\n';
+    const ended = new Set<string>();
+    const as = (session: string) => (args: string[]) =>
+      runMemoryCommand(args, {
+        defaults: { root },
+        session,
+        isSessionGone: (holder) => ended.has(holder),
+        readTextFile: async () => draft,
+      });
+    const holder = as("session-a");
+    const other = as("session-b");
+
+    expect((await holder(["lock", "acquire", "--owner", "a"])).exitCode).toBe(0);
+    // Live holder: another session can neither write, commit nor take the lock.
+    const refused = await other(["write", "voice/c.md", "--file", "draft"]);
+    expect(refused).toMatchObject({ exitCode: 1 });
+    expect(refused.stderr).toContain("held by session session-a (owner a), not by session session-b");
+    expect(
+      (await other(["commit", "--message", "x", "--source", "q-1", "--memory-id", "voice/c.md"])).stderr,
+    ).toContain("not by session session-b");
+    expect((await other(["lock", "acquire"])).stderr).toContain("already locked by a (session-a)");
+    expect((await holder(["write", "voice/c.md", "--file", "draft"])).exitCode).toBe(0);
+
+    // Dead holder: its lock is taken over without waiting for expiry, and the old holder is refused.
+    ended.add("session-a");
+    expect((await other(["lock", "acquire", "--owner", "b"])).exitCode).toBe(0);
+    expect((await holder(["rm", "voice/c.md"])).stderr).toContain("held by session session-b");
+    expect((await other(["commit", "--message", "x", "--source", "q-1", "--memory-id", "voice/c.md"])).stdout).toMatch(
+      /^committed [0-9a-f]+/,
+    );
+  });
 });

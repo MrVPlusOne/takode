@@ -171,6 +171,12 @@ export function createMemoryRoutes(ctx: RouteContext) {
       defaults: { serverId: getServerId(), serverSlug: getServerSlug(), ...context.defaults },
       ...(auth ? { session: auth.callerId } : context.session ? { session: context.session } : {}),
       ...(context.catalogSessionKey ? { catalogSessionKey: context.catalogSessionKey } : {}),
+      // A lock outlives its holder when the holder's process is gone; unknown sessions hold nothing.
+      isSessionGone: (session) => {
+        const id = ctx.resolveId(session);
+        const info = id ? ctx.launcher.getSession(id) : undefined;
+        return !info || info.state === "exited";
+      },
       readTextFile: async (path) => {
         const content = files?.[path];
         if (typeof content !== "string") throw new Error(`File was not sent with the command: ${path}`);

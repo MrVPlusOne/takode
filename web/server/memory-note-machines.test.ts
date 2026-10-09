@@ -82,14 +82,20 @@ describe("memory write and commit stamp the session's machine", () => {
       readTextFile: async () => file,
     });
   const read = (path: string) => readFile(join(root, path), "utf-8");
+  // Only the lock's holder may write or commit, so hand the lock to each writing session.
+  const holdLock = async (session?: string) => {
+    await run(["lock", "release"]);
+    expect((await run(["lock", "acquire"], session)).exitCode).toBe(0);
+  };
 
   it("stamps notes on write, keeping earlier machines, but not folder READMEs", async () => {
-    expect((await run(["lock", "acquire"], "local")).exitCode).toBe(0);
+    await holdLock("local");
 
     await run(["write", "topic/a.md", "--file", "-"], "local", note(["type: knowledge"]));
     expect(noteMachines(await read("topic/a.md"))).toEqual(["laptop"]);
 
     // A session on another machine rewrites the note from a draft without the field.
+    await holdLock("remote");
     await run(["write", "topic/a.md", "--file", "-"], "remote", note(["type: knowledge"], "Edited."));
     expect(noteMachines(await read("topic/a.md"))).toEqual(["laptop", "devbox"]);
 
@@ -97,12 +103,13 @@ describe("memory write and commit stamp the session's machine", () => {
     expect(await read("topic/README.md")).not.toContain("machines");
 
     // Without a known session there is no machine to record.
+    await holdLock();
     await run(["write", "topic/b.md", "--file", "-"], undefined, note(["type: knowledge"]));
     expect(noteMachines(await read("topic/b.md"))).toBeUndefined();
   });
 
   it("stamps the committer's machine on notes a commit changes, except repairs", async () => {
-    await run(["lock", "acquire"], "local");
+    await holdLock("remote");
     // Edited directly in the repo, not through `memory write`.
     await mkdir(join(root, "topic"), { recursive: true });
     await writeFile(join(root, "topic", "a.md"), note(["type: knowledge"]));
@@ -112,6 +119,7 @@ describe("memory write and commit stamp the session's machine", () => {
     expect(noteMachines(await read("topic/a.md"))).toEqual(["devbox"]);
 
     await writeFile(join(root, "topic", "b.md"), note(["type: knowledge"]));
+    await holdLock("local");
     await run(
       ["commit", "--message", "Fix", "--source", "q-1", "--memory-id", "topic/b.md", "--operation", "repair"],
       "local",

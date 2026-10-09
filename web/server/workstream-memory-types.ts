@@ -33,6 +33,12 @@ export interface MemoryRepoOptions {
   readOnly?: boolean;
   /** Optional session-specific catalog-seen key for server-mediated catalog reads. */
   catalogSessionKey?: string;
+  /**
+   * Session making the request. `lock acquire` records it as the lock's holder, and writes,
+   * removals, moves and commits need the lock to be held by it. Unset means a sessionless
+   * caller, which matches only a lock taken without a session.
+   */
+  lockHolder?: string;
 }
 
 export interface MemoryRepoInfo {
@@ -186,13 +192,17 @@ export interface MemoryLockInfo {
   acquiredAt?: string;
   expiresAt?: string;
   stale?: boolean;
+  /** Server run that granted the lock; a sessionless lock from an earlier run has lost its holder. */
+  serverRun?: string;
 }
 
 export interface MemoryLockAcquireInput extends MemoryRepoOptions {
   owner?: string;
-  session?: string;
   ttlMs?: number;
+  /** False keeps an abandoned lock (expired, or its holder gone) in place instead of taking it over. */
   stealStale?: boolean;
+  /** Whether a holder session has ended, so its lock can be taken over before it expires. */
+  isSessionGone?: (session: string) => boolean;
 }
 
 export interface MemoryCommitInput extends MemoryRepoOptions {

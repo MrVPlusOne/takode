@@ -122,7 +122,7 @@ export async function stampExistingMemoryNotes(
   const markerPath = join(root, ".git", MEMORY_MACHINE_STAMPS_MARKER);
   if (await exists(markerPath)) return { root, outcome: "done", notes: 0, reason: "already run" };
   try {
-    await memory.acquireLock({ ...options, owner: "takode-machine-stamps", session: "server" });
+    await memory.acquireLock({ ...options, owner: "takode-machine-stamps" });
   } catch (error) {
     return { root, outcome: "skipped", notes: 0, reason: error instanceof Error ? error.message : String(error) };
   }

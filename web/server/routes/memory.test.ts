@@ -620,4 +620,41 @@ source: q-1220
     expect(body).toContain("must stay inside the memory repo");
     expect(body).not.toContain("nested outside content must not leak");
   });
+
+  // The command route judges a lock holder gone from the server's own session records: a holder
+  // whose process exited, or a session the server does not know, no longer blocks other writers.
+  it("lets memory commands take over locks of exited or unknown sessions only", async () => {
+    const states: Record<string, string> = { live: "connected", dead: "exited" };
+    const { createMemoryRoutes } = await import("./memory.js");
+    const app = new Hono();
+    app.route(
+      "/",
+      createMemoryRoutes({
+        launcher: {
+          getMemorySessionSpaceSlug: () => "Takode",
+          getSession: (id: string) => (states[id] ? { sessionId: id, state: states[id] } : undefined),
+        },
+        resolveId: (raw: string) => raw,
+        authenticateCompanionCallerOptional: () => null,
+      } as never),
+    );
+    const run = async (session: string, args: string[]) => {
+      const res = await app.request("/memory/command", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ args, context: { session } }),
+      });
+      return (await res.json()) as { exitCode: number; stderr: string };
+    };
+
+    expect((await run("live", ["lock", "acquire"])).exitCode).toBe(0);
+    expect((await run("other", ["lock", "acquire"])).stderr).toContain("already locked");
+    await run("live", ["lock", "release"]);
+
+    for (const holder of ["dead", "unknown"]) {
+      expect((await run(holder, ["lock", "acquire"])).exitCode).toBe(0);
+      expect((await run("other", ["lock", "acquire"])).exitCode).toBe(0);
+      await run("other", ["lock", "release"]);
+    }
+  });
 });

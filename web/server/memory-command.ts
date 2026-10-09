@@ -30,8 +30,10 @@ export interface MemoryCommandResult {
 export interface MemoryCommandContext {
   /** Repo selection defaults; command-line options such as `--root` override them. */
   defaults?: MemoryRepoOptions;
-  /** Session recorded on a new lock; the catalog overview names the machine it runs on. */
+  /** Session making the request: it holds the locks it takes, and the catalog overview names its machine. */
   session?: string;
+  /** Whether a lock-holding session has ended, so `lock acquire` can take its lock over. */
+  isSessionGone?: (session: string) => boolean;
   /** Key for the per-session catalog snapshot behind `catalog diff`. */
   catalogSessionKey?: string;
   /** Inspect repos without creating, migrating or indexing them. */
@@ -271,6 +273,7 @@ async function executeMemoryCommand(
       ...context.defaults,
       ...defined,
       ...(context.catalogSessionKey ? { catalogSessionKey: context.catalogSessionKey } : {}),
+      ...(context.session ? { lockHolder: context.session } : {}),
       ...(context.readOnly ? { readOnly: true } : {}),
     };
   };
@@ -432,9 +435,9 @@ async function executeMemoryCommand(
       const status = await workstreamMemoryService.acquireLock({
         ...repoOptions(),
         owner: option("owner"),
-        ...(context.session ? { session: context.session } : {}),
         ttlMs: parsePositiveInt(option("ttl-ms"), "--ttl-ms"),
         stealStale: !flag("no-steal-stale"),
+        isSessionGone: context.isSessionGone,
       });
       if (jsonOutput) out(status);
       else io.print(`locked: ${status.lockPath}`);
@@ -462,8 +465,6 @@ async function executeMemoryCommand(
   }
 
   if (command === "commit") {
-    const lock = await workstreamMemoryService.lockStatus(repoOptions());
-    if (!lock.locked || lock.stale) throw new Error("Acquire the memory repo lock before committing memory changes.");
     const result = await workstreamMemoryService.commit({
       ...repoOptions(),
       message: requireOption(option, "message"),

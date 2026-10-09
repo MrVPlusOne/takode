@@ -613,6 +613,68 @@ source: [q-1220]
     expect(released.locked).toBe(false);
   });
 
+  // A writer that dies mid-write must not block every other writer until its lock expires.
+  // Session holders are checked through the server's session liveness; a sessionless holder
+  // cannot be checked, so a server restart is the only evidence it is gone.
+  it("takes over locks whose holder is gone but never a live holder's", async () => {
+    const ended = new Set<string>();
+    const isSessionGone = (session: string) => ended.has(session);
+    await memoryStore.acquireMemoryLock({ owner: "a", lockHolder: "session-a", isSessionGone });
+
+    // Live holder: other sessions and sessionless callers are refused.
+    await expect(memoryStore.acquireMemoryLock({ owner: "b", lockHolder: "session-b", isSessionGone })).rejects.toThrow(
+      "already locked by a (session-a)",
+    );
+    await expect(memoryStore.acquireMemoryLock({ owner: "anon", isSessionGone })).rejects.toThrow("already locked");
+    // The holder itself may acquire again, for example after its process restarted.
+    await memoryStore.acquireMemoryLock({ owner: "a", lockHolder: "session-a", isSessionGone });
+
+    // Dead holder: the next writer takes the lock over before it expires, unless asked not to.
+    ended.add("session-a");
+    await expect(
+      memoryStore.acquireMemoryLock({ owner: "b", lockHolder: "session-b", isSessionGone, stealStale: false }),
+    ).rejects.toThrow("already locked");
+    const taken = await memoryStore.acquireMemoryLock({ owner: "b", lockHolder: "session-b", isSessionGone });
+    expect(taken).toMatchObject({ locked: true, owner: "b", session: "session-b", stale: false });
+  });
+
+  it("takes over a sessionless lock granted by an earlier server run", async () => {
+    const lock = await memoryStore.acquireMemoryLock({ owner: "probe" });
+    // Rewrite the unexpired lock as if an earlier server run had granted it.
+    await writeFile(
+      join(lock.lockPath, "owner.json"),
+      JSON.stringify({ owner: "probe", serverRun: "earlier-run", expiresAt: lock.expiresAt }),
+    );
+
+    const taken = await memoryStore.acquireMemoryLock({ owner: "worker", lockHolder: "session-b" });
+    expect(taken).toMatchObject({ locked: true, owner: "worker", session: "session-b" });
+  });
+
+  it("lets only the lock's holder commit", async () => {
+    await writeMemoryFile(
+      "current/held.md",
+      `
+description: Captures a lock holder case.
+source:
+  - q-1205
+`,
+    );
+    await memoryStore.acquireMemoryLock({ owner: "a", lockHolder: "session-a" });
+    const commit = (lockHolder?: string) =>
+      memoryStore.commitMemory({
+        message: "Commit under someone's lock",
+        memoryIds: ["current/held.md"],
+        sources: ["q-1205"],
+        ...(lockHolder ? { lockHolder } : {}),
+      });
+
+    await expect(commit("session-b")).rejects.toThrow(
+      "The memory repo lock is held by session session-a (owner a), not by session session-b",
+    );
+    await expect(commit()).rejects.toThrow("held by session session-a (owner a), not by this caller");
+    expect((await commit("session-a")).committed).toBe(true);
+  });
+
   it("stages authored memory files and commits with source trailers", async () => {
     await writeMemoryFile(
       "current/takode-memory.md",
@@ -665,7 +727,7 @@ source:
         memoryIds: ["current/no-lock.md"],
         sources: ["q-1205"],
       }),
-    ).rejects.toThrow("Acquire the memory repo lock before committing");
+    ).rejects.toThrow("Acquire the memory repo lock before changing memory notes");
   });
 
   it("rejects store-level commits with a stale memory lock", async () => {
