@@ -13,6 +13,7 @@ import {
   type LandingRunReport,
   type LandingTarget,
 } from "../shared/landing-queue.js";
+import { LandingGateStore } from "./landing-gate-store.js";
 import { emptyLandingQueueFile, LandingQueueStore, type LandingQueueFile } from "./landing-queue-store.js";
 import type { ResourceLeaseManager } from "./resource-lease-manager.js";
 
@@ -80,6 +81,8 @@ export class LandingQueueManager {
   constructor(
     private deps: LandingQueueDeps,
     private store = new LandingQueueStore(),
+    /** Saved gates; a repository branch without one is not opted into the queue. */
+    readonly gates = new LandingGateStore(),
   ) {}
 
   async start(): Promise<void> {
@@ -97,6 +100,11 @@ export class LandingQueueManager {
     return this.exclusive(async () => {
       if (input.commits.length === 0) throw new LandingQueueError(400, "An entry needs at least one commit.");
       const key = landingQueueKey(input.target);
+      if (!(await this.gates.get(input.target)))
+        throw new LandingQueueError(
+          409,
+          `No landing gate is saved for ${key}, so it does not land through the landing queue. Use the classic port flow in /port-changes, or save a gate with \`takode land gate save\`.`,
+        );
       const active = this.data.entries.find(
         (entry) =>
           entry.sessionId === input.callerSessionId && (entry.state === "pending" || entry.state === "running"),

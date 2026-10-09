@@ -5,12 +5,14 @@ import { join } from "node:path";
 import * as questStore from "../quest-store.js";
 import { getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import { LandingQueueError } from "../landing-queue-manager.js";
-import type {
-  LandingEntryOutcome,
-  LandingPreSubmitTest,
-  LandingPushPlan,
-  LandingRunReport,
-  LandingTarget,
+import {
+  parseLandingGateConfig,
+  type LandingEntryOutcome,
+  type LandingGateConfig,
+  type LandingPreSubmitTest,
+  type LandingPushPlan,
+  type LandingRunReport,
+  type LandingTarget,
 } from "../../shared/landing-queue.js";
 import type { RouteContext } from "./context.js";
 
@@ -20,7 +22,9 @@ const BUNDLE_ID = /^b-[0-9a-f]{8}$/;
 /**
  * Landing queue routes for `takode land`. Workers submit entries; the session
  * holding the target's port lease claims them as one landing run and reports
- * its plan and outcome. The queue logic lives in LandingQueueManager.
+ * its plan and outcome. The queue logic lives in LandingQueueManager. Saved
+ * landing gates opt a repository branch into the queue and tell every
+ * machine's `takode land` what to run.
  */
 export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(homedir(), ".companion", "bundles")) {
   const api = new Hono();
@@ -150,6 +154,59 @@ export function createLandingQueueRoutes(ctx: RouteContext, bundleDir = join(hom
         default:
           throw new LandingQueueError(404, "Unknown landing run action.");
       }
+    } catch (error) {
+      return landingError(c, error);
+    }
+  });
+
+  // Saved landing gates. A repository branch with a gate lands through the queue.
+  api.get("/takode/land/gates", async (c) => {
+    const g = guard(c);
+    if ("response" in g) return g.response;
+    return c.json({ gates: await g.queue.gates.list() });
+  });
+
+  api.get("/takode/land/gate", async (c) => {
+    const g = guard(c);
+    if ("response" in g) return g.response;
+    try {
+      const target = parseTarget({ repo: c.req.query("repo"), branch: c.req.query("branch") });
+      return c.json({ gate: await g.queue.gates.get(target) });
+    } catch (error) {
+      return landingError(c, error);
+    }
+  });
+
+  api.post("/takode/land/gate", async (c) => {
+    const g = guard(c);
+    if ("response" in g) return g.response;
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+      const target = parseTarget(body.target);
+      let config: LandingGateConfig;
+      try {
+        config = parseLandingGateConfig(body.config);
+      } catch (error) {
+        throw new LandingQueueError(400, (error as Error).message);
+      }
+      const callerId = g.auth.callerId;
+      return c.json(
+        await g.queue.gates.set(target, config, {
+          sessionId: callerId,
+          sessionNum: ctx.launcher.getSessionNum(callerId),
+        }),
+      );
+    } catch (error) {
+      return landingError(c, error);
+    }
+  });
+
+  api.delete("/takode/land/gate", async (c) => {
+    const g = guard(c);
+    if ("response" in g) return g.response;
+    try {
+      const target = parseTarget({ repo: c.req.query("repo"), branch: c.req.query("branch") });
+      return c.json({ removed: await g.queue.gates.remove(target) });
     } catch (error) {
       return landingError(c, error);
     }

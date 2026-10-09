@@ -10,25 +10,9 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { git } from "./landing-git.js";
+import type { LandingGateConfig, LandingGateStep } from "../shared/landing-queue.js";
 
-export const LANDING_GATE_FILE = ".takode/landing-gate.json";
-
-export interface LandingGateStep {
-  name: string;
-  /** Directory relative to the checkout root. */
-  cwd?: string;
-  run: string[];
-  /** `vitest` steps report per-test failures and can rerun single files. */
-  kind?: "command" | "vitest";
-}
-
-export interface LandingGateConfig {
-  version: 1;
-  /** Runs before the steps in every checkout the gate uses (e.g. a frozen dependency install). */
-  install?: { cwd?: string; run: string[] };
-  steps: LandingGateStep[];
-}
+export type { LandingGateConfig, LandingGateStep };
 
 export interface StepResult {
   ok: boolean;
@@ -65,34 +49,14 @@ export interface GateResult {
 export interface GateRunOptions {
   dir: string;
   config: LandingGateConfig;
-  /** Lazily prepare a checkout of the baseline commit (with dependencies installed). */
-  baselineDir: () => Promise<string>;
+  /**
+   * Lazily prepare a checkout of the baseline commit (with dependencies installed).
+   * Without one (trying out a draft gate), failures that remain after the rerun fail the gate.
+   */
+  baselineDir?: () => Promise<string>;
   log: (line: string) => void;
   phase?: (phase: string) => void;
   env?: NodeJS.ProcessEnv;
-}
-
-export function parseGateConfig(text: string): LandingGateConfig {
-  const raw = JSON.parse(text) as Partial<LandingGateConfig>;
-  const isCommand = (run: unknown) =>
-    Array.isArray(run) && run.length > 0 && run.every((part) => typeof part === "string" && part);
-  if (raw.version !== 1 || !Array.isArray(raw.steps) || raw.steps.length === 0)
-    throw new Error(`${LANDING_GATE_FILE} needs version 1 and at least one step.`);
-  for (const step of raw.steps) {
-    if (!step || typeof step.name !== "string" || !isCommand(step.run))
-      throw new Error(`${LANDING_GATE_FILE}: every step needs a name and a run command array.`);
-    if (step.kind !== undefined && step.kind !== "command" && step.kind !== "vitest")
-      throw new Error(`${LANDING_GATE_FILE}: step kind must be command or vitest.`);
-  }
-  if (raw.install !== undefined && !isCommand(raw.install.run))
-    throw new Error(`${LANDING_GATE_FILE}: install needs a run command array.`);
-  return raw as LandingGateConfig;
-}
-
-/** The gate declared at a commit, or null when the repository declares none there. */
-export async function readGateConfigAt(repoDir: string, commit: string): Promise<LandingGateConfig | null> {
-  const text = await git(repoDir, ["show", `${commit}:${LANDING_GATE_FILE}`]).catch(() => null);
-  return text === null ? null : parseGateConfig(text);
 }
 
 export async function installDependencies(dir: string, config: LandingGateConfig, options: GateRunOptions) {
@@ -124,6 +88,8 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
       const still = rerun.failures ?? (rerun.ok ? [] : first.failures);
       result.flaky.push(...first.failures.filter((id) => !still.includes(id)));
       if (still.length === 0) continue;
+      if (!options.baselineDir)
+        return fail(result, step, still, rerun.tail, { step, files: filesOf(still), ids: still });
       options.phase?.(`gate: checking ${filesOf(still).length} file(s) on the baseline`);
       const baseDir = await timed("baseline checkout", options.baselineDir);
       const base = await timed(`${step.name} baseline`, () => runStep(baseDir, step, options, filesOf(still)));
@@ -156,6 +122,7 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
         continue;
       }
     }
+    if (!options.baselineDir) return fail(result, step, [step.name], first.tail, { step, baseLines: [] });
     const baseDir = await timed("baseline checkout", options.baselineDir);
     const base = await timed(`${step.name} baseline`, () => runStep(baseDir, step, options));
     const fresh = base.ok ? first.lines : newLines(first.lines, base.lines);

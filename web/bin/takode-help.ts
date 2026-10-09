@@ -33,7 +33,7 @@ import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./tak
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 import { WORKTREE_HELP } from "./takode-worktree.js";
 import { BUNDLE_HELP } from "./takode-bundle-commands.js";
-import { LAND_HELP } from "./takode-land.js";
+import { LAND_GATE_HELP, LAND_HELP } from "./takode-land.js";
 
 const HOST_HELP = `Usage: takode host <add|list|remove> ...
 
@@ -517,7 +517,7 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
       console.log(BUNDLE_HELP);
       return true;
     case "land":
-      console.log(LAND_HELP);
+      console.log(args[0] === "gate" ? LAND_GATE_HELP : LAND_HELP);
       return true;
     case "pending":
       console.log(PENDING_HELP);
@@ -687,7 +687,7 @@ Commands:
   worktree         Register and inspect auxiliary worktree retention
   host             Register machines that run sessions for this server (takode host add <name>)
   bundle           Carry commits to the machine of your port target (takode bundle send|fetch)
-  land             Land changes on a shared remote branch through the landing queue (takode land test|submit|finish)
+  land             Land changes on a shared remote branch through the landing queue (takode land test|submit|finish|gate)
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session

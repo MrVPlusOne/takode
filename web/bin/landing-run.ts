@@ -20,7 +20,6 @@ import { commitChanges, git, isAncestor } from "./landing-git.js";
 import {
   installDependencies,
   probeFails,
-  readGateConfigAt,
   runGate,
   type GateRunOptions,
   type LandingGateConfig,
@@ -33,6 +32,8 @@ export interface LandingRunApi {
   finish(runId: string, report: LandingRunReport): Promise<void>;
   reconcile(runId: string, pushed: boolean): Promise<void>;
   fetchBundle(bundleId: string): Promise<Buffer>;
+  /** The gate saved for the target on the Takode server, or null when none is. */
+  gate(target: LandingTarget): Promise<LandingGateConfig | null>;
   /** Extend the port lease; throws when this session no longer holds it. */
   renewLease(): Promise<void>;
 }
@@ -120,13 +121,14 @@ export async function runLanding(options: LandingRunOptions): Promise<{ runId?: 
     });
     setPhase("preparing the landing checkout");
     await time("checkout", () => prepareLandingCheckout(base, options.landingDir, baseSha));
-    const config = await readGateConfigAt(base, baseSha);
-    if (!config) {
-      for (const entry of claim.entries)
-        bounce(
-          entry,
-          `${target.branch} declares no landing gate (.takode/landing-gate.json); land it with the classic port flow.`,
-        );
+    // Without a gate (removed, or a server that does not store gates) nothing can land here:
+    // bounce, so owners take the classic flow instead of being promoted to retry forever.
+    const config = await api.gate(target).catch((error: Error) => error);
+    if (!config || config instanceof Error) {
+      const reason = config
+        ? `The landing gate could not be read: ${config.message}`
+        : `No landing gate is saved for ${target.repo}:${target.branch} any more; land it with the classic port flow.`;
+      for (const entry of claim.entries) bounce(entry, reason);
       return await finish();
     }
 

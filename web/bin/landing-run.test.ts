@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LandingEntry, LandingPushPlan, LandingRunReport } from "../shared/landing-queue.js";
+import type { LandingEntry, LandingGateConfig, LandingPushPlan, LandingRunReport } from "../shared/landing-queue.js";
 import { git } from "./landing-git.js";
 import { runLanding, type LandingRunApi } from "./landing-run.js";
 
@@ -25,6 +25,8 @@ describe("landing run", () => {
   let plans: LandingPushPlan[];
   let reports: LandingRunReport[];
   let beforePush: (() => Promise<void>) | undefined;
+  let savedGate: LandingGateConfig | null;
+  let gateError: Error | undefined;
   let nextEntry = 0;
 
   beforeEach(async () => {
@@ -37,6 +39,9 @@ describe("landing run", () => {
     plans = [];
     reports = [];
     beforePush = undefined;
+    // The gate saved on the Takode server for the target; the run asks for it, not the repository.
+    savedGate = { version: 1, steps: [{ name: "check", run: ["sh", "gate.sh"] }] };
+    gateError = undefined;
     await git(root, ["init", "--quiet", "--bare", "-b", "main", origin]);
     const seed = join(root, "seed");
     await git(root, ["init", "--quiet", "-b", "main", seed]);
@@ -48,12 +53,6 @@ describe("landing run", () => {
     await git(seed, ["add", "gate.sh"]);
     await writeFile(join(seed, "shared.txt"), "one\ntwo\nthree\nfour\nfive\nsix\n");
     await git(seed, ["add", "shared.txt"]);
-    await mkdir(join(seed, ".takode"));
-    await writeFile(
-      join(seed, ".takode", "landing-gate.json"),
-      JSON.stringify({ version: 1, steps: [{ name: "check", run: ["sh", "gate.sh"] }] }),
-    );
-    await git(seed, ["add", ".takode/landing-gate.json"]);
     await git(seed, ["commit", "--quiet", "-m", "seed"]);
     await git(seed, ["push", "--quiet", origin, "main"]);
     await git(root, ["clone", "--quiet", origin, base]);
@@ -132,6 +131,10 @@ describe("landing run", () => {
       },
       reconcile: async () => undefined,
       fetchBundle: async (id) => bundles.get(id)!,
+      gate: async () => {
+        if (gateError) throw gateError;
+        return savedGate;
+      },
       renewLease: async () => undefined,
     };
     const result = await runLanding({
@@ -221,6 +224,24 @@ describe("landing run", () => {
     expect(requeued.outcome).toBe("requeue");
     expect(report.pushedTip).toBeUndefined();
     expect(await originTip()).toBe(intruder.tip);
+  });
+
+  it("bounces every entry without gating when the target no longer has a saved gate", async () => {
+    // Opting out (removing the saved gate) while changes wait sends them back to the classic flow.
+    const only = await entry([{ "a.txt": "a\n" }]);
+    const before = await originTip();
+    savedGate = null;
+    const { report } = await land([only]);
+    const bounced = outcome(report, only);
+    expect(bounced.outcome === "bounced" && bounced.reason).toContain("No landing gate is saved for repo:main");
+    expect(await gateRuns()).toBe(0);
+    expect(await originTip()).toBe(before);
+
+    // A server that cannot answer for gates (older build) bounces with its explanation too.
+    const again = await entry([{ "b.txt": "b\n" }]);
+    gateError = new Error("This Takode server does not store landing gates yet");
+    const failed = outcome((await land([again])).report, again);
+    expect(failed.outcome === "bounced" && failed.reason).toContain("does not store landing gates yet");
   });
 
   it("bounces a change whose base is not on the remote branch", async () => {

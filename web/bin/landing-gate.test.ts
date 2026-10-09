@@ -2,7 +2,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseGateConfig, probeFails, runGate, type GateRunOptions, type LandingGateConfig } from "./landing-gate.js";
+import { parseLandingGateConfig } from "../shared/landing-queue.js";
+import { probeFails, runGate, type GateRunOptions, type LandingGateConfig } from "./landing-gate.js";
 
 /**
  * A stand-in for Vitest that honors the flags the gate adds: it reads
@@ -59,15 +60,13 @@ describe("landing gate rerun-and-compare", () => {
       await writeFile(join(dir, "lint.sh"), "cat lint-output.txt; test ! -s lint-output.txt\n");
       await writeFile(join(dir, "lint-output.txt"), "");
     }
-    config = parseGateConfig(
-      JSON.stringify({
-        version: 1,
-        steps: [
-          { name: "lint", run: ["sh", "lint.sh"] },
-          { name: "tests", kind: "vitest", run: [process.execPath, "fake-vitest.mjs"] },
-        ],
-      }),
-    );
+    config = parseLandingGateConfig({
+      version: 1,
+      steps: [
+        { name: "lint", run: ["sh", "lint.sh"] },
+        { name: "tests", kind: "vitest", run: [process.execPath, "fake-vitest.mjs"] },
+      ],
+    });
     lines.length = 0;
   });
 
@@ -148,10 +147,40 @@ describe("landing gate rerun-and-compare", () => {
     expect(fresh.excerpt).toContain("src/new.ts:3 error: worse");
   });
 
-  it("rejects a malformed gate declaration", () => {
-    expect(() => parseGateConfig(JSON.stringify({ version: 1, steps: [] }))).toThrow("at least one step");
-    expect(() => parseGateConfig(JSON.stringify({ version: 1, steps: [{ name: "x", run: [] }] }))).toThrow(
-      "run command",
+  it("without a baseline (trying a draft gate), fails on what still fails after the rerun", async () => {
+    // A draft is tried on the checkout as it is, often with no change of its own, so there is
+    // nothing to compare with: flaky tests still pass on rerun, but other failures count.
+    await tests(candidate, { "a.test.ts": { steady: "pass", shaky: "flaky", broken: "fail" } });
+    const { baselineDir: _unused, ...draft } = options();
+    const result = await runGate(draft);
+    expect(result.ok).toBe(false);
+    expect(result.flaky).toEqual(["a.test.ts > shaky"]);
+    expect(result.newFailures).toEqual(["a.test.ts > broken"]);
+
+    await tests(candidate, { "a.test.ts": { steady: "pass" } });
+    await writeFile(join(candidate, "lint-output.txt"), "src/old.ts:12 error: bad\n");
+    const lint = await runGate(draft);
+    expect(lint.ok).toBe(false);
+    expect(lint.failedStep).toBe("lint");
+  });
+
+  it("rejects a malformed gate config and keeps only known fields", () => {
+    expect(() => parseLandingGateConfig({ version: 1, steps: [] })).toThrow("at least one step");
+    expect(() => parseLandingGateConfig({ version: 1, steps: [{ name: "x", run: [] }] })).toThrow("run command");
+    expect(() => parseLandingGateConfig({ version: 1, steps: [{ name: "x", cwd: "../up", run: ["true"] }] })).toThrow(
+      "inside the checkout",
     );
+    expect(() =>
+      parseLandingGateConfig({
+        version: 1,
+        steps: [
+          { name: "x", run: ["true"] },
+          { name: "x", run: ["true"] },
+        ],
+      }),
+    ).toThrow("unique");
+    expect(
+      parseLandingGateConfig({ version: 1, extra: true, steps: [{ name: "x", run: ["true"], note: "dropped" }] }),
+    ).toEqual({ version: 1, steps: [{ name: "x", run: ["true"] }] });
   });
 });

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LandingQueueManager } from "./landing-queue-manager.js";
+import { LandingGateStore } from "./landing-gate-store.js";
 import { LandingQueueStore } from "./landing-queue-store.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
@@ -20,7 +21,7 @@ describe("landing queue manager", () => {
   const leaseMessages = vi.fn((_sessionId: string, _content: string) => "sent" as const);
   const notify = vi.fn((_sessionId: string, _text: string) => undefined);
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Real lease and queue stores in a disposable directory; only message delivery is faked.
     directory = mkdtempSync(join(tmpdir(), "landing-queue-"));
     now = Date.parse("2026-10-08T12:00:00Z");
@@ -39,7 +40,10 @@ describe("landing queue manager", () => {
         now: () => now,
       },
       new LandingQueueStore("test", directory),
+      new LandingGateStore("test", join(directory, "gates")),
     );
+    // The target opted into the queue by having a saved gate.
+    await queue.gates.set(target, { version: 1, steps: [{ name: "check", run: ["true"] }] }, { sessionId: "a" });
   });
 
   afterEach(() => {
@@ -202,6 +206,15 @@ describe("landing queue manager", () => {
     const withdrawn = await queue.withdraw(entry.id, "leader", (owner) => owner === "a");
     expect(withdrawn.reason).toContain("leader");
     expect((await submit("a", 2)).entry.state).toBe("pending");
+  });
+
+  it("only queues targets with a saved gate", async () => {
+    // Opting in is decided by the gate saved on the server, not by anything in the repository.
+    await queue.gates.remove(target);
+    await expect(submit("a", 1)).rejects.toThrow("No landing gate is saved for takode:jiayi");
+    expect((await leases.getStatus(LEASE)).leases).toEqual([]);
+    await queue.gates.set(target, { version: 1, steps: [{ name: "check", run: ["true"] }] }, {});
+    expect((await submit("a", 1)).entry.state).toBe("pending");
   });
 
   it("stops counting a run as progressing once its heartbeat is stale", async () => {

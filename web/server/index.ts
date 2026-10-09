@@ -62,6 +62,7 @@ import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { LandingQueueManager } from "./landing-queue-manager.js";
 import { LandingQueueStore } from "./landing-queue-store.js";
+import { LandingGateStore } from "./landing-gate-store.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
@@ -311,6 +312,7 @@ const landingQueue = new LandingQueueManager(
     machineName: (hostId) => (hostId ? (hostRegistry.nameOf(hostId) ?? "a remote host") : thisMachine.name),
   },
   new LandingQueueStore(serverId),
+  new LandingGateStore(serverId),
 );
 hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
 configureMachines({

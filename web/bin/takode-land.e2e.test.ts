@@ -12,6 +12,7 @@ import { createBundleRoutes } from "../server/routes/bundles.js";
 import { createLandingQueueRoutes } from "../server/routes/landing-queue.js";
 import { createResourceLeaseRoutes } from "../server/routes/resource-leases.js";
 import { LandingQueueManager } from "../server/landing-queue-manager.js";
+import { LandingGateStore } from "../server/landing-gate-store.js";
 import { LandingQueueStore } from "../server/landing-queue-store.js";
 import { ResourceLeaseManager } from "../server/resource-lease-manager.js";
 import { ResourceLeaseStore } from "../server/resource-lease-store.js";
@@ -50,11 +51,6 @@ describe("takode land end to end", () => {
     await git(root, ["clone", "--quiet", origin, base]);
     await configure(base);
     await writeFile(join(base, "gate.sh"), 'echo run >> "$GATE_COUNT"\n[ ! -e broken ]\n');
-    await mkdir(join(base, ".takode"));
-    await writeFile(
-      join(base, ".takode", "landing-gate.json"),
-      JSON.stringify({ version: 1, steps: [{ name: "check", run: ["sh", "gate.sh"] }] }),
-    );
     await git(base, ["add", "."]);
     await git(base, ["commit", "--quiet", "-m", "seed"]);
     await git(base, ["push", "--quiet", "origin", "main"]);
@@ -72,6 +68,7 @@ describe("takode land end to end", () => {
     queue = new LandingQueueManager(
       { leases, notify: (session, text) => void queueMessages.push({ session, text }) },
       new LandingQueueStore("e2e", join(root, "queue")),
+      new LandingGateStore("e2e", join(root, "gates")),
     );
     const ctx = {
       authenticateTakodeCaller: (c: { req: { header: (name: string) => string | undefined } }) => {
@@ -129,12 +126,16 @@ describe("takode land end to end", () => {
   }
 
   async function takode(session: string, cwd: string, ...args: string[]) {
+    return takodeOn(port, session, cwd, ...args);
+  }
+
+  async function takodeOn(serverPort: number, session: string, cwd: string, ...args: string[]) {
     const child = spawn(process.execPath, [fileURLToPath(new URL("./takode.ts", import.meta.url)), ...args], {
       cwd,
       env: {
         ...process.env,
         HOME: home,
-        COMPANION_PORT: String(port),
+        COMPANION_PORT: String(serverPort),
         COMPANION_SESSION_ID: session,
         COMPANION_AUTH_TOKEN: "token",
         GATE_COUNT: join(root, "gate-count"),
@@ -160,9 +161,18 @@ describe("takode land end to end", () => {
   const gateRuns = async () =>
     (await readFile(join(root, "gate-count"), "utf-8").catch(() => "")).split("\n").filter(Boolean).length;
 
+  /** The gate the repository branch opts in with, saved on the server through the CLI. */
+  async function saveGate(cwd: string) {
+    const draft = join(root, "gate.json");
+    await writeFile(draft, JSON.stringify({ version: 1, steps: [{ name: "check", run: ["sh", "gate.sh"] }] }));
+    const saved = await takode("solo", cwd, "land", "gate", "save", draft, "--branch", "main");
+    expect(saved.out).toContain("Saved the landing gate for origin:main: 1 step(s) (check)");
+  }
+
   it("tests, submits, lands in batches and finishes through the real CLI", async () => {
     // Single change, nothing in flight: submit takes the free lease and starts the run itself.
     const solo = await workerWith("solo", "solo.txt");
+    await saveGate(solo);
     expect((await takode("solo", solo, "land", "submit", "--branch", "main")).out).toContain(
       "No passing `takode land test`",
     );
@@ -209,5 +219,86 @@ describe("takode land end to end", () => {
     expect(finished.out).toContain(`Synced SHAs: ${secondEntry.mapping!.map((commit) => commit.target).join(",")}`);
     expect(await git(second, ["rev-parse", "HEAD"])).toBe(secondEntry.pushedTip);
     expect(queueMessages.find((message) => message.session === "second")!.text).toContain("takode land finish");
+  });
+  it("checks, tries, saves and removes a branch's landing gate through the real CLI", async () => {
+    const dir = await workerWith("gater", "gater.txt");
+    const land = (...args: string[]) => takode("gater", dir, "land", ...args, "--branch", "main");
+
+    // Without a saved gate the branch is not opted in: test and submit point to the classic flow.
+    expect((await land("gate", "show")).out).toContain("No landing gate is saved for origin:main");
+    const untested = await land("test");
+    expect(untested.code).toBe(1);
+    expect(untested.out).toContain("No landing gate is saved for origin:main on the Takode server");
+    const refused = await land("submit", "--skip-test", "fixture");
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain("No landing gate is saved for origin:main");
+
+    const draft = (name: string, config: unknown) => {
+      const file = join(root, name);
+      return writeFile(file, JSON.stringify(config)).then(() => file);
+    };
+    const bad = await land("gate", "save", await draft("bad.json", { version: 1, steps: [] }));
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain("at least one step");
+
+    // Trying a draft runs it on the checkout without saving it.
+    const failing = await draft("failing.json", {
+      version: 1,
+      steps: [{ name: "boom", run: ["sh", "-c", "echo nope; exit 1"] }],
+    });
+    const failed = await land("gate", "try", failing);
+    expect(failed.code).toBe(1);
+    expect(failed.out).toContain("FAILED in step boom");
+    const good = await draft("good.json", { version: 1, steps: [{ name: "check", run: ["sh", "gate.sh"] }] });
+    const tried = await land("gate", "try", good);
+    expect(tried.code).toBe(0);
+    expect(tried.out).toContain("PASSED");
+    expect(await gateRuns()).toBe(1);
+    expect((await land("gate", "show")).out).toContain("No landing gate is saved");
+    // The full-suite slot taken for the try is released again.
+    expect((await leases.getStatus("full-suite:origin")).leases).toEqual([]);
+
+    expect((await land("gate", "save", good)).code).toBe(0);
+    expect((await land("gate", "show")).out).toContain("Landing gate for origin:main: 1 step(s) (check), saved");
+    expect(JSON.parse((await land("gate", "show", "--json")).out)).toEqual({
+      version: 1,
+      steps: [{ name: "check", run: ["sh", "gate.sh"] }],
+    });
+    expect((await land("gate", "list")).out).toContain("origin:main  1 step(s) (check)");
+    // Replacing a gate prints the old one so it can be restored.
+    const replaced = await land("gate", "save", failing);
+    expect(replaced.out).toContain("It replaced the gate saved");
+    expect(replaced.out).toContain('"name": "check"');
+    const removed = await land("gate", "remove");
+    expect(removed.out).toContain("Removed the landing gate for origin:main");
+    expect(removed.out).toContain('"name": "boom"');
+    expect((await land("gate", "show")).out).toContain("No landing gate is saved");
+  });
+
+  it("fails clearly against a server that does not store landing gates", async () => {
+    // A server from before saved gates answers 404 on the gate routes; the CLI must say why.
+    const dir = await workerWith("early", "early.txt");
+    const ctx = {
+      authenticateTakodeCaller: () => ({ callerId: "early", caller: { sessionId: "early" } }),
+      resourceLeaseManager: leases,
+    } as never;
+    const app = new Hono().route("/api", createResourceLeaseRoutes(ctx));
+    const old = createServer(async (req, res) => {
+      const response = await app.fetch(new Request(`http://localhost${req.url}`, { method: req.method }));
+      res.writeHead(response.status, { "content-type": "application/json" });
+      res.end(Buffer.from(await response.arrayBuffer()));
+    });
+    old.listen(0);
+    await once(old, "listening");
+    try {
+      const oldPort = (old.address() as AddressInfo).port;
+      for (const args of [["gate", "show"], ["test"]]) {
+        const result = await takodeOn(oldPort, "early", dir, "land", ...args, "--branch", "main");
+        expect(result.code).toBe(1);
+        expect(result.out).toContain("does not store landing gates yet");
+      }
+    } finally {
+      old.close();
+    }
   });
 });

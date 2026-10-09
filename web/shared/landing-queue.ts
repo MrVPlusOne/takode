@@ -134,6 +134,62 @@ export interface LandingQueueSnapshot {
   recentRuns: LandingRun[];
 }
 
+export interface LandingGateStep {
+  name: string;
+  /** Directory relative to the checkout root. */
+  cwd?: string;
+  run: string[];
+  /** `vitest` steps report per-test failures and can rerun single files. */
+  kind?: "command" | "vitest";
+}
+
+/** A repository branch's full verification, stored on the Takode server. */
+export interface LandingGateConfig {
+  version: 1;
+  /** Runs before the steps in every checkout the gate uses (e.g. a frozen dependency install). */
+  install?: { cwd?: string; run: string[] };
+  steps: LandingGateStep[];
+}
+
+/** A saved gate: its presence opts the repository branch into the landing queue. */
+export interface LandingGateRecord {
+  key: string;
+  target: LandingTarget;
+  config: LandingGateConfig;
+  updatedAt: number;
+  updatedBySessionId?: string;
+  updatedBySessionNum?: number;
+}
+
+/** Validate a gate config document, keeping only its known fields. Throws a readable error otherwise. */
+export function parseLandingGateConfig(raw: unknown): LandingGateConfig {
+  const doc = raw as Partial<LandingGateConfig> | null;
+  const isCommand = (run: unknown): run is string[] =>
+    Array.isArray(run) && run.length > 0 && run.every((part) => typeof part === "string" && part);
+  const checkCwd = (cwd: unknown, where: string) => {
+    if (cwd !== undefined && (typeof cwd !== "string" || cwd.startsWith("/") || cwd.split("/").includes("..")))
+      throw new Error(`${where}: cwd must be a directory inside the checkout, relative to its root.`);
+    return cwd === undefined ? {} : { cwd };
+  };
+  if (!doc || typeof doc !== "object" || doc.version !== 1 || !Array.isArray(doc.steps) || doc.steps.length === 0)
+    throw new Error("A landing gate needs version 1 and at least one step.");
+  const steps = doc.steps.map((step, index): LandingGateStep => {
+    const where = `step ${index + 1}`;
+    if (!step || typeof step.name !== "string" || !step.name.trim() || !isCommand(step.run))
+      throw new Error(`${where}: every step needs a name and a run command array.`);
+    if (step.kind !== undefined && step.kind !== "command" && step.kind !== "vitest")
+      throw new Error(`${where}: step kind must be command or vitest.`);
+    return { name: step.name, ...checkCwd(step.cwd, where), run: step.run, ...(step.kind ? { kind: step.kind } : {}) };
+  });
+  if (new Set(steps.map((step) => step.name)).size !== steps.length) throw new Error("Step names must be unique.");
+  if (doc.install !== undefined && !isCommand(doc.install?.run)) throw new Error("install needs a run command array.");
+  return {
+    version: 1,
+    ...(doc.install ? { install: { ...checkCwd(doc.install.cwd, "install"), run: doc.install.run } } : {}),
+    steps,
+  };
+}
+
 export function landingQueueKey(target: LandingTarget): string {
   return `${target.repo}:${target.branch}`.toLowerCase();
 }

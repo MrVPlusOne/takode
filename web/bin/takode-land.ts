@@ -7,6 +7,7 @@
  *   status   show the queue
  *   withdraw take a waiting entry back out
  *   finish   after "landed": sync the base checkout, record port receipts, reset
+ *   gate     show, list, try, save or remove the branch's gate saved on the server
  */
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,28 +15,27 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   landingLeaseKey,
+  landingQueueKey,
+  parseLandingGateConfig,
   type LandingEntry,
+  type LandingGateConfig,
+  type LandingGateRecord,
   type LandingPreSubmitTest,
   type LandingQueueSnapshot,
   type LandingTarget,
 } from "../shared/landing-queue.js";
 import { git, isAncestor } from "./landing-git.js";
-import {
-  LANDING_GATE_FILE,
-  parseGateConfig,
-  runGate,
-  installDependencies,
-  type GateResult,
-  type GateRunOptions,
-} from "./landing-gate.js";
+import { runGate, installDependencies, type GateResult, type GateRunOptions } from "./landing-gate.js";
 import { runLanding, type LandingRunApi } from "./landing-run.js";
-import { apiGet, apiPost, getCallerSessionId } from "./takode-core.js";
+import { apiDelete, apiGet, apiPost, getCallerSessionId } from "./takode-core.js";
 
-export const LAND_HELP = `Usage: takode land <test|submit|run|status|withdraw|finish> [flags]
+export const LAND_HELP = `Usage: takode land <test|submit|run|status|withdraw|finish|gate> [flags]
 
 Land changes on a shared remote branch through the landing queue. Waiting
 changes are stacked on the remote tip and gated once together; the exact gated
-commit is pushed. The repository declares its gate in ${LANDING_GATE_FILE}.
+commit is pushed. A repository branch uses the queue when a landing gate (its
+full verification commands) is saved for it on the Takode server; see
+\`takode land gate\`.
 
   takode land test
       Run the full gate on your branch with the rerun-and-compare rule (flaky
@@ -56,6 +56,9 @@ commit is pushed. The repository declares its gate in ${LANDING_GATE_FILE}.
       After your change landed: fast-forward the base checkout, record
       port-tracking receipts, reset your worktree and print the
       work-to-memory command.
+  takode land gate [show|list|try|save|remove]
+      Check, try out and save the branch's landing gate (\`takode land gate
+      --help\`).
 
 Common flags: --branch <name> overrides the session's port target branch.
 Exit codes: 0 ok, 1 failure, 3 queued for a lease.`;
@@ -98,6 +101,8 @@ export async function handleLand(base: string, args: string[]): Promise<void> {
       return landWithdraw(base, flags);
     case "finish":
       return landFinish(base, flags);
+    case "gate":
+      return landGate(base, flags);
     default:
       console.log(LAND_HELP);
       if (command && command !== "help") process.exitCode = 1;
@@ -152,18 +157,36 @@ async function resolveContext(base: string, flags: Flags): Promise<LandContext> 
   return { worktree, baseCheckout, target: { repo, branch }, remoteRef };
 }
 
-/** Explain a server that predates the landing queue instead of a bare 404. */
-async function landingApi<T>(call: () => Promise<unknown>): Promise<T> {
+const NO_QUEUE_SERVER =
+  "This Takode server has no landing queue yet (it needs a restart onto a build with `takode land`). Use the classic remote-backed port flow in /port-changes.";
+const NO_GATES_SERVER =
+  "This Takode server does not store landing gates yet (it needs a restart onto a build with `takode land gate`). Use the classic remote-backed port flow in /port-changes.";
+
+/** Explain a server that predates the landing queue (or its saved gates) instead of a bare 404. */
+async function landingApi<T>(call: () => Promise<unknown>, missing = NO_QUEUE_SERVER): Promise<T> {
   try {
     return (await call()) as T;
   } catch (error) {
     const message = (error as Error).message;
-    if (/^(Not Found|HTTP 404|404)/.test(message))
-      throw new Error(
-        "This Takode server has no landing queue yet (it needs a restart onto a build with `takode land`). Use the classic remote-backed port flow in /port-changes.",
-      );
+    if (/^(Not Found|HTTP 404|404)/.test(message)) throw new Error(missing);
     throw error;
   }
+}
+
+const targetQuery = (target: LandingTarget) =>
+  `repo=${encodeURIComponent(target.repo)}&branch=${encodeURIComponent(target.branch)}`;
+
+/** The gate saved for the target on the server, or null when it has none. */
+async function savedGate(base: string, target: LandingTarget): Promise<LandingGateRecord | null> {
+  const { gate } = await landingApi<{ gate: LandingGateRecord | null }>(
+    () => apiGet(base, `/takode/land/gate?${targetQuery(target)}`),
+    NO_GATES_SERVER,
+  );
+  return gate;
+}
+
+function noGateMessage(target: LandingTarget): string {
+  return `No landing gate is saved for ${landingQueueKey(target)} on the Takode server, so it does not land through the landing queue. Use the classic port flow in /port-changes (\`takode land gate --help\` explains how a repository opts in).`;
 }
 
 async function changeBase(ctx: LandContext): Promise<{ baseSha: string; head: string; patchId: string; tree: string }> {
@@ -201,38 +224,20 @@ async function landTest(base: string, flags: Flags): Promise<void> {
   const ctx = await resolveContext(base, flags);
   await assertClean(ctx.worktree);
   const change = await changeBase(ctx);
-  const configText = await readFile(join(ctx.worktree, LANDING_GATE_FILE), "utf-8").catch(() => {
-    throw new Error(`This repository declares no landing gate (${LANDING_GATE_FILE}).`);
-  });
-  const config = parseGateConfig(configText);
-  const pool = `full-suite:${ctx.target.repo}`;
-  const acquired = (await apiPost(base, `/resource-leases/${encodeURIComponent(pool)}/acquire`, {
-    purpose: "Pre-submit full gate (`takode land test`); rerun it after this lease message",
-    wait: true,
-    ttlMs: TEST_LEASE_TTL_MS,
-  })) as { result: { status: string; position?: number; resourceKey?: string; lease?: { resourceKey: string } } };
-  if (acquired.result.status === "queued") {
-    console.log(
-      `QUEUED for ${acquired.result.resourceKey ?? pool} at position ${acquired.result.position}. The full-suite pool caps concurrent full runs on this machine. End your turn; when the Resource Lease message arrives, run \`takode land test\` again.`,
-    );
-    process.exitCode = QUEUED_EXIT_CODE;
-    return;
-  }
-  const leaseKey = acquired.result.lease?.resourceKey ?? pool;
-  const renew = setInterval(
-    () =>
-      void apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/renew`, { ttlMs: TEST_LEASE_TTL_MS }).catch(
-        () => undefined,
-      ),
-    5 * 60_000,
-  );
+  const gate = await savedGate(base, ctx.target);
+  if (!gate) throw new Error(noGateMessage(ctx.target));
+  const config = gate.config;
+  const slot = await acquireFullSuiteSlot(base, ctx, "takode land test");
+  if (!slot) return;
   const scratch = await mkdtemp(join(tmpdir(), "takode-land-test-"));
   const baselineDir = join(scratch, "baseline");
   let baselineReady = false;
   const log = (line: string) => console.log(line);
   let result: GateResult;
   try {
-    console.log(`Gating ${change.head.slice(0, 10)} (base ${change.baseSha.slice(0, 10)}) with ${LANDING_GATE_FILE}.`);
+    console.log(
+      `Gating ${change.head.slice(0, 10)} (base ${change.baseSha.slice(0, 10)}) with the landing gate saved for ${gate.key}.`,
+    );
     const options: GateRunOptions = {
       dir: ctx.worktree,
       config,
@@ -249,10 +254,9 @@ async function landTest(base: string, flags: Flags): Promise<void> {
     };
     result = await runGate(options);
   } finally {
-    clearInterval(renew);
     if (baselineReady) await git(ctx.worktree, ["worktree", "remove", "--force", baselineDir]).catch(() => undefined);
     await rm(scratch, { recursive: true, force: true });
-    await apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/release`, {}).catch(() => undefined);
+    await slot.release();
   }
   const summary = describeGate(result);
   const record: TestRecord = { ...change, base: change.baseSha, ok: result.ok, summary, at: Date.now() };
@@ -266,6 +270,44 @@ async function landTest(base: string, flags: Flags): Promise<void> {
   } else {
     console.log("Next: `takode land submit` (add your quest ID and --preparation if you use port tracking).");
   }
+}
+
+/**
+ * Take a slot of the per-machine full-suite:<repo> pool, renewed while held.
+ * Returns null after printing QUEUED (exit code 3) when the pool is full.
+ */
+async function acquireFullSuiteSlot(
+  base: string,
+  ctx: LandContext,
+  command: string,
+): Promise<{ release: () => Promise<void> } | null> {
+  const pool = `full-suite:${ctx.target.repo}`;
+  const acquired = (await apiPost(base, `/resource-leases/${encodeURIComponent(pool)}/acquire`, {
+    purpose: `Full gate run (\`${command}\`); rerun it after this lease message`,
+    wait: true,
+    ttlMs: TEST_LEASE_TTL_MS,
+  })) as { result: { status: string; position?: number; resourceKey?: string; lease?: { resourceKey: string } } };
+  if (acquired.result.status === "queued") {
+    console.log(
+      `QUEUED for ${acquired.result.resourceKey ?? pool} at position ${acquired.result.position}. The full-suite pool caps concurrent full runs on this machine. End your turn; when the Resource Lease message arrives, run \`${command}\` again.`,
+    );
+    process.exitCode = QUEUED_EXIT_CODE;
+    return null;
+  }
+  const leaseKey = acquired.result.lease?.resourceKey ?? pool;
+  const renew = setInterval(
+    () =>
+      void apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/renew`, { ttlMs: TEST_LEASE_TTL_MS }).catch(
+        () => undefined,
+      ),
+    5 * 60_000,
+  );
+  return {
+    release: async () => {
+      clearInterval(renew);
+      await apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/release`, {}).catch(() => undefined);
+    },
+  };
 }
 
 function describeGate(result: GateResult): string {
@@ -420,6 +462,7 @@ async function landRun(base: string, flags: Flags): Promise<void> {
       const { data } = (await apiGet(base, `/bundles/${encodeURIComponent(bundleId)}`)) as { data: string };
       return Buffer.from(data, "base64");
     },
+    gate: async (target) => (await savedGate(base, target))?.config ?? null,
     renewLease: async () => {
       await apiPost(base, `/resource-leases/${encodeURIComponent(leaseKey)}/renew`, { ttlMs: RUN_LEASE_TTL_MS });
     },
@@ -458,8 +501,9 @@ async function withRetry<T>(call: () => Promise<T>, attempts = 12): Promise<T> {
 
 async function landStatus(base: string, flags: Flags): Promise<void> {
   const ctx = await resolveContext(base, flags);
-  const query = `repo=${encodeURIComponent(ctx.target.repo)}&branch=${encodeURIComponent(ctx.target.branch)}`;
-  const snapshot = await landingApi<LandingQueueSnapshot>(() => apiGet(base, `/takode/land/queue?${query}`));
+  const snapshot = await landingApi<LandingQueueSnapshot>(() =>
+    apiGet(base, `/takode/land/queue?${targetQuery(ctx.target)}`),
+  );
   if (flags.switches.has("--json")) {
     console.log(JSON.stringify(snapshot, null, 2));
     return;
@@ -557,4 +601,160 @@ async function landFinish(base: string, flags: Flags): Promise<void> {
   console.log(
     `Next: takode board work-to-memory ${entry.questId ?? "q-N"} --work-note <index> --commits ${shas}${entry.preparationId ? ` --preparation ${entry.preparationId}` : ""}`,
   );
+}
+
+export const LAND_GATE_HELP = `Usage: takode land gate [show|list|try|save|remove] [flags]
+
+A landing gate is a repository branch's full verification: an optional
+dependency install and the steps to run, each a command array run from a
+directory of the checkout. It is saved on the Takode server for one repository
+branch (the repository name from the origin URL, the branch from the session's
+port target or --branch), and every machine's \`takode land\` uses that copy. A
+branch with a saved gate lands through the landing queue; without one it uses
+the classic port flow.
+
+  takode land gate [show] [--json]
+      Show the gate saved for this branch. --json prints only the config, a
+      starting point for a draft.
+  takode land gate list [--json]
+      List every saved gate.
+  takode land gate try <file|->
+      Run a draft gate on your checkout as it is now, without saving it. Takes
+      a slot of the per-machine full-suite:<repo> pool like \`takode land test\`
+      (exit 3 when queued); can take as long as the full suite.
+  takode land gate save <file|->
+      Validate and save a gate for this branch, replacing the current one
+      (whose config is printed so it can be restored).
+  takode land gate remove
+      Stop using the landing queue for this branch; prints the removed config.
+
+Gate config (JSON; "kind": "vitest" lets the gate rerun single failing test
+files, other steps compare their failure output with the base commit's):
+  { "version": 1,
+    "install": { "cwd": "web", "run": ["bun", "install", "--frozen-lockfile"] },
+    "steps": [
+      { "name": "typecheck", "cwd": "web", "run": ["bun", "run", "typecheck"] },
+      { "name": "tests", "cwd": "web", "kind": "vitest", "run": ["bunx", "vitest", "run"] } ] }`;
+
+async function landGate(base: string, flags: Flags): Promise<void> {
+  const [command = "show", file] = flags.positional;
+  if (flags.switches.has("--help") || command === "help") return void console.log(LAND_GATE_HELP);
+  const json = flags.switches.has("--json");
+  if (command === "list") {
+    const { gates } = await landingApi<{ gates: LandingGateRecord[] }>(
+      () => apiGet(base, "/takode/land/gates"),
+      NO_GATES_SERVER,
+    );
+    if (json) return void console.log(JSON.stringify(gates, null, 2));
+    if (gates.length === 0)
+      return void console.log("No landing gates are saved; every branch uses the classic port flow.");
+    for (const gate of gates) console.log(`${gate.key}  ${describeConfig(gate.config)}, ${savedBy(gate)}`);
+    return;
+  }
+  if (!["show", "try", "save", "remove"].includes(command)) {
+    console.log(LAND_GATE_HELP);
+    process.exitCode = 1;
+    return;
+  }
+  const ctx = await resolveContext(base, flags);
+  const key = landingQueueKey(ctx.target);
+  if (command === "show") {
+    const gate = await savedGate(base, ctx.target);
+    if (json) return void console.log(JSON.stringify(gate?.config ?? null, null, 2));
+    if (!gate)
+      return void console.log(
+        `No landing gate is saved for ${key}; it lands with the classic port flow. To opt in, write a draft (\`takode land gate --help\`), check it with \`takode land gate try <file>\`, then \`takode land gate save <file>\`.`,
+      );
+    console.log(`Landing gate for ${key}: ${describeConfig(gate.config)}, ${savedBy(gate)}.`);
+    console.log(JSON.stringify(gate.config, null, 2));
+    return;
+  }
+  if (command === "remove") {
+    const { removed } = await landingApi<{ removed: LandingGateRecord | null }>(
+      () => apiDelete(base, `/takode/land/gate?${targetQuery(ctx.target)}`),
+      NO_GATES_SERVER,
+    );
+    if (!removed) return void console.log(`No landing gate was saved for ${key}.`);
+    console.log(`Removed the landing gate for ${key}; it now lands with the classic port flow. It was:`);
+    console.log(JSON.stringify(removed.config, null, 2));
+    return;
+  }
+  if (!file) throw new Error(`Usage: takode land gate ${command} <file|->`);
+  const config = await readDraft(file);
+  if (command === "save") {
+    const { previous } = await landingApi<{ gate: LandingGateRecord; previous: LandingGateRecord | null }>(
+      () => apiPost(base, "/takode/land/gate", { target: ctx.target, config }),
+      NO_GATES_SERVER,
+    );
+    console.log(`Saved the landing gate for ${key}: ${describeConfig(config)}.`);
+    if (previous && JSON.stringify(previous.config) !== JSON.stringify(config)) {
+      console.log(`It replaced the gate ${savedBy(previous)}, which was:`);
+      console.log(JSON.stringify(previous.config, null, 2));
+    }
+    return;
+  }
+  // try: run the draft on the checkout as it is, with reruns but no baseline to excuse failures.
+  const slot = await acquireFullSuiteSlot(base, ctx, `takode land gate try ${file}`);
+  if (!slot) return;
+  let result: GateResult;
+  try {
+    const head = await git(ctx.worktree, ["rev-parse", "--short=10", "HEAD"]);
+    console.log(`Trying the draft gate (${describeConfig(config)}) on ${ctx.worktree} at ${head}.`);
+    result = await runGate({
+      dir: ctx.worktree,
+      config,
+      log: (line) => console.log(line),
+      phase: (phase) => console.log(`[phase] ${phase}`),
+    });
+  } finally {
+    await slot.release();
+  }
+  const timings = Object.entries(result.timings)
+    .map(([name, seconds]) => `${name} ${Math.round(seconds)}s`)
+    .join(", ");
+  console.log("");
+  if (result.ok) {
+    console.log(`PASSED${result.flaky.length ? ` (${result.flaky.length} flaky, passed on rerun)` : ""}: ${timings}.`);
+    console.log(`Save it with \`takode land gate save ${file}\`.`);
+    return;
+  }
+  console.log(`FAILED in step ${result.failedStep}: ${timings}.`);
+  console.log(result.newFailures.map((id) => `- ${id}`).join("\n"));
+  console.log(result.excerpt);
+  process.exitCode = 1;
+}
+
+async function readDraft(file: string): Promise<LandingGateConfig> {
+  const text = file === "-" ? await readStdin() : await readFile(file, "utf-8");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error(`${file === "-" ? "stdin" : file} is not valid JSON.`);
+  }
+  try {
+    return parseLandingGateConfig(raw);
+  } catch (error) {
+    throw new Error(`${file === "-" ? "stdin" : file}: ${(error as Error).message}`);
+  }
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
+function describeConfig(config: LandingGateConfig): string {
+  return `${config.steps.length} step(s) (${config.steps.map((step) => step.name).join(", ")})${config.install ? " after an install" : ""}`;
+}
+
+function savedBy(gate: LandingGateRecord): string {
+  const who =
+    gate.updatedBySessionNum !== undefined
+      ? ` by #${gate.updatedBySessionNum}`
+      : gate.updatedBySessionId
+        ? ` by ${gate.updatedBySessionId.slice(0, 8)}`
+        : "";
+  return `saved ${new Date(gate.updatedAt).toISOString().slice(0, 16).replace("T", " ")} UTC${who}`;
 }
