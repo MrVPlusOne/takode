@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./host-registry.js";
@@ -136,15 +136,13 @@ describe("HostRegistry", () => {
 
   // This machine's node authenticates as the local host with a token the
   // server issues for it (stored only as a hash); a new token replaces the old
-  // one. Turning the node on persists and keeps this machine's other settings.
-  it("stores this machine's node setting and authenticates its token", async () => {
+  // one. Issuing a token keeps this machine's other settings.
+  it("authenticates this machine's node token", async () => {
     const path = join(dir, "hosts.json");
     const registry = new HostRegistry(path);
     await registry.updateMachineSettings(LOCAL_HOST_ID, {
       claudeBinary: "/opt/claude",
     });
-    expect(registry.localNodeEnabled()).toBe(false);
-    await registry.setLocalNodeEnabled(true);
     const first = await registry.issueLocalNodeToken();
     expect(await readFile(path, "utf-8")).not.toContain(first);
 
@@ -152,7 +150,6 @@ describe("HostRegistry", () => {
     expect(await reloaded.authenticate(first)).toMatchObject({
       id: LOCAL_HOST_ID,
     });
-    expect(reloaded.localNodeEnabled()).toBe(true);
     expect(reloaded.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/opt/claude");
     expect(await reloaded.list()).toEqual([]);
 
@@ -161,6 +158,27 @@ describe("HostRegistry", () => {
     expect(await reloaded.authenticate(second)).toMatchObject({
       id: LOCAL_HOST_ID,
     });
+  });
+
+  // The retired switch for running this machine's sessions under its node (they
+  // always do now) is dropped from a saved registry at its next save, whether
+  // it was on or off, while this machine's settings and node token stay.
+  it("drops the retired local node switch from a saved registry", async () => {
+    for (const nodeEnabled of [true, false]) {
+      const path = join(dir, `hosts-${nodeEnabled}.json`);
+      const token = await new HostRegistry(path).issueLocalNodeToken();
+      const saved = JSON.parse(await readFile(path, "utf-8"));
+      saved.local = { ...saved.local, settings: { claudeBinary: "/opt/claude", codexBinary: "" }, nodeEnabled };
+      await writeFile(path, JSON.stringify(saved));
+
+      const registry = new HostRegistry(path);
+      expect(await registry.authenticate(token)).toMatchObject({ id: LOCAL_HOST_ID });
+      await registry.updateMachineSettings(LOCAL_HOST_ID, { codexBinary: "/opt/codex" });
+      const rewritten = JSON.parse(await readFile(path, "utf-8"));
+      expect(rewritten.local).not.toHaveProperty("nodeEnabled");
+      expect(rewritten.local.settings).toEqual({ claudeBinary: "/opt/claude", codexBinary: "/opt/codex" });
+      expect(await new HostRegistry(path).authenticate(token)).toMatchObject({ id: LOCAL_HOST_ID });
+    }
   });
 
   // A session's process runs under a node when it has a remote host, or when a

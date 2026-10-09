@@ -49,8 +49,6 @@ interface StoredRegistry {
   /** Settings of the coordinator's own machine. Absent until first written, which also marks the legacy migration as done. */
   local?: {
     settings: MachineSettings;
-    /** Run this machine's sessions under its own `takode node` (see `local-node.ts`). */
-    nodeEnabled?: boolean;
     /** SHA-256 of the token this machine's node presents. */
     nodeTokenSha256?: string;
   };
@@ -150,17 +148,6 @@ export class HostRegistry {
     return { ...DEFAULT_MACHINE_SETTINGS, ...stored };
   }
 
-  /** Whether this machine's sessions run under its own node. Answers from memory once loaded. */
-  localNodeEnabled(): boolean {
-    return this.local?.nodeEnabled === true;
-  }
-
-  async setLocalNodeEnabled(enabled: boolean): Promise<void> {
-    await this.load();
-    this.local = { ...this.localEntry(), nodeEnabled: enabled };
-    await this.persist();
-  }
-
   /** Issue a new token for this machine's node, replacing any earlier one. */
   async issueLocalNodeToken(): Promise<string> {
     await this.load();
@@ -238,7 +225,12 @@ export class HostRegistry {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf-8")) as Partial<StoredRegistry>;
       this.hosts = Array.isArray(parsed.hosts) ? parsed.hosts : [];
-      this.local = parsed.local?.settings ? parsed.local : undefined;
+      // `nodeEnabled` was the switch for running this machine's sessions under
+      // its own node, which they now always do; it is dropped at the next save.
+      const { nodeEnabled: _retired, ...local } = (parsed.local ?? {}) as NonNullable<StoredRegistry["local"]> & {
+        nodeEnabled?: boolean;
+      };
+      this.local = local.settings ? local : undefined;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       this.hosts = [];

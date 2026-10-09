@@ -32,19 +32,17 @@ export interface LocalNodeOptions {
 }
 
 /**
- * This machine's own `takode node`. While it is turned on (Settings > Hosts >
- * This machine), the server keeps the node running and sessions without a
- * remote host run their processes under it. Those processes then outlive a
- * server restart: the restarted server takes them over when the node
- * reconnects, exactly as for a remote host.
+ * This machine's own `takode node`. The server keeps it running, and sessions
+ * without a remote host run their processes under it. Those processes then
+ * outlive a server restart: the restarted server takes them over when the
+ * node reconnects, exactly as for a remote host.
  *
  * The node runs detached, so it outlives the server. A starting server finds
  * the node by its saved pid, checked against the process's command line so a
  * reused pid is never mistaken for it, and lets it reconnect. A node that is
  * gone, or stays disconnected for longer than the grace period, is replaced.
- * Once turned off, a node still running from before keeps its processes until
- * they end, and is then stopped. Stopping the server ends the node too; only a
- * restart leaves it running for the next server.
+ * Stopping the server ends the node too; only a restart leaves it running for
+ * the next server.
  */
 export class LocalNode {
   private readonly tokenFile: string;
@@ -108,19 +106,11 @@ export class LocalNode {
    * until one connects.
    */
   ready(): boolean {
-    if (!this.options.registry.localNodeEnabled()) return false;
     if (this.options.links.status(LOCAL_HOST_ID).online) return true;
     return this.offlineSince !== null && !this.failedToConnect;
   }
 
-  async setEnabled(enabled: boolean): Promise<void> {
-    await this.options.registry.setLocalNodeEnabled(enabled);
-    // A check already running may have read the old setting.
-    await this.checking;
-    await this.check();
-  }
-
-  /** Bring the node in line with the setting. Concurrent calls share one run. */
+  /** Make sure the node runs and is connected. Concurrent calls share one run. */
   check(): Promise<void> {
     if (this.shutDown) return Promise.resolve();
     this.checking ??= this.reconcile()
@@ -132,19 +122,10 @@ export class LocalNode {
   }
 
   private async reconcile(): Promise<void> {
-    const { registry, links } = this.options;
-    const enabled = registry.localNodeEnabled();
-    const status = links.status(LOCAL_HOST_ID);
-    if (status.online) {
+    const { links } = this.options;
+    if (links.status(LOCAL_HOST_ID).online) {
       this.offlineSince = null;
       this.failedToConnect = false;
-      if (!enabled && status.processes === 0) {
-        const pid = await this.runningPid();
-        if (pid !== null) {
-          this.log(`Stopping the local node (pid ${pid}); it was turned off and runs no sessions`);
-          this.signal(pid, "SIGTERM");
-        }
-      }
       return;
     }
     const now = this.now();
@@ -157,10 +138,12 @@ export class LocalNode {
       this.log(`The local node (pid ${pid}) has not connected for ${CONNECT_GRACE_MS / 1000}s; replacing it`);
       this.signal(pid, "SIGTERM");
     }
-    if (waitedOut) this.failedToConnect = true;
-    // Nothing will take over processes still waiting for a node that is gone.
-    if (!enabled || waitedOut) links.release(LOCAL_HOST_ID, "This machine's node is not running");
-    if (enabled) await this.launch();
+    if (waitedOut) {
+      this.failedToConnect = true;
+      // Nothing will take over processes still waiting for a node that is gone.
+      links.release(LOCAL_HOST_ID, "This machine's node is not running");
+    }
+    await this.launch();
   }
 
   private async launch(): Promise<void> {

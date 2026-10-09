@@ -65,14 +65,12 @@ describe("LocalNode", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // Turning the node on starts it with a token only it and this server know.
+  // The first check starts the node with a token only it and this server know.
   // Sessions start under it from then on: launched before it connects, their
   // processes start when it does.
-  it("starts the node when turned on, with a private token the registry accepts", async () => {
+  it("starts the node with a private token the registry accepts", async () => {
+    expect(node.ready()).toBe(false);
     await node.check();
-    expect(started).toEqual([]);
-
-    await node.setEnabled(true);
     const tokenFile = join(dir, "hosts", "server-1-local-node.token");
     expect(started).toEqual([
       [
@@ -99,7 +97,7 @@ describe("LocalNode", () => {
   // not connect within the grace period is replaced, and processes waiting
   // for it are released.
   it("waits for a running node to reconnect and replaces one that never does", async () => {
-    await node.setEnabled(true);
+    await node.check();
     const token = await readFile(join(dir, "hosts", "server-1-local-node.token"), "utf-8");
     await node.check();
     now += 10_000;
@@ -131,36 +129,32 @@ describe("LocalNode", () => {
 
   // A node that exited (to update, or a crash) is started again at once.
   it("starts a new node when the old one is gone", async () => {
-    await node.setEnabled(true);
+    await node.check();
     running.clear();
     await node.check();
     expect(started).toHaveLength(2);
     expect(link.released).toEqual([]);
   });
 
-  // Turned off: no node starts, sessions that waited for one are released, and
-  // a node left running from before is stopped once nothing runs on it.
-  it("stops a node that was turned off once it runs no sessions", async () => {
+  // There is no off mode: a connected node stays, also while it runs no
+  // sessions, and nothing waiting for it is released.
+  it("keeps a connected node running even when it runs no sessions", async () => {
     await node.check();
-    expect(link.released).toEqual(["This machine's node is not running"]);
-    expect(started).toEqual([]);
-
-    await node.setEnabled(true);
     link.online = true;
-    link.processes = 1;
-    await node.setEnabled(false);
-    expect(node.ready()).toBe(false);
-    expect(signals).toEqual([]);
-
     link.processes = 0;
     await node.check();
-    expect(signals).toEqual([[500, "SIGTERM"]]);
+    now += 60_000;
+    await node.check();
+    expect(node.ready()).toBe(true);
+    expect(started).toHaveLength(1);
+    expect(signals).toEqual([]);
+    expect(link.released).toEqual([]);
   });
 
   // A server stop ends the node, and nothing starts it again while the server
   // finishes stopping, even though the node now shows as gone.
   it("ends the node when the server stops and does not start another", async () => {
-    await node.setEnabled(true);
+    await node.check();
     link.online = true;
     await node.shutdown();
     expect(signals).toEqual([[500, "SIGTERM"]]);

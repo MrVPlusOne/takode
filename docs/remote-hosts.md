@@ -170,13 +170,12 @@ What survives what:
 
 ## Keeping this machine's sessions across restarts
 
-The coordinator's own sessions can survive its restarts the same way. Turn on
-**Keep sessions running across server restarts** on the coordinator's own
-machine, the first entry in **Settings → Hosts**. The server then starts a `takode node` on its own machine and
-runs the processes of sessions without a host under it. After a restart, the
-new server takes them over when that node reconnects: a turn in progress keeps
-running, its output arrives, and a pending permission prompt is asked again.
-Running sessions move to the node the next time they start. Sessions that start
+The coordinator's own sessions survive its restarts the same way: the server
+starts a `takode node` on its own machine and runs the processes of sessions
+without a host under it. After a restart, the new server takes them over when
+that node reconnects: a turn in progress keeps running, its output arrives, and
+a pending permission prompt is asked again. **Settings → Hosts** shows the
+node's status on the coordinator's own machine, the first entry. Sessions that start
 while the node is still connecting, such as just after the server starts, wait
 for it; if it does not connect within 30 seconds, they start without it.
 
@@ -189,10 +188,9 @@ while none of its sessions is in a turn. Its log is
 
 Only a restart (the Restart Server button) leaves the node and its sessions
 running for the next server to take over. Stopping the server stops its
-sessions and then the node; they relaunch when next used. Turning the setting
-off stops the node once no session runs on it. To stop it at once, end its
-process (it is the `takode-node.ts` process with `--shared-checkout`); its
-sessions then relaunch when next used.
+sessions and then the node; they relaunch when next used. Ending the node's
+process (the `takode-node.ts` process with `--shared-checkout`) ends its
+sessions too; they relaunch when next used, and the server starts a new node.
 
 ## Updating Takode
 

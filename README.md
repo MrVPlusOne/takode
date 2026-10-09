@@ -70,7 +70,7 @@ Some work belongs somewhere else: the cloud workspace where a big repo lives, or
 - **Leaders work across machines.** A leader can start a worker on any registered machine and coordinate it like any other: same quests, same inbox, same reviews. Every remote session shows which machine it runs on, and commits travel between machines as Git bundles when they need to land elsewhere.
 - **Work happens where the files are.** Worktrees, Git status, diffs, terminals, and the new-session folder picker all run on the session's own machine.
 - **Nothing to open up.** The node dials out to the server over HTTPS or an SSH tunnel, with a revocable token per machine. Each machine signs in to its own agent CLIs; credentials are never copied around.
-- **Steady over flaky links.** Remote sessions keep running through network drops, host sleep, and server restarts, and their output catches up when the link returns. Hosts can update themselves to the server's version once their sessions are idle.
+- **Steady over flaky links.** Remote sessions keep running through network drops, host sleep, and server restarts, and their output catches up when the link returns. Hosts can update themselves to the server's version once their sessions are idle. Sessions on the server's own machine run under a local node too, so restarting the server does not interrupt them.
 
 Setup takes a Takode checkout on each machine and a few commands; see [Running sessions on another machine](docs/remote-hosts.md).
 

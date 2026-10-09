@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
-import type { Mock } from "vitest";
 import { HostLinkManager } from "../remote-host/host-link-manager.js";
 import { HostRegistry } from "../remote-host/host-registry.js";
 import { createHostRoutes } from "./hosts.js";
@@ -16,19 +15,15 @@ describe("host routes", () => {
   let registry: HostRegistry;
   let links: HostLinkManager;
   let app: Hono;
-  let localNode: { setEnabled: Mock<(enabled: boolean) => Promise<void>> };
   let thisMachine: ThisMachine;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "host-routes-"));
     registry = new HostRegistry(join(dir, "hosts.json"));
     links = new HostLinkManager();
-    localNode = {
-      setEnabled: vi.fn((enabled: boolean) => registry.setLocalNodeEnabled(enabled)),
-    };
     // Renaming this machine writes its machine file, kept inside the temp dir.
     thisMachine = ThisMachine.named("coordinator-box", dir);
-    app = new Hono().route("/api", createHostRoutes(registry, links, localNode, thisMachine));
+    app = new Hono().route("/api", createHostRoutes(registry, links, thisMachine));
   });
 
   afterEach(async () => {
@@ -58,7 +53,7 @@ describe("host routes", () => {
       id: "local",
       name: "coordinator-box",
       settings: { claudeBinary: "/opt/claude", codexBinary: "" },
-      node: { enabled: false, online: false, processes: 0 },
+      node: { online: false, processes: 0 },
     });
     expect(listed.hosts[0]).toMatchObject({ id: host.id, settings: { claudeBinary: "", codexBinary: "/opt/codex" } });
   });
@@ -71,27 +66,21 @@ describe("host routes", () => {
     expect((await put("missing", { claudeBinary: "x" })).status).toBe(404);
   });
 
-  // Turning the local node on goes through LocalNode (which then starts it) and
-  // is reported back by the list.
-  it("turns this machine's node on and reports it", async () => {
-    const turnOn = await app.request("/api/hosts/local/node", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: true }),
-    });
-    expect(await turnOn.json()).toEqual({ enabled: true });
-    expect(localNode.setEnabled).toHaveBeenCalledWith(true);
+  // This machine's sessions always run under its node, so the list reports the
+  // node's link status with no on/off setting, and the old switch route is gone.
+  it("reports this machine's node status without a switch", async () => {
     const listed = (await (await app.request("/api/hosts")).json()) as {
-      local: { node: { enabled: boolean } };
+      local: { node: Record<string, unknown> };
     };
-    expect(listed.local.node.enabled).toBe(true);
+    expect(listed.local.node).toMatchObject({ hostId: "local", online: false, processes: 0 });
+    expect(listed.local.node).not.toHaveProperty("enabled");
 
-    const invalid = await app.request("/api/hosts/local/node", {
+    const retired = await app.request("/api/hosts/local/node", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: "yes" }),
+      body: JSON.stringify({ enabled: false }),
     });
-    expect(invalid.status).toBe(400);
+    expect(retired.status).toBe(404);
   });
 
   // Every machine has an editable name. This machine keeps its own in

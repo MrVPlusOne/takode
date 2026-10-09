@@ -237,7 +237,6 @@ describe("coordinator handoff", () => {
         claudeBinary: "/devbox/claude",
         codexBinary: "/devbox/codex",
       },
-      nodeEnabled: true,
     });
 
     // Sessions: laptop session on the laptop host, DevBox session now the coordinator's own; all processes ended.
@@ -366,7 +365,6 @@ describe("coordinator handoff", () => {
         claudeBinary: REHEARSAL_DISABLED_BINARY,
         codexBinary: REHEARSAL_DISABLED_BINARY,
       },
-      nodeEnabled: false,
     });
     expect(await readJsonAt(devboxHome, "settings-3471.json")).toMatchObject({
       serverId: SERVER_ID,

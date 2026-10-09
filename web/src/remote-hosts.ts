@@ -37,10 +37,10 @@ export interface LocalHost {
   name: string;
   settings: MachineSettings;
   /**
-   * This machine's own `takode node`: when enabled, it runs these sessions so
-   * they outlive server restarts. Carries the same link status as a remote host.
+   * This machine's own `takode node`, which runs these sessions so they
+   * outlive server restarts. Carries the same link status as a remote host.
    */
-  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "commandOverrides"> & { enabled: boolean };
+  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "commandOverrides">;
 }
 
 const POLL_MS = 10_000;
@@ -112,22 +112,6 @@ export async function updateMachineSettings(id: string, patch: Partial<MachineSe
   if (!response.ok || !body.settings) throw new Error(body.error || `HTTP ${response.status}`);
   await refreshRemoteHosts();
   return body.settings;
-}
-
-/** Turn running this machine's sessions under its own node on or off. */
-export async function setLocalNodeEnabled(enabled: boolean): Promise<void> {
-  const response = await fetch("/api/hosts/local/node", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(body.error || `HTTP ${response.status}`);
-  }
-  await refreshRemoteHosts();
 }
 
 /** Rename a machine (`local` for this one); a host must be online to receive its new name. */

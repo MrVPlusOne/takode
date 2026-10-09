@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
-import type { LocalNode } from "../remote-host/local-node.js";
 import { machineNameError, type ThisMachine } from "../machine-identity.js";
 
 /**
@@ -12,7 +11,6 @@ import { machineNameError, type ThisMachine } from "../machine-identity.js";
 export function createHostRoutes(
   registry: HostRegistry,
   links: HostLinkManager,
-  localNode: Pick<LocalNode, "setEnabled">,
   thisMachine: Pick<ThisMachine, "name" | "rename">,
 ) {
   const api = new Hono();
@@ -20,8 +18,8 @@ export function createHostRoutes(
   api.get("/hosts", async (c) => {
     const hosts = await registry.list();
     // `build` is this server's commit, which each host's `build` is compared with.
-    // `local` is this machine, which runs sessions without a host, under its
-    // own node when `node.enabled` (so they outlive server restarts).
+    // `local` is this machine, which runs sessions without a host under its
+    // own node (so they outlive server restarts).
     return c.json({
       hosts: hosts.map((host) => ({
         ...host,
@@ -33,19 +31,9 @@ export function createHostRoutes(
         id: LOCAL_HOST_ID,
         name: thisMachine.name,
         settings: registry.machineSettings(LOCAL_HOST_ID),
-        node: { enabled: registry.localNodeEnabled(), ...links.status(LOCAL_HOST_ID) },
+        node: links.status(LOCAL_HOST_ID),
       },
     });
-  });
-
-  /** Turn running this machine's sessions under its own node on or off. */
-  api.put("/hosts/local/node", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      enabled?: unknown;
-    };
-    if (typeof body.enabled !== "boolean") return c.json({ error: "enabled must be a boolean" }, 400);
-    await localNode.setEnabled(body.enabled);
-    return c.json({ enabled: registry.localNodeEnabled() });
   });
 
   /** Change a machine's settings (`local` for this machine); a connected host receives them at once. */

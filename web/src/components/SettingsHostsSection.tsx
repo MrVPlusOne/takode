@@ -1,12 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { HostCliSettings } from "./HostCliSettings.js";
-import { SettingsToggle } from "./settings-controls.js";
 import {
   hostBuildWarning,
   registerRemoteHost,
   removeRemoteHost,
   renameMachine,
-  setLocalNodeEnabled,
   useRemoteHosts,
   type LocalHost,
   type RemoteHost,
@@ -67,14 +65,8 @@ export function SettingsHostsSection() {
             <div className="mt-0.5 text-cc-muted">
               Runs this Takode server and the sessions that have no other host.
             </div>
-            <div className="mt-2">
-              <SettingsToggle
-                label="Keep sessions running across server restarts"
-                description={localNodeDescription(local.node, serverBuild)}
-                checked={local.node.enabled}
-                disabled={busy}
-                onChange={(enabled) => void run(() => setLocalNodeEnabled(enabled))}
-              />
+            <div className="mt-0.5 text-cc-muted" data-testid="settings-local-node">
+              {localNodeDescription(local.node, serverBuild)}
             </div>
             <HostCliSettings hostId={local.id} settings={local.settings} local />
           </li>
@@ -260,11 +252,9 @@ function HostBuildWarning({ host, serverBuild }: { host: RemoteHost; serverBuild
   );
 }
 
-/** What the local node setting does, and how this machine's node is doing while it is on. */
+/** What this machine's node does, and how it is doing. */
 function localNodeDescription(node: LocalHost["node"], serverBuild: string | null): string {
-  const purpose =
-    "Runs this machine's sessions under a takode node, so a server restart does not interrupt them. Running sessions move to it when they next start.";
-  if (!node.enabled) return purpose;
+  const purpose = "Its sessions run under a takode node, so a server restart does not interrupt them.";
   const status = node.online
     ? `Node connected · ${node.processes} process${node.processes === 1 ? "" : "es"}`
     : "Node starting";

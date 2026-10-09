@@ -325,7 +325,7 @@ configureMachines({
   },
 });
 hostLinks.start();
-// This machine's own node, which runs local sessions so they outlive server restarts when turned on.
+// This machine's own node, which runs local sessions so they outlive server restarts.
 const localNode = new LocalNode({
   serverId,
   coordinatorUrl: localCoordinatorUrl(process.env.COMPANION_HOST || "0.0.0.0", port),
@@ -1109,7 +1109,7 @@ app.route(
     },
   }),
 );
-app.route("/api", createHostRoutes(hostRegistry, hostLinks, localNode, thisMachine));
+app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine));
 app.route(
   "/api",
   createRoutes(

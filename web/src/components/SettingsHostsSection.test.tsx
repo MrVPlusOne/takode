@@ -27,10 +27,7 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
 function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "devbox", processes: 2 })]) {
   let hosts = initial;
   let localSettings: MachineSettings = { claudeBinary: "", codexBinary: "" };
-  let localNode = {
-    ...hostRow({ id: "local", name: "local", online: false, processes: 0 }),
-    enabled: false,
-  };
+  const localNode = hostRow({ id: "local", name: "local", online: false, processes: 0 });
   let localName = "laptop";
   const requests: string[] = [];
   vi.stubGlobal(
@@ -43,19 +40,6 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         const host = hostRow({ id: "h2", name, online: false, lastSeenAt: null, build: null });
         hosts = [...hosts, host];
         return new Response(JSON.stringify({ host, token: "secret-token" }), { status: 201 });
-      }
-      if (method === "PUT" && url === "/api/hosts/local/node") {
-        // The server starts the node; here it connects at once.
-        const { enabled } = JSON.parse(String(init?.body)) as {
-          enabled: boolean;
-        };
-        localNode = {
-          ...localNode,
-          enabled,
-          online: enabled,
-          processes: enabled ? 1 : 0,
-        };
-        return new Response(JSON.stringify({ enabled }));
       }
       if (method === "PUT" && url.endsWith("/name")) {
         // PUT /api/hosts/:id/name: names are unique across machines, as on the server.
@@ -173,20 +157,15 @@ describe("SettingsHostsSection", () => {
     expect(screen.queryByTestId("host-codex-override")).toBeNull();
   });
 
-  // Keeping sessions across restarts is a switch on This machine; once on, the
-  // card shows how this machine's node is doing.
-  it("turns this machine's node on and shows its status", async () => {
-    const requests = serveHostRoutes([]);
+  // This machine's sessions always run under its node, so its card shows how
+  // the node is doing and offers no switch to turn it off.
+  it("shows this machine's node status without a switch", async () => {
+    serveHostRoutes([]);
     render(<SettingsHostsSection />);
-    const toggle = await screen.findByRole("switch", {
-      name: "Keep sessions running across server restarts",
-    });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-
-    await act(async () => fireEvent.click(toggle));
-    await waitFor(() => expect(requests).toContain("PUT /api/hosts/local/node"));
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    expect(screen.getByTestId("settings-local-host").textContent).toContain("Node connected · 1 process");
+    const status = await screen.findByTestId("settings-local-node");
+    expect(status.textContent).toContain("so a server restart does not interrupt them");
+    expect(status.textContent).toContain("Node starting");
+    expect(screen.queryByRole("switch")).toBeNull();
   });
 
   // Every machine, this server's included, shows its own name and can be

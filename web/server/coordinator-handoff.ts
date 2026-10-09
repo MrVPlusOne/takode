@@ -48,7 +48,7 @@ export interface HandoffExportOptions {
   /**
    * Package a copy for a trial run without stopping or fencing this server.
    * The copy then cannot launch agents (its machines' Claude and Codex
-   * settings point nowhere, its own node is off) or alert a phone, so copied
+   * settings point nowhere) or alert a phone, so copied
    * timers and herd events cannot resume real sessions next to the live ones.
    */
   rehearsal?: boolean;
@@ -341,15 +341,13 @@ async function planHandoff(input: {
         ...(isRecord(local.settings) ? { settings: local.settings } : {}),
       },
     ],
-    local: rehearsal
-      ? {
-          settings: { claudeBinary: REHEARSAL_DISABLED_BINARY, codexBinary: REHEARSAL_DISABLED_BINARY },
-          nodeEnabled: false,
-        }
-      : {
-          settings: isRecord(toHost?.settings) ? toHost.settings : { claudeBinary: "", codexBinary: "" },
-          ...(local.nodeEnabled === true ? { nodeEnabled: true } : {}),
-        },
+    local: {
+      settings: rehearsal
+        ? { claudeBinary: REHEARSAL_DISABLED_BINARY, codexBinary: REHEARSAL_DISABLED_BINARY }
+        : isRecord(toHost?.settings)
+          ? toHost.settings
+          : { claudeBinary: "", codexBinary: "" },
+    },
   });
   const notes: string[] = [];
   const toSettings = isRecord(toHost?.settings) ? toHost.settings : {};
