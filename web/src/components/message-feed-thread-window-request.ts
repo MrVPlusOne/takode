@@ -24,7 +24,11 @@ export function useThreadWindowRequester({
   return useCallback(
     (fromItem: number, requestedItemCount?: number, targetMessageId?: string) => {
       const store = useStore.getState();
-      if (!activeThreadWindow && store.pendingThreadWindowRequests?.get(sessionId) === normalizedThreadKey) {
+      // A request for this thread's latest window is already in flight (for
+      // example the one a session subscribe carries), so asking again would
+      // only fetch the same window twice.
+      const latestWindowRequest = !activeThreadWindow || (fromItem < 0 && !targetMessageId);
+      if (latestWindowRequest && store.pendingThreadWindowRequests?.get(sessionId) === normalizedThreadKey) {
         return true;
       }
       const itemCount = activeThreadWindow
@@ -53,7 +57,8 @@ export function useThreadWindowRequester({
         visible_item_count: visibleItemCount,
         activate_view: true,
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
-        ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
+        // A targeted window identical to the held one comes back as a cache hit, not resent in full.
+        ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
       });
       if (delivered) onWindowRequest(activeThreadWindow);
       if (delivered && !activeThreadWindow) {

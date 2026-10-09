@@ -344,6 +344,7 @@ export class WsBridgeSyncedProjectionController {
       {
         type: "synced_projection_subscriptions_ack",
         subscriptions: replacement.acceptedSubscriptions,
+        ...(replacement.currentSubscriptions.length > 0 ? { current: replacement.currentSubscriptions } : {}),
         complete: true,
       },
     ];

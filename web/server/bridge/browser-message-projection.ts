@@ -9,10 +9,29 @@ type SessionRecoveryProjection = {
 };
 
 /**
- * Keep terminal interrupted-work recovery as server/audit authority without
- * projecting its retired attention surface back into current-build browsers.
+ * Shape a server message for browsers without changing server state:
+ * - terminal interrupted-work recovery stays server/audit authority, so its
+ *   retired attention surface is not projected back into current-build browsers;
+ * - thinking-block signatures are omitted. They are opaque, incompressible
+ *   blobs the model API needs and the browser never uses, and on long Claude
+ *   sessions they are most of a history window's bytes on the wire.
  */
 export function projectBrowserMessage(message: BrowserIncomingMessage): BrowserIncomingMessage {
+  if (message.type === "assistant") return projectBrowserHistoryMessage(message);
+  if (message.type === "history_window_sync") {
+    const messages = projectBrowserHistoryMessages(message.messages);
+    return messages === message.messages ? message : { ...message, messages };
+  }
+  if (message.type === "thread_window_sync") {
+    let changed = false;
+    const entries = message.entries.map((entry) => {
+      const projected = projectBrowserHistoryMessage(entry.message);
+      if (projected === entry.message) return entry;
+      changed = true;
+      return { ...entry, message: projected };
+    });
+    return changed ? { ...message, entries } : message;
+  }
   if (message.type === "session_init") {
     const session = projectSessionRecoveryState(message.session);
     return session === message.session ? message : { ...message, session };
@@ -35,6 +54,44 @@ export function projectBrowserMessage(message: BrowserIncomingMessage): BrowserI
     return changed ? { ...message, events } : message;
   }
   return message;
+}
+
+/** Project history messages for a browser; returns the input array when nothing changes. */
+export function projectBrowserHistoryMessages(messages: BrowserIncomingMessage[]): BrowserIncomingMessage[] {
+  let projected: BrowserIncomingMessage[] | null = null;
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = projectBrowserHistoryMessage(messages[index]);
+    if (message === messages[index] && !projected) continue;
+    projected ??= messages.slice(0, index);
+    projected.push(message);
+  }
+  return projected ?? messages;
+}
+
+function projectBrowserHistoryMessage(message: BrowserIncomingMessage): BrowserIncomingMessage {
+  if (message.type !== "assistant") return message;
+  const content: unknown = message.message?.content;
+  if (!Array.isArray(content) || !content.some(isSignedThinkingBlock)) return message;
+  return {
+    ...message,
+    message: {
+      ...message.message,
+      content: content.map((block) => {
+        if (!isSignedThinkingBlock(block)) return block;
+        const { signature: _signature, ...rest } = block;
+        return rest;
+      }),
+    },
+  };
+}
+
+function isSignedThinkingBlock(block: unknown): block is { type: "thinking"; signature: unknown } {
+  return (
+    typeof block === "object" &&
+    block !== null &&
+    (block as { type?: unknown }).type === "thinking" &&
+    "signature" in block
+  );
 }
 
 function projectSessionRecoveryState<T extends SessionRecoveryProjection>(session: T): T {

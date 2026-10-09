@@ -1057,6 +1057,39 @@ describe("MessageFeed section windowing", () => {
     );
   });
 
+  // Returning to a leader: its cached window renders at once, and the session
+  // subscribe already revalidates it, so the feed must not ask for the same
+  // latest window a second time (on a slow link that doubled the bytes).
+  it("shows a cached thread window without re-requesting what session_subscribe carries", async () => {
+    const sid = "test-leader-cached-window-subscribed";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreHistoryWindow(sid);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 1,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [
+        makeMessage({ id: "u-cached", role: "user", content: "Cached Main thread", timestamp: 1, historyIndex: 0 }),
+      ],
+    });
+    // The reconnect invalidated the cached copy, which on its own asks for a refresh.
+    setStoreThreadWindowRevisions({ sessionId: sid, threadKey: "main", refreshRevision: 1, appliedRevision: 0 });
+    mockStoreValues.pendingThreadWindowRequests = new Map([[sid, "main"]]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.getByText("Cached Main thread")).toBeTruthy();
+    await flushFeedObservers();
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "thread_window_request", thread_key: "main" }),
+    );
+  });
+
   it("does not duplicate an in-flight initial thread window request after rerender", async () => {
     const sid = "test-leader-inflight-selected-window";
     setStoreSessionState(sid, { isOrchestrator: true });
@@ -1192,6 +1225,42 @@ describe("MessageFeed section windowing", () => {
     expect(mockSetFeedScrollPosition).toHaveBeenCalledWith(
       `${sid}:thread:main`,
       expect.objectContaining({ anchorMessageId: target.id }),
+    );
+  });
+
+  // Revalidating a held window around a saved anchor must still name the held
+  // window's hash, so an unchanged window comes back as a small cache hit
+  // instead of the whole window again.
+  it("sends the held window hash with a target-centered revalidation", async () => {
+    const sid = "test-leader-targeted-revalidation-hash";
+    const target = makeMessage({ id: "u-anchor", role: "user", content: "Anchor", timestamp: 1, historyIndex: 0 });
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreHistoryWindow(sid);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 1,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [target],
+    });
+    const heldWindows = mockStoreValues.threadWindows as Map<string, Map<string, Record<string, unknown>>>;
+    Object.assign(heldWindows.get(sid)!.get("main")!, { window_hash: "held-hash" });
+    mockStoreValues.pendingScrollToMessageId = new Map([[sid, target.id]]);
+    mockStoreValues.scrollToMessageId = new Map([[sid, target.id]]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    await flushFeedObservers();
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        target_message_id: target.id,
+        cached_window_hash: "held-hash",
+      }),
     );
   });
 

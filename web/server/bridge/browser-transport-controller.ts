@@ -35,7 +35,7 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
-import { projectBrowserMessage } from "./browser-message-projection.js";
+import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
 import {
   completeSyncedProjectionSessionSubscribe,
   handleLeaderThreadTabsUpdate,
@@ -1162,8 +1162,8 @@ async function sendHistorySyncAttempt(
   const hotMessages = projectHistorySyncRange(historySnapshot, frozenCount, historySnapshot.length);
   if (isLargeHistory) await yieldToEventLoop();
 
-  const frozenDeltaJson = JSON.stringify(frozenDelta);
-  const hotMessagesJson = JSON.stringify(hotMessages);
+  const frozenDeltaJson = JSON.stringify(projectBrowserHistoryMessages(frozenDelta));
+  const hotMessagesJson = JSON.stringify(projectBrowserHistoryMessages(hotMessages));
   trafficStats.recordHistorySyncBreakdown({
     sessionId: session.id,
     frozenDeltaBytes: Buffer.byteLength(frozenDeltaJson, "utf-8"),
@@ -1418,16 +1418,6 @@ export async function handleSessionSubscribe(
   }
   if (cleanedStale) deps.persistSession(session);
 
-  completeSyncedProjectionSessionSubscribe(
-    session,
-    ws,
-    syncedProjectionSubscriptions,
-    projectionSubscribePreparation.replacedBeforeLazyLoad,
-    archivedReadOnly,
-    deps,
-    sendToBrowser,
-  );
-
   const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(
     initialThreadWindow,
     isLeaderSession(session, deps),
@@ -1447,11 +1437,31 @@ export async function handleSessionSubscribe(
   const { boundedView, syncThroughSeq } = prepared;
   const replayEvents = prepared.replayEvents;
 
+  // Runs before any await, so a projection refresh this socket sends next replaces it rather than the reverse.
+  const completeProjectionSubscribe = () =>
+    completeSyncedProjectionSessionSubscribe(
+      session,
+      ws,
+      syncedProjectionSubscriptions,
+      projectionSubscribePreparation.replacedBeforeLazyLoad,
+      archivedReadOnly,
+      deps,
+      sendToBrowser,
+    );
   if (boundedView) {
     sendLeaderProjectionSnapshot(session, ws, deps);
-    if (explicitFullHistorySync) await sendHistorySync(session, ws, 0, undefined);
-    else sendBoundedConversationView(session, ws, boundedView);
+    if (explicitFullHistorySync) {
+      completeProjectionSubscribe();
+      await sendHistorySync(session, ws, 0, undefined);
+    } else {
+      // The selected conversation goes out first: projection snapshots cover
+      // every session the browser lists, and on a slow link they would delay it.
+      sendBoundedConversationView(session, ws, boundedView);
+      completeProjectionSubscribe();
+    }
     await yieldToEventLoop();
+  } else {
+    completeProjectionSubscribe();
   }
 
   if (boundedView) await sendInitialTreeGroupState(ws);

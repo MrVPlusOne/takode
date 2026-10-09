@@ -107,7 +107,9 @@ function getSyncedProjectionSubscriptions(sessionId: string): SyncedProjectionSu
       const hasObservedProjection =
         store.syncedProjectionKeys.has(entryId) || Object.hasOwn(sdkSession, descriptor.restField);
       if (!isSyncedProjectionEligibleForSession(descriptor, { isOrchestrator }) && !hasObservedProjection) continue;
-      subscriptions.push({ projection: descriptor.projection, key: sdkSession.sessionId });
+      // Naming the held version lets the server skip resending unchanged values on every session switch.
+      const known = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
+      subscriptions.push({ projection: descriptor.projection, key: sdkSession.sessionId, ...(known ? { known } : {}) });
     }
   }
   subscriptions.sort(
@@ -162,12 +164,8 @@ const transport = createWsTransport({
   onConnecting: (sessionId) => {
     const store = useStore.getState();
     const initialThreadWindow = getInitialLeaderThreadWindow(sessionId);
-    store.setPendingThreadWindowRequest(
-      sessionId,
-      initialThreadWindow && !store.threadWindows.get(sessionId)?.has(initialThreadWindow.thread_key)
-        ? initialThreadWindow.thread_key
-        : null,
-    );
+    // The subscribe carries this thread's window request, revalidating any cached copy.
+    store.setPendingThreadWindowRequest(sessionId, initialThreadWindow?.thread_key ?? null);
     store.setConnectionStatus(sessionId, "connecting");
   },
   onConnected: (sessionId) => {

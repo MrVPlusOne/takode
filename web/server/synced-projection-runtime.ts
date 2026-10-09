@@ -5,6 +5,7 @@ import {
   type SyncedProjectionPatchEnvelope,
   type SyncedProjectionSubscription,
   type SyncedProjectionSubscriptionIdentity,
+  type SyncedProjectionVersion,
 } from "../shared/synced-projection.js";
 import { jsonUtf8ByteLength } from "../shared/synced-projection-codec.js";
 
@@ -94,6 +95,8 @@ export interface SyncedProjectionRuntimeOptions {
 export interface SyncedProjectionSubscriptionReplacement {
   snapshots: SyncedProjectionEnvelope[];
   acceptedSubscriptions: SyncedProjectionSubscriptionIdentity[];
+  /** Accepted subscriptions already holding the current version; they get no snapshot. */
+  currentSubscriptions: Array<SyncedProjectionSubscriptionIdentity & SyncedProjectionVersion>;
 }
 
 type AnyDefinition<TSubscriber> = SyncedProjectionDefinition<unknown, unknown, unknown, TSubscriber>;
@@ -240,7 +243,8 @@ export class SyncedProjectionRuntime<TSubscriber> {
   ): SyncedProjectionSubscriptionReplacement {
     const requested = Array.isArray(subscriptions) ? subscriptions : [];
     if (!Array.isArray(subscriptions)) this.metrics.subscriptionsRejected += 1;
-    const accepted: Array<{ projection: string; key: string; id: string }> = [];
+    const accepted: Array<{ projection: string; key: string; id: string; known?: Partial<SyncedProjectionVersion> }> =
+      [];
     const seen = new Set<string>();
     for (const request of requested.slice(0, this.maxSubscriptionsPerSubscriber)) {
       if (!request || typeof request !== "object") {
@@ -262,7 +266,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
         continue;
       }
       seen.add(id);
-      accepted.push({ projection: request.projection, key: request.key, id });
+      accepted.push({ projection: request.projection, key: request.key, id, known: request.known });
     }
     if (requested.length > this.maxSubscriptionsPerSubscriber) {
       this.metrics.subscriptionsRejected += requested.length - this.maxSubscriptionsPerSubscriber;
@@ -273,7 +277,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
     // the replacing subscriber receives each accepted revision exactly once
     // through the returned snapshot set below.
     this.subscribers.delete(subscriber);
-    const resolved = accepted.flatMap(({ projection, key, id }) => {
+    const resolved = accepted.flatMap(({ projection, key, id, known }) => {
       const snapshot = this.getSnapshot(projection, key);
       if (!snapshot) {
         this.metrics.subscriptionsRejected += 1;
@@ -282,15 +286,24 @@ export class SyncedProjectionRuntime<TSubscriber> {
       }
       this.metrics.subscriptionsAccepted += 1;
       this.projectionMetrics(projection).subscriptionsAccepted += 1;
-      return [{ projection, key, id, snapshot }];
+      const current = known?.generation === snapshot.generation && known.revision === snapshot.revision;
+      return [{ projection, key, id, snapshot, current }];
     });
     this.subscribers.set(subscriber, {
       ids: new Set(resolved.map(({ id }) => id)),
       deliver,
     });
     return {
-      snapshots: resolved.map(({ snapshot }) => snapshot),
+      snapshots: resolved.filter(({ current }) => !current).map(({ snapshot }) => snapshot),
       acceptedSubscriptions: resolved.map(({ projection, key }) => ({ projection, key })),
+      currentSubscriptions: resolved
+        .filter(({ current }) => current)
+        .map(({ projection, key, snapshot }) => ({
+          projection,
+          key,
+          generation: snapshot.generation,
+          revision: snapshot.revision,
+        })),
     };
   }
 

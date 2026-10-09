@@ -4,7 +4,7 @@ import type {
   SyncedProjectionSubscriptionsAckMessage,
   SyncedProjectionUpdateMessage,
 } from "../shared/synced-projection.js";
-import { isValidSyncedProjectionIdentity } from "../shared/synced-projection.js";
+import { isValidSyncedProjectionIdentity, syncedProjectionEntryId } from "../shared/synced-projection.js";
 import { isSyncedProjectionId } from "../shared/synced-projection-registry.js";
 import type { AppState } from "./store-types.js";
 import {
@@ -113,6 +113,21 @@ export function handleSyncedProjectionMessage(
   if (data.type === "synced_projection_subscriptions_ack") {
     const ack = data as SyncedProjectionSubscriptionsAckMessage;
     if (ack.complete !== true || !Array.isArray(ack.subscriptions)) return true;
+    // Entries the server found current were not resent; the held value covers them.
+    for (const current of Array.isArray(ack.current) ? ack.current : []) {
+      if (!isValidSyncedProjectionIdentity(current?.projection) || !isValidSyncedProjectionIdentity(current?.key)) {
+        continue;
+      }
+      const entryId = syncedProjectionEntryId(current.projection, current.key);
+      const held = store.syncedProjectionVersions.get(entryId);
+      if (
+        store.syncedProjectionKeys.has(entryId) &&
+        held?.generation === current.generation &&
+        held.revision >= current.revision
+      ) {
+        deps.noteAcceptedSyncedProjectionSnapshot?.(sessionId, current.projection, current.key);
+      }
+    }
     const accepted = deps.consumeSyncedProjectionSubscriptionsAck?.(sessionId, ack.subscriptions);
     if (accepted) {
       const revokedSubscriptions = reconcileStoredSyncedProjectionSnapshots(accepted);

@@ -7,6 +7,8 @@ export interface SyncedProjectionVersion {
 export interface SyncedProjectionSubscription {
   projection: string;
   key: string;
+  /** The version the subscriber already holds; if still current, it is acknowledged instead of re-sent. */
+  known?: SyncedProjectionVersion;
 }
 
 export type SyncedProjectionSubscriptionIdentity = Pick<SyncedProjectionSubscription, "projection" | "key">;
@@ -49,6 +51,8 @@ export interface SyncedProjectionResyncMessage {
 export interface SyncedProjectionSubscriptionsAckMessage {
   type: "synced_projection_subscriptions_ack";
   subscriptions: SyncedProjectionSubscriptionIdentity[];
+  /** Accepted subscriptions whose `known` version is current, so no snapshot was sent for them. */
+  current?: Array<SyncedProjectionSubscriptionIdentity & SyncedProjectionVersion>;
   complete: true;
 }
 

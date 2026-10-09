@@ -478,6 +478,54 @@ describe("WsBridge synchronized projections", () => {
     expect(bridge.getSyncedProjectionController().hasSubscription(socket, "session-attention", carrier.id)).toBe(false);
   });
 
+  // Over a slow link, projection snapshots for every listed session would hold
+  // back the conversation the user just opened, so it goes out first. A held
+  // projection version that is still current is acknowledged, not resent.
+  it("sends the selected window before projection snapshots and skips held current versions", async () => {
+    const bridge = new WsBridge();
+    const carrier = bridge.getOrCreateSession("carrier");
+    bridge.getOrCreateSession("held");
+    bridge.getOrCreateSession("changed");
+    carrier.messageHistory = [{ type: "user_message", content: "hello", timestamp: 1, id: "u1" }] as any;
+    const held = bridge.getSyncedProjectionController().getSnapshot("session-attention", "held")!;
+    const socket = browserSocket("carrier");
+
+    await bridge.handleBrowserMessage(
+      socket,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+        synced_projection_subscriptions: [
+          {
+            projection: "session-attention",
+            key: "held",
+            known: { generation: held.generation, revision: held.revision },
+          },
+          { projection: "session-attention", key: "changed" },
+        ],
+      }),
+    );
+
+    const sent = messages(socket);
+    const types = sent.map((message: any) => message.type);
+    const windowIndex = types.indexOf("history_window_sync");
+    const firstSnapshotIndex = types.indexOf("synced_projection_snapshot");
+    expect(windowIndex).toBeGreaterThanOrEqual(0);
+    expect(firstSnapshotIndex).toBeGreaterThan(windowIndex);
+    expect(sent.filter((message: any) => message.type === "synced_projection_snapshot")).toEqual([
+      expect.objectContaining({ key: "changed" }),
+    ]);
+    expect(sent.find((message: any) => message.type === "synced_projection_subscriptions_ack")).toMatchObject({
+      subscriptions: [
+        { projection: "session-attention", key: "held" },
+        { projection: "session-attention", key: "changed" },
+      ],
+      current: [{ projection: "session-attention", key: "held", revision: held.revision }],
+    });
+  });
+
   it("serializes a slow reconnect snapshot before a newer refresh replacement", async () => {
     const bridge = new WsBridge();
     const carrier = bridge.getOrCreateSession("carrier");

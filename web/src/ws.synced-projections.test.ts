@@ -154,10 +154,9 @@ describe("synced projection WebSocket carrier", () => {
       key: string;
     }>;
 
-    expect(subscriptions).toContainEqual({
-      projection: LEADER_THREAD_TABS_PROJECTION,
-      key: "accepted-leader",
-    });
+    expect(subscriptions).toContainEqual(
+      expect.objectContaining({ projection: LEADER_THREAD_TABS_PROJECTION, key: "accepted-leader" }),
+    );
     expect(subscriptions).toContainEqual({
       projection: LEADER_THREAD_TABS_PROJECTION,
       key: "supplied-leader",
@@ -386,6 +385,40 @@ describe("synced projection WebSocket carrier", () => {
     expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(true);
     expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000rejected`)).toBe(false);
     expect(useStore.getState().sessionAttention.has("rejected")).toBe(false);
+  });
+
+  // Every session switch opens a new carrier socket. Naming held versions lets
+  // the server acknowledge unchanged values instead of resending them all.
+  it("names held versions on subscribe and keeps values the ack reports as current", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "carrier", archived: false } as never,
+        { sessionId: "worker", archived: false } as never,
+      ],
+    });
+    useStore.getState().setCurrentSession("carrier");
+    useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "worker", revision: 3, count: 4 }));
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+
+    const subscribe = messages(carrier)[0] as { synced_projection_subscriptions: Array<Record<string, unknown>> };
+    expect(subscribe.synced_projection_subscriptions).toContainEqual({
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: "worker",
+      known: { generation: "generation-a", revision: 3 },
+    });
+
+    fire(carrier, {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [{ projection: SESSION_ATTENTION_PROJECTION, key: "worker" }],
+      current: [{ projection: SESSION_ATTENTION_PROJECTION, key: "worker", generation: "generation-a", revision: 3 }],
+      complete: true,
+    });
+
+    expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(true);
+    expect(useStore.getState().sessionAttention.get("worker")).toBeTruthy();
+    expect(messages(carrier).some((message) => message.type === "synced_projection_resync")).toBe(false);
   });
 
   it("selectively fences identities omitted by a complete partial ack", () => {

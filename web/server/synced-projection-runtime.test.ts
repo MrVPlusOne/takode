@@ -300,6 +300,64 @@ describe("SyncedProjectionRuntime", () => {
     expect(established.updates).toEqual([expect.objectContaining({ revision: 2, value: { parity: 0 } })]);
   });
 
+  // A browser re-subscribing on a new socket (every session switch) names the
+  // versions it holds; only changed values are resent, the rest are
+  // acknowledged as current but still subscribed for later updates.
+  it("acknowledges a held current version instead of resending it", async () => {
+    const sources = new Map<string, Source>([
+      ["a", { dependency: 1, unrelated: 0 }],
+      ["b", { dependency: 1, unrelated: 0 }],
+    ]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
+    runtime.register(definition(sources));
+    const subscriber = { allowedKeys: new Set(["a", "b"]), updates: [] as unknown[] };
+    subscribe(runtime, subscriber, ["a", "b"]);
+    sources.get("b")!.dependency = 2;
+    runtime.invalidate("example", "b");
+    await runtime.flushForTest();
+    subscriber.updates.length = 0;
+
+    const replacement = runtime.replaceSubscriptions(
+      subscriber,
+      [
+        { projection: "example", key: "a", known: { generation: "generation-a", revision: 1 } },
+        // Held before the change, so it is resent.
+        { projection: "example", key: "b", known: { generation: "generation-a", revision: 1 } },
+      ],
+      (target, envelope) => target.updates.push(envelope),
+    );
+
+    expect(replacement.snapshots).toEqual([expect.objectContaining({ key: "b", revision: 2 })]);
+    expect(replacement.currentSubscriptions).toEqual([
+      { projection: "example", key: "a", generation: "generation-a", revision: 1 },
+    ]);
+    expect(replacement.acceptedSubscriptions).toEqual([
+      { projection: "example", key: "a" },
+      { projection: "example", key: "b" },
+    ]);
+
+    sources.get("a")!.dependency = 2;
+    runtime.invalidate("example", "a");
+    await runtime.flushForTest();
+    expect(subscriber.updates).toEqual([expect.objectContaining({ key: "a", revision: 2 })]);
+  });
+
+  it("resends values held from another server generation", () => {
+    const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-b" });
+    runtime.register(definition(sources));
+    const subscriber = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+
+    const replacement = runtime.replaceSubscriptions(
+      subscriber,
+      [{ projection: "example", key: "a", known: { generation: "generation-a", revision: 1 } }],
+      (target, envelope) => target.updates.push(envelope),
+    );
+
+    expect(replacement.snapshots).toEqual([expect.objectContaining({ generation: "generation-b", revision: 1 })]);
+    expect(replacement.currentSubscriptions).toEqual([]);
+  });
+
   it("removes cached keys and detaches them from every subscriber", async () => {
     const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
     const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });

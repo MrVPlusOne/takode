@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage, CodexTurnRecoveryState } from "../session-types.js";
-import { projectBrowserMessage } from "./browser-message-projection.js";
+import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
 
 function recovery(status: CodexTurnRecoveryState["status"]): CodexTurnRecoveryState {
   return {
@@ -109,5 +109,57 @@ describe("browser interrupted-work recovery projection", () => {
     expect(projectBrowserMessage(audit)).toMatchObject({
       modelDeliveryContent: "Exact model-bound recovery instructions",
     });
+  });
+});
+
+describe("browser thinking-signature projection", () => {
+  // A Claude assistant message as stored in messageHistory: the thinking block
+  // carries the API's opaque signature, which only the model API needs.
+  function signedAssistant(id: string): BrowserIncomingMessage {
+    return {
+      type: "assistant",
+      message: {
+        id,
+        type: "message",
+        role: "assistant",
+        model: "claude",
+        content: [
+          { type: "thinking", thinking: "plan", signature: "opaque-signature-blob" },
+          { type: "text", text: "answer" },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1,
+    } as unknown as BrowserIncomingMessage;
+  }
+
+  it("drops thinking signatures from live, window, thread and replay payloads without mutating history", () => {
+    const stored = signedAssistant("m1");
+    const storedJson = JSON.stringify(stored);
+    const payloads = [
+      stored,
+      { type: "history_window_sync", messages: [stored], window: {} },
+      { type: "thread_window_sync", thread_key: "main", entries: [{ message: stored, history_index: 0 }], window: {} },
+      { type: "event_replay", events: [{ seq: 1, message: stored }] },
+    ] as BrowserIncomingMessage[];
+
+    for (const payload of payloads) {
+      const json = JSON.stringify(projectBrowserMessage(payload));
+      expect(json).not.toContain("opaque-signature-blob");
+      // The visible thinking and answer text are still delivered.
+      expect(json).toContain('"thinking":"plan"');
+      expect(json).toContain('"text":"answer"');
+    }
+    expect(JSON.stringify(stored)).toBe(storedJson);
+  });
+
+  it("returns the same objects when nothing carries a signature", () => {
+    const user = { type: "user_message", id: "u1", content: "hi", timestamp: 1 } as BrowserIncomingMessage;
+    const messages = [user];
+    expect(projectBrowserHistoryMessages(messages)).toBe(messages);
+    const window = { type: "history_window_sync", messages, window: {} } as unknown as BrowserIncomingMessage;
+    expect(projectBrowserMessage(window)).toBe(window);
   });
 });
