@@ -59,6 +59,16 @@ export function getGlobalMutedNeedsInputEntries(state: GlobalNeedsInputState): G
   return getNeedsInputEntries(state, "muted");
 }
 
+/**
+ * A herded session (worker or reviewer) asks its leader, not the user, so its
+ * prompts stay out of the user's global attention: the bell and its list, the
+ * browser-tab count and Next. This follows the current herd state, so a prompt
+ * asked while the session was independent drops out once a leader herds it.
+ */
+export function isLeaderDirected(session: Pick<SdkSessionInfo, "herdedBy">): boolean {
+  return !!session.herdedBy;
+}
+
 function getNeedsInputEntries(state: GlobalNeedsInputState, mode: "active" | "muted"): GlobalNeedsInputEntry[] {
   const sdkById = new Map(state.sdkSessions.map((session) => [session.sessionId, session]));
   const entries: GlobalNeedsInputEntry[] = [];
@@ -69,7 +79,7 @@ function getNeedsInputEntries(state: GlobalNeedsInputState, mode: "active" | "mu
       mode === "active"
         ? sdkSession && allowsActiveNeedsInput(sdkSession)
         : sdkSession && allowsMutedNeedsInput(sdkSession);
-    if (!sdkSession || sdkSession.archived || !allowed) continue;
+    if (!sdkSession || sdkSession.archived || !allowed || isLeaderDirected(sdkSession)) continue;
     const label = getSessionLabel(sessionId, sdkSession);
 
     for (const notification of notifications) {

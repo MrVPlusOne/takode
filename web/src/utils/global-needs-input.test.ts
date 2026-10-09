@@ -128,4 +128,25 @@ describe("getGlobalNeedsInputEntries", () => {
 
     expect(entries.map((entry) => entry.notification.id)).toEqual(["muted"]);
   });
+
+  it("leaves out prompts from herded worker and reviewer sessions, active or muted", () => {
+    // Herded sessions ask their leader, not the user, so their prompts must not reach
+    // the user's bell, tab title or Next. Leaders and independent sessions still count.
+    const sessionNotifications = new Map([
+      ["leader", [needsInputNotification({ id: "leader-ask" })]],
+      ["solo", [needsInputNotification({ id: "solo-ask" })]],
+      [
+        "worker",
+        [needsInputNotification({ id: "worker-ask" }), needsInputNotification({ id: "worker-muted", muted: true })],
+      ],
+    ]);
+    const sdkSessions = [sdk("leader", { isOrchestrator: true }), sdk("solo"), sdk("worker", { herdedBy: "leader" })];
+
+    expect(
+      entriesFor({ sdkSessions, sessionNotifications })
+        .map((entry) => entry.notification.id)
+        .sort(),
+    ).toEqual(["leader-ask", "solo-ask"]);
+    expect(getGlobalMutedNeedsInputEntries({ sdkSessions, sessionNotifications })).toEqual([]);
+  });
 });

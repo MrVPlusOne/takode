@@ -25,6 +25,7 @@ import {
 import {
   getGlobalMutedNeedsInputEntries,
   getGlobalNeedsInputEntries,
+  isLeaderDirected,
   type GlobalNeedsInputEntry,
   type GlobalNeedsInputState,
 } from "../utils/global-needs-input.js";
@@ -55,7 +56,7 @@ function formatRelativeTime(ts: number): string {
 function needsInputFetchRequests(state: GlobalNeedsInputState): NeedsInputFetchRequest[] {
   return state.sdkSessions
     .filter((session) => {
-      if (session.archived) return false;
+      if (session.archived || isLeaderDirected(session)) return false;
       const activeNeedsInputCount =
         session.activeNeedsInputNotificationCount ??
         (session.notificationUrgency === "needs-input" ? (session.activeNotificationCount ?? 0) : 0);

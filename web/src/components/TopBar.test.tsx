@@ -1380,6 +1380,22 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
   });
 
+  it("leaves a herded worker's question to its leader out of Next", () => {
+    // A worker asking its leader is not the user's to answer; only s1's prompt counts.
+    resetStore({
+      ...twoPromptsState(),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" },
+        { sessionId: "s2", createdAt: 20, sessionNum: 102, name: "Worker Two", herdedBy: "leader-1" },
+      ],
+    });
+    render(<TopBar />);
+
+    expect(screen.getByTestId("next-attention-button")).toHaveTextContent("Next1");
+    fireEvent.click(screen.getByTestId("next-attention-button"));
+    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("#101 Pick deployment window");
+  });
+
   it("hides Next while nothing needs attention", () => {
     render(<TopBar />);
     expect(screen.queryByTestId("next-attention-button")).not.toBeInTheDocument();
