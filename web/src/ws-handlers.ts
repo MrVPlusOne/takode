@@ -1085,13 +1085,26 @@ function handleParsedMessage(
           }
         }
 
-        store.appendMessage(sessionId, {
-          id: nextId(),
-          role: "system",
-          content: `Error: ${errorText}`,
-          timestamp: Date.now(),
-          variant: "error",
-        });
+        // Build the row as history windows do, keeping the result's history
+        // index and thread. Without the index, the feed treats the row as live
+        // output no window covers yet and re-appends it after every later window.
+        // Build the row as history windows do, keeping the result's history
+        // index and thread. Without the index, the feed treats the row as live
+        // output no window covers yet and re-appends it after every later window.
+        const [historyErrorMessage] =
+          data.history_index === undefined
+            ? []
+            : normalizeHistoryMessageToChatMessages(data, data.history_index, { fallbackTimestamp: Date.now() });
+        store.appendMessage(
+          sessionId,
+          historyErrorMessage ?? {
+            id: nextId(),
+            role: "system",
+            content: `Error: ${errorText}`,
+            timestamp: Date.now(),
+            variant: "error",
+          },
+        );
       }
       store.commitMessagesAsFrozen(sessionId);
       break;

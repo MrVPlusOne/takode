@@ -558,4 +558,97 @@ describe("handleMessage: result", () => {
     expect(msgs[0].role).toBe("system");
     expect(msgs[0].content).toBe("Error: Something went wrong, Another error");
   });
+
+  it("keeps a live result error in its own history position and thread", async () => {
+    // Reproduces leader #2763: a quest-thread turn failed with "Not logged in".
+    // The live error row had no history index or thread, so every later Main
+    // window treated it as uncovered live output and appended it after the
+    // newest turn. It must take the result's history identity instead, so the
+    // window that covers it replaces it and other threads never show it.
+    const { buildFeedMessageModel } = await import("./utils/feed-render-model.js");
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "result",
+      history_index: 4,
+      threadKey: "q-7",
+      questId: "q-7",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        result: "Not logged in · Please run /login",
+        duration_ms: 150,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "stop_sequence",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "login-failure",
+        session_id: "s1",
+      },
+    });
+
+    const liveMessages = useStore.getState().messages.get("s1")!;
+    // A later Main window covers history through index 9 and holds the new
+    // Main turn. The old quest error must not trail after it.
+    const window = {
+      from_item: 0,
+      item_count: 1,
+      total_items: 1,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 10,
+      section_item_count: 50,
+      visible_item_count: 3,
+    };
+    const mainFeed = buildFeedMessageModel({
+      leaderSessionId: "s1",
+      threadKey: "main",
+      projectThreadRoutes: true,
+      allMessages: liveMessages,
+      historyLoading: false,
+      selectedFeedWindowEnabled: true,
+      selectedFeedWindow: { ...window, thread_key: "main" },
+      selectedFeedWindowMessages: [
+        { id: "main-user", role: "user", content: "New Main question", timestamp: 10, historyIndex: 8 },
+        { id: "main-reply", role: "assistant", content: "Working on it", timestamp: 11, historyIndex: 9 },
+      ],
+    });
+    expect(mainFeed.messages.map((message) => message.id)).toEqual(["main-user", "main-reply"]);
+
+    expect(liveMessages).toEqual([
+      expect.objectContaining({
+        id: "hist-error-4",
+        historyIndex: 4,
+        variant: "error",
+        content: "Error: Not logged in · Please run /login",
+        metadata: expect.objectContaining({ threadKey: "q-7", questId: "q-7" }),
+      }),
+    ]);
+
+    // The quest window that covers the failed turn shows the error exactly once.
+    const questFeed = buildFeedMessageModel({
+      leaderSessionId: "s1",
+      threadKey: "q-7",
+      projectThreadRoutes: true,
+      allMessages: liveMessages,
+      historyLoading: false,
+      selectedFeedWindowEnabled: true,
+      selectedFeedWindow: { ...window, thread_key: "q-7" },
+      selectedFeedWindowMessages: [
+        {
+          id: "quest-user",
+          role: "user",
+          content: "Are you still there?",
+          timestamp: 3,
+          historyIndex: 3,
+          metadata: { threadKey: "q-7", questId: "q-7" },
+        },
+        { ...liveMessages[0]!, timestamp: 4 },
+      ],
+    });
+    expect(questFeed.messages.map((message) => message.id)).toEqual(["quest-user", "hist-error-4"]);
+  });
 });
