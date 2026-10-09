@@ -3,7 +3,13 @@ export type { ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 import { memo, useRef, useCallback, useState, type RefObject } from "react";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import { deriveSessionStatus, WaitingStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
+import {
+  deriveSessionStatus,
+  WaitingStatusIcon,
+  waitingStatusLabel,
+  waitingStatusShortLabel,
+  type SessionVisualStatus,
+} from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
@@ -47,7 +53,7 @@ const STATUS_COUNT_STYLES = [
 ];
 
 function waitingSessionStatusLabel(count: number): string {
-  return `${count} session${count === 1 ? "" : "s"} waiting on timers or leases`;
+  return `${count} session${count === 1 ? "" : "s"} waiting on timers, background jobs or queues`;
 }
 
 /** Renders colored dot/icon+count indicators for running/permission/unread/waiting statuses. */
@@ -485,7 +491,7 @@ function SessionItemComponent({
     idleKilled: s.idleKilled,
   });
   const timerCount = s.pendingTimerCount ?? 0;
-  const leaseWaitResource = s.leaseWaitResource ?? null;
+  const waitingFor = s.waitingFor ?? null;
   const isPaused = s.paused ?? !!s.pause?.pausedAt;
   const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
   const showWaitingIcon =
@@ -494,7 +500,7 @@ function SessionItemComponent({
     visualStatus === "idle" &&
     permCount === 0 &&
     !effectiveAttention &&
-    (timerCount > 0 || !!leaseWaitResource) &&
+    (timerCount > 0 || !!waitingFor) &&
     inboxUrgency !== "needs-input" &&
     inboxUrgency !== "muted-needs-input";
   const statusColorClass = showWaitingIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
@@ -648,9 +654,9 @@ function SessionItemComponent({
             className={`flex min-w-0 items-center gap-1.5 ${usesExpandedLeaderPortrait ? "col-start-2 row-start-1" : ""}`}
             data-testid={usesExpandedLeaderPortrait ? "session-title-row" : undefined}
           >
-            {/* Status marker for sidebar rows. Timer and lease waits replace the idle dot. */}
+            {/* Status marker for sidebar rows. Timers and server-reported waits replace the idle dot. */}
             {showWaitingIcon ? (
-              <WaitingStatusIcon timerCount={timerCount} leaseWaitResource={leaseWaitResource} />
+              <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} />
             ) : (
               !useStatusBar &&
               !usesExpandedLeaderPortrait && (
@@ -931,6 +937,16 @@ function SessionItemComponent({
                   className="text-[10px] font-semibold text-red-400 shrink-0"
                 >
                   !
+                </span>
+              )}
+              {/* Name what a waiting session waits for; the icon alone reads the same for every wait. */}
+              {showWaitingIcon && (
+                <span
+                  className="min-w-0 truncate text-[10px] text-emerald-500/80"
+                  title={waitingStatusLabel(timerCount, waitingFor)}
+                  data-testid="session-waiting-for"
+                >
+                  {waitingStatusShortLabel(timerCount, waitingFor)}
                 </span>
               )}
             </div>

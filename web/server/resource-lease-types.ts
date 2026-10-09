@@ -45,6 +45,10 @@ export interface ResourceLeaseStatus {
 export interface ResourceLeaseWait {
   resourceKey: string;
   holderSessionIds: string[];
+  /** 1-based place in the pool's queue. */
+  position: number;
+  /** Whether the session queued through the landing queue (`takode land submit`). */
+  landingEntry: boolean;
 }
 
 export interface ResourceLeaseAcquireInput {

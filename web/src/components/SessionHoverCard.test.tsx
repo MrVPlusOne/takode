@@ -305,16 +305,18 @@ describe("SessionHoverCard", () => {
     );
 
     expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "2");
-    expect(screen.getByText("2 timers")).toBeInTheDocument();
+    expect(screen.getByText("waiting")).toBeInTheDocument();
+    expect(screen.getByTestId("session-hover-waiting-status")).toHaveTextContent("2 scheduled timers");
     expect(screen.queryByText("idle")).toBeNull();
   });
 
-  it("shows the queued lease pool instead of plain idle for a lease-waiting session", () => {
-    // A worker parked in a lease queue should read as waiting in the hover
-    // card, matching the sidebar row's timer icon.
+  it("shows what an idle session waits for instead of plain idle", () => {
+    // A worker parked on a background job or in a lease queue should read as
+    // waiting in the hover card, which spells out the server-described wait on
+    // its own line so the short header label stays compact.
     render(
       <SessionHoverCard
-        session={makeSession({ leaseWaitResource: "port:companion" })}
+        session={makeSession({ waitingFor: 'background job "Run full gate"; port:companion (#2 in line)' })}
         sessionName="Lease Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
@@ -327,9 +329,12 @@ describe("SessionHoverCard", () => {
 
     expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute(
       "title",
-      "Waiting for lease port:companion",
+      'Waiting for background job "Run full gate"; port:companion (#2 in line)',
     );
-    expect(screen.getByText("lease port:companion")).toBeInTheDocument();
+    expect(screen.getByText("waiting")).toBeInTheDocument();
+    expect(screen.getByTestId("session-hover-waiting-status")).toHaveTextContent(
+      'Waiting for background job "Run full gate"; port:companion (#2 in line)',
+    );
     expect(screen.queryByText("idle")).toBeNull();
   });
 

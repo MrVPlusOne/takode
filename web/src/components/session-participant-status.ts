@@ -37,7 +37,7 @@ export function resolveParticipantSessionStatusDotProps({
     hasUnread,
     idleKilled: session.idleKilled,
     activeTimerCount: session.pendingTimerCount,
-    leaseWaitResource: session.leaseWaitResource,
+    waitingFor: session.waitingFor,
   };
 }
 

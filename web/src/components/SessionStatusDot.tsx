@@ -8,7 +8,7 @@
  *   4. running            -> green dot, breathing glow (agent actively working)
  *   5. compacting         -> green dot, breathing glow (context compaction)
  *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
- *   7. waiting            -> green timer icon, no glow (idle but waiting on timers or a lease queue)
+ *   7. waiting            -> green timer icon, no glow (idle but waiting on timers, background jobs, a landing run or a lease queue)
  *   8. idle               -> gray dot, no glow
  */
 
@@ -77,36 +77,36 @@ const STATUS_LABEL: Record<SessionVisualStatus, string> = {
 };
 
 /** Compact hover-card label for the waiting state. */
-export function waitingStatusShortLabel(timerCount: number, leaseWaitResource?: string | null): string {
-  const parts = leaseWaitResource ? [`lease ${leaseWaitResource}`] : [];
+export function waitingStatusShortLabel(timerCount: number, waitingFor?: string | null): string {
+  const parts = waitingFor ? [waitingFor] : [];
   if (timerCount > 0) parts.push(`${timerCount} timer${timerCount === 1 ? "" : "s"}`);
   return parts.join(", ");
 }
 
 /** Full tooltip/accessible label for the waiting state. */
-export function waitingStatusLabel(timerCount: number, leaseWaitResource?: string | null): string {
-  const parts = leaseWaitResource ? [`Waiting for lease ${leaseWaitResource}`] : [];
+export function waitingStatusLabel(timerCount: number, waitingFor?: string | null): string {
+  const parts = waitingFor ? [`Waiting for ${waitingFor}`] : [];
   if (timerCount > 0) parts.push(`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`);
   return parts.join("; ");
 }
 
-/** Timer icon shown in place of the idle dot while a session waits on timers or a lease queue. */
+/** Timer icon shown in place of the idle dot while a session waits on timers or what `waitingFor` names. */
 export function WaitingStatusIcon({
   timerCount,
-  leaseWaitResource,
+  waitingFor,
   className,
   title,
   ariaLabel,
   decorative = false,
 }: {
   timerCount: number;
-  leaseWaitResource?: string | null;
+  waitingFor?: string | null;
   className?: string;
   title?: string;
   ariaLabel?: string;
   decorative?: boolean;
 }) {
-  const defaultLabel = waitingStatusLabel(timerCount, leaseWaitResource);
+  const defaultLabel = waitingStatusLabel(timerCount, waitingFor);
   return (
     <span
       data-testid="session-status-timer-icon"
@@ -131,11 +131,7 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
   const visualStatus = deriveSessionStatus(rest);
   if (visualStatus === "waiting") {
     return (
-      <WaitingStatusIcon
-        timerCount={rest.activeTimerCount ?? 0}
-        leaseWaitResource={rest.leaseWaitResource}
-        className={className}
-      />
+      <WaitingStatusIcon timerCount={rest.activeTimerCount ?? 0} waitingFor={rest.waitingFor} className={className} />
     );
   }
   const showGlow = SHOULD_GLOW[visualStatus];

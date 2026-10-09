@@ -14,7 +14,7 @@ export function createMockSessionNavigationProjectionController(deps: {
       const session = deps.getSession(sessionId);
       if (!session) return null;
       const value = buildSessionNavigationProjectionValue(session, {
-        getLeaseWaitResourceKeys: () => [],
+        getWaitingFor: () => null,
         ...deps,
         getSessionStatus: () =>
           session.state?.is_compacting

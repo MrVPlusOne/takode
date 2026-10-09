@@ -6,8 +6,13 @@ function makeAdapterMock() {
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
   let onInitErrorCb: ((error: string) => void) | undefined;
+  let onBackgroundTasksChangedCb: (() => void) | undefined;
 
   return {
+    onBackgroundTasksChanged: vi.fn((cb: () => void) => {
+      onBackgroundTasksChangedCb = cb;
+    }),
+    emitBackgroundTasksChanged: () => onBackgroundTasksChangedCb?.(),
     onBrowserMessage: vi.fn((cb: (msg: any) => void) => {
       onBrowserMessageCb = cb;
     }),
@@ -81,6 +86,7 @@ function makeDeps(session: any, launcherInfo: any = null) {
     requestCliRelaunch: vi.fn(),
     isCurrentSession: vi.fn(() => true),
     onSessionActivityStateChanged: vi.fn(),
+    invalidateSessionNavigation: vi.fn(),
     maxAdapterRelaunchFailures: 3,
     adapterFailureResetWindowMs: 10_000,
   };
@@ -91,6 +97,25 @@ afterEach(() => {
 });
 
 describe("claude-sdk-adapter-lifecycle-controller", () => {
+  it("republishes the session row when the current adapter's background jobs change", () => {
+    // Sidebar and board rows name an idle session's background jobs, so a job
+    // starting or ending must republish the row; a replaced adapter must not.
+    const session = makeSession();
+    const deps = makeDeps(session);
+    const adapter1 = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter1, deps);
+    adapter1.emitBackgroundTasksChanged();
+    expect(deps.invalidateSessionNavigation).toHaveBeenCalledWith("s1");
+
+    const adapter2 = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter2, deps);
+    deps.invalidateSessionNavigation.mockClear();
+    adapter1.emitBackgroundTasksChanged();
+    expect(deps.invalidateSessionNavigation).not.toHaveBeenCalled();
+    adapter2.emitBackgroundTasksChanged();
+    expect(deps.invalidateSessionNavigation).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores stale adapter callbacks after a replacement adapter attaches", () => {
     const session = makeSession();
     const deps = makeDeps(session);

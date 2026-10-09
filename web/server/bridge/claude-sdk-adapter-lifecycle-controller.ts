@@ -22,6 +22,8 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   requestCliRelaunch?: (sessionId: string) => void;
   isCurrentSession: (sessionId: string, session: any) => boolean;
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
+  /** Republish the session's status row, e.g. when its background jobs change. */
+  invalidateSessionNavigation?: (sessionId: string) => void;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -68,6 +70,10 @@ export function attachClaudeSdkAdapterLifecycle(
     deps.persistSession(session);
   }
   const isActiveAdapter = () => session.claudeSdkAdapter === adapter && deps.isCurrentSession(sessionId, session);
+  // Sidebar and board rows show an idle session's background jobs as what it is waiting for.
+  adapter.onBackgroundTasksChanged?.(() => {
+    if (isActiveAdapter()) deps.invalidateSessionNavigation?.(sessionId);
+  });
 
   // The resume window ends once the backend has been quiet for the debounce
   // period. Restart it on every backend message so any replay finishes first.

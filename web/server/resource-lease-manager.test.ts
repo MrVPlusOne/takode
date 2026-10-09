@@ -143,7 +143,12 @@ describe("ResourceLeaseManager", () => {
     });
 
     expect(manager.getLeaseWaits("waiter")).toEqual([
-      { resourceKey: "dev-server:companion", holderSessionIds: ["holder-1", "holder-2"] },
+      {
+        resourceKey: "dev-server:companion",
+        holderSessionIds: ["holder-1", "holder-2"],
+        position: 1,
+        landingEntry: false,
+      },
     ]);
     expect(manager.getLeaseWaits("holder-1")).toEqual([]);
 
@@ -183,6 +188,43 @@ describe("ResourceLeaseManager", () => {
     expect(bridge.invalidateSessionNavigation).toHaveBeenLastCalledWith("waiter");
     expect(keysAtInvalidation).toEqual(["agent-browser"]);
     expect(manager.getWaitingResourceKeys("waiter")).toEqual(["agent-browser"]);
+  });
+
+  it("reports each waiter's place in line and republishes everyone behind when the queue moves", async () => {
+    // Session rows show "(#N in line)", so a promotion must republish every
+    // remaining waiter, not just the promoted one. Landing-queue waiters are
+    // flagged so the row can say "landing queue" instead of the port lease key.
+    await manager.acquire({ resourceKey: "port:takode:jiayi", callerSessionId: "owner", purpose: "Port" });
+    const queue: Array<[string, Record<string, string>]> = [
+      ["first", {}],
+      ["second", { landingEntry: "le-1" }],
+      ["third", {}],
+    ];
+    for (const [callerSessionId, metadata] of queue) {
+      await manager.wait({
+        resourceKey: "port:takode:jiayi",
+        callerSessionId,
+        purpose: "Next",
+        metadata,
+        waitIfUnavailable: true,
+      });
+    }
+    expect(manager.getLeaseWaits("second")).toEqual([
+      { resourceKey: "port:takode:jiayi", holderSessionIds: ["owner"], position: 2, landingEntry: true },
+    ]);
+    expect(manager.getLeaseWaits("third")[0]?.position).toBe(3);
+
+    bridge.invalidateSessionNavigation.mockClear();
+    await manager.release("port:takode:jiayi", "owner");
+    const republished = bridge.invalidateSessionNavigation.mock.calls.map((call: unknown[]) => call[0]);
+    expect(new Set(republished)).toEqual(new Set(["first", "second", "third"]));
+    expect(manager.getLeaseWaits("second")[0]?.position).toBe(1);
+    expect(manager.getLeaseWaits("third")[0]?.position).toBe(2);
+
+    // A sweep that leaves the queue as it is republishes nobody.
+    bridge.invalidateSessionNavigation.mockClear();
+    await manager.sweepExpiredNow();
+    expect(bridge.invalidateSessionNavigation).not.toHaveBeenCalled();
   });
 
   it("republishes restored waiters once the persisted queue loads", async () => {

@@ -79,7 +79,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       questStatus: undefined,
       idleKilled: false,
       activeTimerCount: 0,
-      leaseWaitResource: null,
+      waitingFor: null,
       changedFilesCount: 0,
       leaderProfilePortrait: undefined,
       pause: null,
@@ -110,7 +110,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     questReviewInboxUnread,
     idleKilled: currentItem?.idleKilled ?? false,
     activeTimerCount: currentItem?.pendingTimerCount ?? 0,
-    leaseWaitResource: currentItem?.leaseWaitResource ?? null,
+    waitingFor: currentItem?.waitingFor ?? null,
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentItem?.isOrchestrator ? currentItem.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
@@ -198,7 +198,7 @@ export function TopBar({
     questReviewInboxUnread,
     idleKilled,
     activeTimerCount,
-    leaseWaitResource,
+    waitingFor,
     leaderProfilePortrait,
     paused,
   } = useStore(useShallow(getCurrentTopBarSessionState));
@@ -258,7 +258,7 @@ export function TopBar({
       hasUnread={currentHasUnread}
       idleKilled={idleKilled}
       activeTimerCount={activeTimerCount}
-      leaseWaitResource={leaseWaitResource}
+      waitingFor={waitingFor}
       className={className}
     />
   );

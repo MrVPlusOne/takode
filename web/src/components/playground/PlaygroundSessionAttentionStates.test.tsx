@@ -38,7 +38,7 @@ describe("PlaygroundSessionAttentionStates", () => {
     expect(row("timer").getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
     expect(row("lease").getByTestId("session-status-timer-icon")).toHaveAttribute(
       "title",
-      "Waiting for lease port:companion",
+      "Waiting for port:takode:jiayi (#2 in line)",
     );
     expect(row("needs-input").getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
     expect(row("needs-input").queryByTestId("session-status-timer-icon")).toBeNull();

@@ -26,8 +26,8 @@ export interface SessionNavigationProjectionDefinitionDeps<TSubscriber> {
   getLauncherSessionInfo: (sessionId: string) => SdkSessionInfo | null | undefined;
   getSessionName: (sessionId: string) => string | undefined;
   getPendingTimerCount: (sessionId: string) => number;
-  /** Resource lease pools this session is queued for, in queue order. */
-  getLeaseWaitResourceKeys: (sessionId: string) => readonly string[];
+  /** What an idle session waits on apart from timers (background jobs, landing run, lease queues). */
+  getWaitingFor: (sessionId: string) => string | null;
   getBackendConnected: (sessionId: string) => boolean;
   getSessionStatus: (sessionId: string) => SessionNavigationStatus;
   getLastActivityAt: (sessionId: string) => number | undefined;
@@ -177,7 +177,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     killedByIdleManager: launcherInfo?.killedByIdleManager === true,
     pendingPermissionCount: session.pendingPermissions.size,
     pendingTimerCount: nonNegativeInteger(deps.getPendingTimerCount(session.id)),
-    leaseWaitResource: boundedNullableText(deps.getLeaseWaitResourceKeys(session.id).join(", ") || null),
+    waitingFor: boundedNullableText(deps.getWaitingFor(session.id)),
     paused: pause !== null,
     pausedInputQueueCount: nonNegativeInteger(pause?.queuedMessages.length),
     lastActivityAt: nonNegativeNullableNumber(deps.getLastActivityAt(session.id)),

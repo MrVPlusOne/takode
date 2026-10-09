@@ -20,6 +20,7 @@ describe("landing queue manager", () => {
   let now: number;
   const leaseMessages = vi.fn((_sessionId: string, _content: string) => "sent" as const);
   const notify = vi.fn((_sessionId: string, _text: string) => undefined);
+  const invalidateSession = vi.fn((_sessionId: string) => undefined);
 
   beforeEach(async () => {
     // Real lease and queue stores in a disposable directory; only message delivery is faked.
@@ -27,6 +28,7 @@ describe("landing queue manager", () => {
     now = Date.parse("2026-10-08T12:00:00Z");
     leaseMessages.mockClear();
     notify.mockClear();
+    invalidateSession.mockReset();
     leases = new ResourceLeaseManager(
       { injectUserMessage: leaseMessages, invalidateSessionNavigation: vi.fn() },
       new ResourceLeaseStore("test", directory),
@@ -37,6 +39,7 @@ describe("landing queue manager", () => {
         notify,
         sessionNum: (id) => ({ a: 1, b: 2, c: 3 })[id],
         machineName: (hostId) => hostId ?? "laptop",
+        invalidateSession,
         now: () => now,
       },
       new LandingQueueStore("test", directory),
@@ -100,6 +103,34 @@ describe("landing queue manager", () => {
     expect(notify.mock.calls[1]![1]).toContain(`Target SHAs in order: ${sha(202)}`);
     expect(notify.mock.calls[1]![1]).toContain("takode land finish q-2");
     expect(queue.isLandingActive("b")).toBe(false);
+  });
+
+  it("republishes the lander and every change owner when a run starts and when it ends", async () => {
+    // Sidebar and board rows show "landing run" for these sessions, read from
+    // isLandingActive, so each republish must already see the new run state.
+    await submit("a", 1);
+    await submit("b", 2);
+    const seen: Array<[string, boolean]> = [];
+    invalidateSession.mockImplementation((sessionId) => {
+      seen.push([sessionId, queue.isLandingActive(sessionId)]);
+    });
+
+    const claim = await queue.claim("a", target);
+    expect(seen).toEqual([
+      ["a", true],
+      ["b", true],
+    ]);
+
+    seen.length = 0;
+    await queue.finish(claim.run!.id, "a", {
+      outcomes: claim.entries.map((entry, i) => ({ entryId: entry.id, outcome: "landed", mapping: mapping(i + 1) })),
+      pushedTip: sha(202),
+      summary: "Landed 2 of 2.",
+    });
+    expect(seen).toEqual([
+      ["a", false],
+      ["b", false],
+    ]);
   });
 
   it("keeps only the latest outcome's reason and details on an entry", async () => {

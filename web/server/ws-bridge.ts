@@ -130,6 +130,7 @@ import {
   sweepBoardDispatchableWarnings as sweepBoardDispatchableWarningsController,
   sweepBoardStallWarnings as sweepBoardStallWarningsController,
 } from "./bridge/board-watchdog-controller.js";
+import { describeSessionWaits } from "./bridge/board-stall-participants.js";
 import {
   buildCodexLeaderRecycleTokenUsage,
   failCodexLeaderRecycleRecovery,
@@ -355,7 +356,12 @@ export class WsBridge {
     getSessionName: (sessionId) =>
       this.sessionStoredNameGetter?.(sessionId) ?? this.launcher?.getSession(sessionId)?.name,
     getPendingTimerCount: (sessionId) => this.timerManager?.listTimers(sessionId).length ?? 0,
-    getLeaseWaitResourceKeys: (sessionId) => this.resourceLeaseManager?.getWaitingResourceKeys(sessionId) ?? [],
+    getWaitingFor: (sessionId) =>
+      describeSessionWaits(sessionId, {
+        getLeaseWaits: (id) => this.resourceLeaseManager?.getLeaseWaits(id) ?? [],
+        getBackgroundTasks: (id) => this.sessions.get(id)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
+        isLandingActive: (id) => this.landingQueue?.isLandingActive(id) ?? false,
+      }),
     getBackendConnected: (sessionId) => this.isBackendConnected(sessionId),
     getSessionStatus: (sessionId) => {
       const session = this.sessions.get(sessionId);

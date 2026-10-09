@@ -12,6 +12,7 @@ import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
+import { PlaygroundWaitingWorkers } from "./PlaygroundWaitingWorkers.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
 import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
@@ -1578,7 +1579,7 @@ export function PlaygroundOverviewSections() {
                   isConnected={true}
                   sdkState="connected"
                   status="idle"
-                  leaseWaitResource="port:companion"
+                  waitingFor="port:takode:jiayi (#2 in line)"
                 />
                 <span className="text-xs text-cc-muted">Waiting (lease)</span>
               </div>
@@ -1592,6 +1593,8 @@ export function PlaygroundOverviewSections() {
       </Section>
 
       <PlaygroundSessionAttentionStates />
+
+      <PlaygroundWaitingWorkers />
 
       <Section
         title="Session List Herd Groups"

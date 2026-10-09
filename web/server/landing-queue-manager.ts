@@ -42,6 +42,8 @@ export interface LandingQueueDeps {
   sessionNum?: (sessionId: string) => number | undefined;
   /** Display name of the machine a session runs on. */
   machineName?: (hostId: string | undefined) => string;
+  /** Republish a session's status row; called when it starts or stops taking part in a landing run. */
+  invalidateSession?: (sessionId: string) => void;
   now?: () => number;
 }
 
@@ -217,6 +219,7 @@ export class LandingQueueManager {
       }
       this.data.runs.push(run);
       await this.save();
+      this.republishRun(run);
       return { run, entries, unreconciled: [] };
     });
   }
@@ -391,6 +394,7 @@ export class LandingQueueManager {
       }
     }
     await this.save();
+    this.republishRun(run);
     for (const entry of this.runEntries(run)) await this.joinLeaseQueue(entry).catch(logError);
   }
 
@@ -429,6 +433,7 @@ export class LandingQueueManager {
       resolved.push(entry);
     }
     await this.save();
+    this.republishRun(run);
     const leaseKey = landingLeaseKey(run.target);
     for (const entry of resolved) await this.deps.leases.withdraw(leaseKey, entry.sessionId).catch(logError);
     if (!options.keepLease) await this.releaseLease(run.target, run.ownerSessionId);
@@ -498,6 +503,12 @@ export class LandingQueueManager {
       throw new LandingQueueError(403, "Only the run's lander can update it.");
     if (run.state !== "running") throw new LandingQueueError(409, `Landing run ${runId} is ${run.state}.`);
     return run;
+  }
+
+  /** The run's lander and the owners of its changes show a landing run while it is active. */
+  private republishRun(run: LandingRun): void {
+    const sessionIds = new Set([run.ownerSessionId, ...this.runEntries(run).map((entry) => entry.sessionId)]);
+    for (const sessionId of sessionIds) this.deps.invalidateSession?.(sessionId);
   }
 
   private runEntries(run: LandingRun): LandingEntry[] {

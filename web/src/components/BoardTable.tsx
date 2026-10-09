@@ -18,7 +18,12 @@ import {
 } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
-import { SessionStatusDot } from "./SessionStatusDot.js";
+import {
+  deriveSessionStatus,
+  SessionStatusDot,
+  waitingStatusLabel,
+  waitingStatusShortLabel,
+} from "./SessionStatusDot.js";
 import { SessionHostBadge } from "./HostBadge.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
@@ -231,6 +236,9 @@ function BoardSessionEntry({
   const resolvedSessionNum = participant?.sessionNum ?? sessionNum ?? undefined;
   const dotProps = useParticipantSessionStatusDotProps(resolvedSessionId, participant?.status);
   if (!resolvedSessionId) return null;
+  // An idle participant that is waiting names what it waits for, so the board does not look stalled.
+  const waiting = dotProps && deriveSessionStatus(dotProps) === "waiting";
+  const timerCount = dotProps?.activeTimerCount ?? 0;
 
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -243,6 +251,15 @@ function BoardSessionEntry({
         {`#${resolvedSessionNum ?? "?"}`}
       </SessionInlineLink>
       <SessionHostBadge sessionId={resolvedSessionId} />
+      {waiting && (
+        <span
+          data-testid="board-participant-waiting"
+          className="min-w-0 max-w-[16rem] truncate text-[11px] text-emerald-500/80"
+          title={waitingStatusLabel(timerCount, dotProps.waitingFor)}
+        >
+          {waitingStatusShortLabel(timerCount, dotProps.waitingFor)}
+        </span>
+      )}
     </span>
   );
 }

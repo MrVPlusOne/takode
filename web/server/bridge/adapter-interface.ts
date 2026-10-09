@@ -75,6 +75,8 @@ export interface BackgroundTaskSnapshot {
 
 export interface BackgroundTaskAwareAdapter {
   getBackgroundTasks(): BackgroundTaskSnapshot;
+  /** Called whenever the set of live background tasks changes. */
+  onBackgroundTasksChanged(cb: () => void): void;
 }
 
 export interface PendingOutgoingAwareAdapter {

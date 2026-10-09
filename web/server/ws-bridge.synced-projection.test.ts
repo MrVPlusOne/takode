@@ -770,6 +770,70 @@ describe("WsBridge synchronized projections", () => {
     expect(metrics.deliveredValueBytes).toBeGreaterThan(0);
   });
 
+  it("publishes what an idle worker waits for from its background jobs, landing run and lease queues", async () => {
+    // Sidebar rows and the work board read `waitingFor` to show an idle worker
+    // as waiting instead of idle. The bridge composes it from the real signal
+    // sources: the Claude adapter's background jobs (republished when they
+    // change), the landing queue and the lease manager.
+    const bridge = new WsBridge();
+    bridge.launcher = {
+      getSession: (sessionId: string) =>
+        sessionId === "worker"
+          ? { sessionId, state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 2, backendType: "claude-sdk" }
+          : undefined,
+      getSessionNum: () => 2,
+    } as any;
+    let tasks: Array<{ taskId: string; description: string; startedAt: number }> = [];
+    let onTasksChanged = () => {};
+    const adapter = {
+      onBrowserMessage: vi.fn(),
+      onSessionMeta: vi.fn(),
+      onDisconnect: vi.fn(),
+      onInitError: vi.fn(),
+      onCompactRequested: vi.fn(),
+      sendBrowserMessage: vi.fn(),
+      drainPendingOutgoing: vi.fn(() => []),
+      isConnected: vi.fn(() => true),
+      disconnect: vi.fn(async () => {}),
+      hasTurnInFlight: vi.fn(() => false),
+      discardPendingUserMessages: vi.fn(() => 0),
+      getBackgroundTasks: () => ({ tasks, changedAt: 0 }),
+      onBackgroundTasksChanged: (cb: () => void) => {
+        onTasksChanged = cb;
+      },
+    };
+    bridge.attachClaudeSdkAdapter("worker", adapter as any);
+    let landing = false;
+    bridge.landingQueue = { isLandingActive: () => landing } as any;
+    bridge.resourceLeaseManager = {
+      getLeaseWaits: () => [
+        { resourceKey: "full-suite:takode@devbox", holderSessionIds: ["other"], position: 2, landingEntry: false },
+      ],
+    } as any;
+    const socket = browserSocket("leader");
+    const initial = bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(socket, [{ projection: "session-navigation", key: "worker" }])
+      .find((message) => message.type === "synced_projection_snapshot");
+    expect(initial).toMatchObject({ value: { waitingFor: "full-suite:takode@devbox (#2 in line)" } });
+
+    tasks = [{ taskId: "gate", description: "Run full gate", startedAt: 1 }];
+    onTasksChanged();
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      patch: { waitingFor: 'background job "Run full gate"; full-suite:takode@devbox (#2 in line)' },
+    });
+
+    tasks = [];
+    landing = true;
+    bridge.invalidateSessionNavigation("worker");
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      patch: { waitingFor: "landing run; full-suite:takode@devbox (#2 in line)" },
+    });
+  });
+
   it("uses the launcher-stored canonical name instead of a generic display label", () => {
     const bridge = new WsBridge();
     const launcherSession = {

@@ -156,7 +156,6 @@ export class ResourceLeaseManager {
       if (remaining.length === waiters.length) return false;
       this.setWaiters(resourceKey, remaining);
       await this.persistIfNeeded(true);
-      this.bridge.invalidateSessionNavigation(callerSessionId);
       return true;
     });
   }
@@ -211,12 +210,21 @@ export class ResourceLeaseManager {
       .map((waiter) => waiter.resourceKey);
   }
 
-  /** Pools the session is queued for and who holds them, read synchronously by the board stall check. */
+  /**
+   * Pools the session is queued for, its place in each queue and who holds them,
+   * read synchronously by the board stall check and session status projections.
+   */
   getLeaseWaits(sessionId: string): ResourceLeaseWait[] {
-    return this.getWaitingResourceKeys(sessionId).map((resourceKey) => ({
-      resourceKey,
-      holderSessionIds: this.getLeases(resourceKey).map((lease) => lease.ownerSessionId),
-    }));
+    return this.getWaitingResourceKeys(sessionId).map((resourceKey) => {
+      const waiters = this.getWaiters(resourceKey);
+      const index = waiters.findIndex((waiter) => waiter.waiterSessionId === sessionId);
+      return {
+        resourceKey,
+        holderSessionIds: this.getLeases(resourceKey).map((lease) => lease.ownerSessionId),
+        position: index + 1,
+        landingEntry: !!waiters[index]?.metadata.landingEntry,
+      };
+    });
   }
 
   async sweepExpiredNow(now = Date.now()): Promise<void> {
@@ -289,7 +297,6 @@ export class ResourceLeaseManager {
       slot = this.lowestFreeSlot(resourceKey);
     }
     this.setWaiters(resourceKey, waiters);
-    for (const lease of promoted) this.bridge.invalidateSessionNavigation(lease.ownerSessionId);
     return promoted;
   }
 
@@ -354,7 +361,6 @@ export class ResourceLeaseManager {
       ttlMs: input.ttlMs,
     };
     this.setWaiters(input.resourceKey, [...this.getWaiters(input.resourceKey), waiter]);
-    this.bridge.invalidateSessionNavigation(waiter.waiterSessionId);
     return waiter;
   }
 
@@ -420,9 +426,19 @@ export class ResourceLeaseManager {
     return Object.hasOwn(this.data.waiters, resourceKey) ? [...this.data.waiters[resourceKey]] : [];
   }
 
+  /**
+   * Replace a pool's queue. Every session that was or is in it is republished,
+   * since joining, leaving or promotion moves the places of everyone behind.
+   */
   private setWaiters(resourceKey: string, waiters: ResourceLeaseWaiter[]): void {
+    const previous = this.getWaiters(resourceKey);
     if (waiters.length === 0) delete this.data.waiters[resourceKey];
     else this.data.waiters[resourceKey] = waiters;
+    const unchanged =
+      previous.length === waiters.length && previous.every((waiter, index) => waiter.id === waiters[index]!.id);
+    if (unchanged) return;
+    const affected = new Set([...previous, ...waiters].map((waiter) => waiter.waiterSessionId));
+    for (const sessionId of affected) this.bridge.invalidateSessionNavigation(sessionId);
   }
 
   private startSweep(): void {

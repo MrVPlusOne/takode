@@ -25,8 +25,8 @@ export interface SessionVisualStatusInput {
   idleKilled?: boolean;
   /** Number of active timers waiting on an otherwise idle session */
   activeTimerCount?: number;
-  /** Resource lease pool(s) an otherwise idle session is queued for */
-  leaseWaitResource?: string | null;
+  /** Server-described waits of an otherwise idle session apart from timers: background jobs, a landing run, lease queues */
+  waitingFor?: string | null;
 }
 
 /**
@@ -43,7 +43,7 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
     hasUnread,
     idleKilled,
     activeTimerCount = 0,
-    leaseWaitResource,
+    waitingFor,
   } = props;
 
   if (archived) return "archived";
@@ -58,8 +58,8 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
   if (status === "running") return "running";
   if (status === "compacting" || status === "reverting") return "compacting";
   if (hasUnread) return "completed_unread";
-  // Timers and lease queues share one "waiting" state so an idle session that
-  // is actually blocked on something does not read as plain idle.
-  if (activeTimerCount > 0 || leaseWaitResource) return "waiting";
+  // Timers and every other wait the server reports share one "waiting" state so
+  // an idle session that is actually waiting does not read as plain idle.
+  if (activeTimerCount > 0 || waitingFor) return "waiting";
   return "idle";
 }

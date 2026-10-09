@@ -10,7 +10,7 @@ import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.
 import {
   deriveSessionStatus,
   SessionStatusDot,
-  waitingStatusShortLabel,
+  waitingStatusLabel,
   type SessionStatusDotProps,
 } from "./SessionStatusDot.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -57,11 +57,7 @@ function normalizeQuestId(questId: string): string {
   return questId.toLowerCase();
 }
 
-function sessionHoverStatusLabel(
-  visualStatus: ReturnType<typeof deriveSessionStatus>,
-  timerCount: number,
-  leaseWaitResource: string | null,
-): string {
+function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionStatus>): string {
   switch (visualStatus) {
     case "archived":
       return "archived";
@@ -76,7 +72,7 @@ function sessionHoverStatusLabel(
     case "completed_unread":
       return "unread";
     case "waiting":
-      return waitingStatusShortLabel(timerCount, leaseWaitResource);
+      return "waiting";
     case "idle":
       return "idle";
   }
@@ -153,7 +149,7 @@ export function SessionHoverCard({
   const timerCount = s.pendingTimerCount ?? 0;
   const needsInput = projectedAttentionStatus?.urgency === "needs-input";
   const activeTimerCount = needsInput ? 0 : timerCount;
-  const leaseWaitResource = needsInput ? null : (s.leaseWaitResource ?? null);
+  const waitingFor = needsInput ? null : (s.waitingFor ?? null);
   const statusDotProps: SessionStatusDotProps = {
     archived: s.archived,
     permCount: s.permCount,
@@ -162,10 +158,12 @@ export function SessionHoverCard({
     status: s.status,
     idleKilled: s.idleKilled,
     activeTimerCount,
-    leaseWaitResource,
+    waitingFor,
   };
   const visualStatus = deriveSessionStatus(statusDotProps);
-  const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount, leaseWaitResource);
+  const statusLabel = sessionHoverStatusLabel(visualStatus);
+  // The header stays short; the full wait description gets its own line.
+  const waitingDetail = visualStatus === "waiting" ? waitingStatusLabel(activeTimerCount, waitingFor) : null;
   const attentionStatus = s.archived
     ? null
     : getSessionHoverAttentionStatus(s.permCount > 0 ? null : projectedAttentionStatus);
@@ -350,6 +348,14 @@ export function SessionHoverCard({
               </>
             )}
           </div>
+          {waitingDetail && (
+            <div
+              data-testid="session-hover-waiting-status"
+              className="mt-2 text-[11px] leading-snug text-emerald-500 break-words"
+            >
+              {waitingDetail}
+            </div>
+          )}
           {attentionStatus && (
             <div
               data-testid="session-hover-attention-status"

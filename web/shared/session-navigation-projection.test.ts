@@ -34,7 +34,7 @@ function value(): SessionNavigationProjectionValue {
     killedByIdleManager: false,
     pendingPermissionCount: 0,
     pendingTimerCount: 1,
-    leaseWaitResource: null,
+    waitingFor: null,
     paused: false,
     pausedInputQueueCount: 0,
     lastActivityAt: 2,

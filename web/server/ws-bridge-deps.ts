@@ -1082,6 +1082,7 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
     ...runtime,
     getOrCreateSession: (sessionId: string, backendType: "claude-sdk") =>
       host.getOrCreateSession(sessionId, backendType),
+    invalidateSessionNavigation: (sessionId: string) => host.invalidateSessionNavigation(sessionId),
     onOrchestratorTurnEnd: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId),
     touchActivity: (sessionId: string) => touchSessionActivity(host, sessionId),
     clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>

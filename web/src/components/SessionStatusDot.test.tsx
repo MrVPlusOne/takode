@@ -132,12 +132,10 @@ describe("deriveSessionStatus", () => {
   it("returns 'waiting' when an otherwise idle session is queued for a resource lease", () => {
     // A session parked in a lease queue is blocked, not idle, so it shares the
     // timer waiting state instead of the gray idle dot.
-    expect(deriveSessionStatus(makeProps({ leaseWaitResource: "port:companion" }))).toBe("waiting");
-    expect(deriveSessionStatus(makeProps({ leaseWaitResource: null }))).toBe("idle");
+    expect(deriveSessionStatus(makeProps({ waitingFor: "port:companion" }))).toBe("waiting");
+    expect(deriveSessionStatus(makeProps({ waitingFor: null }))).toBe("idle");
     // Unread results still outrank the waiting state, as they do for timers.
-    expect(deriveSessionStatus(makeProps({ leaseWaitResource: "port:companion", hasUnread: true }))).toBe(
-      "completed_unread",
-    );
+    expect(deriveSessionStatus(makeProps({ waitingFor: "port:companion", hasUnread: true }))).toBe("completed_unread");
   });
 
   it("returns 'running' over 'completed_unread' when still running", () => {
@@ -360,13 +358,14 @@ describe("SessionStatusDot component", () => {
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 
-  it("reuses the timer icon for a lease wait and names the queued pool", () => {
+  it("reuses the timer icon for a server-described wait and names it", () => {
     // The top bar and participant chips render through this component, so a
-    // lease-queued session must show the waiting icon with a lease label.
-    render(<SessionStatusDot {...makeProps({ leaseWaitResource: "port:companion", activeTimerCount: 1 })} />);
+    // session waiting on a lease line (or a background job, or a landing run)
+    // must show the waiting icon with the server's description.
+    render(<SessionStatusDot {...makeProps({ waitingFor: "port:companion (#2 in line)", activeTimerCount: 1 })} />);
     const icon = screen.getByTestId("session-status-timer-icon");
     expect(icon).toHaveAttribute("data-status", "waiting");
-    expect(icon).toHaveAttribute("title", "Waiting for lease port:companion; 1 scheduled timer");
+    expect(icon).toHaveAttribute("title", "Waiting for port:companion (#2 in line); 1 scheduled timer");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 

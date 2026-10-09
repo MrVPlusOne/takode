@@ -313,6 +313,7 @@ const landingQueue = new LandingQueueManager(
     },
     sessionNum: (sessionId) => launcher.getSessionNum(sessionId),
     machineName: (hostId) => (hostId ? (hostRegistry.nameOf(hostId) ?? "a remote host") : thisMachine.name),
+    invalidateSession: (sessionId) => wsBridge.invalidateSessionNavigation(sessionId),
   },
   new LandingQueueStore(serverId),
   new LandingGateStore(serverId),

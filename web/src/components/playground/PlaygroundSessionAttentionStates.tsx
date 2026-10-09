@@ -35,7 +35,7 @@ const session = ([slug, , , , pendingTimerCount = 0, permCount = 0]: Demo, index
   sessionNum: 2101 + index,
   createdAt: Date.now() - (index + 1) * 60_000,
   pendingTimerCount,
-  leaseWaitResource: slug === "lease" ? "port:companion" : undefined,
+  waitingFor: slug === "lease" ? "port:takode:jiayi (#2 in line)" : undefined,
   permCount,
   isOrchestrator: slug === "leader-checkpoint",
   ...(slug === "leader-checkpoint"

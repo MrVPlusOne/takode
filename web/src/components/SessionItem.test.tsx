@@ -852,17 +852,36 @@ describe("SessionItem status dot", () => {
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
   });
 
-  it("replaces the idle dot with the timer icon while the session waits for a lease", () => {
-    // A worker queued for a resource lease ends its turn and would otherwise
-    // read as idle. The server-projected lease wait reuses the timer icon.
+  it("replaces the idle dot with the timer icon and names the wait while the session waits", () => {
+    // A worker running its gate in the background or queued for a lease ends
+    // its turn and would otherwise read as idle. The server-described wait
+    // reuses the timer icon and is spelled out in the metadata row, which
+    // compact worker rows also show (no hover on phones).
     const { container } = renderSessionItem({
-      session: makeSession({ status: "idle", sdkState: "connected", leaseWaitResource: "port:companion" }),
+      session: makeSession({
+        status: "idle",
+        sdkState: "connected",
+        waitingFor: 'background job "Run full gate"',
+        pendingTimerCount: 1,
+      }),
       permCount: 0,
     });
 
     const icon = screen.getByTestId("session-status-timer-icon");
-    expect(icon).toHaveAttribute("title", "Waiting for lease port:companion");
+    expect(icon).toHaveAttribute("title", 'Waiting for background job "Run full gate"; 1 scheduled timer');
+    expect(screen.getByTestId("session-waiting-for")).toHaveTextContent('background job "Run full gate", 1 timer');
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
+  });
+
+  it("keeps a session waiting on nothing as a plain idle dot without a wait label", () => {
+    const { container } = renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected" }),
+      permCount: 0,
+    });
+
+    expect(container.querySelector('[data-testid="session-status-dot"]')).toHaveAttribute("data-status", "idle");
+    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.queryByTestId("session-waiting-for")).toBeNull();
   });
 
   it("shows a pause badge with held-input count instead of the timer icon", () => {

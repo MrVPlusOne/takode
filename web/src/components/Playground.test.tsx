@@ -1061,7 +1061,9 @@ describe("Playground", () => {
     // count-cluster assertion too slow in the full suite.
     render(<PlaygroundHerdSummaryBar isExpanded={false} />);
 
-    expect(screen.getAllByLabelText("1 session waiting on timers or leases").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("1 session waiting on timers, background jobs or queues").length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("documents resolved reminder suppression while retaining the needs-input card in Main", () => {

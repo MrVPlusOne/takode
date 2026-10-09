@@ -24,6 +24,7 @@ interface MockStoreState {
     status?: "idle" | "running" | "compacting" | "reverting" | null;
     cliConnected?: boolean;
     pendingTimerCount?: number;
+    waitingFor?: string;
   }>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   zoomLevel?: number;
@@ -550,9 +551,56 @@ describe("BoardTable", () => {
       "1",
       "2",
     ]);
-    expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
-    expect(screen.getByTitle("2 scheduled timers")).toBeInTheDocument();
+    expect(screen.getAllByTestId("session-status-timer-icon").map((icon) => icon.getAttribute("title"))).toEqual([
+      "1 scheduled timer",
+      "2 scheduled timers",
+    ]);
+    // Waiting participants also name the wait next to their session link.
+    expect(screen.getAllByTestId("board-participant-waiting").map((label) => label.textContent)).toEqual([
+      "1 timer",
+      "2 timers",
+    ]);
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("names a waiting worker's server-reported wait in the worker column", () => {
+    // The user read idle grey dots on the board as a stalled board while workers
+    // were waiting on their own background test runs. The worker column shows
+    // what the server says each idle worker waits for; a worker waiting on
+    // nothing keeps the plain idle dot and no label.
+    mockState.sdkSessions = [
+      {
+        sessionId: "worker-bg",
+        sessionNum: 21,
+        state: "connected",
+        status: "idle",
+        archived: false,
+        cliConnected: true,
+        waitingFor: 'background job "Run full gate"',
+      },
+      {
+        sessionId: "worker-idle",
+        sessionNum: 22,
+        state: "connected",
+        status: "idle",
+        archived: false,
+        cliConnected: true,
+      },
+    ];
+    render(
+      <BoardTable
+        board={[
+          { questId: "q-1", worker: "worker-bg", workerNum: 21, updatedAt: 2 },
+          { questId: "q-2", worker: "worker-idle", workerNum: 22, updatedAt: 1 },
+        ]}
+      />,
+    );
+
+    const label = screen.getByTestId("board-participant-waiting");
+    expect(label).toHaveTextContent('background job "Run full gate"');
+    expect(label).toHaveAttribute("title", 'Waiting for background job "Run full gate"');
+    expect(screen.getAllByTestId("session-status-timer-icon")).toHaveLength(1);
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
   });
 
   it("uses canonical timer data when a participant has only a session id", () => {
@@ -574,7 +622,7 @@ describe("BoardTable", () => {
     render(<BoardTable board={board} />);
 
     expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
-    expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("title", "1 scheduled timer");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 

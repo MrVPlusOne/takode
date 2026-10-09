@@ -44,7 +44,7 @@ export interface WsBridgeSyncedProjectionDeps {
   getLauncherSessionInfo: (sessionId: string) => SdkSessionInfo | null | undefined;
   getSessionName: (sessionId: string) => string | undefined;
   getPendingTimerCount: (sessionId: string) => number;
-  getLeaseWaitResourceKeys: (sessionId: string) => readonly string[];
+  getWaitingFor: (sessionId: string) => string | null;
   getBackendConnected: (sessionId: string) => boolean;
   getSessionStatus: (sessionId: string) => SessionNavigationStatus;
   getLastActivityAt: (sessionId: string) => number | undefined;
@@ -121,7 +121,7 @@ export class WsBridgeSyncedProjectionController {
         getLauncherSessionInfo: deps.getLauncherSessionInfo,
         getSessionName: deps.getSessionName,
         getPendingTimerCount: deps.getPendingTimerCount,
-        getLeaseWaitResourceKeys: deps.getLeaseWaitResourceKeys,
+        getWaitingFor: deps.getWaitingFor,
         getBackendConnected: deps.getBackendConnected,
         getSessionStatus: deps.getSessionStatus,
         getLastActivityAt: deps.getLastActivityAt,

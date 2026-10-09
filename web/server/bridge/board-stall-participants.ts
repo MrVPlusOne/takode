@@ -145,3 +145,35 @@ export function formatBoardSessionRef(sessionId: string, deps: BoardParticipantD
   const sessionNum = deps.getLauncherSessionInfo(sessionId)?.sessionNum;
   return typeof sessionNum === "number" ? `#${sessionNum}` : sessionId.slice(0, 8);
 }
+
+/**
+ * Describe what an otherwise idle session is waiting on, apart from timers, for
+ * status displays: its background jobs, an active landing run, and its place in
+ * resource-lease queues. It reads the same signals as the stall check, so a
+ * worker the board treats as waiting never looks plainly idle. Returns null when
+ * the session waits on none of these.
+ */
+export function describeSessionWaits(
+  sessionId: string,
+  deps: Pick<BoardParticipantDeps, "getLeaseWaits" | "getBackgroundTasks" | "isLandingActive">,
+): string | null {
+  const parts: string[] = [];
+  const jobs = deps.getBackgroundTasks?.(sessionId)?.tasks ?? [];
+  if (jobs.length > 0) {
+    const quoted = jobs
+      .map((job) => job.description.trim())
+      .filter(Boolean)
+      .map((text) => `"${text}"`)
+      .join(", ");
+    const label = jobs.length > 1 ? `${jobs.length} background jobs` : "background job";
+    parts.push(quoted ? `${label}${jobs.length > 1 ? ":" : ""} ${quoted}` : label);
+  }
+  const landing = deps.isLandingActive?.(sessionId) ?? false;
+  if (landing) parts.push("landing run");
+  for (const wait of deps.getLeaseWaits?.(sessionId) ?? []) {
+    // A change in a running batch stays queued for the port lease; the run already covers it.
+    if (wait.landingEntry && landing) continue;
+    parts.push(`${wait.landingEntry ? "landing queue" : wait.resourceKey} (#${wait.position} in line)`);
+  }
+  return parts.length > 0 ? parts.join("; ") : null;
+}

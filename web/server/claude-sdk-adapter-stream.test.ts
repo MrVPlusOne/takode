@@ -86,6 +86,8 @@ describe("ClaudeSdkAdapter message stream", () => {
     try {
       const adapter = createIdleAdapter(vi.fn());
       (adapter as any).connected = true;
+      const changed = vi.fn();
+      adapter.onBackgroundTasksChanged(changed);
       const send = (tasks: object[]) =>
         (adapter as any).handleSdkMessage({ type: "system", subtype: "background_tasks_changed", tasks });
       const gate = { task_id: "gate", task_type: "local_bash", description: "Run full gate" };
@@ -110,6 +112,8 @@ describe("ClaudeSdkAdapter message stream", () => {
       vi.setSystemTime(6_000);
       send([gate, agent, watcher]);
       expect(adapter.getBackgroundTasks().changedAt).toBe(5_000);
+      // The bridge republishes the session row only on real membership changes.
+      expect(changed).toHaveBeenCalledTimes(2);
 
       vi.setSystemTime(9_000);
       send([]);
@@ -117,8 +121,10 @@ describe("ClaudeSdkAdapter message stream", () => {
 
       send([gate]);
       expect(adapter.getBackgroundTasks().tasks).toHaveLength(1);
+      changed.mockClear();
       (adapter as any).handleDisconnect();
       expect(adapter.getBackgroundTasks().tasks).toEqual([]);
+      expect(changed).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

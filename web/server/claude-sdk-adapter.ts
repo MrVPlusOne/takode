@@ -208,6 +208,7 @@ export class ClaudeSdkAdapter
   /** Live background tasks of this Claude process, by task id (see `updateBackgroundTasks`). */
   private backgroundTasks = new Map<string, BackgroundTaskInfo>();
   private backgroundTasksChangedAt = 0;
+  private backgroundTasksChangedCb: (() => void) | null = null;
 
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
@@ -269,7 +270,7 @@ export class ClaudeSdkAdapter
   async disconnect(): Promise<void> {
     this.connected = false;
     this.turnInFlight = false;
-    this.backgroundTasks.clear();
+    this.clearBackgroundTasks();
     try {
       // Ends Claude's input, then stops the process after a short grace period.
       this.sdkQuery?.close();
@@ -295,6 +296,10 @@ export class ClaudeSdkAdapter
 
   getBackgroundTasks(): BackgroundTaskSnapshot {
     return { tasks: [...this.backgroundTasks.values()], changedAt: this.backgroundTasksChangedAt };
+  }
+
+  onBackgroundTasksChanged(cb: () => void): void {
+    this.backgroundTasksChangedCb = cb;
   }
 
   /** Drop user messages still waiting for the process to start; returns how many. */
@@ -812,15 +817,26 @@ export class ClaudeSdkAdapter
     }
     const changed =
       next.size !== this.backgroundTasks.size || [...next.keys()].some((id) => !this.backgroundTasks.has(id));
-    if (changed) this.backgroundTasksChangedAt = now;
     this.backgroundTasks = next;
+    if (changed) {
+      this.backgroundTasksChangedAt = now;
+      this.backgroundTasksChangedCb?.();
+    }
+  }
+
+  /** The process is gone, and its background tasks with it. */
+  private clearBackgroundTasks(): void {
+    if (this.backgroundTasks.size === 0) return;
+    this.backgroundTasks.clear();
+    this.backgroundTasksChangedAt = Date.now();
+    this.backgroundTasksChangedCb?.();
   }
 
   private handleDisconnect(error = "Claude process ended"): void {
     if (!this.connected) return;
     this.connected = false;
     this.turnInFlight = false;
-    this.backgroundTasks.clear();
+    this.clearBackgroundTasks();
     this.settleStarted(false);
     // Reject pending permissions
     for (const [, pending] of this.pendingPermissions) {

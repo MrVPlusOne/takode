@@ -336,7 +336,7 @@ export function TreeViewGroup({
         hasUnread: hasUnreadSessionAttention(sAttention),
         idleKilled: s.idleKilled,
       });
-      const isWaiting = (s.pendingTimerCount ?? 0) > 0 || !!s.leaseWaitResource;
+      const isWaiting = (s.pendingTimerCount ?? 0) > 0 || !!s.waitingFor;
       const showsWaitingStatus =
         !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !sAttention && sPermCount === 0 && isWaiting;
       if (showsWaitingStatus) waiting++;
