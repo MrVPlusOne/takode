@@ -41,7 +41,7 @@ export default defineConfig({
       "shared/**/*.test.ts",
     ],
     setupFiles: ["src/test-setup.ts"],
-    globalSetup: ["scripts/vitest-disposable-home.ts"],
+    globalSetup: ["scripts/vitest-disposable-home.ts", "scripts/vitest-session-env.ts"],
     maxWorkers,
   },
 });
