@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 
@@ -107,6 +107,67 @@ describe("SettingsServerDiagnosticsSection", () => {
 
     rerender(<SettingsServerDiagnosticsSection {...props} restarting={false} />);
     expect(screen.getByText("Server restarted at 8:01 PM.")).toBeInTheDocument();
+  });
+
+  // Hosts move to the new build after the server is back, so once this tab's
+  // restart finished the Restart section lists each machine's progress from
+  // GET /api/hosts: this machine's node first, then every registered host.
+  it("lists each machine's progress onto the new build after the restart", async () => {
+    const host = (overrides: Record<string, unknown>) => ({
+      createdAt: 0,
+      online: true,
+      lastSeenAt: 1,
+      processes: 1,
+      build: "a".repeat(40),
+      buildMismatch: true,
+      autoUpdate: true,
+      updating: false,
+      updateError: null,
+      updateWaitingFor: null,
+      settings: { claudeBinary: "", codexBinary: "" },
+      commandOverrides: {},
+      ...overrides,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          build: "b".repeat(40),
+          local: {
+            id: "local",
+            name: "laptop",
+            settings: { claudeBinary: "", codexBinary: "" },
+            node: host({ build: "b".repeat(40), buildMismatch: false }),
+          },
+          hosts: [
+            host({ id: "h1", name: "devbox", updating: true }),
+            host({ id: "h2", name: "gpu", updateWaitingFor: "the landing run there finishes" }),
+            host({ id: "h3", name: "old", autoUpdate: false }),
+          ],
+        }),
+      ),
+    );
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported
+        restartError=""
+        restartSuccess="Server restarted at 8:01 PM."
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("restart-host-progress")).toBeInTheDocument());
+    const rows = screen.getAllByRole("listitem").map((row) => row.textContent);
+    expect(rows).toEqual([
+      expect.stringContaining("laptop (this machine) On the new build"),
+      expect.stringContaining("devbox Updating; its sessions continue once it is back"),
+      expect.stringContaining("gpu Updates once the landing run there finishes"),
+      expect.stringContaining("old On another build; update takode there by hand"),
+    ]);
+    vi.unstubAllGlobals();
   });
 
   it("does not render a separate standalone interrupt-all button", () => {

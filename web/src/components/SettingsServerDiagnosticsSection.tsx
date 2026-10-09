@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
+import { RestartHostProgress } from "./RestartHostProgress.js";
 import { SettingsSubsection } from "./settings-controls.js";
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
@@ -277,6 +278,8 @@ export function SettingsServerDiagnosticsSection({
               {restartSuccess}
             </div>
           )}
+
+          {restartSuccess && !restarting && <RestartHostProgress />}
 
           {confirmingRestart && !restarting ? (
             <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">

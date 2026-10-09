@@ -48,7 +48,7 @@ export interface LocalHost {
 const POLL_MS = 10_000;
 
 /** `loaded` stays false until the first answer, so callers can tell "none" from "not yet known". */
-interface RemoteHostsState {
+export interface RemoteHostsState {
   hosts: RemoteHost[];
   loaded: boolean;
   serverBuild: string | null;
@@ -98,6 +98,45 @@ export function hostBuildWarning(
   if (host.updating) return `${mismatch} Updating now.`;
   if (host.updateWaitingFor) return `${mismatch} It updates once ${host.updateWaitingFor}.`;
   return `${mismatch} It updates shortly.`;
+}
+
+/** Where one machine is in moving to this server's build after a restart. */
+export interface HostRestartProgress {
+  id: string;
+  name: string;
+  state: "done" | "updating" | "waiting" | "failed" | "offline" | "manual";
+  detail: string;
+}
+
+/**
+ * Each machine's progress onto this server's build after a Restart Server,
+ * this machine's own node first. Empty when no remote host is registered,
+ * since then nothing else has to catch up.
+ */
+export function hostRestartProgress({
+  hosts,
+  local,
+}: Pick<RemoteHostsState, "hosts" | "local">): HostRestartProgress[] {
+  if (hosts.length === 0) return [];
+  const machines = [
+    ...(local ? [{ ...local.node, id: local.id, name: `${local.name} (this machine)` }] : []),
+    ...hosts,
+  ];
+  return machines.map((host) => ({ id: host.id, name: host.name, ...restartProgressOf(host) }));
+}
+
+function restartProgressOf(
+  host: Pick<RemoteHost, "online" | "buildMismatch" | "autoUpdate" | "updating" | "updateError" | "updateWaitingFor">,
+): Pick<HostRestartProgress, "state" | "detail"> {
+  if (!host.online) {
+    return { state: "offline", detail: host.autoUpdate ? "Offline; it updates when it reconnects" : "Offline" };
+  }
+  if (!host.buildMismatch) return { state: "done", detail: "On the new build" };
+  if (host.updateError) return { state: "failed", detail: `Update failed: ${host.updateError}` };
+  if (!host.autoUpdate) return { state: "manual", detail: "On another build; update takode there by hand" };
+  if (host.updating) return { state: "updating", detail: "Updating; its sessions continue once it is back" };
+  if (host.updateWaitingFor) return { state: "waiting", detail: `Updates once ${host.updateWaitingFor}` };
+  return { state: "updating", detail: "Updating shortly" };
 }
 
 function shortCommit(commit: string): string {
