@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { QuestThreadBanner, type QuestThreadBannerRow } from "../ChatView.js";
+import { QuestThreadBanner, type QuestThreadBannerRow } from "../QuestThreadBanner.js";
 import {
   PLAYGROUND_HANDOFF_LEADER_SESSION_ID,
   PLAYGROUND_HANDOFF_LEADER_SESSION_NUM,

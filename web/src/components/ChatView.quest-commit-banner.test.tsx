@@ -46,7 +46,7 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
   QuestJourneyTimeline: () => <span data-testid="quest-journey-compact-summary">implement</span>,
 }));
 
-import { QuestThreadBanner, type QuestThreadBannerRow } from "./ChatView.js";
+import { QuestThreadBanner, type QuestThreadBannerRow } from "./QuestThreadBanner.js";
 
 const LEADER_ID = "leader-968";
 const QUEST_ID = "q-968";

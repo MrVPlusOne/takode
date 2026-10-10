@@ -7,11 +7,8 @@ import {
   resolveSessionNavigation,
   type SessionNavigationResolverSource,
 } from "../utils/session-navigation-resolver.js";
-import {
-  participantNavigationMatchesSessionNum,
-  resolveChatSessionNavigationSummary,
-  resolveQuestBannerParticipantIdentity,
-} from "./ChatView.js";
+import { resolveChatSessionNavigationSummary } from "./ChatView.js";
+import { participantNavigationMatchesSessionNum, resolveQuestBannerParticipantIdentity } from "./QuestThreadBanner.js";
 import { resolveParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import { resolveWorkBoardIsOrchestrator } from "./WorkBoardBar.js";
 

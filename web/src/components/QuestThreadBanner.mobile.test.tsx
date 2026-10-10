@@ -6,7 +6,7 @@ import { buildLeaderThreadRowsFromSummaries } from "../../shared/leader-projecti
 import { buildThreadMonitoringProjection } from "../../server/thread-monitoring-projection.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { useStore } from "../store.js";
-import { QuestThreadBanner } from "./ChatView.js";
+import { QuestThreadBanner } from "./QuestThreadBanner.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 
 vi.mock("../api/thread-monitoring.js", () => ({ updateThreadMonitoring: vi.fn().mockResolvedValue({}) }));

@@ -11,7 +11,7 @@ import {
   createLeaderThreadTabsProjectionValue,
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
-import { QuestThreadBanner } from "./ChatView.js";
+import { QuestThreadBanner } from "./QuestThreadBanner.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 
 /**
