@@ -581,6 +581,28 @@ describe("POST /api/sessions/_labels", () => {
 });
 
 describe("GET /api/sessions", () => {
+  // The sidebar re-reads this list every few seconds. Fields a browser's session
+  // socket keeps current (synced projections, activity time) must not change
+  // the ETag, so such a re-read is a bodyless 304; any other change is a 200.
+  it("answers 304 when only socket-delivered fields changed", async () => {
+    const row = { sessionId: "s1", state: "running", cwd: "/a", lastActivityAt: 1 };
+    launcher.listSessions.mockReturnValue([row]);
+    const first = await app.request("/api/sessions", { method: "GET" });
+    const etag = first.headers.get("etag");
+    expect(etag).toBeTruthy();
+    expect(first.headers.get("cache-control")).toBe("no-store");
+
+    launcher.listSessions.mockReturnValue([{ ...row, lastActivityAt: 2 }]);
+    const unchanged = await app.request("/api/sessions", { method: "GET", headers: { "If-None-Match": etag! } });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+
+    launcher.listSessions.mockReturnValue([{ ...row, cwd: "/moved" }]);
+    const changed = await app.request("/api/sessions", { method: "GET", headers: { "If-None-Match": etag! } });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get("etag")).not.toBe(etag);
+  });
+
   it("returns the list of sessions enriched with names", async () => {
     const sessions = [
       { sessionId: "s1", state: "running", cwd: "/a" },

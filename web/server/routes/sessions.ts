@@ -71,6 +71,7 @@ import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignmen
 import { isSessionPaused } from "../session-pause.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionExtraRoutes } from "./session-extra-routes.js";
+import { sessionListEtag } from "./session-list-etag.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 import { relaunchSessionProcess } from "./session-process-relaunch.js";
@@ -1203,6 +1204,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
   api.get("/sessions", async (c) => {
     const includeArchived = parseIncludeArchived(c.req.query("includeArchived"));
     const enriched = await buildEnrichedSessions(includeArchived ? undefined : (session) => !session.archived);
+    const etag = sessionListEtag(enriched);
+    c.header("ETag", etag);
+    // The ETag ignores socket-delivered fields, so a browser cache must never answer for the server.
+    c.header("Cache-Control", "no-store");
+    if (c.req.header("if-none-match") === etag) return c.body(null, 304);
     return c.json(enriched);
   });
   // Session labels for CLI output such as `quest show`: the same name, number and

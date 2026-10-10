@@ -24,6 +24,26 @@ export async function listSessions(options?: { includeArchived?: boolean }): Pro
   return getSessionInfoResponse(`/sessions${query ? `?${query}` : ""}`) as Promise<SdkSessionInfo[]>;
 }
 
+/**
+ * Re-read the active session list. Given the ETag of the list last read, the
+ * server answers 304 (null here) when only fields the session socket keeps
+ * current have changed since.
+ */
+export async function pollActiveSessions(
+  etag: string | null,
+): Promise<{ sessions: SdkSessionInfo[]; etag: string | null } | null> {
+  const response = await fetch(`${BASE}/sessions?includeArchived=false`, {
+    cache: "no-store",
+    ...(etag ? { headers: { "If-None-Match": etag } } : {}),
+  });
+  if (response.status === 304) return null;
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.error || response.statusText);
+  }
+  return { sessions: (await response.json()) as SdkSessionInfo[], etag: response.headers.get("ETag") };
+}
+
 export function getSessionInfo(sessionId: string): Promise<SdkSessionInfo> {
   return getSessionInfoResponse(
     `/sessions/${encodeURIComponent(sessionId)}?includeCodexContextWindowDiagnostics=true&includeCodexInstructionSnapshot=true`,

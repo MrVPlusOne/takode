@@ -22,7 +22,7 @@ import type { SessionActivityPreview } from "../server/session-activity-preview.
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
 import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
 import { fetchRecentAskBundles } from "./api/recent-asks.js";
-import { getSessionInfo, getSessionInstructionContent, listSessions } from "./api/session-info.js";
+import { getSessionInfo, getSessionInstructionContent, listSessions, pollActiveSessions } from "./api/session-info.js";
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
@@ -993,6 +993,7 @@ export const api = {
     ),
 
   listSessions,
+  pollActiveSessions,
   getSessionInfo,
 
   getDelegateTrace: (

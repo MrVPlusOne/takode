@@ -29,6 +29,12 @@ vi.mock("../utils/pending-creation.js", () => ({
 
 const mockApi = {
   listSessions: vi.fn().mockResolvedValue([]),
+  // The sidebar poll reads through pollActiveSessions; by default it returns
+  // whatever listSessions is mocked to, as a changed list with no ETag.
+  pollActiveSessions: vi.fn(async (_etag: string | null) => ({
+    sessions: await mockApi.listSessions({ includeArchived: false }),
+    etag: null as string | null,
+  })),
   listArchivedSessionsPage: vi.fn().mockResolvedValue({
     sessions: [],
     total: 0,
@@ -68,6 +74,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
+    pollActiveSessions: (etag: string | null) => mockApi.pollActiveSessions(etag),
     listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
     getArchivedSessionsSummary: (...args: unknown[]) => mockApi.getArchivedSessionsSummary(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
@@ -352,6 +359,39 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: false });
       expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed);
       expect(mockConnectAllSessions).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // While the selected session's socket is live it pushes the fast-changing
+  // row fields, so the poll names the last list's ETag and an unchanged answer
+  // (null) leaves the hydrated list alone. Without a live socket it re-reads in full.
+  it("polls with the last list's ETag only while the session socket is live", async () => {
+    vi.useFakeTimers();
+    const listed = [makeSdkSession("s1")];
+    mockState = createMockState({
+      currentSessionId: "s1",
+      connectionStatus: new Map([["s1", "connected"]]),
+    } as Partial<MockStoreState>);
+    mockApi.pollActiveSessions.mockResolvedValueOnce({ sessions: listed, etag: 'W/"one"' });
+    mockApi.pollActiveSessions.mockResolvedValueOnce(null as never);
+    try {
+      render(<Sidebar />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(mockApi.pollActiveSessions.mock.calls.map(([etag]) => etag)).toEqual([null, 'W/"one"']);
+      expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1);
+
+      mockState = { ...mockState, connectionStatus: new Map([["s1", "disconnected"]]) } as MockStoreState;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(mockApi.pollActiveSessions.mock.calls.at(-1)?.[0]).toBeNull();
     } finally {
       vi.useRealTimers();
     }

@@ -173,6 +173,9 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     let active = true;
     let refreshInFlight: Promise<void> | null = null;
     let lastRefreshStartedAt = 0;
+    // ETag of the list last hydrated here. While the session socket is live it
+    // pushes the fast-changing row fields, so an unchanged rest costs a 304.
+    let listEtag: string | null = null;
 
     function refreshSessionList(force: boolean) {
       const now = Date.now();
@@ -184,9 +187,16 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       refreshInFlight = (async () => {
         try {
           const requestSequence = beginActiveSessionListRequest();
-          const list = await api.listSessions({ includeArchived: false });
-          if (active) {
-            hydrateSessionList(list, { preserveMissingArchived: true, activeSnapshotRequestSequence: requestSequence });
+          const store = useStore.getState();
+          const socketLive =
+            store.currentSessionId !== null && store.connectionStatus.get(store.currentSessionId) === "connected";
+          const changed = await api.pollActiveSessions(socketLive ? listEtag : null);
+          if (active && changed) {
+            listEtag = changed.etag;
+            hydrateSessionList(changed.sessions, {
+              preserveMissingArchived: true,
+              activeSnapshotRequestSequence: requestSequence,
+            });
           }
         } catch (e) {
           console.warn("[sidebar] session poll failed:", e);
