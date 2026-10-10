@@ -5,15 +5,10 @@ import type { SessionActivityPreview } from "../../server/session-activity-previ
 import type { BoardRowSessionStatus } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
-import {
-  formatQuestJourneyDuration,
-  getQuestJourneyCurrentPhaseIndex,
-  getQuestJourneyPhase,
-} from "../../shared/quest-journey.js";
+import { formatQuestJourneyDuration } from "../../shared/quest-journey.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { navigateToSession, navigateToSessionMessage } from "../utils/routing.js";
 import type { BoardRowData } from "./BoardTable.js";
-import { SessionHostBadge } from "./HostBadge.js";
 
 /** How long the preview survives a cleared thread status after the leader stops generating. */
 export const WAITING_WORKER_PREVIEW_HOLD_MS = 5_000;
@@ -27,8 +22,6 @@ export interface WaitingWorkerTarget {
   workerSessionId: string;
   workerNum: number | null;
   workerStatus: WaitingWorkerStatus;
-  phaseLabel: string | null;
-  phaseStartedAt: number | null;
 }
 
 /**
@@ -56,17 +49,12 @@ export function resolveWaitingWorkerGate(input: {
   const workerSessionId = participant?.sessionId ?? row.worker;
   if (!workerSessionId || participant?.status === "archived") return { kind: "hide" };
 
-  const phaseIndex = getQuestJourneyCurrentPhaseIndex(row.journey, row.status);
-  const phaseStartedAt =
-    phaseIndex === undefined ? undefined : row.journey?.phaseTimings?.[String(phaseIndex)]?.startedAt;
   const target: WaitingWorkerTarget = {
     questId: threadKey,
     workerSessionId,
     workerNum: participant?.sessionNum ?? row.workerNum ?? null,
     workerStatus:
       participant?.status === "running" || participant?.status === "idle" ? participant.status : "disconnected",
-    phaseLabel: getQuestJourneyPhase(row.journey?.currentPhaseId)?.label ?? null,
-    phaseStartedAt: typeof phaseStartedAt === "number" ? phaseStartedAt : null,
   };
 
   const status = input.statuses.at(-1);
@@ -212,7 +200,6 @@ export function WaitingWorkerPreviewPanel({
   onOpenSession: (historyIndex?: number) => void;
 }) {
   const workerLabel = target.workerNum === null ? "Worker" : `#${target.workerNum}`;
-  const elapsed = target.phaseStartedAt === null ? null : formatQuestJourneyDuration(now - target.phaseStartedAt);
   const lines = preview?.lines ?? [];
   const running = target.workerStatus === "running";
 
@@ -227,17 +214,24 @@ export function WaitingWorkerPreviewPanel({
       aria-label={`${workerLabel} live preview for ${target.questId}`}
       data-testid="waiting-worker-preview"
     >
+      {/* The quest header already names the worker's machine and phase, so the bar keeps
+          only who it is, whether it is working, and the way into its session. */}
       <div className="flex min-w-0 items-center gap-2 text-[11px]">
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${running ? "bg-cc-success" : "bg-cc-muted/50"}`}
-          aria-hidden="true"
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            running
+              ? "bg-cc-success animate-[pulse-dot_1.5s_ease-in-out_infinite] motion-reduce:animate-none"
+              : "bg-cc-muted/50"
+          }`}
+          role="img"
+          aria-label={running ? "working" : target.workerStatus}
+          title={running ? "Working" : undefined}
+          data-testid="waiting-worker-preview-dot"
         />
         <span className="shrink-0 font-mono-code font-medium text-cc-fg/85">{workerLabel}</span>
-        <SessionHostBadge sessionId={target.workerSessionId} />
-        <span className="min-w-0 truncate text-cc-muted">
-          {[target.phaseLabel, elapsed].filter(Boolean).join(" · ")}
-        </span>
-        <WorkerStatusLabel status={target.workerStatus} lastActivityAt={preview?.lastActivityAt ?? null} now={now} />
+        {target.workerStatus !== "running" && (
+          <WorkerStatusLabel status={target.workerStatus} lastActivityAt={preview?.lastActivityAt ?? null} now={now} />
+        )}
         <span className="flex-1" />
         <button
           type="button"
@@ -279,12 +273,13 @@ function PreviewLineText({ line }: { line: SessionActivityPreview["lines"][numbe
   );
 }
 
+/** Only for states the dot cannot tell apart: idle (with time since the last activity) and disconnected. */
 function WorkerStatusLabel({
   status,
   lastActivityAt,
   now,
 }: {
-  status: WaitingWorkerStatus;
+  status: Exclude<WaitingWorkerStatus, "running">;
   lastActivityAt: number | null;
   now: number;
 }) {
@@ -292,12 +287,10 @@ function WorkerStatusLabel({
     status === "idle" && lastActivityAt !== null ? formatQuestJourneyDuration(now - lastActivityAt) : null;
   return (
     <span
-      className={`shrink-0 rounded-full border px-1.5 text-[10px] leading-4 ${
-        status === "running" ? "border-cc-success/30 text-cc-success" : "border-cc-border text-cc-muted"
-      }`}
+      className="min-w-0 truncate rounded-full border border-cc-border px-1.5 text-[10px] leading-4 text-cc-muted"
       data-testid="waiting-worker-preview-status"
     >
-      {status === "running" ? "working" : status}
+      {status}
       {idleFor && (
         <>
           {" · "}

@@ -143,8 +143,6 @@ describe("resolveWaitingWorkerGate", () => {
         workerSessionId: WORKER,
         workerNum: 7,
         workerStatus: "running",
-        phaseLabel: "Work",
-        phaseStartedAt: PHASE_STARTED_AT,
       },
     });
   });
@@ -174,7 +172,9 @@ describe("WaitingWorkerPreview", () => {
     const lines = await screen.findByTestId("waiting-worker-preview-lines");
     expect(lines).toHaveTextContent("Checking the composer layout.");
     expect(lines).toHaveTextContent("Run focused tests");
-    expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent("working");
+    // A working worker is shown by its pulsing dot alone, without a "working" pill.
+    expect(screen.getByTestId("waiting-worker-preview-dot")).toHaveAccessibleName("working");
+    expect(screen.queryByTestId("waiting-worker-preview-status")).not.toBeInTheDocument();
     // The preview never shows a second "Purring..." activity label.
     expect(screen.queryByText(/Purring/)).not.toBeInTheDocument();
     expect(getSessionActivityPreview).toHaveBeenCalledWith(WORKER);
@@ -185,8 +185,9 @@ describe("WaitingWorkerPreview", () => {
     expect(navigateToSession).toHaveBeenCalledWith(WORKER);
   });
 
-  // A leader watching a worker on a remote host sees which machine it runs on.
-  it("names a remote worker's host next to the worker number", async () => {
+  // The title bar stays short: the quest header above already names the worker's
+  // machine and current phase, so the preview repeats neither.
+  it("leaves the worker's machine and phase to the quest header", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ hosts: [{ id: "h1", name: "devbox", online: true }] }))),
@@ -200,7 +201,9 @@ describe("WaitingWorkerPreview", () => {
       });
       render(<FeedFooterHost />);
       const preview = await screen.findByTestId("waiting-worker-preview");
-      await waitFor(() => expect(preview).toHaveTextContent("#7devbox"));
+      await screen.findByText("Run focused tests");
+      expect(preview).not.toHaveTextContent("devbox");
+      expect(preview).not.toHaveTextContent("Work");
     } finally {
       vi.unstubAllGlobals();
       act(() => useStore.setState({ sdkSessions: [] }));
