@@ -3,7 +3,8 @@ import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { attentionItemMenuItems } from "../utils/attention-item-menu.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
-import { attentionQuestId } from "../hooks/useAttentionQuestTitles.js";
+import type { AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import {
   ATTENTION_GROUP_TITLE,
   AttentionKindIcon,
@@ -31,22 +32,34 @@ export function SessionAttentionToast({ landing }: { landing: NextAttentionLandi
   );
 }
 
+/** The row's first line: what needs attention. Where it lives goes on the second line. */
 function itemLabel(item: NextAttentionItem): string {
-  if (item.kind === "unread" && item.threadKey === null) return "Latest result";
-  // A Notify Me result leads with what happened; its quest moves to the second line.
+  if (item.kind === "unread") return item.threadKey === null ? "Latest result" : item.summary || "New result";
   if (item.kind === "notify-me") return item.entry.pending?.summary || item.label;
   return item.label;
 }
 
-/** Where the item lives, for its second line: its quest when it belongs to one, else nothing. */
-function questPlace(item: NextAttentionItem, questTitleFor?: (questId: string) => string | undefined) {
-  // Unread rows already lead with their thread's title.
-  if (item.kind === "unread") return null;
-  const questId = attentionQuestId(item);
-  if (!questId) return null;
-  const title =
-    questTitleFor?.(questId) ?? (item.kind === "notify-me" ? withoutQuestId(item.entry.title, questId) : "");
-  return { questId, title };
+/**
+ * The thread tab an item belongs to, for its second line: "q-12" with the
+ * tab's title, or "Main". Null for session-level items and for sessions
+ * without thread tabs, whose second line names the session instead. A tab
+ * title stays put while the leader moves on to other quests.
+ */
+export function attentionThreadPlace(
+  item: NextAttentionItem,
+  threads?: AttentionThreadTitles,
+): AttentionThreadPlace | null {
+  const key = item.threadKey?.trim().toLowerCase();
+  if (!key) return null;
+  if (key === MAIN_THREAD_KEY) return threads?.hasThreadTabs(item.sessionId) ? { thread: "Main", title: "" } : null;
+  const fallback =
+    item.kind === "notify-me" ? withoutQuestId(item.entry.title, key) : item.kind === "unread" ? item.label : "";
+  return { thread: key, title: threads?.titleFor(item.sessionId, key) ?? fallback };
+}
+
+export interface AttentionThreadPlace {
+  thread: string;
+  title: string;
 }
 
 function withoutQuestId(title: string, questId: string): string {
@@ -58,24 +71,25 @@ function withoutQuestId(title: string, questId: string): string {
  * One item in an attention list: what it is, where it lives and a Go to, its
  * only inline action. Right-click or long-press opens the actions that fit its
  * kind (see `attentionItemMenuItems`).
- * The second line names the item's quest ("q-12 Title · #2851 · 5m ago") when
- * it belongs to a quest thread, and otherwise `sessionLabel`. `sessionTag` is
- * the short session reference kept beside a quest; lists inside one session
- * leave both out. `isNext` marks the item the list's Next step opens.
+ * The second line names the thread tab it belongs to ("q-12 Title · #2851 ·
+ * 5m ago", or "Main · #2851 · …"), and `sessionLabel` for session-level items
+ * without a thread. `sessionTag` is the short session reference kept beside a
+ * thread; lists inside one session leave both out. `isNext` marks the item the
+ * list's Next step opens.
  */
 export function AttentionItemRow({
   item,
   onOpen,
   sessionLabel,
   sessionTag,
-  questTitleFor,
+  threads,
   isNext = false,
 }: {
   item: NextAttentionItem;
   onOpen: (item: NextAttentionItem) => void;
   sessionLabel?: string;
   sessionTag?: string;
-  questTitleFor?: (questId: string) => string | undefined;
+  threads?: AttentionThreadTitles;
   isNext?: boolean;
 }) {
   const label = itemLabel(item);
@@ -116,7 +130,7 @@ export function AttentionItemRow({
             </button>
           </div>
           <AttentionItemPlace
-            place={questPlace(item, questTitleFor)}
+            place={attentionThreadPlace(item, threads)}
             sessionLabel={sessionLabel}
             sessionTag={sessionTag}
             timestamp={item.timestamp}
@@ -129,14 +143,14 @@ export function AttentionItemRow({
   );
 }
 
-/** The row's second line: quest (or session) first, then the short session tag and age, which never truncate. */
+/** The row's second line: thread tab (or session) first, then the short session tag and age, which never truncate. */
 export function AttentionItemPlace({
   place,
   sessionLabel,
   sessionTag,
   timestamp,
 }: {
-  place: { questId: string; title: string } | null;
+  place: AttentionThreadPlace | null;
   sessionLabel?: string;
   sessionTag?: string;
   timestamp: number;
@@ -150,7 +164,7 @@ export function AttentionItemPlace({
     >
       {place ? (
         <span className="min-w-0 truncate">
-          <span className="font-medium text-cc-fg/70">{place.questId}</span>
+          <span className="font-medium text-cc-fg/70">{place.thread}</span>
           {place.title && <span> {place.title}</span>}
         </span>
       ) : (
@@ -176,7 +190,7 @@ export function AttentionItemSections({
   onOpen,
   sessionLabelFor,
   sessionTagFor,
-  questTitleFor,
+  threads,
   nextKey,
 }: {
   items: readonly NextAttentionItem[];
@@ -184,7 +198,7 @@ export function AttentionItemSections({
   onOpen: (item: NextAttentionItem) => void;
   sessionLabelFor?: (item: NextAttentionItem) => string | undefined;
   sessionTagFor?: (item: NextAttentionItem) => string | undefined;
-  questTitleFor?: (questId: string) => string | undefined;
+  threads?: AttentionThreadTitles;
   nextKey?: string | null;
 }) {
   return (
@@ -210,7 +224,7 @@ export function AttentionItemSections({
                   onOpen={onOpen}
                   sessionLabel={sessionLabelFor?.(item)}
                   sessionTag={sessionTagFor?.(item)}
-                  questTitleFor={questTitleFor}
+                  threads={threads}
                   isNext={item.key === nextKey}
                 />
               ))}

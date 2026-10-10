@@ -1305,7 +1305,7 @@ describe("NotificationChip", () => {
       expect(notifyMe.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it("names the quest of prompts and Notify Me results on their second line", () => {
+    it("names the thread tab of prompts and Notify Me results on their second line", () => {
       // In the session's list the quest replaces nothing but the bare time:
       // prompts show their quest, and Notify Me rows lead with the result and
       // move the quest title to the second line instead of repeating it.
@@ -1344,7 +1344,7 @@ describe("NotificationChip", () => {
       openInbox();
 
       const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-      expect(within(dialog).getByTestId("notification-quest-place")).toHaveTextContent("q-7 Offline hosts");
+      expect(within(dialog).getByTestId("notification-thread-place")).toHaveTextContent("q-7 Offline hosts");
       const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
       expect(within(notifyMe).getByRole("button", { name: "Go to Landed" })).toBeInTheDocument();
       expect(within(notifyMe).getByTestId("attention-item-place")).toHaveTextContent(/^q-5 Ship it· /);
@@ -1405,6 +1405,37 @@ describe("NotificationChip", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("leads unread rows with the Thread Ready summary and names their thread tab below", () => {
+      // The second line is always the thread tab the item belongs to, so an
+      // unread row's first line is the result itself rather than the tab title.
+      render(
+        <NotificationChip
+          sessionId="s1"
+          attentionPreview={{
+            notifyMe: [],
+            unread: [
+              {
+                sessionId: "s1",
+                threadKey: "q-6",
+                label: "Review the gate",
+                timestamp: 80,
+                summary: "landed and completed",
+              },
+              { sessionId: "s1", threadKey: "q-8", label: "Older work", timestamp: 70 },
+            ],
+          }}
+        />,
+      );
+      openInbox();
+      const [ready, noSummary] = within(screen.getByRole("dialog", { name: "Notification inbox" })).getAllByTestId(
+        "attention-item-row",
+      );
+      expect(ready).toHaveTextContent("landed and completed");
+      expect(within(ready!).getByTestId("attention-item-place")).toHaveTextContent(/^q-6 Review the gate· /);
+      expect(noSummary).toHaveTextContent("New result");
+      expect(within(noSummary!).getByTestId("attention-item-place")).toHaveTextContent(/^q-8 Older work· /);
     });
 
     it("keeps its place across remounts, like switching threads", () => {

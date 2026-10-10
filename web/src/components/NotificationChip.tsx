@@ -30,7 +30,7 @@ import { needsInputMenuItems } from "../utils/attention-item-menu.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
-import { AttentionItemSections, SessionAttentionToast } from "./AttentionItemRows.js";
+import { AttentionItemSections, SessionAttentionToast, attentionThreadPlace } from "./AttentionItemRows.js";
 import {
   ATTENTION_KIND_SHORT,
   ATTENTION_KIND_TITLE,
@@ -40,7 +40,7 @@ import {
   formatRelativeTime,
 } from "./AttentionKind.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
-import { useAttentionQuestTitles } from "../hooks/useAttentionQuestTitles.js";
+import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import {
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -337,23 +337,36 @@ function NotificationItem({
   sessionId,
   currentThreadKey,
   onSelectThread,
-  questTitleFor,
+  threads,
 }: {
   notif: SessionNotification;
   sessionId: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
-  /** Quest titles for the second line of prompts that belong to a quest thread. */
-  questTitleFor?: (questId: string) => string | undefined;
+  /** Thread tab lookups for the second line of prompts. */
+  threads?: AttentionThreadTitles;
 }) {
   const toggleDone = useCallback(() => {
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
   const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
-  // Prompts in a quest thread name their quest on the second line.
-  const ownerQuestId = notif.category === "needs-input" && /^q-\d+$/i.test(ownerThreadKey) ? ownerThreadKey : null;
-  const ownerQuestTitle = ownerQuestId ? questTitleFor?.(ownerQuestId) : undefined;
+  // Prompts name the thread tab they belong to on the second line, as the attention lists do.
+  const ownerPlace =
+    notif.category === "needs-input"
+      ? attentionThreadPlace(
+          {
+            kind: "needs-input",
+            entry: { sessionId, sessionName: "", sessionNum: null, notification: notif },
+            key: notif.id,
+            sessionId,
+            threadKey: ownerThreadKey,
+            label: "",
+            timestamp: notif.timestamp,
+          },
+          threads,
+        )
+      : null;
   const messages = useStore((s) => s.messages?.get(sessionId) ?? EMPTY_MESSAGES);
   const threadWindowMessages = useStore((s) => s.threadWindowMessages?.get(sessionId));
   const notificationTargetMessages = useMemo(() => {
@@ -607,14 +620,14 @@ function NotificationItem({
                 Snoozed until {formatSnoozeUntil(notif.snoozedUntil!)}
               </span>
             )}
-            {ownerQuestId && (
-              <span className="min-w-0 truncate" data-testid="notification-quest-place">
-                <span className="font-medium text-cc-fg/70">{ownerQuestId}</span>
-                {ownerQuestTitle && <span> {ownerQuestTitle}</span>}
+            {ownerPlace && (
+              <span className="min-w-0 truncate" data-testid="notification-thread-place">
+                <span className="font-medium text-cc-fg/70">{ownerPlace.thread}</span>
+                {ownerPlace.title && <span> {ownerPlace.title}</span>}
               </span>
             )}
             <span className="shrink-0 text-cc-muted">
-              {ownerQuestId ? "· " : ""}
+              {ownerPlace ? "· " : ""}
               {formatRelativeTime(notif.timestamp)}
             </span>
           </div>
@@ -704,7 +717,7 @@ function NotificationPopover({
   onOpenAttentionItem: (item: NextAttentionItem) => void;
 }) {
   const { active, muted, done } = useNotifications(sessionId);
-  const questTitleFor = useAttentionQuestTitles(attentionItems);
+  const threads = useAttentionThreadTitles(attentionItems);
   const otherAttention = useMemo(() => attentionItems.filter((item) => item.kind !== "needs-input"), [attentionItems]);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
@@ -808,7 +821,7 @@ function NotificationPopover({
                     sessionId={sessionId}
                     currentThreadKey={currentThreadKey}
                     onSelectThread={onSelectThread}
-                    questTitleFor={questTitleFor}
+                    threads={threads}
                   />
                 ))}
               </div>
@@ -818,7 +831,7 @@ function NotificationPopover({
               items={otherAttention}
               kinds={OTHER_ATTENTION_KINDS}
               onOpen={onOpenAttentionItem}
-              questTitleFor={questTitleFor}
+              threads={threads}
               nextKey={nextAttentionKey}
             />
 
@@ -836,7 +849,7 @@ function NotificationPopover({
                       sessionId={sessionId}
                       currentThreadKey={currentThreadKey}
                       onSelectThread={onSelectThread}
-                      questTitleFor={questTitleFor}
+                      threads={threads}
                     />
                   ))}
                 </div>
@@ -867,7 +880,7 @@ function NotificationPopover({
                         sessionId={sessionId}
                         currentThreadKey={currentThreadKey}
                         onSelectThread={onSelectThread}
-                        questTitleFor={questTitleFor}
+                        threads={threads}
                       />
                     ))}
                   </div>

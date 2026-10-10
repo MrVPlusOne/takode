@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { useNextAttention } from "../hooks/useNextAttention.js";
 import { useStore } from "../store.js";
-import { useAttentionQuestTitles } from "../hooks/useAttentionQuestTitles.js";
+import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
 import { AttentionItemSections } from "./AttentionItemRows.js";
 import { AttentionKindIcon, NextAttentionToast, NextChevron, attentionTone } from "./AttentionKind.js";
@@ -131,7 +131,7 @@ export function GlobalAttentionPanel({
   onNext,
   onOpen,
   sessionsOverride,
-  questTitleFor,
+  threadsOverride,
   inline = false,
 }: {
   items: readonly NextAttentionItem[];
@@ -141,14 +141,14 @@ export function GlobalAttentionPanel({
   onClose: () => void;
   onNext: () => void;
   onOpen: (item: NextAttentionItem) => void;
-  /** Session numbers and names, and quest titles, for the Playground, which has no real sessions or quests. */
+  /** Session numbers and names, and thread titles, for the Playground, which has no real sessions or quests. */
   sessionsOverride?: ReadonlyArray<{ sessionId: string; sessionNum?: number | null; name?: string }>;
-  questTitleFor?: (questId: string) => string | undefined;
+  threadsOverride?: AttentionThreadTitles;
   inline?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const storeQuestTitleFor = useAttentionQuestTitles(items);
+  const storeThreads = useAttentionThreadTitles(items);
   const sessionInfo = useMemo(() => {
     const info = new Map<string, { tag?: string; label?: string }>();
     for (const { sessionId, sessionNum, name } of sessionsOverride ?? sdkSessions) {
@@ -237,7 +237,7 @@ export function GlobalAttentionPanel({
           nextKey={nextKey}
           sessionLabelFor={(item) => sessionInfo.get(item.sessionId)?.label}
           sessionTagFor={(item) => sessionInfo.get(item.sessionId)?.tag}
-          questTitleFor={questTitleFor ?? storeQuestTitleFor}
+          threads={threadsOverride ?? storeThreads}
         />
       </div>
     </div>

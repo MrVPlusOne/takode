@@ -24,6 +24,7 @@ const SESSIONS = [
 const QUEST_TITLES: Record<string, string> = {
   "q-2428": "Make offline hosts obvious in the session list",
   "q-2416": "Restart Server pulls the latest published code",
+  "q-2415": "Restart must not hang waiting for accepted work",
 };
 
 function prompt(sessionId: string, id: string, summary: string, minutesAgo: number, threadKey?: string) {
@@ -57,12 +58,19 @@ const QUEUE = buildNextAttentionQueue({
   ],
   notifyMe: [NOTIFY_ME],
   unread: [
-    { sessionId: "playground-attention-leader", threadKey: "main", label: "Main", timestamp: NOW - 18 * 60_000 },
+    {
+      sessionId: "playground-attention-leader",
+      threadKey: "main",
+      label: "Main",
+      timestamp: NOW - 18 * 60_000,
+      summary: "phone fix landed; restart when convenient",
+    },
     {
       sessionId: "playground-attention-leader",
       threadKey: "q-2415",
       label: "Restart must not hang waiting for accepted work",
       timestamp: NOW - 4 * 3_600_000,
+      summary: "landed and completed automatically",
     },
     {
       sessionId: "playground-attention-worker",
@@ -113,7 +121,10 @@ function InteractiveAttentionList() {
         onNext={() => setLanding(goNext())}
         onOpen={open}
         sessionsOverride={SESSIONS}
-        questTitleFor={(questId) => QUEST_TITLES[questId]}
+        threadsOverride={{
+          titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
+          hasThreadTabs: (sessionId) => sessionId === "playground-attention-leader",
+        }}
       />
       {landing && <NextAttentionToast landing={landing} inline />}
     </div>
@@ -147,7 +158,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List and Phone Top Bar"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names its quest when it belongs to a quest thread (quest ID and title, then the session number and age) and otherwise its session; Notify Me rows lead with the result. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the thread's Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Attention list pill (desktop and phone; amber for prompts, blue for results)">

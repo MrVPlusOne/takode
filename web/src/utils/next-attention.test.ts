@@ -178,7 +178,28 @@ describe("collectUnreadAttention", () => {
             tabState: null,
             tabs: [tab("q-1", true, 70), tab("q-2", false, 80)],
             mainAttention: attention(true, 60),
-            threadStatuses: {},
+            // A thread's Thread Ready summary becomes the unread row's first line;
+            // a Thread Waiting status is not a result and is left out.
+            threadStatuses: {
+              "q-1": {
+                kind: "ready",
+                label: "Thread Ready",
+                threadKey: "q-1",
+                summary: "landed",
+                messageId: "m",
+                timestamp: 1,
+                updatedAt: 1,
+              },
+              main: {
+                kind: "waiting",
+                label: "Thread Waiting",
+                threadKey: "main",
+                summary: "waiting",
+                messageId: "m",
+                timestamp: 1,
+                updatedAt: 1,
+              },
+            },
             activePhaseSummary: [],
           },
         ],
@@ -186,7 +207,7 @@ describe("collectUnreadAttention", () => {
     });
     expect(candidates).toEqual([
       { sessionId: "leader", threadKey: "main", label: "Main", timestamp: 60 },
-      { sessionId: "leader", threadKey: "q-1", label: "q-1 title", timestamp: 70 },
+      { sessionId: "leader", threadKey: "q-1", label: "q-1 title", timestamp: 70, summary: "landed" },
     ]);
   });
 });

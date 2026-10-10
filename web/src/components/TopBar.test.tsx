@@ -1492,6 +1492,25 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByRole("dialog", { name: "Everything that needs attention" })).toBeInTheDocument();
   });
 
+  it("names Main as the thread for a leader's Main prompt, keeping the session number", () => {
+    // Leaders have thread tabs, so their Main prompts name Main; sessions
+    // without tabs keep the session name (covered above).
+    resetStore({
+      ...twoPromptsState(),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" },
+        { sessionId: "s2", createdAt: 20, sessionNum: 102, name: "Leader Two", isOrchestrator: true },
+      ],
+    });
+    render(<TopBar />);
+    fireEvent.click(screen.getByTestId("attention-list-button"));
+    const places = within(screen.getByRole("dialog", { name: "Everything that needs attention" }))
+      .getAllByTestId("attention-item-place")
+      .map((place) => place.textContent);
+    expect(places[0]).toMatch(/^Main· #102 · /);
+    expect(places[1]).toMatch(/^#101 Worker One· /);
+  });
+
   it("opens one item from the list with Go to and closes the list", () => {
     resetStore(twoPromptsState());
     render(<TopBar />);
