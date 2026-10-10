@@ -596,7 +596,10 @@ export class CliLauncher {
    */
   async launch(options: LaunchOptions = {}): Promise<SdkSessionInfo> {
     serverWorkAdmission.assertOpen();
-    return serverWorkAdmission.track(this.launchAccepted(options), "session launch");
+    return serverWorkAdmission.track(
+      this.launchAccepted(options),
+      options.hostId ? `session launch on host ${options.hostId}` : "session launch",
+    );
   }
 
   private async launchAccepted(options: LaunchOptions): Promise<SdkSessionInfo> {
