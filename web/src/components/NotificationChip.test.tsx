@@ -7,10 +7,21 @@ import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
 const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
-const mockSetNotificationMuted = vi.fn(async (_sessionId: string, _notifId: string, muted: boolean) => ({
+// Like the server, answers with the changed notification.
+const mockSetNotificationMuted = vi.fn(async (sessionId: string, notifId: string, muted: boolean) => ({
   ok: true,
   muted,
   changed: true,
+  notification: { ...mockNotifications.get(sessionId)?.find((entry) => entry.id === notifId), id: notifId, muted },
+}));
+const mockSnoozeNotification = vi.fn(async (sessionId: string, notifId: string, durationMs: number) => ({
+  ok: true,
+  notification: {
+    ...mockNotifications.get(sessionId)?.find((entry) => entry.id === notifId),
+    id: notifId,
+    muted: true,
+    snoozedUntil: Date.now() + durationMs,
+  },
 }));
 const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
   ok: true,
@@ -78,6 +89,8 @@ vi.mock("../api.js", () => ({
     markAllNotificationsDone: (sessionId: string, done = true) => mockMarkAllNotificationsDone(sessionId, done),
     setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
       mockSetNotificationMuted(sessionId, notifId, muted),
+    snoozeNotification: (sessionId: string, notifId: string, durationMs: number) =>
+      mockSnoozeNotification(sessionId, notifId, durationMs),
     sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
       mockSendNeedsInputResponse(sessionId, notifId, response),
     markSessionRead: (sessionId: string, options?: any) => mockMarkSessionRead(sessionId, options),
@@ -583,7 +596,7 @@ describe("NotificationChip", () => {
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
-  it("adds explicit Go to and Mute actions without treating mute as resolution", async () => {
+  it("keeps only Go to inline and mutes from the row's context menu without treating mute as resolution", async () => {
     setNotifications("s1", [
       {
         id: "n-1",
@@ -601,15 +614,21 @@ describe("NotificationChip", () => {
 
     expect(screen.queryByRole("button", { name: "Open source message for Deploy now?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Go to source for Deploy now?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mute Deploy now?" })).toBeInTheDocument();
+    // Mute and Remind me later moved into the row's context menu (right-click or long-press).
+    expect(screen.queryByRole("button", { name: "Mute Deploy now?" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remind me later/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Use composer" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Mute Deploy now?" }));
+    fireEvent.contextMenu(screen.getByTestId("notification-row-header"));
+    expect(screen.getByRole("button", { name: "Remind me later" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
 
     await waitFor(() => expect(mockSetNotificationMuted).toHaveBeenCalledWith("s1", "n-1", true));
-    expect(mockSetSessionNotifications).toHaveBeenCalledWith(
-      "s1",
-      expect.arrayContaining([expect.objectContaining({ id: "n-1", muted: true })]),
+    // The server's answer is stored, so the row moves to Muted.
+    await waitFor(() =>
+      expect(mockStoreState.sessionNotifications.get("s1")).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "n-1", muted: true })]),
+      ),
     );
     expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "n-1", true);
     expect(mockSendNeedsInputResponse).not.toHaveBeenCalled();
@@ -636,7 +655,11 @@ describe("NotificationChip", () => {
     const mutedRow = within(mutedSection).getByTestId("notification-inbox-row");
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toHaveTextContent("Notifications(0)");
     expect(within(mutedSection).getAllByText("Muted").length).toBeGreaterThanOrEqual(1);
-    expect(within(mutedRow).getByRole("button", { name: "Unmute Choose deferred rollout" })).toBeInTheDocument();
+    fireEvent.contextMenu(within(mutedRow).getByTestId("notification-row-header"));
+    expect(screen.getByRole("button", { name: "Unmute" })).toBeInTheDocument();
+    // Using the menu must not close the inbox it was opened from.
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Unmute" }));
+    expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     expect(
       within(mutedRow).getByRole("button", { name: "Go to source for Choose deferred rollout" }),
     ).toBeInTheDocument();
@@ -1325,6 +1348,63 @@ describe("NotificationChip", () => {
       const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
       expect(within(notifyMe).getByRole("button", { name: "Go to Landed" })).toBeInTheDocument();
       expect(within(notifyMe).getByTestId("attention-item-place")).toHaveTextContent(/^q-5 Ship it· /);
+    });
+
+    it("opens a row's own menu on right-click or long-press without stepping the chip or closing the list", () => {
+      // The chip's gestures (tap steps, long-press opens the list) and the
+      // rows' gestures (menu) must not fight: a row gesture only opens the
+      // row's menu, and using that menu leaves the list open.
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        render(
+          <NotificationChip
+            sessionId="s1"
+            attentionPreview={{
+              notifyMe: [
+                {
+                  sessionId: "s1",
+                  sessionName: "Leader",
+                  sessionNum: 1,
+                  threadKey: "q-5",
+                  title: "q-5 Ship it",
+                  trackedAt: 0,
+                  pending: { id: "9", messageId: "m-9", timestamp: 90, summary: "Landed" },
+                },
+              ],
+              unread: [{ sessionId: "s1", threadKey: "q-6", label: "q-6 Review", timestamp: 80 }],
+            }}
+          />,
+        );
+        openInbox();
+        const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+        const [notifyRow, unreadRow] = within(dialog).getAllByTestId("attention-item-row");
+        // Only Go to stays inline.
+        expect(within(notifyRow!).queryByRole("button", { name: /Acknowledge/ })).toBeNull();
+        expect(
+          within(notifyRow!)
+            .getAllByRole("button")
+            .map((button) => button.textContent),
+        ).toEqual(["Go to"]);
+
+        fireEvent.contextMenu(notifyRow!);
+        fireEvent.mouseDown(screen.getByRole("button", { name: "Acknowledge" }));
+        fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
+        expect(fetchMock.mock.calls[0]![0]).toContain("/thread-monitoring/q-5");
+        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+
+        fireEvent.touchStart(unreadRow!, { touches: [{ clientX: 5, clientY: 5 }] });
+        act(() => {
+          vi.advanceTimersByTime(600);
+        });
+        fireEvent.touchEnd(unreadRow!);
+        expect(screen.getByRole("button", { name: "Mark as read" })).toBeInTheDocument();
+        expect(chipButton()).toHaveTextContent("1/2·Notify Me");
+        expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("keeps its place across remounts, like switching threads", () => {

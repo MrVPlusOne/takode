@@ -1472,6 +1472,26 @@ describe("TopBar phone layout and Next", () => {
     expect(places[1]).not.toContain("Worker One");
   });
 
+  it("keeps only Go to on rows and offers the prompt actions in a row menu that leaves the list open", () => {
+    resetStore(twoPromptsState());
+    render(<TopBar />);
+    fireEvent.click(screen.getByTestId("attention-list-button"));
+    const panel = screen.getByRole("dialog", { name: "Everything that needs attention" });
+    const row = within(panel).getAllByTestId("attention-item-row")[0]!;
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Go to"]);
+
+    fireEvent.contextMenu(row);
+    const mute = screen.getByRole("button", { name: "Mute" });
+    expect(screen.getByRole("button", { name: "Remind me later" })).toBeInTheDocument();
+    // The menu is portaled outside the list; pressing it must not count as clicking outside the list.
+    fireEvent.mouseDown(mute);
+    expect(screen.getByRole("dialog", { name: "Everything that needs attention" })).toBeInTheDocument();
+  });
+
   it("opens one item from the list with Go to and closes the list", () => {
     resetStore(twoPromptsState());
     render(<TopBar />);

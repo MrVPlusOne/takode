@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
+import { attentionItemMenuItems } from "../utils/attention-item-menu.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
 import { attentionQuestId } from "../hooks/useAttentionQuestTitles.js";
 import {
@@ -10,6 +11,7 @@ import {
   formatRelativeTime,
   type AttentionKind,
 } from "./AttentionKind.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 
 const GO_TO_BUTTON_CLASS =
   "inline-flex shrink-0 items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 cursor-pointer";
@@ -53,7 +55,9 @@ function withoutQuestId(title: string, questId: string): string {
 }
 
 /**
- * One item in an attention list: what it is, where it lives and a Go to.
+ * One item in an attention list: what it is, where it lives and a Go to, its
+ * only inline action. Right-click or long-press opens the actions that fit its
+ * kind (see `attentionItemMenuItems`).
  * The second line names the item's quest ("q-12 Title · #2851 · 5m ago") when
  * it belongs to a quest thread, and otherwise `sessionLabel`. `sessionTag` is
  * the short session reference kept beside a quest; lists inside one session
@@ -74,65 +78,54 @@ export function AttentionItemRow({
   questTitleFor?: (questId: string) => string | undefined;
   isNext?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const label = itemLabel(item);
-  const pending = item.kind === "notify-me" ? item.entry.pending : null;
-  const acknowledge = () => {
-    if (item.kind !== "notify-me" || !pending || busy) return;
-    setBusy(true);
-    setError(null);
-    updateThreadMonitoring(item.sessionId, item.entry.threadKey, "acknowledge", pending.id)
-      .catch((err) => setError(err instanceof Error && err.message ? err.message : "Acknowledge failed."))
-      .finally(() => setBusy(false));
-  };
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const longPress = useLongPress((x, y) => {
+    // Built when opened, so actions reflect the current state (such as which session is on screen).
+    const items = attentionItemMenuItems(item);
+    if (items.length > 0) setMenu({ x, y, items });
+  });
   return (
-    <div
-      className={`flex items-start gap-2 px-3 py-2 ${isNext ? "bg-cc-hover/30" : ""}`}
-      data-testid="attention-item-row"
-      data-attention-kind={item.kind}
-      data-attention-next={isNext ? "true" : undefined}
-    >
-      <span className="mt-0.5">
-        <AttentionKindIcon kind={item.kind} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="min-w-0 flex-1 truncate text-[12px] text-cc-fg/90">{label}</span>
-          {isNext && (
-            <span className="shrink-0 rounded border border-cc-border/70 px-1 py-px text-[10px] font-medium text-cc-muted">
-              Next
-            </span>
-          )}
-          {pending && (
+    <>
+      <div
+        {...longPress.handlers}
+        style={longPress.pressStyle}
+        className={`flex items-start gap-2 px-3 py-2 ${LONG_PRESS_TARGET_CLASS} ${isNext ? "bg-cc-hover/30" : ""}`}
+        data-testid="attention-item-row"
+        data-attention-kind={item.kind}
+        data-attention-next={isNext ? "true" : undefined}
+      >
+        <span className="mt-0.5">
+          <AttentionKindIcon kind={item.kind} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-cc-fg/90">{label}</span>
+            {isNext && (
+              <span className="shrink-0 rounded border border-cc-border/70 px-1 py-px text-[10px] font-medium text-cc-muted">
+                Next
+              </span>
+            )}
             <button
               type="button"
-              disabled={busy}
-              onClick={acknowledge}
-              className="inline-flex shrink-0 items-center rounded border border-cc-info/30 px-2 py-0.5 text-[11px] font-medium text-cc-info transition-colors hover:bg-cc-info/10 disabled:opacity-50 cursor-pointer"
-              aria-label={`Acknowledge ${label}`}
+              onClick={() => onOpen(item)}
+              className={GO_TO_BUTTON_CLASS}
+              aria-label={`Go to ${label}`}
             >
-              Acknowledge
+              Go to
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onOpen(item)}
-            className={GO_TO_BUTTON_CLASS}
-            aria-label={`Go to ${label}`}
-          >
-            Go to
-          </button>
+          </div>
+          <AttentionItemPlace
+            place={questPlace(item, questTitleFor)}
+            sessionLabel={sessionLabel}
+            sessionTag={sessionTag}
+            timestamp={item.timestamp}
+          />
         </div>
-        <AttentionItemPlace
-          place={questPlace(item, questTitleFor)}
-          sessionLabel={sessionLabel}
-          sessionTag={sessionTag}
-          timestamp={item.timestamp}
-        />
-        {error && <p className="mt-1 text-[10px] leading-snug text-cc-error">{error}</p>}
       </div>
-    </div>
+      {/* Outside the row, so taps and right-clicks in the menu do not reach the row's gesture handlers. */}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+    </>
   );
 }
 

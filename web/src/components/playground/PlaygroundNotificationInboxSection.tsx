@@ -530,8 +530,9 @@ export function PlaygroundNotificationInboxSection() {
             </div>
             <p className="text-[10px] text-cc-muted">
               Click &quot;Seed notification data&quot; first. The lower-right inbox shows needs-input rows with one
-              prompt title, explicit Go to and Mute/Unmute row actions, expandable source context, direct Send Response
-              controls, voice-enabled long-answer fields, a muted backlog, and a collapsible Done section. Active review
+              prompt title, Go to as the only inline row action (right-click or long-press the row header for Mute or
+              Unmute, Remind me later and Cancel snooze), expandable source context, direct Send Response controls,
+              voice-enabled long-answer fields, a muted backlog, and a collapsible Done section. Active review
               notifications stay out of this panel because blue review status is represented on thread tabs.
             </p>
           </div>
@@ -544,8 +545,10 @@ export function PlaygroundNotificationInboxSection() {
               each tap opens the next item that needs attention (needs-input prompts, then Notify Me results, then
               unread results, newest first in each kind) and wraps at the end, and its label shows the next item&apos;s
               position and kind, like &quot;1/4 · needs input&quot;. Right-click or long-press opens the inbox, which
-              lists Notify Me and Unread sections after the prompts and marks the next row. Here steps only move the
-              position and toast; in a session they jump to each item.
+              lists Notify Me and Unread sections after the prompts and marks the next row. Rows keep only Go to;
+              right-click or long-press a row (not the chip) for its own menu: Acknowledge and Stop tracking for Notify
+              Me, Mark as read and Close tab for unread threads. Here steps only move the position and toast; in a
+              session they jump to each item.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">

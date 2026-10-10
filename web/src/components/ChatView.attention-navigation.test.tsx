@@ -19,7 +19,8 @@ vi.mock("../utils/viewport-handoff-client.js", () => ({
   createViewportHandoffEntryId: () => "test-viewport-entry",
   noteViewportSelectionActivity: vi.fn(),
 }));
-vi.mock("../ws.js", () => ({ connectSession: vi.fn(), sendToSession: vi.fn(() => true) }));
+const mockSendToSession = vi.hoisted(() => vi.fn((_sessionId: string, _message: unknown) => true));
+vi.mock("../ws.js", () => ({ connectSession: vi.fn(), sendToSession: mockSendToSession }));
 vi.mock("../api.js", () => ({
   api: {
     getQuestTitles: vi.fn().mockResolvedValue({ quests: [], missingQuestIds: [] }),
@@ -42,6 +43,7 @@ vi.mock("./WorkBoardBar.js", () => ({ WorkBoardBar: () => null }));
 import { useStore } from "../store.js";
 import { openAttentionItem } from "../hooks/useNextAttention.js";
 import { threadRouteFromHash } from "../utils/routing.js";
+import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import { ChatView } from "./ChatView.js";
 
 const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
@@ -187,6 +189,28 @@ describe("ChatView attention navigation", () => {
 
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
     await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true));
+    view.unmount();
+  });
+
+  it("closes one of its tabs when an attention list asks, through the tab close path", async () => {
+    // Attention-row menus offer Close tab for the session on screen; ChatView
+    // handles it like the tab's own close button.
+    const view = render(<ChatView sessionId="leader" {...routeProps()} />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(CLOSE_THREAD_TAB_EVENT, { detail: { sessionId: "leader", threadKey: "q-1" } }),
+      );
+    });
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "leader",
+      expect.objectContaining({
+        type: "leader_thread_tabs_update",
+        operation: expect.objectContaining({ type: "close", threadKey: "q-1" }),
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
     view.unmount();
   });
 });

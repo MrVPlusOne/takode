@@ -102,7 +102,12 @@ export function ContextMenu({
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.
   return createPortal(
-    <div ref={menuRef} className={`${MENU_STYLES.container} ${widthClassName}`} style={{ left: x, top: y }}>
+    <div
+      ref={menuRef}
+      data-context-menu="true"
+      className={`${MENU_STYLES.container} ${widthClassName}`}
+      style={{ left: x, top: y }}
+    >
       {confirmingItem ? (
         <div className="p-3 w-56">
           <p className="text-xs text-cc-fg mb-1 font-medium">{confirmingItem.confirm!.title}</p>

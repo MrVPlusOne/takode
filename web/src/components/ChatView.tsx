@@ -20,6 +20,7 @@ import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import { hasMessageDeepLinkFromHash, navigateToSessionThread, threadRouteFromHash } from "../utils/routing.js";
+import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
@@ -772,6 +773,16 @@ export function ChatView({
     },
     [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
   );
+  // Attention lists close this session's tabs through the same path as the tab's own close button.
+  useEffect(() => {
+    if (!isLeaderSession || preview) return;
+    const onClose = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; threadKey?: string }>).detail;
+      if (detail?.sessionId === sessionId && detail.threadKey) handleCloseThreadTab(detail.threadKey);
+    };
+    window.addEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
+    return () => window.removeEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
+  }, [handleCloseThreadTab, isLeaderSession, preview, sessionId]);
   const handleReorderThreadTabs = useCallback(
     (orderedThreadKeys: string[]) => {
       const nextOpenThreadTabKeys = reorderLeaderOpenThreadKeys(openThreadTabKeysRef.current, orderedThreadKeys);

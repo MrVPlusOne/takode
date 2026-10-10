@@ -5,7 +5,6 @@ import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import {
-  applySessionNotifications,
   isActionableSessionNotification,
   isClearedNotificationStatus,
   type NotificationStatusSnapshot,
@@ -25,7 +24,9 @@ import {
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
-import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
+import { formatSnoozeUntil } from "./NeedsInputSnoozeControl.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { needsInputMenuItems } from "../utils/attention-item-menu.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
@@ -329,33 +330,6 @@ function getCompactReviewSummary(
   return { text: summary, questSummary: parseSingleQuestSummary(summary) };
 }
 
-function getCurrentNotificationStatus(sessionId: string): NotificationStatusSnapshot {
-  const session = useStore.getState().sdkSessions.find((entry) => entry.sessionId === sessionId);
-  return {
-    notificationUrgency: session?.notificationUrgency,
-    activeNotificationCount: session?.activeNotificationCount,
-    activeNeedsInputNotificationCount: session?.activeNeedsInputNotificationCount,
-    activeReviewNotificationCount: session?.activeReviewNotificationCount,
-    mutedNeedsInputNotificationCount: session?.mutedNeedsInputNotificationCount,
-    notificationStatusVersion: session?.notificationStatusVersion,
-    notificationStatusUpdatedAt: session?.notificationStatusUpdatedAt,
-  };
-}
-
-function markLocalNotificationMuted(sessionId: string, notificationId: string, muted: boolean) {
-  const store = useStore.getState();
-  const notifications = store.sessionNotifications.get(sessionId);
-  if (!notifications) return;
-  const nextNotifications = notifications.map((notification) => {
-    if (notification.id !== notificationId) return notification;
-    if (muted) return { ...notification, muted: true, mutedAt: Date.now() };
-    const { muted: _muted, mutedAt: _mutedAt, ...rest } = notification;
-    return rest;
-  });
-  store.setSessionNotifications(sessionId, nextNotifications);
-  applySessionNotifications(sessionId, nextNotifications, getCurrentNotificationStatus(sessionId));
-}
-
 // ─── Notification Item ───────────────────────────────────────────────────────
 
 function NotificationItem({
@@ -415,8 +389,7 @@ function NotificationItem({
   }, [sessionId, notif, currentThreadKey, onSelectThread, jumpTargetMessageId]);
 
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
-  const [togglingMute, setTogglingMute] = useState(false);
-  const [muteError, setMuteError] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const questionViews = useMemo(
     () => (notif.category === "needs-input" ? getNeedsInputQuestionViews(notif) : []),
     [notif],
@@ -453,6 +426,15 @@ function NotificationItem({
   const isMutableNeedsInput = isNeedsInput && !notif.done;
   const isMutedNeedsInput = isMutableNeedsInput && Boolean(notif.muted);
   const isSnoozedNeedsInput = isMutedNeedsInput && notif.snoozedUntil !== undefined;
+  // Mute, Remind me later and Cancel snooze live in the row's context menu; Go to stays inline.
+  const longPress = useLongPress(
+    isMutableNeedsInput
+      ? (x, y) => {
+          const items = needsInputMenuItems(sessionId, notif);
+          if (items.length > 0) setMenu({ x, y, items });
+        }
+      : undefined,
+  );
   const canSendResponse =
     isNeedsInput &&
     !notif.done &&
@@ -485,26 +467,6 @@ function NotificationItem({
       });
     },
     [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
-  );
-  const toggleMuted = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!isMutableNeedsInput || togglingMute) return;
-      const nextMuted = !notif.muted;
-      setTogglingMute(true);
-      setMuteError(null);
-      api
-        .setNotificationMuted(sessionId, notif.id, nextMuted)
-        .then(() => {
-          markLocalNotificationMuted(sessionId, notif.id, nextMuted);
-        })
-        .catch((error) => {
-          const message = error instanceof Error && error.message ? error.message : "Please retry.";
-          setMuteError(`${nextMuted ? "Mute" : "Unmute"} failed. ${message}`);
-        })
-        .finally(() => setTogglingMute(false));
-    },
-    [isMutableNeedsInput, notif.id, notif.muted, sessionId, togglingMute],
   );
   const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || getNotificationTitle(notif);
@@ -573,88 +535,89 @@ function NotificationItem({
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-2">
-          <div className="flex min-w-0 flex-1 items-start gap-1.5">
-            <span
-              className={`mt-[0.35rem] inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
-                isMutedNeedsInput
-                  ? "border border-cc-muted/70 bg-cc-muted/45"
-                  : isNeedsInput
-                    ? "bg-cc-attention"
-                    : notif.category === "review"
-                      ? "bg-cc-info"
-                      : "bg-cc-muted/65"
-              }`}
-            />
-            {isNeedsInput ? (
-              <div className="min-w-0 flex-1">
-                <NeedsInputSourceTarget
-                  title={label}
-                  sourceContext={notif.questionOnly ? null : sourceContext}
-                  titleClassName={labelClassName}
-                  testIdPrefix="notification"
-                />
-              </div>
-            ) : jumpTargetMessageId ? (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={jumpToMessage}
-                onKeyDown={handleJumpKeyDown}
-                className="min-w-0 flex-1 cursor-pointer"
-              >
+        {/* The header takes the context-menu gesture; the answer fields below keep the browser's own. */}
+        <div
+          {...longPress.handlers}
+          style={longPress.pressStyle}
+          className={isMutableNeedsInput ? LONG_PRESS_TARGET_CLASS : undefined}
+          data-testid="notification-row-header"
+        >
+          <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-2">
+            <div className="flex min-w-0 flex-1 items-start gap-1.5">
+              <span
+                className={`mt-[0.35rem] inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                  isMutedNeedsInput
+                    ? "border border-cc-muted/70 bg-cc-muted/45"
+                    : isNeedsInput
+                      ? "bg-cc-attention"
+                      : notif.category === "review"
+                        ? "bg-cc-info"
+                        : "bg-cc-muted/65"
+                }`}
+              />
+              {isNeedsInput ? (
+                <div className="min-w-0 flex-1">
+                  <NeedsInputSourceTarget
+                    title={label}
+                    sourceContext={notif.questionOnly ? null : sourceContext}
+                    titleClassName={labelClassName}
+                    testIdPrefix="notification"
+                  />
+                </div>
+              ) : jumpTargetMessageId ? (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={jumpToMessage}
+                  onKeyDown={handleJumpKeyDown}
+                  className="min-w-0 flex-1 cursor-pointer"
+                >
+                  <div className="text-[12px] text-left">{renderLabel()}</div>
+                </div>
+              ) : (
                 <div className="text-[12px] text-left">{renderLabel()}</div>
-              </div>
-            ) : (
-              <div className="text-[12px] text-left">{renderLabel()}</div>
-            )}
-          </div>
-          {isMutableNeedsInput && (
-            <div className="flex shrink-0 flex-wrap items-center gap-1 pl-3 sm:justify-end sm:pl-0">
-              {/* A snoozed prompt is cancelled from its snooze control, which also unmutes it. */}
-              {!isSnoozedNeedsInput && (
-                <button
-                  type="button"
-                  onClick={toggleMuted}
-                  disabled={togglingMute}
-                  className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                  aria-label={`${isMutedNeedsInput ? "Unmute" : "Mute"} ${label}`}
-                >
-                  {togglingMute ? "..." : isMutedNeedsInput ? "Unmute" : "Mute"}
-                </button>
-              )}
-              {jumpTargetMessageId && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    jumpToMessage();
-                  }}
-                  className="inline-flex items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
-                  aria-label={`Go to source for ${label}`}
-                >
-                  Go to
-                </button>
               )}
             </div>
-          )}
-        </div>
-        <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-3 text-[10px] text-cc-muted">
-          {isMutedNeedsInput && !isSnoozedNeedsInput && (
-            <span className="shrink-0 rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px font-medium">
-              Muted
+            {isMutableNeedsInput && jumpTargetMessageId && (
+              <div className="flex shrink-0 flex-wrap items-center gap-1 pl-3 sm:justify-end sm:pl-0">
+                {jumpTargetMessageId && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      jumpToMessage();
+                    }}
+                    className="inline-flex items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
+                    aria-label={`Go to source for ${label}`}
+                  >
+                    Go to
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-3 text-[10px] text-cc-muted">
+            {isMutedNeedsInput && !isSnoozedNeedsInput && (
+              <span className="shrink-0 rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px font-medium">
+                Muted
+              </span>
+            )}
+            {isSnoozedNeedsInput && (
+              <span className="shrink-0 rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px font-medium">
+                Snoozed until {formatSnoozeUntil(notif.snoozedUntil!)}
+              </span>
+            )}
+            {ownerQuestId && (
+              <span className="min-w-0 truncate" data-testid="notification-quest-place">
+                <span className="font-medium text-cc-fg/70">{ownerQuestId}</span>
+                {ownerQuestTitle && <span> {ownerQuestTitle}</span>}
+              </span>
+            )}
+            <span className="shrink-0 text-cc-muted">
+              {ownerQuestId ? "· " : ""}
+              {formatRelativeTime(notif.timestamp)}
             </span>
-          )}
-          {ownerQuestId && (
-            <span className="min-w-0 truncate" data-testid="notification-quest-place">
-              <span className="font-medium text-cc-fg/70">{ownerQuestId}</span>
-              {ownerQuestTitle && <span> {ownerQuestTitle}</span>}
-            </span>
-          )}
-          <span className="shrink-0 text-cc-muted">
-            {ownerQuestId ? "· " : ""}
-            {formatRelativeTime(notif.timestamp)}
-          </span>
+          </div>
         </div>
         {isNeedsInput && !notif.done && (
           <div className="mt-2 space-y-2 pl-3" data-testid="notification-answer-actions">
@@ -708,12 +671,11 @@ function NotificationItem({
               >
                 Use composer
               </button>
-              <NeedsInputSnoozeControl sessionId={sessionId} notification={notif} />
             </div>
           </div>
         )}
-        {muteError && <p className="mt-2 pl-3 text-[10px] leading-snug text-cc-error">{muteError}</p>}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -771,6 +733,8 @@ function NotificationPopover({
   useEffect(() => {
     const handler = (e: globalThis.MouseEvent) => {
       if (questOverlayId) return;
+      // A row's context menu lives in a portal; using it must not close the inbox.
+      if (e.target instanceof Element && e.target.closest("[data-context-menu]")) return;
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
