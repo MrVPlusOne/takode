@@ -1068,8 +1068,9 @@ function SessionItemComponent({
         <NotificationMarker urgency={inboxUrgency} />
       )}
 
-      {/* Action buttons */}
-      {archived ? (
+      {/* Action buttons for archived sessions. Active sessions archive from the
+          long-press/right-click menu or a swipe, not a card button. */}
+      {archived && (
         <>
           {canRetryWorktreeCleanup && (
             <button
@@ -1103,17 +1104,6 @@ function SessionItemComponent({
             </svg>
           </button>
         </>
-      ) : (
-        <button
-          onClick={(e) => onArchive(e, s.id)}
-          className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer z-10"
-          title="Archive session"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-            <path d="M3 3h10v2H3zM4 5v7a1 1 0 001 1h6a1 1 0 001-1V5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M6.5 8h3" strokeLinecap="round" />
-          </svg>
-        </button>
       )}
     </div>
   );

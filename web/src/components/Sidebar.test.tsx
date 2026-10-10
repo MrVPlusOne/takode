@@ -6,6 +6,7 @@ import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-pro
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { setTouchDeviceForTest } from "./test-match-media.js";
 import { SessionItem } from "./SessionItem.js";
+import { LONG_PRESS_MS } from "../hooks/useLongPress.js";
 
 // ─── Mock setup ──────────────────────────────────────────────────────────────
 
@@ -752,7 +753,14 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(sessionButton.textContent).toContain("-858");
   });
 
-  it("archive button exists in the DOM for session items", () => {
+  // Active session cards have no archive button; archiving goes through the
+  // card's right-click (desktop) or long-press (touch) menu.
+  function archiveFromContextMenu(sessionButton: HTMLElement) {
+    fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+  }
+
+  it("active session cards show no archive button; right-click offers Archive", () => {
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1");
     mockState = createMockState({
@@ -761,32 +769,41 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    // Archive button has title "Archive session"
-    const archiveButton = screen.getByTitle("Archive session");
-    expect(archiveButton).toBeInTheDocument();
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    const row = sessionButton.parentElement as HTMLElement;
+    expect(within(row).queryByTitle("Archive session")).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("button")).toEqual([sessionButton]);
+
+    fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
   });
 
-  it("archive action button is visible by default on mobile and hover-only on desktop", () => {
-    const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
-    mockState = createMockState({
-      sessions: new Map([["s1", session]]),
-      sdkSessions: [sdk],
-    });
+  it("long-pressing a session card on touch opens the menu with Archive", () => {
+    // Touch devices never fire contextmenu, so the card times the press itself.
+    vi.useFakeTimers();
+    try {
+      const session = makeSession("s1");
+      const sdk = makeSdkSession("s1");
+      mockState = createMockState({
+        sessions: new Map([["s1", session]]),
+        sdkSessions: [sdk],
+      });
 
-    render(<Sidebar />);
-    const archiveButton = screen.getByTitle("Archive session");
-    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button");
+      render(<Sidebar />);
+      const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+      fireEvent.touchStart(sessionButton, { touches: [{ clientX: 80, clientY: 40 }] });
+      act(() => {
+        vi.advanceTimersByTime(LONG_PRESS_MS);
+      });
+      fireEvent.touchEnd(sessionButton);
 
-    expect(archiveButton).toHaveClass("opacity-100");
-    expect(archiveButton).toHaveClass("sm:opacity-0");
-    expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
-    expect(archiveButton).toHaveClass("left-1");
-    // Archive button overlays on the left side on desktop (no reserved padding — overlays existing pl-3.5)
-    expect(sessionButton).toHaveClass("sm:pl-3.5");
+      expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("non-leader archive button still archives immediately", async () => {
+  it("non-leader context-menu archive still archives immediately", async () => {
     const session = makeSession("s1", { model: "solo-session" });
     const sdk = makeSdkSession("s1", { model: "solo-session" });
     mockApi.archiveSession.mockResolvedValueOnce({ ok: true, sessionId: "s1", archivedAt: 1234 });
@@ -797,8 +814,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     render(<Sidebar />);
     const sessionButton = screen.getByText("solo-session").closest("button")!;
-    const row = sessionButton.parentElement as HTMLElement;
-    fireEvent.click(within(row).getByTitle("Archive session"));
+    archiveFromContextMenu(sessionButton);
 
     await waitFor(() => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("s1", undefined);
@@ -808,7 +824,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(screen.queryByText(/detach 1 active worker session/i)).not.toBeInTheDocument();
   });
 
-  it("leader archive button requires confirmation while workers are still active", async () => {
+  it("leader context-menu archive requires confirmation while workers are still active", async () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
@@ -829,7 +845,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderButton = screen.getByText("leader-session").closest("button")!;
     const row = leaderButton.parentElement as HTMLElement;
 
-    fireEvent.click(within(row).getByTitle("Archive session"));
+    archiveFromContextMenu(leaderButton);
 
     expect(mockApi.archiveSession).not.toHaveBeenCalled();
     expect(screen.getByText(/1 active herd member session/i)).toBeInTheDocument();
@@ -865,7 +881,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderButton = screen.getByText("leader-session").closest("button")!;
     const row = leaderButton.parentElement as HTMLElement;
 
-    fireEvent.click(within(row).getByTitle("Archive session"));
+    archiveFromContextMenu(leaderButton);
     fireEvent.click(within(row).getByRole("button", { name: "Archive Leader + Herd" }));
 
     await waitFor(() => {
@@ -897,7 +913,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderButton = screen.getByText("leader-session").closest("button")!;
     const row = leaderButton.parentElement as HTMLElement;
 
-    fireEvent.click(within(row).getByTitle("Archive session"));
+    archiveFromContextMenu(leaderButton);
 
     expect(screen.getByText(/delete this leader's worktree/i)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Archive Leader Only" })).toBeInTheDocument();
@@ -932,7 +948,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderButton = screen.getByText("leader-session").closest("button")!;
     const row = leaderButton.parentElement as HTMLElement;
 
-    fireEvent.click(within(row).getByTitle("Archive session"));
+    archiveFromContextMenu(leaderButton);
 
     expect(screen.getByText(/remove this leader's container/i)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Archive Leader + Herd" })).toBeInTheDocument();
