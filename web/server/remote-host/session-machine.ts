@@ -94,6 +94,11 @@ export function hostIsOnline(hostId: string): boolean {
   return hostLinks?.status(hostId).online ?? false;
 }
 
+/** Why a new process cannot start on a remote host now (see `HostLinkManager.startBlocker`), or null. */
+export function hostStartBlocker(hostId: string): string | null {
+  return hostLinks?.startBlocker(hostId) ?? null;
+}
+
 /** Whether a remote host is reachable and reports a usable network of its own. */
 export function hostHasUsableNetwork(hostId: string): boolean {
   return hostLinks?.hasUsableNetwork(hostId) ?? false;

@@ -35,6 +35,14 @@ export const HOST_UPDATE_SETTLE_MS = 60_000;
  */
 export const HOST_IMMEDIATE_UPDATE_SETTLE_MS = 5_000;
 
+/**
+ * How long a host asked to update may take to come back on the new build
+ * before the update counts as failed and the commands held for it go to the
+ * node it still runs. Switching the checkout fetches and installs dependencies
+ * (the install alone may take 10 minutes), then the node restarts.
+ */
+export const HOST_UPDATE_RESTART_TIMEOUT_MS = 15 * 60_000;
+
 /** The host could not be asked: it is offline or the link dropped before it answered. */
 export class HostUnavailableError extends Error {
   constructor(hostName: string) {
@@ -124,6 +132,8 @@ interface HostLink {
    * instance, so nothing starts on the old one only to end with it.
    */
   updateSent: boolean;
+  /** When the update was sent, for {@link HOST_UPDATE_RESTART_TIMEOUT_MS}. */
+  updateSentAt: number;
   /** This coordinator already sent the host an immediate update; later ones wait for idle. */
   immediateUpdateSent: boolean;
   updateError: string | null;
@@ -296,14 +306,7 @@ export class HostLinkManager {
         return;
       case "update_failed":
         if (message.commit !== link.updateRequested) return;
-        link.updateError = message.error;
-        console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(message.commit)}: ${message.error}`);
-        // The node keeps running on its build; send what waited for its restart.
-        link.updateSent = false;
-        for (const queued of link.unacked)
-          this.send(socket, { t: "command", seq: queued.seq, command: queued.command });
-        this.onHostRestarted?.(hostId);
-        this.notifyStatus(hostId);
+        this.abandonUpdate(hostId, link, message.error);
         return;
     }
   }
@@ -348,6 +351,37 @@ export class HostLinkManager {
       if (error instanceof HostUnavailableError) throw error;
       throw new Error(`${error.message} (${mismatch}; update takode on the host)`);
     });
+  }
+
+  /**
+   * Why a new process cannot start on the host now, worded to follow "Host
+   * <name>", or null when it can. Its start would wait for the host to come
+   * back: indefinitely while it is offline, and until its update finishes
+   * while it restarts for one.
+   */
+  startBlocker(hostId: string): string | null {
+    const link = this.links.get(hostId);
+    if (!link?.online || !link.socket) return "is offline";
+    if (link.updateSent) return "is restarting for a Takode update; try again once it is back";
+    return null;
+  }
+
+  /**
+   * Give up on the update the host's current instance was asked for: it
+   * failed or never brought the node back. The node keeps running its build,
+   * so what waited for its restart is sent to it, and its interrupted turns
+   * may go on. It is not asked again until it restarts.
+   */
+  private abandonUpdate(hostId: string, link: HostLink, error: string): void {
+    link.updateError = error;
+    console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(link.updateRequested ?? "")}: ${error}`);
+    link.updateSent = false;
+    if (link.online && link.socket) {
+      for (const queued of link.unacked)
+        this.send(link.socket, { t: "command", seq: queued.seq, command: queued.command });
+    }
+    this.onHostRestarted?.(hostId);
+    this.notifyStatus(hostId);
   }
 
   /** Send a host its current machine settings, e.g. after they changed. A host that is away gets them when it connects. */
@@ -492,7 +526,8 @@ export class HostLinkManager {
       return;
     }
     let restarted = false;
-    if (link.hostInstanceId !== hello.instanceId) {
+    const sameInstance = link.hostInstanceId === hello.instanceId;
+    if (!sameInstance) {
       // The first host instance since this coordinator started keeps the
       // processes it reports, which this coordinator may have adopted. A later
       // instance is a restarted `takode node` that has lost everything the old
@@ -544,6 +579,13 @@ export class HostLinkManager {
     for (const queued of link.unacked) {
       if (queued.seq > applied && !link.updateSent)
         this.send(socket, { t: "command", seq: queued.seq, command: queued.command });
+    }
+    // The node is back without restarting while its update is outstanding. If
+    // the update failed while the link was down, the node's report was lost
+    // with it, so ask again: it retries and reports on this link, or ignores
+    // the request while the first attempt is still running.
+    if (sameInstance && link.updateSent && link.updateRequested) {
+      this.send(socket, { t: "update", commit: link.updateRequested });
     }
     this.setOnline(hostId, link, true);
     if (restarted) this.onHostRestarted?.(hostId);
@@ -601,6 +643,7 @@ export class HostLinkManager {
         }
         if (mode === "immediate") link.immediateUpdateSent = true;
         link.updateSent = true;
+        link.updateSentAt = this.now();
         this.send(link.socket, { t: "update", commit });
       });
   }
@@ -681,6 +724,7 @@ export class HostLinkManager {
         lastStartAt: 0,
         updateRequested: null,
         updateSent: false,
+        updateSentAt: 0,
         immediateUpdateSent: false,
         updateError: null,
         mismatchWarned: false,
@@ -716,6 +760,10 @@ export class HostLinkManager {
   private tick(): void {
     const now = this.now();
     for (const [hostId, link] of this.links) {
+      if (link.updateSent && now - link.updateSentAt > HOST_UPDATE_RESTART_TIMEOUT_MS) {
+        const minutes = HOST_UPDATE_RESTART_TIMEOUT_MS / 60_000;
+        this.abandonUpdate(hostId, link, `The node did not come back on the new build within ${minutes} minutes`);
+      }
       if (!link.socket) continue;
       if (link.lastSeenAt !== null && now - link.lastSeenAt > HOST_LINK_STALE_MS) {
         const socket = link.socket;

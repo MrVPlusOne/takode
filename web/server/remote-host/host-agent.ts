@@ -672,9 +672,13 @@ export function startApiProxy(options: {
           },
         );
       } catch (error) {
-        return new Response(`The Takode coordinator at ${base} is unreachable: ${errorMessage(error)}`, {
-          status: 502,
-        });
+        // JSON like the coordinator's own errors, so agent CLIs show the reason instead of "Bad Gateway".
+        // Bun's fetch gives up on an answer after 5 minutes; the coordinator was reached but did not answer.
+        const problem =
+          (error as { name?: string }).name === "TimeoutError"
+            ? "did not answer in time"
+            : `is unreachable: ${errorMessage(error)}`;
+        return Response.json({ error: `The Takode coordinator at ${base} ${problem}` }, { status: 502 });
       }
       // Report the hop, including any wait for the coordinator, so the CLI
       // latency log can separate it from local overhead.

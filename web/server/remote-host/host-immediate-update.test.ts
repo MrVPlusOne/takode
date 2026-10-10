@@ -1,6 +1,10 @@
 import type { CoordinatorToHost } from "../../shared/host-protocol.js";
 import { HostAgent } from "./host-agent.js";
-import { HOST_IMMEDIATE_UPDATE_SETTLE_MS, HostLinkManager } from "./host-link-manager.js";
+import {
+  HOST_IMMEDIATE_UPDATE_SETTLE_MS,
+  HOST_UPDATE_RESTART_TIMEOUT_MS,
+  HostLinkManager,
+} from "./host-link-manager.js";
 import type { HostUpdateMode } from "./host-update-sessions.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 
@@ -198,5 +202,106 @@ describe("immediate host updates after Restart Server", () => {
     await waitFor(() => output === "old build");
     expect(restarted).toEqual([hostId]);
     expect(manager.status(hostId).updateError).toBe("The Takode checkout has uncommitted changes");
+  });
+
+  /** Start a process on the host that prints `text`, and collect its output. */
+  function spawnPrinting(text: string): { output: () => string } {
+    const proc = manager.spawn(hostId, {
+      command: process.execPath,
+      args: ["-e", `process.stdout.write(${JSON.stringify(text)})`],
+      env: {},
+    });
+    let output = "";
+    proc.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    return { output: () => output };
+  }
+
+  // The incident behind this test: the node was asked to update, its link
+  // dropped, the update failed while it was down (so the node's report went
+  // nowhere), and the same node reconnected on its old build. Everything
+  // started there waited for a restart that never came, so creating a session
+  // there hung. The coordinator now asks the reconnected node again; its
+  // second attempt reports on the live link, which releases what was held.
+  it("recovers when the node's update failure was lost while the link was down", async () => {
+    const restarted: string[] = [];
+    manager.onHostRestarted = (host) => restarted.push(host);
+    const attempts: Array<(error: Error) => void> = [];
+    startAgent({
+      build: HOST_BUILD,
+      update: () => new Promise<void>((_resolve, reject) => attempts.push(reject)),
+    });
+    await waitFor(() => manager.status(hostId).online);
+    tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
+    await waitFor(() => attempts.length === 1);
+
+    link!.drop();
+    attempts[0]!(new Error("Could not fetch: network is unreachable"));
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.startBlocker(hostId)).toMatch(/restarting for a Takode update/);
+    const proc = spawnPrinting("old build");
+
+    await waitFor(() => attempts.length === 2);
+    attempts[1]!(new Error("The Takode checkout has uncommitted changes"));
+    await waitFor(() => proc.output() === "old build");
+    expect(manager.status(hostId).updateError).toBe("The Takode checkout has uncommitted changes");
+    expect(manager.startBlocker(hostId)).toBeNull();
+    expect(restarted).toEqual([hostId]);
+  });
+
+  // A node whose update is still running when its link comes back ignores the
+  // repeated request instead of starting a second update.
+  it("does not start a second update on a node that is still updating", async () => {
+    const attempts: Array<() => void> = [];
+    startAgent({ build: HOST_BUILD, update: () => new Promise<void>((resolve) => attempts.push(resolve)) });
+    await waitFor(() => manager.status(hostId).online);
+    tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
+    await waitFor(() => attempts.length === 1);
+
+    link!.drop();
+    await waitFor(() => manager.status(hostId).online);
+    await waitFor(() => link!.sentToHost.some((message) => message.t === "update"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(attempts).toHaveLength(1);
+    expect(manager.status(hostId).updating).toBe(true);
+  });
+
+  // An update that never brings the node back, such as a fetch that hangs,
+  // must not hold the host's commands forever: after the deadline the update
+  // counts as failed and they run on the node's current build.
+  it("gives up on an update that never brings the node back", async () => {
+    const restarted: string[] = [];
+    manager.onHostRestarted = (host) => restarted.push(host);
+    startAgent({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
+    await waitFor(() => manager.status(hostId).online);
+    tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
+    await waitFor(() => manager.status(hostId).updating);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const proc = spawnPrinting("old build");
+    tick(HOST_UPDATE_RESTART_TIMEOUT_MS - 1);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(proc.output()).toBe("");
+
+    tick(2);
+    await waitFor(() => proc.output() === "old build");
+    expect(manager.status(hostId).updateError).toMatch(/did not come back on the new build/);
+    expect(restarted).toEqual([hostId]);
+    // Not asked again until the node restarts.
+    tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
+    expect(manager.status(hostId).updating).toBe(false);
+  });
+
+  // Session creation asks first whether the host can start a process now.
+  it("says why a new process cannot start on the host", async () => {
+    expect(manager.startBlocker(hostId)).toBe("is offline");
+    const agent = startAgent({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.startBlocker(hostId)).toBeNull();
+    tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
+    await waitFor(() => manager.startBlocker(hostId) !== null);
+    expect(manager.startBlocker(hostId)).toMatch(/restarting for a Takode update/);
+    agent.stop();
+    await waitFor(() => !manager.status(hostId).online);
+    expect(manager.startBlocker(hostId)).toBe("is offline");
   });
 });

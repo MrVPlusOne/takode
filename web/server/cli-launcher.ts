@@ -34,6 +34,14 @@ import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host
 
 /** Codex launch preparation on a host can seed a Codex home and caches. */
 const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
+/**
+ * How long creating a Claude session on a remote host waits for the host to
+ * start its process. A host that drops off or stops taking commands would
+ * otherwise hold the request, and the agent CLI waiting on it, without end;
+ * after this the session is returned still starting, and starts when the host
+ * takes the command.
+ */
+export const REMOTE_CLAUDE_START_WAIT_MS = 30_000;
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
 import { type CodexTokenRefreshNoiseState } from "./cli-stream-log-classifier.js";
 import { formatStreamTailForError, pipeLauncherStream } from "./cli-launcher-streams.js";
@@ -762,11 +770,21 @@ export class CliLauncher {
           console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
         });
         break;
-      case "claude-sdk":
+      case "claude-sdk": {
         // Await SDK spawn so the adapter is attached before launch() returns.
         // This ensures the browser sees backend_connected in the state_snapshot.
-        await this.spawnClaudeSdk(sessionId, info, options);
+        const spawning = this.spawnClaudeSdk(sessionId, info, options);
+        if (!info.hostId || (await settlesWithin(spawning, REMOTE_CLAUDE_START_WAIT_MS))) {
+          await spawning;
+          break;
+        }
+        console.warn(
+          `[cli-launcher] Host ${info.hostId} has not started Claude for session ${sessionTag(sessionId)} ` +
+            `within ${REMOTE_CLAUDE_START_WAIT_MS / 1000}s; it starts when the host takes the command`,
+        );
+        spawning.catch((err) => console.error(`[cli-launcher] Claude spawn failed for ${sessionTag(sessionId)}:`, err));
         break;
+      }
       default:
         assertNever(backendType);
     }
@@ -1804,5 +1822,22 @@ export class CliLauncher {
       getSessionNum: (id) => this.getSessionNum(id),
       codexTokenRefreshNoiseBySession: this.codexTokenRefreshNoiseBySession,
     });
+  }
+}
+
+/** Whether `promise` settles, either way, within `ms`. */
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const elapsed = new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), ms)));
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      elapsed,
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }

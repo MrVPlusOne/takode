@@ -43,4 +43,29 @@ describe("resolveRemoteHostForCreate", () => {
     await expect(resolve({ hostId }, "relative/path")).rejects.toThrow("absolute working directory");
     await expect(resolve({ hostId }, undefined)).rejects.toThrow("absolute working directory");
   });
+
+  // A host that cannot start the session's process now is refused at once with
+  // a 503 naming it, instead of a create that waits for the host: offline, or
+  // restarting for an update that may never finish.
+  it("refuses a host that cannot start a process now", async () => {
+    let status: number | undefined;
+    const failWithStatus = (message: string, code: number): never => {
+      status = code;
+      throw new Error(message);
+    };
+    const blocked = (blocker: string | null) =>
+      resolveRemoteHostForCreate({
+        body: { hostId },
+        cwd: "/srv/repo",
+        registry,
+        fail: failWithStatus,
+        startBlocker: () => blocker,
+      });
+    await expect(blocked("is restarting for a Takode update; try again once it is back")).rejects.toThrow(
+      "Host devbox is restarting for a Takode update; try again once it is back",
+    );
+    expect(status).toBe(503);
+    await expect(blocked("is offline")).rejects.toThrow("Host devbox is offline");
+    expect(await blocked(null)).toBe(hostId);
+  });
 });

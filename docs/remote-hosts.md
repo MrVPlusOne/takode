@@ -288,7 +288,12 @@ work in. When the update happens:
   10+ minutes each); it ends them and tells their sessions to run them again.
 - **Never during a landing run** on that host: the update waits for it to
   finish. While the node restarts, anything the coordinator would start there
-  waits for the updated node.
+  waits for the updated node, and new sessions on that host are refused with
+  "restarting for a Takode update" until it is back. If the node reconnects
+  without having restarted, the coordinator asks it again, so an update that
+  failed while the link was down is reported; one that has not brought the node
+  back after 15 minutes counts as failed, and what waited runs on the node's
+  current build. A failed update is not tried again until the node restarts.
 
 `takode host list` and **Settings → Hosts** say what a pending update is
 waiting for.

@@ -65,7 +65,9 @@ describe("startApiProxy", () => {
     }
   });
 
-  // A coordinator that stays away does not hold the request forever.
+  // A coordinator that stays away does not hold the request forever. The
+  // answer is a JSON error, which agent CLIs print as the reason; a plain-text
+  // body left them showing only the status text "Bad Gateway".
   it("fails the request after the wait", async () => {
     const proxy = startApiProxy({
       coordinatorUrl: `http://127.0.0.1:${freePort()}`,
@@ -76,8 +78,34 @@ describe("startApiProxy", () => {
     try {
       const response = await fetch(`http://127.0.0.1:${proxy.port}/api/quests`);
       expect(response.status).toBe(502);
-      expect(await response.text()).toContain("is unreachable");
+      expect(((await response.json()) as { error: string }).error).toContain("is unreachable");
     } finally {
+      proxy.stop();
+    }
+  });
+
+  // A coordinator that takes a request but never answers: Bun's fetch gives
+  // up after 5 minutes with a TimeoutError (stood in for here). The proxy says
+  // the coordinator did not answer rather than that it was unreachable, as a
+  // session create that hung on its host did in the cross-machine spawn incident.
+  it("says the coordinator did not answer when the request times out", async () => {
+    const coordinatorUrl = `http://127.0.0.1:${freePort()}`;
+    const realFetch = globalThis.fetch;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(((input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).startsWith(coordinatorUrl)
+          ? Promise.reject(new DOMException("The operation timed out.", "TimeoutError"))
+          : realFetch(input, init)) as typeof fetch);
+    const proxy = startApiProxy({ coordinatorUrl, port: 0, coordinatorConnected: () => true });
+    try {
+      const response = await realFetch(`http://127.0.0.1:${proxy.port}/api/sessions/create`, { method: "POST" });
+      expect(response.status).toBe(502);
+      expect(((await response.json()) as { error: string }).error).toBe(
+        `The Takode coordinator at ${coordinatorUrl} did not answer in time`,
+      );
+    } finally {
+      fetchSpy.mockRestore();
       proxy.stop();
     }
   });
