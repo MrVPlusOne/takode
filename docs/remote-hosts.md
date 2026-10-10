@@ -251,17 +251,25 @@ sessions too; they relaunch when next used, and the server starts a new node.
 
 ## Updating Takode
 
-Restart Server loads the code in the coordinator's own checkout. When that
-checkout is on a branch that tracks a remote branch, the restart first fetches
-it and, if the checkout is clean (no uncommitted changes to tracked files) and
-only behind, fast-forwards it, so changes pushed or landed from other checkouts
-take effect without updating it by hand. It never touches a checkout with
-uncommitted changes or local commits, or one not on a branch: the restart then
-loads it as it is. **Settings → Restart** shows which commit the server runs
-and where its checkout stands against its branch, with a warning when a
-restart would load older code than the branch has. A fast-forward that brings
-dependency changes still needs `bun install --cwd web --frozen-lockfile`
-before the restart can go ahead; the restart says so.
+Restart Server loads the latest code published on the branch the
+coordinator's own checkout tracks. Before its usual load check and frontend
+build, a production server's restart fetches that branch, fast-forwards the
+checkout when it is behind, and runs `bun install --frozen-lockfile` in `web/`,
+so changes pushed or landed from other checkouts, dependency changes included,
+take effect without updating it by hand.
+
+The restart stops instead, and the running server keeps running, when the
+checkout cannot simply follow its branch: uncommitted changes to tracked files,
+local commits, no branch or no tracked remote branch, a failed fetch, a failed
+fast-forward or a failed install. The error says why and what to do; untracked
+files do not count. **Settings → Restart** shows which commit the server runs,
+where its checkout stands, and ahead of time whether a restart would stop.
+
+To restart onto the checkout as it is (for example while its remote is
+unreachable, or to run local changes), turn off **Update the checkout before
+restarting** there. Development servers (`make dev`) always restart onto their
+working tree as it is, and package installs, which have no Git checkout, are
+not updated.
 
 The host's checkout should run the same commit as the coordinator. `takode
 host list` and **Settings → Hosts** show each host's commit and flag a

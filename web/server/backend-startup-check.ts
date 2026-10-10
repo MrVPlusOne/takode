@@ -6,6 +6,7 @@ export const DEPENDENCY_INSTALL_COMMAND = "bun install --cwd web --frozen-lockfi
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/;
 const MAX_REPORTED_OUTPUT_CHARS = 2_000;
+const DEPENDENCY_INSTALL_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Lists direct dependencies and devDependencies of `webRoot/package.json` that
@@ -45,6 +46,42 @@ export async function checkBackendStartup(webRoot: string): Promise<void> {
   }
   const importFailure = await resolveBackendImports(webRoot);
   if (importFailure) throw new Error(`The backend code on disk cannot load:\n${importFailure}`);
+}
+
+/**
+ * Installs `webRoot`'s dependencies exactly as its lockfile pins them, the
+ * same as {@link DEPENDENCY_INSTALL_COMMAND}. A no-op install takes a few
+ * milliseconds. Throws with the end of the install's output when it fails.
+ */
+export function installDependencies(webRoot: string, timeoutMs = DEPENDENCY_INSTALL_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, ["install", "--frozen-lockfile"], {
+      cwd: webRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    const collect = (chunk: string) => {
+      output = (output + chunk).slice(-MAX_REPORTED_OUTPUT_CHARS);
+    };
+    child.stdout.setEncoding("utf-8").on("data", collect);
+    child.stderr.setEncoding("utf-8").on("data", collect);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      // Once stopped, the install counts as failed even if it finished meanwhile.
+      if (timedOut) reject(new Error(`${output.trim()}\nStopped after ${Math.round(timeoutMs / 1000)} s.`.trim()));
+      else if (code === 0) resolvePromise();
+      else reject(new Error(output.trim() || `bun install exited with ${code ?? signal}`));
+    });
+  });
 }
 
 async function readInstalledVersion(webRoot: string, name: string): Promise<string | null> {

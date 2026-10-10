@@ -283,7 +283,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "restart",
-        text: "Restart Server process reconnect sessions interrupt restart blockers pending permission checkout branch behind update code fast-forward",
+        text: "Restart Server process reconnect sessions interrupt restart blockers pending permission checkout branch behind update code fast-forward pull latest install dependencies frozen lockfile update the checkout before restarting",
       },
     ],
   },

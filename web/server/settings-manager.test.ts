@@ -42,6 +42,7 @@ describe("settings-manager", () => {
       serverId: "",
       serverSlug: "local",
       serverTimeZone: "",
+      restartUpdatesCheckout: true,
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -106,6 +107,19 @@ describe("settings-manager", () => {
     writeFileSync(settingsPath, JSON.stringify({ serverTimeZone: "Mars/Olympus_Mons" }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().serverTimeZone).toBe("");
+  });
+
+  it("updates the server checkout before restarts unless turned off", async () => {
+    // Defaults on: Restart Server loads the code landed on the checkout's branch.
+    expect(getSettings().restartUpdatesCheckout).toBe(true);
+    expect(updateSettings({ restartUpdatesCheckout: false }).restartUpdatesCheckout).toBe(false);
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).restartUpdatesCheckout).toBe(false);
+
+    // A hand-edited non-boolean falls back to the default.
+    writeFileSync(settingsPath, JSON.stringify({ restartUpdatesCheckout: "no" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().restartUpdatesCheckout).toBe(true);
   });
 
   it("rejects invalid direct serverSlug updates", () => {
@@ -587,6 +601,7 @@ describe("settings-manager", () => {
       serverId: "",
       serverSlug: "local",
       serverTimeZone: "",
+      restartUpdatesCheckout: true,
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

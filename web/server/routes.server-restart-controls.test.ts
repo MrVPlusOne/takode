@@ -37,6 +37,7 @@ vi.mock("./path-resolver.js", () => ({
 }));
 
 import { createSettingsRoutes } from "./routes/settings.js";
+import { getSettings } from "./settings-manager.js";
 import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
@@ -704,6 +705,8 @@ describe("server restart controls", () => {
             requestRestart,
             prepareRestart,
             serverCheckout,
+            // A production server: restarts bring the checkout up to date first.
+            updateCheckoutOnRestart: true,
             ...extraOptions,
           },
           pushoverNotifier: undefined,
@@ -788,49 +791,87 @@ describe("server restart controls", () => {
       expect(requestRestart).not.toHaveBeenCalled();
     });
 
-    it("still restarts onto a checkout it cannot update, and reports and logs that it is behind", async () => {
+    it("stops the restart before checking, building or interrupting anything when the checkout cannot be updated", async () => {
+      // Replaces restarting onto older code: the running server keeps running and the reason is reported.
       const update: ServerCheckoutUpdate = {
-        action: "unchanged",
+        action: "blocked",
         from: null,
-        error: null,
-        status: checkoutStatus({
-          state: "behind",
-          head: OLD,
-          behind: 2,
-          localChanges: true,
-        }),
+        error: "The server checkout (main) has uncommitted changes to tracked files. Commit or discard them.",
+        status: checkoutStatus({ state: "behind", head: OLD, behind: 2, localChanges: true }),
       };
+      const checkBackendStartup = vi.fn(async () => {});
 
-      const res = await appWithCheckout({
-        updateBeforeRestart: vi.fn(async () => update),
-      }).request("/api/server/restart", { method: "POST" });
+      const res = await appWithCheckout(
+        { updateBeforeRestart: vi.fn(async () => update) },
+        { checkBackendStartup },
+      ).request("/api/server/restart", { method: "POST" });
 
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({
-        checkoutUpdate: update,
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toEqual({
+        error:
+          'Restart blocked: The server checkout (main) has uncommitted changes to tracked files. Commit or discard them. The server keeps running; restart again once that is fixed, or turn off "Update the checkout before restarting" in Settings > Restart to restart onto the checkout as it is.',
       });
-      expect(requestRestart).toHaveBeenCalledOnce();
+      expect(checkBackendStartup).not.toHaveBeenCalled();
+      expect(prepareRestart).not.toHaveBeenCalled();
+      expect(requestRestart).not.toHaveBeenCalled();
       expect(restartLog.warn).toHaveBeenCalledWith(
-        "Server checkout is behind its branch and was left as it is; restarting onto older code",
-        expect.objectContaining({ behind: 2, localChanges: true }),
+        "Could not update the server checkout before restart",
+        expect.objectContaining({ behind: 2, localChanges: true, error: update.error }),
       );
+      // A blocked attempt does not hold the restart lock.
+      expect(
+        (
+          await appWithCheckout({ updateBeforeRestart: vi.fn(async () => update) }).request("/api/server/restart", {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(409);
     });
 
-    it("restarts without a checkout report when reading the checkout fails", async () => {
+    it("stops the restart when the checkout cannot even be read", async () => {
       const updateBeforeRestart = vi.fn(async (): Promise<ServerCheckoutUpdate> => {
         throw new Error("git is not installed");
       });
 
       const res = await appWithCheckout({ updateBeforeRestart }).request("/api/server/restart", { method: "POST" });
 
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({
-        restartRequested: true,
-        checkoutUpdate: null,
-      });
-      expect(restartLog.warn).toHaveBeenCalledWith("Could not check the server checkout before restart", {
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(
+        /^Restart blocked: Could not update the server checkout: git is not installed\. The server keeps running;/,
+      );
+      expect(requestRestart).not.toHaveBeenCalled();
+      expect(restartLog.warn).toHaveBeenCalledWith("Could not update the server checkout before restart", {
         error: "git is not installed",
       });
+    });
+
+    it("restarts onto the checkout as it is when the update is turned off in Settings", async () => {
+      vi.mocked(getSettings).mockReturnValueOnce({
+        ...vi.mocked(getSettings)(),
+        restartUpdatesCheckout: false,
+      } as ReturnType<typeof getSettings>);
+      const updateBeforeRestart = vi.fn();
+
+      const res = await appWithCheckout({ updateBeforeRestart }).request("/api/server/restart", { method: "POST" });
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({ restartRequested: true, checkoutUpdate: null });
+      expect(updateBeforeRestart).not.toHaveBeenCalled();
+      expect(requestRestart).toHaveBeenCalledOnce();
+    });
+
+    it("restarts a development server onto its working tree as it is", async () => {
+      const updateBeforeRestart = vi.fn();
+
+      const res = await appWithCheckout({ updateBeforeRestart }, { updateCheckoutOnRestart: false }).request(
+        "/api/server/restart",
+        { method: "POST" },
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({ restartRequested: true, checkoutUpdate: null });
+      expect(updateBeforeRestart).not.toHaveBeenCalled();
     });
 
     it("serves the checkout status for Settings, refreshing on request", async () => {
@@ -840,6 +881,8 @@ describe("server restart controls", () => {
       const cached = await checkoutApp.request("/api/server/checkout");
       await expect(cached.json()).resolves.toMatchObject({
         status: { state: "behind", behind: 1 },
+        restartMode: "on",
+        blocker: null,
       });
       expect(status).toHaveBeenLastCalledWith({ refresh: false });
 
@@ -848,7 +891,30 @@ describe("server restart controls", () => {
 
       // A server without a Git checkout has nothing to show.
       const none = await appWithCheckout(undefined).request("/api/server/checkout");
-      await expect(none.json()).resolves.toEqual({ status: null });
+      await expect(none.json()).resolves.toEqual({ status: null, restartMode: "on", blocker: null });
+    });
+
+    it("says ahead of time why a restart would stop, only when the restart would update the checkout", async () => {
+      const status = vi.fn(async () => checkoutStatus({ state: "ahead", ahead: 2 }));
+
+      const on = await appWithCheckout({ status }).request("/api/server/checkout");
+      await expect(on.json()).resolves.toMatchObject({
+        restartMode: "on",
+        blocker:
+          "The server checkout (main) has 2 local commits not on origin/main. Push them or reset the checkout to origin/main.",
+      });
+
+      const development = await appWithCheckout({ status }, { updateCheckoutOnRestart: false }).request(
+        "/api/server/checkout",
+      );
+      await expect(development.json()).resolves.toMatchObject({ restartMode: "development", blocker: null });
+
+      vi.mocked(getSettings).mockReturnValueOnce({
+        ...vi.mocked(getSettings)(),
+        restartUpdatesCheckout: false,
+      } as ReturnType<typeof getSettings>);
+      const off = await appWithCheckout({ status }).request("/api/server/checkout");
+      await expect(off.json()).resolves.toMatchObject({ restartMode: "off", blocker: null });
     });
   });
 });

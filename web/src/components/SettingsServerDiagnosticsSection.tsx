@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { InterruptRestartBlockersResponse, ServerCheckoutStatus, ServerInterruptResultItem } from "../api.js";
+import type { InterruptRestartBlockersResponse, ServerCheckoutInfo, ServerInterruptResultItem } from "../api.js";
+import { RESTART_UPDATES_CHECKOUT_LABEL } from "../../server/server-checkout-policy.js";
 import { RestartHostProgress } from "./RestartHostProgress.js";
 import { describeServerCheckout } from "../server-checkout-status.js";
-import { SettingsSubsection } from "./settings-controls.js";
+import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
   if (items.length === 0) {
@@ -150,7 +151,10 @@ export function SettingsServerDiagnosticsSection({
   restartSuccess = "",
   restartPrepResult,
   restarting,
-  checkoutStatus = null,
+  checkout = null,
+  checkoutUpdateSaving = false,
+  checkoutUpdateError = "",
+  onSetRestartUpdatesCheckout,
   onSaveServerSlug,
   onRestartServer,
   onRefreshCheckoutStatus,
@@ -167,8 +171,12 @@ export function SettingsServerDiagnosticsSection({
   restartSuccess?: string;
   restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
-  /** The server's Git checkout against its branch; null when unknown or not a Git checkout. */
-  checkoutStatus?: ServerCheckoutStatus | null;
+  /** The server's Git checkout against its branch and what a restart does with it; null when unknown. */
+  checkout?: ServerCheckoutInfo | null;
+  checkoutUpdateSaving?: boolean;
+  checkoutUpdateError?: string;
+  /** Turns updating the checkout before restarts on or off. */
+  onSetRestartUpdatesCheckout?: (enabled: boolean) => void;
   onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
   /** Re-reads the checkout status (with a fetch) when the user is about to restart. */
@@ -178,7 +186,10 @@ export function SettingsServerDiagnosticsSection({
 }) {
   const visibleRestartPrepResult = restartPrepResult ?? null;
   const [confirmingRestart, setConfirmingRestart] = useState(false);
-  const checkout = describeServerCheckout(checkoutStatus);
+  const checkoutLine = describeServerCheckout(checkout);
+  // The update applies only to a production server running from a Git checkout.
+  const showCheckoutUpdateToggle =
+    !!checkout?.status && checkout.status.state !== "not-git" && checkout.restartMode !== "development";
 
   return (
     <>
@@ -262,10 +273,11 @@ export function SettingsServerDiagnosticsSection({
       <SettingsSubsection title="Restart" hidden={isRowHidden("restart")}>
         <div className="space-y-3">
           <p className="text-xs text-cc-muted">
-            Restart the server process to load new code. If the server&apos;s checkout is clean and only behind its
-            branch, it is fast-forwarded first. Sessions reconnect on demand when queued work or a response needs a
-            backend. If restart readiness is blocked by active turns or pending permission dialogs, restart prep
-            interrupts active blockers first and reports anything still unresolved.
+            Restart the server process to load new code. A production server running from a Git checkout first fetches
+            the branch it tracks, fast-forwards to it and installs dependencies from the lockfile; if the checkout has
+            local changes or commits, or cannot be fetched, the restart stops and says why. Sessions reconnect on demand
+            when queued work or a response needs a backend. If restart readiness is blocked by active turns or pending
+            permission dialogs, restart prep interrupts active blockers first and reports anything still unresolved.
           </p>
 
           {!restartSupported && (
@@ -276,18 +288,33 @@ export function SettingsServerDiagnosticsSection({
             </div>
           )}
 
-          {checkout && (
+          {checkoutLine && (
             <p
               data-testid="server-checkout-status"
-              data-tone={checkout.tone}
+              data-tone={checkoutLine.tone}
               className={`text-xs ${
-                checkout.tone === "warning"
+                checkoutLine.tone === "warning"
                   ? "px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400"
                   : "text-cc-muted"
               }`}
             >
-              {checkout.text}
+              {checkoutLine.text}
             </p>
+          )}
+
+          {showCheckoutUpdateToggle && (
+            <SettingsToggle
+              label={RESTART_UPDATES_CHECKOUT_LABEL}
+              description="Turn off to restart onto the checkout as it is, e.g. while its remote is unreachable or to run local changes."
+              checked={checkout?.restartMode === "on"}
+              disabled={checkoutUpdateSaving || !onSetRestartUpdatesCheckout}
+              onChange={(next) => onSetRestartUpdatesCheckout?.(next)}
+            />
+          )}
+          {checkoutUpdateError && (
+            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+              {checkoutUpdateError}
+            </div>
           )}
 
           {restartError && (
