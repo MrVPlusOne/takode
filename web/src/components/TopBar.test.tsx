@@ -1433,6 +1433,45 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
   });
 
+  it("names a prompt's quest on its second line and falls back to the session name", () => {
+    // The user asked for the quest a question belongs to instead of the session
+    // name, keeping the session number and age; prompts outside a quest thread
+    // still show the session.
+    resetStore({
+      ...twoPromptsState(),
+      quests: [{ questId: "q-12", title: "Make offline hosts obvious", status: "in_progress" } as never],
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-1",
+              category: "needs-input",
+              summary: "Pick a chip style",
+              timestamp: 1,
+              messageId: "m1",
+              threadKey: "q-12",
+              questId: "q-12",
+            },
+          ],
+        ],
+        [
+          "s2",
+          [{ id: "n-2", category: "needs-input", summary: "Confirm rollback plan", timestamp: 2, messageId: "m2" }],
+        ],
+      ]),
+    });
+    render(<TopBar />);
+    fireEvent.click(screen.getByTestId("attention-list-button"));
+
+    const places = within(screen.getByRole("dialog", { name: "Everything that needs attention" }))
+      .getAllByTestId("attention-item-place")
+      .map((place) => place.textContent);
+    expect(places[0]).toMatch(/^#102 Worker Two· /);
+    expect(places[1]).toMatch(/^q-12 Make offline hosts obvious· #101 · /);
+    expect(places[1]).not.toContain("Worker One");
+  });
+
   it("opens one item from the list with Go to and closes the list", () => {
     resetStore(twoPromptsState());
     render(<TopBar />);

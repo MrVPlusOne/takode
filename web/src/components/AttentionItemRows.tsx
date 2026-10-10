@@ -2,6 +2,7 @@ import { useState } from "react";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
+import { attentionQuestId } from "../hooks/useAttentionQuestTitles.js";
 import {
   ATTENTION_GROUP_TITLE,
   AttentionKindIcon,
@@ -29,22 +30,48 @@ export function SessionAttentionToast({ landing }: { landing: NextAttentionLandi
 }
 
 function itemLabel(item: NextAttentionItem): string {
-  return item.kind === "unread" && item.threadKey === null ? "Latest result" : item.label;
+  if (item.kind === "unread" && item.threadKey === null) return "Latest result";
+  // A Notify Me result leads with what happened; its quest moves to the second line.
+  if (item.kind === "notify-me") return item.entry.pending?.summary || item.label;
+  return item.label;
+}
+
+/** Where the item lives, for its second line: its quest when it belongs to one, else nothing. */
+function questPlace(item: NextAttentionItem, questTitleFor?: (questId: string) => string | undefined) {
+  // Unread rows already lead with their thread's title.
+  if (item.kind === "unread") return null;
+  const questId = attentionQuestId(item);
+  if (!questId) return null;
+  const title =
+    questTitleFor?.(questId) ?? (item.kind === "notify-me" ? withoutQuestId(item.entry.title, questId) : "");
+  return { questId, title };
+}
+
+function withoutQuestId(title: string, questId: string): string {
+  const trimmed = title.trim();
+  return trimmed.toLowerCase().startsWith(`${questId} `) ? trimmed.slice(questId.length).trim() : trimmed;
 }
 
 /**
  * One item in an attention list: what it is, where it lives and a Go to.
- * `isNext` marks the item the list's Next step opens.
+ * The second line names the item's quest ("q-12 Title · #2851 · 5m ago") when
+ * it belongs to a quest thread, and otherwise `sessionLabel`. `sessionTag` is
+ * the short session reference kept beside a quest; lists inside one session
+ * leave both out. `isNext` marks the item the list's Next step opens.
  */
 export function AttentionItemRow({
   item,
   onOpen,
   sessionLabel,
+  sessionTag,
+  questTitleFor,
   isNext = false,
 }: {
   item: NextAttentionItem;
   onOpen: (item: NextAttentionItem) => void;
   sessionLabel?: string;
+  sessionTag?: string;
+  questTitleFor?: (questId: string) => string | undefined;
   isNext?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -97,14 +124,52 @@ export function AttentionItemRow({
             Go to
           </button>
         </div>
-        {pending?.summary && <p className="mt-0.5 text-[11px] leading-snug text-cc-muted">{pending.summary}</p>}
-        <p className="mt-0.5 truncate text-[10px] text-cc-muted">
-          {sessionLabel && <span>{sessionLabel} · </span>}
-          {item.timestamp > 0 ? formatRelativeTime(item.timestamp) : null}
-        </p>
+        <AttentionItemPlace
+          place={questPlace(item, questTitleFor)}
+          sessionLabel={sessionLabel}
+          sessionTag={sessionTag}
+          timestamp={item.timestamp}
+        />
         {error && <p className="mt-1 text-[10px] leading-snug text-cc-error">{error}</p>}
       </div>
     </div>
+  );
+}
+
+/** The row's second line: quest (or session) first, then the short session tag and age, which never truncate. */
+export function AttentionItemPlace({
+  place,
+  sessionLabel,
+  sessionTag,
+  timestamp,
+}: {
+  place: { questId: string; title: string } | null;
+  sessionLabel?: string;
+  sessionTag?: string;
+  timestamp: number;
+}) {
+  const tail = [place ? sessionTag : null, timestamp > 0 ? formatRelativeTime(timestamp) : null].filter(Boolean);
+  const lead = place ? null : sessionLabel;
+  return (
+    <p
+      className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-cc-muted"
+      data-testid="attention-item-place"
+    >
+      {place ? (
+        <span className="min-w-0 truncate">
+          <span className="font-medium text-cc-fg/70">{place.questId}</span>
+          {place.title && <span> {place.title}</span>}
+        </span>
+      ) : (
+        lead && <span className="min-w-0 truncate">{lead}</span>
+      )}
+      {tail.length > 0 && (
+        <span className="shrink-0">
+          {place || lead ? "· " : ""}
+          {tail.join(" · ")}
+        </span>
+      )}
+    </p>
   );
 }
 
@@ -117,12 +182,16 @@ export function AttentionItemSections({
   kinds,
   onOpen,
   sessionLabelFor,
+  sessionTagFor,
+  questTitleFor,
   nextKey,
 }: {
   items: readonly NextAttentionItem[];
   kinds: readonly AttentionKind[];
   onOpen: (item: NextAttentionItem) => void;
   sessionLabelFor?: (item: NextAttentionItem) => string | undefined;
+  sessionTagFor?: (item: NextAttentionItem) => string | undefined;
+  questTitleFor?: (questId: string) => string | undefined;
   nextKey?: string | null;
 }) {
   return (
@@ -147,6 +216,8 @@ export function AttentionItemSections({
                   item={item}
                   onOpen={onOpen}
                   sessionLabel={sessionLabelFor?.(item)}
+                  sessionTag={sessionTagFor?.(item)}
+                  questTitleFor={questTitleFor}
                   isNext={item.key === nextKey}
                 />
               ))}

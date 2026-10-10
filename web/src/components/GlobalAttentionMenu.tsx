@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { useNextAttention } from "../hooks/useNextAttention.js";
 import { useStore } from "../store.js";
+import { useAttentionQuestTitles } from "../hooks/useAttentionQuestTitles.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
 import { AttentionItemSections } from "./AttentionItemRows.js";
 import { AttentionKindIcon, NextAttentionToast, NextChevron, attentionTone } from "./AttentionKind.js";
@@ -129,7 +130,8 @@ export function GlobalAttentionPanel({
   onClose,
   onNext,
   onOpen,
-  sessionLabelFor,
+  sessionsOverride,
+  questTitleFor,
   inline = false,
 }: {
   items: readonly NextAttentionItem[];
@@ -139,19 +141,22 @@ export function GlobalAttentionPanel({
   onClose: () => void;
   onNext: () => void;
   onOpen: (item: NextAttentionItem) => void;
-  /** Overrides the session line under each row; the Playground has no real sessions. */
-  sessionLabelFor?: (item: NextAttentionItem) => string | undefined;
+  /** Session numbers and names, and quest titles, for the Playground, which has no real sessions or quests. */
+  sessionsOverride?: ReadonlyArray<{ sessionId: string; sessionNum?: number | null; name?: string }>;
+  questTitleFor?: (questId: string) => string | undefined;
   inline?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    for (const { sessionId, sessionNum, name } of sdkSessions) {
-      labels.set(sessionId, [sessionNum ? `#${sessionNum}` : null, name].filter(Boolean).join(" "));
+  const storeQuestTitleFor = useAttentionQuestTitles(items);
+  const sessionInfo = useMemo(() => {
+    const info = new Map<string, { tag?: string; label?: string }>();
+    for (const { sessionId, sessionNum, name } of sessionsOverride ?? sdkSessions) {
+      const tag = sessionNum ? `#${sessionNum}` : undefined;
+      info.set(sessionId, { tag, label: [tag, name].filter(Boolean).join(" ") || undefined });
     }
-    return labels;
-  }, [sdkSessions]);
+    return info;
+  }, [sdkSessions, sessionsOverride]);
 
   useEffect(() => {
     if (inline) return;
@@ -228,7 +233,9 @@ export function GlobalAttentionPanel({
           kinds={ALL_KINDS}
           onOpen={onOpen}
           nextKey={nextKey}
-          sessionLabelFor={sessionLabelFor ?? ((item) => sessionLabels.get(item.sessionId))}
+          sessionLabelFor={(item) => sessionInfo.get(item.sessionId)?.label}
+          sessionTagFor={(item) => sessionInfo.get(item.sessionId)?.tag}
+          questTitleFor={questTitleFor ?? storeQuestTitleFor}
         />
       </div>
     </div>

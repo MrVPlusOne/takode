@@ -1282,6 +1282,51 @@ describe("NotificationChip", () => {
       expect(notifyMe.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
+    it("names the quest of prompts and Notify Me results on their second line", () => {
+      // In the session's list the quest replaces nothing but the bare time:
+      // prompts show their quest, and Notify Me rows lead with the result and
+      // move the quest title to the second line instead of repeating it.
+      mockStoreState.quests = [{ questId: "q-7", title: "Offline hosts", status: "in_progress" }];
+      setNotifications("s1", [
+        {
+          id: "ask",
+          category: "needs-input",
+          summary: "Pick a chip style",
+          timestamp: 100,
+          messageId: "m-1",
+          threadKey: "q-7",
+          questId: "q-7",
+          done: false,
+        },
+      ]);
+      render(
+        <NotificationChip
+          sessionId="s1"
+          attentionPreview={{
+            notifyMe: [
+              {
+                sessionId: "s1",
+                sessionName: "Leader",
+                sessionNum: 1,
+                threadKey: "q-5",
+                title: "q-5 Ship it",
+                trackedAt: 0,
+                pending: { id: "9", messageId: "m-9", timestamp: 90, summary: "Landed" },
+              },
+            ],
+            unread: [],
+          }}
+        />,
+      );
+      openInbox();
+
+      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+      expect(within(dialog).getByTestId("notification-quest-place")).toHaveTextContent("q-7 Offline hosts");
+      const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
+      expect(within(notifyMe).getByRole("button", { name: "Go to Landed" })).toBeInTheDocument();
+      expect(within(notifyMe).getByTestId("attention-item-place")).toHaveTextContent(/^q-5 Ship it· /);
+    });
+
     it("keeps its place across remounts, like switching threads", () => {
       // The feed chip remounts when the selected thread changes; the walk must
       // not restart at the top each time.

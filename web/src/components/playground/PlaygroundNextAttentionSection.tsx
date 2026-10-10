@@ -9,10 +9,14 @@ import { SidebarQuickActions } from "../SidebarQuickActions.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const NOW = Date.now();
-const SESSION_LABELS: Record<string, string> = {
-  leader: "#2851 DevBox takode",
-  worker: "#2920 Redesign the attention navigators",
-  other: "#2855 Codex login refresh",
+const SESSIONS = [
+  { sessionId: "leader", sessionNum: 2851, name: "DevBox takode" },
+  { sessionId: "worker", sessionNum: 2920, name: "Redesign the attention navigators" },
+  { sessionId: "other", sessionNum: 2855, name: "Codex login refresh" },
+];
+const QUEST_TITLES: Record<string, string> = {
+  "q-2428": "Make offline hosts obvious in the session list",
+  "q-2416": "Restart Server pulls the latest published code",
 };
 
 function prompt(sessionId: string, id: string, summary: string, minutesAgo: number, threadKey?: string) {
@@ -25,7 +29,7 @@ function prompt(sessionId: string, id: string, summary: string, minutesAgo: numb
     ...(threadKey ? { threadKey, questId: threadKey } : {}),
     done: false,
   } as SessionNotification;
-  return { sessionId, sessionName: SESSION_LABELS[sessionId]!, sessionNum: null, notification };
+  return { sessionId, sessionName: "", sessionNum: null, notification };
 }
 
 const NOTIFY_ME: ThreadMonitoringEntry = {
@@ -41,7 +45,7 @@ const NOTIFY_ME: ThreadMonitoringEntry = {
 /** A realistic cross-session queue: two prompts, one Notify Me result and three unread results. */
 const QUEUE = buildNextAttentionQueue({
   needsInput: [
-    prompt("leader", "n-1", "q-2420: pre-approve another coordinator restart for the phone fix?", 2, "q-2420"),
+    prompt("leader", "n-1", "Make offline hosts obvious: pick a chip style", 59, "q-2428"),
     prompt("other", "n-2", "Rotate the Codex token now or after the Execute window?", 45),
   ],
   notifyMe: [NOTIFY_ME],
@@ -82,7 +86,8 @@ function InteractiveAttentionList() {
         onClose={() => {}}
         onNext={() => setLanding(goNext())}
         onOpen={open}
-        sessionLabelFor={(item) => SESSION_LABELS[item.sessionId]}
+        sessionsOverride={SESSIONS}
+        questTitleFor={(questId) => QUEST_TITLES[questId]}
       />
       {landing && <NextAttentionToast landing={landing} inline />}
     </div>
@@ -116,7 +121,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List and Phone Top Bar"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with its session and Go to. Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names its quest when it belongs to a quest thread (quest ID and title, then the session number and age) and otherwise its session; Notify Me rows lead with the result. Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Attention list pill (desktop and phone; amber for prompts, blue for results)">
