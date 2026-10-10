@@ -35,13 +35,35 @@ const mockStoreState: Record<string, any> = {
   requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
 };
 
-vi.mock("../store.js", () => {
-  const useStore: any = (selector: (state: any) => unknown) => selector(mockStoreState);
-  useStore.getState = () => mockStoreState;
-  useStore.setState = (update: any) => {
+vi.mock("../store.js", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const { createNeedsInputDraftStoreSlice } = await import("../store-needs-input-drafts.js");
+  // Store updates bump a version that re-renders subscribers, so state written
+  // through store actions (like needs-input answer drafts) reaches the UI.
+  const listeners = new Set<() => void>();
+  let version = 0;
+  const setState = (update: any) => {
     const next = typeof update === "function" ? update(mockStoreState) : update;
-    if (next && next !== mockStoreState) Object.assign(mockStoreState, next);
+    if (!next || next === mockStoreState) return;
+    Object.assign(mockStoreState, next);
+    version += 1;
+    for (const listener of listeners) listener();
   };
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const withDraftSlice = () => {
+    if (!mockStoreState.setNeedsInputDraftAnswer)
+      Object.assign(mockStoreState, createNeedsInputDraftStoreSlice(setState));
+    return mockStoreState;
+  };
+  const useStore: any = (selector: (state: any) => unknown) => {
+    useSyncExternalStore(subscribe, () => version);
+    return selector(withDraftSlice());
+  };
+  useStore.getState = withDraftSlice;
+  useStore.setState = setState;
   return { useStore };
 });
 
@@ -100,6 +122,7 @@ function resetStore(overrides: Partial<typeof mockStoreState> = {}) {
   mockStoreState.sessionNotifications = new Map();
   mockStoreState.sessionNames = new Map();
   mockStoreState.sdkSessions = [];
+  mockStoreState.needsInputDrafts = new Map();
   Object.assign(mockStoreState, overrides);
 }
 
@@ -711,6 +734,50 @@ describe("GlobalNeedsInputMenu", () => {
       expect.arrayContaining([expect.objectContaining({ id: "n-questions", done: true })]),
     );
     expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
+    // Submitting ends the shared draft.
+    expect(mockStoreState.needsInputDrafts.get("s1")).toBeUndefined();
+  });
+
+  it("keeps unsent answers when the menu closes and reopens", () => {
+    // The menu row shares the feed card's store-held draft, so closing the menu
+    // (which unmounts the row) does not throw away a partly answered prompt.
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-draft",
+              category: "needs-input",
+              summary: "Need rollout choices",
+              questions: [
+                { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+                { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+              ],
+              timestamp: Date.now(),
+              messageId: "msg-123",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Worker", createdAt: 1 }],
+    });
+    const menuButton = () =>
+      screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(menuButton());
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: staged" }));
+    fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
+      target: { value: "after smoke test" },
+    });
+    fireEvent.click(menuButton());
+    expect(screen.queryByLabelText("Answer for Which rollout?")).toBeNull();
+    fireEvent.click(menuButton());
+
+    expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
+    expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("after smoke test");
   });
 
   it("uses notification thread metadata when sending a global response", async () => {

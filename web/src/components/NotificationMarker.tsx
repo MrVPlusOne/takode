@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import { api } from "../api.js";
+import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
@@ -79,15 +80,23 @@ export function NotificationMarker({
     () => (notif ? getNotificationSourceContext(notif, messages, messageId) : null),
     [messageId, messages, notif],
   );
-  const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  // Unsubmitted answers live in the store so they survive this card remounting when the feed regroups.
+  const {
+    answers: answersByQuestion,
+    setAnswer: setQuestionAnswer,
+    clear: clearAnswers,
+  } = useNeedsInputDraft(isAction ? sessionId : undefined, notif?.id);
   const [historyOpen, setHistoryOpen] = useState(false);
   const canSendQuickReply =
     !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
 
   useEffect(() => {
-    setAnswersByQuestion({});
     setHistoryOpen(false);
   }, [notif?.id, isDone]);
+  const hasDraft = Object.keys(answersByQuestion).length > 0;
+  useEffect(() => {
+    if (isDone && hasDraft) clearAnswers();
+  }, [clearAnswers, hasDraft, isDone]);
   const toggleLabel = isReview
     ? isDone
       ? "Mark as not reviewed"
@@ -170,7 +179,7 @@ export function NotificationMarker({
             })
             .then(() => {
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
-              setAnswersByQuestion({});
+              clearAnswers();
             })
             .catch(() => {});
         },
@@ -179,6 +188,7 @@ export function NotificationMarker({
     [
       answersByQuestion,
       canSendQuickReply,
+      clearAnswers,
       currentThreadKey,
       messageId,
       notif,
@@ -188,10 +198,6 @@ export function NotificationMarker({
       summary,
     ],
   );
-
-  const setQuestionAnswer = useCallback((questionKey: string, value: string) => {
-    setAnswersByQuestion((prev) => ({ ...prev, [questionKey]: value }));
-  }, []);
 
   const selectedThreadKey = currentThreadKey ? normalizeThreadKey(currentThreadKey) : undefined;
   if (

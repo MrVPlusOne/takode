@@ -65,6 +65,7 @@ import {
 } from "./store-chat-display.js";
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
+import { createNeedsInputDraftStoreSlice } from "./store-needs-input-drafts.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
 import { createSyncedProjectionStoreSlice } from "./store-synced-projections.js";
@@ -279,6 +280,7 @@ export const useStore = create<AppState>((set, get) => ({
   annotationHover: null,
   setAnnotationHover: (annotationHover) => set({ annotationHover }),
   composerDrafts: new Map(),
+  ...createNeedsInputDraftStoreSlice(set),
   pendingUserUploads: new Map(),
   pendingUserUploadRestorations: new Map(),
   replyContexts: new Map(),
@@ -1683,6 +1685,7 @@ export const useStore = create<AppState>((set, get) => ({
       annotationEditor: null,
       annotationHover: null,
       composerDrafts: new Map(),
+      needsInputDrafts: new Map(),
       pendingUserUploads: new Map(),
       pendingUserUploadRestorations: new Map(),
       replyContexts: new Map(),

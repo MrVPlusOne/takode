@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
+import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { applySessionNotifications, type NotificationStatusSnapshot } from "../notification-status.js";
@@ -156,7 +157,12 @@ function GlobalNeedsInputRow({
   muted: boolean;
   onNavigate: (entry: GlobalNeedsInputEntry) => void;
 }) {
-  const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  // Shares the feed card's draft for this prompt, so answers started in either place carry over.
+  const {
+    answers: answersByQuestion,
+    setAnswer,
+    clear: clearAnswers,
+  } = useNeedsInputDraft(entry.sessionId, entry.notification.id);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [muteError, setMuteError] = useState<string | null>(null);
   const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);
@@ -180,10 +186,13 @@ function GlobalNeedsInputRow({
   const sourceContext =
     localSourceContext ?? (remoteSourceContext?.key === remoteContextKey ? remoteSourceContext.value : null);
 
-  const setQuestionAnswer = useCallback((key: string, value: string) => {
-    setDeliveryError(null);
-    setAnswersByQuestion((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  const setQuestionAnswer = useCallback(
+    (key: string, value: string) => {
+      setDeliveryError(null);
+      setAnswer(key, value);
+    },
+    [setAnswer],
+  );
 
   const jump = useCallback(() => {
     onNavigate(entry);
@@ -219,14 +228,14 @@ function GlobalNeedsInputRow({
       });
       markLocalNotificationDone(entry.sessionId, entry.notification.id);
       useStore.getState().requestBottomAlignOnNextUserMessage?.(entry.sessionId);
-      setAnswersByQuestion({});
+      clearAnswers();
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "Please retry.";
       setDeliveryError(`Response could not be delivered. ${message}`);
     } finally {
       setSending(false);
     }
-  }, [answersByQuestion, canSubmitResponse, entry, ownerThreadKey, questionViews]);
+  }, [answersByQuestion, canSubmitResponse, clearAnswers, entry, ownerThreadKey, questionViews]);
 
   const toggleMuted = useCallback(async () => {
     setTogglingMute(true);

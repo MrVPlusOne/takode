@@ -410,6 +410,12 @@ export interface AppState {
   composerDrafts: Map<string, ComposerDraft>;
   setComposerDraft: (sessionId: string, draft: ComposerDraft) => void;
   clearComposerDraft: (sessionId: string) => void;
+  /** Unsubmitted needs-input answers by session, then notification ID (see store-needs-input-drafts.ts). */
+  needsInputDrafts: Map<string, Map<string, Record<string, string>>>;
+  setNeedsInputDraftAnswer: (sessionId: string, notificationId: string, questionKey: string, value: string) => void;
+  clearNeedsInputDraft: (sessionId: string, notificationId: string) => void;
+  /** Drops this session's drafts whose notification is no longer open on the server. */
+  retainNeedsInputDrafts: (sessionId: string, openNotificationIds: ReadonlySet<string>) => void;
   pendingUserUploads: Map<string, PendingUserUpload[]>;
   pendingUserUploadRestorations: Map<string, Map<string, PendingUserUpload>>;
   addPendingUserUpload: (sessionId: string, upload: PendingUserUpload) => void;
