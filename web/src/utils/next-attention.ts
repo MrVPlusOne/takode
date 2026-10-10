@@ -1,5 +1,5 @@
 import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
-import type { SdkSessionInfo } from "../types.js";
+import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import type { GlobalNeedsInputEntry } from "./global-needs-input.js";
 import { hasUnreadSessionAttention } from "./session-attention-status.js";
 import {
@@ -112,6 +112,45 @@ export function pickNextAttention(
 }
 
 /**
+ * One session's queue for the feed's attention chip: the same groups, order and
+ * coverage as Next, limited to that session. Unlike the global queue it keeps
+ * prompts from herded sessions, because the chip belongs to the session itself.
+ */
+export function buildSessionAttentionQueue(input: {
+  sessionId: string;
+  sessionName: string;
+  sessionNum: number | null;
+  /** The session's unresolved, unmuted needs-input notifications. */
+  needsInput: readonly SessionNotification[];
+  notifyMe: readonly ThreadMonitoringEntry[];
+  unread: readonly UnreadAttentionCandidate[];
+}): NextAttentionItem[] {
+  const { sessionId, sessionName, sessionNum } = input;
+  return buildNextAttentionQueue({
+    needsInput: input.needsInput.map((notification) => ({ sessionId, sessionName, sessionNum, notification })),
+    notifyMe: input.notifyMe.filter((entry) => entry.sessionId === sessionId),
+    unread: input.unread.filter((candidate) => candidate.sessionId === sessionId),
+  });
+}
+
+/**
+ * Pick where the session chip's Next goes. Unlike the global Next, being in the
+ * item's thread does not mean the user has seen it, so the first tap opens the
+ * first item and later taps follow the last opened one. When that item has left
+ * the queue (answered, read), the item that took its place comes next.
+ */
+export function pickSessionAttention(
+  queue: readonly NextAttentionItem[],
+  last: { key: string; position: number } | null,
+): { item: NextAttentionItem; position: number } | null {
+  if (queue.length === 0) return null;
+  const lastIndex = last ? queue.findIndex((item) => item.key === last.key) : -1;
+  const position =
+    lastIndex >= 0 ? (lastIndex + 1) % queue.length : last && last.position < queue.length ? last.position : 0;
+  return { item: queue[position]!, position };
+}
+
+/**
  * Unread Ready results from synchronized state. Leader sessions with a loaded
  * tab projection contribute one candidate per unread thread; otherwise a
  * session whose unread mark is a review or error contributes a session-level one.
@@ -119,7 +158,7 @@ export function pickNextAttention(
 export function collectUnreadAttention(
   state: LeaderThreadTabsProjectionSource & {
     sdkSessions: readonly SdkSessionInfo[];
-    sessionAttention: ReadonlyMap<string, "action" | "error" | "review" | null>;
+    sessionAttention?: ReadonlyMap<string, "action" | "error" | "review" | null>;
   },
 ): UnreadAttentionCandidate[] {
   const candidates: UnreadAttentionCandidate[] = [];
@@ -148,7 +187,7 @@ export function collectUnreadAttention(
       }
       if (candidates.some((candidate) => candidate.sessionId === session.sessionId)) continue;
     }
-    if (!hasUnreadSessionAttention(state.sessionAttention.get(session.sessionId) ?? null)) continue;
+    if (!hasUnreadSessionAttention(state.sessionAttention?.get(session.sessionId) ?? null)) continue;
     candidates.push({
       sessionId: session.sessionId,
       threadKey: null,

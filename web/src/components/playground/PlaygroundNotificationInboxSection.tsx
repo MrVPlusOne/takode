@@ -5,7 +5,37 @@ import { MessageFeed } from "../MessageFeed.js";
 import { TimerChip } from "../TimerWidget.js";
 import { useStore } from "../../store.js";
 import type { ChatMessage, LeaderThreadResponseProjection } from "../../types.js";
+import type { SessionAttentionPreview } from "../../hooks/useSessionAttention.js";
 import { Card, Section } from "./shared.js";
+
+/** Notify Me and unread results for the attention navigator mock; prompts come from the seeded inbox. */
+const ATTENTION_PREVIEW: SessionAttentionPreview = {
+  notifyMe: [
+    {
+      sessionId: "playground-notifs",
+      sessionName: "DevBox takode",
+      sessionNum: 2851,
+      threadKey: "q-2416",
+      title: "q-2416 Compress host link traffic",
+      trackedAt: 0,
+      pending: {
+        id: "41",
+        messageId: "mock-msg-notify",
+        timestamp: Date.now() - 900_000,
+        summary: "Landed on jiayi; deflate is on for every host link.",
+      },
+    },
+  ],
+  unread: [
+    {
+      sessionId: "playground-notifs",
+      threadKey: "q-2419",
+      label: "q-2419 Leader tab ownership",
+      timestamp: Date.now() - 1_800_000,
+    },
+    { sessionId: "playground-notifs", threadKey: "main", label: "Main", timestamp: Date.now() - 2_400_000 },
+  ],
+};
 
 function seedNotificationData() {
   const now = Date.now();
@@ -504,6 +534,46 @@ export function PlaygroundNotificationInboxSection() {
               controls, voice-enabled long-answer fields, a muted backlog, and a collapsible Done section. Active review
               notifications stay out of this panel because blue review status is represented on thread tabs.
             </p>
+          </div>
+        </Card>
+
+        <Card label="Session attention navigator (chip, inbox and Next)">
+          <div className="p-3 space-y-2">
+            <p className="text-[10px] text-cc-muted">
+              Click &quot;Seed notification data&quot; above first. The chip counts this session&apos;s needs-input
+              prompts, pending Notify Me results and unread results; the arrow opens them one at a time in that order
+              (newest first within each kind) with a toast like &quot;2 / 5&quot;. The inbox lists Notify Me and Unread
+              sections after the prompts. Here the arrow only moves the toast; in a session it jumps to each item.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">
+                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
+                  <TimerChip sessionId="playground-timers" />
+                  <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
+                </div>
+              </div>
+              <div className="relative h-40 w-[390px] rounded-lg border border-cc-border bg-cc-bg">
+                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Phone width</span>
+                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
+                  <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
+                </div>
+              </div>
+              <div className="relative h-24 w-[390px] rounded-lg border border-cc-border bg-cc-bg">
+                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Unread results only</span>
+                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
+                  <NotificationChip
+                    sessionId="playground-attention-unread-only"
+                    attentionPreview={{
+                      notifyMe: [],
+                      unread: ATTENTION_PREVIEW.unread.map((item) => ({
+                        ...item,
+                        sessionId: "playground-attention-unread-only",
+                      })),
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
 

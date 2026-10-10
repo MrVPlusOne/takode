@@ -4,7 +4,13 @@ import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import type { GlobalNeedsInputEntry } from "./global-needs-input.js";
-import { buildNextAttentionQueue, collectUnreadAttention, pickNextAttention } from "./next-attention.js";
+import {
+  buildNextAttentionQueue,
+  buildSessionAttentionQueue,
+  collectUnreadAttention,
+  pickNextAttention,
+  pickSessionAttention,
+} from "./next-attention.js";
 
 function needsInput(sessionId: string, id: string, timestamp: number, threadKey = "main"): GlobalNeedsInputEntry {
   const notification = {
@@ -157,5 +163,62 @@ describe("collectUnreadAttention", () => {
       { sessionId: "leader", threadKey: "main", label: "leader", timestamp: 60 },
       { sessionId: "leader", threadKey: "q-1", label: "q-1 title", timestamp: 70 },
     ]);
+  });
+});
+
+describe("buildSessionAttentionQueue", () => {
+  it("keeps only this session's items, in Next's group order and coverage", () => {
+    // The feed chip shows one session's queue: its prompts, then its Notify Me
+    // results, then its unread threads. Items of other sessions stay out, and
+    // a thread already queued for a prompt is not repeated as unread.
+    const queue = buildSessionAttentionQueue({
+      sessionId: "a",
+      sessionName: "Leader",
+      sessionNum: 7,
+      needsInput: [needsInput("a", "n-old", 100, "q-7").notification, needsInput("a", "n-new", 200).notification],
+      notifyMe: [notifyMe("a", "q-2", 50), notifyMe("b", "q-3", 900)],
+      unread: [
+        { sessionId: "a", threadKey: "q-7", label: "covered", timestamp: 999 },
+        { sessionId: "a", threadKey: "q-9", label: "q-9 title", timestamp: 10 },
+        { sessionId: "b", threadKey: "q-4", label: "other session", timestamp: 999 },
+      ],
+    });
+
+    expect(queue.map((item) => item.key)).toEqual([
+      "needs-input:a:n-new",
+      "needs-input:a:n-old",
+      "notify-me:a:q-2:r-q-2",
+      "unread:a:q-9",
+    ]);
+  });
+});
+
+describe("pickSessionAttention", () => {
+  const queue = buildNextAttentionQueue({
+    needsInput: [needsInput("a", "n2", 300), needsInput("a", "n1", 200)],
+    notifyMe: [notifyMe("a", "q-1", 100)],
+    unread: [],
+  });
+
+  it("opens the first item on the first tap even though the user is already in its thread", () => {
+    // Being in a session's Main thread does not mean its prompts were read, so
+    // unlike the global Next the first tap must not skip the first item.
+    expect(pickSessionAttention(queue, null)).toMatchObject({ item: { key: "needs-input:a:n2" }, position: 0 });
+  });
+
+  it("advances after the last opened item and wraps at the end", () => {
+    expect(pickSessionAttention(queue, { key: "needs-input:a:n2", position: 0 })?.item.key).toBe("needs-input:a:n1");
+    expect(pickSessionAttention(queue, { key: "notify-me:a:q-1:r-q-1", position: 2 })?.position).toBe(0);
+  });
+
+  it("opens the item that took the last one's place when it left the queue", () => {
+    // Answering the opened prompt removes it; the next tap should land on what
+    // followed it, not restart from the top.
+    expect(pickSessionAttention(queue, { key: "needs-input:a:gone", position: 1 })?.item.key).toBe("needs-input:a:n1");
+    expect(pickSessionAttention(queue, { key: "needs-input:a:gone", position: 3 })?.position).toBe(0);
+  });
+
+  it("returns null for an empty queue", () => {
+    expect(pickSessionAttention([], null)).toBeNull();
   });
 });

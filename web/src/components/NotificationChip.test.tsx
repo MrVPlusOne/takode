@@ -19,6 +19,7 @@ const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: st
   delivery: "sent",
 }));
 const mockRequestScrollToMessage = vi.fn();
+const mockMarkSessionRead = vi.fn(async (_sessionId: string, _options?: any) => ({ ok: true }));
 const mockSetExpandAllInTurn = vi.fn();
 const mockOpenQuestOverlay = vi.fn();
 const mockNotifications = new Map<string, Array<any>>();
@@ -79,6 +80,7 @@ vi.mock("../api.js", () => ({
       mockSetNotificationMuted(sessionId, notifId, muted),
     sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
       mockSendNeedsInputResponse(sessionId, notifId, response),
+    markSessionRead: (sessionId: string, options?: any) => mockMarkSessionRead(sessionId, options),
   },
 }));
 
@@ -210,6 +212,8 @@ describe("NotificationChip", () => {
     mockStoreState.quests = [];
     mockStoreState.sessionNames = new Map();
     mockStoreState.sdkSessions = [];
+    mockStoreState.sessionAttention = undefined;
+    mockMarkSessionRead.mockClear();
     mockMarkNotificationDone.mockClear();
     mockMarkAllNotificationsDone.mockClear();
     mockSetNotificationMuted.mockClear();
@@ -1057,7 +1061,8 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" />);
       const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
-      Object.defineProperty(chip, "getBoundingClientRect", {
+      // The popover anchors to the whole chip, which also holds the Next arrow.
+      Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
         configurable: true,
         value: () => ({
           x: 640,
@@ -1204,5 +1209,84 @@ describe("NotificationChip", () => {
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-2", true);
     expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-1", true);
     expect(mockMarkAllNotificationsDone).not.toHaveBeenCalled();
+  });
+
+  describe("session attention navigator", () => {
+    it("cycles through the session's prompts newest first and wraps around", () => {
+      // The chip's arrow visits every item needing attention in this session,
+      // one per tap, starting with the newest needs-input prompt.
+      setNotifications("s1", [
+        { id: "old", category: "needs-input", summary: "Older ask", timestamp: 100, messageId: "m-old", done: false },
+        { id: "new", category: "needs-input", summary: "Newer ask", timestamp: 200, messageId: "m-new", done: false },
+      ]);
+      render(<NotificationChip sessionId="s1" />);
+      const next = screen.getByRole("button", { name: /next item that needs attention in this session \(2\)/ });
+
+      fireEvent.click(next);
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+      expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+      fireEvent.click(next);
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
+      expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
+      fireEvent.click(next);
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+    });
+
+    it("counts and lists Notify Me and unread results after the prompts", () => {
+      // Priority order in the inbox matches the arrow: prompts, then Notify Me
+      // results, then unread results.
+      setNotifications("s1", [
+        { id: "ask", category: "needs-input", summary: "Pick one", timestamp: 100, messageId: "m-1", done: false },
+      ]);
+      render(
+        <NotificationChip
+          sessionId="s1"
+          attentionPreview={{
+            notifyMe: [
+              {
+                sessionId: "s1",
+                sessionName: "Leader",
+                sessionNum: 1,
+                threadKey: "q-5",
+                title: "q-5 Ship it",
+                trackedAt: 0,
+                pending: { id: "9", messageId: "m-9", timestamp: 90, summary: "Landed" },
+              },
+            ],
+            unread: [{ sessionId: "s1", threadKey: "q-6", label: "q-6 Review", timestamp: 80 }],
+          }}
+        />,
+      );
+
+      const chip = screen.getByRole("button", {
+        name: "Notification inbox: 1 needs-input notification, 1 Notify Me result, 1 unread result",
+      });
+      expect(screen.getByTestId("notification-chip-notify-me")).toBeInTheDocument();
+      expect(screen.getByTestId("notification-chip-unread")).toBeInTheDocument();
+      fireEvent.click(chip);
+
+      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+      expect(dialog).toHaveTextContent("Notifications(3)");
+      const prompt = within(dialog).getByTestId("notification-inbox-row");
+      const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
+      const unread = within(dialog).getByRole("region", { name: "Unread results" });
+      expect(notifyMe).toHaveTextContent("q-5 Ship it");
+      expect(notifyMe).toHaveTextContent("Landed");
+      expect(unread).toHaveTextContent("q-6 Review");
+      expect(prompt.compareDocumentPosition(notifyMe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(notifyMe.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows an unread result on its own and reads the session when opened", () => {
+      // A session whose only attention is an unread result still gets the chip;
+      // opening a session-level unread item marks the session read, as Next does.
+      mockStoreState.sdkSessions = [{ sessionId: "s1", name: "Worker", state: "idle", cwd: "/", createdAt: 1 }];
+      mockStoreState.sessionAttention = new Map([["s1", "review"]]);
+      render(<NotificationChip sessionId="s1" />);
+
+      expect(screen.getByRole("button", { name: "Notification inbox: 1 unread result" })).toHaveTextContent("unread");
+      fireEvent.click(screen.getByRole("button", { name: /next item that needs attention in this session \(1\)/ }));
+      expect(mockMarkSessionRead).toHaveBeenCalledWith("s1", { mode: "session-view" });
+    });
   });
 });

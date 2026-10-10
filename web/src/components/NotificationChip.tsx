@@ -26,6 +26,16 @@ import { getActionableNotificationMessageId } from "../utils/notification-target
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
+import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
+import type { NextAttentionLanding } from "../hooks/useNextAttention.js";
+import type { NextAttentionItem } from "../utils/next-attention.js";
+import {
+  AttentionCountInline,
+  NextChevron,
+  SessionAttentionSections,
+  SessionAttentionToast,
+  formatRelativeTime,
+} from "./SessionAttentionRows.js";
 import {
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -38,6 +48,7 @@ type NotificationCategory = SessionNotification["category"];
 const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
+const NEXT_TOAST_MS = 2600;
 
 function getNotificationPopoverBottomPx(anchor: HTMLElement | null): number {
   if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
@@ -132,14 +143,6 @@ function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
   );
 }
 
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
-
 function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category" | "muted">>) {
   let needsInput = 0;
   let review = 0;
@@ -191,15 +194,21 @@ function formatChipAriaLabel({
   review,
   waiting,
   mutedNeedsInput,
+  notifyMe = 0,
+  unread = 0,
 }: {
   needsInput: number;
   review: number;
   waiting: number;
   mutedNeedsInput: number;
+  notifyMe?: number;
+  unread?: number;
 }): string {
   const parts: string[] = [];
   if (needsInput > 0)
     parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
+  if (notifyMe > 0) parts.push(`${notifyMe} ${notifyMe === 1 ? "Notify Me result" : "Notify Me results"}`);
+  if (unread > 0) parts.push(`${unread} ${unread === 1 ? "unread result" : "unread results"}`);
   if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "waiting status" : "waiting statuses"}`);
   if (mutedNeedsInput > 0) {
     parts.push(`${mutedNeedsInput} muted needs-input ${mutedNeedsInput === 1 ? "notification" : "notifications"}`);
@@ -258,19 +267,21 @@ function NotificationCountInline({
           </>
         )}
       </svg>
-      <span
-        className={
-          mutedTone
-            ? "text-cc-muted"
-            : isNeedsInput
-              ? "text-cc-attention"
-              : isReview
-                ? "text-cc-info"
-                : "text-cc-muted/85"
-        }
-      >
-        {labelText}
-      </span>
+      {labelText && (
+        <span
+          className={
+            mutedTone
+              ? "text-cc-muted"
+              : isNeedsInput
+                ? "text-cc-attention"
+                : isReview
+                  ? "text-cc-info"
+                  : "text-cc-muted/85"
+          }
+        >
+          {labelText}
+        </span>
+      )}
     </span>
   );
 }
@@ -699,14 +710,20 @@ function NotificationPopover({
   anchor,
   currentThreadKey,
   onSelectThread,
+  attentionItems,
+  onOpenAttentionItem,
 }: {
   sessionId: string;
   onClose: () => void;
   anchor: HTMLElement | null;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  /** The session's queue; its Notify Me and unread items get their own sections. */
+  attentionItems: readonly NextAttentionItem[];
+  onOpenAttentionItem: (item: NextAttentionItem) => void;
 }) {
   const { active, muted, done } = useNotifications(sessionId);
+  const otherAttention = useMemo(() => attentionItems.filter((item) => item.kind !== "needs-input"), [attentionItems]);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -758,8 +775,10 @@ function NotificationPopover({
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-cc-border/50 shrink-0">
         <h2 className="text-[13px] font-medium text-cc-fg">
           Notifications
-          {(active.length > 0 || muted.length > 0) && (
-            <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({active.length})</span>
+          {(active.length > 0 || muted.length > 0 || otherAttention.length > 0) && (
+            <span className="ml-1.5 text-[11px] text-cc-muted font-normal">
+              ({active.length + otherAttention.length})
+            </span>
           )}
         </h2>
         <div className="flex items-center gap-1.5">
@@ -792,7 +811,7 @@ function NotificationPopover({
 
       {/* Notification list */}
       <div className="overflow-y-auto flex-1">
-        {active.length === 0 && muted.length === 0 && done.length === 0 ? (
+        {active.length === 0 && muted.length === 0 && done.length === 0 && otherAttention.length === 0 ? (
           <p className="px-3 py-6 text-center text-[12px] text-cc-muted">No notifications</p>
         ) : (
           <>
@@ -809,6 +828,8 @@ function NotificationPopover({
                 ))}
               </div>
             )}
+
+            <SessionAttentionSections items={otherAttention} onOpen={onOpenAttentionItem} />
 
             {muted.length > 0 && (
               <section className="border-t border-cc-border/60" aria-label="Muted needs-input notifications">
@@ -870,56 +891,116 @@ function NotificationPopover({
 
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
-/** Floating pill for needs-input notifications. Review status is owned by thread tabs. */
+/**
+ * Floating attention chip: counts what in this session needs the user
+ * (needs-input prompts, then pending Notify Me results, then unread results),
+ * opens the inbox listing them, and its arrow cycles through them one at a time.
+ * `attentionPreview` supplies fixed Notify Me and unread data for the Playground.
+ */
 export function NotificationChip({
   sessionId,
   currentThreadKey,
   onSelectThread,
+  attentionPreview,
 }: {
   sessionId: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  attentionPreview?: SessionAttentionPreview;
 }) {
   const { active, muted } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
+  const attention = useSessionAttention(sessionId, active, attentionPreview);
   const [open, setOpen] = useState(false);
-  const chipRef = useRef<HTMLButtonElement>(null);
+  const [landing, setLanding] = useState<NextAttentionLanding | null>(null);
+  const chipRef = useRef<HTMLDivElement>(null);
   const { needsInput, review, waiting } = useMemo(
     () => getEffectiveNotificationBreakdown(active, summary),
     [active, summary],
   );
+  const notifyMe = attention.queue.filter((item) => item.kind === "notify-me").length;
+  const unread = attention.queue.filter((item) => item.kind === "unread").length;
   const mutedNeedsInput = muted.length;
   const ariaLabel = useMemo(
-    () => formatChipAriaLabel({ needsInput, review, waiting, mutedNeedsInput }),
-    [mutedNeedsInput, needsInput, review, waiting],
+    () =>
+      formatChipAriaLabel({
+        needsInput,
+        review,
+        waiting,
+        mutedNeedsInput,
+        notifyMe,
+        unread,
+      }),
+    [mutedNeedsInput, needsInput, notifyMe, review, unread, waiting],
   );
   const hasNeedsInput = needsInput > 0;
   const hasMutedNeedsInput = mutedNeedsInput > 0;
+  // Labels only fit when a single kind is showing; several kinds show counts and icons.
+  const kindsShown = [hasNeedsInput || (!notifyMe && !unread), notifyMe > 0, unread > 0].filter(Boolean).length;
+  const showLabels = kindsShown === 1;
+
+  useEffect(() => {
+    if (!landing) return;
+    const timer = window.setTimeout(() => setLanding(null), NEXT_TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [landing]);
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
+  const { goNext } = attention;
+  const next = useCallback(() => {
+    setOpen(false);
+    setLanding(goNext());
+  }, [goNext]);
 
-  if (needsInput + waiting === 0 && !hasMutedNeedsInput) return null;
+  if (needsInput + waiting + notifyMe + unread === 0 && !hasMutedNeedsInput) return null;
 
   return (
     <>
-      <button
+      <div
         ref={chipRef}
-        onClick={toggle}
-        aria-label={ariaLabel}
-        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1 overflow-hidden rounded-[18px] border border-cc-border bg-cc-card/95 px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md cursor-pointer hover:border-cc-muted/35 transition-colors"
+        data-testid="session-attention-chip"
+        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-stretch rounded-[18px] border border-cc-border bg-cc-card/95 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md hover:border-cc-muted/35 transition-colors"
       >
-        <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
-        <span className="relative inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+        <span className="pointer-events-none absolute inset-0 rounded-[18px] bg-cc-hover/20" />
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={ariaLabel}
+          className="relative inline-flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap py-1 pl-2.5 pr-2.5 cursor-pointer"
+        >
           {hasNeedsInput ? (
-            <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
-          ) : hasMutedNeedsInput ? (
+            <NotificationCountInline
+              category="needs-input"
+              count={needsInput}
+              labelText={showLabels ? "needs input" : ""}
+            />
+          ) : notifyMe + unread > 0 ? null : hasMutedNeedsInput ? (
             <NotificationCountInline category="needs-input" count={0} labelText="needs input" tone="muted" />
-          ) : (
+          ) : waiting > 0 ? (
             <NotificationCountInline category="waiting" count={waiting} labelText="status" />
+          ) : null}
+          {notifyMe > 0 && (
+            <AttentionCountInline kind="notify-me" count={notifyMe} label={showLabels ? "Notify Me" : undefined} />
           )}
-        </span>
-      </button>
+          {unread > 0 && (
+            <AttentionCountInline kind="unread" count={unread} label={showLabels ? "unread" : undefined} />
+          )}
+        </button>
+        {attention.queue.length > 0 && (
+          <button
+            type="button"
+            onClick={next}
+            data-testid="session-attention-next"
+            aria-label={`Go to the next item that needs attention in this session (${attention.queue.length})`}
+            title="Go to the next item that needs attention in this session"
+            className="relative inline-flex shrink-0 items-center border-l border-cc-border/70 pl-1.5 pr-2 text-cc-attention transition-colors hover:text-cc-fg cursor-pointer"
+          >
+            <NextChevron />
+          </button>
+        )}
+        {landing && <SessionAttentionToast landing={landing} />}
+      </div>
 
       {open && (
         <NotificationPopover
@@ -928,6 +1009,8 @@ export function NotificationChip({
           anchor={chipRef.current}
           currentThreadKey={currentThreadKey}
           onSelectThread={onSelectThread}
+          attentionItems={attention.queue}
+          onOpenAttentionItem={attention.open}
         />
       )}
     </>

@@ -35,7 +35,8 @@ export interface NextAttentionLanding {
  */
 export function useNextAttention(): { count: number; goNext: () => NextAttentionLanding | null } {
   const { entries: needsInput, sdkSessions } = useGlobalNeedsInputEntries();
-  const notifyMe = usePendingNotifyMeEntries();
+  const { pending, signature } = useNotifyMeSummary();
+  const notifyMe = usePendingNotifyMeEntries(pending, signature);
   const unreadSource = useStore(
     useShallow((s) => ({
       sdkSessions: s.sdkSessions,
@@ -58,7 +59,7 @@ export function useNextAttention(): { count: number; goNext: () => NextAttention
     const next = pickNextAttention(queue, location, lastKeyRef.current);
     if (!next) return null;
     lastKeyRef.current = next.item.key;
-    openNextAttentionItem(next.item, sdkSessions);
+    openAttentionItem(next.item, sdkSessions);
     const sessionNum = sdkSessions.find((session) => session.sessionId === next.item.sessionId)?.sessionNum ?? null;
     return { item: next.item, sessionNum, position: next.position + 1, total: queue.length };
   }, [queue, sdkSessions]);
@@ -66,7 +67,8 @@ export function useNextAttention(): { count: number; goNext: () => NextAttention
   return { count: queue.length, goNext };
 }
 
-function openNextAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessionInfo[]) {
+/** Open an attention item: shared by Next and the session feed's attention chip. */
+export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessionInfo[]) {
   if (item.kind === "needs-input") {
     navigateToNotification(item.sessionId, item.entry.notification, sdkSessions);
     return;
@@ -84,9 +86,11 @@ function openNextAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessionI
   navigateToSession(item.sessionId);
 }
 
-/** Pending Notify Me results, refetched whenever the synchronized monitoring state changes. */
-function usePendingNotifyMeEntries(): ThreadMonitoringEntry[] {
-  const { pending, signature } = useNotifyMeSummary();
+/**
+ * Pending Notify Me results, refetched whenever `signature` (the synchronized
+ * monitoring revisions the caller watches) changes. Nothing loads while `pending` is 0.
+ */
+export function usePendingNotifyMeEntries(pending: number, signature: string): ThreadMonitoringEntry[] {
   const [entries, setEntries] = useState<ThreadMonitoringEntry[]>([]);
 
   useEffect(() => {
