@@ -7,6 +7,7 @@ import type { BrowserIncomingMessage, SessionState } from "../types.js";
 import { useStore } from "../store.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { resetDraftSyncForTests } from "../draft-sync.js";
 
 // A needs-input card's partly entered answers are local draft state. Sending
 // another message in the same thread (which regroups the feed and replaces the
@@ -20,6 +21,14 @@ const apiMocks = vi.hoisted(() => ({
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("../api.js", () => ({ api: apiMocks }));
+const draftWrites = vi.hoisted(() => [] as Array<{ sessionId: string; request: any }>);
+vi.mock("../api/session-drafts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/session-drafts.js")>()),
+  writeSessionDraft: vi.fn(async (sessionId: string, request: any) => {
+    draftWrites.push({ sessionId, request });
+    return { ...request.write, revision: draftWrites.length, clientId: request.clientId, updatedAt: 1 };
+  }),
+}));
 vi.mock("../ws.js", () => ({ sendToSession }));
 vi.mock("../utils/notification-sound.js", () => ({
   playNotificationSound: vi.fn(),
@@ -51,6 +60,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  resetDraftSyncForTests();
+  draftWrites.length = 0;
   useStore.getState().reset();
   apiMocks.sendNeedsInputResponse.mockClear();
 });
@@ -229,5 +240,78 @@ describe("needs-input answer drafts", () => {
     );
     expect(useStore.getState().needsInputDrafts.get(SESSION_ID)).toBeUndefined();
     expect(answerFields().map((field) => field.value)).toEqual(["", ""]);
+  });
+
+  it("shows answers typed in another browser and restores the shared draft after a reload", () => {
+    act(() => {
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      handleMessage(SESSION_ID, questWindow());
+      handleMessage(SESSION_ID, notificationUpdate(false, 1));
+    });
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    // Another browser answers the first question; the server broadcasts the change.
+    act(() =>
+      handleMessage(SESSION_ID, {
+        type: "session_draft_update",
+        change: {
+          kind: "needs-input",
+          notificationId: NOTIFICATION_ID,
+          answers: { "q-0": "Not yet" },
+          revision: 5,
+          clientId: "phone",
+          updatedAt: 1,
+        },
+      }),
+    );
+    expect(answerFields().map((field) => field.value)).toEqual(["Not yet", ""]);
+
+    // Reload: the tab starts empty and the subscribe snapshot brings the shared draft back.
+    view.unmount();
+    resetDraftSyncForTests();
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      handleMessage(SESSION_ID, questWindow());
+      handleMessage(SESSION_ID, {
+        type: "state_snapshot",
+        sessionStatus: "idle",
+        permissionMode: "default",
+        backendConnected: true,
+        uiMode: null,
+        askPermission: true,
+        drafts: {
+          revision: 5,
+          needsInput: {
+            [NOTIFICATION_ID]: { answers: { "q-0": "Not yet" }, revision: 5, clientId: "phone", updatedAt: 1 },
+          },
+        },
+      } as BrowserIncomingMessage);
+      handleMessage(SESSION_ID, notificationUpdate(false, 2));
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    expect(answerFields().map((field) => field.value)).toEqual(["Not yet", ""]);
+  });
+
+  it("sends the partly entered answers to the server for the user's other browsers", async () => {
+    vi.useFakeTimers();
+    try {
+      renderPartlyAnsweredCard();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(draftWrites.at(-1)).toMatchObject({
+        sessionId: SESSION_ID,
+        request: {
+          write: {
+            kind: "needs-input",
+            notificationId: NOTIFICATION_ID,
+            answers: { "q-0": "yes", "q-1": "Bundle it onto NFS first" },
+          },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

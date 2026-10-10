@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
+import { ensureSessionDraftsLoaded } from "../draft-sync.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { applySessionNotifications, type NotificationStatusSnapshot } from "../notification-status.js";
@@ -163,6 +164,8 @@ function GlobalNeedsInputRow({
     setAnswer,
     clear: clearAnswers,
   } = useNeedsInputDraft(entry.sessionId, entry.notification.id);
+  // This row can show sessions this browser is not subscribed to; load their saved drafts once.
+  useEffect(() => ensureSessionDraftsLoaded(entry.sessionId), [entry.sessionId]);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [muteError, setMuteError] = useState<string | null>(null);
   const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);

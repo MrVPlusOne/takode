@@ -162,6 +162,8 @@ export interface PersistedSession {
   completedBoard?: BoardRow[];
   /** Per-session notification inbox entries */
   notifications?: SessionNotification[];
+  /** Unsent composer and needs-input drafts shared by the user's browsers. */
+  drafts?: import("../shared/session-drafts.js").SessionDraftsState;
   /** History length after the latest leader-thread outcome validation pass. */
   leaderThreadOutcomeValidatedHistoryLength?: number;
   /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */

@@ -985,6 +985,7 @@ export interface QuestLifecycleEventSnapshot {
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
   | import("./browser-connection-message-types.js").BrowserConnectionIncomingMessage
+  | { type: "session_draft_update"; change: import("../shared/session-drafts.js").SessionDraftChange }
   | { type: "session_update"; session: Partial<BrowserSessionState> }
   | {
       type: "assistant";
@@ -1239,6 +1240,8 @@ export type BrowserIncomingMessageBase =
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
+      /** Unsent drafts shared by the user's browsers (see shared/session-drafts.ts). */
+      drafts?: import("../shared/session-drafts.js").SessionDraftsState;
       attentionRecords?: SessionAttentionRecord[];
       notificationUrgency?: "needs-input" | "review" | null;
       activeNotificationCount?: number;
@@ -1352,7 +1355,8 @@ export type ReplayableBrowserIncomingMessage = Exclude<
       | "browser_connection_probe"
       | "synced_projection_snapshot"
       | "synced_projection_update"
-      | "synced_projection_subscriptions_ack";
+      | "synced_projection_subscriptions_ack"
+      | "session_draft_update";
   }
 > &
   BrowserIncomingMessageMetadata;

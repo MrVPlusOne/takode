@@ -1,3 +1,4 @@
+import { readSessionDraftsState } from "../../shared/session-drafts.js";
 import { normalizePersistedBackendType } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { normalizeCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
@@ -171,6 +172,7 @@ type SessionRuntimeOptions = {
   board?: Map<any, any>;
   completedBoard?: Map<any, any>;
   notifications?: SessionNotification[];
+  drafts?: import("../../shared/session-drafts.js").SessionDraftsState;
   leaderThreadOutcomeValidatedHistoryLength?: number;
   pendingLeaderRejectedReadyThreadKeys?: string[];
   attentionRecords?: SessionAttentionRecord[];
@@ -279,6 +281,7 @@ function createSessionRuntime(
     boardStallStates: new Map(),
     boardDispatchStates: new Map(),
     notifications,
+    ...(options.drafts ? { drafts: options.drafts } : {}),
     leaderThreadOutcomeValidatedHistoryLength: options.leaderThreadOutcomeValidatedHistoryLength ?? 0,
     pendingLeaderRejectedReadyThreadKeys: options.pendingLeaderRejectedReadyThreadKeys ?? [],
     attentionRecords: options.attentionRecords ?? [],
@@ -632,6 +635,7 @@ export async function restorePersistedSessions(
           Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
         ),
         notifications: Array.isArray(p.notifications) ? p.notifications : [],
+        drafts: readSessionDraftsState(p.drafts),
         attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
         notificationStatusVersion: normalizeStatusNumber(p.notificationStatusVersion, 0),
         notificationStatusUpdatedAt:
@@ -723,6 +727,7 @@ export async function restorePersistedSessions(
         Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
       ),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
+      drafts: readSessionDraftsState(p.drafts),
       leaderThreadOutcomeValidatedHistoryLength: Math.min(
         normalizeStatusNumber(p.leaderThreadOutcomeValidatedHistoryLength, (p.messageHistory || []).length),
         (p.messageHistory || []).length,
@@ -888,6 +893,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     board: Array.from(session.board.values()),
     completedBoard: Array.from(session.completedBoard.values()),
     notifications: session.notifications,
+    ...(session.drafts ? { drafts: session.drafts } : {}),
     leaderThreadOutcomeValidatedHistoryLength: session.leaderThreadOutcomeValidatedHistoryLength,
     pendingLeaderRejectedReadyThreadKeys: session.pendingLeaderRejectedReadyThreadKeys,
     attentionRecords: session.attentionRecords,

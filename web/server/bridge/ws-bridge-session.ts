@@ -284,6 +284,8 @@ export interface Session {
   boardDispatchStates: Map<string, { signature: string; warnedAt: number | null; notificationId?: string | null }>;
   /** Per-session notification inbox entries from `takode notify`. */
   notifications: SessionNotification[];
+  /** Unsent composer and needs-input drafts shared by the user's browsers. Persisted. */
+  drafts?: import("../../shared/session-drafts.js").SessionDraftsState;
   /** History length after the latest leader-thread outcome validation pass. */
   leaderThreadOutcomeValidatedHistoryLength?: number;
   /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */

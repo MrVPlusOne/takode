@@ -43,6 +43,7 @@ import { handleTranscriptionProgressMessage } from "./transcription-progress.js"
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { applyPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
+import { applyRemoteDraftChange, applySessionDraftsSnapshot } from "./draft-sync.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
 import {
@@ -1394,6 +1395,11 @@ function handleParsedMessage(
       break;
     }
 
+    case "session_draft_update": {
+      applyRemoteDraftChange(sessionId, data.change);
+      break;
+    }
+
     case "attention_records_update": {
       store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
       break;
@@ -1463,6 +1469,8 @@ function handleParsedMessage(
       if (data.rowSessionStatuses) {
         store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
       }
+      // Drafts shared by the user's browsers; replace this tab's copy except edits it is still sending.
+      applySessionDraftsSnapshot(sessionId, data.drafts);
       // Sync notification inbox from server on connect/reconnect
       if (data.notifications) {
         applySessionNotifications(sessionId, data.notifications, authoritativeNotificationStatus, {

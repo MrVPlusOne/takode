@@ -1,6 +1,7 @@
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
+import { getSessionDraftsSnapshot, type DraftSession } from "./session-drafts-controller.js";
 import {
   acknowledgeBrowserConnection,
   receiveBrowserLoadReport,
@@ -178,6 +179,7 @@ export interface BrowserTransportSessionLike {
   pendingStartupMemoryCatalogInjection?: boolean;
   compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   notifications: unknown[];
+  drafts?: import("../../shared/session-drafts.js").SessionDraftsState;
   attentionRecords: unknown[];
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
@@ -1048,6 +1050,7 @@ export function sendStateSnapshot(
     completedBoard,
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: getUserVisibleSessionNotifications(session),
+    drafts: getSessionDraftsSnapshot(session as DraftSession),
     attentionRecords: session.attentionRecords,
     notificationUrgency: notificationStatus.notificationUrgency,
     activeNotificationCount: notificationStatus.activeNotificationCount,

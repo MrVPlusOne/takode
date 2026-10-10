@@ -32,6 +32,7 @@ import { createQuestOutcomeRoutes } from "./quest-outcome-routes.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
+import { createSessionDraftRoutes } from "./session-drafts.js";
 import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createBundleRoutes } from "./bundles.js";
@@ -266,6 +267,7 @@ export function createRoutes(
   api.route("/", createQuestRoutes(ctx));
   api.route("/", createQuestOutcomeRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
+  api.route("/", createSessionDraftRoutes(ctx));
   api.route("/", createTodoRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createBundleRoutes(ctx));

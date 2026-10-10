@@ -19,6 +19,8 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "synced_projection_update",
   "synced_projection_subscriptions_ack",
   "codex_pending_inputs",
+  // Drafts: every state_snapshot carries the current drafts, so replaying old keystrokes adds nothing.
+  "session_draft_update",
 ]);
 
 export function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is ReplayableBrowserIncomingMessage {

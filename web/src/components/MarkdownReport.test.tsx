@@ -11,7 +11,23 @@ import { MessageBubble } from "./MessageBubble.js";
 import { captureAnnotationSource, resolveAnnotationRange } from "./annotation-passages.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { useReportCommentSend } from "./use-report-comment-send.js";
-import { useReportCommentDraft } from "./use-report-comment-draft.js";
+import { applySessionDraftWrite } from "../../server/bridge/session-drafts-controller.js";
+import { applySessionDraftsSnapshot, flushPendingDrafts, resetDraftSyncForTests } from "../draft-sync.js";
+
+// Unsent report comments are part of the composer draft, which the server keeps for
+// every browser of the user; this in-memory server uses the real draft controller.
+const draftServer = vi.hoisted(() => ({ session: { id: "", notifications: [], drafts: undefined as any } }));
+vi.mock("../api/session-drafts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/session-drafts.js")>()),
+  writeSessionDraft: async (_sessionId: string, request: any) => {
+    const result = applySessionDraftWrite(draftServer.session, request, {
+      broadcastToBrowsers: () => {},
+      persistSession: () => {},
+    });
+    if (!result.ok) throw new Error(result.error);
+    return result.change;
+  },
+}));
 
 afterEach(() => {
   cleanup();
@@ -21,9 +37,11 @@ afterEach(() => {
 });
 
 describe("saved Markdown reports", () => {
-  it("restores saved unsent comments and exact anchors after a page reload, then retires them after send", () => {
-    // Simulate reload by unmounting subscribers and recreating the in-memory store from scoped storage.
+  it("restores saved unsent comments and exact anchors after a page reload, then retires them after send", async () => {
+    // Simulate reload by clearing the in-memory store and draft sync, then applying the server's drafts
+    // the way the next subscribe snapshot does.
     const source = makeMarkdownReportFixture().source;
+    draftServer.session = { id: source.sessionId, notifications: [], drafts: undefined };
     const draft = {
       text: "Follow up",
       images: [],
@@ -39,16 +57,16 @@ describe("saved Markdown reports", () => {
         },
       ],
     };
-    localStorage.setItem("cc-server-id", "server-one");
-    const first = renderHook(() => useReportCommentDraft(source.sessionId));
     act(() => useStore.getState().setComposerDraft(source.sessionId, draft));
-    first.unmount();
+    flushPendingDrafts();
+    await vi.waitFor(() => expect(draftServer.session.drafts?.composer).toBeDefined());
+    resetDraftSyncForTests();
     useStore.setState({ composerDrafts: new Map() });
-    const second = renderHook(() => useReportCommentDraft(source.sessionId));
+    applySessionDraftsSnapshot(source.sessionId, draftServer.session.drafts);
     expect(useStore.getState().composerDrafts.get(source.sessionId)).toEqual(draft);
     act(() => useStore.getState().clearComposerDraft(source.sessionId));
-    expect(localStorage.getItem(`server-one:report-comment-draft:${source.sessionId}`)).toBeNull();
-    second.unmount();
+    await vi.waitFor(() => expect(draftServer.session.drafts?.composer).toBeUndefined());
+    resetDraftSyncForTests();
   });
 
   it.each([false, true])("keeps the complete report visible in collapsed feeds, leader=%s", (leader) => {

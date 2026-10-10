@@ -44,11 +44,6 @@ export function handleNotificationUpdateMessage(sessionId: string, data: Notific
     { authoritativeStatus: true },
   );
   if (!applied) return;
-  // The update lists every user-visible notification, so a draft whose prompt is done or gone is finished.
-  store.retainNeedsInputDrafts(
-    sessionId,
-    new Set(newNotifications.filter((notification) => !notification.done).map((notification) => notification.id)),
-  );
 
   // Play differentiated sounds for new notifications while the tab is unfocused.
   const now = Date.now();

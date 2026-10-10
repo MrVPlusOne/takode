@@ -416,6 +416,17 @@ export interface AppState {
   clearNeedsInputDraft: (sessionId: string, notificationId: string) => void;
   /** Drops this session's drafts whose notification is no longer open on the server. */
   retainNeedsInputDrafts: (sessionId: string, openNotificationIds: ReadonlySet<string>) => void;
+  /** Applies another browser's needs-input draft change (null clears) without syncing it back. */
+  applySyncedNeedsInputDraft: (
+    sessionId: string,
+    notificationId: string,
+    answers: Record<string, string> | null,
+  ) => void;
+  /** Applies another browser's composer text/comments (null clears), keeping this tab's image attachments. */
+  applySyncedComposerDraft: (
+    sessionId: string,
+    draft: import("../shared/session-drafts.js").SyncedComposerDraft | null,
+  ) => void;
   pendingUserUploads: Map<string, PendingUserUpload[]>;
   pendingUserUploadRestorations: Map<string, Map<string, PendingUserUpload>>;
   addPendingUserUpload: (sessionId: string, upload: PendingUserUpload) => void;

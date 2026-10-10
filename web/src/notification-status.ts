@@ -281,6 +281,16 @@ export function applySessionNotifications(
       ? { sdkSessions }
       : { sessionNotifications, sdkSessions };
   });
+  if (applied && options.authoritativeStatus) {
+    // An authoritative list holds every user-visible notification, so a needs-input
+    // draft whose prompt is done or absent is finished. The server prunes its copy itself.
+    useStore
+      .getState()
+      .retainNeedsInputDrafts(
+        sessionId,
+        new Set(notifications.filter((notification) => !notification.done).map((notification) => notification.id)),
+      );
+  }
   return applied;
 }
 

@@ -66,6 +66,7 @@ import {
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { createNeedsInputDraftStoreSlice } from "./store-needs-input-drafts.js";
+import { notifyLocalDraftChange } from "./draft-sync-bridge.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
 import { createSyncedProjectionStoreSlice } from "./store-synced-projections.js";
@@ -1422,17 +1423,40 @@ export const useStore = create<AppState>((set, get) => ({
       return { feedScrollPosition };
     }),
 
-  setComposerDraft: (sessionId, draft) =>
+  // Composer drafts are shared by the user's browsers through the server (draft-sync.ts):
+  // local edits are reported to the sync, and other browsers' edits arrive through
+  // applySyncedComposerDraft. Image attachments stay in the tab that added them.
+  setComposerDraft: (sessionId, draft) => {
     set((s) => {
       const composerDrafts = new Map(s.composerDrafts);
       composerDrafts.set(sessionId, draft);
       return { composerDrafts };
-    }),
+    });
+    notifyLocalDraftChange(sessionId, { kind: "composer" });
+  },
 
-  clearComposerDraft: (sessionId) =>
+  clearComposerDraft: (sessionId) => {
     set((s) => {
       const composerDrafts = new Map(s.composerDrafts);
       composerDrafts.delete(sessionId);
+      return { composerDrafts };
+    });
+    notifyLocalDraftChange(sessionId, { kind: "composer" });
+  },
+
+  applySyncedComposerDraft: (sessionId, synced) =>
+    set((s) => {
+      const current = s.composerDrafts.get(sessionId);
+      const images = current?.images ?? [];
+      const composerDrafts = new Map(s.composerDrafts);
+      if (!synced && images.length === 0) composerDrafts.delete(sessionId);
+      else
+        composerDrafts.set(sessionId, {
+          text: synced?.text ?? "",
+          images,
+          ...(synced?.annotations ? { annotations: synced.annotations } : {}),
+          ...(synced?.reportRecipientSessionId ? { reportRecipientSessionId: synced.reportRecipientSessionId } : {}),
+        });
       return { composerDrafts };
     }),
 

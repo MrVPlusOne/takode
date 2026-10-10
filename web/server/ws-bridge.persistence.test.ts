@@ -36,6 +36,7 @@ import {
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "./bridge/session-git-state.js";
 import { trafficStats } from "./traffic-stats.js";
+import { waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
   addTaskEntry as addTaskEntryController,
@@ -645,6 +646,43 @@ describe("Persistence", () => {
     });
     expect(session!.processedClientMessageIdSet.has("restored-client-1")).toBe(true);
     expect(session!.manualUnread).toBe(true);
+  });
+
+  it("keeps unsent drafts across a server restart and sends them to subscribing browsers", async () => {
+    // Drafts shared by the user's browsers live on the session: they must survive a
+    // restart and reach every browser in the subscribe snapshot.
+    const drafts = {
+      revision: 3,
+      composer: { draft: { text: "half-written reply" }, revision: 2, clientId: "phone", updatedAt: 10 },
+      needsInput: { "n-1": { answers: { "0": "yes" }, revision: 3, clientId: "desktop", updatedAt: 11 } },
+    };
+    store.saveSync({
+      id: "persisted-drafts",
+      state: { session_id: "persisted-drafts", backend_type: "claude-sdk", cwd: "/saved", tools: [], mcp_servers: [] },
+      messageHistory: [],
+      pendingMessages: [],
+      pendingPermissions: [],
+      notifications: [
+        { id: "n-1", category: "needs-input", summary: "Pick", timestamp: 1, messageId: null, done: false },
+      ],
+      drafts,
+    } as any);
+    await store.flushAll();
+    await bridge.restoreFromDisk();
+
+    const session = bridge.getSession("persisted-drafts")!;
+    expect(session.drafts).toEqual(drafts);
+
+    // Saving writes them back out.
+    bridge.persistSessionById("persisted-drafts");
+    await store.flushAll();
+    expect((await store.load("persisted-drafts"))?.drafts).toEqual(drafts);
+
+    const browser = makeBrowserSocket("persisted-drafts");
+    bridge.handleBrowserOpen(browser, "persisted-drafts");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    const snapshot = await waitForBrowserMessage(browser, (message: any) => message.type === "state_snapshot");
+    expect((snapshot as any).drafts).toEqual(drafts);
   });
 
   it("restoreFromDisk: loads persisted pending Codex rollback state", async () => {
