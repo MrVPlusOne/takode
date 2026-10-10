@@ -65,6 +65,18 @@ export function classifyBrowserClientPlatform(userAgent: string | null): Browser
   return "other";
 }
 
+/**
+ * Whether a browser uses Apple's WebKit networking: Safari, and every browser
+ * on iPhone and iPad. These negotiate permessage-deflate but close the socket
+ * as soon as they receive a message Bun 1.3.10 compressed, so the phone's
+ * sessions never finished connecting. They get uncompressed messages.
+ */
+export function isWebKitBrowser(userAgent: string | null): boolean {
+  if (!userAgent) return false;
+  if (/iPhone|iPad|iPod/i.test(userAgent)) return true;
+  return /AppleWebKit/i.test(userAgent) && !/Chrome|Chromium|Edg\//i.test(userAgent);
+}
+
 /** Start a new observation for every session WebSocket, including reconnects. */
 export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId: string): string {
   const previous = connections.get(ws);
@@ -104,10 +116,12 @@ export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId
  * observe the attempt. The server enables permessage-deflate, but Bun only
  * compresses a message sent with its `compress` flag; a browser that did not
  * negotiate the extension (or a proxy that removed it) gets it uncompressed.
+ * WebKit browsers always get it uncompressed (see `isWebKitBrowser`).
  * Preserves the transport's result/exception.
  */
 export function sendObservedBrowserPayload(ws: DiagnosticSocket, json: string, messageType: string): unknown {
-  const compress = json.length >= BROWSER_COMPRESS_MIN_BYTES;
+  const webKit = (ws.data as { browserWebKit?: unknown } | undefined)?.browserWebKit === true;
+  const compress = !webKit && json.length >= BROWSER_COMPRESS_MIN_BYTES;
   const connection = connections.get(ws);
   if (!connection) return ws.send(json, compress);
   const totals = connection.totals;

@@ -1588,7 +1588,7 @@ export class WsBridge {
     this.handleBrowserClose(ws, 1000, "session switch");
     const data = ws.data as BrowserSocketData & Record<string, unknown>;
     for (const key of Object.keys(data)) {
-      if (key !== "kind" && key !== "browserClientPlatform") delete data[key];
+      if (key !== "kind" && key !== "browserClientPlatform" && key !== "browserWebKit") delete data[key];
     }
     // An empty id matches no session, so a detached socket's messages are ignored until it switches again.
     data.sessionId = sessionId ?? "";

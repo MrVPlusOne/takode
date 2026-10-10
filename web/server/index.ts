@@ -140,6 +140,7 @@ import type { SocketData } from "./ws-bridge.js";
 import {
   classifyBrowserClientPlatform,
   closeBrowserConnectionDiagnostics,
+  isWebKitBrowser,
 } from "./bridge/browser-connection-diagnostics.js";
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 
@@ -1292,7 +1293,10 @@ function handleRequest(listener: "main" | "hosts") {
               kind: wsRoute.kind,
               sessionId: wsRoute.sessionId,
               ...(wsRoute.kind === "browser"
-                ? { browserClientPlatform: classifyBrowserClientPlatform(req.headers.get("user-agent")) }
+                ? {
+                    browserClientPlatform: classifyBrowserClientPlatform(req.headers.get("user-agent")),
+                    browserWebKit: isWebKitBrowser(req.headers.get("user-agent")),
+                  }
                 : {}),
             };
       const upgraded = server.upgrade(req, { data });

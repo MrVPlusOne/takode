@@ -50,6 +50,25 @@ describe("browser session switch on one socket", () => {
     expect(messages(socket)[0]).toMatchObject({ type: "session_init", session: { session_id: "second" } });
   });
 
+  // Safari and iPhone browsers close the socket on a compressed message, so the
+  // upgrade marks them; a reused socket must keep that mark (and its platform)
+  // or the next session's messages would be compressed and the phone would loop.
+  it("keeps the upgrade's browser classification across a switch", async () => {
+    const bridge = new WsBridge();
+    bridge.getOrCreateSession("first");
+    bridge.getOrCreateSession("second");
+    const socket = browserSocket("first");
+    Object.assign(socket.data, { browserClientPlatform: "ios", browserWebKit: true });
+    bridge.handleBrowserOpen(socket, "first");
+    await bridge.handleBrowserMessage(socket, subscribe);
+
+    await bridge.handleBrowserMessage(socket, JSON.stringify({ type: "session_switch", session_id: "second" }));
+
+    expect(socket.data).toMatchObject({ sessionId: "second", browserClientPlatform: "ios", browserWebKit: true });
+    // Every message to it, including the new session's large session_init, goes uncompressed.
+    expect(socket.send.mock.calls.every((call: unknown[]) => call[1] !== true)).toBe(true);
+  });
+
   it("detaches the socket from every session on a null switch", async () => {
     const bridge = new WsBridge();
     const first = bridge.getOrCreateSession("first");
