@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, cleanup } from "@testing-library/react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import {
   appendVoiceLevelHistorySample,
@@ -168,6 +168,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount while fake timers are still installed. Testing Library's own cleanup runs after this hook,
+  // so a hook still recording would stop on unmount and start its 300 ms duration probe on a real
+  // timer, which fired after jsdom teardown ("window is not defined") when the worker stayed busy.
+  cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });

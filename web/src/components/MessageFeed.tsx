@@ -263,6 +263,9 @@ export function MessageFeed({
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
   const [navigatorStarredOnly, setNavigatorStarredOnly] = useState(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The scroll-settle timer must not outlive the feed: it would set state after unmount (and, in tests,
+  // after jsdom teardown).
+  useEffect(() => () => clearTimeout(scrollTimeoutRef.current), []);
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
   const restoredViewportRef = useRef<{ key: string; container: HTMLDivElement | null } | null>(null);

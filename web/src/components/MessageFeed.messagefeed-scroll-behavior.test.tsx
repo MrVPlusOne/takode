@@ -1150,6 +1150,29 @@ describe("MessageFeed - scroll behavior", () => {
     expect(scrollTopValue).toBe(1160);
   });
 
+  // A scroll schedules a 1.5 s timer that clears the "scrolling" state. Left running after unmount, it
+  // fired after jsdom teardown when another test file kept the worker busy, and react-dom threw
+  // "window is not defined" from dispatchSetState: an unhandled error that bounced landing runs.
+  it("cancels its scroll-settle timer when it unmounts", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const sid = "test-scroll-timer-unmount";
+      setStoreMessages(sid, [
+        makeMessage({ id: "u1", role: "user", content: "Question" }),
+        makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
+      ]);
+      const { container, unmount } = render(<MessageFeed sessionId={sid} />);
+      const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+      const before = vi.getTimerCount();
+      fireEvent.scroll(scrollContainer);
+      expect(vi.getTimerCount()).toBeGreaterThan(before);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not auto-scroll when the user is reading away from the bottom", async () => {
     const sid = "test-no-autofollow-when-scrolled-up";
     setStoreMessages(sid, [
