@@ -138,9 +138,9 @@ import {
 import { formatAutoNamerSkipReason, getAutoNamerSkipReason } from "./session-namer-guard.js";
 import type { SocketData } from "./ws-bridge.js";
 import {
+  BROWSER_WEBSOCKET_COMPRESSION,
   classifyBrowserClientPlatform,
   closeBrowserConnectionDiagnostics,
-  isWebKitBrowser,
 } from "./bridge/browser-connection-diagnostics.js";
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 
@@ -1295,7 +1295,6 @@ function handleRequest(listener: "main" | "hosts") {
               ...(wsRoute.kind === "browser"
                 ? {
                     browserClientPlatform: classifyBrowserClientPlatform(req.headers.get("user-agent")),
-                    browserWebKit: isWebKitBrowser(req.headers.get("user-agent")),
                   }
                 : {}),
             };
@@ -1322,7 +1321,7 @@ const maxRequestBodySize = 1024 * 1024 * 1024; // 1 GB — needed for migration 
 const websocketHandlers: WebSocketHandler<SocketData> = {
   idleTimeout: 0, // Disable Bun's idle timeout; we manage liveness via ws.ping heartbeats
   maxPayloadLength: 64 * 1024 * 1024, // 64MB -- generous limit for large history syncs
-  perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
+  perMessageDeflate: BROWSER_WEBSOCKET_COMPRESSION,
   open(ws: ServerWebSocket<SocketData>) {
     const data = ws.data;
     if (data.kind !== "host") appSockets.add(ws);

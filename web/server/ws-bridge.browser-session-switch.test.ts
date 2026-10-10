@@ -50,23 +50,24 @@ describe("browser session switch on one socket", () => {
     expect(messages(socket)[0]).toMatchObject({ type: "session_init", session: { session_id: "second" } });
   });
 
-  // Safari and iPhone browsers close the socket on a compressed message, so the
-  // upgrade marks them; a reused socket must keep that mark (and its platform)
-  // or the next session's messages would be compressed and the phone would loop.
+  // Reuse keeps the coarse platform for diagnostics. With Safari-compatible
+  // compression, iOS receives compressed large messages after switches too.
   it("keeps the upgrade's browser classification across a switch", async () => {
     const bridge = new WsBridge();
     bridge.getOrCreateSession("first");
-    bridge.getOrCreateSession("second");
+    // A realistic tool catalog puts session_init above the compression threshold.
+    bridge.getOrCreateSession("second").state.tools = Array.from({ length: 100 }, (_, index) => `tool_${index}`);
     const socket = browserSocket("first");
-    Object.assign(socket.data, { browserClientPlatform: "ios", browserWebKit: true });
+    Object.assign(socket.data, { browserClientPlatform: "ios" });
     bridge.handleBrowserOpen(socket, "first");
     await bridge.handleBrowserMessage(socket, subscribe);
+    socket.send.mockClear();
 
     await bridge.handleBrowserMessage(socket, JSON.stringify({ type: "session_switch", session_id: "second" }));
 
-    expect(socket.data).toMatchObject({ sessionId: "second", browserClientPlatform: "ios", browserWebKit: true });
-    // Every message to it, including the new session's large session_init, goes uncompressed.
-    expect(socket.send.mock.calls.every((call: unknown[]) => call[1] !== true)).toBe(true);
+    expect(socket.data).toMatchObject({ sessionId: "second", browserClientPlatform: "ios" });
+    const init = socket.send.mock.calls.find((call: unknown[]) => JSON.parse(String(call[0])).type === "session_init");
+    expect(init?.[1]).toBe(true);
   });
 
   it("detaches the socket from every session on a null switch", async () => {

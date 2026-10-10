@@ -13,6 +13,14 @@ const REPORTED_MESSAGE_TYPES = 8;
  */
 export const BROWSER_COMPRESS_MIN_BYTES = 1024;
 
+/**
+ * Bun's shared compressor emits BFINAL streams. Safari decodes them, then
+ * rejects the next uncompressed frame (including control frames). A dedicated
+ * compressor uses Z_SYNC_FLUSH so large and small messages can safely mix.
+ * Keep incoming decompression shared; only the outgoing stream needs to change.
+ */
+export const BROWSER_WEBSOCKET_COMPRESSION = { compress: "dedicated", decompress: "shared" } as const;
+
 export type BrowserClientPlatform = "ios" | "android" | "other" | "unknown";
 
 interface DiagnosticSocket {
@@ -65,18 +73,6 @@ export function classifyBrowserClientPlatform(userAgent: string | null): Browser
   return "other";
 }
 
-/**
- * Whether a browser uses Apple's WebKit networking: Safari, and every browser
- * on iPhone and iPad. These negotiate permessage-deflate but close the socket
- * as soon as they receive a message Bun 1.3.10 compressed, so the phone's
- * sessions never finished connecting. They get uncompressed messages.
- */
-export function isWebKitBrowser(userAgent: string | null): boolean {
-  if (!userAgent) return false;
-  if (/iPhone|iPad|iPod/i.test(userAgent)) return true;
-  return /AppleWebKit/i.test(userAgent) && !/Chrome|Chromium|Edg\//i.test(userAgent);
-}
-
 /** Start a new observation for every session WebSocket, including reconnects. */
 export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId: string): string {
   const previous = connections.get(ws);
@@ -116,12 +112,10 @@ export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId
  * observe the attempt. The server enables permessage-deflate, but Bun only
  * compresses a message sent with its `compress` flag; a browser that did not
  * negotiate the extension (or a proxy that removed it) gets it uncompressed.
- * WebKit browsers always get it uncompressed (see `isWebKitBrowser`).
  * Preserves the transport's result/exception.
  */
 export function sendObservedBrowserPayload(ws: DiagnosticSocket, json: string, messageType: string): unknown {
-  const webKit = (ws.data as { browserWebKit?: unknown } | undefined)?.browserWebKit === true;
-  const compress = !webKit && json.length >= BROWSER_COMPRESS_MIN_BYTES;
+  const compress = json.length >= BROWSER_COMPRESS_MIN_BYTES;
   const connection = connections.get(ws);
   if (!connection) return ws.send(json, compress);
   const totals = connection.totals;

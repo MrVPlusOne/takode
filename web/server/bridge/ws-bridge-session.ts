@@ -47,8 +47,6 @@ export interface BrowserSocketData {
   kind: "browser";
   sessionId: string;
   browserClientPlatform?: import("./browser-connection-diagnostics.js").BrowserClientPlatform;
-  /** Set from the user agent at upgrade; such browsers are sent uncompressed messages. */
-  browserWebKit?: boolean;
   subscribed?: boolean;
   lastAckSeq?: number;
 }
