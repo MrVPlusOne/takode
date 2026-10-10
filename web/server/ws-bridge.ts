@@ -1,3 +1,5 @@
+import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
+import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
@@ -90,6 +92,7 @@ import {
   isHistoryBackedEvent as isHistoryBackedEventController,
   refreshBrowserConversationViews as refreshBrowserConversationViewsController,
   sameAgentSource as sameAgentSourceBrowserTransportController,
+  sendToBrowser,
 } from "./bridge/browser-transport-controller.js";
 import {
   captureSessionNavigationLauncherActivity,
@@ -391,6 +394,8 @@ export class WsBridge {
   /** Per-session serialization chain for externally injected/browser-routed messages.
    *  Preserves send order across async image ingestion without blocking other sessions. */
   private sessionRouteChains = new Map<string, Promise<void>>();
+  private readonly browserSocketSwitches = new BrowserSocketSessionSwitches();
+  private viewportHandoffReader: ((sessionId: string) => Promise<ViewportHandoffSessionState | null>) | null = null;
   private workerStreamCheckpointMsgTo = new Map<string, number>();
   /** Per-session serialization chain for Codex quest lifecycle reconciliation. */
   private codexQuestLifecycleChains = new Map<string, Promise<void>>();
@@ -1542,9 +1547,56 @@ export class WsBridge {
     handleBrowserOpenController(session, ws, this.getBrowserTransportDeps());
   }
 
-  async handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
-    const perfStart = this.perfTracer ? performance.now() : 0;
+  handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer): Promise<void> {
     const data = typeof raw === "string" ? raw : raw.toString("utf-8");
+    return this.browserSocketSwitches.handle(ws, data, {
+      switchTo: (sessionId) => this.switchBrowserSession(ws, sessionId),
+      handle: () => this.handleBoundBrowserMessage(ws, data),
+    });
+  }
+
+  /** Set where browsers' scroll-position handoff state is read, for pushing it over their sockets. */
+  setViewportHandoffReader(reader: (sessionId: string) => Promise<ViewportHandoffSessionState | null>): void {
+    this.viewportHandoffReader = reader;
+  }
+
+  /** Send a session's handoff state to one subscribed socket, if it still shows that session. */
+  sendViewportHandoffState(sessionId: string, ws: unknown): void {
+    const read = this.viewportHandoffReader;
+    if (!read) return;
+    const socket = ws as ServerWebSocket<SocketData>;
+    void read(sessionId)
+      .then((state) => {
+        if (!state || (socket.data as BrowserSocketData).sessionId !== sessionId) return;
+        sendToBrowser(socket, viewportHandoffStateMessage(state));
+      })
+      .catch((error) => console.warn(`[viewport-handoff] Failed to read state for ${sessionTag(sessionId)}:`, error));
+  }
+
+  /** Push an accepted handoff change to every browser subscribed to the session, so none needs to read it. */
+  pushViewportHandoffState(sessionId: string, state: ViewportHandoffSessionState): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const message = viewportHandoffStateMessage(state);
+    for (const ws of session.browserSockets) {
+      if ((ws.data as BrowserSocketData).subscribed) sendToBrowser(ws, message);
+    }
+  }
+
+  /** Move an open browser socket to another session (or none), as a close and a fresh open would. */
+  private switchBrowserSession(ws: ServerWebSocket<SocketData>, sessionId: string | null): void {
+    this.handleBrowserClose(ws, 1000, "session switch");
+    const data = ws.data as BrowserSocketData & Record<string, unknown>;
+    for (const key of Object.keys(data)) {
+      if (key !== "kind" && key !== "browserClientPlatform") delete data[key];
+    }
+    // An empty id matches no session, so a detached socket's messages are ignored until it switches again.
+    data.sessionId = sessionId ?? "";
+    if (sessionId) this.handleBrowserOpen(ws, sessionId);
+  }
+
+  private async handleBoundBrowserMessage(ws: ServerWebSocket<SocketData>, data: string) {
+    const perfStart = this.perfTracer ? performance.now() : 0;
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -1938,4 +1990,8 @@ export class WsBridge {
     if (captureSessionNavigationSourceMessage(session, msg))
       this.syncedProjections.invalidateSessionNavigation(session);
   }
+}
+
+function viewportHandoffStateMessage(state: ViewportHandoffSessionState): BrowserIncomingMessage {
+  return { type: "viewport_handoff_state", state, serverNow: Math.max(Date.now(), state.updatedAt) };
 }

@@ -60,11 +60,6 @@ import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-co
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
 import { processHostOf } from "../remote-host/host-registry.js";
 import type { ServerCheckout, ServerCheckoutUpdate } from "../server-checkout.js";
-import {
-  checkoutUpdateBlocker,
-  RESTART_UPDATES_CHECKOUT_LABEL,
-  type ServerCheckoutRestartMode,
-} from "../server-checkout-policy.js";
 import { canonicalTimeZone, serverDefaultTimeZone, timeZoneInEffect } from "../server-time-zone.js";
 import {
   findCodexReasoningEffortSupportIssue,
@@ -535,25 +530,21 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   // ─── Server restart ───────────────────────────────────────────────
 
-  /** Whether Restart Server brings the server checkout up to date first. */
-  function checkoutRestartMode(): ServerCheckoutRestartMode {
-    if (!options?.updateCheckoutOnRestart) return "development";
-    return getSettings().restartUpdatesCheckout === false ? "off" : "on";
-  }
-
   /**
-   * Brings the server checkout up to date with its branch (fetch, fast-forward,
-   * frozen install) and logs the outcome. A checkout that cannot follow its
-   * branch blocks the restart instead of silently loading older code.
+   * Fast-forwards a clean server checkout that is only behind its branch and
+   * logs a restart onto older code. Never blocks the restart: a checkout the
+   * update cannot move (local changes or commits, no branch) is the user's to
+   * keep, and Settings shows its state before and after.
    */
-  async function updateServerCheckoutBeforeRestart(checkout: ServerCheckout): Promise<ServerCheckoutUpdate | string> {
+  async function updateServerCheckoutBeforeRestart(checkout: ServerCheckout): Promise<ServerCheckoutUpdate | null> {
     let update: ServerCheckoutUpdate;
     try {
       update = await checkout.updateBeforeRestart();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      restartLog.warn("Could not update the server checkout before restart", { error: message });
-      return `Could not update the server checkout: ${message}`;
+      restartLog.warn("Could not check the server checkout before restart", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
     const { status } = update;
     const details = {
@@ -567,21 +558,26 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
     if (update.action === "updated") {
       restartLog.info("Fast-forwarded the server checkout before restart", { ...details, from: update.from });
-    } else if (update.action === "blocked") {
-      restartLog.warn("Could not update the server checkout before restart", { ...details, error: update.error });
-      return update.error ?? "The server checkout could not be updated.";
+    } else if (update.action === "failed") {
+      restartLog.warn("Could not fast-forward the server checkout; restarting onto older code", {
+        ...details,
+        error: update.error,
+      });
+    } else if (status.behind > 0) {
+      restartLog.warn(
+        "Server checkout is behind its branch and was left as it is; restarting onto older code",
+        details,
+      );
+    } else if (status.fetchError) {
+      restartLog.warn("Could not fetch the server checkout's branch before restart", details);
     }
     return update;
   }
 
   api.get("/server/checkout", async (c) => {
-    if (!options?.serverCheckout) return c.json({ status: null, restartMode: checkoutRestartMode(), blocker: null });
+    if (!options?.serverCheckout) return c.json({ status: null });
     try {
-      const status = await options.serverCheckout.status({ refresh: c.req.query("refresh") === "1" });
-      const restartMode = checkoutRestartMode();
-      // Say ahead of time why a restart would stop, in the restart's own words.
-      const blocker = restartMode === "on" ? checkoutUpdateBlocker(status) : null;
-      return c.json({ status, restartMode, blocker });
+      return c.json({ status: await options.serverCheckout.status({ refresh: c.req.query("refresh") === "1" }) });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
@@ -624,19 +620,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     try {
       // Load the code that reached the checkout's branch (e.g. by landings
       // pushed from another checkout) rather than whatever was last checked out.
-      let checkoutUpdate: ServerCheckoutUpdate | null = null;
-      if (options.serverCheckout && checkoutRestartMode() === "on") {
-        const update = await updateServerCheckoutBeforeRestart(options.serverCheckout);
-        if (typeof update === "string") {
-          return c.json(
-            {
-              error: `Restart blocked: ${asSentence(update)} The server keeps running; restart again once that is fixed, or turn off "${RESTART_UPDATES_CHECKOUT_LABEL}" in Settings > Restart to restart onto the checkout as it is.`,
-            },
-            409,
-          );
-        }
-        checkoutUpdate = update;
-      }
+      const checkoutUpdate = options.serverCheckout
+        ? await updateServerCheckoutBeforeRestart(options.serverCheckout)
+        : null;
       const checkoutNote =
         checkoutUpdate?.action === "updated" && checkoutUpdate.status.head
           ? ` The checkout was first fast-forwarded to ${checkoutUpdate.status.head.slice(0, 8)}.`
@@ -1020,7 +1006,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       serverTimeZone: settings.serverTimeZone ?? "",
       serverTimeZoneInEffect: timeZoneInEffect(),
       serverTimeZoneDefault: serverDefaultTimeZone(),
-      restartUpdatesCheckout: settings.restartUpdatesCheckout !== false,
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
@@ -1239,9 +1224,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.sleepInhibitorEnabled !== undefined && typeof body.sleepInhibitorEnabled !== "boolean") {
       return c.json({ error: "sleepInhibitorEnabled must be a boolean" }, 400);
     }
-    if (body.restartUpdatesCheckout !== undefined && typeof body.restartUpdatesCheckout !== "boolean") {
-      return c.json({ error: "restartUpdatesCheckout must be a boolean" }, 400);
-    }
     if (
       body.sleepInhibitorDurationMinutes !== undefined &&
       (typeof body.sleepInhibitorDurationMinutes !== "number" ||
@@ -1364,7 +1346,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "serverName",
       "serverSlug",
       "serverTimeZone",
-      "restartUpdatesCheckout",
       "pushoverUserKey",
       "pushoverApiToken",
       "pushoverDelaySeconds",
@@ -1418,8 +1399,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : undefined,
       editorConfig: body.editorConfig ? parseEditorConfigFromBody(body.editorConfig) : undefined,
       sleepInhibitorEnabled: typeof body.sleepInhibitorEnabled === "boolean" ? body.sleepInhibitorEnabled : undefined,
-      restartUpdatesCheckout:
-        typeof body.restartUpdatesCheckout === "boolean" ? body.restartUpdatesCheckout : undefined,
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
       questmasterViewMode:
@@ -1533,10 +1512,4 @@ function readNonNegativeIntEnv(name: string, fallback: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Ends `text` with a full stop unless it already ends a sentence. */
-function asSentence(text: string): string {
-  const trimmed = text.trim();
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }

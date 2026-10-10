@@ -160,7 +160,7 @@ import {
   coordinatorMovePath,
   readCoordinatorMove,
 } from "./coordinator-lock.js";
-import { checkBackendStartup, installDependencies } from "./backend-startup-check.js";
+import { checkBackendStartup } from "./backend-startup-check.js";
 import { createServerCheckout } from "./server-checkout.js";
 import { applyServerTimeZone, timeZoneInEffect } from "./server-time-zone.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
@@ -294,11 +294,7 @@ configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const runningCommit = await readCheckoutCommit(packageRoot);
 const hostLinks = new HostLinkManager({ build: runningCommit });
-const serverCheckout = createServerCheckout({
-  dir: packageRoot,
-  runningCommit,
-  installDependencies: () => installDependencies(packageRoot),
-});
+const serverCheckout = createServerCheckout({ dir: packageRoot, runningCommit });
 const coordinatorStartedAt = Date.now();
 // After the user's Restart Server, hosts that opted in are updated to this
 // server's commit right away; otherwise only while none of their sessions is in a turn.
@@ -1214,7 +1210,6 @@ app.route(
       prepareRestart: prepareProductionFrontendRestart,
       checkBackendStartup: () => checkBackendStartup(packageRoot),
       serverCheckout,
-      updateCheckoutOnRestart: frontendRequired,
       restartSupported,
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,
@@ -1252,13 +1247,10 @@ if (process.env.NODE_ENV === "production") {
  */
 function handleRequest(listener: "main" | "hosts") {
   return async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
+    if (serverWorkAdmission.isStopping()) return new Response("Server is shutting down", { status: 503 });
     const url = new URL(req.url);
-    const wsRoute = matchWebSocketRoute(url.pathname);
-    // Nodes may still reconnect: work accepted before the shutdown can be waiting for their answer.
-    if (serverWorkAdmission.isStopping() && wsRoute?.kind !== "host") {
-      return new Response("Server is shutting down", { status: 503 });
-    }
 
+    const wsRoute = matchWebSocketRoute(url.pathname);
     const opaqueOriginBlock = blockOpaqueOriginApplicationRequest(req, {
       websocketRouteMatched: Boolean(wsRoute),
     });
@@ -1317,10 +1309,7 @@ function handleRequest(listener: "main" | "hosts") {
       headers.set(COMPANION_CLIENT_IP_HEADER, requestIp.address);
     }
     const decoratedRequest = new Request(req, { headers });
-    return serverWorkAdmission.track(
-      Promise.resolve(app.fetch(decoratedRequest, server)),
-      `${req.method} ${url.pathname}`,
-    );
+    return serverWorkAdmission.track(Promise.resolve(app.fetch(decoratedRequest, server)));
   };
 }
 
@@ -1541,10 +1530,9 @@ idleManager.start();
 sleepInhibitor.start();
 
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
+let settleWorkerRollout: Promise<void> = Promise.resolve();
 const shutdown = new ServerShutdown({
   stopWork: () => {
-    // A restart leaves this machine's node running for the next server, and nothing may replace it meanwhile.
-    localNode.stop();
     timerManager.stopDispatch();
     cronScheduler.destroy();
     idleManager.stop();
@@ -1553,7 +1541,11 @@ const shutdown = new ServerShutdown({
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);
-    serverWorkAdmission.track(codexWorkerV2RolloutService.destroy(), "Codex worker rollout shutdown");
+    settleWorkerRollout = codexWorkerV2RolloutService.destroy();
+  },
+  settleWork: async () => {
+    await settleWorkerRollout;
+    await serverWorkAdmission.drain();
   },
   cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),
   // A stop ends the sessions of every connected node, here or on another host;
@@ -1569,6 +1561,7 @@ const shutdown = new ServerShutdown({
   },
   persist: async () => {
     herdEventDispatcher.preservePendingForShutdown();
+    await serverWorkAdmission.drain();
     launcher.flushState();
     await Promise.all([
       sessionStore.flushAll(),

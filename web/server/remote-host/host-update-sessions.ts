@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { serverWorkAdmission } from "../server-work-admission.js";
 import { processHostOf } from "./host-registry.js";
 import { hostCanRestart, type BridgeTurnView, type HostSessionView } from "./host-restart-gate.js";
 
@@ -76,8 +75,6 @@ export class HostUpdateSessions {
    * host where workers keep testing, so it ends them and has them rerun.
    */
   blocker(hostId: string, mode: HostUpdateMode): string | null {
-    // Nodes may reconnect while the server stops; an update would end sessions the next server takes over.
-    if (serverWorkAdmission.isStopping()) return "the server has restarted";
     if (this.deps.landingRunOn(hostId)) return "the landing run there finishes";
     const live = this.liveOn(hostId);
     if (live.some((session) => this.deps.awaitingReattach(session.sessionId))) return "its sessions are taken over";

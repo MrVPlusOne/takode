@@ -991,7 +991,6 @@ export function getBrowserTransportDeps(host: any) {
           ws as ServerWebSocket<SocketData> | undefined,
           host.getBrowserRoutingDeps(),
         ),
-        `${msg.type} for session ${(targetSession as Session).id}`,
       ),
     pruneTakodeHerdBatch: (targetSession: unknown, batch: TakodeHerdBatchSnapshot | undefined) =>
       pruneStaleBoardStalledHerdBatchController(targetSession as Session, batch, host.getBoardWatchdogDeps()),
@@ -1032,6 +1031,7 @@ export function getBrowserTransportDeps(host: any) {
     getSessions: () => host.sessions.values(),
     windowStaleMs: WS_BRIDGE_VSCODE_WINDOW_STALE_MS,
     openFileTimeoutMs: WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS,
+    sendViewportHandoffState: (sessionId: string, socket: unknown) => host.sendViewportHandoffState(sessionId, socket),
     replaceSyncedProjectionSubscriptions: (socket: unknown, subscriptions: any[]) =>
       host.getSyncedProjectionController().replaceSubscriptions(socket, subscriptions),
     resyncSyncedProjection: (socket: unknown, projection: string, key: string) =>

@@ -164,24 +164,6 @@ describe("LocalNode", () => {
     expect(started).toHaveLength(1);
   });
 
-  // A restarting server stops listening, so its node cannot stay connected.
-  // Replacing the node then would end the sessions the next server is to take
-  // over, so once supervision stops nothing replaces or starts a node.
-  it("leaves a disconnected node alone once supervision stops for a restart", async () => {
-    await node.check();
-    link.online = true;
-    await node.check();
-    node.stop();
-
-    link.online = false;
-    await node.check();
-    now += 60_000;
-    await node.check();
-    expect(signals).toEqual([]);
-    expect(link.released).toEqual([]);
-    expect(started).toHaveLength(1);
-  });
-
   // The node reaches this server on an address of this machine.
   it("builds the URL a node on this machine connects to", () => {
     expect(localCoordinatorUrl("0.0.0.0", 3456)).toBe("http://127.0.0.1:3456");

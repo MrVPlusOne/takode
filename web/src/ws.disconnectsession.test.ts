@@ -126,15 +126,58 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("disconnectSession", () => {
-  it("closes the WebSocket and cleans up", () => {
+  it("unbinds an open socket, keeps it briefly for the next session, then closes it", () => {
     wsModule.connectSession("s1");
     const ws = lastWs;
 
     wsModule.disconnectSession("s1");
 
-    expect(ws.close).toHaveBeenCalled();
+    // The server stops sending s1 to it, but the connection itself is kept.
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_switch", session_id: null }));
+    expect(ws.close).not.toHaveBeenCalled();
+    ws.send.mockClear();
     // Sending after disconnect should be a no-op
     wsModule.sendToSession("s1", { type: "interrupt" });
     expect(ws.send).not.toHaveBeenCalled();
+    // Nothing reused it, so it closes.
+    vi.advanceTimersByTime(5_000);
+    expect(ws.close).toHaveBeenCalled();
+  });
+
+  it("closes a socket that is not open yet", () => {
+    wsModule.connectSession("s1");
+    const ws = lastWs;
+    ws.readyState = MockWebSocket.CONNECTING;
+
+    wsModule.disconnectSession("s1");
+
+    expect(ws.close).toHaveBeenCalled();
+    expect(ws.send).not.toHaveBeenCalled();
+  });
+
+  // A session switch on a slow link must not pay for a new connection: the next
+  // session takes over the open socket, and anything the old session still had
+  // in flight is dropped until the new session's session_init arrives.
+  it("reuses the open socket for the next session", () => {
+    wsModule.connectSession("s1");
+    const ws = lastWs;
+    ws.onopen?.(new Event("open"));
+    wsModule.disconnectSession("s1");
+    ws.send.mockClear();
+
+    wsModule.connectSession("s2");
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const sent = ws.send.mock.calls.map(([raw]) => JSON.parse(raw as string) as { type: string });
+    expect(sent[0]).toEqual({ type: "session_switch", session_id: "s2" });
+    expect(sent[1]?.type).toBe("session_subscribe");
+
+    // A late message for s1 is ignored; s2's stream starts at its session_init.
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    expect(useStore.getState().sessions.get("s2")).toBeUndefined();
+    fireMessage({ type: "session_init", session: makeSession("s2") });
+    expect(useStore.getState().sessions.get("s2")?.session_id).toBe("s2");
+    vi.advanceTimersByTime(10_000);
+    expect(ws.close).not.toHaveBeenCalled();
   });
 });

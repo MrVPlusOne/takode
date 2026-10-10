@@ -10,9 +10,12 @@ import {
 import { useStore } from "../store.js";
 import { getFeedViewportKey, readLeaderSelectedThreadKey, readLeaderViewportPosition } from "./thread-viewport.js";
 import {
+  applyPushedViewportHandoffState,
+  clearPushedViewportHandoffState,
   getViewportHandoffBaselineState,
   getViewportHandoffSessionEntryState,
   getViewportHandoffThreadEntryRecord,
+  getViewportHandoffThreadEntryStatus,
   inspectViewportHandoffClientForTest,
   loadViewportHandoffSession,
   loadViewportHandoffThread,
@@ -111,6 +114,52 @@ describe("viewport handoff client", () => {
     expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))?.anchorMessageId).toBe(
       "main-anchor",
     );
+  });
+
+  // Thread switches inside a session must not wait a round trip for this read:
+  // while the session socket is live, the state it pushed answers the entry.
+  it("enters a thread from pushed state without a read, and reads again once the socket is gone", async () => {
+    const questRecord = record("q-2035", 3, "pushed-anchor");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ state: state(3), serverNow: 5_000, record: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    applyPushedViewportHandoffState("session-1", state(3, "main", [questRecord]), 5_100);
+
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "pushed-entry" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getViewportHandoffThreadEntryStatus("session-1", "q-2035", "pushed-entry")).toBe("ready");
+    expect(getViewportHandoffThreadEntryRecord("session-1", "q-2035")?.position.anchorMessageId).toBe("pushed-anchor");
+    expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("pushed-anchor");
+    expect(getViewportHandoffBaselineState("session-1")?.revision).toBe(3);
+
+    // An older push never replaces a newer one.
+    applyPushedViewportHandoffState("session-1", state(2, "main", [record("q-2035", 2, "older")]), 5_200);
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "second-entry" });
+    expect(getViewportHandoffThreadEntryRecord("session-1", "q-2035")?.position.anchorMessageId).toBe("pushed-anchor");
+
+    clearPushedViewportHandoffState("session-1");
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "after-disconnect" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Entering a session starts a read while its socket subscribes; on a busy
+  // link the pushed state arrives first and must settle the entry.
+  it("settles an in-flight read with a pushed state that arrives first", async () => {
+    const slowRead = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(slowRead.promise));
+
+    const entry = loadViewportHandoffThread("session-1", "q-2035", { entryId: "racing-entry" });
+    await Promise.resolve();
+    expect(getViewportHandoffThreadEntryStatus("session-1", "q-2035", "racing-entry")).toBe("loading");
+    applyPushedViewportHandoffState("session-1", state(4, "main", [record("q-2035", 4, "pushed-first")]), 5_100);
+    await entry;
+
+    expect(getViewportHandoffThreadEntryStatus("session-1", "q-2035", "racing-entry")).toBe("ready");
+    expect(getViewportHandoffThreadEntryRecord("session-1", "q-2035")?.position.anchorMessageId).toBe("pushed-first");
+    // The late read result does not replace it.
+    slowRead.resolve(jsonResponse({ state: state(1), serverNow: 5_000, threadKey: "q-2035", record: null }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getViewportHandoffThreadEntryRecord("session-1", "q-2035")?.position.anchorMessageId).toBe("pushed-first");
   });
 
   it("requires a successful backend read before publishing", async () => {

@@ -884,34 +884,6 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ serverTimeZone: "" }));
   });
 
-  it("saves whether restarts update the server checkout, and rejects non-booleans", async () => {
-    vi.mocked(settingsManager.updateSettings).mockReturnValue({
-      ...settingsManager.getSettings(),
-      restartUpdatesCheckout: false,
-    });
-
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ restartUpdatesCheckout: false }),
-    });
-    expect(res.status).toBe(200);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ restartUpdatesCheckout: false }),
-    );
-    expect((await res.json()).restartUpdatesCheckout).toBe(false);
-
-    vi.mocked(settingsManager.updateSettings).mockClear();
-    const invalid = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ restartUpdatesCheckout: "off" }),
-    });
-    expect(invalid.status).toBe(400);
-    expect((await invalid.json()).error).toBe("restartUpdatesCheckout must be a boolean");
-    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
-  });
-
   it("returns 400 for a server time zone that is not an IANA zone", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

@@ -682,6 +682,14 @@ export type BrowserOutgoingMessage =
       client_msg_id?: string;
     }
   | {
+      /**
+       * Point this open browser socket at another session (null: at none) instead
+       * of opening a new connection, which costs several round trips on a slow link.
+       */
+      type: "session_switch";
+      session_id: string | null;
+    }
+  | {
       type: "session_subscribe";
       last_seq: number;
       known_frozen_count?: number;
@@ -1133,6 +1141,12 @@ export type BrowserIncomingMessageBase =
       cache_hit?: boolean;
     }
   | { type: "leader_projection_snapshot"; projection: LeaderProjectionSnapshot }
+  | {
+      /** The session's scroll-position handoffs, sent on subscribe and after each accepted change. */
+      type: "viewport_handoff_state";
+      state: import("../shared/viewport-handoff.js").ViewportHandoffSessionState;
+      serverNow: number;
+    }
   | SyncedProjectionSnapshotMessage
   | SyncedProjectionSubscriptionsAckMessage
   | SyncedProjectionUpdateMessage

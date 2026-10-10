@@ -41,6 +41,7 @@ import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
+import { applyPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
@@ -1374,6 +1375,11 @@ function handleParsedMessage(
       if (data.rowSessionStatuses) {
         store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
       }
+      break;
+    }
+
+    case "viewport_handoff_state": {
+      applyPushedViewportHandoffState(sessionId, data.state, data.serverNow);
       break;
     }
 

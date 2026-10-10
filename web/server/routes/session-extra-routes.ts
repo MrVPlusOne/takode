@@ -4,7 +4,10 @@ import { registerSessionConfigRoutes } from "./session-config-routes.js";
 import { registerSessionDelegateRoutes } from "./session-delegate-routes.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
 import { registerSessionCodexNativeSubagentRoutes } from "./session-codex-native-subagent-routes.js";
-import { registerSessionViewportHandoffRoute } from "./session-viewport-handoff-route.js";
+import {
+  readBrowserViewportHandoffState,
+  registerSessionViewportHandoffRoute,
+} from "./session-viewport-handoff-route.js";
 import { join } from "node:path";
 import { ViewportHandoffStore } from "../viewport-handoff-store.js";
 
@@ -42,9 +45,15 @@ export function registerSessionExtraRoutes(
   });
   registerSessionConfigRoutes(api, { launcher, wsBridge, resolveId });
   registerSessionCodexNativeSubagentRoutes(api, { wsBridge, resolveId });
+  // Browsers get handoff state over their session socket, so switching threads needs no read.
+  // (`?.` because most route tests pass a partial bridge double without it.)
+  wsBridge.setViewportHandoffReader?.((sessionId) =>
+    readBrowserViewportHandoffState({ launcher, viewportHandoffStore }, sessionId),
+  );
   registerSessionViewportHandoffRoute(api, {
     launcher,
     resolveId,
     viewportHandoffStore,
+    onStateChanged: (sessionId, state) => wsBridge.pushViewportHandoffState?.(sessionId, state),
   });
 }

@@ -1,5 +1,6 @@
 import {
   normalizeViewportHandoffPosition,
+  normalizeViewportHandoffSessionState,
   normalizeViewportHandoffThreadKey,
   type ViewportHandoffPosition,
   type ViewportHandoffReadResponse,
@@ -119,6 +120,10 @@ const PENDING_DEPARTURE_KEY_PREFIX = "takode:viewport-handoff-pending";
 const PENDING_DEPARTURE_MAX_AGE_MS = 5 * 60_000;
 const ENTRY_PENDING_WRITE_WAIT_MS = 750;
 const sessionStates = new Map<string, SessionClientState>();
+/** Handoff state the server pushes over a session's live socket, keyed like sessionStates. */
+const pushedStates = new Map<string, { state: ViewportHandoffSessionState; serverNow: number }>();
+/** Reads in flight per session that a pushed state may settle first. */
+const pushWaiters = new Map<string, Set<() => void>>();
 const pageIds = new Map<string, string>();
 const fallbackBrowserIds = new Map<string, string>();
 const clockEstimates = new Map<string, ClockEstimate>();
@@ -649,6 +654,85 @@ function waitForPendingDepartures(promises: Promise<unknown>[], signal?: AbortSi
   });
 }
 
+/**
+ * Hold the handoff state the server pushed over the session's socket. While
+ * the socket stays live the server pushes every accepted change, so entering a
+ * thread uses this instead of reading it, which would cost a round trip.
+ */
+export function applyPushedViewportHandoffState(sessionId: string, value: unknown, serverNow: number): void {
+  const incoming = normalizeViewportHandoffSessionState(value, sessionId);
+  if (!incoming || !Number.isFinite(serverNow)) return;
+  const scope = currentServerScope();
+  const key = sessionCacheKey(scope, sessionId);
+  const current = pushedStates.get(key);
+  if (current && current.state.revision > incoming.revision) return;
+  pushedStates.set(key, { state: incoming, serverNow });
+  const clientState = getSessionClientState(sessionId, scope);
+  clientState.baselineState = newerBaselineState(clientState.baselineState, incoming);
+  for (const settleWithPush of [...(pushWaiters.get(key) ?? [])]) settleWithPush();
+}
+
+/** Forget pushed state once the session's socket stops receiving its changes. */
+export function clearPushedViewportHandoffState(sessionId: string): void {
+  pushedStates.delete(sessionCacheKey(currentServerScope(), sessionId));
+}
+
+/**
+ * The held pushed state, or else a read that a push arriving first settles
+ * instead: entering a session subscribes its socket as the read starts, and on
+ * a busy link the pushed state usually arrives well before the read returns.
+ */
+function readOrReceivePushed(
+  scope: string,
+  sessionId: string,
+  threadKey: string | undefined,
+  read: () => Promise<ViewportHandoffReadResponse>,
+): Promise<{ response: ViewportHandoffReadResponse; startedAt: number | null }> {
+  const pushed = pushedReadResponse(scope, sessionId, threadKey);
+  if (pushed) return Promise.resolve({ response: pushed, startedAt: null });
+  const key = sessionCacheKey(scope, sessionId);
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
+    const waiters = pushWaiters.get(key) ?? new Set<() => void>();
+    pushWaiters.set(key, waiters);
+    const finish = () => {
+      waiters.delete(onPush);
+      if (waiters.size === 0 && pushWaiters.get(key) === waiters) pushWaiters.delete(key);
+    };
+    const onPush = () => {
+      const response = pushedReadResponse(scope, sessionId, threadKey);
+      if (!response) return;
+      finish();
+      resolve({ response, startedAt: null });
+    };
+    waiters.add(onPush);
+    read().then(
+      (response) => {
+        if (!waiters.has(onPush)) return;
+        finish();
+        resolve({ response, startedAt });
+      },
+      (error: unknown) => {
+        if (!waiters.has(onPush)) return;
+        finish();
+        reject(error);
+      },
+    );
+  });
+}
+
+function pushedReadResponse(scope: string, sessionId: string, threadKey?: string): ViewportHandoffReadResponse | null {
+  const pushed = pushedStates.get(sessionCacheKey(scope, sessionId));
+  if (!pushed) return null;
+  if (!threadKey) return { state: pushed.state, serverNow: pushed.serverNow };
+  return {
+    state: pushed.state,
+    serverNow: pushed.serverNow,
+    threadKey,
+    record: pushed.state.handoffs[threadKey] ?? null,
+  };
+}
+
 export function loadViewportHandoffSession(
   sessionId: string,
   options: LoadViewportHandoffOptions = {},
@@ -673,14 +757,12 @@ export function loadViewportHandoffSession(
   entry.value = null;
   emitChange();
 
-  let startedAt = 0;
   const promise = waitForPendingDepartures(pendingDeparturePromises(state), options.signal)
-    .then(() => {
-      startedAt = Date.now();
-      return fetchViewportHandoffSession(sessionId, options.signal);
-    })
-    .then((response) => {
-      recordClockSample(scope, startedAt, Date.now(), response.serverNow);
+    .then(() =>
+      readOrReceivePushed(scope, sessionId, undefined, () => fetchViewportHandoffSession(sessionId, options.signal)),
+    )
+    .then(({ response, startedAt }) => {
+      if (startedAt !== null) recordClockSample(scope, startedAt, Date.now(), response.serverNow);
       const applied = applyReadBaseline(scope, sessionId, response);
       const effectiveResponse = applied.response;
       hydrateEntryState(scope, sessionId, effectiveResponse);
@@ -739,14 +821,14 @@ export function loadViewportHandoffThread(
   entry.value = null;
   emitChange();
 
-  let startedAt = 0;
   const promise = waitForPendingDepartures(pendingDeparturePromises(state, normalizedThreadKey), options.signal)
-    .then(() => {
-      startedAt = Date.now();
-      return fetchViewportHandoffThread(sessionId, normalizedThreadKey, options.signal);
-    })
-    .then((response) => {
-      recordClockSample(scope, startedAt, Date.now(), response.serverNow);
+    .then(() =>
+      readOrReceivePushed(scope, sessionId, normalizedThreadKey, () =>
+        fetchViewportHandoffThread(sessionId, normalizedThreadKey, options.signal),
+      ),
+    )
+    .then(({ response, startedAt }) => {
+      if (startedAt !== null) recordClockSample(scope, startedAt, Date.now(), response.serverNow);
       const applied = applyReadBaseline(scope, sessionId, response);
       const effectiveResponse = applied.response;
       hydrateEntryState(scope, sessionId, effectiveResponse, normalizedThreadKey);
@@ -1068,6 +1150,8 @@ export function resetViewportHandoffClientForTest(
   options: { preserveBrowserIdentity?: boolean; preservePendingDepartures?: boolean } = {},
 ): void {
   sessionStates.clear();
+  pushedStates.clear();
+  pushWaiters.clear();
   pageIds.clear();
   fallbackBrowserIds.clear();
   clockEstimates.clear();

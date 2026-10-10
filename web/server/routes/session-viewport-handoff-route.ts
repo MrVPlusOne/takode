@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import {
   normalizeViewportHandoffThreadKey,
   type ViewportHandoffReadResponse,
+  type ViewportHandoffSessionState,
   type ViewportHandoffWriteRequest,
 } from "../../shared/viewport-handoff.js";
 import type { CliLauncher } from "../cli-launcher.js";
@@ -11,6 +12,19 @@ export interface SessionViewportHandoffRouteDeps {
   launcher: CliLauncher;
   resolveId: (idOrNum: string) => string | null;
   viewportHandoffStore: ViewportHandoffStore;
+  /** Called with the new state after an accepted write. */
+  onStateChanged?: (sessionId: string, state: ViewportHandoffSessionState) => void;
+}
+
+/** The session's handoff state as browsers may receive it, or null when it is invalid for the session. */
+export async function readBrowserViewportHandoffState(
+  deps: Pick<SessionViewportHandoffRouteDeps, "launcher" | "viewportHandoffStore">,
+  sessionId: string,
+): Promise<ViewportHandoffSessionState | null> {
+  const info = deps.launcher.getSession(sessionId);
+  if (!info) return null;
+  const state = await deps.viewportHandoffStore.readSession(sessionId);
+  return info.isOrchestrator === true || stateIsNormalSessionOnly(state) ? state : null;
 }
 
 export function registerSessionViewportHandoffRoute(api: Hono, deps: SessionViewportHandoffRouteDeps): void {
@@ -76,6 +90,7 @@ export function registerSessionViewportHandoffRoute(api: Hono, deps: SessionView
         { ...body, threadKey, selectedThreadKey },
         Date.now(),
       );
+      if (result.status === "accepted") deps.onStateChanged?.(resolved.sessionId, result.state);
       return c.json(result);
     } catch (error) {
       return viewportHandoffErrorResponse(c, error);

@@ -32,6 +32,8 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Base reconnect delay */
 const BASE_RECONNECT_DELAY_MS = 2_000;
 const SEQ_STATE_FLUSH_DELAY_MS = 50;
+/** How long a socket left by a session switch waits to be reused before it closes. */
+const SPARE_SOCKET_TTL_MS = 5_000;
 
 const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "user_message",
@@ -148,6 +150,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   const syncedProjectionSubscriptionSignatures = new Map<string, string>();
   const pendingSyncedProjectionResyncs = new Map<string, Set<string>>();
   const pendingSyncedProjectionSubscriptionAcks = new Map<string, PendingSyncedProjectionSubscriptionAck[]>();
+
+  // A socket left by a session switch, kept briefly so the next session reuses
+  // it: a new connection costs several round trips on a slow link.
+  let spareSocket: { ws: WebSocket; timer: ReturnType<typeof setTimeout> } | null = null;
 
   let clientMsgCounter = 0;
   let receiveCounter = 0;
@@ -593,7 +599,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     callbacks.onConnecting?.(sessionId);
     recordConnectionCycle(sessionId, "connect");
 
-    const ws = new WebSocket(getWsUrl(sessionId));
+    const reused = takeSpareSocket();
+    const ws = reused ?? new WebSocket(getWsUrl(sessionId));
+    // A reused socket may still deliver the previous session's messages; this
+    // session's stream starts with its session_init.
+    let awaitingSwitchedSessionInit = reused !== null;
     sockets.set(sessionId, ws);
     browserLoadDiagnostics.connect(sessionId, (message) => {
       if (sockets.get(sessionId) !== ws || !isSocketSendable(ws)) return false;
@@ -601,7 +611,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       return true;
     });
 
-    ws.onopen = () => {
+    const handleOpen = () => {
       if (sockets.get(sessionId) !== ws) {
         intentionalCloseSockets.add(ws);
         ws.close();
@@ -628,6 +638,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       heartbeatIntervals.set(sessionId, hb);
       heartbeatOwners.set(sessionId, ws);
     };
+    ws.onopen = handleOpen;
 
     ws.onmessage = (event) => {
       if (sockets.get(sessionId) !== ws) return;
@@ -639,6 +650,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         const parseStartedAt = perfNow();
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
         const parsedAt = perfNow();
+        if (awaitingSwitchedSessionInit) {
+          if (data.type !== "session_init" || data.session?.session_id !== sessionId) return;
+          awaitingSwitchedSessionInit = false;
+        }
         if (data.type === "session_init" && data.diagnosticConnectionId) {
           browserLoadDiagnostics.identify(sessionId, data.diagnosticConnectionId);
         }
@@ -719,6 +734,44 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     ws.onerror = () => {
       ws.close();
     };
+
+    if (reused) {
+      ws.send(JSON.stringify({ type: "session_switch", session_id: sessionId }));
+      handleOpen();
+    }
+  }
+
+  function takeSpareSocket(): WebSocket | null {
+    const spare = spareSocket;
+    spareSocket = null;
+    if (!spare) return null;
+    clearTimeout(spare.timer);
+    return isSocketSendable(spare.ws) ? spare.ws : null;
+  }
+
+  /** Keep a still-open socket for the next session instead of closing it; the server unbinds it meanwhile. */
+  function parkSocket(ws: WebSocket): void {
+    closeSpareSocket();
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = () => ws.close();
+    ws.onclose = () => {
+      if (spareSocket?.ws === ws) {
+        clearTimeout(spareSocket.timer);
+        spareSocket = null;
+      }
+    };
+    ws.send(JSON.stringify({ type: "session_switch", session_id: null }));
+    spareSocket = { ws, timer: setTimeout(closeSpareSocket, SPARE_SOCKET_TTL_MS) };
+  }
+
+  function closeSpareSocket(): void {
+    const spare = spareSocket;
+    spareSocket = null;
+    if (!spare) return;
+    clearTimeout(spare.timer);
+    intentionalCloseSockets.add(spare.ws);
+    spare.ws.close();
   }
 
   function reconnectSession(sessionId: string): void {
@@ -737,13 +790,17 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     clearFrontendPerfSessionCorrelations(sessionId);
     reconnectAttempts.delete(sessionId);
     const ws = clearSocketState(sessionId);
-    if (ws) {
-      intentionalCloseSockets.add(ws);
-      ws.close();
+    if (!ws) return;
+    if (ws.readyState === WebSocket.OPEN) {
+      parkSocket(ws);
+      return;
     }
+    intentionalCloseSockets.add(ws);
+    ws.close();
   }
 
   function disconnectAll(): void {
+    closeSpareSocket();
     for (const [sessionId] of sockets) {
       disconnectSession(sessionId);
     }
@@ -903,6 +960,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   function closeAllForUnload(): void {
     suppressCloseHandling = true;
+    closeSpareSocket();
     flushPendingSeqState();
     for (const [sessionId, ws] of sockets) {
       clearSocketState(sessionId);

@@ -113,7 +113,7 @@ export class CronScheduler {
   /** Execute a job: create a session, send the prompt, track the result. */
   async executeJob(jobId: string, opts?: { force?: boolean }): Promise<void> {
     if (serverWorkAdmission.isStopping()) return;
-    return serverWorkAdmission.track(this.executeAcceptedJob(jobId, opts), `cron job ${jobId}`);
+    return serverWorkAdmission.track(this.executeAcceptedJob(jobId, opts));
   }
 
   private async executeAcceptedJob(jobId: string, opts?: { force?: boolean }): Promise<void> {

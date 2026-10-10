@@ -596,10 +596,7 @@ export class CliLauncher {
    */
   async launch(options: LaunchOptions = {}): Promise<SdkSessionInfo> {
     serverWorkAdmission.assertOpen();
-    return serverWorkAdmission.track(
-      this.launchAccepted(options),
-      options.hostId ? `session launch on host ${options.hostId}` : "session launch",
-    );
+    return serverWorkAdmission.track(this.launchAccepted(options));
   }
 
   private async launchAccepted(options: LaunchOptions): Promise<SdkSessionInfo> {
@@ -761,11 +758,9 @@ export class CliLauncher {
 
     switch (backendType) {
       case "codex":
-        serverWorkAdmission
-          .track(this.spawnCodex(sessionId, info, options), `Codex start of session ${sessionId}`)
-          .catch((err) => {
-            console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
-          });
+        serverWorkAdmission.track(this.spawnCodex(sessionId, info, options)).catch((err) => {
+          console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
+        });
         break;
       case "claude-sdk":
         // Await SDK spawn so the adapter is attached before launch() returns.
@@ -790,7 +785,7 @@ export class CliLauncher {
    */
   async relaunch(sessionId: string): Promise<{ ok: boolean; error?: string }> {
     if (serverWorkAdmission.isStopping()) return { ok: false, error: "Server is shutting down" };
-    return serverWorkAdmission.track(this.relaunchAccepted(sessionId), `relaunch of session ${sessionId}`);
+    return serverWorkAdmission.track(this.relaunchAccepted(sessionId));
   }
 
   private async relaunchAccepted(sessionId: string): Promise<{ ok: boolean; error?: string }> {

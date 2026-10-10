@@ -170,7 +170,7 @@ export class TimerManager {
 
   /** Run one immediate due-timer sweep. Used at startup so due timers do not wait for browser navigation. */
   async sweepDueTimersNow(now = Date.now()): Promise<TimerSweepResult> {
-    return serverWorkAdmission.track(this.sweep(now), "timer sweep");
+    return serverWorkAdmission.track(this.sweep(now));
   }
 
   /** Cancel all timers for a session (on archive). Deletes persistence file. */

@@ -271,6 +271,7 @@ export interface BrowserTransportDeps {
   windowStaleMs: number;
   openFileTimeoutMs: number;
   lazyLoadFullHistory?: (session: BrowserTransportSessionLike) => Promise<void>;
+  sendViewportHandoffState?: (sessionId: string, ws: BrowserTransportSocketLike) => void;
   replaceSyncedProjectionSubscriptions?: (
     socket: BrowserTransportSocketLike,
     subscriptions: SyncedProjectionSubscriptions,
@@ -574,10 +575,7 @@ export function handleBrowserMessage(
 
   return {
     messageType: msg.type,
-    completion: serverWorkAdmission.track(
-      handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined),
-      `browser ${msg.type} for session ${session.id}`,
-    ),
+    completion: serverWorkAdmission.track(handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined)),
   };
 }
 
@@ -1380,6 +1378,7 @@ export async function handleSessionSubscribe(
   if (!ws) return;
   const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = true;
+  deps.sendViewportHandoffState?.(session.id, ws);
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
   const projectionSubscribePreparation = prepareSyncedProjectionSessionSubscribe(

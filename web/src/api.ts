@@ -32,7 +32,7 @@ import {
   isInterruptRestartBlockersResponse,
   type InterruptRestartBlockersResponse,
   type RestartServerResponse,
-  type ServerCheckoutInfo,
+  type ServerCheckoutStatus,
 } from "./api/server-restart.js";
 import type {
   TranscriptionLogEntry,
@@ -100,8 +100,6 @@ export type {
   InterruptRestartBlockersResponse,
   RestartPrepAttemptResult,
   RestartServerResponse,
-  ServerCheckoutInfo,
-  ServerCheckoutRestartMode,
   ServerCheckoutStatus,
   ServerCheckoutUpdate,
   ServerInterruptResultItem,
@@ -658,8 +656,6 @@ export interface AppSettings {
   serverTimeZoneInEffect: string;
   /** The zone an empty setting gives at the next start. */
   serverTimeZoneDefault: string;
-  /** Whether Restart Server first brings a production server's checkout up to date, stopping when it cannot. */
-  restartUpdatesCheckout: boolean;
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
   pushoverEventFilters?: PushoverEventFilters;
@@ -1364,7 +1360,8 @@ export const api = {
 
   // Server control
   restartServer: () => post<RestartServerResponse>("/server/restart", {}),
-  getServerCheckout: (refresh = false) => get<ServerCheckoutInfo>(`/server/checkout${refresh ? "?refresh=1" : ""}`),
+  getServerCheckout: (refresh = false) =>
+    get<{ status: ServerCheckoutStatus | null }>(`/server/checkout${refresh ? "?refresh=1" : ""}`),
   interruptRestartBlockers: () => post<InterruptRestartBlockersResponse>("/server/interrupt-all", {}),
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>
@@ -1384,7 +1381,6 @@ export const api = {
     serverName?: string;
     serverSlug?: string;
     serverTimeZone?: string;
-    restartUpdatesCheckout?: boolean;
     pushoverUserKey?: string;
     pushoverApiToken?: string;
     pushoverDelaySeconds?: number;

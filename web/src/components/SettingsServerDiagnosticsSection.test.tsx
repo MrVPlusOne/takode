@@ -350,22 +350,8 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(window.location.hash).toBe("#/changelog");
   });
 
-  const behindWithLocalChanges = {
-    state: "behind" as const,
-    runningCommit: "a".repeat(40),
-    head: "a".repeat(40),
-    branch: "main",
-    upstream: "origin/main",
-    upstreamHead: "b".repeat(40),
-    behind: 2,
-    ahead: 0,
-    localChanges: true,
-    fetchError: null,
-    checkedAt: 1,
-  };
-
   it("shows the server checkout's state in the Restart section and re-reads it before a restart", () => {
-    // A checkout a restart cannot update is shown as a warning before the user confirms, with the reason.
+    // A checkout that cannot be fast-forwarded is shown as a warning, so a restart onto older code is never silent.
     const onRefreshCheckoutStatus = vi.fn();
     render(
       <SettingsServerDiagnosticsSection
@@ -376,74 +362,27 @@ describe("SettingsServerDiagnosticsSection", () => {
         restarting={false}
         onRestartServer={vi.fn()}
         onRefreshCheckoutStatus={onRefreshCheckoutStatus}
-        checkout={{
-          status: behindWithLocalChanges,
-          restartMode: "on",
-          blocker: "The server checkout (main) has uncommitted changes to tracked files. Commit or discard them.",
+        checkoutStatus={{
+          state: "behind",
+          runningCommit: "a".repeat(40),
+          head: "a".repeat(40),
+          branch: "main",
+          upstream: "origin/main",
+          upstreamHead: "b".repeat(40),
+          behind: 2,
+          ahead: 0,
+          localChanges: true,
+          fetchError: null,
+          checkedAt: 1,
         }}
       />,
     );
 
     const line = screen.getByTestId("server-checkout-status");
     expect(line).toHaveAttribute("data-tone", "warning");
-    expect(line).toHaveTextContent(
-      "Restart Server would stop without restarting: The server checkout (main) has uncommitted",
-    );
+    expect(line).toHaveTextContent("origin/main has 2 commits newer than the checkout (main)");
 
     fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
     expect(onRefreshCheckoutStatus).toHaveBeenCalledOnce();
-  });
-
-  it("offers turning the update off and on for a production checkout", () => {
-    const onSetRestartUpdatesCheckout = vi.fn();
-    const { rerender } = render(
-      <SettingsServerDiagnosticsSection
-        logFile=""
-        {...serverSlugProps}
-        restartSupported
-        restartError=""
-        restarting={false}
-        onRestartServer={vi.fn()}
-        checkout={{ status: behindWithLocalChanges, restartMode: "on", blocker: "Blocked." }}
-        onSetRestartUpdatesCheckout={onSetRestartUpdatesCheckout}
-      />,
-    );
-
-    const toggle = screen.getByRole("switch", { name: "Update the checkout before restarting" });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(toggle);
-    expect(onSetRestartUpdatesCheckout).toHaveBeenCalledWith(false);
-
-    rerender(
-      <SettingsServerDiagnosticsSection
-        logFile=""
-        {...serverSlugProps}
-        restartSupported
-        restartError=""
-        restarting={false}
-        onRestartServer={vi.fn()}
-        checkout={{ status: behindWithLocalChanges, restartMode: "off", blocker: null }}
-        onSetRestartUpdatesCheckout={onSetRestartUpdatesCheckout}
-      />,
-    );
-    expect(screen.getByRole("switch", { name: "Update the checkout before restarting" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
-
-    // A development server never updates its checkout, so there is nothing to turn on.
-    rerender(
-      <SettingsServerDiagnosticsSection
-        logFile=""
-        {...serverSlugProps}
-        restartSupported
-        restartError=""
-        restarting={false}
-        onRestartServer={vi.fn()}
-        checkout={{ status: behindWithLocalChanges, restartMode: "development", blocker: null }}
-        onSetRestartUpdatesCheckout={onSetRestartUpdatesCheckout}
-      />,
-    );
-    expect(screen.queryByRole("switch", { name: "Update the checkout before restarting" })).not.toBeInTheDocument();
   });
 });

@@ -335,6 +335,8 @@ describe("synced projection WebSocket carrier", () => {
     open(oldSocket);
     fire(oldSocket, attentionEnvelope({ generation: "generation-old", revision: 1, count: 1 }));
 
+    // A socket that is already closing is not kept for reuse, so the reconnect opens a new one.
+    oldSocket.readyState = MockWebSocket.CLOSING;
     wsModule.disconnectSession("carrier");
     wsModule.connectSession("carrier");
     const replacement = MockWebSocket.instances.at(-1)!;

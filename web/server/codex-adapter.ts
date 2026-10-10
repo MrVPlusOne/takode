@@ -797,8 +797,7 @@ export class CodexAdapter
 
   private enqueueOutgoingDispatch(label: string, run: () => Promise<void>): void {
     this.outgoingDispatch.enqueue(label, async () => {
-      if (!serverWorkAdmission.isStopping())
-        await serverWorkAdmission.track(run(), `Codex ${label} for session ${this.sessionId}`);
+      if (!serverWorkAdmission.isStopping()) await serverWorkAdmission.track(run());
     });
   }
 

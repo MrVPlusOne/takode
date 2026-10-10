@@ -1,3 +1,4 @@
+import { clearPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
 import { useStore } from "./store.js";
 import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
@@ -179,6 +180,7 @@ const transport = createWsTransport({
     }
   },
   onDisconnected: (sessionId) => {
+    clearPushedViewportHandoffState(sessionId);
     void requestThreadViewportSnapshot(sessionId);
     const store = useStore.getState();
     store.setPendingThreadWindowRequest(sessionId, null);
@@ -223,6 +225,7 @@ export function connectSession(sessionId: string) {
 }
 
 export function disconnectSession(sessionId: string) {
+  clearPushedViewportHandoffState(sessionId);
   transport.disconnectSession(sessionId);
 }
 

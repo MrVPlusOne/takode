@@ -91,14 +91,6 @@ TAKODE_AUTO_INSTALL=1 <command>
 Running app or tool entrypoints should avoid implicit package fetches where
 practical by using Bun's `--no-install` mode.
 
-Restart Server on a production server is the one install path that runs
-without `TAKODE_AUTO_INSTALL`: after bringing the server's checkout up to date
-with its branch, it runs `bun install --frozen-lockfile` in `web/`, so a landed
-dependency change does not block the restart. It is still frozen-lockfile
-based, and it can be turned off with **Update the checkout before restarting**
-in Settings → Restart (see "Updating Takode" in
-[Remote hosts](remote-hosts.md#updating-takode)).
-
 ## VS Code Extension Tooling
 
 `@vscode/vsce` is trusted VS Code extension packaging tooling, not part of the

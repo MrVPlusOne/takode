@@ -126,7 +126,7 @@ describe("captureUserShellPath", () => {
     // let timed-out `zsh -lic ...` probes survive as orphaned PID-1 children.
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/bin/zsh",
-      ["-lic", expect.stringContaining('echo "___PATH_START___${PATH}___PATH_END___"')],
+      ["-lic", expect.stringContaining('echo "___PATH_START___$PATH___PATH_END___"')],
       expect.objectContaining({ timeout: 10_000, killSignal: "SIGKILL" }),
     );
     expect(mockExecFileSync.mock.calls.at(-1)?.[1]?.[1]).toContain("___ENV_LITELLM_API_KEY___");

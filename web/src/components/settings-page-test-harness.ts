@@ -212,7 +212,7 @@ export function resetSettingsPageMocks() {
     buildId: "development",
     servedFrontendBuildId: "development",
   });
-  mockApi.getServerCheckout.mockResolvedValue({ status: null, restartMode: "on", blocker: null });
+  mockApi.getServerCheckout.mockResolvedValue({ status: null });
   resetBuildCompatibilityForTest();
   mockApi.updateSettings.mockResolvedValue(settingsResponse());
   mockApi.getNamerLogs.mockResolvedValue([]);

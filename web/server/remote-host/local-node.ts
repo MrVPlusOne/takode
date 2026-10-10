@@ -57,8 +57,8 @@ export class LocalNode {
   private checking: Promise<void> | null = null;
   /** A node did not connect within the grace period, and none has connected since. */
   private failedToConnect = false;
-  /** Set when the server stops or restarts, so nothing starts or replaces the node again. */
-  private stopped = false;
+  /** Set when the server stops, so nothing starts the node again. */
+  private shutDown = false;
 
   constructor(private readonly options: LocalNodeOptions) {
     const dir = options.companionDir ?? join(homedir(), ".companion");
@@ -80,13 +80,7 @@ export class LocalNode {
     void this.check();
   }
 
-  /**
-   * Stop supervising, leaving the node running. A restarting server stops
-   * listening, so its node cannot stay connected; replacing it would end the
-   * sessions the next server is to take over.
-   */
   stop(): void {
-    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
@@ -96,6 +90,7 @@ export class LocalNode {
    * be stopped, and the node ends any process still running under it.
    */
   async shutdown(): Promise<void> {
+    this.shutDown = true;
     this.stop();
     await this.checking;
     const pid = await this.runningPid();
@@ -118,7 +113,7 @@ export class LocalNode {
 
   /** Make sure the node runs and is connected. Concurrent calls share one run. */
   check(): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+    if (this.shutDown) return Promise.resolve();
     this.checking ??= this.reconcile()
       .catch((error) => this.log(`Check failed: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => {
@@ -139,7 +134,7 @@ export class LocalNode {
     const waitedOut = now - this.offlineSince >= CONNECT_GRACE_MS;
     const pid = await this.runningPid();
     // A node that is starting or reconnecting gets the grace period.
-    if (this.stopped || (pid !== null && !waitedOut)) return;
+    if (pid !== null && !waitedOut) return;
     if (pid !== null) {
       this.log(`The local node (pid ${pid}) has not connected for ${CONNECT_GRACE_MS / 1000}s; replacing it`);
       this.signal(pid, "SIGTERM");

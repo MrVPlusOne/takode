@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import {
   createViewportHandoffEntryId,
   getViewportHandoffClientVersion,
@@ -25,7 +25,8 @@ export function useViewportHandoffSessionEntryReady(
   const entryId = useEntryId(options.entryId, `session:${sessionId ?? "none"}`);
   useSyncExternalStore(subscribeViewportHandoffClient, getViewportHandoffClientVersion, () => 0);
 
-  useEffect(() => {
+  // Before paint: with pushed handoff state the entry settles at once, so the fallback never shows.
+  useLayoutEffect(() => {
     if (!sessionId) return;
     void loadViewportHandoffSession(sessionId, { entryId });
   }, [entryId, sessionId]);
@@ -43,7 +44,7 @@ export function useViewportHandoffThreadEntryReady(
   const entryId = useEntryId(options.entryId, `thread:${sessionId ?? "none"}:${threadKey ?? "none"}`);
   useSyncExternalStore(subscribeViewportHandoffClient, getViewportHandoffClientVersion, () => 0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!sessionId || !threadKey) return;
     void loadViewportHandoffThread(sessionId, threadKey, { entryId });
   }, [entryId, sessionId, threadKey]);
