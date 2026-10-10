@@ -1024,22 +1024,41 @@ describe("TopBar", () => {
     expect(screen.queryByTitle("Current mode: Plan")).not.toBeInTheDocument();
   });
 
-  // The Board button is the leader's way into the work board from any thread (design B of the
-  // workboard-access checkpoint). It replaced the wide-desktop-only Workboard and Completed shortcuts.
-  it("shows a Board button with the active count and, on wide desktops, the phase summary", () => {
+  // The Board button is the leader's way into the work board from any thread. It replaced the
+  // wide-desktop-only Workboard and Completed shortcuts, and shows one phase-colored dot per
+  // quest in a Journey phase instead of a count: a count or corner badge read as unread and nagged.
+  it("shows a Board button with one phase dot per quest in a Journey phase, and the counts in its label", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
-      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            { questId: "q-1", status: "WORKING", updatedAt: 1 },
+            { questId: "q-4", status: "MEMORY", updatedAt: 4 },
+            // Queued and proposed quests are not being worked on, so they get no dot.
+            { questId: "q-3", status: "QUEUED", updatedAt: 3 },
+            { questId: "q-5", status: "PROPOSED", updatedAt: 5 },
+          ],
+        ],
+      ]),
       sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
     });
 
     render(<TopBar />);
 
     const button = screen.getByTestId("topbar-workboard-button");
-    expect(button).toHaveTextContent("Board");
-    expect(screen.getByTestId("topbar-workboard-count")).toHaveTextContent("1");
-    expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
-    expect(screen.getByTestId("workboard-icon")).toBeInTheDocument();
+    expect(button).toHaveTextContent(/^Board$/);
+    expect(screen.getByTestId("workboard-dots-icon")).toHaveAttribute("data-dot-count", "2");
+    expect(screen.getAllByTestId("workboard-dot").map((dot) => dot.getAttribute("data-phase"))).toEqual([
+      "memory",
+      "work",
+    ]);
+    expect(button).toHaveAccessibleName("Open work board: 2 active (1 Memory, 1 Work)");
+    expect(button).toHaveAttribute("title", "Open work board: 2 active (1 Memory, 1 Work)");
+    // No count or phase-summary text: the width must not change with the board.
+    expect(screen.queryByTestId("topbar-workboard-count")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-workboard-phase-summary")).not.toBeInTheDocument();
     // The retired separate shortcuts must not come back next to the Board button.
     expect(screen.queryByTestId("topbar-workboard-shortcut")).not.toBeInTheDocument();
     expect(screen.queryByTestId("topbar-completed-shortcut")).not.toBeInTheDocument();
@@ -1052,38 +1071,29 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("topbar-workboard-button")).toBeInTheDocument();
-    expect(screen.queryByTestId("topbar-workboard-count")).not.toBeInTheDocument();
+    expect(screen.getByTestId("topbar-workboard-button")).toHaveAccessibleName("Open work board: nothing active");
+    expect(screen.queryAllByTestId("workboard-dot")).toHaveLength(0);
   });
 
-  // The count is information, not something unread: the user found a notification-style
-  // corner badge nagging, so it must stay plain text inside the button.
-  it("shows the Board button on a phone as the icon with the count as plain text inside it", () => {
+  it("shows only the dot board on a phone, with three dots and +N past five", () => {
     window.innerWidth = 430;
+    const rows = Array.from({ length: 7 }, (_, index) => ({
+      questId: `q-${index + 1}`,
+      status: "WORKING",
+      updatedAt: index + 1,
+    }));
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
-      sessionBoards: new Map([
-        [
-          "s1",
-          [
-            { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
-            { questId: "q-3", status: "QUEUED", updatedAt: 3 },
-          ],
-        ],
-      ]),
+      sessionBoards: new Map([["s1", rows]]),
     });
 
     render(<TopBar />);
 
     const button = screen.getByTestId("topbar-workboard-button");
     expect(button).not.toHaveTextContent("Board");
-    expect(button).toHaveAccessibleName("Open work board (2 active)");
-    const count = screen.getByTestId("topbar-workboard-count");
-    expect(count).toHaveTextContent("2");
-    expect(count.parentElement).toBe(button);
-    expect(count).not.toHaveClass("absolute");
-    expect(count).not.toHaveClass("rounded-full");
-    expect(button).toHaveTextContent(/^2$/);
+    expect(button).toHaveAccessibleName("Open work board: 7 active (7 Work)");
+    expect(screen.getAllByTestId("workboard-dot")).toHaveLength(3);
+    expect(screen.getByTestId("workboard-dots-overflow")).toHaveTextContent("+4");
   });
 
   it("places the Board button before Next and the session controls", () => {

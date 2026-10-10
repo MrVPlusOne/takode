@@ -6,8 +6,9 @@
 import { useEffect } from "react";
 import { useStore } from "../../store.js";
 import { BoardTable, type BoardRowData } from "../BoardTable.js";
-import { LeaderWorkboardTopBarButton, WorkBoardIcon } from "../leader-workboard-controls.js";
-import { activeBoardSummarySegments } from "../leader-board-summary.js";
+import { LeaderWorkboardTopBarButton } from "../leader-workboard-controls.js";
+import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
+import { activeBoardPhaseDots, type BoardPhaseDot } from "../leader-board-summary.js";
 import { AttentionListPill } from "../GlobalAttentionMenu.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import type { BoardRowSessionStatus } from "../../types.js";
@@ -129,7 +130,19 @@ const ROW_STATUSES: Record<string, BoardRowSessionStatus> = {
 };
 
 const ACCESS_SESSION_ID = "playground-workboard-access";
-const SUMMARY = activeBoardSummarySegments(ACTIVE_ROWS);
+const ACTIVE_DOTS = activeBoardPhaseDots(ACTIVE_ROWS);
+
+/** Board button samples with 0, 1, 3, 5 and 7 quests in a Journey phase (seven overflows to "+N"). */
+const DOT_SAMPLES: Array<{ label: string; dots: BoardPhaseDot[] }> = [
+  [],
+  ["work"],
+  ["work", "user-checkpoint", "memory"],
+  ["work", "work", "user-checkpoint", "memory", "landing"],
+  ["work", "work", "work", "user-checkpoint", "memory", "landing", "work"],
+].map((phaseIds) => ({
+  label: `${phaseIds.length} active`,
+  dots: phaseIds.map((phaseId, index) => ({ questId: `q-${900 + index}`, phase: getQuestJourneyPhase(phaseId)! })),
+}));
 const noop = () => {};
 
 function projectedTab(row: BoardRowData, completed: boolean): LeaderThreadTabsProjectionTab {
@@ -200,13 +213,7 @@ function PhoneLeaderTopBar({ boardOpen }: { boardOpen: boolean }) {
         <span className="truncate text-[13px] font-semibold leading-tight text-cc-fg">Condor Takode</span>
         <span className="text-[11px] leading-tight text-cc-muted">#2902</span>
       </span>
-      <LeaderWorkboardTopBarButton
-        open={boardOpen}
-        activeCount={ACTIVE_ROWS.length}
-        summarySegments={SUMMARY}
-        compact
-        onToggle={noop}
-      />
+      <LeaderWorkboardTopBarButton open={boardOpen} dots={ACTIVE_DOTS} compact onToggle={noop} />
       <AttentionListPill count={3} topKind="needs-input" compact />
       <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
     </div>
@@ -231,7 +238,7 @@ export function PlaygroundWorkboardAccessSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Work Board Access and Readability"
-        description="Board tables at full contrast with the quest title next to its ID. Leaders open the board from any thread with the Board button in the top bar, next to Next: the icon and the active count as plain text on phones (never a notification-style badge), Board and the count on desktop, and the phase summary instead of the count on wide desktops. The board opens under the tabs without leaving the thread; outside Main it brings its own Active, Completed and Other switch and a close button."
+        description="Board tables at full contrast with the quest title next to its ID. Leaders open the board from any thread with the Board button in the top bar, next to Next: a small square board holding one dot per quest in a Journey phase, in its phase color (three per row; past five, three dots and +N), never a count or a notification-style badge. The width never changes; desktop adds Board, and the count and phase breakdown are in the tooltip and accessible label. The board opens under the tabs without leaving the thread; outside Main it brings its own Active, Completed and Other switch and a close button."
       >
         <div className="space-y-4" data-testid="playground-workboard-access">
           <Card label="Board table: active">
@@ -251,49 +258,36 @@ export function PlaygroundWorkboardAccessSection() {
             />
           </Card>
           <Card label="Board button states">
-            <div className="flex flex-wrap items-center gap-3" data-testid="workboard-access-buttons">
-              <LeaderWorkboardTopBarButton
-                open={false}
-                activeCount={ACTIVE_ROWS.length}
-                summarySegments={SUMMARY}
-                compact={false}
-                onToggle={noop}
-              />
-              <LeaderWorkboardTopBarButton
-                open
-                activeCount={ACTIVE_ROWS.length}
-                summarySegments={SUMMARY}
-                compact={false}
-                onToggle={noop}
-              />
-              <LeaderWorkboardTopBarButton
-                open={false}
-                activeCount={0}
-                summarySegments={[]}
-                compact={false}
-                onToggle={noop}
-              />
-              <LeaderWorkboardTopBarButton
-                open={false}
-                activeCount={ACTIVE_ROWS.length}
-                summarySegments={SUMMARY}
-                compact
-                onToggle={noop}
-              />
-              <LeaderWorkboardTopBarButton
-                open
-                activeCount={ACTIVE_ROWS.length}
-                summarySegments={SUMMARY}
-                compact
-                onToggle={noop}
-              />
-              <LeaderWorkboardTopBarButton open={false} activeCount={0} summarySegments={[]} compact onToggle={noop} />
-              <span className="inline-flex items-center gap-2 text-cc-fg" data-testid="workboard-access-icon-sizes">
-                <WorkBoardIcon className="h-4 w-4" />
-                <WorkBoardIcon className="h-5 w-5" />
-                <WorkBoardIcon className="h-8 w-8" />
-              </span>
-            </div>
+            <table className="text-[11px] text-cc-muted" data-testid="workboard-access-buttons">
+              <thead>
+                <tr>
+                  <th className="pb-1 pr-4 text-left font-medium">Quests in a phase</th>
+                  <th className="pb-1 pr-4 text-left font-medium">Phone</th>
+                  <th className="pb-1 pr-4 text-left font-medium">Phone, open</th>
+                  <th className="pb-1 pr-4 text-left font-medium">Desktop</th>
+                  <th className="pb-1 text-left font-medium">Desktop, open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {DOT_SAMPLES.map((sample) => (
+                  <tr key={sample.label}>
+                    <td className="py-1 pr-4 whitespace-nowrap">{sample.label}</td>
+                    <td className="py-1 pr-4">
+                      <LeaderWorkboardTopBarButton open={false} dots={sample.dots} compact onToggle={noop} />
+                    </td>
+                    <td className="py-1 pr-4">
+                      <LeaderWorkboardTopBarButton open dots={sample.dots} compact onToggle={noop} />
+                    </td>
+                    <td className="py-1 pr-4">
+                      <LeaderWorkboardTopBarButton open={false} dots={sample.dots} compact={false} onToggle={noop} />
+                    </td>
+                    <td className="py-1">
+                      <LeaderWorkboardTopBarButton open dots={sample.dots} compact={false} onToggle={noop} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </Card>
           <Card label="Phone top bar with the Board button">
             <div

@@ -83,6 +83,8 @@ html, body {
   --color-cc-phase-thread-tab-title-work: #166534;
   --color-cc-phase-thread-tab-title-yellow: #854d0e;
   --color-cc-muted-readable: var(--color-cc-muted);
+  /* Ring around Board button phase dots: light theme only, so pale accents stay visible. */
+  --color-cc-board-dot-ring: rgba(0, 0, 0, 0.2);
   --color-cc-participant-muted-readable: var(--color-cc-muted-readable);
 }
 
@@ -540,6 +542,7 @@ html, body {
 
 /* Dark mode overrides */
 .dark {
+  --color-cc-board-dot-ring: transparent;
   --color-cc-bg: #1e1e1e;
   --color-cc-fg: #eeeeee;
   --color-cc-card: #181818;

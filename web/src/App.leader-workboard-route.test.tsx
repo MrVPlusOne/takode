@@ -291,7 +291,7 @@ it("keeps the explicit leader quest-thread route stable while the title-bar Boar
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
+  expect(screen.getByTestId("topbar-workboard-button")).toHaveTextContent("Board");
 
   fireEvent.click(screen.getByTestId("topbar-workboard-button"));
 
@@ -327,7 +327,7 @@ it("renders the title-bar board from the canonical row when legacy session state
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
+  expect(screen.getByTestId("topbar-workboard-button")).toHaveTextContent("Board");
 
   fireEvent.click(screen.getByTestId("topbar-workboard-button"));
 

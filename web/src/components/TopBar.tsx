@@ -15,7 +15,7 @@ import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { GlobalNotifyMeMenu } from "./GlobalNotifyMeMenu.js";
-import { activeBoardSummarySegments } from "./leader-board-summary.js";
+import { activeBoardPhaseDots } from "./leader-board-summary.js";
 import { LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -239,10 +239,7 @@ export function TopBar({
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = paused;
-  const currentLeaderActiveSummarySegments = useMemo(
-    () => activeBoardSummarySegments(currentLeaderBoard),
-    [currentLeaderBoard],
-  );
+  const currentLeaderPhaseDots = useMemo(() => activeBoardPhaseDots(currentLeaderBoard), [currentLeaderBoard]);
 
   const statusDot = (className?: string) => (
     <SessionStatusDot
@@ -564,8 +561,7 @@ export function TopBar({
         {currentSessionId && isSessionView && isCurrentLeaderSession && (
           <LeaderWorkboardTopBarButton
             open={currentLeaderWorkboardView !== null}
-            activeCount={currentLeaderBoard.length}
-            summarySegments={currentLeaderActiveSummarySegments}
+            dots={currentLeaderPhaseDots}
             compact={compact}
             onToggle={toggleLeaderWorkboardInPlace}
           />
