@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
-import { compressBrowserJson } from "./browser-response-compression.js";
+import { API_PROXY_RELAYS_ENCODING_HEADER } from "../shared/host-protocol.js";
+import { compressApiJson } from "./browser-response-compression.js";
 
 // A JSON body well above the compression threshold, like the session list.
 const LARGE = { sessions: Array.from({ length: 200 }, (_, index) => ({ id: `session-${index}`, name: "same text" })) };
 
 function app(): Hono {
   const app = new Hono();
-  app.use("/api/*", compressBrowserJson);
+  app.use("/api/*", compressApiJson);
   app.get("/api/sessions", (c) => c.json(LARGE));
   return app;
 }
 
-describe("compressBrowserJson", () => {
+describe("compressApiJson", () => {
   it("gzips large JSON for browsers and the body decodes to the same JSON", async () => {
     const response = await app().request("/api/sessions", {
       headers: { "accept-encoding": "gzip", "sec-fetch-mode": "cors" },
@@ -27,5 +28,14 @@ describe("compressBrowserJson", () => {
     const response = await app().request("/api/sessions", { headers: { "accept-encoding": "gzip" } });
     expect(response.headers.get("content-encoding")).toBeNull();
     expect(await response.json()).toEqual(LARGE);
+  });
+
+  it("gzips for a host API proxy that relays encoded bodies, so agent CLIs on slow hosts get small answers", async () => {
+    const response = await app().request("/api/sessions", {
+      headers: { "accept-encoding": "gzip", [API_PROXY_RELAYS_ENCODING_HEADER]: "1" },
+    });
+    expect(response.headers.get("content-encoding")).toBe("gzip");
+    const decoded = Bun.gunzipSync(new Uint8Array(await response.arrayBuffer()));
+    expect(JSON.parse(new TextDecoder().decode(decoded))).toEqual(LARGE);
   });
 });

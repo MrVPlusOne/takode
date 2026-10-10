@@ -23,7 +23,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { createFileLinkBrowserRoutes } from "./routes/file-link-browser.js";
-import { compressBrowserJson } from "./browser-response-compression.js";
+import { compressApiJson } from "./browser-response-compression.js";
 import { blockOpaqueOriginApplicationRequest } from "./opaque-origin-guard.js";
 import { createRoutes } from "./routes.js";
 import { CodexSidecarRegistry } from "./codex-sidecar-auth.js";
@@ -1178,7 +1178,7 @@ const app = new Hono();
 
 app.route("/", createFileLinkBrowserRoutes(wsBridge));
 app.use("/api/*", cors());
-app.use("/api/*", compressBrowserJson);
+app.use("/api/*", compressApiJson);
 // Browser and terminal sockets authenticate only at upgrade, so revoking logins closes them;
 // browsers that still have a valid login reconnect at once.
 const appSockets = new Set<ServerWebSocket<SocketData>>();
@@ -1333,7 +1333,8 @@ const websocketHandlers: WebSocketHandler<SocketData> = {
   message(ws: ServerWebSocket<SocketData>, msg: string | Buffer) {
     const data = ws.data;
     if (data.kind === "host") {
-      hostLinks.handleMessage(data.hostId, ws, typeof msg === "string" ? msg : msg.toString("utf-8"));
+      // Binary frames are compressed link messages (see `host-link-codec.ts`).
+      hostLinks.handleMessage(data.hostId, ws, msg);
     } else if (data.kind === "browser") {
       wsBridge.handleBrowserMessage(ws, msg);
     } else if (data.kind === "terminal") {

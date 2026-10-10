@@ -1,3 +1,4 @@
+import type { CoordinatorToHost } from "../../shared/host-protocol.js";
 import { HostAgent } from "./host-agent.js";
 import { HOST_IMMEDIATE_UPDATE_SETTLE_MS, HostLinkManager } from "./host-link-manager.js";
 import type { HostUpdateMode } from "./host-update-sessions.js";
@@ -54,16 +55,11 @@ describe("immediate host updates after Restart Server", () => {
     (manager as unknown as { tick(): void }).tick();
   }
 
-  /** Every message the coordinator sends the host from now on. */
-  function recordSent(): string[] {
-    const sent: string[] = [];
-    const socket = link!.coordinatorSide;
-    const send = socket.send.bind(socket);
-    socket.send = (data: string) => {
-      sent.push(data);
-      return send(data);
-    };
-    return sent;
+  /** Every message the coordinator sends the current link from now on. */
+  function recordSent(): () => CoordinatorToHost[] {
+    const current = link!;
+    const from = current.sentToHost.length;
+    return () => current.sentToHost.slice(from);
   }
 
   beforeEach(() => {
@@ -162,7 +158,7 @@ describe("immediate host updates after Restart Server", () => {
     let output = "";
     proc.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(sent.filter((data) => data.includes('"t":"command"'))).toEqual([]);
+    expect(sent().filter((message) => message.t === "command")).toEqual([]);
     // Nor is a Codex launch prepared on the instance that is about to end.
     await expect(
       manager.request(hostId, { kind: "prepare_codex", sessionId: "s1", info: {}, options: {} }, 1_000),

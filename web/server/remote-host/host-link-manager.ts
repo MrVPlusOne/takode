@@ -7,6 +7,7 @@ import {
   HOST_PROTOCOL_VERSION,
   type CoordinatorToHost,
   type HostCommand,
+  type HostLinkFeature,
   type HostMachineSettings,
   type HostProcessEvent,
   type HostProgramRole,
@@ -14,6 +15,7 @@ import {
   type HostResponse,
   type HostToCoordinator,
 } from "../../shared/host-protocol.js";
+import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
 import type { HostUpdateMode } from "./host-update-sessions.js";
@@ -49,7 +51,8 @@ interface PendingRequest {
 
 /** The part of a WebSocket the link manager needs. */
 export interface HostLinkSocket {
-  send(data: string): unknown;
+  /** Bun's server socket returns 0 when it dropped the message. */
+  send(data: string | Uint8Array): unknown;
   close(code?: number, reason?: string): void;
 }
 
@@ -146,6 +149,10 @@ export class HostLinkManager {
   /** Changes every time the coordinator starts, so hosts can tell they must hand over their processes again. */
   readonly instanceId = randomUUID();
   private readonly links = new Map<string, HostLink>();
+  /** How messages are encoded on each attached host socket. */
+  private readonly codecs = new WeakMap<HostLinkSocket, HostLinkCodec>();
+  /** Highest event sequence per process to acknowledge on each socket, sent together shortly. */
+  private readonly pendingAcks = new Map<HostLinkSocket, Map<string, number>>();
   private readonly statusListeners = new Set<(status: HostLinkStatus) => void>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
@@ -236,6 +243,7 @@ export class HostLinkManager {
     const link = this.link(hostId);
     if (link.socket && link.socket !== socket) link.socket.close(4000, "Replaced by a newer connection");
     link.socket = socket;
+    this.codecs.set(socket, new HostLinkCodec());
     link.lastSeenAt = this.now();
     // The link is online only after `hello` establishes which host instance this is.
   }
@@ -247,13 +255,20 @@ export class HostLinkManager {
     this.setOnline(hostId, link, false);
   }
 
-  handleMessage(hostId: string, socket: HostLinkSocket, raw: string): void {
+  handleMessage(hostId: string, socket: HostLinkSocket, frame: string | ArrayBuffer | Uint8Array): void {
     const link = this.links.get(hostId);
     if (!link || link.socket !== socket) return;
     let message: HostToCoordinator;
     try {
-      message = JSON.parse(raw) as HostToCoordinator;
-    } catch {
+      message = JSON.parse(this.codecs.get(socket)!.decode(frame)) as HostToCoordinator;
+    } catch (error) {
+      if (typeof frame === "string") return;
+      // A compressed message that does not decode means the two sides no
+      // longer share the compression history; start the connection over.
+      console.warn(`[host-link] Could not decode a message from host ${hostId}; reconnecting:`, error);
+      link.socket = null;
+      this.setOnline(hostId, link, false);
+      socket.close(4005, "Undecodable message");
       return;
     }
     link.lastSeenAt = this.now();
@@ -285,7 +300,8 @@ export class HostLinkManager {
         console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(message.commit)}: ${message.error}`);
         // The node keeps running on its build; send what waited for its restart.
         link.updateSent = false;
-        for (const queued of link.unacked) send(socket, { t: "command", seq: queued.seq, command: queued.command });
+        for (const queued of link.unacked)
+          this.send(socket, { t: "command", seq: queued.seq, command: queued.command });
         this.onHostRestarted?.(hostId);
         this.notifyStatus(hostId);
         return;
@@ -323,7 +339,7 @@ export class HostLinkManager {
       }, timeoutMs);
       timer.unref?.();
       link.requests.set(id, { resolve, reject, timer });
-      send(socket, { t: "request", id, request });
+      this.send(socket, { t: "request", id, request });
     }) as Promise<Extract<HostResponse, { kind: K }>>;
     if (!mismatch) return answer;
     // An operation the host's build lacks or implements differently fails there;
@@ -341,7 +357,7 @@ export class HostLinkManager {
   }
 
   private sendSettings(hostId: string, socket: HostLinkSocket): void {
-    if (this.machineSettingsFor) send(socket, { t: "settings", settings: this.machineSettingsFor(hostId) });
+    if (this.machineSettingsFor) this.send(socket, { t: "settings", settings: this.machineSettingsFor(hostId) });
   }
 
   /** Close a host's link, e.g. after its registration is removed. Its processes wait as if it were away. */
@@ -379,7 +395,7 @@ export class HostLinkManager {
   pushMachineName(hostId: string, name: string): boolean {
     const link = this.links.get(hostId);
     if (!link?.online || !link.socket) return false;
-    send(link.socket, { t: "machine_name", name });
+    this.send(link.socket, { t: "machine_name", name });
     return true;
   }
 
@@ -468,7 +484,7 @@ export class HostLinkManager {
     hello: Extract<HostToCoordinator, { t: "hello" }>,
   ): void {
     if (hello.protocol !== HOST_PROTOCOL_VERSION) {
-      send(socket, {
+      this.send(socket, {
         t: "rejected",
         reason: `Host protocol ${hello.protocol} is not supported; this coordinator speaks ${HOST_PROTOCOL_VERSION}. Update takode on the host.`,
       });
@@ -510,20 +526,24 @@ export class HostLinkManager {
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
     const machineName = this.nameHost?.(hostId, hello.machineName ?? null);
-    send(socket, {
+    const features = acceptedFeatures(hostId, hello.features);
+    this.send(socket, {
       t: "welcome",
       instanceId: this.instanceId,
       epoch: this.epoch,
       received,
       ...(machineName ? { machineName } : {}),
+      ...(features.length > 0 ? { features } : {}),
     });
+    // The host switches when it reads the welcome, which arrives before anything sent after it.
+    this.codecs.get(socket)?.enable(features);
     // Before any command, so the host starts processes with its current settings.
     this.sendSettings(hostId, socket);
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
     const applied = hello.appliedFrom === this.instanceId ? hello.appliedCommandSeq : 0;
     for (const queued of link.unacked) {
       if (queued.seq > applied && !link.updateSent)
-        send(socket, { t: "command", seq: queued.seq, command: queued.command });
+        this.send(socket, { t: "command", seq: queued.seq, command: queued.command });
     }
     this.setOnline(hostId, link, true);
     if (restarted) this.onHostRestarted?.(hostId);
@@ -581,7 +601,7 @@ export class HostLinkManager {
         }
         if (mode === "immediate") link.immediateUpdateSent = true;
         link.updateSent = true;
-        send(link.socket, { t: "update", commit });
+        this.send(link.socket, { t: "update", commit });
       });
   }
 
@@ -599,13 +619,49 @@ export class HostLinkManager {
     }
     // Duplicates and events for processes this coordinator no longer tracks are
     // acknowledged so the host can drop them; a gap waits for the host's replay.
-    if (!proc || seq <= proc.lastEventSeq) send(socket, { t: "event_ack", procId, seq });
+    if (!proc || seq <= proc.lastEventSeq) this.acknowledge(socket, procId, seq);
+  }
+
+  /**
+   * Acknowledge an event. Acknowledgements are cumulative, so the events of
+   * one burst (everything read from the socket before the event loop moves
+   * on) are acknowledged with one message per process.
+   */
+  private acknowledge(socket: HostLinkSocket, procId: string, seq: number): void {
+    let acks = this.pendingAcks.get(socket);
+    if (!acks) {
+      acks = new Map();
+      this.pendingAcks.set(socket, acks);
+      setImmediate(() => this.flushAcks(socket));
+    }
+    acks.set(procId, Math.max(seq, acks.get(procId) ?? 0));
+  }
+
+  private flushAcks(socket: HostLinkSocket): void {
+    const acks = this.pendingAcks.get(socket);
+    this.pendingAcks.delete(socket);
+    // A replaced or dropped socket's events are replayed to the next one anyway.
+    if (!acks || ![...this.links.values()].some((link) => link.socket === socket)) return;
+    for (const [procId, seq] of acks) this.send(socket, { t: "event_ack", procId, seq });
+  }
+
+  /** Send a message in the socket's encoding, with process input as text where the host reads it. */
+  private send(socket: HostLinkSocket, message: CoordinatorToHost): void {
+    const codec = this.codecs.get(socket);
+    if (message.t === "command" && message.command.kind === "stdin" && message.command.data !== undefined) {
+      const { data, ...command } = message.command;
+      message = { ...message, command: { ...command, ...processData(data, codec?.has("text") ?? false) } };
+    }
+    const sent = socket.send(codec ? codec.encode(message) : JSON.stringify(message));
+    // A dropped compressed message would leave the host decoding against the wrong history.
+    if (sent === 0 && codec?.has("deflate")) socket.close(4006, "Message dropped");
   }
 
   private enqueue(link: HostLink, command: HostCommand): void {
     const queued = { seq: link.nextCommandSeq++, command };
     link.unacked.push(queued);
-    if (link.online && link.socket && !link.updateSent) send(link.socket, { t: "command", seq: queued.seq, command });
+    if (link.online && link.socket && !link.updateSent)
+      this.send(link.socket, { t: "command", seq: queued.seq, command });
   }
 
   private link(hostId: string): HostLink {
@@ -668,7 +724,7 @@ export class HostLinkManager {
         socket.close(4002, "Heartbeat timeout");
         continue;
       }
-      send(link.socket, { t: "heartbeat" });
+      this.send(link.socket, { t: "heartbeat" });
       this.maybeUpdate(hostId, link);
     }
   }
@@ -731,13 +787,13 @@ export class RemoteProcess extends EventEmitter {
         this.emit("spawn");
         return;
       case "stdout": {
-        const data = Buffer.from(event.data, "base64");
+        const data = processBytes(event);
         this.emit("output", data);
         this.stdout.write(data);
         return;
       }
       case "stderr":
-        this.stderr.write(Buffer.from(event.data, "base64"));
+        this.stderr.write(processBytes(event));
         return;
       case "error":
         this.emitError(event.message);
@@ -788,6 +844,13 @@ function sessionEnv(env: Record<string, string | undefined>): Record<string, str
   return forwarded;
 }
 
-function send(socket: HostLinkSocket, message: CoordinatorToHost): void {
-  socket.send(JSON.stringify(message));
+/**
+ * The link features to use with a host: the ones it offered that this build
+ * knows. This machine's own node talks over loopback, where compressing would
+ * only cost time.
+ */
+function acceptedFeatures(hostId: string, offered: HostLinkFeature[] | undefined): HostLinkFeature[] {
+  return (offered ?? []).filter(
+    (feature) => HOST_LINK_FEATURES.includes(feature) && !(feature === "deflate" && hostId === LOCAL_HOST_ID),
+  );
 }

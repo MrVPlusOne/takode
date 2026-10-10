@@ -20,6 +20,16 @@
  * saved their ids); the host keeps those, ends the rest, and replays each kept
  * process's unacknowledged output, starting with any partial stdout line the
  * old coordinator only saw part of, numbered from 1.
+ *
+ * Messages are JSON in text frames. Optional link features, which the host
+ * offers in `hello` and the coordinator accepts in `welcome`, make them
+ * smaller on slow links; each side uses only the ones accepted on the current
+ * connection, so hosts and coordinators on different builds keep working:
+ * - `text`: process input and output that is valid UTF-8 travels as `text`
+ *   instead of base64 `data`.
+ * - `deflate`: after the welcome, messages may also be sent as binary frames
+ *   holding raw deflate data compressed against the previous 32 KiB of that
+ *   direction's compressed messages on this connection (see `host-link-codec.ts`).
  */
 
 export const HOST_PROTOCOL_VERSION = 3;
@@ -35,6 +45,20 @@ export const HOST_HEARTBEAT_MS = 10_000;
 
 /** Host id of the coordinator's own machine, which always exists and is not registered. */
 export const LOCAL_HOST_ID = "local";
+
+/** Optional ways to shrink link traffic, negotiated per connection (see above). */
+export type HostLinkFeature = "text" | "deflate";
+
+/**
+ * Request header with which a `takode node` API proxy says it relays response
+ * bodies as the coordinator encoded them, so the coordinator may compress its
+ * answers to agent CLIs on that host. Older proxies decode compressed bodies
+ * but keep the `Content-Encoding` header, which would corrupt them.
+ */
+export const API_PROXY_RELAYS_ENCODING_HEADER = "x-takode-proxy-relays-encoding";
+
+/** Bytes of process input or output: base64 `data`, or `text` when the link accepted the `text` feature. */
+export type ProcessData = { data: string; text?: never } | { text: string; data?: never };
 
 /** Programs the coordinator names by role; each host resolves them to its own installation. */
 export type HostProgramRole = "claude" | "codex";
@@ -78,15 +102,15 @@ export type HostCommand =
    * `kill` drive it like any other process.
    */
   | { kind: "spawn_terminal"; procId: string; cwd: string; cols: number; rows: number }
-  | { kind: "stdin"; procId: string; data: string }
+  | ({ kind: "stdin"; procId: string } & ProcessData)
   | { kind: "stdin_end"; procId: string }
   | { kind: "resize"; procId: string; cols: number; rows: number }
   | { kind: "kill"; procId: string; signal: string };
 
 export type HostProcessEvent =
   | { kind: "spawned"; pid?: number }
-  | { kind: "stdout"; data: string }
-  | { kind: "stderr"; data: string }
+  | ({ kind: "stdout" } & ProcessData)
+  | ({ kind: "stderr" } & ProcessData)
   | { kind: "exit"; code: number | null; signal: string | null }
   | { kind: "error"; message: string };
 
@@ -173,6 +197,8 @@ export type HostToCoordinator =
        * which keep no processes across a coordinator restart.
        */
       processes?: string[];
+      /** Link features this host can use; absent from older hosts. */
+      features?: HostLinkFeature[];
     }
   | { t: "event"; procId: string; seq: number; event: HostProcessEvent }
   | { t: "command_ack"; seq: number }
@@ -201,6 +227,8 @@ export type CoordinatorToHost =
       received: Record<string, number>;
       /** The name this coordinator knows the host by; a host without a name of its own keeps it. */
       machineName?: string;
+      /** The features of the host's `hello` that both sides use on this connection from now on. */
+      features?: HostLinkFeature[];
     }
   | { t: "command"; seq: number; command: HostCommand }
   | { t: "event_ack"; procId: string; seq: number }

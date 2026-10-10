@@ -178,17 +178,9 @@ describe("host builds and auto-update over the link", () => {
     manager.updateBlocker = () => null;
     agent = startAgent({ build: HOST_BUILD });
     await waitFor(() => manager.status(hostId).online);
-    const sent: string[] = [];
-    const socket = (
-      manager as unknown as { links: Map<string, { socket: { send(data: string): unknown } }> }
-    ).links.get(hostId)!.socket;
-    const send = socket.send.bind(socket);
-    socket.send = (data: string) => {
-      sent.push(data);
-      return send(data);
-    };
+    const from = link!.sentToHost.length;
     tick();
-    expect(sent.some((data) => data.includes('"t":"update"'))).toBe(false);
+    expect(link!.sentToHost.slice(from).some((message) => message.t === "update")).toBe(false);
   });
 
   // A failed switch is reported back and shown; the host keeps running.

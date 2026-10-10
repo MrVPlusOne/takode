@@ -1,3 +1,6 @@
+import { Hono } from "hono";
+import { API_PROXY_RELAYS_ENCODING_HEADER } from "../../shared/host-protocol.js";
+import { compressApiJson } from "../browser-response-compression.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { insecureCoordinatorUrlProblem, startApiProxy } from "./host-agent.js";
 
@@ -76,6 +79,35 @@ describe("startApiProxy", () => {
       expect(await response.text()).toContain("is unreachable");
     } finally {
       proxy.stop();
+    }
+  });
+
+  // Large answers, such as the quest list, cross a slow host link gzipped: the
+  // proxy says it relays encoded bodies, the coordinator's real compression
+  // middleware compresses for it, and the agent CLI's own fetch decodes the
+  // untouched body. Before, the proxy's fetch decoded the body but kept
+  // Content-Encoding and Content-Length, which would have corrupted the CLI's read.
+  it("relays a gzipped coordinator answer that the agent CLI reads intact", async () => {
+    const large = { quests: Array.from({ length: 500 }, (_, index) => ({ id: `q-${index}`, title: "same title" })) };
+    const app = new Hono();
+    let sawMarker = false;
+    app.use("/api/*", async (c, next) => {
+      sawMarker = c.req.header(API_PROXY_RELAYS_ENCODING_HEADER) === "1";
+      await next();
+    });
+    app.use("/api/*", compressApiJson);
+    app.get("/api/quests/_list", (c) => c.json(large));
+    const coordinator = Bun.serve({ port: 0, fetch: app.fetch });
+    const proxy = startApiProxy({ coordinatorUrl: `http://127.0.0.1:${coordinator.port}`, port: 0 });
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxy.port}/api/quests/_list`);
+      expect(sawMarker).toBe(true);
+      expect(response.headers.get("content-encoding")).toBe("gzip");
+      expect(Number(response.headers.get("content-length"))).toBeLessThan(JSON.stringify(large).length / 5);
+      expect(await response.json()).toEqual(large);
+    } finally {
+      proxy.stop();
+      coordinator.stop(true);
     }
   });
 });

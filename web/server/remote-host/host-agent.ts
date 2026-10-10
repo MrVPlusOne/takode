@@ -8,16 +8,19 @@ import { getEnrichedPath } from "../path-resolver.js";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
+import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import { thisMachineDetails } from "../machine-identity.js";
 import { REMOTE_HOST_ENV } from "../../shared/remote-host-env.js";
 import {
+  API_PROXY_RELAYS_ENCODING_HEADER,
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
   HOST_LINK_STALE_MS,
   HOST_PROTOCOL_VERSION,
   type CoordinatorToHost,
   type HostCommand,
+  type HostLinkFeature,
   type HostMachineSettings,
   type HostProcessEvent,
   type HostProgramRole,
@@ -29,7 +32,9 @@ import {
 /** The part of a WebSocket the host agent needs; Bun's and the browser's both fit. */
 export interface AgentSocket {
   readyState: number;
-  send(data: string): void;
+  /** How binary frames arrive; set to `arraybuffer` where the socket supports it. */
+  binaryType?: string;
+  send(data: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
   onopen: ((event: unknown) => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
@@ -72,6 +77,8 @@ export interface HostAgentOptions {
    * throwing); omit it to keep the coordinator from updating this host.
    */
   update?: (commit: string) => Promise<void>;
+  /** Link features to offer the coordinator; all this build knows unless a test stands in for an older host. */
+  linkFeatures?: readonly HostLinkFeature[];
   /** First reconnect delay after a link drop; doubles up to 15s (2s for a coordinator on this machine). */
   reconnectDelayMs?: number;
   /** Overrides for tests. */
@@ -80,12 +87,17 @@ export interface HostAgentOptions {
   log?: (message: string) => void;
 }
 
+/** A process event as the host keeps it until acknowledged: output in base64, converted for each link when sent. */
+type HostedEvent =
+  | Exclude<HostProcessEvent, { kind: "stdout" | "stderr" }>
+  | { kind: "stdout" | "stderr"; data: string };
+
 interface HostedProcess {
   /** Input, signals and size of the running process; null when it could not start. */
   control: ProcessControl | null;
   nextSeq: number;
   /** Events the coordinator has not acknowledged yet, oldest first. */
-  pending: { seq: number; event: HostProcessEvent }[];
+  pending: { seq: number; event: HostedEvent }[];
   /**
    * Acknowledged stdout after its last newline: the start of a line the
    * coordinator has not seen whole. A new coordinator receives it again.
@@ -114,6 +126,8 @@ const MAX_LOOPBACK_RECONNECT_DELAY_MS = 2_000;
 export class HostAgent {
   readonly instanceId = randomUUID();
   private socket: AgentSocket | null = null;
+  /** Encoding of the current socket's messages; each connection starts plain. */
+  private codec = new HostLinkCodec();
   private coordinatorInstanceId: string | null = null;
   /** Highest coordinator epoch seen by this `takode node` process. */
   private highestEpoch = 0;
@@ -175,6 +189,8 @@ export class HostAgent {
       ? this.options.connect(url, headers)
       : (new WebSocket(url, { headers } as unknown as string[]) as unknown as AgentSocket);
     this.socket = socket;
+    this.codec = new HostLinkCodec();
+    socket.binaryType = "arraybuffer";
     let opened = false;
     socket.onopen = () => {
       opened = true;
@@ -192,6 +208,7 @@ export class HostAgent {
         platform: details.platform ?? undefined,
         ...(details.user ? { user: details.user } : {}),
         processes: [...this.processes.keys()],
+        features: [...(this.options.linkFeatures ?? HOST_LINK_FEATURES)],
         ...(this.options.build ? { build: this.options.build } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
         ...(this.options.commands && Object.keys(this.options.commands).length > 0
@@ -202,7 +219,22 @@ export class HostAgent {
     socket.onmessage = (event) => {
       if (this.socket !== socket) return;
       this.lastHeardAt = Date.now();
-      this.handleMessage(String(event.data));
+      const frame =
+        event.data instanceof ArrayBuffer || event.data instanceof Uint8Array ? event.data : String(event.data);
+      let message: CoordinatorToHost;
+      try {
+        message = JSON.parse(this.codec.decode(frame)) as CoordinatorToHost;
+      } catch (error) {
+        if (typeof frame === "string") return;
+        // A compressed message that does not decode means the two sides no
+        // longer share the compression history; start the connection over.
+        this.log(`Could not decode a message from the coordinator; reconnecting: ${errorMessage(error)}`);
+        this.socket = null;
+        socket.close(4005, "Undecodable message");
+        this.scheduleReconnect();
+        return;
+      }
+      this.handleMessage(message);
     };
     socket.onclose = () => {
       if (this.socket !== socket) return;
@@ -246,13 +278,7 @@ export class HostAgent {
     }, delay);
   }
 
-  private handleMessage(raw: string): void {
-    let message: CoordinatorToHost;
-    try {
-      message = JSON.parse(raw) as CoordinatorToHost;
-    } catch {
-      return;
-    }
+  private handleMessage(message: CoordinatorToHost): void {
     switch (message.t) {
       case "welcome":
         if (message.epoch < this.highestEpoch) {
@@ -267,6 +293,8 @@ export class HostAgent {
         this.highestEpoch = message.epoch;
         // A machine keeps its own name; one without a name takes the one it was registered with.
         if (!this.machineName && message.machineName) this.keepMachineName(message.machineName);
+        // Everything the coordinator sent after the welcome, and everything sent from here on, may use them.
+        this.codec.enable(message.features);
         this.handleWelcome(message.instanceId, message.received);
         return;
       case "command":
@@ -433,7 +461,7 @@ export class HostAgent {
         return;
       }
       case "stdin":
-        this.processes.get(command.procId)?.control?.write(Buffer.from(command.data, "base64"));
+        this.processes.get(command.procId)?.control?.write(processBytes(command));
         return;
       case "stdin_end":
         this.processes.get(command.procId)?.control?.end();
@@ -558,7 +586,7 @@ export class HostAgent {
   }
 
   /** Record an event for the coordinator and send it if the link is up. */
-  private emit(procId: string, event: HostProcessEvent): void {
+  private emit(procId: string, event: HostedEvent): void {
     const hosted = this.processes.get(procId);
     if (!hosted || hosted.exited) return;
     if (event.kind === "exit") hosted.exited = true;
@@ -583,8 +611,14 @@ export class HostAgent {
     this.send({ t: "heartbeat", network: hasUsableNetwork() });
   }
 
+  /** Send a message in the current socket's encoding, with process output as text where the coordinator reads it. */
   private send(message: HostToCoordinator): void {
-    if (this.socket?.readyState === OPEN) this.socket.send(JSON.stringify(message));
+    if (this.socket?.readyState !== OPEN) return;
+    if (message.t === "event" && (message.event.kind === "stdout" || message.event.kind === "stderr")) {
+      const { kind, data } = message.event;
+      if (data !== undefined) message = { ...message, event: { kind, ...processData(data, this.codec.has("text")) } };
+    }
+    this.socket.send(this.codec.encode(message));
   }
 }
 
@@ -596,7 +630,9 @@ const COORDINATOR_POLL_MS = 250;
  * Serve the coordinator's `/api` on a loopback port of this host, so agent CLIs
  * running here keep using `http://localhost:$COMPANION_PORT/api` unchanged.
  * Requests and responses pass through as-is, including session auth headers
- * and the Server-Timing header the CLI latency log reads.
+ * and the Server-Timing header the CLI latency log reads. Response bodies are
+ * relayed still encoded, and the proxy tells the coordinator so, which lets it
+ * gzip large answers across the link; the agent CLI decodes them here.
  *
  * Sessions here keep running while the coordinator restarts, so their CLI
  * calls wait for it (up to `waitMs`, or until the caller gives up) instead of
@@ -620,13 +656,15 @@ export function startApiProxy(options: {
       if (!url.pathname.startsWith("/api/")) return new Response("Not found", { status: 404 });
       const headers = new Headers(request.headers);
       headers.delete("host");
+      headers.set(API_PROXY_RELAYS_ENCODING_HEADER, "1");
       const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
       const started = performance.now();
       let response: Response;
       try {
         response = await forwardWhenReachable(
           `${base}${url.pathname}${url.search}`,
-          { method: request.method, headers, body, redirect: "manual" },
+          // Bun's fetch would decode the body but keep its Content-Encoding and Content-Length.
+          { method: request.method, headers, body, redirect: "manual", decompress: false } as RequestInit,
           {
             connected: options.coordinatorConnected ?? (() => true),
             deadline: Date.now() + (options.waitMs ?? COORDINATOR_WAIT_MS),
