@@ -235,7 +235,10 @@ describe("landing hand-off through the real board routes", () => {
   };
   /** Play the runner the queue started: claim every waiting change and report one outcome for each. */
   async function runQueue(outcome: "landed" | "bounced") {
-    await settle();
+    // The queue starts its runner after taking the port lease and saving its state, all real file
+    // I/O. A fixed few ticks were too short under full-suite load (the runner had not been launched
+    // yet), so wait for the launch itself.
+    await vi.waitFor(() => expect(launches.length).toBeGreaterThan(0), { timeout: 15_000 });
     const request = launches.at(-1)!;
     const runner = queue.verifyRunner(request.sessionId, request.token)!;
     const claim = await queue.claim(runner, target);
