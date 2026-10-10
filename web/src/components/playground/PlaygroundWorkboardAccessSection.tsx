@@ -231,7 +231,7 @@ export function PlaygroundWorkboardAccessSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Work Board Access and Readability"
-        description="Board tables at full contrast with the quest title next to its ID. Leaders open the board from any thread with the Board button in the top bar, next to Next: icon and count on phones, Board and count on desktop, plus the phase summary on wide desktops. The board opens under the tabs without leaving the thread; outside Main it brings its own Active, Completed and Other switch and a close button."
+        description="Board tables at full contrast with the quest title next to its ID. Leaders open the board from any thread with the Board button in the top bar, next to Next: the icon and the active count as plain text on phones (never a notification-style badge), Board and the count on desktop, and the phase summary instead of the count on wide desktops. The board opens under the tabs without leaving the thread; outside Main it brings its own Active, Completed and Other switch and a close button."
       >
         <div className="space-y-4" data-testid="playground-workboard-access">
           <Card label="Board table: active">

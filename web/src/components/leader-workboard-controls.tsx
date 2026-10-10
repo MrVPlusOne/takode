@@ -79,7 +79,8 @@ export function LeaderWorkboardControlButton({
 
 /**
  * The leader's way into the work board from any thread: a top-bar button next to Next.
- * Phones get an icon button sized like Diffs with the active count as a corner badge;
+ * The active count is plain button text next to the icon, never a notification-style
+ * badge: it is information, not something unread. Phones show the icon and count;
  * desktop adds the "Board" label, and wide desktops also show the phase summary.
  */
 export function LeaderWorkboardTopBarButton({
@@ -104,7 +105,7 @@ export function LeaderWorkboardTopBarButton({
       <button
         type="button"
         onClick={onToggle}
-        className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${tone}`}
+        className={`flex h-9 min-w-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-[13px] font-medium transition-colors ${tone}`}
         data-testid="topbar-workboard-button"
         aria-pressed={open}
         aria-label={label}
@@ -112,10 +113,7 @@ export function LeaderWorkboardTopBarButton({
       >
         <WorkBoardIcon className="h-5 w-5" />
         {activeCount > 0 && (
-          <span
-            className="absolute -right-1 -top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-cc-info px-1 text-[9px] font-semibold leading-none text-cc-card tabular-nums"
-            data-testid="topbar-workboard-count"
-          >
+          <span className="tabular-nums" data-testid="topbar-workboard-count">
             {activeCount}
           </span>
         )}
@@ -135,8 +133,9 @@ export function LeaderWorkboardTopBarButton({
       <WorkBoardIcon />
       <span>Board</span>
       {activeCount > 0 && (
+        // Wide desktops show the phase summary, which already carries the counts.
         <span
-          className="rounded-sm bg-cc-hover px-1 font-mono-code text-[10px] leading-4 text-cc-fg tabular-nums"
+          className={`tabular-nums ${summarySegments.length > 0 ? "min-[1180px]:hidden" : ""}`}
           data-testid="topbar-workboard-count"
         >
           {activeCount}

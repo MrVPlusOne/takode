@@ -1053,7 +1053,9 @@ describe("TopBar", () => {
     expect(screen.queryByTestId("topbar-workboard-count")).not.toBeInTheDocument();
   });
 
-  it("shows the Board button on a phone as an icon with a count badge", () => {
+  // The count is information, not something unread: the user found a notification-style
+  // corner badge nagging, so it must stay plain text inside the button.
+  it("shows the Board button on a phone as the icon with the count as plain text inside it", () => {
     window.innerWidth = 430;
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
@@ -1073,7 +1075,12 @@ describe("TopBar", () => {
     const button = screen.getByTestId("topbar-workboard-button");
     expect(button).not.toHaveTextContent("Board");
     expect(button).toHaveAccessibleName("Open work board (2 active)");
-    expect(screen.getByTestId("topbar-workboard-count")).toHaveTextContent("2");
+    const count = screen.getByTestId("topbar-workboard-count");
+    expect(count).toHaveTextContent("2");
+    expect(count.parentElement).toBe(button);
+    expect(count).not.toHaveClass("absolute");
+    expect(count).not.toHaveClass("rounded-full");
+    expect(button).toHaveTextContent(/^2$/);
   });
 
   it("places the Board button before Next and the session controls", () => {
