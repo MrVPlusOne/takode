@@ -6,7 +6,7 @@ import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { useStore } from "../store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SessionState } from "../types.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
-import { persistLeaderViewportPosition } from "../utils/thread-viewport.js";
+import { persistLeaderViewportPosition, requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { MessageFeed } from "./MessageFeed.js";
 
 const sendToSession = vi.hoisted(() => vi.fn((_sessionId: string, _message: BrowserOutgoingMessage) => true));
@@ -281,6 +281,43 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
       const lastMessage = document.querySelector<HTMLElement>('[data-message-id="progress-99"]')!;
       expect(lastMessage).not.toBeNull();
       expect(lastMessage.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+
+  it("reaches the newest unloaded messages after the feed saved its reading position", async () => {
+    // The feed saves its live reading position without rendering, for example
+    // when the phone backgrounds the app or the socket reconnects. Go to bottom
+    // from an older window whose newer messages are not loaded is then the next
+    // render; it used to restore that saved older position over the jump, so the
+    // newest window loaded but the view stayed mid-conversation.
+    act(() => handleMessage(SESSION_ID, producerLongTurnWindow(50)));
+    const restoreGeometry = installViewportGeometry();
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      const feed = screen.getByTestId("message-feed-scroll-container");
+      act(() => {
+        feed.scrollTop = 500;
+        fireEvent.scroll(feed);
+      });
+      // Outside act() so, as in the browser, the click's render is the first one
+      // to see the saved position.
+      void requestThreadViewportSnapshot(SESSION_ID, { reason: "background" });
+      sendToSession.mockClear();
+      fireEvent.click(screen.getByLabelText("Go to bottom"));
+      expect(sendToSession).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ type: "thread_window_request", thread_key: THREAD_KEY, from_item: -1 }),
+      );
+
+      await act(async () => handleMessage(SESSION_ID, producerLongTurnWindow(91)));
+
+      const lastMessage = document.querySelector<HTMLElement>('[data-message-id="progress-99"]')!;
+      expect(lastMessage).not.toBeNull();
+      expect(lastMessage.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+      expect(screen.queryByLabelText("Go to bottom")).toBeNull();
     } finally {
       view.unmount();
       restoreGeometry();

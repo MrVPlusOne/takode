@@ -13,13 +13,22 @@ export interface PendingExactViewportRestore {
 export function useExactViewportRestore(
   restoredViewportRef: { current: { key: string; container: HTMLDivElement | null } | null },
   containerRef: { current: HTMLDivElement | null },
+  readCurrentRestoreKey: () => string,
 ) {
   const pendingRef = useRef<PendingExactViewportRestore | null>(null);
   const cancel = useCallback(() => {
     const pending = pendingRef.current;
-    if (pending) restoredViewportRef.current = { key: pending.restoreKey, container: containerRef.current };
     pendingRef.current = null;
-  }, [containerRef, restoredViewportRef]);
+    const container = containerRef.current;
+    // The feed saves its own live position (backgrounding, reconnects, thread
+    // departure) without rendering. Once this feed has restored a position, a
+    // deliberate navigation is newer than any saved one, so mark the current
+    // save as applied; otherwise the next render, often the navigation's own,
+    // would restore the older position over it.
+    if (pending || restoredViewportRef.current?.container === container) {
+      restoredViewportRef.current = { key: readCurrentRestoreKey(), container };
+    }
+  }, [containerRef, readCurrentRestoreKey, restoredViewportRef]);
   return [pendingRef, cancel] as const;
 }
 

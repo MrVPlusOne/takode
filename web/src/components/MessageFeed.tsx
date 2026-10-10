@@ -281,7 +281,19 @@ export function MessageFeed({
     key: string;
     window: typeof selectedFeedWindow | typeof historyWindow;
   } | null>(null);
-  const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(restoredViewportRef, containerRef);
+  const readCurrentRestoreKey = useCallback(
+    () =>
+      getSavedViewportRestoreKey(
+        viewportKey,
+        readSavedViewportPosition({ sessionId, viewportKey, normalizedThreadKey, isLeaderSession }),
+      ),
+    [isLeaderSession, normalizedThreadKey, sessionId, viewportKey],
+  );
+  const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(
+    restoredViewportRef,
+    containerRef,
+    readCurrentRestoreKey,
+  );
   const handleUserNavigationIntent = useUserViewportNavigationIntent(
     cancelExactRestore,
     sessionId,

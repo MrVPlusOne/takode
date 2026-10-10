@@ -49,7 +49,9 @@ describe("useExactViewportRestore", () => {
     const restoredViewportRef: { current: { key: string; container: HTMLDivElement | null } | null } = {
       current: null,
     };
-    const { result } = renderHook(() => useExactViewportRestore(restoredViewportRef, containerRef));
+    const { result } = renderHook(() =>
+      useExactViewportRestore(restoredViewportRef, containerRef, () => "s1:main:message-117"),
+    );
     const pending = {
       restoreKey: "s1:main:message-117",
       position: {
@@ -67,6 +69,44 @@ describe("useExactViewportRestore", () => {
 
     expect(result.current[0].current).toBeNull();
     expect(restoredViewportRef.current).toEqual({ key: pending.restoreKey, container });
+  });
+
+  it("marks a later self-saved position applied once this feed has restored", () => {
+    // After the feed restored once, it may save its live position again (app
+    // backgrounded, reconnect). A deliberate navigation must win over that save.
+    const container = document.createElement("div") as HTMLDivElement;
+    const containerRef = { current: container };
+    const restoredViewportRef: { current: { key: string; container: HTMLDivElement | null } | null } = {
+      current: { key: "s1:main:older-save", container },
+    };
+    const { result } = renderHook(() =>
+      useExactViewportRestore(restoredViewportRef, containerRef, () => "s1:main:newer-save"),
+    );
+
+    act(() => result.current[1]());
+
+    expect(restoredViewportRef.current).toEqual({ key: "s1:main:newer-save", container });
+  });
+
+  it("leaves the first restore of a feed in place", () => {
+    // Navigation before this container's first restore (another container's
+    // record, or none yet) must not skip restoring the saved position.
+    const container = document.createElement("div") as HTMLDivElement;
+    const containerRef = { current: container };
+    const previous = { key: "s1:main:save", container: document.createElement("div") as HTMLDivElement };
+    const restoredViewportRef: { current: { key: string; container: HTMLDivElement | null } | null } = {
+      current: previous,
+    };
+    const { result } = renderHook(() =>
+      useExactViewportRestore(restoredViewportRef, containerRef, () => "s1:main:save"),
+    );
+
+    act(() => result.current[1]());
+    expect(restoredViewportRef.current).toBe(previous);
+
+    restoredViewportRef.current = null;
+    act(() => result.current[1]());
+    expect(restoredViewportRef.current).toBeNull();
   });
 });
 
