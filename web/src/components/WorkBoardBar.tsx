@@ -14,6 +14,7 @@ import {
   getQuestJourneyPresentation,
 } from "../../shared/quest-journey.js";
 import { BoardTable } from "./BoardTable.js";
+import { SessionChangesChip } from "./DiffChip.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
@@ -658,7 +659,16 @@ function WorkBoardBarComponent({
             </span>
           )}
 
-          <span className="ml-auto text-[11px] text-cc-muted shrink-0 tabular-nums">
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+            {/* The leader's own changes; nothing shows while its checkout is clean. */}
+            <SessionChangesChip
+              sessionId={sessionId}
+              threadKey={currentThreadKey}
+              title="Show leader changes"
+              testId="workboard-main-diff-chip"
+            />
+          </span>
+          <span className="text-[11px] text-cc-muted shrink-0 tabular-nums">
             {activeCount} {activeCount === 1 ? "item" : "items"}
           </span>
         </div>

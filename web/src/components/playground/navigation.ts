@@ -102,6 +102,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Work Board",
     "Work Board Bar",
     "Work Board Access and Readability",
+    "Diff Access from the Quest Banner",
     "Quest Status Panel",
     "Questmaster Compact Table",
     "Personal To-dos",

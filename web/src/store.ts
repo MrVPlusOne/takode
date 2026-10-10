@@ -269,6 +269,7 @@ export const useStore = create<AppState>((set, get) => ({
   questmasterViewMode: null,
   questmasterCompactSort: null,
   activeTab: "chat",
+  diffViewSource: null,
   diffPanelSelectedFile: new Map(),
   vscodeSelectionContext: null,
   dismissedVsCodeSelectionKey: null,
@@ -1394,7 +1395,9 @@ export const useStore = create<AppState>((set, get) => ({
       return { sessionStuck };
     }),
 
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  setActiveTab: (tab) => set(tab === "chat" ? { activeTab: tab, diffViewSource: null } : { activeTab: tab }),
+
+  openDiffView: (sessionId, threadKey) => set({ activeTab: "diff", diffViewSource: { sessionId, threadKey } }),
 
   setDiffPanelSelectedFile: (sessionId, filePath) =>
     set((s) => {
@@ -1669,6 +1672,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionInfoOpenSessionId: null,
       codexSubagentInspector: null,
       activeTab: "chat" as const,
+      diffViewSource: null,
       diffPanelSelectedFile: new Map(),
       feedScrollPosition: new Map(),
       compactToolActivity:

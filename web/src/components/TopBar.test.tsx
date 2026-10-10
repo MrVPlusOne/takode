@@ -867,7 +867,9 @@ describe("TopBar", () => {
     expect(screen.queryByTestId("session-role-icon-leader")).not.toBeInTheDocument();
   });
 
-  it("uses selected quest recorded commits as the diff button target in leader quest routes", () => {
+  // Diffs open from the quest banner chip now (see DiffChip); the top bar must not bring back a Diff
+  // button whose changed-file count reads like an unread badge.
+  it("has no Diff button in leader quest routes even when the quest has commits and changes", () => {
     window.location.hash = "#/session/s1?thread=q-42";
     resetStore({
       currentSessionId: "s1",
@@ -902,12 +904,11 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    const diffButton = screen.getByRole("button", { name: "Show q-42 recorded commits" });
-    expect(diffButton).toHaveAttribute("title", "Show q-42 recorded commits");
-    expect(diffButton).toHaveTextContent("2");
+    expect(screen.queryByRole("button", { name: /diff|recorded commits|changes/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("2")).not.toBeInTheDocument();
   });
 
-  it("keeps generic diff button copy for non-leader sessions", () => {
+  it("has no Diff button in non-leader sessions with changed files", () => {
     resetStore({
       currentSessionId: "worker",
       sessions: new Map([["worker", { cwd: "/repo/worker" }]]),
@@ -919,9 +920,8 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    const diffButton = screen.getByRole("button", { name: "Show diffs" });
-    expect(diffButton).toHaveAttribute("title", "Show diffs");
-    expect(screen.queryByRole("button", { name: "Show leader diffs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /diff|changes/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 
   it("shows a leader portrait before the leader session name and routes it to session info", async () => {
@@ -1262,29 +1262,6 @@ describe("TopBar", () => {
     expect(screen.getByText("☐ Fix stale quest completion status in session sidebar titles")).toBeInTheDocument();
   });
 
-  it("shows diff badge count only for files within cwd", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", createdAt: 1, state: "connected", cwd: "/repo" }],
-      changedFiles: new Map([
-        ["s1", new Set(["/repo/src/a.ts", "/repo/src/b.ts", "/Users/stan/.claude/plans/plan.md"])],
-      ]),
-    });
-
-    render(<TopBar />);
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.queryByText("3")).not.toBeInTheDocument();
-  });
-
-  it("hides diff badge when all changed files are out of scope", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", createdAt: 1, state: "connected", cwd: "/repo" }],
-      changedFiles: new Map([["s1", new Set(["/Users/stan/.claude/plans/plan.md"])]]),
-    });
-
-    render(<TopBar />);
-    expect(screen.queryByText("1")).not.toBeInTheDocument();
-  });
-
   it("publishes opened session info panel id for sidebar-linked highlights", async () => {
     render(<TopBar />);
 
@@ -1404,9 +1381,10 @@ describe("TopBar phone layout and Next", () => {
     };
   }
 
-  it("keeps only the sidebar toggle, title, Next and Diffs on a phone", () => {
+  it("keeps only the sidebar toggle, title and the attention list on a phone", () => {
     // The phone bar was too crowded to show the title. Needs input, Notify Me,
     // Search and Quests move to the sessions panel; a dot on ≡ says something waits there.
+    // Diffs open from the quest banner chip, so the bar has no Diff button either.
     window.innerWidth = 430;
     resetStore({ ...twoPromptsState(), sidebarOpen: false });
     render(<TopBar />);
@@ -1415,7 +1393,7 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByText("#101")).toBeInTheDocument();
     expect(screen.getByTestId("attention-list-button")).toHaveTextContent("2");
     expect(screen.getByTestId("topbar-sessions-panel-waiting-dot")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show diffs" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /diff/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Quests")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();

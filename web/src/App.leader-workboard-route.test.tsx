@@ -393,3 +393,29 @@ it("shows an explicit no-recorded-commits state for quest threads without code c
   expect(screen.getByText("No recorded commits yet")).toBeInTheDocument();
   expect(screen.queryByTestId("diff-panel")).not.toBeInTheDocument();
 });
+
+// The quest banner chip replaced the top-bar Diff button: it opens the quest's diff for the thread it sits
+// in, and the diff view's back button returns to that same thread's chat.
+it("opens the quest diff from the banner chip and returns to the chat", async () => {
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
+  expect(screen.queryByRole("button", { name: /Show diffs|recorded commits/ })).not.toBeInTheDocument();
+  const chip = screen.getByTestId("quest-thread-diff-chip");
+  expect(chip).toHaveTextContent("2 commits");
+
+  fireEvent.click(chip);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("quest-code-commit-diff-panel")).toHaveAttribute("data-quest-id", "q-42"),
+  );
+  expect(useStore.getState().diffViewSource).toEqual({ sessionId: SESSION_ID, threadKey: "q-42" });
+  // The active board names the worker, so its changes are the second section.
+  expect(screen.getByTestId("diff-tab-changes")).toHaveTextContent("Worker changes");
+
+  fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+
+  await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
+  expect(useStore.getState().activeTab).toBe("chat");
+  expect(useStore.getState().diffViewSource).toBeNull();
+});

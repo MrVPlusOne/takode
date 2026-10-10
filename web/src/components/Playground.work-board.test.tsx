@@ -340,7 +340,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
     expect(within(banner).queryByLabelText("Reviewer #1306 Review Lead")).toBeNull();
-    expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
+    expect(within(banner).getByTestId("quest-thread-diff-chip")).toHaveTextContent("2 commits");
     const mobileParticipantPreview = screen.getByTestId("playground-mobile-participant-labels");
     const mobileParticipantBanners = within(mobileParticipantPreview).getAllByTestId("quest-thread-banner");
     expect(within(mobileParticipantBanners[0]).getByText("Worker")).toHaveClass("max-[319px]:hidden");

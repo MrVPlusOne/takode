@@ -3,21 +3,18 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
-import { parseHash, threadRouteFromHash } from "../utils/routing.js";
+import { parseHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
-import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
-import { resolveDiffTarget } from "../utils/diff-target.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { GlobalNotifyMeMenu } from "./GlobalNotifyMeMenu.js";
 import { activeBoardPhaseDots } from "./leader-board-summary.js";
 import { LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
-import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
@@ -40,27 +37,6 @@ interface TopBarProps {
   onCloseUniversalSearch?: () => void;
 }
 
-function countScopedChangedFiles(state: TopBarState, sessionId: string, sessionVm: SessionViewModel | null): number {
-  const files = state.changedFiles.get(sessionId);
-  if (!files) return 0;
-
-  const sessionCwd = sessionVm?.cwd;
-  if (!sessionCwd) return files.size;
-
-  // Use repo_root only when it's an ancestor of cwd (worktrees have a different root).
-  const scope =
-    sessionVm?.repoRoot && sessionCwd.startsWith(sessionVm.repoRoot + "/") ? sessionVm.repoRoot : sessionCwd;
-  const prefix = `${scope}/`;
-  const scopedFiles = [...files].filter((fp) => fp === scope || fp.startsWith(prefix));
-  const stats = state.diffFileStats.get(sessionId);
-  if (!stats || stats.size === 0) return scopedFiles.length;
-
-  return scopedFiles.filter((fp) => {
-    const st = stats.get(fp);
-    return !st || st.additions > 0 || st.deletions > 0;
-  }).length;
-}
-
 export function getCurrentTopBarSessionState(state: TopBarState) {
   const currentSessionId = state.currentSessionId;
   if (!currentSessionId) {
@@ -79,7 +55,6 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       idleKilled: false,
       activeTimerCount: 0,
       waitingFor: null,
-      changedFilesCount: 0,
       leaderProfilePortrait: undefined,
       pause: null,
       paused: false,
@@ -110,7 +85,6 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     idleKilled: currentItem?.idleKilled ?? false,
     activeTimerCount: currentItem?.pendingTimerCount ?? 0,
     waitingFor: currentItem?.waitingFor ?? null,
-    changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentItem?.isOrchestrator ? currentItem.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
     paused: currentItem?.paused ?? !!currentSessionVm?.pause?.pausedAt,
@@ -131,10 +105,6 @@ export function TopBar({
     () => window.location.hash,
   );
   const route = useMemo(() => parseHash(hash), [hash]);
-  const threadRoute = useMemo(
-    () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
-    [hash, route.page],
-  );
   const isSessionView = route.page === "session" || route.page === "home";
   const isQuestmasterPage = route.page === "questmaster";
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
@@ -147,8 +117,6 @@ export function TopBar({
     setSessionInfoOpenSessionId,
     codexSubagentInspector,
     closeCodexSubagentInspector,
-    activeTab,
-    setActiveTab,
     activeQuestCount,
     refreshQuestSummary,
     isCurrentLeaderSession,
@@ -164,8 +132,6 @@ export function TopBar({
       setSessionInfoOpenSessionId: s.setSessionInfoOpenSessionId,
       codexSubagentInspector: s.codexSubagentInspector,
       closeCodexSubagentInspector: s.closeCodexSubagentInspector,
-      activeTab: s.activeTab,
-      setActiveTab: s.setActiveTab,
       activeQuestCount:
         s.questSummary?.active ?? s.quests.reduce((count, quest) => count + (quest.status !== "done" ? 1 : 0), 0),
       refreshQuestSummary: s.refreshQuestSummary,
@@ -197,27 +163,6 @@ export function TopBar({
     leaderProfilePortrait,
     paused,
   } = useStore(useShallow(getCurrentTopBarSessionState));
-  const diffChrome = useStore(
-    useShallow((s) => {
-      const target = resolveDiffTarget(s, s.currentSessionId, threadRoute.threadKey);
-      const targetSessionId = target?.kind === "session" ? target.sessionId : null;
-      const targetSessionVm = targetSessionId
-        ? (resolveSessionNavigation(s, targetSessionId)?.viewModel ?? null)
-        : null;
-      return {
-        diffTargetKind: target?.kind ?? null,
-        diffTargetQuestId: target?.kind === "quest-commits" ? target.questId : null,
-        diffButtonTitle: activeTab === "diff" ? "Back to chat" : (target?.title ?? "Show diffs"),
-        changedFilesCount:
-          targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0,
-      };
-    }),
-  );
-  const questDiffCommitState = useQuestCodeCommitShas(diffChrome.diffTargetQuestId);
-  const diffBadgeCount =
-    diffChrome.diffTargetKind === "quest-commits"
-      ? questDiffCommitState.commitShas.length
-      : diffChrome.changedFilesCount;
   const [infoOpen, setInfoOpen] = useState(false);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuTarget | null>(null);
@@ -574,31 +519,6 @@ export function TopBar({
               <span className="text-cc-warning font-medium animate-pulse">Compacting...</span>
             )}
             {status === "reverting" && <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>}
-            {/* Diffs toggle */}
-            <button
-              onClick={() => {
-                closeCodexSubagentInspector();
-                setActiveTab(activeTab === "diff" ? "chat" : "diff");
-              }}
-              className={`relative flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
-                compact ? "w-9 h-9" : "w-7 h-7"
-              } ${
-                activeTab === "diff"
-                  ? "text-cc-primary bg-cc-active"
-                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-              }`}
-              title={diffChrome.diffButtonTitle}
-              aria-label={diffChrome.diffButtonTitle}
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h3a.5.5 0 000-1h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5h3a.5.5 0 000-1h-3zM10.5 1a.5.5 0 000 1h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 000 1h3A1.5 1.5 0 0015 13.5v-11A1.5 1.5 0 0013.5 1h-3zM8 3.5a.5.5 0 01.5.5v8a.5.5 0 01-1 0V4a.5.5 0 01.5-.5zM5.5 6a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1zM5.5 9a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1z" />
-              </svg>
-              {diffBadgeCount > 0 && (
-                <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
-                  {diffBadgeCount}
-                </span>
-              )}
-            </button>
             {infoOpen && currentSessionId && (
               <SessionInfoPopover
                 sessionId={currentSessionId}

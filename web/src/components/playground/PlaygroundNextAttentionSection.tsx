@@ -89,7 +89,7 @@ function InteractiveAttentionList() {
   );
 }
 
-/** Phone top bar mock: ≡ with its waiting dot, two-line identity, the attention list and Diffs. */
+/** Phone top bar mock: ≡ with its waiting dot, two-line identity and the attention list. */
 function PhoneTopBar() {
   return (
     <div className="flex w-[390px] shrink-0 items-center gap-2 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5">
@@ -107,7 +107,6 @@ function PhoneTopBar() {
         <span className="text-[11px] leading-tight text-cc-muted">#2851</span>
       </span>
       <AttentionListPill count={QUEUE.length} topKind="needs-input" compact />
-      <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
     </div>
   );
 }
@@ -117,7 +116,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List and Phone Top Bar"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with its session and Go to. Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title, this list and Diffs (leaders also get the Board button)."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with its session and Go to. Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Attention list pill (desktop and phone; amber for prompts, blue for results)">

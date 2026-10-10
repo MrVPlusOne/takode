@@ -1,11 +1,4 @@
-import {
-  useMemo,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useLayoutEffect,
-} from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -70,6 +63,7 @@ import {
   getRecoverableSessionConnectionPresentation,
 } from "../utils/recoverable-session-connection.js";
 import { QuestThreadBanner } from "./QuestThreadBanner.js";
+import { SessionDiffBanner } from "./DiffChip.js";
 import { buildSessionQuestBannerRow, type QuestThreadBannerRow } from "../utils/session-quest-banner-row.js";
 import { resolveChatSessionNavigationSummary } from "../utils/chat-session-navigation-summary.js";
 export { resolveChatSessionNavigationSummary } from "../utils/chat-session-navigation-summary.js";
@@ -89,7 +83,6 @@ import type {
   SessionState,
   SideChatRecord,
 } from "../types.js";
-
 
 type LeaderThreadRow = QuestThreadBannerRow & {
   messageCount: number;
@@ -241,7 +234,6 @@ function LiveConnectionStatusBanner({
     </div>
   );
 }
-
 
 function CompactingIndicator({ sessionId }: { sessionId: string }) {
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
@@ -1036,7 +1028,12 @@ export function ChatView({
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
               {!preview && showQuestThreadBanner && (
-                <QuestThreadBanner row={selectedThreadRow} threadKey={selectedThreadKey} monitorSessionId={sessionId} />
+                <QuestThreadBanner
+                  row={selectedThreadRow}
+                  threadKey={selectedThreadKey}
+                  monitorSessionId={sessionId}
+                  diffSessionId={sessionId}
+                />
               )}
               {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (
                 <QuestThreadBanner
@@ -1044,7 +1041,11 @@ export function ChatView({
                   threadKey={sessionQuestBannerRow.threadKey}
                   variant="session"
                   currentSessionId={sessionId}
+                  diffSessionId={sessionId}
                 />
+              )}
+              {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
+                <SessionDiffBanner sessionId={sessionId} />
               )}
               <ViewportHandoffThreadEntryGate
                 key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`}

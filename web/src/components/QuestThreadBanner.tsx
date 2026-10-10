@@ -31,8 +31,8 @@ import {
   QUEST_PARTICIPANT_SESSION_CLASS,
 } from "./quest-participant-chip-style.js";
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
-import { commitCountLabel } from "./QuestCommitEvidence.js";
-import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
+import { DiffChip } from "./DiffChip.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
 import type { QuestThreadBannerRow } from "../utils/session-quest-banner-row.js";
@@ -293,26 +293,6 @@ function QuestStatusFallbackPill({ status }: { status?: string }) {
   );
 }
 
-function QuestBannerCommitButton({ questId, count }: { questId: string; count: number }) {
-  const label = commitCountLabel(count);
-  const setActiveTab = useStore((s) => s.setActiveTab);
-  return (
-    <button
-      type="button"
-      onClick={() => setActiveTab("diff")}
-      className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] leading-none text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
-      data-testid="quest-thread-commit-button"
-      aria-label={`Open ${questId} recorded commit diffs, ${label}`}
-      title={`Open ${questId} recorded commit diffs`}
-    >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3" aria-hidden="true">
-        <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h11a1.5 1.5 0 001.5-1.5v-11A1.5 1.5 0 0013.5 1h-11zM2 2.5a.5.5 0 01.5-.5h11a.5.5 0 01.5.5V5H2V2.5zM2 6h12v7.5a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5V6zm3 1.5a.5.5 0 000 1h6a.5.5 0 000-1H5zm0 2.5a.5.5 0 000 1h4a.5.5 0 000-1H5z" />
-      </svg>
-      <span className="tabular-nums">{label}</span>
-    </button>
-  );
-}
-
 function isQueuedBoardRowStatus(status?: string): boolean {
   return (status ?? "").trim().toUpperCase() === "QUEUED";
 }
@@ -430,12 +410,15 @@ export function QuestThreadBanner({
   variant = "thread",
   currentSessionId,
   monitorSessionId,
+  diffSessionId,
 }: {
   row?: QuestThreadBannerRow;
   threadKey: string;
   variant?: QuestBannerVariant;
   currentSessionId?: string;
   monitorSessionId?: string;
+  /** Session whose diff chip this banner holds; the chip opens that session's diff target for this thread. */
+  diffSessionId?: string;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const [collapsed, setCollapsed] = useState(false);
@@ -444,8 +427,7 @@ export function QuestThreadBanner({
   useEffect(() => setCollapsed(false), [questId]);
   const title = row?.title;
   const isSessionBanner = variant === "session";
-  const codeCommitState = useQuestCodeCommitShas(isSessionBanner ? null : questId, row?.commitShas);
-  const showCommitAffordance = !isSessionBanner;
+  const showCommitAffordance = !!diffSessionId;
   const waitCondition = row && isDoneThreadRow(row) ? null : waitConditionForBoardRow(row?.boardRow);
   const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
   const inputWaitCondition = waitCondition?.kind === "user-input" ? waitCondition : null;
@@ -456,7 +438,8 @@ export function QuestThreadBanner({
   const ownership =
     isSessionBanner || (row?.ownership === "off-board" && isDoneThreadRow(row)) ? undefined : row?.ownership;
   const ledElsewhere = ownership === "other-leader";
-  const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext || showCommitAffordance;
+  const hasMeta =
+    !!waitCondition || !!row?.journey || !!row?.status || !!ownership || hasParticipantContext || showCommitAffordance;
   const hasMobileDetails =
     showCommitAffordance ||
     !!queuedWaitCondition ||
@@ -596,7 +579,12 @@ export function QuestThreadBanner({
                 </div>
               )}
               {showCommitAffordance && (
-                <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
+                <DiffChip
+                  sessionId={diffSessionId}
+                  threadKey={isSessionBanner ? MAIN_THREAD_KEY : threadKey}
+                  fallbackCommitShas={row?.commitShas}
+                  testId="quest-thread-diff-chip"
+                />
               )}
               {monitorSessionId && !isSessionBanner && (
                 <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />

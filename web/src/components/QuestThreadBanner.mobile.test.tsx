@@ -88,6 +88,7 @@ describe("mobile quest banner disclosure", () => {
       });
     }
     useStore.getState().setSdkSessions([
+      { sessionId: "leader", sessionNum: 1, state: "connected", cwd: "/leader", createdAt: 1, isOrchestrator: true },
       { sessionId: "worker", sessionNum: 10, state: "connected", cwd: "/fixture", createdAt: 1 },
       { sessionId: "reviewer", sessionNum: 20, state: "exited", cwd: "/fixture", createdAt: 1 },
     ]);
@@ -95,7 +96,9 @@ describe("mobile quest banner disclosure", () => {
   });
 
   it("starts expanded and retains a deliberate collapse across authoritative phase and result updates", () => {
-    const { rerender } = render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" monitorSessionId="leader" />);
+    const { rerender } = render(
+      <QuestThreadBanner row={bannerRow()} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />,
+    );
     const details = screen.getByTestId("quest-thread-details");
     const toggle = screen.getByRole("button", { name: "Collapse quest information" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -105,7 +108,9 @@ describe("mobile quest banner disclosure", () => {
 
     fireEvent.click(toggle);
     expect(details).toHaveClass("hidden");
-    rerender(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" monitorSessionId="leader" />);
+    rerender(
+      <QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />,
+    );
     act(() => setMonitoring(true));
     expect(screen.getByTestId("quest-journey-compact-summary")).toHaveTextContent("User Checkpoint3/5");
     expect(screen.getByRole("button", { name: "Expand quest information" })).toHaveAttribute("aria-expanded", "false");
@@ -115,20 +120,26 @@ describe("mobile quest banner disclosure", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand quest information" }));
     expect(details).not.toHaveClass("hidden");
     expect(within(details).getByRole("link", { name: "Worker #10" })).toHaveAttribute("href", "#/session/10");
-    expect(within(details).getByTestId("quest-thread-commit-button")).toHaveTextContent("1 commit");
+    expect(within(details).getByTestId("quest-thread-diff-chip")).toHaveTextContent("1 commit");
     fireEvent.click(within(details).getByRole("button", { name: "Acknowledge" }));
     expect(updateThreadMonitoring).toHaveBeenCalledWith("leader", "q-9001", "acknowledge", "1");
   });
 
   it("starts a different quest expanded and retains reviewer access in the desktop presentation", () => {
-    const { rerender } = render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" />);
+    const { rerender } = render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" diffSessionId="leader" />);
     // CSS removes only the mobile reviewer link. Its exact desktop destination
     // and server-owned identity remain intact; real widths are covered in browser validation.
     const reviewer = screen.getByRole("link", { name: "Reviewer #20" });
     expect(reviewer).toHaveAttribute("href", "#/session/20");
     expect(reviewer.parentElement).toHaveClass("hidden", "sm:contents");
     fireEvent.click(screen.getByRole("button", { name: "Collapse quest information" }));
-    rerender(<QuestThreadBanner row={{ ...bannerRow(), questId: "q-9002", threadKey: "q-9002" }} threadKey="q-9002" />);
+    rerender(
+      <QuestThreadBanner
+        row={{ ...bannerRow(), questId: "q-9002", threadKey: "q-9002" }}
+        threadKey="q-9002"
+        diffSessionId="leader"
+      />,
+    );
     expect(screen.getByRole("button", { name: "Collapse quest information" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("quest-thread-details")).not.toHaveClass("hidden");
   });

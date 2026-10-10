@@ -20,6 +20,7 @@ import { PlaygroundSessionHeaderMenu } from "./playground/PlaygroundSessionHeade
 import { PlaygroundRemoteHostSection } from "./playground/PlaygroundRemoteHostSection.js";
 import { PlaygroundNextAttentionSection } from "./playground/PlaygroundNextAttentionSection.js";
 import { PlaygroundWorkboardAccessSection } from "./playground/PlaygroundWorkboardAccessSection.js";
+import { PlaygroundDiffAccessSection } from "./playground/PlaygroundDiffAccessSection.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -119,6 +120,7 @@ export function Playground() {
             <PlaygroundOriginalThreadSection />
             <PlaygroundInteractiveSections />
             <PlaygroundWorkboardAccessSection />
+            <PlaygroundDiffAccessSection />
             <PlaygroundStateSections />
           </QuestRecordFetchContext.Provider>
         </main>

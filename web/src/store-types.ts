@@ -230,6 +230,8 @@ export interface AppState {
   setQuestmasterViewMode: (mode: import("./api.js").QuestmasterViewMode) => void;
   setQuestmasterCompactSort: (sort: import("./api.js").QuestmasterCompactSort) => void;
   activeTab: "chat" | "diff";
+  /** The session and thread whose diff chip opened the diff view, resolved live by resolveDiffTarget. */
+  diffViewSource: { sessionId: string; threadKey: string } | null;
   diffPanelSelectedFile: Map<string, string>;
   vscodeSelectionContext: VsCodeSelectionState | null;
   dismissedVsCodeSelectionKey: string | null;
@@ -434,6 +436,7 @@ export interface AppState {
   clearAutoExpandedTurns: (sessionId: string) => void;
   setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
   setActiveTab: (tab: "chat" | "diff") => void;
+  openDiffView: (sessionId: string, threadKey: string) => void;
   setDiffPanelSelectedFile: (sessionId: string, filePath: string | null) => void;
   terminalOpen: boolean;
   terminalCwd: string | null;

@@ -41,8 +41,7 @@ import {
   installActiveSessionMetadataRefreshListeners,
 } from "./session-list-hydration.js";
 import { TaskPanel } from "./components/TaskPanel.js";
-import { DiffPanel } from "./components/DiffPanel.js";
-import { QuestCodeCommitDiffPanel } from "./components/QuestCommitDiffView.js";
+import { DiffTabView } from "./components/DiffTabView.js";
 import { Playground } from "./components/Playground.js";
 import { ActiveBuildMismatchNotice } from "./components/BuildMismatchNotice.js";
 import { SettingsPage } from "./components/SettingsPage.js";
@@ -306,7 +305,15 @@ export default function App() {
   const currentMessages = useStore((s) =>
     currentSessionId ? (s.messages.get(currentSessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
   );
-  const diffTarget = useStore(useShallow((s) => resolveDiffTarget(s, currentSessionId, threadRoute.threadKey)));
+  // The chip that opened the diff view names its session and thread; a different session falls back to its route.
+  const diffTarget = useStore(
+    useShallow((s) => {
+      const source = s.diffViewSource;
+      return source && source.sessionId === currentSessionId
+        ? resolveDiffTarget(s, source.sessionId, source.threadKey)
+        : resolveDiffTarget(s, currentSessionId, threadRoute.threadKey);
+    }),
+  );
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
   const chatSessionVisible =
@@ -934,14 +941,8 @@ export default function App() {
               {/* Diff tab */}
               {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && (
                 <div className="absolute inset-0 flex min-h-0 flex-col">
-                  {diffTarget?.kind === "quest-commits" ? (
-                    <QuestCodeCommitDiffPanel questId={diffTarget.questId} />
-                  ) : diffTarget?.kind === "session" ? (
-                    <div className="min-h-0 flex-1">
-                      <DiffPanel sessionId={diffTarget.sessionId} />
-                    </div>
-                  ) : (
-                    <DiffPanel sessionId={currentSessionId} />
+                  {diffTarget && (
+                    <DiffTabView target={diffTarget} onBack={() => useStore.getState().setActiveTab("chat")} />
                   )}
                 </div>
               )}

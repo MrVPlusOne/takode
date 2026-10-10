@@ -203,7 +203,7 @@ function useAccessLeaderSeed(): boolean {
   return seeded;
 }
 
-/** Phone top bar as the app draws it below 768px: ≡, identity, Board, Next and Diffs. */
+/** Phone top bar as the app draws it below 768px: ≡, identity, Board and the attention list. */
 function PhoneLeaderTopBar({ boardOpen }: { boardOpen: boolean }) {
   return (
     <div className="flex w-full items-center gap-1.5 border-b border-cc-border bg-cc-card px-2 py-1.5">
@@ -215,7 +215,6 @@ function PhoneLeaderTopBar({ boardOpen }: { boardOpen: boolean }) {
       </span>
       <LeaderWorkboardTopBarButton open={boardOpen} dots={ACTIVE_DOTS} compact onToggle={noop} />
       <AttentionListPill count={3} topKind="needs-input" compact />
-      <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
     </div>
   );
 }

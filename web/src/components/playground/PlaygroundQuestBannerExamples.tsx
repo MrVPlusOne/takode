@@ -261,6 +261,11 @@ export function PlaygroundQuestBannerExamples() {
               threadKey={threadKey}
               variant={label === "Worker session banner with timer" ? "session" : "thread"}
               currentSessionId={label === "Worker session banner with timer" ? "playground-worker-banner" : undefined}
+              diffSessionId={
+                label === "Worker session banner with timer"
+                  ? "playground-worker-banner"
+                  : PLAYGROUND_HANDOFF_LEADER_SESSION_ID
+              }
             />
           </div>
         ))}
@@ -275,20 +280,24 @@ export function PlaygroundQuestBannerExamples() {
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[0].row}
           threadKey={compactQuestThreadBannerRows[0].threadKey}
+          diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
         />
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[compactQuestThreadBannerRows.length - 1].row}
           threadKey={compactQuestThreadBannerRows[compactQuestThreadBannerRows.length - 1].threadKey}
           variant="session"
           currentSessionId="playground-worker-banner"
+          diffSessionId="playground-worker-banner"
         />
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[5].row}
           threadKey={compactQuestThreadBannerRows[5].threadKey}
+          diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
         />
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[7].row}
           threadKey={compactQuestThreadBannerRows[7].threadKey}
+          diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
         />
       </div>
 
@@ -310,6 +319,7 @@ export function PlaygroundQuestBannerExamples() {
           row={mobileRow}
           threadKey={mobileRow.threadKey}
           monitorSessionId="playground-mobile-banner"
+          diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
         />
       </div>
     </>
