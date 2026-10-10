@@ -4,8 +4,11 @@
  * landing runs. A failing test file is rerun once; tests that pass on rerun are
  * flaky. Tests that still fail are run on the baseline commit, and failures
  * that also happen there are pre-existing. Only the remaining new failures fail
- * the gate. A focused pre-submit run narrows the Vitest steps to the tests the
- * worker chose and keeps every other step whole.
+ * the gate. Vitest's unhandled errors (a leaked timer firing after teardown,
+ * an unhandled rejection) take part in the same rule: each one counts as a
+ * failure of the test file Vitest attributes it to, or of the whole step when
+ * it names none. A focused pre-submit run narrows the Vitest steps to the tests
+ * the worker chose and keeps every other step whole.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
@@ -21,7 +24,13 @@ export interface StepResult {
   tail: string;
   /** Normalized output lines, for comparing a command step's failure with the baseline's. */
   lines: string[];
-  /** Failing test IDs (`file > test name`) for a vitest step whose report was readable. */
+  /** Raw output of a failed command (bounded), for reading Vitest's unhandled errors. */
+  output?: string;
+  /**
+   * Failing test IDs (`file > test name`) for a vitest step whose report was readable, followed by
+   * its unhandled errors (`file > (unhandled) Error: message`, or `(unhandled) Error: message`
+   * when Vitest names no test file).
+   */
   failures?: string[];
   /** Test files the vitest step's report lists. */
   testFiles?: number;
@@ -30,6 +39,7 @@ export interface StepResult {
 /** What a later probe needs to check whether a commit still has a gate failure. */
 export interface GateProbe {
   step: LandingGateStep;
+  /** Test files to run; absent for the whole step (an unhandled error that names no file). */
   files?: string[];
   ids?: string[];
   /** Normalized baseline output lines, for command steps. */
@@ -100,17 +110,20 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
     if (first.ok) continue;
     options.log(`Step ${step.name} failed; checking whether the failure is new.`);
     if (step.kind === "vitest" && first.failures?.length) {
-      const files = filesOf(first.failures);
-      options.phase?.(`gate: rerunning ${files.length} failing test file(s)`);
-      const rerun = await timed(`${step.name} rerun`, () => runStep(options.dir, step, options, files));
+      // Rerun, baseline and confirm runs cover just the failing files, or the whole
+      // step (or selection) when an unhandled error names no file.
+      const scopeOf = (ids: string[]) => rerunScope(ids, selected);
+      const scope = scopeOf(first.failures);
+      options.phase?.(`gate: rerunning ${describeScope(scope)}`);
+      const rerun = await timed(`${step.name} rerun`, () => runStep(options.dir, step, options, scope));
       const still = rerun.failures ?? (rerun.ok ? [] : first.failures);
       result.flaky.push(...first.failures.filter((id) => !still.includes(id)));
       if (still.length === 0) continue;
       if (!options.baselineDir)
-        return fail(result, step, still, rerun.tail, { step, files: filesOf(still), ids: still });
-      options.phase?.(`gate: checking ${filesOf(still).length} file(s) on the baseline`);
+        return fail(result, step, still, rerun.tail, { step, files: scopeOf(still), ids: still });
+      options.phase?.(`gate: checking ${describeScope(scopeOf(still))} on the baseline`);
       const baseDir = await timed("baseline checkout", options.baselineDir);
-      const base = await timed(`${step.name} baseline`, () => runStep(baseDir, step, options, filesOf(still)));
+      const base = await timed(`${step.name} baseline`, () => runStep(baseDir, step, options, scopeOf(still)));
       const baseFailures = new Set(base.failures ?? (base.ok ? [] : still));
       const pre = still.filter((id) => baseFailures.has(id));
       let fresh = still.filter((id) => !baseFailures.has(id));
@@ -119,13 +132,13 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
         // Passing on the base while failing here may still be load flakiness: blame a
         // test only if it fails once more, in a run of just its own files.
         options.phase?.(`gate: confirming ${fresh.length} new failure(s)`);
-        const confirm = await timed(`${step.name} confirm`, () => runStep(options.dir, step, options, filesOf(fresh)));
+        const confirm = await timed(`${step.name} confirm`, () => runStep(options.dir, step, options, scopeOf(fresh)));
         const confirmed = new Set(confirm.failures ?? (confirm.ok ? [] : fresh));
         result.flaky.push(...fresh.filter((id) => !confirmed.has(id)));
         fresh = fresh.filter((id) => confirmed.has(id));
       }
       if (fresh.length === 0) continue;
-      return fail(result, step, fresh, rerun.tail, { step, files: filesOf(fresh), ids: fresh });
+      return fail(result, step, fresh, rerun.tail, { step, files: scopeOf(fresh), ids: fresh });
     }
     if (step.kind === "vitest" && first.failures === undefined) {
       // Without a readable report the run itself broke (for example the runner could not
@@ -133,7 +146,7 @@ export async function runGate(options: GateRunOptions): Promise<GateResult> {
       return fail(result, step, [`${step.name} (no test report)`], first.tail, { step });
     }
     if (step.kind === "vitest") {
-      // A readable report with no failing test means only unhandled errors: rerun the whole step (or selection) once.
+      // A readable report, no failing test and no recognizable unhandled error: rerun the whole step (or selection) once.
       const rerun = await timed(`${step.name} rerun`, () => runStep(options.dir, step, options, selected ?? undefined));
       if (rerun.ok) {
         result.flaky.push(`${step.name} (whole step)`);
@@ -195,7 +208,8 @@ export async function runStep(
       options,
     );
     const report = await readVitestReport(reportPath, await resolvedPath(resolve(dir, step.cwd ?? ".")));
-    return report ? { ...result, ...report } : result;
+    if (!report) return result;
+    return { ...result, ...report, failures: [...report.failures, ...unhandledErrorIds(result.output ?? "")] };
   } finally {
     await rm(reportDir, { recursive: true, force: true });
   }
@@ -230,6 +244,45 @@ export async function readVitestReport(
 
 function filesOf(ids: string[]): string[] {
   return [...new Set(ids.map((id) => id.split(" > ")[0]!))];
+}
+
+/** The test files to rerun for these failures, or the selection (undefined: the whole step) when one names no file. */
+function rerunScope(ids: string[], selected: string[] | null): string[] | undefined {
+  if (ids.some((id) => id.startsWith(UNHANDLED_PREFIX))) return selected ?? undefined;
+  return filesOf(ids);
+}
+
+function describeScope(scope: string[] | undefined): string {
+  return scope ? `${scope.length} failing test file(s)` : "the whole step";
+}
+
+const UNHANDLED_PREFIX = "(unhandled) ";
+// Vitest prints each unhandled error under a rule such as "⎯⎯⎯ Uncaught Exception ⎯⎯⎯".
+const UNHANDLED_HEADER = /^⎯+ (Uncaught Exception|Unhandled Rejection|Unhandled Error) ⎯+$/;
+const UNHANDLED_ORIGIN = /^This error originated in "([^"]+)" test file/;
+
+/**
+ * IDs for the unhandled errors in Vitest's output: `file > (unhandled) Name: message` when Vitest
+ * names the test file the error came from, `(unhandled) Name: message` otherwise. Numbers in the
+ * message are normalized, so the same leak matches across runs and checkouts.
+ */
+export function unhandledErrorIds(output: string): string[] {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colors
+  const lines = output.split("\n").map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").trim());
+  const ids: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (!UNHANDLED_HEADER.test(lines[index]!)) continue;
+    let message = "";
+    let file: string | undefined;
+    for (let next = index + 1; next < lines.length && !lines[next]!.startsWith("⎯"); next++) {
+      const line = lines[next]!;
+      if (!message && line) message = line;
+      file ??= UNHANDLED_ORIGIN.exec(line)?.[1];
+    }
+    const label = `${UNHANDLED_PREFIX}${(message || "unknown error").replace(/\d+/g, "#")}`;
+    ids.push(file ? `${file} > ${label}` : label);
+  }
+  return [...new Set(ids)];
 }
 
 /** Lines of `candidate` not in `base`, after normalizing numbers and blank lines. */
@@ -295,6 +348,7 @@ async function runCommand(
         ok: code === 0,
         tail: lines.slice(-80).join("\n"),
         lines: code === 0 ? [] : normalize(output, dirs),
+        ...(code === 0 ? {} : { output }),
       });
     });
   });

@@ -11,7 +11,11 @@ import { probeFails, runGate, type GateRunOptions, type LandingGateConfig } from
  * "flaky" | "fails-twice" } }), runs only the positional files when given, writes
  * a Vitest-shaped JSON report to --outputFile and exits 1 on failures. "flaky"
  * fails the first run and "fails-twice" the first two; `{"__crash__": true}`
- * exits without a report, like a runner that could not start.
+ * exits without a report, like a runner that could not start. `__unhandled__`
+ * lists unhandled errors printed the way Vitest prints them: `{ message, file?,
+ * when }`, where `file` names the test file Vitest blames (the error shows only
+ * when that file runs), and `when` is "always", "first" (first run only) or
+ * "whole" (only in a run of the whole suite, like a leak that needs full-suite load).
  */
 const FAKE_VITEST = `
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -23,7 +27,24 @@ const spec = JSON.parse(readFileSync("fake-tests.json", "utf8"));
 if (spec.__crash__) { console.error("runner crashed before reporting"); process.exit(1); }
 const testResults = [];
 let failed = 0;
+let unhandled = 0;
+for (const [index, error] of (spec.__unhandled__ ?? []).entries()) {
+  if (error.file && only.length && !only.includes(error.file)) continue;
+  if (error.when === "whole" && only.length) continue;
+  if (error.when === "first") {
+    const marker = join(process.cwd(), ".unhandled-" + index);
+    if (existsSync(marker)) continue;
+    writeFileSync(marker, "x");
+  }
+  unhandled++;
+  console.error("\u001b[31m⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯\u001b[39m");
+  console.error(error.message);
+  console.error(" ❯ dispatchSetState node_modules/react-dom/cjs/react-dom-client.development.js:9126:13");
+  if (error.file) console.error('This error originated in "' + error.file + '" test file. It does not mean the error was thrown inside the file itself.');
+  console.error("⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯");
+}
 for (const [file, tests] of Object.entries(spec)) {
+  if (file === "__unhandled__") continue;
   if (only.length && !only.includes(file)) continue;
   const assertionResults = Object.entries(tests).map(([name, kind]) => {
     let status = kind === "fail" ? "failed" : "passed";
@@ -38,10 +59,12 @@ for (const [file, tests] of Object.entries(spec)) {
   });
   testResults.push({ name: join(process.cwd(), file), status: assertionResults.some((t) => t.status === "failed") ? "failed" : "passed", assertionResults });
 }
-writeFileSync(output, JSON.stringify({ success: failed === 0, testResults }));
+writeFileSync(output, JSON.stringify({ success: failed === 0 && unhandled === 0, testResults }));
 console.log(failed ? failed + " failed" : "all passed");
-process.exit(failed ? 1 : 0);
+process.exit(failed || unhandled ? 1 : 0);
 `;
+
+type UnhandledSpec = { message: string; file?: string; when: "always" | "first" | "whole" };
 
 describe("landing gate rerun-and-compare", () => {
   let root: string;
@@ -79,7 +102,7 @@ describe("landing gate rerun-and-compare", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const tests = (dir: string, spec: Record<string, Record<string, string>>) =>
+  const tests = (dir: string, spec: Record<string, Record<string, string> | UnhandledSpec[]>) =>
     writeFile(join(dir, "fake-tests.json"), JSON.stringify(spec));
   const options = (): GateRunOptions => ({
     dir: candidate,
@@ -136,6 +159,82 @@ describe("landing gate rerun-and-compare", () => {
     const result = await runGate(options());
     expect(result.ok).toBe(true);
     expect(result.flaky).toEqual(["a.test.ts > slow"]);
+  });
+
+  // An unhandled error is not tied to a test, so it used to bounce every batch it hit even when it was
+  // pre-existing (a MessageFeed test's leaked state update firing after jsdom teardown under full-suite
+  // load). It now takes part in the same rerun-and-compare rule as a failing test.
+  describe("unhandled errors", () => {
+    const leak = "ReferenceError: window is not defined";
+
+    it("treats a leak that only shows under full-suite load as flaky when its file passes alone", async () => {
+      await tests(candidate, {
+        "feed.test.tsx": { scrolls: "pass" },
+        "other.test.ts": { one: "pass" },
+        __unhandled__: [{ message: leak, file: "feed.test.tsx", when: "whole" }],
+      });
+      const result = await runGate(options());
+      expect(result.ok).toBe(true);
+      expect(result.flaky).toEqual([`feed.test.tsx > (unhandled) ${leak}`]);
+      // Only the blamed file reran, not the whole suite.
+      const rerun = lines.filter((line) => line.includes("fake-vitest.mjs"))[1];
+      expect(rerun).toMatch(/ feed\.test\.tsx$/);
+    });
+
+    it("does not blame a change for a leak the baseline has too", async () => {
+      const spec = {
+        "feed.test.tsx": { scrolls: "pass" },
+        __unhandled__: [{ message: leak, file: "feed.test.tsx", when: "always" as const }],
+      };
+      await tests(candidate, spec);
+      await tests(baseline, spec);
+      const result = await runGate(options());
+      expect(result.ok).toBe(true);
+      expect(result.preexisting).toEqual([`feed.test.tsx > (unhandled) ${leak}`]);
+    });
+
+    it("fails on a new leak that reproduces in its file and not on the baseline", async () => {
+      await tests(candidate, {
+        "feed.test.tsx": { scrolls: "pass" },
+        __unhandled__: [{ message: "TypeError: Cannot read 42 of undefined", file: "feed.test.tsx", when: "always" }],
+      });
+      await tests(baseline, { "feed.test.tsx": { scrolls: "pass" } });
+      const result = await runGate(options());
+      expect(result.ok).toBe(false);
+      expect(result.newFailures).toEqual(["feed.test.tsx > (unhandled) TypeError: Cannot read # of undefined"]);
+      expect(result.probe?.files).toEqual(["feed.test.tsx"]);
+      expect(await probeFails(baseline, result.probe!, options())).toBe(false);
+      expect(await probeFails(candidate, result.probe!, options())).toBe(true);
+    });
+
+    // The q-2432 bounce: a whole-step rerun for an unattributed error hit an unrelated flaky test,
+    // which then counted as new because the baseline passed. Rerun failures now go through the
+    // per-test rule, and the error itself is compared with the baseline.
+    it("handles an error that names no file by rerunning the whole step and comparing per test", async () => {
+      await tests(candidate, {
+        "feed.test.tsx": { scrolls: "pass" },
+        "handoff.test.ts": { refuses: "fails-twice" },
+        __unhandled__: [{ message: leak, when: "first" }],
+      });
+      await tests(baseline, { "feed.test.tsx": { scrolls: "pass" }, "handoff.test.ts": { refuses: "pass" } });
+      const result = await runGate(options());
+      // The error is gone on the whole-step rerun; the load-flaky test fails there again, passes on
+      // the baseline and then passes in a run of its own file, so it is flaky too, not new.
+      expect(result.ok).toBe(true);
+      expect(result.flaky).toEqual([`(unhandled) ${leak}`, "handoff.test.ts > refuses"]);
+    });
+
+    it("fails on an unattributed error that the baseline does not have", async () => {
+      await tests(candidate, {
+        "feed.test.tsx": { scrolls: "pass" },
+        __unhandled__: [{ message: "Error: socket hang up", when: "always" }],
+      });
+      await tests(baseline, { "feed.test.tsx": { scrolls: "pass" } });
+      const result = await runGate(options());
+      expect(result.ok).toBe(false);
+      expect(result.newFailures).toEqual(["(unhandled) Error: socket hang up"]);
+      expect(result.probe?.files).toBeUndefined();
+    });
   });
 
   it("fails when the test runner produces no report, even if the baseline breaks the same way", async () => {
