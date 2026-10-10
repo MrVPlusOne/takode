@@ -1862,7 +1862,7 @@ describe("synchronized projection performance controls", () => {
       requiredWireBytesTotal: 0,
     });
     expect(leaderTabs.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 7_580, cachedValueBytes: -7, updateValueBytes: 70 }),
+      changedMetrics({ invalidations: 1, valueBytes: 7_796, cachedValueBytes: -7, updateValueBytes: 70 }),
     );
     expect(leaderTabs.singleChange.messagesPerBrowser).toBe(1);
     expect(leaderTabs.singleChange.requiredWireBytesTotal).toBe(
@@ -1871,7 +1871,7 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.burstChange.metrics).toEqual(
       changedMetrics({
         invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations,
-        valueBytes: 7_578,
+        valueBytes: 7_794,
         cachedValueBytes: -9,
         updateValueBytes: 68,
       }),
@@ -1881,13 +1881,13 @@ describe("synchronized projection performance controls", () => {
       leaderTabs.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
     expect(leaderTabs.phaseChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 7_671, cachedValueBytes: 84, updateValueBytes: 865 }),
+      changedMetrics({ invalidations: 1, valueBytes: 7_887, cachedValueBytes: 84, updateValueBytes: 883 }),
     );
     expect(leaderTabs.phaseChange.messagesPerBrowser).toBe(1);
     expect(leaderTabs.phaseChange.requiredWireBytesTotal).toBe(
       leaderTabs.phaseChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
-    expect(leaderTabs.reconnect.metrics).toEqual(reconnectMetrics(7_587));
+    expect(leaderTabs.reconnect.metrics).toEqual(reconnectMetrics(7_803));
     expect(leaderTabs.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
     expect(leaderTabs.boardProducerProjectionOwnership).toEqual({
@@ -1900,15 +1900,15 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.bytes).toEqual({
       subscribedParallelBoardActivityResidual: 0,
       parallelBoardDetailLegacyPayload: 3_286,
-      requiredProjectionPhaseChange: 1_023,
-      matchedCompatiblePairPhaseChange: 4_309,
+      requiredProjectionPhaseChange: 1_041,
+      matchedCompatiblePairPhaseChange: 4_327,
       confirmedRemovableLegacyThreadStatusPayload: 236,
       requiredProjectionStatusUpdate: 228,
       matchedCompatiblePairStatusChange: 228,
     });
-    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(7_878);
-    expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(7_587));
-    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(7_878);
+    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(8_094);
+    expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(7_803));
+    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(8_094);
 
     // Historical controls retain global activity plus board detail. The current
     // compatible pair sends only detailed board authority and one coalesced patch.
@@ -1936,23 +1936,23 @@ describe("synchronized projection performance controls", () => {
       singlePhaseChange: expectedMatchedPair({
         producerFrames: 1,
         parallelBytesByTypePerFrame: { board_updated: 3_286 },
-        projectionBytesPerBrowser: 1_023,
+        projectionBytesPerBrowser: 1_041,
         runtimeMetrics: changedMetrics({
           invalidations: 1,
-          valueBytes: 7_671,
+          valueBytes: 7_887,
           cachedValueBytes: 84,
-          updateValueBytes: 865,
+          updateValueBytes: 883,
         }),
       }),
       burstPhaseChange: expectedMatchedPair({
         producerFrames: 25,
         parallelBytesByTypePerFrame: { board_updated: 3_286 },
-        projectionBytesPerBrowser: 1_023,
+        projectionBytesPerBrowser: 1_041,
         runtimeMetrics: changedMetrics({
           invalidations: 25,
-          valueBytes: 7_671,
+          valueBytes: 7_887,
           cachedValueBytes: 84,
-          updateValueBytes: 865,
+          updateValueBytes: 883,
         }),
       }),
     });
@@ -1965,8 +1965,8 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.matchedCompatiblePairSequences.burstPhaseChange.combined).toMatchObject({
       logicalSends: 26,
       deliveries: 52,
-      bytesPerBrowser: 83_173,
-      totalBytes: 166_346,
+      bytesPerBrowser: 83_191,
+      totalBytes: 166_382,
     });
 
     // Both targeted cross-leader invalidation and generic persistence avoid

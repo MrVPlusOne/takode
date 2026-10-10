@@ -453,9 +453,11 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
             sourceRowCreatedAt: 200,
             workerSessionId: "worker-current",
             workerSessionNum: 2580,
-            active: true,
+            // Another leader runs the current row, so it is not this leader's active work and stays closable.
+            ownership: "other-leader",
+            active: false,
             completed: false,
-            canClose: false,
+            canClose: true,
             journey: expect.objectContaining({
               phaseIds: ["alignment", "work", "memory"],
               currentPhaseId: "work",
@@ -502,7 +504,8 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
           boardStatus: "MEMORY",
           sourceLeaderSessionId: "leader-current",
           workerSessionNum: 2580,
-          active: true,
+          ownership: "other-leader",
+          active: false,
           completed: false,
           journey: expect.objectContaining({ currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 }),
         }),
@@ -535,6 +538,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
           sourceRowCreatedAt: 200,
           workerSessionId: "worker-current",
           workerSessionNum: 2580,
+          ownership: "other-leader",
           active: false,
           completed: true,
           canClose: true,
@@ -653,7 +657,10 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     projectedValue = applyProjectionMessages(projectedValue, promoted);
     expect(projectedValue).toMatchObject({
       tabState: { version: 1 },
-      tabs: expect.arrayContaining([expect.objectContaining({ threadKey: "q-1974", active: true, completed: false })]),
+      // The historical leader sees the reopened run, but another leader runs it, so it is not active here.
+      tabs: expect.arrayContaining([
+        expect.objectContaining({ threadKey: "q-1974", ownership: "other-leader", active: false, completed: false }),
+      ]),
     });
 
     first.send.mockClear();
@@ -681,7 +688,12 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     expect(projectedValue).toMatchObject({
       tabState: { version: 1 },
       tabs: expect.arrayContaining([
-        expect.objectContaining({ threadKey: "q-1974", active: true, boardStatus: "MEMORY" }),
+        expect.objectContaining({
+          threadKey: "q-1974",
+          ownership: "other-leader",
+          active: false,
+          boardStatus: "MEMORY",
+        }),
       ]),
     });
 

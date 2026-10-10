@@ -246,11 +246,11 @@ Persisted-state compatibility is intentionally narrow. `tabState: null` means th
 | Leader scenario | Historical control sends / deliveries / bytes per browser | Current compatible pair | Result |
 | --- | ---: | ---: | --- |
 | Equal board producer | 2 / 4 / 6,934 B | 1 / 2 / 3,285 B | Better; duplicate global activity is removed and the equal projection is suppressed |
-| Work → Memory phase change | 2 / 4 / 7,102 B | 2 / 4 / 4,309 B | Same sends and deliveries, 39.3% fewer bytes |
-| 25-frame phase burst | 50 / 100 / 177,550 B | 26 / 52 / 83,173 B | Better; projection work coalesces to one publication and board detail remains authoritative |
+| Work → Memory phase change | 2 / 4 / 7,102 B | 2 / 4 / 4,327 B | Same sends and deliveries, 39.1% fewer bytes |
+| 25-frame phase burst | 50 / 100 / 177,550 B | 26 / 52 / 83,191 B | Better; projection work coalesces to one publication and board detail remains authoritative |
 | Narrow thread-status change | 1 / 2 / 236 B | 1 / 2 / 228 B | Better; the legacy status broadcast is retired in favor of one keyed patch |
 
-A phase burst performs one projection dependency selection and one derivation after 25 invalidations. Equal values publish nothing. Targeted cross-leader and generic no-subscriber invalidations perform zero projection selection or derivation until a subscriber requests the value. Initial two-browser subscription is 7,878 B per browser, the cached full value is 7,587 B, and reconnect reuses that cache with one snapshot plus acknowledgement and no duplicate update. Additional browsers do not increase source selection or derivation; delivery remains exactly linear.
+A phase burst performs one projection dependency selection and one derivation after 25 invalidations. Equal values publish nothing. Targeted cross-leader and generic no-subscriber invalidations perform zero projection selection or derivation until a subscriber requests the value. Initial two-browser subscription is 8,094 B per browser, the cached full value is 7,803 B (including each tab's board `ownership` tag), and reconnect reuses that cache with one snapshot plus acknowledgement and no duplicate update. Additional browsers do not increase source selection or derivation; delivery remains exactly linear.
 
 ### Current frontend results
 
