@@ -13,7 +13,9 @@ import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 /**
  * Asks the session's open ChatView to close one of its thread tabs, through the
- * same path as the tab's own close button. Detail: `{ sessionId, threadKey }`.
+ * same path as the tab's own close button (which also leaves the tab if it is
+ * selected). The view cancels the event when it handled it. Detail:
+ * `{ sessionId, threadKey }`.
  */
 export const CLOSE_THREAD_TAB_EVENT = "takode:close-thread-tab";
 
@@ -90,21 +92,36 @@ export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem
     const { sessionId, threadKey } = item;
     items.push({
       label: "Close tab",
-      onClick: () =>
-        window.dispatchEvent(new CustomEvent(CLOSE_THREAD_TAB_EVENT, { detail: { sessionId, threadKey } })),
+      onClick: () => closeThreadTab(sessionId, threadKey),
     });
   }
   return items;
 }
 
+/**
+ * Offered for an open, closable thread tab of any leader whose tab projection
+ * this browser holds. The projection carries the server's closability, and
+ * the server checks it again when closing.
+ */
 function canCloseThreadTab(sessionId: string, threadKey: string): boolean {
-  const state = useStore.getState();
-  if (state.currentSessionId !== sessionId || normalizeThreadKey(threadKey) === MAIN_THREAD_KEY) return false;
-  const tabs = resolveLeaderThreadTabsProjection(state, sessionId);
+  if (normalizeThreadKey(threadKey) === MAIN_THREAD_KEY) return false;
+  const tabs = resolveLeaderThreadTabsProjection(useStore.getState(), sessionId);
   return (
     tabs.projectionState === "accepted" &&
     tabs.value.tabs.some((tab) => tab.threadKey === normalizeThreadKey(threadKey) && tab.canClose)
   );
+}
+
+/**
+ * The session on screen closes the tab in its own view; any other leader's tab
+ * is closed by the server, which then updates every browser's tabs.
+ */
+function closeThreadTab(sessionId: string, threadKey: string) {
+  if (useStore.getState().currentSessionId === sessionId) {
+    const event = new CustomEvent(CLOSE_THREAD_TAB_EVENT, { cancelable: true, detail: { sessionId, threadKey } });
+    if (!window.dispatchEvent(event)) return;
+  }
+  api.closeLeaderThreadTab(sessionId, threadKey).catch(logFailure("Close tab"));
 }
 
 /**

@@ -1456,6 +1456,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
     markSessionUnreadController(session, sessionUnreadDeps);
     return c.json({ ok: true });
   });
+  // Attention lists close another leader's thread tab here; the tab policy keeps active tabs open.
+  api.post("/sessions/:id/leader-thread-tabs/:threadKey/close", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const result = wsBridge.getSyncedProjectionController().closeLeaderThreadTab(id, c.req.param("threadKey"));
+    if (result === "not-found") return c.json({ error: "Leader session not found" }, 404);
+    if (result === "not-closable") return c.json({ error: "This tab's quest is active, so its tab stays open" }, 409);
+    return c.json({ ok: true, closed: result === "closed" });
+  });
   api.post("/sessions/mark-all-read", (c) => {
     for (const info of launcher.listSessions()) {
       const session = wsBridge.getSession(info.sessionId);

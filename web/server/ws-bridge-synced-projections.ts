@@ -19,6 +19,7 @@ import type {
   SyncedProjectionSubscriptionsAckMessage,
 } from "../shared/synced-projection.js";
 import { sendToBrowser, type BrowserTransportSocketLike } from "./bridge/browser-transport-controller.js";
+import { handleLeaderThreadTabsUpdate } from "./bridge/browser-synced-projection-coordinator.js";
 import {
   applyLeaderServerCandidateThreadTabEvent,
   MAX_LEADER_OPEN_THREAD_TABS,
@@ -225,6 +226,30 @@ export class WsBridgeSyncedProjectionController {
 
   invalidateSessionNavigation(session: Session): void {
     this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
+  }
+
+  /**
+   * Close one of a leader's open thread tabs for a browser that is not viewing
+   * that leader (the attention lists' Close tab). Uses the same command and
+   * closability policy as the tab's own close button, so an active tab stays.
+   */
+  closeLeaderThreadTab(sessionId: string, threadKey: string): "closed" | "not-open" | "not-closable" | "not-found" {
+    const session = this.deps.getSession(sessionId);
+    if (!session || !this.isLeaderSession(session)) return "not-found";
+    const key = threadKey.trim().toLowerCase();
+    const open = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs)?.orderedOpenThreadKeys;
+    if (!/^q-\d+$/.test(key) || !open?.includes(key)) return "not-open";
+    if (this.getLeaderThreadTabMutationPolicy(session.id, key)?.canClose === false) return "not-closable";
+    handleLeaderThreadTabsUpdate(
+      session,
+      { type: "close", threadKey: key, closedAt: Date.now() },
+      {
+        getLeaderThreadTabMutationPolicy: (id, tabKey) => this.getLeaderThreadTabMutationPolicy(id, tabKey),
+        persistSession: (target) => this.deps.persistSession?.(target),
+      },
+    );
+    this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
+    return "closed";
   }
 
   invalidateLeaderThreadTabsForSession(sessionId: string): boolean {

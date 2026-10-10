@@ -778,7 +778,9 @@ export function ChatView({
     if (!isLeaderSession || preview) return;
     const onClose = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string; threadKey?: string }>).detail;
-      if (detail?.sessionId === sessionId && detail.threadKey) handleCloseThreadTab(detail.threadKey);
+      if (detail?.sessionId !== sessionId || !detail.threadKey) return;
+      event.preventDefault();
+      handleCloseThreadTab(detail.threadKey);
     };
     window.addEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
     return () => window.removeEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
