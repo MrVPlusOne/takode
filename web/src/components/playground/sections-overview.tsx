@@ -346,7 +346,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Leader Workboard Thread Navigation"
-        description="Leader and worker task headers share a noticeable Journey pill with phase progress and detailed preview access. Their Worker and Leader links use the same light styling while preserving role and navigation. Projection-backed tabs preserve ordering, attention and completed-Waiting behavior at desktop and mobile widths."
+        description="Leader and worker task headers share a noticeable Journey pill with phase progress and detailed preview access. Their Worker and Leader links use the same light styling while preserving role and navigation. Projection-backed tabs preserve ordering, attention and completed-Waiting behavior at desktop and mobile widths. Tabs for quests another leader now runs, or that no board holds, stay muted and say so in the tab and header."
       >
         <PlaygroundQuestBannerExamples />
         <div className="grid max-w-5xl grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-2">

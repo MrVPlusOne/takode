@@ -12,6 +12,7 @@ import {
   createLeaderThreadTabsProjectionPatch,
   type LeaderThreadTabsProjectionAttention,
   type LeaderThreadTabsProjectionJourney,
+  type LeaderThreadTabsProjectionOwnership,
   type LeaderThreadTabsProjectionTab,
   type LeaderThreadTabsProjectionTabState,
   type LeaderThreadTabsProjectionValue,
@@ -317,18 +318,72 @@ export function resolveLeaderThreadTabMutationPolicy(
   const localCompletedRow = localActiveRow
     ? undefined
     : boardRowsByKey([...session.completedBoard.values()]).get(normalizedThreadKey);
+  const lifecycle = resolveTabLifecycle(session, normalizedThreadKey, {
+    currentQuestRow,
+    localActiveRow,
+    localCompletedRow,
+  });
+  return {
+    inMotion: lifecycle.active,
+    scheduled: lifecycle.queued || lifecycle.proposed,
+    neverStartedScheduled: lifecycle.neverStartedScheduled,
+    completed: lifecycle.completed,
+    canClose: !lifecycle.active,
+  };
+}
+
+interface TabRowSources {
+  currentQuestRow: CurrentQuestRow | undefined;
+  localActiveRow: BoardRow | undefined;
+  localCompletedRow: BoardRow | undefined;
+}
+
+function resolveTabOwnership(
+  session: Session,
+  threadKey: string,
+  { currentQuestRow, localActiveRow, localCompletedRow }: TabRowSources,
+): LeaderThreadTabsProjectionOwnership | null {
+  if (!/^q-\d+$/i.test(threadKey)) return null;
+  // A row still on this leader's active board keeps the quest this leader's
+  // work, even if another leader's row currently authors the Journey view.
+  if (localActiveRow) return "own";
+  if (currentQuestRow && currentQuestRow.sourceLeaderSessionId !== session.id) return "other-leader";
+  return currentQuestRow || localCompletedRow ? "own" : "off-board";
+}
+
+interface TabLifecycle {
+  row: BoardRow | undefined;
+  ownership: LeaderThreadTabsProjectionOwnership | null;
+  active: boolean;
+  queued: boolean;
+  proposed: boolean;
+  neverStartedScheduled: boolean;
+  completed: boolean;
+}
+
+/**
+ * Lifecycle flags describe this leader's own work. A quest another leader now
+ * runs keeps showing that leader's current Journey, but it is not in motion or
+ * scheduled here, so this leader can close its tab.
+ */
+function resolveTabLifecycle(session: Session, threadKey: string, sources: TabRowSources): TabLifecycle {
+  const { currentQuestRow, localActiveRow, localCompletedRow } = sources;
   const row = currentQuestRow?.row ?? localActiveRow ?? localCompletedRow;
   const completed = currentQuestRow
     ? currentQuestRow.completed
     : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
-  const inMotion = isInMotionLeaderThreadTabRow(row, { completed });
-  const scheduled = !completed && (isQueuedRow(row) || isProposedRow(row));
+  const ownership = resolveTabOwnership(session, threadKey, sources);
+  const ledElsewhere = ownership === "other-leader";
+  const queued = !ledElsewhere && !completed && isQueuedRow(row);
+  const proposed = !ledElsewhere && !completed && isProposedRow(row);
   return {
-    inMotion,
-    scheduled,
-    neverStartedScheduled: scheduled && isNeverStartedScheduledLeaderThreadTabRow(row),
+    row,
+    ownership,
+    active: !ledElsewhere && isInMotionLeaderThreadTabRow(row, { completed }),
+    queued,
+    proposed,
+    neverStartedScheduled: (queued || proposed) && isNeverStartedScheduledLeaderThreadTabRow(row),
     completed,
-    canClose: !inMotion,
   };
 }
 
@@ -730,14 +785,15 @@ export function buildLeaderThreadTabsProjectionValue(
     const localCompletedRow = localActiveRow ? undefined : completedByKey.get(threadKey);
     const localRow = localActiveRow ?? localCompletedRow;
     const currentQuestRow = currentQuestRows.get(threadKey);
-    const row = currentQuestRow?.row ?? localRow;
-    const completed = currentQuestRow
-      ? currentQuestRow.completed
-      : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
-    const queued = !completed && isQueuedRow(row);
-    const proposed = !completed && isProposedRow(row);
-    const neverStartedScheduled = (queued || proposed) && isNeverStartedScheduledLeaderThreadTabRow(row);
-    const isActive = isInMotionLeaderThreadTabRow(row, { completed });
+    const { row, ownership, active, queued, proposed, neverStartedScheduled, completed } = resolveTabLifecycle(
+      session,
+      threadKey,
+      {
+        currentQuestRow,
+        localActiveRow,
+        localCompletedRow,
+      },
+    );
     const attentionVisualInput = attentionVisualInputs.get(threadKey);
     const tabAttention = attentionVisualInput?.attention ?? EMPTY_ATTENTION;
     const status = threadStatuses[threadKey];
@@ -757,12 +813,13 @@ export function buildLeaderThreadTabsProjectionValue(
       sourceRowCreatedAt: row ? nonNegativeNumber(row.createdAt) : null,
       workerSessionId: boundedNullableText(row?.worker, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH),
       workerSessionNum: nonNegativeInteger(row?.workerNum),
-      active: isActive,
+      ownership,
+      active,
       queued,
       proposed,
       neverStartedScheduled,
       completed,
-      canClose: !isActive,
+      canClose: !active,
       attention: { ...tabAttention },
       updatedAt: Math.max(
         nonNegativeNumber(row?.completedAt),

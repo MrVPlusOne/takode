@@ -53,7 +53,10 @@ import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large
 import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { seedCodexTurnRecoveryPlaygroundStates } from "./CodexTurnRecoveryPlaygroundSeed.js";
-import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
+import {
+  buildPlaygroundHandoffTabs,
+  buildPlaygroundProjectedJourney,
+} from "./leader-thread-tabs-projection-fixtures.js";
 
 const EMPTY_PROJECTED_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
 
@@ -671,6 +674,7 @@ export function usePlaygroundSeed() {
           sourceRowCreatedAt: null,
           workerSessionId: null,
           workerSessionNum: null,
+          ownership: "own" as const,
           active: false,
           queued: false,
           proposed: false,
@@ -1214,39 +1218,43 @@ export function usePlaygroundSeed() {
       value: {
         currentQuestStateVersion: 1,
         tabState: { version: 1 },
-        tabs: projectedTabKeys.map((threadKey) => {
-          const boardRow = projectedBoardRows.get(threadKey)!;
-          const completed = boardRow.completedAt !== undefined;
-          const queued = !completed && boardRow.status === "QUEUED";
-          const proposed = !completed && boardRow.status === "PROPOSED";
-          const attention =
-            threadKey === "q-9001"
-              ? projectedAttention({ needsInput: true, reviewUnread: true, updatedAt: boardRow.updatedAt })
-              : threadKey === "q-9003"
-                ? projectedAttention({ reviewUnread: true, updatedAt: boardRow.updatedAt })
-                : threadKey === "q-9005"
-                  ? projectedAttention({ mutedNeedsInput: true, updatedAt: boardRow.updatedAt })
-                  : projectedAttention({ updatedAt: boardRow.updatedAt });
-          return {
-            threadKey,
-            questId: threadKey,
-            title: boardRow.title ?? threadKey,
-            boardStatus: boardRow.status ?? null,
-            journey: buildPlaygroundProjectedJourney(boardRow, completed),
-            sourceLeaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
-            sourceRowCreatedAt: boardRow.createdAt,
-            workerSessionId: boardRow.worker ?? null,
-            workerSessionNum: boardRow.workerNum ?? null,
-            active: !queued && !proposed && !completed,
-            queued,
-            proposed,
-            neverStartedScheduled: (queued || proposed) && boardRow.threadTabActivatedAt === undefined,
-            completed,
-            canClose: completed || queued || proposed,
-            attention,
-            updatedAt: boardRow.updatedAt,
-          };
-        }),
+        tabs: [
+          ...projectedTabKeys.map((threadKey) => {
+            const boardRow = projectedBoardRows.get(threadKey)!;
+            const completed = boardRow.completedAt !== undefined;
+            const queued = !completed && boardRow.status === "QUEUED";
+            const proposed = !completed && boardRow.status === "PROPOSED";
+            const attention =
+              threadKey === "q-9001"
+                ? projectedAttention({ needsInput: true, reviewUnread: true, updatedAt: boardRow.updatedAt })
+                : threadKey === "q-9003"
+                  ? projectedAttention({ reviewUnread: true, updatedAt: boardRow.updatedAt })
+                  : threadKey === "q-9005"
+                    ? projectedAttention({ mutedNeedsInput: true, updatedAt: boardRow.updatedAt })
+                    : projectedAttention({ updatedAt: boardRow.updatedAt });
+            return {
+              threadKey,
+              questId: threadKey,
+              title: boardRow.title ?? threadKey,
+              boardStatus: boardRow.status ?? null,
+              journey: buildPlaygroundProjectedJourney(boardRow, completed),
+              sourceLeaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+              sourceRowCreatedAt: boardRow.createdAt,
+              workerSessionId: boardRow.worker ?? null,
+              workerSessionNum: boardRow.workerNum ?? null,
+              ownership: "own" as const,
+              active: !queued && !proposed && !completed,
+              queued,
+              proposed,
+              neverStartedScheduled: (queued || proposed) && boardRow.threadTabActivatedAt === undefined,
+              completed,
+              canClose: completed || queued || proposed,
+              attention,
+              updatedAt: boardRow.updatedAt,
+            };
+          }),
+          ...buildPlaygroundHandoffTabs(Date.now() - 20_000),
+        ],
         mainAttention: projectedAttention(),
         threadStatuses: {
           "q-9001": playgroundActiveWorkWaitingStatus,

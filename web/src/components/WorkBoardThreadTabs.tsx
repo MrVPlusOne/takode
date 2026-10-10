@@ -18,6 +18,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/t
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
+import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
@@ -170,6 +171,10 @@ export interface PrimaryThreadChip {
   blueNudge: boolean;
   titleColor?: string;
   projectedCurrentState?: boolean;
+  /** Set when this leader does not run the quest, such as "Led by #12"; the tab stays muted. */
+  ownershipNote?: string;
+  /** True when another leader's board now runs the quest. */
+  ledElsewhere?: boolean;
   canClose: boolean;
   updatedAt: number;
 }
@@ -186,6 +191,7 @@ function displayThreadTabTitleColor(
   hydratedQuest: QuestmasterTask | undefined,
   statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
 ): string | undefined {
+  if (tab.ownershipNote) return tab.titleColor;
   const hydratedTitleColor =
     hydratedQuest && isCompletedJourneyPresentationStatus(hydratedQuest.status) ? DONE_THREAD_TITLE_COLOR : undefined;
   const baseTitleColor = tab.projectedCurrentState ? tab.titleColor : (hydratedTitleColor ?? tab.titleColor);
@@ -256,6 +262,15 @@ function ThreadTabAlerts({ attention, activeOutput }: { attention: ThreadTabAtte
       <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
       <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
     </svg>
+  );
+}
+
+/** Marks a tab whose quest another leader now runs, so it is not mistaken for a done quest. */
+function LedElsewhereIcon() {
+  return (
+    <span className="relative z-10 inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-led-elsewhere-icon">
+      <SessionRoleIcon role="Leader" />
+    </span>
   );
 }
 
@@ -425,7 +440,7 @@ function RailThreadTab({
   };
   const title = hoverQuest
     ? undefined
-    : `${questId ? `${questId}: ${tab.title}` : tab.title}${tab.needsInput ? " needs input" : tab.blueNudge ? " has review updates" : ""}`;
+    : `${questId ? `${questId}: ${tab.title}` : tab.title}${tab.ownershipNote ? ` (${tab.ownershipNote})` : ""}${tab.needsInput ? " needs input" : tab.blueNudge ? " has review updates" : ""}`;
 
   return (
     <div
@@ -451,6 +466,8 @@ function RailThreadTab({
       data-thread-tab-width-source="true"
       data-reorderable={reorderable ? "true" : "false"}
       data-pressing={longPress.pressing ? "true" : "false"}
+      data-ownership-note={tab.ownershipNote ?? ""}
+      aria-description={tab.ownershipNote}
     >
       {activeOutput && <ActiveOutputIndicator />}
       <button
@@ -464,6 +481,7 @@ function RailThreadTab({
       >
         <ThreadTabAlerts attention={tab} activeOutput={activeOutput} />
         {view.monitor && <NotifyMeIcon pending={Boolean(view.monitor.pendingResultId)} />}
+        {tab.ledElsewhere && <LedElsewhereIcon />}
         <ThreadTabIdentity questId={questId} title={tab.title} titleColor={titleColor} activeOutput={activeOutput} />
       </button>
       {onClose && tab.canClose && (
@@ -535,6 +553,7 @@ function MoreThreadTabRow({
         )}
         <ThreadTabAlerts attention={tab} activeOutput={activeOutput} />
         {view.monitor && <NotifyMeIcon pending={Boolean(view.monitor.pendingResultId)} />}
+        {tab.ledElsewhere && <LedElsewhereIcon />}
         <span className="min-w-0 flex-1">
           <ThreadTabIdentity
             questId={questId}

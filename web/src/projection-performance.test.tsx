@@ -952,6 +952,7 @@ function projectedLeaderTab(
     sourceRowCreatedAt: index + 1,
     workerSessionId: null,
     workerSessionNum: null,
+    ownership: "own",
     active: !completed,
     queued: false,
     proposed: false,

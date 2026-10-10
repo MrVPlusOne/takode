@@ -378,6 +378,8 @@ export function installWorkBoardProjectionFixture(
       sourceRowCreatedAt: boardRow ? Math.max(0, boardRow.createdAt ?? 0) : null,
       workerSessionId: boardRow?.worker ?? null,
       workerSessionNum: boardRow?.workerNum ?? null,
+      // Existing fixtures model this leader's own threads; ownership tests set it explicitly.
+      ownership: questId ? "own" : null,
       active,
       queued,
       proposed,

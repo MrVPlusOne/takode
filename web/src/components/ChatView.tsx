@@ -44,6 +44,7 @@ import {
 } from "./QuestJourneyTimeline.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { QuestThreadOwnershipChip, type QuestThreadOwnership } from "./QuestThreadOwnership.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
 import { HostOfflineBanner, SessionHostBadge } from "./HostBadge.js";
@@ -129,6 +130,8 @@ export interface QuestThreadBannerRow {
   rowStatus?: BoardRowSessionStatus;
   leaderSessionId?: string | null;
   leaderSessionNum?: number | null;
+  /** Whose board holds the quest, relative to the viewing leader; leader quest threads only. */
+  ownership?: QuestThreadOwnership;
   /** Legacy row snapshot; commit UI resolves from the fresher exact quest projection. */
   commitShas?: string[];
   section?: "active" | "done";
@@ -930,6 +933,10 @@ export function QuestThreadBanner({
   const hasParticipantContext = isSessionBanner
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
+  // Done quests already read as finished, so only an unfinished quest needs "Not on board".
+  const ownership =
+    isSessionBanner || (row?.ownership === "off-board" && isDoneThreadRow(row)) ? undefined : row?.ownership;
+  const ledElsewhere = ownership === "other-leader";
   const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext || showCommitAffordance;
   const hasMobileDetails =
     showCommitAffordance ||
@@ -987,8 +994,16 @@ export function QuestThreadBanner({
             data-testid="quest-thread-meta-strip"
           >
             <div
-              className={`col-start-3 row-start-1 min-w-0 justify-self-end ${queuedWaitCondition ? "sm:hidden" : "sm:contents"}`}
+              className={`col-start-3 row-start-1 inline-flex min-w-0 items-center gap-1 justify-self-end ${queuedWaitCondition ? "sm:hidden" : "sm:contents"}`}
             >
+              {ownership && (
+                <QuestThreadOwnershipChip
+                  ownership={ownership}
+                  leaderSessionId={row?.leaderSessionId}
+                  fallbackLeaderSessionNum={row?.leaderSessionNum}
+                  questId={questId}
+                />
+              )}
               {row?.journey ? (
                 <QuestJourneyHoverTarget row={row}>
                   <QuestJourneyTimeline
@@ -996,7 +1011,7 @@ export function QuestThreadBanner({
                     status={journeyStatusForThread(row)}
                     variant="compact"
                     showNotes={false}
-                    className="whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
+                    className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
                   />
                 </QuestJourneyHoverTarget>
               ) : (

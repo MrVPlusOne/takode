@@ -35,6 +35,7 @@ import {
   type SessionNavigationResolverSource,
 } from "../utils/session-navigation-resolver.js";
 import { buildLeaderThreadMigrationKeys } from "../utils/leader-thread-tabs-navigation.js";
+import { isLoadedQuestDone, questThreadOwnershipLabel } from "./QuestThreadOwnership.js";
 import type {
   LeaderThreadTabsProjectionTab,
   LeaderThreadTabsProjectionValue,
@@ -105,8 +106,21 @@ function OtherThreadSection({
   );
 }
 
-function projectedThreadTabTitleColor(tab: LeaderThreadTabsProjectionTab): string | undefined {
-  if (tab.completed) return DONE_THREAD_TITLE_COLOR;
+/** Ownership note for a quest this leader does not run; finished quests already read as done. */
+function projectedThreadTabOwnershipNote(
+  tab: LeaderThreadTabsProjectionTab,
+  leaderSessionNums: ReadonlyMap<string, number>,
+  doneQuestIds: ReadonlySet<string>,
+): string | undefined {
+  if (tab.ownership === "off-board" && (tab.completed || doneQuestIds.has(normalizeThreadKey(tab.threadKey)))) {
+    return undefined;
+  }
+  const leaderSessionNum = tab.sourceLeaderSessionId ? leaderSessionNums.get(tab.sourceLeaderSessionId) : undefined;
+  return questThreadOwnershipLabel(tab.ownership, leaderSessionNum);
+}
+
+function projectedThreadTabTitleColor(tab: LeaderThreadTabsProjectionTab, ownershipNote?: string): string | undefined {
+  if (tab.completed || ownershipNote) return DONE_THREAD_TITLE_COLOR;
   if (tab.queued) return QUEUED_THREAD_TITLE_COLOR;
   const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
   const fallbackPhase = phase ?? getQuestJourneyPhaseForState(tab.boardStatus ?? undefined);
@@ -126,18 +140,22 @@ function projectedThreadTabDetail(tab: LeaderThreadTabsProjectionTab): string | 
 function buildProjectedThreadTabs(
   projection: LeaderThreadTabsProjectionValue,
   questTitleById: ReadonlyMap<string, string>,
+  leaderSessionNums: ReadonlyMap<string, number>,
+  doneQuestIds: ReadonlySet<string>,
 ): PrimaryThreadChip[] {
   return projection.tabs.map((tab) => {
     const questId = tab.questId ?? tab.threadKey;
+    const ownershipNote = projectedThreadTabOwnershipNote(tab, leaderSessionNums, doneQuestIds);
     return {
       threadKey: tab.threadKey,
       questId,
       title: questTitleById.get(normalizeThreadKey(questId)) ?? tab.title ?? questId,
-      detail: projectedThreadTabDetail(tab),
+      detail: tab.attention.needsInput ? "Needs input" : (ownershipNote ?? projectedThreadTabDetail(tab)),
+      ...(ownershipNote ? { ownershipNote, ledElsewhere: tab.ownership === "other-leader" } : {}),
       needsInput: tab.attention.needsInput,
       mutedNeedsInput: tab.attention.mutedNeedsInput,
       blueNudge: tab.attention.reviewUnread,
-      titleColor: projectedThreadTabTitleColor(tab),
+      titleColor: projectedThreadTabTitleColor(tab, ownershipNote),
       projectedCurrentState: true,
       canClose: tab.canClose,
       updatedAt: tab.updatedAt,
@@ -189,6 +207,33 @@ function boardThreadKeySignature(state: ReturnType<typeof useStore.getState>, se
     keys.add(normalizeThreadKey(row.questId));
   }
   return [...keys].sort().join("\u0000");
+}
+
+/** Off-board quests whose loaded Questmaster record is already finished, as a sorted key signature. */
+function doneOffBoardQuestSignature(
+  state: ReturnType<typeof useStore.getState>,
+  projection: LeaderThreadTabsProjectionValue | null,
+): string {
+  return (projection?.tabs ?? [])
+    .filter((tab) => tab.ownership === "off-board" && !tab.completed && isLoadedQuestDone(state, tab.threadKey))
+    .map((tab) => normalizeThreadKey(tab.threadKey))
+    .sort()
+    .join("\u0000");
+}
+
+/** Session numbers of the other leaders that now run quests shown in this leader's tabs. */
+function otherLeaderSessionNums(
+  state: ReturnType<typeof useStore.getState>,
+  projection: LeaderThreadTabsProjectionValue | null,
+): Record<string, number> {
+  const nums: Record<string, number> = {};
+  for (const tab of projection?.tabs ?? []) {
+    const leaderSessionId = tab.ownership === "other-leader" ? tab.sourceLeaderSessionId : null;
+    if (!leaderSessionId || nums[leaderSessionId] !== undefined) continue;
+    const sessionNum = state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum;
+    if (sessionNum != null) nums[leaderSessionId] = sessionNum;
+  }
+  return nums;
 }
 
 function canonicalTitlesForKeys(
@@ -393,9 +438,17 @@ function WorkBoardBarComponent({
     return () => document.removeEventListener("keydown", handler);
   }, [activeView, sessionId, setLeaderWorkboardView]);
 
+  const otherLeaderNums = useStore(useShallow((state) => otherLeaderSessionNums(state, projection)));
+  const leaderSessionNums = useMemo(() => new Map(Object.entries(otherLeaderNums)), [otherLeaderNums]);
+  const doneOffBoardSignature = useStore((state) => doneOffBoardQuestSignature(state, projection));
+  const doneOffBoardQuestIds = useMemo(
+    () => new Set(doneOffBoardSignature ? doneOffBoardSignature.split("\u0000") : []),
+    [doneOffBoardSignature],
+  );
   const projectedTabs = useMemo(
-    () => (projection ? buildProjectedThreadTabs(projection, questTitleById) : []),
-    [projection, questTitleById],
+    () =>
+      projection ? buildProjectedThreadTabs(projection, questTitleById, leaderSessionNums, doneOffBoardQuestIds) : [],
+    [doneOffBoardQuestIds, leaderSessionNums, projection, questTitleById],
   );
   const displayedThreadTabs = useMemo(() => {
     if (!projection || projection.tabState) return projectedTabs;

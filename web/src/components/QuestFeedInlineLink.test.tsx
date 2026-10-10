@@ -896,6 +896,7 @@ describe("QuestInlineLink chat-feed preview", () => {
               sourceRowCreatedAt: 1,
               workerSessionId: null,
               workerSessionNum: null,
+              ownership: "own",
               active: false,
               queued: false,
               proposed: false,

@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { QuestThreadBanner, type QuestThreadBannerRow } from "../ChatView.js";
+import {
+  PLAYGROUND_HANDOFF_LEADER_SESSION_ID,
+  PLAYGROUND_HANDOFF_LEADER_SESSION_NUM,
+  usePlaygroundHandoffLeaderSession,
+} from "./leader-thread-tabs-projection-fixtures.js";
 
 export function PlaygroundQuestBannerExamples() {
+  usePlaygroundHandoffLeaderSession();
   const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
     {
       label: "Active Work phase",
@@ -143,6 +149,46 @@ export function PlaygroundQuestBannerExamples() {
       },
     },
     {
+      label: "Quest another leader now runs",
+      threadKey: "q-9006",
+      row: {
+        threadKey: "q-9006",
+        questId: "q-9006",
+        title: "Restart must not hang on accepted work",
+        boardStatus: "WORKING",
+        section: "active",
+        ownership: "other-leader",
+        leaderSessionId: PLAYGROUND_HANDOFF_LEADER_SESSION_ID,
+        leaderSessionNum: PLAYGROUND_HANDOFF_LEADER_SESSION_NUM,
+        journey: {
+          mode: "active",
+          phaseIds: ["work", "memory"],
+          currentPhaseId: "work",
+          activePhaseIndex: 0,
+        },
+        boardRow: {
+          questId: "q-9006",
+          title: "Restart must not hang on accepted work",
+          worker: "playground-handoff-worker",
+          workerNum: 2919,
+          status: "WORKING",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    },
+    {
+      label: "Quest on no leader's board",
+      threadKey: "q-9007",
+      row: {
+        threadKey: "q-9007",
+        questId: "q-9007",
+        title: "Investigate the stale worker preview",
+        section: "active",
+        ownership: "off-board",
+      },
+    },
+    {
       label: "Worker session banner with timer",
       threadKey: "q-966",
       row: {
@@ -213,6 +259,10 @@ export function PlaygroundQuestBannerExamples() {
           threadKey={compactQuestThreadBannerRows[compactQuestThreadBannerRows.length - 1].threadKey}
           variant="session"
           currentSessionId="playground-worker-banner"
+        />
+        <QuestThreadBanner
+          row={compactQuestThreadBannerRows[5].row}
+          threadKey={compactQuestThreadBannerRows[5].threadKey}
         />
       </div>
 

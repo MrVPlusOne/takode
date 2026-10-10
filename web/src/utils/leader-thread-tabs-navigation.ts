@@ -1,6 +1,7 @@
 import {
   LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   type LeaderThreadTabsProjectionJourney,
+  type LeaderThreadTabsProjectionOwnership,
   type LeaderThreadTabsProjectionValue,
 } from "../../shared/leader-thread-tabs-projection.js";
 /*
@@ -18,6 +19,7 @@ export interface LeaderThreadNavigationRowBase {
   boardStatus?: string;
   journeyDurationSummary?: LeaderThreadTabsProjectionJourney["durationSummary"];
   section?: "active" | "done";
+  ownership?: LeaderThreadTabsProjectionOwnership;
   messageCount: number;
   createdAt: number;
 }
@@ -175,6 +177,7 @@ export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationR
       journeyDurationSummary,
       boardRow: projectedBoardRow,
       leaderSessionId: sourceLeaderSessionId,
+      ownership: projectedNullableField(tab.ownership),
       section: completed ? "done" : "active",
       messageCount: existing?.messageCount ?? 0,
       createdAt: existing?.createdAt ?? tab.updatedAt,

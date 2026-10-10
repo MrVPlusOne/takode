@@ -33,6 +33,7 @@ function value(): LeaderThreadTabsProjectionValue {
         sourceRowCreatedAt: 10,
         workerSessionId: "worker-current",
         workerSessionNum: 42,
+        ownership: "own",
         active: true,
         queued: false,
         proposed: false,
@@ -64,6 +65,7 @@ function value(): LeaderThreadTabsProjectionValue {
         sourceRowCreatedAt: null,
         workerSessionId: null,
         workerSessionNum: null,
+        ownership: "own",
         active: false,
         queued: false,
         proposed: false,
@@ -193,11 +195,29 @@ describe("leader thread tabs projection wire contract", () => {
     const current = value();
     expect(isLeaderThreadTabsProjectionValue(current)).toBe(true);
 
-    for (const key of ["sourceLeaderSessionId", "sourceRowCreatedAt", "workerSessionId", "workerSessionNum"] as const) {
+    for (const key of [
+      "sourceLeaderSessionId",
+      "sourceRowCreatedAt",
+      "workerSessionId",
+      "workerSessionNum",
+      "ownership",
+    ] as const) {
       const missingIdentity = structuredClone(current);
       delete missingIdentity.tabs[0]![key];
       expect(isLeaderThreadTabsProjectionValue(missingIdentity), `missing ${key}`).toBe(false);
     }
+
+    // Ownership is a closed set: null for non-quest threads, otherwise whose board holds the quest.
+    for (const ownership of ["own", "other-leader", "off-board", null] as const) {
+      const owned = structuredClone(current);
+      owned.tabs[0] = { ...owned.tabs[0]!, ownership };
+      expect(isLeaderThreadTabsProjectionValue(owned), `ownership ${ownership}`).toBe(true);
+    }
+    const unknownOwnership = structuredClone(current) as unknown as {
+      tabs: Array<Record<string, unknown>>;
+    };
+    unknownOwnership.tabs[0]!.ownership = "someone";
+    expect(isLeaderThreadTabsProjectionValue(unknownOwnership)).toBe(false);
 
     const missingPhaseIds = structuredClone(current);
     delete missingPhaseIds.tabs[0]!.journey!.phaseIds;

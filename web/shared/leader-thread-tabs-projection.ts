@@ -50,6 +50,15 @@ export interface LeaderThreadTabsProjectionJourney {
   durationSummary: QuestJourneyDurationSummary | null | typeof LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED;
 }
 
+/**
+ * Whose work board holds a quest tab, relative to the leader viewing it:
+ * "own" when this leader's board or completed board holds the quest,
+ * "other-leader" when only another leader's board does (for example after a
+ * leader-to-leader handoff), and "off-board" when no leader's board holds it.
+ * Null for threads that are not quests.
+ */
+export type LeaderThreadTabsProjectionOwnership = "own" | "other-leader" | "off-board";
+
 export interface LeaderThreadTabsProjectionTab {
   threadKey: string;
   questId: string | null;
@@ -64,6 +73,8 @@ export interface LeaderThreadTabsProjectionTab {
   /** Worker assigned by the current visual board row. */
   workerSessionId: string | null;
   workerSessionNum: number | null;
+  /** Lifecycle flags describe this leader's own work, so tabs led elsewhere are never active or scheduled. */
+  ownership: LeaderThreadTabsProjectionOwnership | null;
   active: boolean;
   queued: boolean;
   proposed: boolean;
@@ -179,6 +190,10 @@ function isTab(value: unknown): value is LeaderThreadTabsProjectionTab {
     isBoundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
     Object.hasOwn(candidate, "workerSessionNum") &&
     (candidate.workerSessionNum === null || isNonNegativeInteger(candidate.workerSessionNum)) &&
+    (candidate.ownership === null ||
+      candidate.ownership === "own" ||
+      candidate.ownership === "other-leader" ||
+      candidate.ownership === "off-board") &&
     typeof candidate.active === "boolean" &&
     typeof candidate.queued === "boolean" &&
     typeof candidate.proposed === "boolean" &&

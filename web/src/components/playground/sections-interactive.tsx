@@ -98,6 +98,7 @@ function playgroundFallbackTab(threadKey: string): LeaderThreadTabsProjectionTab
     sourceRowCreatedAt: null,
     workerSessionId: null,
     workerSessionNum: null,
+    ownership: "own",
     active: false,
     queued: false,
     proposed: false,

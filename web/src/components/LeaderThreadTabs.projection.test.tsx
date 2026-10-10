@@ -111,6 +111,7 @@ function projectedTab(
     sourceRowCreatedAt: null,
     workerSessionId: null,
     workerSessionNum: null,
+    ownership: "own",
     active: false,
     queued: false,
     proposed: false,

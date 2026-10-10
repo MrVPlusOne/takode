@@ -928,9 +928,11 @@ describe("leader thread tabs current quest state", () => {
         sourceRowCreatedAt: 300,
         workerSessionId: "worker-current",
         workerSessionNum: 2580,
-        active: true,
+        // Another leader runs the current row, so it is not this leader's active work and stays closable.
+        ownership: "other-leader",
+        active: false,
         completed: false,
-        canClose: false,
+        canClose: true,
         journey: {
           mode: "active",
           phaseIds: ["alignment", "work", "memory"],
@@ -1127,7 +1129,8 @@ describe("leader thread tabs current quest state", () => {
       boardStatus: "PLANNING",
       sourceLeaderSessionId: "leader-reopened",
       workerSessionId: null,
-      active: true,
+      ownership: "other-leader",
+      active: false,
       completed: false,
       journey: { currentPhaseId: "alignment", activePhaseIndex: 0 },
     });
@@ -1220,7 +1223,8 @@ describe("leader thread tabs current quest state", () => {
     ).toMatchObject({
       title: "New active run",
       sourceLeaderSessionId: "leader-new-active",
-      active: true,
+      ownership: "other-leader",
+      active: false,
       completed: false,
     });
   });
@@ -1335,7 +1339,8 @@ describe("leader thread tabs current quest state", () => {
       title: "Leader authority",
       sourceLeaderSessionId: "leader-current",
       workerSessionId: "worker-current",
-      active: true,
+      ownership: "other-leader",
+      active: false,
       completed: false,
     });
   });

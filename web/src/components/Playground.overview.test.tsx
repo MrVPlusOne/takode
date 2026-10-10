@@ -126,7 +126,8 @@ describe("Playground", { timeout: 30_000 }, () => {
     for (const scope of [desktop, mobile]) {
       const rail = scope.getByTestId("thread-tab-rail");
       expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
-      expect(rail).toHaveAttribute("data-hidden-tab-count", "3");
+      // Five hidden tabs: three scheduled/muted specimens plus two tabs for quests this leader handed away.
+      expect(rail).toHaveAttribute("data-hidden-tab-count", "5");
       const visibleTabs = scope.getAllByTestId("thread-tab");
       expect(visibleTabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-9001", "q-9004", "q-9003"]);
       const needsInput = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9001")!;
@@ -174,7 +175,13 @@ describe("Playground", { timeout: 30_000 }, () => {
 
     fireEvent.click(mobile.getByTestId("thread-tabs-more-button"));
     const moreRows = mobile.getAllByTestId("thread-tabs-more-row");
-    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-9005", "q-9002", "q-9006"]);
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual([
+      "q-9005",
+      "q-9002",
+      "q-9006",
+      "q-9010",
+      "q-9011",
+    ]);
     const mutedRow = moreRows[0]!;
     const queuedRow = moreRows[1]!;
     const proposedRow = moreRows[2]!;
@@ -183,6 +190,14 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(within(mutedRow).getByRole("button", { name: "Close q-9005" })).toBeTruthy();
     expect(within(queuedRow).getByRole("button", { name: "Close q-9002" })).toBeTruthy();
     expect(within(proposedRow).getByRole("button", { name: "Close q-9006" })).toBeTruthy();
+    // Quests another leader runs, or no board holds, say so and stay closable.
+    const handedRow = moreRows[3]!;
+    const offBoardRow = moreRows[4]!;
+    expect(handedRow).toHaveTextContent("Led by #2851");
+    expect(within(handedRow).getByTestId("thread-tab-led-elsewhere-icon")).toBeTruthy();
+    expect(within(handedRow).getByRole("button", { name: "Close q-9010" })).toBeTruthy();
+    expect(offBoardRow).toHaveTextContent("Not on board");
+    expect(within(offBoardRow).getByRole("button", { name: "Close q-9011" })).toBeTruthy();
   });
 
   it("documents additive source projection without source attachment markers", () => {
