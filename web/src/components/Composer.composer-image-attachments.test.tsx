@@ -723,4 +723,71 @@ describe("Composer image attachments", () => {
       });
     }
   });
+
+  it("shows an image synced from another browser with the server's copy and removes it from the server", async () => {
+    // The image was attached and uploaded on another device: this tab has only its
+    // server reference, no local bytes.
+    const imageId = "1791000000000-1-abc123";
+    setupMockStore({
+      draft: {
+        text: "see attached",
+        images: [
+          {
+            id: `synced-${imageId}`,
+            name: "phone-shot.png",
+            mediaType: "image/png",
+            base64: "",
+            status: "ready",
+            prepared: { imageRef: { imageId, media_type: "image/png" }, path: `/images/s1/${imageId}.orig.png` },
+          },
+        ],
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    const thumbnail = screen.getByAltText("phone-shot.png") as HTMLImageElement;
+    expect(thumbnail.getAttribute("src")).toBe(`/api/images/s1/${imageId}/thumb`);
+    fireEvent.click(thumbnail);
+    expect(within(screen.getByTestId("lightbox-backdrop")).getByRole("img").getAttribute("src")).toBe(
+      `/api/images/s1/${imageId}/full`,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove image phone-shot.png" }));
+    await waitFor(() => expect(mockDeletePreparedUserMessageImage).toHaveBeenCalledWith("s1", imageId));
+  });
+
+  it("sends an image synced from another browser by its server reference", async () => {
+    // Sending needs only the uploaded image's reference and path, which the synced draft carries.
+    const imageId = "1791000000000-2-def456";
+    const path = `/Users/test/.companion/images/s1/${imageId}.orig.png`;
+    setupMockStore({
+      draft: {
+        text: "from the desktop",
+        images: [
+          {
+            id: `synced-${imageId}`,
+            name: "phone-shot.png",
+            mediaType: "image/png",
+            base64: "",
+            status: "ready",
+            prepared: { imageRef: { imageId, media_type: "image/png" }, path },
+          },
+        ],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+
+    fireEvent.keyDown(container.querySelector("textarea")!, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "from the desktop",
+        imageRefs: [{ imageId, media_type: "image/png" }],
+        deliveryContent: expect.stringContaining(`Attachment 1: ${path}`),
+      }),
+    );
+  });
 });

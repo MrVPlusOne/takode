@@ -9,11 +9,31 @@ import { readConversationAnnotations, type ConversationAnnotation } from "./conv
  * of two competing writes is newer and to ignore echoes of their own writes.
  */
 
-/** The composer fields that sync. Image attachments stay in the browser that added them. */
+/** The composer fields that sync. Images sync once uploaded; uploads in progress stay in their tab. */
 export interface SyncedComposerDraft {
   text: string;
   annotations?: ConversationAnnotation[];
   reportRecipientSessionId?: string;
+  images?: SyncedDraftImage[];
+}
+
+/** The server's reference to an uploaded image, as returned by image preparation. */
+export interface SyncedDraftImageRef {
+  imageId: string;
+  media_type: string;
+  optimized?: boolean;
+  sourceName?: string;
+}
+
+/**
+ * An image attached to the draft and already uploaded to the server. `path` is
+ * where the agent reads it; the server derives it from the image reference and
+ * never takes it from a browser.
+ */
+export interface SyncedDraftImage {
+  imageRef: SyncedDraftImageRef;
+  name: string;
+  path: string;
 }
 
 /** Answers per question key for one unsubmitted needs-input prompt. */
@@ -56,6 +76,7 @@ export interface SessionDraftWriteRequest {
 export type SessionDraftChange = SessionDraftWrite & DraftEntryMeta;
 
 export const MAX_COMPOSER_DRAFT_TEXT_CHARS = 200_000;
+export const MAX_COMPOSER_DRAFT_IMAGES = 20;
 export const MAX_NEEDS_INPUT_DRAFT_QUESTIONS = 50;
 export const MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS = 20_000;
 const MAX_CLIENT_ID_CHARS = 100;
@@ -69,12 +90,48 @@ export function sessionDraftKey(write: Pick<SessionDraftWrite, "kind"> & { notif
 export function normalizeSyncedComposerDraft(draft: SyncedComposerDraft | null): SyncedComposerDraft | null {
   if (!draft) return null;
   const annotations = draft.annotations?.length ? draft.annotations : undefined;
-  if (!draft.text && !annotations) return null;
+  const images = draft.images?.length ? draft.images : undefined;
+  if (!draft.text && !annotations && !images) return null;
   return {
     text: draft.text,
     ...(annotations ? { annotations } : {}),
     ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
+    ...(images ? { images } : {}),
   };
+}
+
+const IMAGE_ID_PATTERN = /^[0-9]+-[0-9]+-[0-9a-f]+$/;
+const IMAGE_MEDIA_TYPE_PATTERN = /^image\/[a-z0-9.+-]+$/i;
+
+/**
+ * Validates draft image references; throws on malformed ones. The image ID shape is
+ * checked strictly because the server builds the agent-visible file path from it.
+ */
+export function readSyncedDraftImages(value: unknown): SyncedDraftImage[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("draft.images must be an array.");
+  if (value.length > MAX_COMPOSER_DRAFT_IMAGES) throw new Error("Too many draft images.");
+  return value.map((image) => {
+    if (!isRecord(image) || !isRecord(image.imageRef)) throw new Error("Each draft image needs an imageRef.");
+    const ref = image.imageRef;
+    if (typeof ref.imageId !== "string" || !IMAGE_ID_PATTERN.test(ref.imageId)) {
+      throw new Error("Invalid draft image ID.");
+    }
+    if (typeof ref.media_type !== "string" || !IMAGE_MEDIA_TYPE_PATTERN.test(ref.media_type)) {
+      throw new Error("Invalid draft image media type.");
+    }
+    if (typeof image.name !== "string" || image.name.length > 500) throw new Error("Invalid draft image name.");
+    return {
+      imageRef: {
+        imageId: ref.imageId,
+        media_type: ref.media_type,
+        ...(ref.optimized === true ? { optimized: true } : {}),
+        ...(typeof ref.sourceName === "string" ? { sourceName: ref.sourceName.slice(0, 500) } : {}),
+      },
+      name: image.name,
+      path: typeof image.path === "string" ? image.path : "",
+    };
+  });
 }
 
 export function normalizeSyncedNeedsInputAnswers(
@@ -102,10 +159,12 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
       return { error: "draft.reportRecipientSessionId must be a string." };
     }
     let annotations: ConversationAnnotation[];
+    let images: SyncedDraftImage[];
     try {
       annotations = readConversationAnnotations(draft.annotations);
+      images = readSyncedDraftImages(draft.images);
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "Invalid annotations." };
+      return { error: error instanceof Error ? error.message : "Invalid draft." };
     }
     return {
       clientId,
@@ -115,6 +174,7 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
           text: draft.text,
           annotations,
           ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
+          images,
         }),
       },
     };
@@ -156,10 +216,11 @@ export function readSessionDraftsState(value: unknown): SessionDraftsState | und
           ...(typeof draft.reportRecipientSessionId === "string"
             ? { reportRecipientSessionId: draft.reportRecipientSessionId }
             : {}),
+          images: readSyncedDraftImages(draft.images),
         });
         if (normalized) state.composer = { ...entryMeta(value.composer), draft: normalized };
       } catch {
-        // Unreadable annotations: drop the composer draft rather than the whole state.
+        // Unreadable annotations or images: drop the composer draft rather than the whole state.
       }
     }
   }

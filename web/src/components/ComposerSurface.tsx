@@ -36,6 +36,8 @@ export function ComposerInputSurface({
   imageSrcs: Array<{
     id: string;
     src: string | null;
+    /** Full-size image for the lightbox when `src` is a thumbnail. */
+    fullSrc?: string;
     name: string;
     status: "reading" | "uploading" | "ready" | "failed";
     error?: string;
@@ -74,14 +76,14 @@ export function ComposerInputSurface({
       {imageSrcs.length > 0 && (
         <div hidden={!expanded}>
           <div className="flex items-center gap-2 mb-2 flex-wrap">
-            {imageSrcs.map(({ id, src, name, status, error }, i) => (
+            {imageSrcs.map(({ id, src, fullSrc, name, status, error }, i) => (
               <div key={id} className="relative group">
                 {src ? (
                   <img
                     src={src}
                     alt={name}
                     className="w-24 h-24 rounded-lg object-cover border border-cc-border cursor-zoom-in hover:opacity-80 transition-opacity"
-                    onClick={() => setLightboxSrc(src)}
+                    onClick={() => setLightboxSrc(fullSrc ?? src)}
                   />
                 ) : (
                   <div className="w-24 h-24 rounded-lg border border-cc-border bg-cc-hover flex items-center justify-center text-[10px] text-cc-muted">

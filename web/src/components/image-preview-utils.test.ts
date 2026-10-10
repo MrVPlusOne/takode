@@ -91,6 +91,28 @@ describe("image preview item provenance", () => {
     expect(items.every((item) => item.thumbnailUrl.startsWith("data:image/png;base64,"))).toBe(true);
   });
 
+  it("uses the server copy for an image whose local attachment has no bytes (synced from another browser)", () => {
+    // A draft image synced from another device carries only its server reference.
+    const items = buildUserImagePreviewItems(
+      message({
+        localImages: [
+          { imageId: "image-1", name: "phone.png", mediaType: "image/png", base64: "" },
+          { imageId: "image-2", name: "desk.png", mediaType: "image/png", base64: "ZGVzaw==" },
+        ],
+        images: [
+          { imageId: "image-1", media_type: "image/png", sourceName: "phone.png" },
+          { imageId: "image-2", media_type: "image/png", sourceName: "desk.png" },
+        ],
+      }),
+      "session-1",
+    );
+
+    expect(items.map((item) => item.thumbnailUrl)).toEqual([
+      "/api/images/session-1/image-1/thumb",
+      "data:image/png;base64,ZGVzaw==",
+    ]);
+  });
+
   it("overlays exact local attachments in authoritative order and keeps unmatched refs on the backend", () => {
     const items = buildUserImagePreviewItems(
       message({

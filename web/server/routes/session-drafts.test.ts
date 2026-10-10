@@ -127,4 +127,40 @@ describe("session draft routes", () => {
     const { app } = setup();
     expect((await app.request("/sessions/missing/drafts")).status).toBe(404);
   });
+
+  it("stores uploaded draft images with the server's own attachment path", async () => {
+    const { session, put } = setup();
+    const imageId = "1791000000000-1-abc123";
+
+    const response = await put({
+      clientId: "tab-a",
+      write: {
+        kind: "composer",
+        draft: {
+          text: "",
+          images: [{ imageRef: { imageId, media_type: "image/png" }, name: "shot.png", path: "/etc/passwd" }],
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const image = session.drafts?.composer?.draft.images?.[0];
+    expect(image).toMatchObject({ imageRef: { imageId, media_type: "image/png" }, name: "shot.png" });
+    // The agent is told to read this path, so it comes from the image ID, never the browser.
+    expect(image?.path).toMatch(new RegExp(`/s1/${imageId}\\.`));
+  });
+
+  it("rejects draft images whose ID could escape the attachment folder", async () => {
+    const { put } = setup();
+
+    const response = await put({
+      clientId: "tab-a",
+      write: {
+        kind: "composer",
+        draft: { text: "", images: [{ imageRef: { imageId: "../../secret", media_type: "image/png" }, name: "x" }] },
+      },
+    });
+
+    expect(response.status).toBe(400);
+  });
 });

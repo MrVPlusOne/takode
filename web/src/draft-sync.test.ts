@@ -118,10 +118,10 @@ describe("composer draft sync", () => {
     expect(server.session.drafts?.composer?.draft.text).toBe("x".repeat(30));
   });
 
-  it("does not send image-only changes; images stay in the tab that added them", async () => {
+  it("does not send images that are still uploading, and keeps them when another browser's draft arrives", async () => {
     useStore.getState().setComposerDraft("s1", { text: "hi", images: [] });
     await settle();
-    const image = { id: "img", name: "a.png", mediaType: "image/png", base64: "AAAA", status: "ready" as const };
+    const image = { id: "img", name: "a.png", mediaType: "image/png", base64: "AAAA", status: "uploading" as const };
     useStore.getState().setComposerDraft("s1", { text: "hi", images: [image] });
     await settle();
     expect(server.writes).toHaveLength(1);
@@ -129,6 +129,99 @@ describe("composer draft sync", () => {
     writeFromOtherBrowser({ kind: "composer", draft: { text: "hi from phone" } });
 
     expect(useStore.getState().composerDrafts.get("s1")).toMatchObject({ text: "hi from phone", images: [image] });
+  });
+
+  it("shares an uploaded image by its server reference, with the agent path set by the server", async () => {
+    const imageId = "1791000000000-7-a1b2c3";
+    const uploaded = {
+      id: "local-img",
+      name: "desk.png",
+      mediaType: "image/png",
+      base64: "AAAA",
+      status: "ready" as const,
+      prepared: { imageRef: { imageId, media_type: "image/png" }, path: "/browser/claimed/path.png" },
+    };
+    useStore.getState().setComposerDraft("s1", { text: "look", images: [uploaded] });
+    await settle();
+
+    const syncedImage = server.session.drafts?.composer?.draft.images?.[0];
+    expect(syncedImage?.imageRef).toEqual({ imageId, media_type: "image/png" });
+    // The browser's path is replaced by the one image preparation derives.
+    expect(syncedImage?.path).toMatch(new RegExp(`/s1/${imageId}\\.`));
+    expect(syncedImage?.path).not.toBe("/browser/claimed/path.png");
+
+    // Another device (simulated by a reload) gets the image as ready to send, without local bytes.
+    reload();
+    expect(useStore.getState().composerDrafts.get("s1")?.images).toEqual([
+      {
+        id: `synced-${imageId}`,
+        name: "desk.png",
+        mediaType: "image/png",
+        base64: "",
+        status: "ready",
+        prepared: { imageRef: { imageId, media_type: "image/png" }, path: syncedImage?.path },
+      },
+    ]);
+  });
+
+  it("removes an image everywhere when another browser removes it, keeping this tab's own copy otherwise", async () => {
+    const imageId = "1791000000000-8-d4e5f6";
+    const ref = { imageId, media_type: "image/png" };
+    const local = {
+      id: "local-img",
+      name: "desk.png",
+      mediaType: "image/png",
+      base64: "AAAA",
+      status: "ready" as const,
+      prepared: { imageRef: ref, path: "/p.png" },
+    };
+    useStore.getState().setComposerDraft("s1", { text: "two images", images: [local] });
+    await settle();
+
+    // The phone adds a second image: this tab keeps its own copy (with local bytes) and gains the new one.
+    const phoneImage = {
+      imageRef: { imageId: "1791000000000-9-0a0b0c", media_type: "image/jpeg" },
+      name: "phone.jpg",
+      path: "",
+    };
+    writeFromOtherBrowser({
+      kind: "composer",
+      draft: { text: "two images", images: [{ imageRef: ref, name: "desk.png", path: "" }, phoneImage] },
+    });
+    expect(
+      useStore
+        .getState()
+        .composerDrafts.get("s1")
+        ?.images.map((image) => image.id),
+    ).toEqual(["local-img", "synced-1791000000000-9-0a0b0c"]);
+
+    // The phone removes the desktop image: it disappears here too.
+    writeFromOtherBrowser({ kind: "composer", draft: { text: "two images", images: [phoneImage] } });
+    expect(
+      useStore
+        .getState()
+        .composerDrafts.get("s1")
+        ?.images.map((image) => image.id),
+    ).toEqual(["synced-1791000000000-9-0a0b0c"]);
+  });
+
+  it("clears synced images everywhere when the message is sent", async () => {
+    const image = {
+      id: "local-img",
+      name: "desk.png",
+      mediaType: "image/png",
+      base64: "AAAA",
+      status: "ready" as const,
+      prepared: { imageRef: { imageId: "1791000000000-3-abcdef", media_type: "image/png" }, path: "/p.png" },
+    };
+    useStore.getState().setComposerDraft("s1", { text: "", images: [image] });
+    await settle();
+    expect(server.session.drafts?.composer?.draft.images).toHaveLength(1);
+
+    useStore.getState().clearComposerDraft("s1");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(server.session.drafts?.composer).toBeUndefined();
   });
 
   it("clears the draft everywhere at once when the message is sent", async () => {

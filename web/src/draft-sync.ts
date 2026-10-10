@@ -1,6 +1,5 @@
 import { readConversationAnnotations } from "../shared/conversation-annotations.js";
 import {
-  normalizeSyncedComposerDraft,
   normalizeSyncedNeedsInputAnswers,
   sessionDraftKey,
   type SessionDraftChange,
@@ -12,14 +11,16 @@ import {
 import { DraftWriteRejectedError, fetchSessionDrafts, writeSessionDraft } from "./api/session-drafts.js";
 import { setLocalDraftChangeListener, type LocalDraftTarget } from "./draft-sync-bridge.js";
 import { useStore } from "./store.js";
-import type { ComposerDraft } from "./types.js";
 import { scopedGetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
+import { toSyncedComposerDraft } from "./utils/synced-composer-draft.js";
 
 /**
  * Shares unsent drafts (composer text and comments, needs-input answers) between the
  * user's browsers through the server, so a draft started on one device continues on
  * another and survives reloads.
  *
+ * - Images are shared once uploaded; their bytes are already on the server, so only
+ *   the reference travels (utils/synced-composer-draft.ts).
  * - Traffic: edits are sent after a short pause in typing (at most every
  *   DRAFT_SYNC_MAX_WAIT_MS while typing continues), clears at once, and everything
  *   pending is flushed when the page is hidden.
@@ -86,15 +87,6 @@ function slotFor(sessionId: string, target: LocalDraftTarget): DraftSlot {
 
 function isPending(slot: DraftSlot): boolean {
   return slot.timer !== null || slot.inFlight;
-}
-
-export function toSyncedComposerDraft(draft: ComposerDraft | undefined): SyncedComposerDraft | null {
-  if (!draft) return null;
-  return normalizeSyncedComposerDraft({
-    text: draft.text,
-    ...(draft.annotations ? { annotations: draft.annotations } : {}),
-    ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
-  });
 }
 
 function localValue(sessionId: string, target: LocalDraftTarget): DraftValue {

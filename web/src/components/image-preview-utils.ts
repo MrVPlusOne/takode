@@ -127,7 +127,8 @@ export function buildUserImagePreviewItems(message: ChatMessage, sessionId?: str
   return storedImages.map((stored, index) => {
     const storedItem = previewItemFromStoredRef(stored, sessionId);
     const local = localByImageId.get(stored.imageId);
-    if (!local) return storedItem;
+    // An image synced from another browser has no local bytes; use the server's copy.
+    if (!local || !(local.base64 || local.previewUrl)) return storedItem;
     return previewItemFromLocalAttachment(local, index, storedItem.id, storedItem);
   });
 }

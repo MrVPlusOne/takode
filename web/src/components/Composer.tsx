@@ -1561,12 +1561,21 @@ export function Composer({
     () =>
       images.map((img) => ({
         id: img.id,
-        src: img.base64 ? `data:${img.mediaType};base64,${img.base64}` : null,
+        // An image synced from another browser has no local bytes; show the server's copy.
+        src: img.base64
+          ? `data:${img.mediaType};base64,${img.base64}`
+          : img.prepared
+            ? `/api/images/${encodeURIComponent(sessionId)}/${encodeURIComponent(img.prepared.imageRef.imageId)}/thumb`
+            : null,
+        fullSrc:
+          !img.base64 && img.prepared
+            ? `/api/images/${encodeURIComponent(sessionId)}/${encodeURIComponent(img.prepared.imageRef.imageId)}/full`
+            : undefined,
         name: img.name,
         status: img.status,
         error: img.error,
       })),
-    [images],
+    [images, sessionId],
   );
   const voiceUnsupportedTooltip =
     voiceUnsupportedReason === "insecure-context" ? "Voice needs HTTPS" : "Voice unavailable";

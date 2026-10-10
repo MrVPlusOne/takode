@@ -422,7 +422,7 @@ export interface AppState {
     notificationId: string,
     answers: Record<string, string> | null,
   ) => void;
-  /** Applies another browser's composer text/comments (null clears), keeping this tab's image attachments. */
+  /** Applies another browser's composer draft (null clears), keeping this tab's unfinished image uploads. */
   applySyncedComposerDraft: (
     sessionId: string,
     draft: import("../shared/session-drafts.js").SyncedComposerDraft | null,

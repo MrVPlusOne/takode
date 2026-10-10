@@ -4,7 +4,9 @@ import {
   type SessionDraftChange,
   type SessionDraftWriteRequest,
   type SessionDraftsState,
+  type SyncedComposerDraft,
 } from "../../shared/session-drafts.js";
+import { deriveAttachmentPaths } from "../attachment-paths.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 
 /** The parts of a bridge session the draft store reads and writes. */
@@ -74,7 +76,7 @@ export function applySessionDraftWrite<S extends DraftSession>(
   const drafts: SessionDraftsState = { ...session.drafts, revision };
   let change: SessionDraftChange;
   if (write.kind === "composer") {
-    const draft = normalizeSyncedComposerDraft(write.draft);
+    const draft = normalizeSyncedComposerDraft(withServerImagePaths(session.id, write.draft));
     if (draft) drafts.composer = { ...meta, draft };
     else delete drafts.composer;
     change = { kind: "composer", draft, ...meta };
@@ -91,4 +93,17 @@ export function applySessionDraftWrite<S extends DraftSession>(
   deps.persistSession(session);
   deps.broadcastToBrowsers(session, { type: "session_draft_update", change });
   return { ok: true, change };
+}
+
+/**
+ * Fills each draft image's agent-visible path from its server reference, so a path
+ * written by a browser is never passed on. It is the path image preparation returned.
+ */
+function withServerImagePaths(sessionId: string, draft: SyncedComposerDraft | null): SyncedComposerDraft | null {
+  if (!draft?.images?.length) return draft;
+  const paths = deriveAttachmentPaths(
+    sessionId,
+    draft.images.map((image) => image.imageRef),
+  );
+  return { ...draft, images: draft.images.map((image, index) => ({ ...image, path: paths[index]! })) };
 }

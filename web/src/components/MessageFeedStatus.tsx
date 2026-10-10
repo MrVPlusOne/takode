@@ -871,11 +871,16 @@ export function PendingUserUploadList({
             id: `pending-upload-${upload.id}`,
             role: "user",
             content: upload.content,
-            localImages: upload.images.map(({ name, base64, mediaType }) => ({
+            localImages: upload.images.map(({ name, base64, mediaType, prepared }) => ({
               name,
               base64,
               mediaType,
+              ...(prepared ? { imageId: prepared.imageRef.imageId } : {}),
             })),
+            // Server copies stand in for images synced from another browser, which have no local bytes.
+            ...(upload.prepared?.imageRefs.length && upload.images.some((image) => !image.base64)
+              ? { images: upload.prepared.imageRefs }
+              : {}),
             timestamp: upload.timestamp,
             ...(upload.annotations?.length ||
             upload.vscodeSelection ||
