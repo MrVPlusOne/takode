@@ -371,7 +371,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     const staleQueuedDoneBanner = screen.getAllByTestId("quest-thread-banner")[2];
     expect(within(staleQueuedDoneBanner).queryByTestId("quest-thread-queued-status-chip")).not.toBeInTheDocument();
     expect(staleQueuedDoneBanner).not.toHaveTextContent("Queued, waiting for free worker");
-    expect(within(staleQueuedDoneBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Completed");
+    expect(within(staleQueuedDoneBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Done");
 
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");

@@ -32,6 +32,41 @@ it("keeps current repeated-phase progress and completed or proposed counts in co
   );
 });
 
+it("lets the quest header shorten the finished label and drop the phase total on phones only", () => {
+  // The quest header shares its row with the title. It asks for "Done" and hides the
+  // "N phases" total below the sm breakpoint; other compact users keep the defaults.
+  const journey: QuestJourneyPlanState = { mode: "active", phaseIds: PHASE_CYCLE, currentPhaseId: "work" };
+  const options = { completedLabel: "Done", hidePhaseTotalOnNarrow: true };
+  const { rerender } = render(
+    <QuestJourneyTimeline journey={journey} status="done" variant="compact" compactOptions={options} />,
+  );
+  const summary = screen.getByTestId("quest-journey-compact-summary");
+  expect(summary).toHaveTextContent("Done5 phases");
+  expect(within(summary).getByTestId("quest-journey-compact-position")).toHaveClass("max-sm:hidden");
+
+  rerender(
+    <QuestJourneyTimeline journey={{ ...journey, mode: "proposed" }} variant="compact" compactOptions={options} />,
+  );
+  expect(within(summary).getByTestId("quest-journey-compact-position")).toHaveClass("max-sm:hidden");
+
+  // Active progress such as "2/5" is the current position, not the total, so it stays.
+  rerender(
+    <QuestJourneyTimeline
+      journey={{ ...journey, activePhaseIndex: 1 }}
+      status="WORKING"
+      variant="compact"
+      compactOptions={options}
+    />,
+  );
+  expect(summary).toHaveTextContent("Work2/5");
+  expect(within(summary).getByTestId("quest-journey-compact-position")).not.toHaveClass("max-sm:hidden");
+
+  // Without the header options the summary keeps "Completed" and shows the total everywhere.
+  rerender(<QuestJourneyTimeline journey={journey} status="done" variant="compact" />);
+  expect(summary).toHaveTextContent("Completed5 phases");
+  expect(within(summary).getByTestId("quest-journey-compact-position")).not.toHaveClass("max-sm:hidden");
+});
+
 function longJourney(overrides: Partial<QuestJourneyPlanState> = {}): QuestJourneyPlanState {
   const phaseIds = Array.from({ length: 38 }, (_, index) => PHASE_CYCLE[index % PHASE_CYCLE.length]);
   return {

@@ -406,6 +406,7 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     variant,
     className,
     showNotes = true,
+    compactOptions,
   }: {
     journey?: { currentPhaseId?: string; phaseIds?: string[]; phaseNotes?: Record<string, string> };
     status?: string | null;
@@ -413,6 +414,7 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     variant?: string;
     className?: string;
     showNotes?: boolean;
+    compactOptions?: { completedLabel?: string; hidePhaseTotalOnNarrow?: boolean };
   }) => {
     const normalized = (status ?? "").trim().toLowerCase();
     const completed = normalized === "done" || normalized === "completed" || normalized === "needs_verification";
@@ -428,9 +430,18 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
         data-journey-mode={completed ? "completed" : "active"}
         className={className}
       >
-        {completed
-          ? `Completed ${phaseCount} phases${showNotes && notes > 0 ? ` ${notes} note${notes === 1 ? "" : "s"}` : ""}`
-          : (journey?.currentPhaseId ?? "journey")}
+        {completed ? (
+          <>
+            {`${compactOptions?.completedLabel ?? "Completed"} `}
+            <span
+              data-testid="quest-journey-compact-position"
+              className={compactOptions?.hidePhaseTotalOnNarrow ? "max-sm:hidden" : undefined}
+            >{`${phaseCount} phases`}</span>
+            {showNotes && notes > 0 ? ` ${notes} note${notes === 1 ? "" : "s"}` : ""}
+          </>
+        ) : (
+          (journey?.currentPhaseId ?? "journey")
+        )}
       </div>
     );
   },
@@ -1680,8 +1691,10 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-970");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Completed banner polish");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "completed");
-    expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("Completed");
+    // The header uses the shorter "Done" and hides the phase total on phones (max-sm) to leave the title room.
+    expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("Done");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("5 phases");
+    expect(scope.getByTestId("quest-journey-compact-position")).toHaveClass("max-sm:hidden");
     expect(scope.getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("1 note");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
     expect(scope.getByLabelText("Reviewer #1323")).toBeInTheDocument();

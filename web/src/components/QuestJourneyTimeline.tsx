@@ -204,24 +204,33 @@ function getVerticalJourneyDisplayItems({
   ];
 }
 
+export interface QuestJourneyCompactSummaryOptions {
+  /** Label for a finished Journey; the quest header uses a shorter word than the default "Completed". */
+  completedLabel?: string;
+  /** Hide the "N phases" total on narrow (phone) layouts so a neighboring title keeps its room. */
+  hidePhaseTotalOnNarrow?: boolean;
+}
+
 export function QuestJourneyCompactSummary({
   journey,
   status,
   className,
   showNotes = true,
+  completedLabel = "Completed",
+  hidePhaseTotalOnNarrow = false,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
   showNotes?: boolean;
-}) {
+} & QuestJourneyCompactSummaryOptions) {
   const items = getPhaseItems(journey, status);
   if (items.length === 0) return null;
 
   const mode = getJourneyPresentationMode(journey, status);
   const currentItem = items.find((item) => item.state === "current");
   const label =
-    mode === "proposed" ? "Proposed" : mode === "completed" ? "Completed" : (currentItem?.phase.label ?? "Journey");
+    mode === "proposed" ? "Proposed" : mode === "completed" ? completedLabel : (currentItem?.phase.label ?? "Journey");
   const position =
     mode === "active" ? (currentItem ? `${currentItem.index + 1}/${items.length}` : "") : `${items.length} phases`;
   const notes = noteCount(journey);
@@ -239,7 +248,14 @@ export function QuestJourneyCompactSummary({
         aria-hidden="true"
       />
       <span className="shrink-0 font-medium text-cc-fg">{label}</span>
-      {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
+      {position && (
+        <span
+          className={`shrink-0 text-[10px] text-cc-muted ${mode !== "active" && hidePhaseTotalOnNarrow ? "max-sm:hidden" : ""}`.trim()}
+          data-testid="quest-journey-compact-position"
+        >
+          {position}
+        </span>
+      )}
       {showNotes && notes > 0 && (
         <span className="shrink-0 text-[10px] text-cc-attention">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
       )}
@@ -463,6 +479,7 @@ export function QuestJourneyTimeline({
   compact = false,
   variant,
   showNotes = true,
+  compactOptions,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
@@ -471,6 +488,7 @@ export function QuestJourneyTimeline({
   compact?: boolean;
   variant?: JourneyVariant;
   showNotes?: boolean;
+  compactOptions?: QuestJourneyCompactSummaryOptions;
 }) {
   const now = Date.now();
   const items = getPhaseItems(journey, status, now, durationSummary);
@@ -478,7 +496,15 @@ export function QuestJourneyTimeline({
 
   const resolvedVariant: JourneyVariant = variant ?? (compact ? "compact" : "horizontal");
   if (resolvedVariant === "compact") {
-    return <QuestJourneyCompactSummary journey={journey} status={status} className={className} showNotes={showNotes} />;
+    return (
+      <QuestJourneyCompactSummary
+        journey={journey}
+        status={status}
+        className={className}
+        showNotes={showNotes}
+        {...compactOptions}
+      />
+    );
   }
   if (resolvedVariant === "vertical") {
     return (

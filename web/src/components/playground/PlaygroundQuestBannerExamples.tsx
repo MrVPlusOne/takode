@@ -189,6 +189,28 @@ export function PlaygroundQuestBannerExamples() {
       },
     },
     {
+      label: "Completed quest with a long title",
+      threadKey: "q-9008",
+      row: {
+        threadKey: "q-9008",
+        questId: "q-9008",
+        title: "Per-session attention navigator in the feed status chip",
+        boardStatus: "DONE",
+        section: "done",
+        commitShas: ["abc1234def5678"],
+        journey: { mode: "active", phaseIds: ["work", "memory", "landing"], currentPhaseId: "landing" },
+        boardRow: {
+          questId: "q-9008",
+          title: "Per-session attention navigator in the feed status chip",
+          worker: "playground-thread-worker",
+          workerNum: 1321,
+          status: "DONE",
+          completedAt: 3,
+          updatedAt: 3,
+        },
+      },
+    },
+    {
       label: "Worker session banner with timer",
       threadKey: "q-966",
       row: {
@@ -263,6 +285,10 @@ export function PlaygroundQuestBannerExamples() {
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[5].row}
           threadKey={compactQuestThreadBannerRows[5].threadKey}
+        />
+        <QuestThreadBanner
+          row={compactQuestThreadBannerRows[7].row}
+          threadKey={compactQuestThreadBannerRows[7].threadKey}
         />
       </div>
 

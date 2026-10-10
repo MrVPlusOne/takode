@@ -553,6 +553,10 @@ function boardWorkerParticipantForRow(row?: QuestThreadBannerRow): BoardRowSessi
   return undefined;
 }
 
+// The header chip shares a row with the quest title, so it uses the shorter
+// finished label and drops the phase total on phones to leave the title room.
+const QUEST_HEADER_JOURNEY_OPTIONS = { completedLabel: "Done", hidePhaseTotalOnNarrow: true } as const;
+
 function QuestStatusFallbackPill({ status }: { status?: string }) {
   if (!status) return null;
   const statusTheme = getQuestStatusTheme(status);
@@ -1011,6 +1015,7 @@ export function QuestThreadBanner({
                     status={journeyStatusForThread(row)}
                     variant="compact"
                     showNotes={false}
+                    compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
                     className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
                   />
                 </QuestJourneyHoverTarget>
