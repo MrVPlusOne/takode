@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildRestartContinuationPlan,
   HOST_UPDATE_REQUEST_MAX_AGE_MS,
+  RESTART_CONTINUE_MESSAGE,
   resumeRestartContinuations,
   saveHostUpdateRequest,
   saveRestartContinuationPlan,
@@ -41,7 +42,6 @@ describe("restart-continuation-store", () => {
     expect(result).toMatchObject({
       plan: {
         operationId: "prep-1",
-        message: "Continue.",
         sessions: [
           { sessionId: "worker-1", label: "Worker one" },
           { sessionId: "worker-2", label: "Worker two" },
@@ -54,7 +54,7 @@ describe("restart-continuation-store", () => {
     });
     expect(injectUserMessage).toHaveBeenCalledWith(
       "worker-1",
-      "Continue.",
+      RESTART_CONTINUE_MESSAGE,
       {
         sessionId: "system:restart-continuation:prep-1",
         sessionLabel: "System",
@@ -62,13 +62,13 @@ describe("restart-continuation-store", () => {
       undefined,
       undefined,
       expect.objectContaining({
-        deliveryContent: "Continue.",
+        deliveryContent: RESTART_CONTINUE_MESSAGE,
         historyFollowUps: [],
       }),
     );
     expect(injectUserMessage).toHaveBeenCalledWith(
       "worker-2",
-      "Continue.",
+      RESTART_CONTINUE_MESSAGE,
       {
         sessionId: "system:restart-continuation:prep-1",
         sessionLabel: "System",
@@ -76,7 +76,7 @@ describe("restart-continuation-store", () => {
       undefined,
       undefined,
       expect.objectContaining({
-        deliveryContent: "Continue.",
+        deliveryContent: RESTART_CONTINUE_MESSAGE,
         historyFollowUps: [],
       }),
     );
@@ -85,6 +85,37 @@ describe("restart-continuation-store", () => {
     const secondResult = await resumeRestartContinuations(tempDir, { injectUserMessage });
     expect(secondResult.plan).toBeNull();
     expect(injectUserMessage).toHaveBeenCalledTimes(2);
+  });
+
+  // The server that restarts saves the plan, and the server it starts sends
+  // the continuations. A plan saved by an older server still carries that
+  // server's message, which must not replace the current one: otherwise the
+  // first restart onto a build with new wording would still send the old text.
+  it("sends the current continuation for a plan saved with an older message", async () => {
+    await writeFile(
+      join(tempDir, "restart-continuations.json"),
+      JSON.stringify({
+        version: 1,
+        operationId: "prep-old",
+        createdAt: 1_000,
+        message: "Old continuation wording.",
+        sessions: [{ sessionId: "worker-1", label: "Worker one" }],
+      }),
+      "utf-8",
+    );
+
+    const injectUserMessage = vi.fn(() => "sent" as const);
+    const result = await resumeRestartContinuations(tempDir, { injectUserMessage });
+
+    expect(result.sent).toBe(1);
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      RESTART_CONTINUE_MESSAGE,
+      { sessionId: "system:restart-continuation:prep-old", sessionLabel: "System" },
+      undefined,
+      undefined,
+      { deliveryContent: RESTART_CONTINUE_MESSAGE, historyFollowUps: [] },
+    );
   });
 
   // Restart Server leaves a request for the server it starts to update hosts
@@ -109,11 +140,11 @@ describe("restart-continuation-store", () => {
     expect(sendRestartContinuation({ injectUserMessage }, "worker-1", "host-update:h1:abc")).toBe("sent");
     expect(injectUserMessage).toHaveBeenCalledWith(
       "worker-1",
-      "Continue.",
+      RESTART_CONTINUE_MESSAGE,
       { sessionId: "system:restart-continuation:host-update:h1:abc", sessionLabel: "System" },
       undefined,
       undefined,
-      { deliveryContent: "Continue.", historyFollowUps: [] },
+      { deliveryContent: RESTART_CONTINUE_MESSAGE, historyFollowUps: [] },
     );
   });
 });

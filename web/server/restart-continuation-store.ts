@@ -2,7 +2,17 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ProgrammaticHistoryFollowUp } from "./session-types.js";
 
-export const RESTART_CONTINUE_MESSAGE = "Continue.";
+/**
+ * What a session hears when work Takode itself interrupted (to restart the
+ * server or update a host's node) is continued. Claude Code reports a tool call
+ * cut off by an interrupt as rejected by the user and tells the model to stop
+ * and wait, so the message says the user rejected nothing and that the call may
+ * already have done part of its work.
+ */
+export const RESTART_CONTINUE_MESSAGE =
+  "Continue. Takode restarted or updated itself, which interrupted your work; the interruption was not a response to anything you did. " +
+  "If it cut off a tool call, that call's result may say the user rejected or interrupted it, but the user did not. " +
+  "The call may have partly run, so check what it already did before redoing any of it.";
 
 const FILE_NAME = "restart-continuations.json";
 const HOST_UPDATE_REQUEST_FILE_NAME = "restart-host-updates.json";
@@ -16,7 +26,6 @@ export interface RestartContinuationPlan {
   version: 1;
   operationId: string;
   createdAt: number;
-  message: string;
   sessions: RestartContinuationTarget[];
 }
 
@@ -48,7 +57,6 @@ export function buildRestartContinuationPlan(options: {
     version: 1,
     operationId: options.operationId,
     createdAt: options.now ?? Date.now(),
-    message: RESTART_CONTINUE_MESSAGE,
     sessions: dedupeTargets(options.sessions),
   };
 }
@@ -90,8 +98,9 @@ export async function resumeRestartContinuations(
   result.plan = plan;
   if (!plan) return result;
 
+  // This server words the continuation; a message saved by an older server is ignored.
   for (const target of plan.sessions) {
-    const status = sendRestartContinuation(bridge, target.sessionId, plan.operationId, plan.message);
+    const status = sendRestartContinuation(bridge, target.sessionId, plan.operationId);
     if (status === "sent") result.sent += 1;
     else if (status === "queued" || status === "paused_queued") result.queued += 1;
     else if (status === "dropped") result.dropped += 1;
@@ -188,7 +197,6 @@ function normalizePlan(raw: unknown): RestartContinuationPlan | null {
     version: 1,
     operationId: data.operationId,
     createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
-    message: typeof data.message === "string" && data.message.trim() ? data.message : RESTART_CONTINUE_MESSAGE,
     sessions: dedupeTargets(
       data.sessions.flatMap((session) => {
         if (!session || typeof session !== "object") return [];

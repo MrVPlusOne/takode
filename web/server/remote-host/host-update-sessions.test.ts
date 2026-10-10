@@ -97,7 +97,7 @@ describe("HostUpdateSessions", () => {
 
   // Like a single-machine restart: running turns are interrupted (their ends
   // kept from waking the leader), every session stops, and the interrupted
-  // ones get "Continue." once the host's node has restarted.
+  // ones get the restart continuation once the host's node has restarted.
   it("interrupts turns, stops the sessions and continues the turns once the host is back", async () => {
     const updates = create();
     await expect(updates.prepare("h1", "immediate")).resolves.toBe(true);

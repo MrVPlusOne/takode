@@ -1392,7 +1392,10 @@ export function PlaygroundRestartContinuationMessage() {
   const message: ChatMessage = {
     id: "playground-restart-continuation-msg",
     role: "user",
-    content: "Continue.",
+    content:
+      "Continue. Takode restarted or updated itself, which interrupted your work; the interruption was not a response to anything you did. " +
+      "If it cut off a tool call, that call's result may say the user rejected or interrupted it, but the user did not. " +
+      "The call may have partly run, so check what it already did before redoing any of it.",
     timestamp: Date.now() - 14_000,
     agentSource: { sessionId: "system:restart-continuation:prep-1", sessionLabel: "System" },
   };

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RESTART_CONTINUE_MESSAGE } from "../restart-continuation-store.js";
 import { processHostOf } from "./host-registry.js";
 import { hostCanRestart, type BridgeTurnView, type HostSessionView } from "./host-restart-gate.js";
 
@@ -14,11 +15,10 @@ export const HOST_UPDATE_INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
  * What a session whose full test run an immediate update ended is told once
- * the host is back. The run was a background job, so a plain "Continue."
- * would leave the session waiting for a result that never comes.
+ * the host is back. The run was a background job, so the usual continuation
+ * alone would leave the session waiting for a result that never comes.
  */
-export const TEST_RUN_STOPPED_MESSAGE =
-  "Continue. Restart Server updated the takode node on this machine, which stopped your `takode land test --full` run; run it again.";
+export const TEST_RUN_STOPPED_MESSAGE = `${RESTART_CONTINUE_MESSAGE} The update also stopped your \`takode land test --full\` run; run it again.`;
 
 export interface HostUpdateSession extends HostSessionView {
   herdedBy?: string | null;

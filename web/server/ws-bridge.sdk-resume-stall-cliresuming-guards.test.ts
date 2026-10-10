@@ -9,6 +9,7 @@ import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import {
   buildRestartContinuationPlan,
+  RESTART_CONTINUE_MESSAGE,
   resumeRestartContinuations,
   saveRestartContinuationPlan,
 } from "./restart-continuation-store.js";
@@ -894,7 +895,7 @@ describe("SDK resume stall: cliResuming guards", () => {
     // Regression: after a server restart, the restart continuation is queued
     // before the Claude process is relaunched. A resumed SDK process prints
     // nothing until it receives input, so if the resume window only closed on
-    // backend output, the queued "Continue." waited forever and the session
+    // backend output, the queued continuation waited forever and the session
     // showed "Session may be stuck". The window must close on a quiet period
     // measured from adapter attach as well.
     vi.useFakeTimers();
@@ -922,7 +923,8 @@ describe("SDK resume stall: cliResuming guards", () => {
       expect(session.cliResuming).toBe(false);
       expect(session.pendingMessages).toHaveLength(0);
       // Delivery adds the usual source prefix in front of the message.
-      expect(backend.promptTexts()).toEqual([expect.stringMatching(/ Continue\.$/)]);
+      expect(backend.promptTexts()).toHaveLength(1);
+      expect(backend.promptTexts()[0]?.endsWith(` ${RESTART_CONTINUE_MESSAGE}`)).toBe(true);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

@@ -575,7 +575,6 @@ describe("server restart controls", () => {
     expect(plan).toMatchObject({
       version: 1,
       operationId: body.operationId,
-      message: "Continue.",
       sessions: [{ sessionId: "worker", label: "Worker session" }],
     });
   });
