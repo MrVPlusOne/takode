@@ -5,7 +5,9 @@ import { useStore } from "../store.js";
 import { refreshRemoteHosts } from "../remote-hosts.js";
 
 // The host list comes from the server's GET /api/hosts; stub it per test.
-function serveHosts(hosts: Array<{ id: string; name: string; online: boolean; build?: string }>) {
+function serveHosts(
+  hosts: Array<{ id: string; name: string; online: boolean; build?: string; lastSeenAt?: number | null }>,
+) {
   const serverBuild = "b".repeat(40);
   const row = (host: (typeof hosts)[number]) => {
     const build = host.build ?? serverBuild;
@@ -25,7 +27,7 @@ function serveHosts(hosts: Array<{ id: string; name: string; online: boolean; bu
       async () =>
         new Response(
           JSON.stringify({
-            hosts: hosts.map((h) => ({ ...row(h), createdAt: 0, lastSeenAt: null, processes: 0 })),
+            hosts: hosts.map((h) => ({ ...row(h), createdAt: 0, lastSeenAt: h.lastSeenAt ?? null, processes: 0 })),
             build: serverBuild,
           }),
         ),
@@ -42,7 +44,7 @@ describe("remote host session UI", () => {
   // The sidebar chip names the host; the chat banner explains a stalled session
   // only while its host is offline, never for local sessions.
   it("names the host and explains when it is offline", async () => {
-    serveHosts([{ id: "h1", name: "devbox", online: false }]);
+    serveHosts([{ id: "h1", name: "devbox", online: false, lastSeenAt: Date.now() - 5 * 60_000 }]);
     useStore.setState({
       sdkSessions: [
         { sessionId: "remote", hostId: "h1", state: "running", cwd: "/srv", createdAt: 0 },
@@ -61,7 +63,16 @@ describe("remote host session UI", () => {
     await act(async () => {
       await refreshRemoteHosts();
     });
-    expect(screen.getByTestId("session-host-badge").textContent).toBe("devbox");
+    // An offline host keeps the neutral chip and gains only an unplugged icon; the word
+    // "offline" is screen-reader text, and the tooltip says when the host was last seen.
+    const offlineBadge = screen.getByTestId("session-host-badge");
+    expect(offlineBadge.textContent).toBe("devbox (offline)");
+    expect(offlineBadge.querySelector(".sr-only")?.textContent).toBe(" (offline)");
+    expect(offlineBadge.querySelector('[data-testid="session-host-offline-icon"]')).not.toBeNull();
+    expect(offlineBadge.getAttribute("title")).toBe(
+      "Runs on devbox. Offline, last seen 5m ago. The session continues when the host reconnects.",
+    );
+    expect(offlineBadge.className).toContain("text-cc-muted bg-cc-muted/10");
     expect(screen.getByTestId("host-offline-banner").textContent).toContain("devbox is offline");
     expect(screen.getByTestId("local-banner").textContent).toBe("");
 
@@ -70,15 +81,20 @@ describe("remote host session UI", () => {
       await refreshRemoteHosts();
     });
     expect(screen.queryByTestId("host-offline-banner")).toBeNull();
-    expect(screen.getByTestId("session-host-badge").className).toContain("text-cc-info");
+    // Online adds nothing: same neutral chip, no icon.
+    const onlineBadge = screen.getByTestId("session-host-badge");
+    expect(onlineBadge.className).toContain("text-cc-muted bg-cc-muted/10");
+    expect(onlineBadge.querySelector('[data-testid="session-host-offline-icon"]')).toBeNull();
+    expect(onlineBadge.textContent).toBe("devbox");
 
-    // An online host on another build turns the chip into a warning that names both builds.
+    // An online host on another build keeps the neutral chip; its tooltip names both builds.
     serveHosts([{ id: "h1", name: "devbox", online: true, build: "a".repeat(40) }]);
     await act(async () => {
       await refreshRemoteHosts();
     });
     const badge = screen.getByTestId("session-host-badge");
-    expect(badge.className).toContain("text-cc-warning");
+    expect(badge.className).toContain("text-cc-muted bg-cc-muted/10");
+    expect(badge.querySelector('[data-testid="session-host-offline-icon"]')).toBeNull();
     expect(badge.getAttribute("title")).toContain("Runs Takode aaaaaaaa, this server runs bbbbbbbb");
   });
 
@@ -140,5 +156,8 @@ describe("remote host session UI", () => {
     expect(screen.getByTestId("session-host-badge").getAttribute("title")).toBe(
       "Runs on a removed host. It is no longer registered.",
     );
+    // A removed host cannot run the session either, so its chip carries the unplugged icon too.
+    expect(screen.getByTestId("session-host-offline-icon")).toBeTruthy();
+    expect(screen.getByTestId("session-host-badge").textContent).toBe("remote (no longer registered)");
   });
 });

@@ -1,5 +1,6 @@
 import { useStore } from "../store.js";
 import { hostBuildWarning, useRemoteHosts, type RemoteHost } from "../remote-hosts.js";
+import { timeAgo } from "../utils/quest-helpers.js";
 
 type HostState = "online" | "offline" | "build-mismatch";
 
@@ -10,25 +11,61 @@ function describeHost(
 ): { name: string; state: HostState; detail: string } {
   if (!host) return { name: "a removed host", state: "offline", detail: "It is no longer registered." };
   if (!host.online) {
-    return { name: host.name, state: "offline", detail: "Offline. The session continues when the host reconnects." };
+    const lastSeen = host.lastSeenAt ? `, last seen ${timeAgo(host.lastSeenAt)}` : "";
+    return {
+      name: host.name,
+      state: "offline",
+      detail: `Offline${lastSeen}. The session continues when the host reconnects.`,
+    };
   }
   const buildWarning = hostBuildWarning(host, serverBuild);
   if (buildWarning) return { name: host.name, state: "build-mismatch", detail: buildWarning };
   return { name: host.name, state: "online", detail: "Online" };
 }
 
-const CHIP_TONE: Record<HostState, string> = {
-  online: "text-cc-info bg-cc-info-bg",
-  offline: "text-cc-muted bg-cc-muted/10",
-  "build-mismatch": "text-cc-warning bg-cc-warning/10",
-};
+/** Host state is not encoded in color: every chip is neutral, and only an unreachable host gets a mark. */
+const CHIP_TONE = "text-cc-muted bg-cc-muted/10";
+
+function UnpluggedIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3 w-3 shrink-0"
+      aria-hidden="true"
+      data-testid="session-host-offline-icon"
+    >
+      <path d="M6 1.5v3M10 1.5v3M4.5 4.5h7V7a3.5 3.5 0 01-7 0V4.5zM8 10.5v4M2 2l12 12" />
+    </svg>
+  );
+}
+
+function ServerIcon({ phoneOnly }: { phoneOnly: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={`h-2.5 w-2.5 shrink-0 ${phoneOnly ? "sm:hidden" : ""}`}
+      aria-hidden="true"
+    >
+      <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v3a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm9.5 2a.75.75 0 100-1.5.75.75 0 000 1.5zM2 10a1 1 0 011-1h10a1 1 0 011 1v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3zm9.5 2a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+    </svg>
+  );
+}
 
 /**
- * Chip naming the remote host a session runs on: muted while it is offline, in
- * warning colors while it runs another Takode build than this server. Long
- * host names truncate; the session info panel shows the full name and status.
- * `iconOnPhone` shrinks the chip to a host icon below the `sm` breakpoint, for
- * rows such as the top bar where the name would crowd out the session title.
+ * Chip naming the remote host a session runs on. Every chip uses the same
+ * neutral style; a host the session cannot reach (offline or no longer
+ * registered) gets an unplugged icon instead of an "offline" label, and the
+ * tooltip and screen-reader text explain it. A host on another Takode build
+ * says so in its tooltip and in the session info panel. Long host names
+ * truncate. `iconOnPhone` shrinks the chip to its icon below the `sm`
+ * breakpoint, for rows such as the top bar where the name would crowd out the
+ * session title.
  */
 export function HostChip({
   host,
@@ -41,19 +78,17 @@ export function HostChip({
 }) {
   const { name, state, detail } = describeHost(host, serverBuild);
   const label = host?.name ?? "remote";
+  const offline = state === "offline";
   return (
     <span
       data-testid="session-host-badge"
       data-host-state={state}
-      className={`inline-flex min-w-0 max-w-[5rem] sm:max-w-[8rem] shrink-0 items-center rounded-full px-1.5 text-[9px] font-medium leading-[16px] ${iconOnPhone ? "max-sm:px-1" : ""} ${CHIP_TONE[state]}`}
+      className={`inline-flex min-w-0 max-w-[5rem] sm:max-w-[8rem] shrink-0 items-center gap-0.5 rounded-full px-1.5 text-[9px] font-medium leading-[16px] ${iconOnPhone ? "max-sm:px-1" : ""} ${CHIP_TONE}`}
       title={`Runs on ${name}. ${detail}`}
     >
-      {iconOnPhone && (
-        <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 sm:hidden" aria-hidden="true">
-          <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v3a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm9.5 2a.75.75 0 100-1.5.75.75 0 000 1.5zM2 10a1 1 0 011-1h10a1 1 0 011 1v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3zm9.5 2a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-        </svg>
-      )}
+      {offline ? <UnpluggedIcon /> : iconOnPhone && <ServerIcon phoneOnly />}
       <span className={`truncate ${iconOnPhone ? "max-sm:sr-only" : ""}`}>{label}</span>
+      {offline && <span className="sr-only">{host ? " (offline)" : " (no longer registered)"}</span>}
     </span>
   );
 }

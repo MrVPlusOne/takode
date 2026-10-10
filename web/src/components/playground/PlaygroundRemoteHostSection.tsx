@@ -25,13 +25,27 @@ function mockHost(overrides: Partial<RemoteHost>): RemoteHost {
 }
 
 const ONLINE = mockHost({});
-const OFFLINE = mockHost({ online: false });
+const OFFLINE = mockHost({ name: "laptop", online: false, lastSeenAt: Date.now() - 42 * 60_000 });
 const OTHER_BUILD = mockHost({
   build: "a".repeat(40),
   buildMismatch: true,
   updateWaitingFor: "the landing run there finishes",
 });
 const LONG_NAME = mockHost({ name: "gpu-workstation-west-2" });
+
+/** Mock of a sidebar session row: name, session number, backend and host chip, as in the session list. */
+function SidebarRow({ title, sessionNum, host }: { title: string; sessionNum: number; host?: RemoteHost }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-cc-border bg-cc-card px-3 py-2">
+      <span className="truncate text-[13px] font-semibold text-cc-fg">{title}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-cc-muted">
+        <span className="shrink-0 font-mono-code">#{sessionNum}</span>
+        <span className="h-3.5 w-3.5 shrink-0 rounded bg-cc-primary/60" aria-hidden="true" />
+        {host && <HostChip host={host} serverBuild={SERVER_BUILD} />}
+      </span>
+    </div>
+  );
+}
 
 /**
  * Mock of the phone top bar's session title in a 390px bar: the host chip sits
@@ -68,7 +82,7 @@ export function PlaygroundRemoteHostSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Remote Host Indicators"
-        description="Where a session runs. Remote sessions get a host chip in the sidebar, top bar (below the title on phones), hover cards, quest participant chips, worker preview and board; local sessions stay unlabeled except in the session info panel while some session runs remotely."
+        description="Where a session runs. Remote sessions get a host chip in the sidebar, top bar (below the title on phones), hover cards, quest participant chips, worker preview and board; local sessions stay unlabeled except in the session info panel while some session runs remotely. Chips are neutral in every state; only a host the session cannot reach gets an unplugged icon, explained by the tooltip (offline, last seen)."
       >
         <div className="grid gap-4" data-testid="playground-remote-host-indicators">
           <Card label="Host chip states">
@@ -80,10 +94,18 @@ export function PlaygroundRemoteHostSection() {
               <HostChip host={LONG_NAME} serverBuild={SERVER_BUILD} />
             </div>
           </Card>
+          <Card label="Session list rows (online, offline, local)">
+            <div className="grid max-w-sm gap-2" data-testid="playground-host-sidebar-rows">
+              <SidebarRow title="Condor Takode" sessionNum={2902} host={mockHost({ name: "condor1-cpu-takode" })} />
+              <SidebarRow title="DevBox takode" sessionNum={2851} />
+              <SidebarRow title="Claude Takode Leader" sessionNum={2763} host={OFFLINE} />
+            </div>
+          </Card>
           <Card label="Phone top bar title (host chip below the title)">
             {/* Fixed 390px bars scroll sideways here, so they keep a real phone's width. */}
             <div className="flex flex-col gap-2 overflow-x-auto">
               <TitleBar host={ONLINE} />
+              <TitleBar host={OFFLINE} />
               <TitleBar host={OTHER_BUILD} />
               <TitleBar host={LONG_NAME} />
             </div>
