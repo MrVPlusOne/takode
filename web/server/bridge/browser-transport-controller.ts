@@ -574,7 +574,10 @@ export function handleBrowserMessage(
 
   return {
     messageType: msg.type,
-    completion: serverWorkAdmission.track(handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined)),
+    completion: serverWorkAdmission.track(
+      handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined),
+      `browser ${msg.type} for session ${session.id}`,
+    ),
   };
 }
 
