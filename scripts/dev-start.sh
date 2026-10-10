@@ -92,8 +92,16 @@ print(proc.pid)
 PY
 }
 
+# Port checks use lsof when installed (macOS) and fall back to ss (iproute2) on
+# Linux machines without lsof.
 is_port_listening() {
-  lsof -iTCP:"$1" -sTCP:LISTEN -t &>/dev/null
+  if command -v lsof &>/dev/null; then
+    lsof -iTCP:"$1" -sTCP:LISTEN -t &>/dev/null
+  elif command -v ss &>/dev/null; then
+    [ -n "$(ss -ltn "( sport = :$1 )" 2>/dev/null | tail -n +2)" ]
+  else
+    die "Neither lsof nor ss is installed; cannot check port $1."
+  fi
 }
 
 is_http_healthy() {
@@ -105,7 +113,11 @@ is_http_healthy() {
 }
 
 get_pid_on_port() {
-  lsof -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1
+  if command -v lsof &>/dev/null; then
+    lsof -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1
+  elif command -v ss &>/dev/null; then
+    ss -ltnp "( sport = :$1 )" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
+  fi
 }
 
 kill_by_pid_file() {

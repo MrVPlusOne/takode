@@ -9,11 +9,10 @@
  * `start` refuses occupied ports instead of stopping their owners. `stop` only
  * stops processes this session started and that still listen on their ports.
  */
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import {
   AGENT_BROWSER_LEASE,
   agentBrowserSession,
@@ -22,12 +21,12 @@ import {
   devServerSlot,
   findHeldSlot,
 } from "../bin/validation-slots.js";
+import { listeningPids } from "./listening-pids.js";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_ROOT = dirname(devServerSlot(1).stateDir);
 const READY_TIMEOUT_MS = 90_000;
 const STOP_TIMEOUT_MS = 10_000;
-const execFileAsync = promisify(execFile);
 
 /** What `start` launched, kept in the slot's state directory. */
 interface ServerRecord {
@@ -207,17 +206,6 @@ async function stopRecord(record: ServerRecord, res: DevServerSlot): Promise<voi
     if (isAlive(pid)) process.kill(pid, "SIGKILL");
   }
   await rm(recordPath(res), { force: true });
-}
-
-async function listeningPids(port: number): Promise<number[]> {
-  try {
-    const { stdout } = await execFileAsync("lsof", ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"]);
-    return stdout.split("\n").filter(Boolean).map(Number);
-  } catch (err) {
-    // lsof exits 1 with no output when nothing listens.
-    if ((err as { code?: number }).code === 1) return [];
-    throw err;
-  }
 }
 
 function isAlive(pid: number): boolean {
