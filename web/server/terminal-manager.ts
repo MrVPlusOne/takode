@@ -8,6 +8,8 @@ interface TerminalInstance {
   id: string;
   sessionKey: string;
   cwd: string;
+  /** Remote host the shell runs on; null for this machine. */
+  hostId: string | null;
   process: TerminalProcess;
   browserSockets: Set<ServerWebSocket<SocketData>>;
   cols: number;
@@ -88,7 +90,7 @@ export class TerminalManager {
 
   /**
    * Spawn or replace the terminal associated with a session key. The shell runs
-   * on `hostId`, the session's remote host, when given, otherwise on this machine.
+   * on the remote host `hostId` when given, otherwise on this machine.
    */
   spawn(sessionId: string | undefined, cwd: string, cols = 80, rows = 24, hostId?: string | null): string {
     const sessionKey = toSessionKey(sessionId);
@@ -123,6 +125,7 @@ export class TerminalManager {
       id,
       sessionKey,
       cwd,
+      hostId: hostId ?? null,
       process: shell,
       browserSockets: new Set(),
       cols,
@@ -189,10 +192,10 @@ export class TerminalManager {
   }
 
   /** Get current terminal info for a session key or the global fallback. */
-  getInfo(sessionId?: string | null): { id: string; cwd: string } | null {
+  getInfo(sessionId?: string | null): { id: string; cwd: string; hostId: string | null } | null {
     const inst = this.getInstanceBySessionKey(toSessionKey(sessionId));
     if (!inst) return null;
-    return { id: inst.id, cwd: inst.cwd };
+    return { id: inst.id, cwd: inst.cwd, hostId: inst.hostId };
   }
 
   /** Attach a browser WebSocket to a terminal and replay buffered output. */

@@ -812,16 +812,28 @@ export function createSystemRoutes(ctx: RouteContext) {
     const sessionId = c.req.query("sessionId");
     const info = terminalManager.getInfo(sessionId);
     if (!info) return c.json({ active: false });
-    return c.json({ active: true, terminalId: info.id, cwd: info.cwd });
+    return c.json({ active: true, terminalId: info.id, cwd: info.cwd, hostId: info.hostId });
   });
 
   api.post("/terminal/spawn", async (c) => {
-    const body = await c.req.json<{ cwd: string; cols?: number; rows?: number; sessionId?: string }>();
+    const body = await c.req.json<{
+      cwd: string;
+      cols?: number;
+      rows?: number;
+      sessionId?: string;
+      hostId?: string | null;
+    }>();
     if (!body.cwd) return c.json({ error: "cwd is required" }, 400);
-    // A session's terminal opens on the machine that holds its files.
-    const hostId = body.sessionId ? wsBridge.getSession(body.sessionId)?.state.host_id : undefined;
+    // The browser names the machine (null for this server's); otherwise a session's
+    // terminal opens on the machine that holds its files.
+    const hostId =
+      body.hostId !== undefined
+        ? body.hostId || undefined
+        : body.sessionId
+          ? wsBridge.getSession(body.sessionId)?.state.host_id
+          : undefined;
     if (hostId && !hostIsOnline(hostId)) {
-      return c.json({ error: "This session's host is offline; open the terminal when it reconnects" }, 409);
+      return c.json({ error: "This host is offline; open the terminal when it reconnects" }, 409);
     }
     // A shell that fails on the host would exit before the browser attaches and
     // could see why, so check the folder first.
@@ -831,7 +843,7 @@ export function createSystemRoutes(ctx: RouteContext) {
           .catch(() => null)
       : null;
     if (hostId && !hostFolder?.isDirectory) {
-      const error = `Cannot open a terminal in ${body.cwd}: the folder does not exist on the session's host`;
+      const error = `Cannot open a terminal in ${body.cwd}: the folder does not exist on that host`;
       return c.json({ error }, 400);
     }
     try {

@@ -458,12 +458,15 @@ export interface AppState {
   terminalOpen: boolean;
   terminalCwd: string | null;
   terminalSessionId: string | null;
+  /** Registered remote host the terminal runs on; null for this server's machine. */
+  terminalHostId: string | null;
   terminalId: string | null;
   setTerminalOpen: (open: boolean) => void;
   setTerminalCwd: (cwd: string | null) => void;
   setTerminalSessionId: (sessionId: string | null) => void;
   setTerminalId: (id: string | null) => void;
-  openTerminal: (cwd: string, sessionId?: string | null) => void;
+  /** Open the terminal in `cwd`; `hostId` picks the machine (null for this server's), defaulting to the session's. */
+  openTerminal: (cwd: string, sessionId?: string | null, hostId?: string | null) => void;
   closeTerminal: () => void;
   reset: () => void;
 }

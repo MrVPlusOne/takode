@@ -1580,11 +1580,12 @@ export const api = {
     post<{ ok: boolean; skills: string[] }>(`/sessions/${encodeURIComponent(sessionId)}/skills/refresh`, {}),
 
   // Terminal
-  spawnTerminal: (cwd: string, cols?: number, rows?: number, sessionId?: string) =>
-    post<{ terminalId: string }>("/terminal/spawn", { cwd, cols, rows, sessionId }),
+  /** `hostId` names the machine: a registered remote host, or null for this server's machine. */
+  spawnTerminal: (cwd: string, cols?: number, rows?: number, sessionId?: string, hostId?: string | null) =>
+    post<{ terminalId: string }>("/terminal/spawn", { cwd, cols, rows, sessionId, hostId }),
   killTerminal: () => post<{ ok: boolean }>("/terminal/kill"),
   getTerminal: (sessionId?: string) =>
-    get<{ active: boolean; terminalId?: string; cwd?: string }>(
+    get<{ active: boolean; terminalId?: string; cwd?: string; hostId?: string | null }>(
       sessionId ? `/terminal?sessionId=${encodeURIComponent(sessionId)}` : "/terminal",
     ),
 

@@ -64,6 +64,27 @@ describe("terminal spawn route", () => {
     expect(spawn).toHaveBeenLastCalledWith("local", "/here", undefined, undefined, undefined);
   });
 
+  // The browser can pick the machine: an explicit host wins over the session's,
+  // and an explicit null opens on this server's machine.
+  it("opens the terminal on an explicitly chosen machine", async () => {
+    const links = new HostLinkManager();
+    vi.spyOn(links, "status").mockReturnValue({ ...links.status("host-2"), online: true, lastSeenAt: 1 });
+    const request = vi.spyOn(links, "request").mockResolvedValue({
+      kind: "stat",
+      stat: { size: 0, isFile: false, isDirectory: true, mtimeMs: 0 },
+    });
+    configureRemoteMachines(links);
+    const spawn = vi.fn(() => "terminal-1");
+    const app = createTestApp({ remote: { host_id: "host-1" }, local: {} }, spawn);
+
+    await app.request("/api/terminal/spawn", spawnRequest({ cwd: "/data", sessionId: "local", hostId: "host-2" }));
+    expect(spawn).toHaveBeenLastCalledWith("local", "/data", undefined, undefined, "host-2");
+    expect(request).toHaveBeenCalledWith("host-2", { kind: "stat", path: "/data" }, expect.any(Number));
+
+    await app.request("/api/terminal/spawn", spawnRequest({ cwd: "/here", sessionId: "remote", hostId: null }));
+    expect(spawn).toHaveBeenLastCalledWith("remote", "/here", undefined, undefined, undefined);
+  });
+
   // A shell that cannot start on the host would exit before the browser
   // attaches, so the route checks the host folder and reports the problem itself.
   it("reports a folder missing on the session's host", async () => {
@@ -76,7 +97,7 @@ describe("terminal spawn route", () => {
 
     const response = await app.request("/api/terminal/spawn", spawnRequest({ cwd: "/gone", sessionId: "remote" }));
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain("does not exist on the session's host");
+    expect((await response.json()).error).toContain("does not exist on that host");
     expect(spawn).not.toHaveBeenCalled();
   });
 

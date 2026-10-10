@@ -106,7 +106,9 @@ checkouts.
    `record-work-delivery`, `work-to-memory` and port tracking) run on the
    machine holding the worker's port target, and recorded delivery commits are
    read there later; these need the host's `takode node` on a build that
-   includes them.
+   includes them. The **Terminal** page opens a session's terminal on its
+   host; its machine menu, next to the folder, moves the terminal to any
+   machine, browsing that machine's folders.
 
 ## Shared machines
 

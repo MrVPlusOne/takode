@@ -292,6 +292,7 @@ export const useStore = create<AppState>((set, get) => ({
   terminalOpen: false,
   terminalCwd: null,
   terminalSessionId: null,
+  terminalHostId: null,
   terminalId: null,
 
   addPendingSession: (session) =>
@@ -1623,8 +1624,24 @@ export const useStore = create<AppState>((set, get) => ({
   setTerminalCwd: (cwd) => set({ terminalCwd: cwd }),
   setTerminalSessionId: (sessionId) => set({ terminalSessionId: sessionId }),
   setTerminalId: (id) => set({ terminalId: id }),
-  openTerminal: (cwd, sessionId) => set({ terminalOpen: true, terminalCwd: cwd, terminalSessionId: sessionId ?? null }),
-  closeTerminal: () => set({ terminalOpen: false, terminalCwd: null, terminalSessionId: null, terminalId: null }),
+  openTerminal: (cwd, sessionId, hostId) =>
+    set((state) => ({
+      terminalOpen: true,
+      terminalCwd: cwd,
+      terminalSessionId: sessionId ?? null,
+      // Without an explicit machine, a session's terminal opens where its files are, and
+      // reopening the same folder keeps the machine it was on.
+      terminalHostId:
+        hostId !== undefined
+          ? hostId
+          : sessionId
+            ? (state.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.hostId ?? null)
+            : cwd === state.terminalCwd
+              ? state.terminalHostId
+              : null,
+    })),
+  closeTerminal: () =>
+    set({ terminalOpen: false, terminalCwd: null, terminalSessionId: null, terminalHostId: null, terminalId: null }),
 
   reset: () => {
     resetQuestRefreshStateForTests();
@@ -1740,6 +1757,7 @@ export const useStore = create<AppState>((set, get) => ({
       terminalOpen: false,
       terminalCwd: null,
       terminalSessionId: null,
+      terminalHostId: null,
       terminalId: null,
     });
   },

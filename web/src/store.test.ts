@@ -1503,6 +1503,36 @@ describe("UI state", () => {
 
 // ─── Collapsible turn registration ────────────────────────────────────────
 
+describe("openTerminal machine", () => {
+  // The terminal runs on a chosen machine. Without an explicit choice it opens
+  // where the session's files are, and reopening the same folder without a
+  // session (the terminal shortcut's fallback) keeps the machine it was on.
+  it("defaults to the session's host and keeps an explicit choice", () => {
+    useStore.getState().setSdkSessions([
+      { sessionId: "remote", state: "connected", cwd: "/srv/app", createdAt: 1, hostId: "host-1" },
+      { sessionId: "local", state: "connected", cwd: "/home/app", createdAt: 1 },
+    ]);
+
+    useStore.getState().openTerminal("/srv/app", "remote");
+    expect(useStore.getState().terminalHostId).toBe("host-1");
+
+    useStore.getState().openTerminal("/home/app", "local");
+    expect(useStore.getState().terminalHostId).toBeNull();
+
+    useStore.getState().openTerminal("/data", "local", "host-2");
+    expect(useStore.getState().terminalHostId).toBe("host-2");
+
+    useStore.getState().openTerminal("/data", null);
+    expect(useStore.getState().terminalHostId).toBe("host-2");
+
+    useStore.getState().openTerminal("/elsewhere", null);
+    expect(useStore.getState().terminalHostId).toBeNull();
+
+    useStore.getState().closeTerminal();
+    expect(useStore.getState().terminalHostId).toBeNull();
+  });
+});
+
 describe("Collapsible turn registration", () => {
   it("setCollapsibleTurnIds is a no-op when derived turn IDs are unchanged", () => {
     useStore.getState().setCollapsibleTurnIds("s1", ["turn-1", "turn-2"]);

@@ -9,7 +9,10 @@ import { connectTerminal, sendTerminalInput, sendTerminalResize, disconnectTermi
 interface TerminalViewProps {
   cwd: string;
   sessionId?: string;
+  /** Machine the shell runs on: a registered remote host, or null for this server's machine. */
+  hostId?: string | null;
   onClose?: () => void;
+  /** Render only the terminal surface; the embedding page draws the frame and its header. */
   embedded?: boolean;
 }
 
@@ -30,7 +33,7 @@ function getTerminalTheme(theme: ColorTheme) {
   };
 }
 
-export function TerminalView({ cwd, sessionId, onClose, embedded = false }: TerminalViewProps) {
+export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded = false }: TerminalViewProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -77,17 +80,17 @@ export function TerminalView({ cwd, sessionId, onClose, embedded = false }: Term
       );
     }
 
-    // Try to reconnect to an existing terminal for this session/cwd, else spawn new.
+    // Try to reconnect to an existing terminal for this session, folder and machine, else spawn new.
     api
       .getTerminal(sessionId)
       .then((info) => {
         if (cancelled) return;
-        if (info.active && info.terminalId && info.cwd === cwd) {
+        if (info.active && info.terminalId && info.cwd === cwd && (info.hostId ?? null) === hostId) {
           // Reconnect to existing terminal
           wireUp(info.terminalId);
         } else {
           // Spawn a new terminal
-          return api.spawnTerminal(cwd, xterm.cols, xterm.rows, sessionId).then(({ terminalId }) => {
+          return api.spawnTerminal(cwd, xterm.cols, xterm.rows, sessionId, hostId).then(({ terminalId }) => {
             wireUp(terminalId);
           });
         }
@@ -118,7 +121,7 @@ export function TerminalView({ cwd, sessionId, onClose, embedded = false }: Term
       xtermRef.current = null;
       fitRef.current = null;
     };
-  }, [cwd, sessionId]);
+  }, [cwd, sessionId, hostId]);
 
   // Separate effect: update theme without recreating the terminal
   useEffect(() => {
@@ -127,12 +130,19 @@ export function TerminalView({ cwd, sessionId, onClose, embedded = false }: Term
     }
   }, [colorTheme]);
 
+  const background = getTerminalTheme(colorTheme).background;
+  if (embedded) {
+    return (
+      <div className="h-full flex flex-col" style={{ background }}>
+        <div ref={terminalRef} className="flex-1 min-h-0 p-1" />
+      </div>
+    );
+  }
+
   const terminalFrame = (
     <div
-      className={`flex flex-col rounded-[14px] shadow-2xl overflow-hidden border border-cc-border ${
-        embedded ? "h-full" : "w-[90vw] max-w-4xl h-[70vh]"
-      }`}
-      style={{ background: colorTheme === "vscode-dark" ? "#1e1e1e" : colorTheme === "dark" ? "#141413" : "#1e1e1e" }}
+      className="flex flex-col rounded-[14px] shadow-2xl overflow-hidden border border-cc-border w-[90vw] max-w-4xl h-[70vh]"
+      style={{ background }}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}
@@ -159,10 +169,6 @@ export function TerminalView({ cwd, sessionId, onClose, embedded = false }: Term
       <div ref={terminalRef} className="flex-1 min-h-0 p-1" />
     </div>
   );
-
-  if (embedded) {
-    return <div className="h-full">{terminalFrame}</div>;
-  }
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">{terminalFrame}</div>;
 }

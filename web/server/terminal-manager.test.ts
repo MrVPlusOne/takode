@@ -73,8 +73,8 @@ describe("TerminalManager", () => {
     const second = manager.spawn("session-b", join(root, "b"));
 
     expect(first).not.toBe(second);
-    expect(manager.getInfo("session-a")).toEqual({ id: first, cwd: join(root, "a") });
-    expect(manager.getInfo("session-b")).toEqual({ id: second, cwd: join(root, "b") });
+    expect(manager.getInfo("session-a")).toEqual({ id: first, cwd: join(root, "a"), hostId: null });
+    expect(manager.getInfo("session-b")).toEqual({ id: second, cwd: join(root, "b"), hostId: null });
   });
 
   // Bun crashes the whole server when a PTY spawn fails, so a missing folder
