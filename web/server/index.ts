@@ -1245,10 +1245,13 @@ if (process.env.NODE_ENV === "production") {
  */
 function handleRequest(listener: "main" | "hosts") {
   return async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
-    if (serverWorkAdmission.isStopping()) return new Response("Server is shutting down", { status: 503 });
     const url = new URL(req.url);
-
     const wsRoute = matchWebSocketRoute(url.pathname);
+    // Nodes may still reconnect: work accepted before the shutdown can be waiting for their answer.
+    if (serverWorkAdmission.isStopping() && wsRoute?.kind !== "host") {
+      return new Response("Server is shutting down", { status: 503 });
+    }
+
     const opaqueOriginBlock = blockOpaqueOriginApplicationRequest(req, {
       websocketRouteMatched: Boolean(wsRoute),
     });
@@ -1307,7 +1310,10 @@ function handleRequest(listener: "main" | "hosts") {
       headers.set(COMPANION_CLIENT_IP_HEADER, requestIp.address);
     }
     const decoratedRequest = new Request(req, { headers });
-    return serverWorkAdmission.track(Promise.resolve(app.fetch(decoratedRequest, server)));
+    return serverWorkAdmission.track(
+      Promise.resolve(app.fetch(decoratedRequest, server)),
+      `${req.method} ${url.pathname}`,
+    );
   };
 }
 
@@ -1528,9 +1534,10 @@ idleManager.start();
 sleepInhibitor.start();
 
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
-let settleWorkerRollout: Promise<void> = Promise.resolve();
 const shutdown = new ServerShutdown({
   stopWork: () => {
+    // A restart leaves this machine's node running for the next server, and nothing may replace it meanwhile.
+    localNode.stop();
     timerManager.stopDispatch();
     cronScheduler.destroy();
     idleManager.stop();
@@ -1539,11 +1546,7 @@ const shutdown = new ServerShutdown({
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);
-    settleWorkerRollout = codexWorkerV2RolloutService.destroy();
-  },
-  settleWork: async () => {
-    await settleWorkerRollout;
-    await serverWorkAdmission.drain();
+    serverWorkAdmission.track(codexWorkerV2RolloutService.destroy(), "Codex worker rollout shutdown");
   },
   cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),
   // A stop ends the sessions of every connected node, here or on another host;
@@ -1559,7 +1562,6 @@ const shutdown = new ServerShutdown({
   },
   persist: async () => {
     herdEventDispatcher.preservePendingForShutdown();
-    await serverWorkAdmission.drain();
     launcher.flushState();
     await Promise.all([
       sessionStore.flushAll(),

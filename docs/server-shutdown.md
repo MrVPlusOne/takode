@@ -12,6 +12,15 @@ this machine's node, while the nodes are still connected to receive it. A restar
 over. `takode restart` of an installed service stops the server with `SIGTERM`
 and starts it again, so it stops them too.
 
+Work already accepted gets up to 30 seconds to settle, before the listener
+closes, so nodes stay connected (and may reconnect) to answer work waiting on
+them. While it waits, the log names the pending work every five seconds; work
+still running after 30 seconds is logged and abandoned, and shutdown continues.
+Such work usually waits on something that will not answer, such as a host that
+lost its connection, and must not hold a restart forever. Supervising this
+machine's node stops too, so a node that cannot connect is not replaced, and
+nodes are not updated while the server stops.
+
 Listener and non-data cleanup stages have a five-second budget each. Bun 1.3.10
 can leave `server.stop(true)` pending after a server-initiated WebSocket close,
 even when the client has closed. A listener timeout is logged and shutdown
@@ -19,9 +28,8 @@ continues to persistence. An uncertain listener never authorizes deleting the
 frontend snapshot; the supervisor removes its snapshot only after actual exit.
 
 Buffered worker events are transferred into the existing durable pending-input
-queues without starting model work. Accepted work, session state, launcher identity,
-timers and container state must
-finish saving before exit. A stalled save reports its stage and continues waiting.
+queues without starting model work. Session state, launcher identity, timers and
+container state must finish saving before exit. A stalled save reports its stage and continues waiting.
 A failed save leaves the server inactive, preserves the in-memory state and blocks
 automatic replacement. This is an intentional exception to bounded shutdown.
 The supervisor does not escalate the backend to SIGKILL after a timeout. A separate

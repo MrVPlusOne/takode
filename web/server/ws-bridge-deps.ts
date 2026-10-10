@@ -991,6 +991,7 @@ export function getBrowserTransportDeps(host: any) {
           ws as ServerWebSocket<SocketData> | undefined,
           host.getBrowserRoutingDeps(),
         ),
+        `${msg.type} for session ${(targetSession as Session).id}`,
       ),
     pruneTakodeHerdBatch: (targetSession: unknown, batch: TakodeHerdBatchSnapshot | undefined) =>
       pruneStaleBoardStalledHerdBatchController(targetSession as Session, batch, host.getBoardWatchdogDeps()),

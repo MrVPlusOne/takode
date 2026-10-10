@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import type { BridgeTurnView } from "./host-restart-gate.js";
 import {
   HostUpdateSessions,
@@ -67,6 +68,17 @@ describe("HostUpdateSessions", () => {
     testers = [];
     events = [];
     held = [];
+  });
+
+  // Nodes may reconnect while the server stops, so accepted work waiting on
+  // them can finish; updating one then would end sessions the next server takes over.
+  it("never updates a host while the server stops", () => {
+    const stopping = vi.spyOn(serverWorkAdmission, "isStopping").mockReturnValue(true);
+    try {
+      expect(create().blocker("h1", "immediate")).toBe("the server has restarted");
+    } finally {
+      stopping.mockRestore();
+    }
   });
 
   // An update never cuts off a landing run or a takeover in progress; only an
