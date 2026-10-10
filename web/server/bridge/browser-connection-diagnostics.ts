@@ -7,12 +7,18 @@ const LARGE_INITIAL_PAYLOAD_BYTES = 2 * 1024 * 1024;
 const SLOW_INITIAL_SYNC_MS = 10_000;
 const MAX_MESSAGE_TYPES = 32;
 const REPORTED_MESSAGE_TYPES = 8;
+/**
+ * Browser messages at least this large are sent compressed. Smaller ones
+ * barely shrink, so they skip the compression cost.
+ */
+export const BROWSER_COMPRESS_MIN_BYTES = 1024;
 
 export type BrowserClientPlatform = "ios" | "android" | "other" | "unknown";
 
 interface DiagnosticSocket {
   data?: unknown;
-  send(data: string): unknown;
+  /** Bun compresses only when `compress` is true and the browser negotiated permessage-deflate. */
+  send(data: string, compress?: boolean): unknown;
   getBufferedAmount?(): number;
 }
 
@@ -93,15 +99,22 @@ export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId
   return connection.id;
 }
 
-/** Preserve the transport's result/exception while observing actual send attempts. */
+/**
+ * Send one message to a browser, compressed when it is large enough, and
+ * observe the attempt. The server enables permessage-deflate, but Bun only
+ * compresses a message sent with its `compress` flag; a browser that did not
+ * negotiate the extension (or a proxy that removed it) gets it uncompressed.
+ * Preserves the transport's result/exception.
+ */
 export function sendObservedBrowserPayload(ws: DiagnosticSocket, json: string, messageType: string): unknown {
+  const compress = json.length >= BROWSER_COMPRESS_MIN_BYTES;
   const connection = connections.get(ws);
-  if (!connection) return ws.send(json);
+  if (!connection) return ws.send(json, compress);
   const totals = connection.totals;
   totals.attemptedMessages++;
   let result: unknown;
   try {
-    result = ws.send(json);
+    result = ws.send(json, compress);
   } catch (error) {
     totals.failedMessages++;
     throw error;

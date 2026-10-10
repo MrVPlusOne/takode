@@ -1940,6 +1940,7 @@ describe("session subscribe timer sync", () => {
 
     await handleSessionSubscribe(session, ws, 0, undefined, undefined, 1, 1, undefined, deps);
 
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "timer_update", timers: [] }));
+    // Small messages go uncompressed (Bun's compress flag false).
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "timer_update", timers: [] }), false);
   });
 });
