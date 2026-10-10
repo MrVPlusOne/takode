@@ -54,6 +54,8 @@ export interface BoardRowData {
 
 export type BoardTableMode = "active" | "completed";
 
+const HEADER_CELL_CLASSNAME = "px-3 py-2 text-left font-semibold whitespace-nowrap";
+
 const SESSION_LINK_CLASSNAME =
   "font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2";
 
@@ -254,7 +256,7 @@ function BoardSessionEntry({
       {waiting && (
         <span
           data-testid="board-participant-waiting"
-          className="min-w-0 max-w-[16rem] truncate text-[11px] text-emerald-500/80"
+          className="min-w-0 max-w-[16rem] truncate text-[11px] text-cc-success"
           title={waitingStatusLabel(timerCount, dotProps.waitingFor)}
         >
           {waitingStatusShortLabel(timerCount, dotProps.waitingFor)}
@@ -468,15 +470,13 @@ export const BoardTable = memo(function BoardTable({
     <div className="overflow-x-auto">
       <table className="w-full text-xs" data-testid="board-table">
         <thead>
-          <tr className="text-cc-muted border-b border-cc-border">
-            {showThreadAction && <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Thread</th>}
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap min-w-[8rem]">Sessions</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Journey</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Title</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
-              {isCompleted ? "Completed Time" : "Wait For"}
-            </th>
+          <tr className="border-b border-cc-border bg-cc-hover/50 text-[11px] text-cc-muted">
+            {showThreadAction && <th className={HEADER_CELL_CLASSNAME}>Thread</th>}
+            <th className={HEADER_CELL_CLASSNAME}>Quest</th>
+            <th className={HEADER_CELL_CLASSNAME}>Title</th>
+            <th className={HEADER_CELL_CLASSNAME}>Journey</th>
+            <th className={`${HEADER_CELL_CLASSNAME} min-w-[8rem]`}>Sessions</th>
+            <th className={HEADER_CELL_CLASSNAME}>{isCompleted ? "Completed Time" : "Wait For"}</th>
           </tr>
         </thead>
         <tbody>
@@ -486,21 +486,21 @@ export const BoardTable = memo(function BoardTable({
             return (
               <tr
                 key={row.questId}
-                className={`border-b border-cc-border last:border-0 hover:bg-cc-hover/30 ${
-                  selected ? "bg-cc-hover/45" : ""
+                className={`border-b border-cc-border last:border-0 ${
+                  selected ? "bg-cc-primary/10" : "hover:bg-cc-hover"
                 }`}
                 data-testid={showThreadAction ? "board-thread-row" : undefined}
                 data-thread-key={showThreadAction ? threadKey : undefined}
               >
                 {showThreadAction && (
-                  <td className="px-3 py-1.5 text-left whitespace-nowrap">
+                  <td className="px-3 py-2 text-left whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => onSelectQuestThread?.(threadKey)}
                       className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
                         selected
-                          ? "border-cc-primary/45 bg-cc-primary/15 text-cc-primary"
-                          : "border-cc-border/70 bg-cc-hover/40 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+                          ? "border-cc-primary/50 bg-cc-primary/15 text-cc-primary"
+                          : "border-cc-border bg-cc-card text-cc-fg hover:bg-cc-hover"
                       }`}
                       data-testid="board-thread-action"
                       aria-pressed={selected}
@@ -517,17 +517,22 @@ export const BoardTable = memo(function BoardTable({
                     </button>
                   </td>
                 )}
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className="px-3 py-2 whitespace-nowrap">
                   <QuestLink questId={row.questId} />
                 </td>
-                <td className="px-3 py-1.5 min-w-[8rem] whitespace-normal">
-                  <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
+                <td
+                  className="px-3 py-2 min-w-[10rem] max-w-[22rem] truncate font-medium text-cc-fg"
+                  title={row.title || undefined}
+                >
+                  {row.title || "\u2014"}
                 </td>
-                <td className="px-3 py-1.5 max-w-[360px]">
+                <td className="px-3 py-2 max-w-[360px] whitespace-nowrap">
                   <StatusCell row={row} mode={mode} />
                 </td>
-                <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className="px-3 py-2 min-w-[8rem] whitespace-normal">
+                  <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
                   {isCompleted ? (
                     <span
                       className="text-cc-muted"

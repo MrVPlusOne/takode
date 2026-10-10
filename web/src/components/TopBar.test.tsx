@@ -1021,7 +1021,9 @@ describe("TopBar", () => {
     expect(screen.queryByTitle("Current mode: Plan")).not.toBeInTheDocument();
   });
 
-  it("shows desktop leader Workboard and Completed shortcuts when the current leader has counts", () => {
+  // The Board button is the leader's way into the work board from any thread (design B of the
+  // workboard-access checkpoint). It replaced the wide-desktop-only Workboard and Completed shortcuts.
+  it("shows a Board button with the active count and, on wide desktops, the phase summary", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
@@ -1030,20 +1032,57 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
-    expect(screen.getByTestId("topbar-workboard-shortcut")).not.toHaveTextContent("Workboard");
+    const button = screen.getByTestId("topbar-workboard-button");
+    expect(button).toHaveTextContent("Board");
+    expect(screen.getByTestId("topbar-workboard-count")).toHaveTextContent("1");
     expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
-    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("1Completed");
+    expect(screen.getByTestId("workboard-icon")).toBeInTheDocument();
+    // The retired separate shortcuts must not come back next to the Board button.
+    expect(screen.queryByTestId("topbar-workboard-shortcut")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-completed-shortcut")).not.toBeInTheDocument();
   });
 
-  it("places desktop leader shortcuts before Next and the session controls", () => {
+  it("keeps the Board button for a leader whose board is empty", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("topbar-workboard-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-workboard-count")).not.toBeInTheDocument();
+  });
+
+  it("shows the Board button on a phone as an icon with a count badge", () => {
+    window.innerWidth = 430;
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
+            { questId: "q-3", status: "QUEUED", updatedAt: 3 },
+          ],
+        ],
+      ]),
+    });
+
+    render(<TopBar />);
+
+    const button = screen.getByTestId("topbar-workboard-button");
+    expect(button).not.toHaveTextContent("Board");
+    expect(button).toHaveAccessibleName("Open work board (2 active)");
+    expect(screen.getByTestId("topbar-workboard-count")).toHaveTextContent("2");
+  });
+
+  it("places the Board button before Next and the session controls", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" },
         { sessionId: "s2", createdAt: 2, name: "Worker Session", sessionNum: 12 },
       ],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
-      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
       sessionNotifications: new Map([
         [
           "s2",
@@ -1054,15 +1093,13 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    const workboard = screen.getByTestId("topbar-workboard-shortcut");
-    const completed = screen.getByTestId("topbar-completed-shortcut");
+    const board = screen.getByTestId("topbar-workboard-button");
     // The bell and search moved to the sessions panel; Next now leads the session controls.
     const next = screen.getByTestId("next-attention-button");
-    expect(workboard.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(completed.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(board.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("opens desktop leader shortcuts in place without routing away from the current thread", () => {
+  it("opens the board in place without routing away from the current thread", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
@@ -1072,39 +1109,39 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+    fireEvent.click(screen.getByTestId("topbar-workboard-button"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "active");
-    expect(window.location.hash).toBe("#/session/s1?thread=q-1");
-
-    fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
-    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
     expect(window.location.hash).toBe("#/session/s1?thread=q-1");
   });
 
-  it("toggles desktop leader shortcuts closed when the selected shortcut is clicked again", () => {
+  it("opens completed quests when the active board is empty but completed quests exist", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+    });
+
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
+  });
+
+  it.each(["active", "completed", "other"] as const)("closes the board when it is open on the %s view", (openView) => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
-      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
-      leaderWorkboardViews: new Map([["s1", "active"]]),
+      leaderWorkboardViews: new Map([["s1", openView]]),
     });
 
-    const view = render(<TopBar />);
+    render(<TopBar />);
 
-    fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
-    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", null);
-
-    storeState.leaderWorkboardViews.set("s1", "completed");
-    view.rerender(<TopBar />);
-
-    fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+    const button = screen.getByTestId("topbar-workboard-button");
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(button);
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", null);
   });
 
-  it.each([
-    ["topbar-workboard-shortcut", "active", "active"],
-    ["topbar-completed-shortcut", "completed", "completed"],
-  ] as const)("opens the %s panel in place from a quest thread", (shortcutTestId, expectedView, expectedMode) => {
+  it("opens the active panel in place from a quest thread", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
@@ -1122,7 +1159,7 @@ describe("TopBar", () => {
 
     expect(screen.queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId(shortcutTestId));
+    fireEvent.click(screen.getByTestId("topbar-workboard-button"));
 
     expect(window.location.hash).toBe("#/session/s1?thread=q-1");
     view.unmount();
@@ -1133,11 +1170,13 @@ describe("TopBar", () => {
       </>,
     );
     expect(screen.queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
-    expect(screen.getByTestId("board-table")).toHaveAttribute("data-mode", expectedMode);
+    expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+    // Outside Main the banner's view buttons are hidden, so the panel brings its own switch.
+    expect(screen.getByTestId("workboard-panel-header")).toBeInTheDocument();
+    expect(screen.getByTestId("workboard-panel-completed-button")).toBeInTheDocument();
   });
 
-  it("does not let stale bridge role state revive leader shortcuts for a canonical worker row", () => {
+  it("does not let stale bridge role state revive the Board button for a canonical worker row", () => {
     resetStore({
       sessions: new Map([["s1", { cwd: "/repo", isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: false, name: "Worker Session" }],
@@ -1147,8 +1186,7 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.queryByTestId("topbar-workboard-shortcut")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("topbar-completed-shortcut")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-workboard-button")).not.toBeInTheDocument();
   });
 
   it("shows checked quest marker from SDK metadata for a selected snapshot-only session", () => {

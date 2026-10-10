@@ -23,7 +23,7 @@ import {
   boardSummarySegmentsFromActivePhaseSummary,
   type BoardSummarySegment,
 } from "./leader-board-summary.js";
-import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
+import { LeaderWorkboardControlButton, SummarySegments, WorkBoardIcon } from "./leader-workboard-controls.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
@@ -309,15 +309,13 @@ function DetailedWorkBoardPanel({
         <div className="px-3 py-3 text-xs text-cc-muted italic">No active items</div>
       )}
       {view === "completed" && completedBoardRows.length > 0 && (
-        <div className="opacity-70">
-          <BoardTable
-            board={completedBoardRows}
-            mode="completed"
-            rowSessionStatuses={rowSessionStatuses}
-            selectedThreadKey={currentThreadKey}
-            onSelectQuestThread={onSelectThread}
-          />
-        </div>
+        <BoardTable
+          board={completedBoardRows}
+          mode="completed"
+          rowSessionStatuses={rowSessionStatuses}
+          selectedThreadKey={currentThreadKey}
+          onSelectQuestThread={onSelectThread}
+        />
       )}
       {view === "completed" && completedBoardRows.length === 0 && (
         <div className="px-3 py-3 text-xs text-cc-muted italic">No completed quests</div>
@@ -329,6 +327,61 @@ function DetailedWorkBoardPanel({
           onSelectThread={onSelectThread}
         />
       )}
+    </div>
+  );
+}
+
+/** Header of a board opened outside Main, where the banner's view buttons are not shown. */
+function PanelViewSwitch({
+  view,
+  activeCount,
+  completedCount,
+  otherThreadCount,
+  onSelectView,
+  onClose,
+}: {
+  view: LeaderWorkboardView;
+  activeCount: number;
+  completedCount: number;
+  otherThreadCount: number;
+  onSelectView: (view: LeaderWorkboardView) => void;
+  onClose: () => void;
+}) {
+  const option = (target: LeaderWorkboardView, label: string, count: number) => (
+    <LeaderWorkboardControlButton
+      view={target}
+      activeView={view}
+      // Picking the open view keeps it open; only the close button closes the board here.
+      onSelectView={(next) => next !== view && onSelectView(next)}
+      testId={`workboard-panel-${target}-button`}
+      ariaLabel={`Show ${label.toLowerCase()} quests`}
+    >
+      <span>{label}</span>
+      <span className="tabular-nums">{count}</span>
+    </LeaderWorkboardControlButton>
+  );
+  return (
+    <div
+      className="flex min-w-0 items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+      data-testid="workboard-panel-header"
+    >
+      <WorkBoardIcon className="h-4 w-4 text-cc-info" />
+      <span className="mr-1 shrink-0 text-[12px] font-semibold text-cc-fg">Work board</span>
+      {option("active", "Active", activeCount)}
+      {completedCount > 0 && option("completed", "Completed", completedCount)}
+      {otherThreadCount > 0 && option("other", "Other", otherThreadCount)}
+      <button
+        type="button"
+        onClick={onClose}
+        className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+        aria-label="Close work board"
+        title="Close work board"
+        data-testid="workboard-panel-close"
+      >
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -519,14 +572,13 @@ function WorkBoardBarComponent({
   );
   const showMainBanner =
     isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) || isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
+  // An empty active board still opens, so the top-bar Board button always shows something.
   const panelView =
-    activeView === "active" && activeCount === 0
+    activeView === "completed" && completedCount === 0
       ? null
-      : activeView === "completed" && completedCount === 0
+      : activeView === "other" && otherThreadCount === 0
         ? null
-        : activeView === "other" && otherThreadCount === 0
-          ? null
-          : activeView;
+        : activeView;
 
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
@@ -561,10 +613,7 @@ function WorkBoardBarComponent({
           data-active-view={panelView ?? ""}
         >
           <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-info shrink-0">
-            <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
-            <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
-          </svg>
+          <WorkBoardIcon className="h-4 w-4 text-cc-info" />
 
           {activeSummarySegments.length > 0 && (
             <LeaderWorkboardControlButton
@@ -609,12 +658,22 @@ function WorkBoardBarComponent({
             </span>
           )}
 
-          <span className="ml-auto text-[10px] text-cc-muted shrink-0 tabular-nums">
+          <span className="ml-auto text-[11px] text-cc-muted shrink-0 tabular-nums">
             {activeCount} {activeCount === 1 ? "item" : "items"}
           </span>
         </div>
       )}
 
+      {panelView && !showMainBanner && (
+        <PanelViewSwitch
+          view={panelView}
+          activeCount={activeCount}
+          completedCount={completedCount}
+          otherThreadCount={otherThreadCount}
+          onSelectView={handleSelectView}
+          onClose={() => setLeaderWorkboardView(sessionId, null)}
+        />
+      )}
       {panelView && (
         <DetailedWorkBoardPanel
           view={panelView}

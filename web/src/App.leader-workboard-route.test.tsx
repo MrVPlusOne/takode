@@ -286,37 +286,38 @@ beforeEach(() => {
   window.location.hash = `#/session/${SESSION_ID}?thread=q-42`;
 });
 
-it("keeps the explicit leader quest-thread route stable while title-bar shortcuts open panels in place", async () => {
+it("keeps the explicit leader quest-thread route stable while the title-bar Board button opens the board in place", async () => {
   render(<App />);
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
-  expect(screen.getByTestId("topbar-workboard-shortcut")).not.toHaveTextContent("Workboard");
+  expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
 
-  fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
-  fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
-
-  await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
-  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("1Completed");
-
-  fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+  // Outside Main, the opened board switches views with its own header.
+  fireEvent.click(screen.getByTestId("workboard-panel-completed-button"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
-  fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+
+  await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+
+  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+  await waitFor(() => expect(screen.getByTestId("workboard-panel")).toBeInTheDocument());
+  fireEvent.click(screen.getByTestId("workboard-panel-close"));
 
   await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 });
 
-it("renders title-bar panels from the canonical row when legacy session state is stale", async () => {
+it("renders the title-bar board from the canonical row when legacy session state is stale", async () => {
   const sessions = new Map(useStore.getState().sessions);
   const legacy = sessions.get(SESSION_ID)!;
   sessions.set(SESSION_ID, { ...legacy, isOrchestrator: false });
@@ -326,14 +327,14 @@ it("renders title-bar panels from the canonical row when legacy session state is
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
+  expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
 
-  fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
-  fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+  fireEvent.click(screen.getByTestId("workboard-panel-completed-button"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);

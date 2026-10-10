@@ -19,6 +19,7 @@ import { QuestRecordFetchContext } from "./QuestSummaryCard.js";
 import { PlaygroundSessionHeaderMenu } from "./playground/PlaygroundSessionHeaderMenu.js";
 import { PlaygroundRemoteHostSection } from "./playground/PlaygroundRemoteHostSection.js";
 import { PlaygroundNextAttentionSection } from "./playground/PlaygroundNextAttentionSection.js";
+import { PlaygroundWorkboardAccessSection } from "./playground/PlaygroundWorkboardAccessSection.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -117,6 +118,7 @@ export function Playground() {
             <PlaygroundThreadContinuationSection />
             <PlaygroundOriginalThreadSection />
             <PlaygroundInteractiveSections />
+            <PlaygroundWorkboardAccessSection />
             <PlaygroundStateSections />
           </QuestRecordFetchContext.Provider>
         </main>

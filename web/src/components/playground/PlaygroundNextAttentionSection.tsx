@@ -60,7 +60,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Next Attention and Phone Top Bar"
-        description="Next opens the next item that needs the user: needs-input prompts, then Notify Me results, then unread Ready results, newest first in each group; a toast says where it landed. The top bar keeps only ≡, the title, Next and Diffs; Search, Needs input, Notify Me and Quests sit as a search field and chips at the top of the sessions panel, on desktop and phone."
+        description="Next opens the next item that needs the user: needs-input prompts, then Notify Me results, then unread Ready results, newest first in each group; a toast says where it landed. The top bar keeps only ≡, the title, Next and Diffs (leaders also get the Board button); Search, Needs input, Notify Me and Quests sit as a search field and chips at the top of the sessions panel, on desktop and phone."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Next pill (desktop and phone)">

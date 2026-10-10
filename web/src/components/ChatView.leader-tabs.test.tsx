@@ -691,16 +691,19 @@ describe("ChatView leader open thread tabs", () => {
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-777");
   });
 
+  // The Board button opens the active board, or Completed when nothing is active.
   it.each([
-    ["topbar-workboard-shortcut", "active"],
-    ["topbar-completed-shortcut", "completed"],
-  ] as const)("opens the %s panel in place from a quest thread", async (shortcutTestId, expectedView) => {
+    [true, "active"],
+    [false, "completed"],
+  ] as const)("opens the board in place from a quest thread (active rows: %s)", async (hasActiveRows, expectedView) => {
     persistLeaderSelectedThreadKey("s1", "q-42");
     resetStore({
       sessions: leaderSession(),
       projectedLeaderTabKeys: projectionTabKeys(["q-42"]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true, name: "Leader Session" }],
-      sessionBoards: new Map([["s1", [{ questId: "q-42", status: "IMPLEMENTING", title: "Active", updatedAt: 2 }]]]),
+      sessionBoards: new Map([
+        ["s1", hasActiveRows ? [{ questId: "q-42", status: "IMPLEMENTING", title: "Active", updatedAt: 2 }] : []],
+      ]),
       sessionCompletedBoards: new Map([
         ["s1", [{ questId: "q-41", status: "DONE", title: "Completed", updatedAt: 1, completedAt: 1 }]],
       ]),
@@ -715,7 +718,7 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
     expect(scope.queryByTestId("workboard-panel")).not.toBeInTheDocument();
 
-    fireEvent.click(scope.getByTestId(shortcutTestId));
+    fireEvent.click(scope.getByTestId("topbar-workboard-button"));
     view.rerender(<RouteAwareLeaderSession />);
 
     await waitFor(() => expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView));

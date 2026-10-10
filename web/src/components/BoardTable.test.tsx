@@ -74,9 +74,9 @@ describe("BoardTable", () => {
 
     expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
       "Quest",
-      "Sessions",
-      "Journey",
       "Title",
+      "Journey",
+      "Sessions",
       "Wait For",
     ]);
     expect(screen.getByRole("columnheader", { name: "Wait For" })).toBeInTheDocument();
@@ -92,9 +92,9 @@ describe("BoardTable", () => {
     expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
       "Thread",
       "Quest",
-      "Sessions",
-      "Journey",
       "Title",
+      "Journey",
+      "Sessions",
       "Wait For",
     ]);
     expect(screen.getByRole("columnheader", { name: "Thread" })).toBeInTheDocument();

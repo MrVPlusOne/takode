@@ -16,10 +16,9 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { GlobalNotifyMeMenu } from "./GlobalNotifyMeMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
-import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
+import { LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
-import type { LeaderWorkboardView } from "../store-types.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
@@ -154,7 +153,6 @@ export function TopBar({
     refreshQuestSummary,
     isCurrentLeaderSession,
     currentLeaderBoard,
-    currentLeaderCompletedCount,
     currentLeaderWorkboardView,
     setLeaderWorkboardView,
   } = useStore(
@@ -177,9 +175,6 @@ export function TopBar({
       currentLeaderBoard: s.currentSessionId
         ? (s.sessionBoards.get(s.currentSessionId) ?? EMPTY_LEADER_BOARD_ROWS)
         : EMPTY_LEADER_BOARD_ROWS,
-      currentLeaderCompletedCount: s.currentSessionId
-        ? (s.sessionCompletedBoards.get(s.currentSessionId)?.length ?? 0)
-        : 0,
       currentLeaderWorkboardView: s.currentSessionId ? (s.leaderWorkboardViews.get(s.currentSessionId) ?? null) : null,
       setLeaderWorkboardView: s.setLeaderWorkboardView,
     })),
@@ -352,14 +347,18 @@ export function TopBar({
       navigateTo("/questmaster");
     }
   }, [closeCodexSubagentInspector, isQuestmasterPage]);
-  const openLeaderWorkboardViewInPlace = useCallback(
-    (view: LeaderWorkboardView) => {
-      if (!currentSessionId) return;
-      const activeView = useStore.getState().leaderWorkboardViews.get(currentSessionId) ?? null;
-      setLeaderWorkboardView(currentSessionId, activeView === view ? null : view);
-    },
-    [currentSessionId, setLeaderWorkboardView],
-  );
+  // Opens the board under the tabs without leaving the current thread; the panel switches views itself.
+  const toggleLeaderWorkboardInPlace = useCallback(() => {
+    if (!currentSessionId) return;
+    const state = useStore.getState();
+    if (state.leaderWorkboardViews.get(currentSessionId)) {
+      setLeaderWorkboardView(currentSessionId, null);
+      return;
+    }
+    const hasActive = (state.sessionBoards.get(currentSessionId)?.length ?? 0) > 0;
+    const hasCompleted = (state.sessionCompletedBoards.get(currentSessionId)?.length ?? 0) > 0;
+    setLeaderWorkboardView(currentSessionId, !hasActive && hasCompleted ? "completed" : "active");
+  }, [currentSessionId, setLeaderWorkboardView]);
 
   if (fullPageLabel) {
     return (
@@ -562,37 +561,14 @@ export function TopBar({
 
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {currentSessionId &&
-          isSessionView &&
-          isCurrentLeaderSession &&
-          currentLeaderActiveSummarySegments.length > 0 && (
-            <LeaderWorkboardControlButton
-              view="active"
-              activeView={currentLeaderWorkboardView}
-              onSelectView={openLeaderWorkboardViewInPlace}
-              testId="topbar-workboard-shortcut"
-              ariaLabel="Open active workboard"
-              title="Open active workboard"
-              hideUntilWide
-            >
-              <span className="min-w-0 truncate" data-testid="topbar-workboard-phase-summary">
-                <SummarySegments segments={currentLeaderActiveSummarySegments} />
-              </span>
-            </LeaderWorkboardControlButton>
-          )}
-        {currentSessionId && isSessionView && isCurrentLeaderSession && currentLeaderCompletedCount > 0 && (
-          <LeaderWorkboardControlButton
-            view="completed"
-            activeView={currentLeaderWorkboardView}
-            onSelectView={openLeaderWorkboardViewInPlace}
-            testId="topbar-completed-shortcut"
-            ariaLabel="Open completed quests"
-            title="Open completed quests"
-            hideUntilWide
-          >
-            <span className="tabular-nums">{currentLeaderCompletedCount}</span>
-            <span>Completed</span>
-          </LeaderWorkboardControlButton>
+        {currentSessionId && isSessionView && isCurrentLeaderSession && (
+          <LeaderWorkboardTopBarButton
+            open={currentLeaderWorkboardView !== null}
+            activeCount={currentLeaderBoard.length}
+            summarySegments={currentLeaderActiveSummarySegments}
+            compact={compact}
+            onToggle={toggleLeaderWorkboardInPlace}
+          />
         )}
         {/* Needs input, Notify Me, Search and Quests live in the sessions panel (SidebarQuickActions). */}
         <NextAttentionButton compact={compact} />

@@ -414,4 +414,63 @@ describe("WorkBoardBar panel views", () => {
     expect(queryByLabelText("Search threads, board, and history")).not.toBeInTheDocument();
     expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
   });
+  // A board opened from the top-bar Board button on a quest thread has no Main banner above it,
+  // so the panel carries its own view switch and close button.
+  it("adds a view switch and close button to a board opened outside Main", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionCompletedBoards: new Map([
+        ["s1", [{ questId: "q-3", status: "DONE", title: "Finished", updatedAt: 3, completedAt: 3 }]],
+      ]),
+    });
+    mockState.leaderWorkboardViews.set("s1", "active");
+    const view = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
+
+    expect(view.queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
+    expect(view.getByTestId("workboard-panel-header")).toBeInTheDocument();
+    expect(view.getByTestId("workboard-panel-active-button")).toHaveAttribute("aria-pressed", "true");
+    expect(view.getByTestId("workboard-panel-completed-button")).toHaveTextContent("Completed1");
+    // No off-board threads, so no Other switch.
+    expect(view.queryByTestId("workboard-panel-other-button")).not.toBeInTheDocument();
+
+    // Re-picking the open view keeps the board open; only the close button closes it here.
+    fireEvent.click(view.getByTestId("workboard-panel-active-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
+    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+
+    fireEvent.click(view.getByTestId("workboard-panel-completed-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
+    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed");
+
+    fireEvent.click(view.getByTestId("workboard-panel-close"));
+    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
+    expect(view.queryByTestId("workboard-panel")).not.toBeInTheDocument();
+  });
+
+  it("does not repeat the view switch under the Main banner", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+    mockState.leaderWorkboardViews.set("s1", "active");
+    const view = render(<WorkBoardBar sessionId="s1" />);
+
+    expect(view.getByTestId("workboard-main-banner")).toBeInTheDocument();
+    expect(view.getByTestId("workboard-panel")).toBeInTheDocument();
+    expect(view.queryByTestId("workboard-panel-header")).not.toBeInTheDocument();
+  });
+
+  it("opens an empty active board instead of showing nothing", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+    mockState.leaderWorkboardViews.set("s1", "active");
+    const view = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
+
+    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+    expect(view.getByText("No active items")).toBeInTheDocument();
+    expect(view.getByTestId("workboard-panel-active-button")).toHaveTextContent("Active0");
+  });
 });
