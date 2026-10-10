@@ -3,6 +3,7 @@ import { persistLeaderViewportPosition } from "../utils/thread-viewport.js";
 import { useStore } from "../store.js";
 import { annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
+import type { TurnCollapseState } from "../hooks/use-collapse-policy.js";
 
 function escapeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
@@ -101,4 +102,27 @@ export function scrollMessageFeedTargetIntoView({
   if (isLeaderSession) persistLeaderViewportPosition(sessionId, threadKey, position);
   if (!passage) flashMessageFeedTarget(target);
   return position;
+}
+
+/**
+ * Whether a jump to a message may leave a Ready-collapsed turn collapsed: the
+ * target is the Ready message itself (opening the thread's result) or the
+ * collapsed view already shows it. Other targets still expand the turn.
+ */
+export function keepsReadyCollapseForTarget(
+  container: HTMLDivElement | null,
+  state: Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId"> | undefined,
+  messageId: string,
+): boolean {
+  if (!state?.readyCollapsed || state.isActivityExpanded) return false;
+  if (state.readyAnchorMessageId === messageId) return true;
+  return !!container && findMessageFeedScrollTarget(container, messageId) !== null;
+}
+
+/** Where to land in a collapsed turn that does not show the target: its last shown message. */
+export function findCollapsedTurnScrollTarget(container: HTMLDivElement, turnId: string): HTMLElement | null {
+  const turn = container.querySelector<HTMLElement>(`[data-turn-id="${escapeSelectorValue(turnId)}"]`);
+  if (!turn) return null;
+  const messages = turn.querySelectorAll<HTMLElement>("[data-message-id]");
+  return messages[messages.length - 1] ?? turn;
 }

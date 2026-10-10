@@ -83,7 +83,12 @@ import {
   getRouteMessageTargetForThread,
   getSavedViewportTargetMessageId,
 } from "./message-feed-route-target.js";
-import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
+import {
+  findCollapsedTurnScrollTarget,
+  findMessageFeedScrollTarget,
+  keepsReadyCollapseForTarget,
+  scrollMessageFeedTargetIntoView,
+} from "./message-feed-target-scroll.js";
 import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
@@ -599,6 +604,8 @@ export function MessageFeed({
     sessionId,
     turns: visibleTurns,
   });
+  const turnStatesRef = useRef(turnStates);
+  turnStatesRef.current = turnStates;
   const collapseLayoutSignature = useMemo(
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
@@ -658,9 +665,10 @@ export function MessageFeed({
     pendingSectionLoadKeyRef.current = null;
     setPendingSectionLoadDirection(null);
   }, [activeHistoryWindow, activeThreadWindow, sectionWindowStart]);
+  // Collapse-all and expand-last act on each turn's current override key (see TurnCollapseState).
   const collapsibleTurnIds = useMemo(
-    () => visibleTurns.filter((t) => t.agentEntries.length > 0).map((t) => t.id),
-    [visibleTurns],
+    () => turnStates.filter((_, index) => visibleTurns[index]?.agentEntries.length).map((s) => s.overrideKey),
+    [turnStates, visibleTurns],
   );
 
   useEffect(() => {
@@ -1497,10 +1505,9 @@ export function MessageFeed({
     handleUserNavigationIntent();
     clearScrollToTurn(sessionId);
     setAutoFollowEnabled(false);
-    const overrides = useStore.getState().turnActivityOverrides.get(sessionId);
-    const isExpanded = overrides?.get(scrollToTurnId);
-    if (isExpanded !== true) {
-      useStore.getState().keepTurnExpanded(sessionId, scrollToTurnId);
+    const overrideKey = turnStatesRef.current.find((s) => s.turnId === scrollToTurnId)?.overrideKey ?? scrollToTurnId;
+    if (useStore.getState().turnActivityOverrides.get(sessionId)?.get(overrideKey) !== true) {
+      useStore.getState().keepTurnExpanded(sessionId, overrideKey);
     }
     const sectionChanged = ensureSectionForTurnVisible(scrollToTurnId);
     const scheduleScroll = () => {
@@ -1582,7 +1589,10 @@ export function MessageFeed({
       clearPendingScrollToMessageId(sessionId);
       const lastTurn = turns[turns.length - 1];
       if (lastTurn) {
-        useStore.getState().focusTurn(sessionId, lastTurn.id);
+        const lastState = turnStatesRef.current.find((s) => s.turnId === lastTurn.id);
+        // A Ready result named from another thread lands on the collapsed latest turn.
+        if (!lastState?.readyCollapsed || lastState.isActivityExpanded)
+          useStore.getState().focusTurn(sessionId, lastState?.overrideKey ?? lastTurn.id);
         ensureSectionForTurnVisible(lastTurn.id);
         requestAnimationFrame(() => {
           containerRef.current?.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -1593,7 +1603,9 @@ export function MessageFeed({
     }
     pendingTargetWindowRequestRef.current = null;
 
-    useStore.getState().focusTurn(sessionId, targetTurn.id);
+    const targetState = turnStatesRef.current.find((s) => s.turnId === targetTurn.id);
+    const keepReadyCollapse = keepsReadyCollapseForTarget(containerRef.current, targetState, scrollToMessageId);
+    if (!keepReadyCollapse) useStore.getState().focusTurn(sessionId, targetState?.overrideKey ?? targetTurn.id);
     const sectionChanged = ensureSectionForTurnVisible(targetTurn.id);
 
     let scrollAttempts = 0;
@@ -1602,12 +1614,14 @@ export function MessageFeed({
       scrollFrame = requestAnimationFrame(() => {
         const el = containerRef.current;
         if (!el) return;
-        const targetElement = findMessageFeedScrollTarget(el, scrollToMessageId);
+        const targetElement =
+          findMessageFeedScrollTarget(el, scrollToMessageId) ??
+          (keepReadyCollapse ? findCollapsedTurnScrollTarget(el, targetTurn.id) : null);
         if (targetElement) {
           scrollMessageFeedTargetIntoView({
             container: el,
             target: targetElement,
-            targetMessageId: scrollToMessageId,
+            targetMessageId: targetElement.dataset.messageId ?? scrollToMessageId,
             targetTurnId: targetTurn.id,
             sessionId,
             threadKey: normalizedThreadKey,

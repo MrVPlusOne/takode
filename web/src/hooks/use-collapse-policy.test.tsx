@@ -12,7 +12,7 @@ import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js"
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import type { ChatMessage } from "../types.js";
 import { buildFeedModel } from "./use-feed-model.js";
-import { canAutoCollapseReadyThread, useCollapsePolicy } from "./use-collapse-policy.js";
+import { canAutoCollapseReadyThread, readyTurnOverrideKey, useCollapsePolicy } from "./use-collapse-policy.js";
 
 const storeMocks = vi.hoisted(() => ({
   overridesBySession: new Map<string, Map<string, boolean>>(),
@@ -236,10 +236,100 @@ describe("useCollapsePolicy", () => {
       { turnId: "u1", defaultExpanded: true, isActivityExpanded: true },
     ]);
 
-    storeMocks.overridesBySession.set("leader-session", new Map([["u1", true]]));
+    storeMocks.overridesBySession.set("leader-session", new Map([[readyTurnOverrideKey("u1", readyStatus), true]]));
     expect(getLeaderCollapseStates(messages, "q-1636", 3)).toEqual([
       { turnId: "u1", defaultExpanded: false, isActivityExpanded: true },
     ]);
+  });
+
+  it("lets a fresh Ready replace an expansion chosen before it", () => {
+    // Overrides keyed by the plain turn ID were made before this Ready (a peek
+    // while Waiting, or a navigation focus). In a leader quest thread the turn
+    // spans the whole quest, so such a choice must not outlive a later Ready.
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-1636",
+      questId: "q-1636",
+      summary: "complete",
+      messageId: "a-ready",
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ "q-1636": readyStatus });
+    storeMocks.overridesBySession.set("leader-session", new Map([["u1", true]]));
+    const model = buildFeedModel(
+      [
+        makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
+        makeInjectedUserMessage("herd-1", "#1456 | turn_end | ✓ 50s", "herd-events", 2),
+        makeMessage({
+          id: "a-ready",
+          role: "assistant",
+          content: "q-1636 is complete.",
+          timestamp: 3,
+          metadata: { threadStatusMarkers: [readyStatus] },
+        }),
+      ],
+      true,
+    );
+    const { result } = renderHook(() =>
+      useCollapsePolicy({ autoCollapseReadyThreadKey: "q-1636", sessionId: "leader-session", turns: model.turns }),
+    );
+
+    expect(result.current.turnStates).toEqual([
+      {
+        turnId: "u1",
+        overrideKey: readyTurnOverrideKey("u1", readyStatus),
+        defaultExpanded: false,
+        isActivityExpanded: false,
+        readyCollapsed: true,
+        readyAnchorMessageId: "a-ready",
+      },
+    ]);
+    result.current.toggleTurn("u1");
+    expect(storeMocks.toggleTurnActivity).toHaveBeenCalledWith(
+      "leader-session",
+      readyTurnOverrideKey("u1", readyStatus),
+      false,
+    );
+  });
+
+  it("applies a Ready marked from another thread's message when the turn began before it", () => {
+    // The status message is routed elsewhere, so it is not in this turn; its
+    // complete identity plus timestamps prove the Ready followed this turn.
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-1636",
+      questId: "q-1636",
+      summary: "complete",
+      messageId: "main-message",
+      timestamp: 5,
+      updatedAt: 5,
+    } as const;
+    installLeaderProjection({ "q-1636": readyStatus });
+    const messages = [
+      makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
+      makeMessage({ id: "a-progress", role: "assistant", content: "Worker started.", timestamp: 2 }),
+    ];
+
+    expect(getLeaderCollapseStates(messages, "q-1636")).toEqual([
+      { turnId: "u1", defaultExpanded: false, isActivityExpanded: false },
+    ]);
+    // Model output after the Ready reopens the turn.
+    expect(
+      getLeaderCollapseStates(
+        [...messages, makeMessage({ id: "a-later", role: "assistant", content: "More work.", timestamp: 6 })],
+        "q-1636",
+      ),
+    ).toEqual([{ turnId: "u1", defaultExpanded: true, isActivityExpanded: true }]);
+    // A turn started by a human message after the Ready is not covered by it.
+    expect(
+      getLeaderCollapseStates(
+        [makeMessage({ id: "u2", role: "user", content: "one more thing", timestamp: 6 })],
+        "q-1636",
+      ),
+    ).toEqual([{ turnId: "u2", defaultExpanded: true, isActivityExpanded: true }]);
   });
 
   it("correlates a truncated Main Ready anchor through its full message ID hash", () => {

@@ -1,5 +1,10 @@
 import { useCallback, useMemo } from "react";
-import { threadStatusKey, threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
+import { LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  threadStatusKey,
+  threadStatusMessageIdHash,
+  type LeaderThreadStatus,
+} from "../../shared/thread-status-marker.js";
 import { useStore } from "../store.js";
 import { getAssistantVisibleMarkdown } from "../utils/assistant-message-renderability.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
@@ -9,8 +14,19 @@ import type { Turn } from "./use-feed-model.js";
 
 export interface TurnCollapseState {
   turnId: string;
+  /**
+   * Store key for this turn's manual expand/collapse choice. While a fresh
+   * Ready collapses the turn, the key names that Ready, so a choice made
+   * before it (a manual peek, or an expansion by navigation) gives way to the
+   * Ready, while a choice made after it lasts until the next Ready.
+   */
+  overrideKey: string;
   defaultExpanded: boolean;
   isActivityExpanded: boolean;
+  /** The latest turn is collapsed by default because its thread is freshly Ready. */
+  readyCollapsed: boolean;
+  /** The message in this turn that carries the Ready marker, when it is in the turn. */
+  readyAnchorMessageId: string | null;
 }
 
 export function canAutoCollapseReadyThread({
@@ -28,13 +44,20 @@ export function canAutoCollapseReadyThread({
   return normalizeThreadKey(activeTurnThreadKey) !== normalizeThreadKey(currentThreadKey);
 }
 
-interface ReadyMessageIdentities {
-  exact: ReadonlySet<string>;
-  hashes: ReadonlySet<string>;
+function matchesReadyMessageId(messageId: string, status: LeaderThreadStatus): boolean {
+  if (status.messageId && status.messageId === messageId) return true;
+  return !!status.messageIdHash && status.messageIdHash === threadStatusMessageIdHash(messageId);
 }
 
-function matchesReadyMessageId(messageId: string, identities: ReadyMessageIdentities): boolean {
-  return identities.exact.has(messageId) || identities.hashes.has(threadStatusMessageIdHash(messageId));
+/** Whether the status names its message completely, so a miss proves the message is elsewhere. */
+function hasCompleteMessageIdentity(status: LeaderThreadStatus): boolean {
+  if (status.messageIdHash) return true;
+  return status.messageId.length > 0 && status.messageId.length < LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH;
+}
+
+/** The override key of a turn while `status` (a fresh Ready) collapses it. */
+export function readyTurnOverrideKey(turnId: string, status: LeaderThreadStatus): string {
+  return `${turnId}#ready:${status.messageIdHash ?? status.messageId}@${status.timestamp}`;
 }
 
 function entryHasModelActivity(entry: Turn["allEntries"][number]): boolean {
@@ -54,27 +77,52 @@ function entryHasModelActivity(entry: Turn["allEntries"][number]): boolean {
   return (entry.msg.contentBlocks?.length ?? 0) > 0 || entry.msg.content.trim().length > 0 || hasVisibleChild;
 }
 
-function turnHasFreshReadyStatusMarker(
-  turn: Turn,
-  threadKey: string | null,
-  readyMessageIds: ReadyMessageIdentities,
-): boolean {
-  if (!threadKey || (readyMessageIds.exact.size === 0 && readyMessageIds.hashes.size === 0)) return false;
-  const normalizedThreadKey = normalizeThreadKey(threadKey);
+function findReadyAnchorIndex(turn: Turn, status: LeaderThreadStatus, normalizedThreadKey: string): number {
   let readyAnchorIndex = -1;
   for (const [index, entry] of turn.allEntries.entries()) {
     if (entry.kind !== "message") continue;
-    const matchesMessage = matchesReadyMessageId(entry.msg.id, readyMessageIds);
+    const matchesMessage = matchesReadyMessageId(entry.msg.id, status);
     const matchesMarker = (entry.msg.metadata?.threadStatusMarkers ?? []).some(
       (marker) =>
         marker.kind === "ready" &&
         threadStatusKey(marker.threadKey) === normalizedThreadKey &&
-        matchesReadyMessageId(marker.messageId, readyMessageIds),
+        matchesReadyMessageId(marker.messageId, status),
     );
     if (matchesMessage || matchesMarker) readyAnchorIndex = index;
   }
-  if (readyAnchorIndex < 0) return false;
-  return !turn.allEntries.slice(readyAnchorIndex + 1).some(entryHasModelActivity);
+  return readyAnchorIndex;
+}
+
+/**
+ * A leader can mark this thread Ready from a message routed to another
+ * thread, so the marker is not in this turn. The Ready still covers the turn
+ * when the turn began before it: anchor just before the first message timed
+ * after the Ready.
+ */
+function findCrossThreadReadyAnchorIndex(turn: Turn, status: LeaderThreadStatus): number {
+  if (!hasCompleteMessageIdentity(status)) return -1;
+  const userEntry = turn.userEntry;
+  if (userEntry?.kind === "message" && userEntry.msg.timestamp > status.timestamp) return -1;
+  const firstLaterIndex = turn.allEntries.findIndex(
+    (entry) => entry.kind === "message" && entry.msg.timestamp > status.timestamp,
+  );
+  return (firstLaterIndex < 0 ? turn.allEntries.length : firstLaterIndex) - 1;
+}
+
+/** The Ready anchor when the status is fresh for this turn: nothing the model did follows it. */
+function findFreshReadyAnchor(
+  turn: Turn,
+  threadKey: string | null,
+  status: LeaderThreadStatus | null,
+): { messageId: string | null } | null {
+  if (!threadKey || !status) return null;
+  const normalizedThreadKey = normalizeThreadKey(threadKey);
+  const anchorIndex = findReadyAnchorIndex(turn, status, normalizedThreadKey);
+  const effectiveIndex = anchorIndex >= 0 ? anchorIndex : findCrossThreadReadyAnchorIndex(turn, status);
+  if (effectiveIndex < 0) return null;
+  if (turn.allEntries.slice(effectiveIndex + 1).some(entryHasModelActivity)) return null;
+  const anchor = anchorIndex >= 0 ? turn.allEntries[anchorIndex] : null;
+  return { messageId: anchor?.kind === "message" ? anchor.msg.id : null };
 }
 
 export function useCollapsePolicy({
@@ -94,38 +142,40 @@ export function useCollapsePolicy({
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
   const currentThreadStatuses = useStore((s) => selectLeaderThreadStatuses(s, sessionId));
   const toggleTurnActivity = useStore((s) => s.toggleTurnActivity);
-  const readyMessageIds = useMemo<ReadyMessageIdentities>(() => {
-    if (!autoCollapseReadyThreadKey || !currentThreadStatuses) {
-      return { exact: new Set<string>(), hashes: new Set<string>() };
-    }
+  const readyStatus = useMemo<LeaderThreadStatus | null>(() => {
+    if (!autoCollapseReadyThreadKey || !currentThreadStatuses) return null;
     const normalizedThreadKey = normalizeThreadKey(autoCollapseReadyThreadKey);
-    const statuses = Object.values(currentThreadStatuses).filter(
-      (status) =>
-        status.kind === "ready" &&
-        threadStatusKey(status.threadKey) === normalizedThreadKey &&
-        (autoCollapseReadyAfter == null || status.timestamp >= autoCollapseReadyAfter),
+    return (
+      Object.values(currentThreadStatuses).find(
+        (status) =>
+          status.kind === "ready" &&
+          threadStatusKey(status.threadKey) === normalizedThreadKey &&
+          (status.messageId || status.messageIdHash) &&
+          (autoCollapseReadyAfter == null || status.timestamp >= autoCollapseReadyAfter),
+      ) ?? null
     );
-    return {
-      exact: new Set(statuses.map((status) => status.messageId).filter(Boolean)),
-      hashes: new Set(statuses.map((status) => status.messageIdHash).filter((hash): hash is string => !!hash)),
-    };
   }, [autoCollapseReadyAfter, autoCollapseReadyThreadKey, currentThreadStatuses]);
 
   const turnStates = useMemo(() => {
-    return turns.map((turn, index) => {
+    return turns.map((turn, index): TurnCollapseState => {
       const isLastTurn = index === turns.length - 1;
-      const defaultExpanded =
-        isLastTurn && !turnHasFreshReadyStatusMarker(turn, autoCollapseReadyThreadKey, readyMessageIds);
-      const override = overrides?.get(turn.id);
+      const freshReady = isLastTurn ? findFreshReadyAnchor(turn, autoCollapseReadyThreadKey, readyStatus) : null;
+      const readyCollapsed = freshReady !== null;
+      const defaultExpanded = isLastTurn && !readyCollapsed;
+      const overrideKey = readyCollapsed && readyStatus ? readyTurnOverrideKey(turn.id, readyStatus) : turn.id;
+      const override = overrides?.get(overrideKey);
       const isActivityExpanded = override !== undefined ? override : defaultExpanded;
 
       return {
         turnId: turn.id,
+        overrideKey,
         defaultExpanded,
         isActivityExpanded,
+        readyCollapsed,
+        readyAnchorMessageId: freshReady?.messageId ?? null,
       };
     });
-  }, [autoCollapseReadyThreadKey, overrides, readyMessageIds, turns]);
+  }, [autoCollapseReadyThreadKey, overrides, readyStatus, turns]);
 
   const turnStateById = useMemo(() => new Map(turnStates.map((state) => [state.turnId, state])), [turnStates]);
 
@@ -133,7 +183,7 @@ export function useCollapsePolicy({
     (turnId: string) => {
       const state = turnStateById.get(turnId);
       if (!state) return;
-      toggleTurnActivity(sessionId, turnId, state.defaultExpanded);
+      toggleTurnActivity(sessionId, state.overrideKey, state.defaultExpanded);
     },
     [sessionId, toggleTurnActivity, turnStateById],
   );

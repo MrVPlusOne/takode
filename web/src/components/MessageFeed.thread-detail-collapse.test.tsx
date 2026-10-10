@@ -182,6 +182,7 @@ vi.mock("../store.js", () => {
   };
 });
 
+import { readyTurnOverrideKey } from "../hooks/use-collapse-policy.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { FeedEntries } from "./MessageFeedEntries.js";
 
@@ -1093,7 +1094,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText("quest status q-1636")).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Show turn activity/i })[0]!);
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
+    // The manual choice is keyed to this Ready, so a later Ready collapses again.
+    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, readyTurnOverrideKey("u1", readyStatus), false);
   });
 
   it("auto-collapses a long-ID Ready turn in Main but leaves All Threads expanded", () => {
@@ -1148,7 +1150,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     );
 
     main.unmount();
-    setStoreTurnOverrides(sid, [["u-main", true]]);
+    setStoreTurnOverrides(sid, [[readyTurnOverrideKey("u-main", projectedReadyStatus), true]]);
     const manuallyExpanded = render(<MessageFeed sessionId={sid} threadKey="main" />);
     expect(screen.getByText("Main coordination detail")).toBeTruthy();
     expect(screen.getByText("quest status q-2041")).toBeTruthy();
@@ -1468,7 +1470,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText("Checking one more internal detail after the response.")).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-1979: phase-aware summary ready")).toBeTruthy();
 
-    setStoreTurnOverrides(sid, [["u1", true]]);
+    setStoreTurnOverrides(sid, [[readyTurnOverrideKey("u1", readyStatus), true]]);
     view.rerender(<MessageFeed sessionId={sid} threadKey="q-1979" />);
 
     expect(screen.getByText("Codex metadata now selects the informative response.")).toBeTruthy();
