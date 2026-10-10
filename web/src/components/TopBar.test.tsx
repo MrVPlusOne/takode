@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
 import {
@@ -287,9 +287,12 @@ import { getCurrentTopBarSessionState, TopBar } from "./TopBar.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { api } from "../api.js";
+import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
+import { ATTENTION_NEXT_EVENT } from "./GlobalAttentionMenu.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetAttentionCursorsForTest();
   window.innerWidth = 1280;
   window.location.hash = "";
   localStorage.clear();
@@ -1101,8 +1104,8 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     const board = screen.getByTestId("topbar-workboard-button");
-    // The bell and search moved to the sessions panel; Next now leads the session controls.
-    const next = screen.getByTestId("next-attention-button");
+    // The bell and search moved to the sessions panel; the attention list now leads the session controls.
+    const next = screen.getByTestId("attention-list-button");
     expect(board.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -1400,7 +1403,7 @@ describe("TopBar phone layout and Next", () => {
 
     expect(screen.getByText("Worker One")).toBeInTheDocument();
     expect(screen.getByText("#101")).toBeInTheDocument();
-    expect(screen.getByTestId("next-attention-button")).toHaveTextContent("2");
+    expect(screen.getByTestId("attention-list-button")).toHaveTextContent("2");
     expect(screen.getByTestId("topbar-sessions-panel-waiting-dot")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show diffs" })).toBeInTheDocument();
     expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
@@ -1408,24 +1411,62 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();
   });
 
-  it("keeps only Next and Diffs on the desktop session bar and opens the newest prompt", () => {
+  it("opens a list of everything needing attention, whose Next walks it from the newest prompt", () => {
+    // The top-right control is a list toggle now: it shows every item with its
+    // session, and Next inside it steps through the list instead of jumping blind.
     resetStore(twoPromptsState());
     render(<TopBar />);
 
     // Desktop matches the phone: Needs input, Notify Me, Search and Quests live in the sessions panel.
-    const next = screen.getByTestId("next-attention-button");
-    expect(next).toHaveTextContent("Next2");
+    const pill = screen.getByTestId("attention-list-button");
+    expect(pill).toHaveTextContent("2");
     expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Quests")).not.toBeInTheDocument();
 
-    fireEvent.click(next);
+    fireEvent.click(pill);
+    expect(window.location.hash).not.toContain("m2");
+    const panel = screen.getByRole("dialog", { name: "Everything that needs attention" });
+    const rows = within(panel).getAllByTestId("attention-item-row");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Confirm rollback plan"),
+      expect.stringContaining("Pick deployment window"),
+    ]);
+    expect(rows[0]).toHaveTextContent("#102 Worker Two");
+
+    fireEvent.click(within(panel).getByTestId("attention-list-next"));
     expect(window.location.hash).toContain("m2");
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("Needs input · #102 Confirm rollback plan");
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+    expect(within(panel).getByTestId("attention-list-next")).toHaveTextContent("2/2");
+
+    fireEvent.click(within(panel).getByTestId("attention-list-next"));
+    expect(window.location.hash).toContain("m1");
+    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
   });
 
-  it("leaves a herded worker's question to its leader out of Next", () => {
+  it("opens one item from the list with Go to and closes the list", () => {
+    resetStore(twoPromptsState());
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByTestId("attention-list-button"));
+    fireEvent.click(screen.getByRole("button", { name: "Go to Pick deployment window" }));
+    expect(window.location.hash).toContain("m1");
+    expect(screen.queryByRole("dialog", { name: "Everything that needs attention" })).not.toBeInTheDocument();
+  });
+
+  it("steps to the next item from the keyboard shortcut without opening the list", () => {
+    resetStore(twoPromptsState());
+    render(<TopBar />);
+
+    act(() => {
+      window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT));
+    });
+    expect(window.location.hash).toContain("m2");
+    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+  });
+
+  it("leaves a herded worker's question to its leader out of the list", () => {
     // A worker asking its leader is not the user's to answer; only s1's prompt counts.
     resetStore({
       ...twoPromptsState(),
@@ -1436,13 +1477,14 @@ describe("TopBar phone layout and Next", () => {
     });
     render(<TopBar />);
 
-    expect(screen.getByTestId("next-attention-button")).toHaveTextContent("Next1");
-    fireEvent.click(screen.getByTestId("next-attention-button"));
+    expect(screen.getByTestId("attention-list-button")).toHaveTextContent("1");
+    fireEvent.click(screen.getByTestId("attention-list-button"));
+    fireEvent.click(screen.getByTestId("attention-list-next"));
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("#101 Pick deployment window");
   });
 
   it("hides Next while nothing needs attention", () => {
     render(<TopBar />);
-    expect(screen.queryByTestId("next-attention-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("attention-list-button")).not.toBeInTheDocument();
   });
 });

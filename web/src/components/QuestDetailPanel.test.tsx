@@ -659,7 +659,8 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    // A tap on the chip steps to the next item; right-click opens the inbox.
+    fireEvent.contextMenu(screen.getByRole("button", { name: /next item that needs attention in this session/ }));
     act(() => {
       useStore.setState({ questOverlayId: "q-42" });
     });
@@ -700,7 +701,8 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    // A tap on the chip steps to the next item; right-click opens the inbox.
+    fireEvent.contextMenu(screen.getByRole("button", { name: /next item that needs attention in this session/ }));
     act(() => {
       useStore.setState({ questOverlayId: "q-42" });
     });
@@ -742,7 +744,8 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    // A tap on the chip steps to the next item; right-click opens the inbox.
+    fireEvent.contextMenu(screen.getByRole("button", { name: /next item that needs attention in this session/ }));
     act(() => {
       useStore.setState({ questOverlayId: "q-42" });
     });

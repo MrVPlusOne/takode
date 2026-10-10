@@ -10,7 +10,9 @@ import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
 import { MAIN_THREAD_KEY } from "./thread-projection.js";
 
 /**
- * The "Next" queue: everything that needs the user, in the order Next visits it.
+ * The attention queue: everything that needs the user, in the order the
+ * attention navigators visit it (the global list and its Next, and each
+ * session's feed chip).
  *
  * Groups come in a fixed priority (needs-input, then Notify Me results, then
  * unread Ready results), newest first within a group. A thread that already
@@ -38,9 +40,15 @@ export interface UnreadAttentionCandidate {
   timestamp: number;
 }
 
-export interface NextAttentionLocation {
-  sessionId: string | null;
-  threadKey: string | null;
+/**
+ * Where a navigator is in its queue: the place of the item it last opened.
+ * It is kept as that item's sort position rather than an index, so items that
+ * leave or join the queue do not move the cursor back to the start.
+ */
+export interface AttentionCursor {
+  key: string;
+  rank: number;
+  timestamp: number;
 }
 
 const GROUP_RANK: Record<NextAttentionItem["kind"], number> = { "needs-input": 0, "notify-me": 1, unread: 2 };
@@ -83,31 +91,31 @@ export function buildNextAttentionQueue(input: {
     if (alreadyQueued) continue;
     items.push({ kind: "unread", key: `unread:${candidate.sessionId}:${candidate.threadKey ?? ""}`, ...candidate });
   }
-  return items.sort(
-    (a, b) =>
-      GROUP_RANK[a.kind] - GROUP_RANK[b.kind] ||
-      b.timestamp - a.timestamp ||
-      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-  );
+  return items.sort((a, b) => compareQueuePlace(attentionCursorFor(a), attentionCursorFor(b)));
+}
+
+export function attentionCursorFor(item: NextAttentionItem): AttentionCursor {
+  return { key: item.key, rank: GROUP_RANK[item.kind], timestamp: item.timestamp };
+}
+
+function compareQueuePlace(a: AttentionCursor, b: AttentionCursor): number {
+  return a.rank - b.rank || b.timestamp - a.timestamp || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
 /**
- * Pick where Next goes: the item after the one being viewed, wrapping around.
- * `lastKey` is the item Next last opened; it disambiguates several items in the
- * same thread so repeated taps keep advancing instead of bouncing between them.
+ * Pick the item a navigator opens next: the first item placed after the cursor,
+ * wrapping to the top at the end, so repeated steps walk the whole queue into
+ * the lower-priority groups. Without a cursor it starts at the top. An item
+ * that was answered or read simply drops out, and a new one is visited when the
+ * walk reaches its place.
  */
-export function pickNextAttention(
+export function pickAttentionAfter(
   queue: readonly NextAttentionItem[],
-  location: NextAttentionLocation,
-  lastKey: string | null,
+  cursor: AttentionCursor | null,
 ): { item: NextAttentionItem; position: number } | null {
   if (queue.length === 0) return null;
-  const isHere = (item: NextAttentionItem) =>
-    item.sessionId === location.sessionId &&
-    (item.threadKey === null || item.threadKey === (location.threadKey ?? MAIN_THREAD_KEY));
-  const lastIndex = queue.findIndex((item) => item.key === lastKey);
-  const currentIndex = lastIndex >= 0 && isHere(queue[lastIndex]!) ? lastIndex : queue.findIndex(isHere);
-  const position = (currentIndex + 1) % queue.length;
+  const index = cursor ? queue.findIndex((item) => compareQueuePlace(attentionCursorFor(item), cursor) > 0) : 0;
+  const position = index >= 0 ? index : 0;
   return { item: queue[position]!, position };
 }
 
@@ -134,23 +142,6 @@ export function buildSessionAttentionQueue(input: {
 }
 
 /**
- * Pick where the session chip's Next goes. Unlike the global Next, being in the
- * item's thread does not mean the user has seen it, so the first tap opens the
- * first item and later taps follow the last opened one. When that item has left
- * the queue (answered, read), the item that took its place comes next.
- */
-export function pickSessionAttention(
-  queue: readonly NextAttentionItem[],
-  last: { key: string; position: number } | null,
-): { item: NextAttentionItem; position: number } | null {
-  if (queue.length === 0) return null;
-  const lastIndex = last ? queue.findIndex((item) => item.key === last.key) : -1;
-  const position =
-    lastIndex >= 0 ? (lastIndex + 1) % queue.length : last && last.position < queue.length ? last.position : 0;
-  return { item: queue[position]!, position };
-}
-
-/**
  * Unread Ready results from synchronized state. Leader sessions with a loaded
  * tab projection contribute one candidate per unread thread; otherwise a
  * session whose unread mark is a review or error contributes a session-level one.
@@ -172,7 +163,7 @@ export function collectUnreadAttention(
         candidates.push({
           sessionId: session.sessionId,
           threadKey: MAIN_THREAD_KEY,
-          label: sessionLabel,
+          label: "Main",
           timestamp: mainAttention.updatedAt,
         });
       }

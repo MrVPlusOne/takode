@@ -1,40 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
-import { api } from "../api.js";
 import { fetchThreadMonitoring } from "../api/thread-monitoring.js";
 import { useGlobalNeedsInputEntries } from "../components/GlobalNeedsInputMenu.js";
-import { openNotifyMeEntry, useNotifyMeSummary } from "../components/GlobalNotifyMeMenu.js";
+import { useNotifyMeSummary } from "../components/GlobalNotifyMeMenu.js";
 import { useStore } from "../store.js";
-import type { SdkSessionInfo } from "../types.js";
-import {
-  buildNextAttentionQueue,
-  collectUnreadAttention,
-  pickNextAttention,
-  type NextAttentionItem,
-} from "../utils/next-attention.js";
-import { navigateToNotification } from "../utils/notification-navigation.js";
-import {
-  navigateToSession,
-  navigateToSessionThread,
-  routeSessionRefForId,
-  threadRouteFromHash,
-} from "../utils/routing.js";
+import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
+import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
 
-export interface NextAttentionLanding {
-  item: NextAttentionItem;
-  sessionNum: number | null;
-  /** 1-based position of the opened item in the queue. */
-  position: number;
-  total: number;
-}
+export { openAttentionItem, type NextAttentionLanding } from "./useAttentionNavigator.js";
 
 /**
- * The cross-session "Next" queue and the action that opens its next item.
- * See `utils/next-attention.ts` for what is included and in which order.
+ * Everything across sessions that needs the user, for the top bar's attention
+ * list, plus its Next step. See `utils/next-attention.ts` for what is included
+ * and in which order.
  */
-export function useNextAttention(): { count: number; goNext: () => NextAttentionLanding | null } {
-  const { entries: needsInput, sdkSessions } = useGlobalNeedsInputEntries();
+export function useNextAttention(): AttentionNavigator & { queue: NextAttentionItem[] } {
+  const { entries: needsInput } = useGlobalNeedsInputEntries();
   const { pending, signature } = useNotifyMeSummary();
   const notifyMe = usePendingNotifyMeEntries(pending, signature);
   const unreadSource = useStore(
@@ -49,41 +31,7 @@ export function useNextAttention(): { count: number; goNext: () => NextAttention
     () => buildNextAttentionQueue({ needsInput, notifyMe, unread: collectUnreadAttention(unreadSource) }),
     [needsInput, notifyMe, unreadSource],
   );
-  const lastKeyRef = useRef<string | null>(null);
-
-  const goNext = useCallback((): NextAttentionLanding | null => {
-    const location = {
-      sessionId: useStore.getState().currentSessionId,
-      threadKey: threadRouteFromHash(window.location.hash).threadKey,
-    };
-    const next = pickNextAttention(queue, location, lastKeyRef.current);
-    if (!next) return null;
-    lastKeyRef.current = next.item.key;
-    openAttentionItem(next.item, sdkSessions);
-    const sessionNum = sdkSessions.find((session) => session.sessionId === next.item.sessionId)?.sessionNum ?? null;
-    return { item: next.item, sessionNum, position: next.position + 1, total: queue.length };
-  }, [queue, sdkSessions]);
-
-  return { count: queue.length, goNext };
-}
-
-/** Open an attention item: shared by Next and the session feed's attention chip. */
-export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessionInfo[]) {
-  if (item.kind === "needs-input") {
-    navigateToNotification(item.sessionId, item.entry.notification, sdkSessions);
-    return;
-  }
-  if (item.kind === "notify-me") {
-    openNotifyMeEntry(item.entry, sdkSessions);
-    return;
-  }
-  if (item.threadKey) {
-    navigateToSessionThread(item.sessionId, item.threadKey, false, routeSessionRefForId(item.sessionId, sdkSessions));
-    return;
-  }
-  // Same as choosing the session in the sidebar: opening it reads its unread result.
-  api.markSessionRead?.(item.sessionId, { mode: "session-view" }).catch(() => {});
-  navigateToSession(item.sessionId);
+  return { queue, ...useAttentionNavigator("global", queue) };
 }
 
 /**

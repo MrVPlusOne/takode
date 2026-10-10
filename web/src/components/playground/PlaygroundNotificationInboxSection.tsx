@@ -540,10 +540,12 @@ export function PlaygroundNotificationInboxSection() {
         <Card label="Session attention navigator (chip, inbox and Next)">
           <div className="p-3 space-y-2">
             <p className="text-[10px] text-cc-muted">
-              Click &quot;Seed notification data&quot; above first. The chip counts this session&apos;s needs-input
-              prompts, pending Notify Me results and unread results; the arrow opens them one at a time in that order
-              (newest first within each kind) with a toast like &quot;2 / 5&quot;. The inbox lists Notify Me and Unread
-              sections after the prompts. Here the arrow only moves the toast; in a session it jumps to each item.
+              Click &quot;Seed notification data&quot; above first. The chip is a one-tap next button for this session:
+              each tap opens the next item that needs attention (needs-input prompts, then Notify Me results, then
+              unread results, newest first in each kind) and wraps at the end, and its label shows the next item&apos;s
+              position and kind, like &quot;1/4 · needs input&quot;. Right-click or long-press opens the inbox, which
+              lists Notify Me and Unread sections after the prompts and marks the next row. Here steps only move the
+              position and toast; in a session they jump to each item.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">

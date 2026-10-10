@@ -25,7 +25,7 @@ import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHostBadge } from "./HostBadge.js";
-import { NextAttentionButton } from "./NextAttentionButton.js";
+import { GlobalAttentionMenu } from "./GlobalAttentionMenu.js";
 import { useGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { useNotifyMeSummary } from "./GlobalNotifyMeMenu.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
@@ -380,7 +380,7 @@ export function TopBar({
           <span className="truncate text-[12px] font-semibold text-cc-fg">{fullPageLabel}</span>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
-          <NextAttentionButton compact={compact} />
+          <GlobalAttentionMenu compact={compact} />
           <GlobalNeedsInputMenu />
           <GlobalNotifyMeMenu />
           <SearchToggleButton
@@ -571,7 +571,7 @@ export function TopBar({
           />
         )}
         {/* Needs input, Notify Me, Search and Quests live in the sessions panel (SidebarQuickActions). */}
-        <NextAttentionButton compact={compact} />
+        <GlobalAttentionMenu compact={compact} />
         {currentSessionId && isSessionView && (
           <>
             {status === "compacting" && (

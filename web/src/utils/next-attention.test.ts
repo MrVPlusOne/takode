@@ -5,11 +5,11 @@ import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import type { GlobalNeedsInputEntry } from "./global-needs-input.js";
 import {
+  attentionCursorFor,
   buildNextAttentionQueue,
   buildSessionAttentionQueue,
   collectUnreadAttention,
-  pickNextAttention,
-  pickSessionAttention,
+  pickAttentionAfter,
 } from "./next-attention.js";
 
 function needsInput(sessionId: string, id: string, timestamp: number, threadKey = "main"): GlobalNeedsInputEntry {
@@ -73,32 +73,57 @@ describe("buildNextAttentionQueue", () => {
   });
 });
 
-describe("pickNextAttention", () => {
+describe("pickAttentionAfter", () => {
   const queue = buildNextAttentionQueue({
     needsInput: [needsInput("a", "n2", 300), needsInput("a", "n1", 200)],
     notifyMe: [notifyMe("b", "q-1", 100)],
-    unread: [],
+    unread: [{ sessionId: "c", threadKey: null, label: "c", timestamp: 50 }],
+  });
+  const keys = queue.map((item) => item.key);
+
+  it("starts at the top without a position", () => {
+    expect(pickAttentionAfter(queue, null)).toMatchObject({ item: { key: keys[0] }, position: 0 });
   });
 
-  it("starts at the newest item when the current view holds none of them", () => {
-    expect(pickNextAttention(queue, { sessionId: "z", threadKey: null }, null)?.item.key).toBe("needs-input:a:n2");
+  it("walks the whole list into lower-priority groups and wraps at the end", () => {
+    // The user's complaint: Next kept landing in the needs-input group. Each
+    // step must move past the last opened item, through Notify Me and unread.
+    const visited: string[] = [];
+    let cursor = null;
+    for (let step = 0; step < 5; step += 1) {
+      const next = pickAttentionAfter(queue, cursor)!;
+      visited.push(next.item.key);
+      cursor = attentionCursorFor(next.item);
+    }
+    expect(visited).toEqual([...keys, keys[0]]);
   });
 
-  it("advances past the item being viewed and wraps around at the end", () => {
-    expect(pickNextAttention(queue, { sessionId: "b", threadKey: "q-1" }, null)?.item.key).toBe("needs-input:a:n2");
+  it("keeps its place when the opened item leaves the queue", () => {
+    // Answering the opened prompt removes it; the walk continues with the item
+    // after its place instead of restarting at the top.
+    const cursor = attentionCursorFor(queue[1]!);
+    const withoutIt = queue.filter((item) => item.key !== keys[1]);
+    expect(pickAttentionAfter(withoutIt, cursor)?.item.key).toBe(keys[2]);
   });
 
-  it("uses the last opened item to keep advancing through several items in one thread", () => {
-    // Both prompts live in session a's Main thread. Without the remembered key,
-    // the second tap would match n2 again and bounce between the two forever.
-    const first = pickNextAttention(queue, { sessionId: "a", threadKey: null }, null);
-    expect(first?.item.key).toBe("needs-input:a:n1");
-    const second = pickNextAttention(queue, { sessionId: "a", threadKey: "main" }, first!.item.key);
-    expect(second).toMatchObject({ item: { key: "notify-me:b:q-1:r-q-1" }, position: 2 });
+  it("visits a new item when the walk reaches its place, without resetting", () => {
+    // A newer prompt sorts before the cursor, so the walk finishes the list and
+    // reaches it after wrapping; an older unread result is reached on the way.
+    const cursor = attentionCursorFor(queue[2]!);
+    const grown = buildNextAttentionQueue({
+      needsInput: [needsInput("a", "n3", 900), needsInput("a", "n2", 300), needsInput("a", "n1", 200)],
+      notifyMe: [notifyMe("b", "q-1", 100)],
+      unread: [
+        { sessionId: "c", threadKey: null, label: "c", timestamp: 50 },
+        { sessionId: "d", threadKey: null, label: "d", timestamp: 40 },
+      ],
+    });
+    expect(pickAttentionAfter(grown, cursor)?.item.key).toBe("unread:c:");
+    expect(pickAttentionAfter(grown, attentionCursorFor(grown.at(-1)!))?.item.key).toBe("needs-input:a:n3");
   });
 
   it("returns null for an empty queue", () => {
-    expect(pickNextAttention([], { sessionId: "a", threadKey: null }, null)).toBeNull();
+    expect(pickAttentionAfter([], null)).toBeNull();
   });
 });
 
@@ -160,7 +185,7 @@ describe("collectUnreadAttention", () => {
       ]),
     });
     expect(candidates).toEqual([
-      { sessionId: "leader", threadKey: "main", label: "leader", timestamp: 60 },
+      { sessionId: "leader", threadKey: "main", label: "Main", timestamp: 60 },
       { sessionId: "leader", threadKey: "q-1", label: "q-1 title", timestamp: 70 },
     ]);
   });
@@ -190,35 +215,5 @@ describe("buildSessionAttentionQueue", () => {
       "notify-me:a:q-2:r-q-2",
       "unread:a:q-9",
     ]);
-  });
-});
-
-describe("pickSessionAttention", () => {
-  const queue = buildNextAttentionQueue({
-    needsInput: [needsInput("a", "n2", 300), needsInput("a", "n1", 200)],
-    notifyMe: [notifyMe("a", "q-1", 100)],
-    unread: [],
-  });
-
-  it("opens the first item on the first tap even though the user is already in its thread", () => {
-    // Being in a session's Main thread does not mean its prompts were read, so
-    // unlike the global Next the first tap must not skip the first item.
-    expect(pickSessionAttention(queue, null)).toMatchObject({ item: { key: "needs-input:a:n2" }, position: 0 });
-  });
-
-  it("advances after the last opened item and wraps at the end", () => {
-    expect(pickSessionAttention(queue, { key: "needs-input:a:n2", position: 0 })?.item.key).toBe("needs-input:a:n1");
-    expect(pickSessionAttention(queue, { key: "notify-me:a:q-1:r-q-1", position: 2 })?.position).toBe(0);
-  });
-
-  it("opens the item that took the last one's place when it left the queue", () => {
-    // Answering the opened prompt removes it; the next tap should land on what
-    // followed it, not restart from the top.
-    expect(pickSessionAttention(queue, { key: "needs-input:a:gone", position: 1 })?.item.key).toBe("needs-input:a:n1");
-    expect(pickSessionAttention(queue, { key: "needs-input:a:gone", position: 3 })?.position).toBe(0);
-  });
-
-  it("returns null for an empty queue", () => {
-    expect(pickSessionAttention([], null)).toBeNull();
   });
 });

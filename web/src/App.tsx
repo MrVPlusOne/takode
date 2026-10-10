@@ -33,6 +33,7 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
+import { ATTENTION_NEXT_EVENT } from "./components/GlobalAttentionMenu.js";
 import { EmptyState } from "./components/EmptyState.js";
 import {
   beginActiveSessionListRequest,
@@ -553,6 +554,7 @@ export default function App() {
         navigateTo,
         navigateToSession,
         navigateToMostRecentSession: () => navigateToMostRecentSession(),
+        goToNextAttention: () => window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT)),
       });
       if (!handled) return false;
       if (actionId !== "search_session") {

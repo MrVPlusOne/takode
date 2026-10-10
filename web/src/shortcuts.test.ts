@@ -14,6 +14,7 @@ import {
   recordShortcutBindingFromEvent,
   resolveShortcutNewSessionContext,
   shouldBlurVimEscape,
+  type ShortcutRuntime,
 } from "./shortcuts.js";
 
 describe("shortcuts", () => {
@@ -429,10 +430,39 @@ describe("shortcuts", () => {
     expect(navigateToSession).not.toHaveBeenCalled();
   });
 
+  it("steps the attention list through the runtime and reports when it cannot", () => {
+    // The shortcut walks the same list as the top bar's Next; without a
+    // handler (no top bar mounted) it is left unhandled for the browser.
+    const runtime = {
+      route: { page: "session", sessionId: "s1" },
+      currentSessionId: "s1",
+      currentSessionCwd: "/repo",
+      terminalCwd: null,
+      activeTab: "chat",
+      isSearchOpen: false,
+      sessions: [],
+      openSearch: vi.fn(),
+      closeSearch: vi.fn(),
+      lastNewSessionContext: null,
+      openNewSessionModal: vi.fn(),
+      openTerminal: vi.fn(),
+      toggleSidebar: vi.fn(),
+      setActiveTab: vi.fn(),
+      navigateTo: vi.fn(),
+      navigateToSession: vi.fn(),
+      navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+    } satisfies ShortcutRuntime;
+    const goToNextAttention = vi.fn();
+    expect(performShortcutAction("next_attention", { ...runtime, goToNextAttention })).toBe(true);
+    expect(goToNextAttention).toHaveBeenCalledTimes(1);
+    expect(performShortcutAction("next_attention", runtime)).toBe(false);
+  });
+
   it("marks only non-search app-wide actions as app-global shortcuts", () => {
     expect(isAppGlobalShortcutAction("open_terminal")).toBe(true);
     expect(isAppGlobalShortcutAction("previous_session")).toBe(true);
     expect(isAppGlobalShortcutAction("next_session")).toBe(true);
+    expect(isAppGlobalShortcutAction("next_attention")).toBe(true);
     expect(isAppGlobalShortcutAction("search_session")).toBe(false);
     expect(isAppGlobalShortcutAction("toggle_sidebar")).toBe(false);
   });

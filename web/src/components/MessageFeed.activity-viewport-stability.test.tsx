@@ -667,7 +667,7 @@ describe("MessageFeed activity viewport stability", () => {
         expect(screen.getByTestId("codex-provider-retry-chip")).toBeTruthy();
       }
       if (needsInput)
-        expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: /next item that needs attention in this session/ })).toBeTruthy();
       await waitFor(() => expect(geometry.slack).toBeGreaterThan(12));
       geometry.setPhysicalBottom();
       const scrollContainer = screen.getByTestId("message-feed-scroll-container");
@@ -1292,7 +1292,7 @@ describe("MessageFeed activity viewport stability", () => {
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.getByText("Active here")).toBeTruthy());
-      expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /next item that needs attention in this session/ })).toBeTruthy();
       geometry.setPhysicalBottom();
       const lastElement = document.querySelector<HTMLElement>(`[data-message-id="${last.id}"]`)!;
       const baseline = {
@@ -1305,7 +1305,7 @@ describe("MessageFeed activity viewport stability", () => {
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.queryByText("Active here")).toBeNull());
 
-      expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /next item that needs attention in this session/ })).toBeTruthy();
       expect(geometry.scrollHeight).toBe(baseline.scrollHeight);
       expect(geometry.scrollTop).toBe(baseline.scrollTop);
       expect(lastElement.getBoundingClientRect().top).toBe(baseline.anchorOffset);

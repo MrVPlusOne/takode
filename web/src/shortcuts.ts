@@ -6,6 +6,7 @@ export type ShortcutActionId =
   | "open_terminal"
   | "previous_session"
   | "next_session"
+  | "next_attention"
   | "new_session"
   | "voice_start"
   | "voice_stop";
@@ -71,6 +72,8 @@ export interface ShortcutRuntime {
   navigateTo: (path: string) => void;
   navigateToSession: (sessionId: string) => void;
   navigateToMostRecentSession: () => boolean;
+  /** Open the next item in the top bar's attention list. */
+  goToNextAttention?: () => void;
 }
 
 type ShortcutBindingMap = Record<ShortcutActionId, ShortcutBinding | null>;
@@ -87,12 +90,18 @@ const ACTION_ORDER: ShortcutActionId[] = [
   "open_terminal",
   "previous_session",
   "next_session",
+  "next_attention",
   "new_session",
   "voice_start",
   "voice_stop",
 ];
 
-const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>(["open_terminal", "previous_session", "next_session"]);
+const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
+  "open_terminal",
+  "previous_session",
+  "next_session",
+  "next_attention",
+]);
 const SHORTCUT_ACTION_IDS = new Set<ShortcutActionId>(ACTION_ORDER);
 const SHORTCUT_PRESET_IDS = new Set<ShortcutPresetId>(["standard", "vscode-light", "vim-light"]);
 const TAP_BINDING_PREFIX = "Tap:";
@@ -157,6 +166,12 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     description: "Move to the next active chat session.",
   },
   {
+    id: "next_attention",
+    label: "Next Item Needing Attention",
+    description:
+      "Open the next item in the attention list: needs-input prompts, then Notify Me results, then unread results.",
+  },
+  {
     id: "new_session",
     label: "New Session",
     description: "Open the new session modal.",
@@ -198,6 +213,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     open_terminal: "Mod+Shift+T",
     previous_session: "Mod+Shift+[",
     next_session: "Mod+Shift+]",
+    next_attention: "Mod+Shift+E",
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -208,6 +224,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     open_terminal: "Ctrl+`",
     previous_session: "Ctrl+PageUp",
     next_session: "Ctrl+PageDown",
+    next_attention: "Mod+Shift+E",
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -218,6 +235,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     open_terminal: "Alt+T",
     previous_session: "Alt+H",
     next_session: "Alt+L",
+    next_attention: "Alt+A",
     new_session: "Alt+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -755,6 +773,10 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       runtime.setActiveTab("chat");
       return true;
     }
+    case "next_attention":
+      if (!runtime.goToNextAttention) return false;
+      runtime.goToNextAttention();
+      return true;
     case "new_session":
       runtime.openNewSessionModal(
         resolveShortcutNewSessionContext(runtime.currentSessionCwd, runtime.lastNewSessionContext),

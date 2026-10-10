@@ -27,15 +27,18 @@ import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
-import type { NextAttentionLanding } from "../hooks/useNextAttention.js";
+import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
+import { AttentionItemSections, SessionAttentionToast } from "./AttentionItemRows.js";
 import {
-  AttentionCountInline,
+  ATTENTION_KIND_SHORT,
+  ATTENTION_KIND_TITLE,
+  AttentionKindIcon,
   NextChevron,
-  SessionAttentionSections,
-  SessionAttentionToast,
+  attentionTone,
   formatRelativeTime,
-} from "./SessionAttentionRows.js";
+} from "./AttentionKind.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import {
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -49,6 +52,7 @@ const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
 const NEXT_TOAST_MS = 2600;
+const OTHER_ATTENTION_KINDS = ["notify-me", "unread"] as const;
 
 function getNotificationPopoverBottomPx(anchor: HTMLElement | null): number {
   if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
@@ -194,21 +198,15 @@ function formatChipAriaLabel({
   review,
   waiting,
   mutedNeedsInput,
-  notifyMe = 0,
-  unread = 0,
 }: {
   needsInput: number;
   review: number;
   waiting: number;
   mutedNeedsInput: number;
-  notifyMe?: number;
-  unread?: number;
 }): string {
   const parts: string[] = [];
   if (needsInput > 0)
     parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
-  if (notifyMe > 0) parts.push(`${notifyMe} ${notifyMe === 1 ? "Notify Me result" : "Notify Me results"}`);
-  if (unread > 0) parts.push(`${unread} ${unread === 1 ? "unread result" : "unread results"}`);
   if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "waiting status" : "waiting statuses"}`);
   if (mutedNeedsInput > 0) {
     parts.push(`${mutedNeedsInput} muted needs-input ${mutedNeedsInput === 1 ? "notification" : "notifications"}`);
@@ -711,6 +709,7 @@ function NotificationPopover({
   currentThreadKey,
   onSelectThread,
   attentionItems,
+  nextAttentionKey,
   onOpenAttentionItem,
 }: {
   sessionId: string;
@@ -720,6 +719,8 @@ function NotificationPopover({
   onSelectThread?: (threadKey: string) => void;
   /** The session's queue; its Notify Me and unread items get their own sections. */
   attentionItems: readonly NextAttentionItem[];
+  /** The item the chip's next tap opens, marked in the list. */
+  nextAttentionKey: string | null;
   onOpenAttentionItem: (item: NextAttentionItem) => void;
 }) {
   const { active, muted, done } = useNotifications(sessionId);
@@ -829,7 +830,12 @@ function NotificationPopover({
               </div>
             )}
 
-            <SessionAttentionSections items={otherAttention} onOpen={onOpenAttentionItem} />
+            <AttentionItemSections
+              items={otherAttention}
+              kinds={OTHER_ATTENTION_KINDS}
+              onOpen={onOpenAttentionItem}
+              nextKey={nextAttentionKey}
+            />
 
             {muted.length > 0 && (
               <section className="border-t border-cc-border/60" aria-label="Muted needs-input notifications">
@@ -892,9 +898,13 @@ function NotificationPopover({
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
 /**
- * Floating attention chip: counts what in this session needs the user
- * (needs-input prompts, then pending Notify Me results, then unread results),
- * opens the inbox listing them, and its arrow cycles through them one at a time.
+ * Floating attention chip: a one-tap "next" button for this session. Each tap
+ * opens the next item that needs the user here (needs-input prompts, then
+ * pending Notify Me results, then unread results), walking the whole list and
+ * wrapping at the end; the label shows the next item's position and kind.
+ * Long-press (phone) or right-click (desktop) opens the inbox listing them.
+ * With nothing to step through (only muted prompts, or counts whose details
+ * have not loaded), a tap opens the inbox instead.
  * `attentionPreview` supplies fixed Notify Me and unread data for the Playground.
  */
 export function NotificationChip({
@@ -918,26 +928,14 @@ export function NotificationChip({
     () => getEffectiveNotificationBreakdown(active, summary),
     [active, summary],
   );
-  const notifyMe = attention.queue.filter((item) => item.kind === "notify-me").length;
-  const unread = attention.queue.filter((item) => item.kind === "unread").length;
   const mutedNeedsInput = muted.length;
-  const ariaLabel = useMemo(
-    () =>
-      formatChipAriaLabel({
-        needsInput,
-        review,
-        waiting,
-        mutedNeedsInput,
-        notifyMe,
-        unread,
-      }),
-    [mutedNeedsInput, needsInput, notifyMe, review, unread, waiting],
+  const { next, goNext } = attention;
+  const total = attention.queue.length;
+  const inboxLabel = useMemo(
+    () => formatChipAriaLabel({ needsInput, review, waiting, mutedNeedsInput }),
+    [mutedNeedsInput, needsInput, review, waiting],
   );
-  const hasNeedsInput = needsInput > 0;
-  const hasMutedNeedsInput = mutedNeedsInput > 0;
-  // Labels only fit when a single kind is showing; several kinds show counts and icons.
-  const kindsShown = [hasNeedsInput || (!notifyMe && !unread), notifyMe > 0, unread > 0].filter(Boolean).length;
-  const showLabels = kindsShown === 1;
+  const longPress = useLongPress(() => setOpen(true));
 
   useEffect(() => {
     if (!landing) return;
@@ -945,60 +943,69 @@ export function NotificationChip({
     return () => window.clearTimeout(timer);
   }, [landing]);
 
-  const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
-  const { goNext } = attention;
-  const next = useCallback(() => {
+  const activate = useCallback(() => {
+    if (!next) {
+      setOpen((p) => !p);
+      return;
+    }
     setOpen(false);
-    setLanding(goNext());
-  }, [goNext]);
+    const landed = goNext();
+    // The session is the one in view, so the toast leaves out its number.
+    setLanding(landed && { ...landed, sessionNum: null });
+  }, [goNext, next]);
 
-  if (needsInput + waiting + notifyMe + unread === 0 && !hasMutedNeedsInput) return null;
+  if (needsInput + waiting + total === 0 && mutedNeedsInput === 0) return null;
 
+  const tone = next ? attentionTone(next.item.kind) : null;
   return (
     <>
-      <div
-        ref={chipRef}
-        data-testid="session-attention-chip"
-        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-stretch rounded-[18px] border border-cc-border bg-cc-card/95 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md hover:border-cc-muted/35 transition-colors"
-      >
-        <span className="pointer-events-none absolute inset-0 rounded-[18px] bg-cc-hover/20" />
+      <div ref={chipRef} data-testid="session-attention-chip" className="pointer-events-auto relative inline-flex">
         <button
           type="button"
-          onClick={toggle}
-          aria-label={ariaLabel}
-          className="relative inline-flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap py-1 pl-2.5 pr-2.5 cursor-pointer"
+          {...longPress.handlers}
+          style={longPress.pressStyle}
+          onClick={activate}
+          aria-label={
+            next
+              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${next.position + 1} of ${total}. Right-click or long-press for the list.`
+              : inboxLabel
+          }
+          title={next ? "Next item that needs attention here. Right-click or long-press for the list." : undefined}
+          data-testid={next ? "session-attention-next" : undefined}
+          className={`relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[18px] border bg-cc-card/95 py-1 pl-2.5 pr-1.5 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-cc-muted/35 cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${
+            tone ? tone.border : "border-cc-border pr-2.5"
+          }`}
         >
-          {hasNeedsInput ? (
-            <NotificationCountInline
-              category="needs-input"
-              count={needsInput}
-              labelText={showLabels ? "needs input" : ""}
-            />
-          ) : notifyMe + unread > 0 ? null : hasMutedNeedsInput ? (
-            <NotificationCountInline category="needs-input" count={0} labelText="needs input" tone="muted" />
-          ) : waiting > 0 ? (
-            <NotificationCountInline category="waiting" count={waiting} labelText="status" />
-          ) : null}
-          {notifyMe > 0 && (
-            <AttentionCountInline kind="notify-me" count={notifyMe} label={showLabels ? "Notify Me" : undefined} />
-          )}
-          {unread > 0 && (
-            <AttentionCountInline kind="unread" count={unread} label={showLabels ? "unread" : undefined} />
+          <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
+          {next ? (
+            <>
+              <span className="relative inline-flex">
+                <AttentionKindIcon kind={next.item.kind} />
+              </span>
+              <span className="relative tabular-nums text-cc-fg/95" data-testid="session-attention-position">
+                {next.position + 1}/{total}
+              </span>
+              <span className="relative text-cc-muted">·</span>
+              <span className={`relative ${tone!.text}`}>{ATTENTION_KIND_SHORT[next.item.kind]}</span>
+              <span className={`relative ${tone!.text}`}>
+                <NextChevron />
+              </span>
+            </>
+          ) : mutedNeedsInput > 0 && needsInput === 0 ? (
+            <span className="relative">
+              <NotificationCountInline category="needs-input" count={0} labelText="needs input" tone="muted" />
+            </span>
+          ) : needsInput > 0 ? (
+            <span className="relative">
+              <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
+            </span>
+          ) : (
+            <span className="relative">
+              <NotificationCountInline category="waiting" count={waiting} labelText="status" />
+            </span>
           )}
         </button>
-        {attention.queue.length > 0 && (
-          <button
-            type="button"
-            onClick={next}
-            data-testid="session-attention-next"
-            aria-label={`Go to the next item that needs attention in this session (${attention.queue.length})`}
-            title="Go to the next item that needs attention in this session"
-            className="relative inline-flex shrink-0 items-center border-l border-cc-border/70 pl-1.5 pr-2 text-cc-attention transition-colors hover:text-cc-fg cursor-pointer"
-          >
-            <NextChevron />
-          </button>
-        )}
         {landing && <SessionAttentionToast landing={landing} />}
       </div>
 
@@ -1010,6 +1017,7 @@ export function NotificationChip({
           currentThreadKey={currentThreadKey}
           onSelectThread={onSelectThread}
           attentionItems={attention.queue}
+          nextAttentionKey={next?.item.key ?? null}
           onOpenAttentionItem={attention.open}
         />
       )}

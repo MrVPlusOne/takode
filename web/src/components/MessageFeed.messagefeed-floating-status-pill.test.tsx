@@ -1087,7 +1087,7 @@ describe("MessageFeed - floating status pill", () => {
     expect(previousButton).toBeTruthy();
     expect(nextButton).toBeTruthy();
     expect(bottomButton).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /next item that needs attention in this session/ })).toBeTruthy();
     expect(navFabs.style.bottom).toBe("42px");
     expect(navFabs.className).toContain("gap-2");
     expect(navFabs.className).toContain("items-center");

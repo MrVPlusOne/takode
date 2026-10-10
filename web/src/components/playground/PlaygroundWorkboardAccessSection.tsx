@@ -8,7 +8,7 @@ import { useStore } from "../../store.js";
 import { BoardTable, type BoardRowData } from "../BoardTable.js";
 import { LeaderWorkboardTopBarButton, WorkBoardIcon } from "../leader-workboard-controls.js";
 import { activeBoardSummarySegments } from "../leader-board-summary.js";
-import { NextAttentionPill } from "../NextAttentionButton.js";
+import { AttentionListPill } from "../GlobalAttentionMenu.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import type { BoardRowSessionStatus } from "../../types.js";
 import {
@@ -207,7 +207,7 @@ function PhoneLeaderTopBar({ boardOpen }: { boardOpen: boolean }) {
         compact
         onToggle={noop}
       />
-      <NextAttentionPill count={3} compact />
+      <AttentionListPill count={3} topKind="needs-input" compact />
       <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
     </div>
   );

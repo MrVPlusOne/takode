@@ -97,6 +97,17 @@ vi.mock("./MarkdownContent.js", () => ({
 }));
 
 import { NotificationChip } from "./NotificationChip.js";
+import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
+
+/** The chip's button: a next step while items are listed, otherwise the inbox toggle. */
+function chipButton() {
+  return within(screen.getByTestId("session-attention-chip")).getByRole("button");
+}
+
+/** Open the inbox the way a right-click or long-press does; a tap steps to the next item. */
+function openInbox() {
+  fireEvent.contextMenu(chipButton());
+}
 
 function setNotifications(sessionId: string, notifications: Array<any>) {
   mockNotifications.set(sessionId, notifications);
@@ -213,6 +224,7 @@ describe("NotificationChip", () => {
     mockStoreState.sessionNames = new Map();
     mockStoreState.sdkSessions = [];
     mockStoreState.sessionAttention = undefined;
+    resetAttentionCursorsForTest();
     mockMarkSessionRead.mockClear();
     mockMarkNotificationDone.mockClear();
     mockMarkAllNotificationsDone.mockClear();
@@ -269,11 +281,11 @@ describe("NotificationChip", () => {
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
-    expect(chip).toHaveTextContent("1needs input");
+    const chip = chipButton();
+    expect(chip).toHaveTextContent("1/1·needs input");
     expect(chip).not.toHaveTextContent("Waiting");
 
-    fireEvent.click(chip);
+    openInbox();
     expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
     expect(screen.getAllByText("Need answer").length).toBeGreaterThan(0);
     expect(screen.queryByText("Waiting on reviewer")).not.toBeInTheDocument();
@@ -301,18 +313,13 @@ describe("NotificationChip", () => {
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    const chip = screen.getByRole("button", {
-      name: "Notification inbox: 2 needs-input notifications",
-    });
-    const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
-    const needsInputBell = needsInputBadge.querySelector("svg");
-    expect(chip).toHaveTextContent("2needs input");
+    // The chip now names the next item to open; reviews are not attention items here.
+    const chip = chipButton();
+    const needsInputBell = chip.querySelector("svg");
+    expect(chip).toHaveTextContent("1/2·needs input");
     expect(chip).not.toHaveTextContent("review");
     expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-cc-attention");
     expect(within(chip).queryByTestId("notification-chip-review")).not.toBeInTheDocument();
-    expect(within(chip).queryByTestId("notification-chip-review-secondary")).not.toBeInTheDocument();
-    expect(needsInputBadge).toHaveTextContent("2");
-    expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
   });
 
   it("uses a newer active summary when the cached full inbox is still review-only", () => {
@@ -397,7 +404,7 @@ describe("NotificationChip", () => {
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     expect(screen.getByText("Need answer")).toBeInTheDocument();
   });
@@ -416,7 +423,7 @@ describe("NotificationChip", () => {
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     const timestamp = screen.getByText(/m ago/);
     expect(timestamp).toHaveClass("text-cc-muted");
@@ -451,7 +458,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     const moreButton = screen.getByRole("button", { name: "Show more" });
     expect(moreButton).toHaveClass("cc-muted-readable");
@@ -489,7 +496,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
     expect(screen.getByTestId("notification-answer-actions")).toContainElement(
       screen.getByRole("button", { name: "Use suggested answer: yes" }),
     );
@@ -537,7 +544,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.getAllByText("Deploy now?")).toHaveLength(1);
     const context = screen.getByTestId("notification-source-context");
@@ -569,7 +576,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.queryByTestId("notification-source-context")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
@@ -590,7 +597,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.queryByRole("button", { name: "Open source message for Deploy now?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Go to source for Deploy now?" })).toBeInTheDocument();
@@ -623,7 +630,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 muted needs-input notification" }));
+    openInbox();
 
     const mutedSection = screen.getByLabelText("Muted needs-input notifications");
     const mutedRow = within(mutedSection).getByTestId("notification-inbox-row");
@@ -653,11 +660,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Notification inbox: 1 needs-input notification, 1 muted needs-input notification",
-      }),
-    );
+    openInbox();
     fireEvent.click(screen.getByRole("button", { name: "Read All" }));
 
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-active", true);
@@ -682,7 +685,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      openInbox();
       fireEvent.click(screen.getByRole("button", { name: "Go to source for Answer q-977" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -717,7 +720,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      openInbox();
       fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -766,7 +769,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      openInbox();
       fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -805,7 +808,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      openInbox();
       fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -842,7 +845,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="all" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      openInbox();
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
       fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
@@ -879,7 +882,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
     const useComposerButton = screen.getByRole("button", { name: "Use composer" });
     expect(useComposerButton).toHaveClass("cc-muted-readable");
     expect(useComposerButton).not.toHaveClass("text-cc-muted");
@@ -915,7 +918,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
     fireEvent.click(screen.getByRole("button", { name: "Done (1)" }));
 
     const doneRow = screen
@@ -944,7 +947,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
     const firstQuestion = screen.getAllByTestId("notification-question-block")[0]!;
@@ -995,7 +998,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
     expect(screen.getByText("Confirm launch window")).toBeInTheDocument();
@@ -1024,7 +1027,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(screen.queryByText("q-345, q-346")).not.toBeInTheDocument();
     expect(screen.queryByText(/2 quests ready for review/i)).toBeNull();
@@ -1036,7 +1039,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
     expect(dialog.className).toContain("inset-x-3");
@@ -1060,8 +1063,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" />);
-      const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
-      // The popover anchors to the whole chip, which also holds the Next arrow.
+      // The popover anchors to the chip's container, which also holds its toast.
       Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
         configurable: true,
         value: () => ({
@@ -1077,7 +1079,7 @@ describe("NotificationChip", () => {
         }),
       });
 
-      fireEvent.click(chip);
+      openInbox();
 
       const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
       expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("188px");
@@ -1114,7 +1116,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
     fireEvent.mouseEnter(screen.getByText("Confirm scope"));
 
     expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Hidden hover preview body");
@@ -1168,7 +1170,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     expect(observer.observe).not.toHaveBeenCalled();
     act(() => observer.trigger(true));
@@ -1188,7 +1190,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    openInbox();
 
     act(() => observer.trigger(true));
     expect(mockMarkNotificationDone).not.toHaveBeenCalled();
@@ -1202,7 +1204,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 2 needs-input notifications" }));
+    openInbox();
     fireEvent.click(screen.getByRole("button", { name: "Read All" }));
 
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-1", true);
@@ -1212,29 +1214,31 @@ describe("NotificationChip", () => {
   });
 
   describe("session attention navigator", () => {
-    it("cycles through the session's prompts newest first and wraps around", () => {
-      // The chip's arrow visits every item needing attention in this session,
-      // one per tap, starting with the newest needs-input prompt.
+    it("steps through the session's prompts newest first on each tap and wraps around", () => {
+      // A tap is a next step, not a list toggle: each one opens the next item
+      // and the label names the one after it.
       setNotifications("s1", [
         { id: "old", category: "needs-input", summary: "Older ask", timestamp: 100, messageId: "m-old", done: false },
         { id: "new", category: "needs-input", summary: "Newer ask", timestamp: 200, messageId: "m-new", done: false },
       ]);
       render(<NotificationChip sessionId="s1" />);
-      const next = screen.getByRole("button", { name: /next item that needs attention in this session \(2\)/ });
 
-      fireEvent.click(next);
+      expect(chipButton()).toHaveTextContent("1/2·needs input");
+      fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
       expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
-      fireEvent.click(next);
+      expect(chipButton()).toHaveTextContent("2/2·needs input");
+      fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
       expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
-      fireEvent.click(next);
+      fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
     });
 
-    it("counts and lists Notify Me and unread results after the prompts", () => {
-      // Priority order in the inbox matches the arrow: prompts, then Notify Me
-      // results, then unread results.
+    it("walks from the prompts into Notify Me and unread results and lists them after the prompts", () => {
+      // The walk must not stay in the top group, and the inbox (right-click or
+      // long-press) lists every item in the same order and marks the next one.
       setNotifications("s1", [
         { id: "ask", category: "needs-input", summary: "Pick one", timestamp: 100, messageId: "m-1", done: false },
       ]);
@@ -1258,13 +1262,13 @@ describe("NotificationChip", () => {
         />,
       );
 
-      const chip = screen.getByRole("button", {
-        name: "Notification inbox: 1 needs-input notification, 1 Notify Me result, 1 unread result",
-      });
-      expect(screen.getByTestId("notification-chip-notify-me")).toBeInTheDocument();
-      expect(screen.getByTestId("notification-chip-unread")).toBeInTheDocument();
-      fireEvent.click(chip);
+      expect(chipButton()).toHaveTextContent("1/3·needs input");
+      fireEvent.click(chipButton());
+      expect(chipButton()).toHaveTextContent("2/3·Notify Me");
+      fireEvent.click(chipButton());
+      expect(chipButton()).toHaveTextContent("3/3·unread");
 
+      openInbox();
       const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
       expect(dialog).toHaveTextContent("Notifications(3)");
       const prompt = within(dialog).getByTestId("notification-inbox-row");
@@ -1273,8 +1277,23 @@ describe("NotificationChip", () => {
       expect(notifyMe).toHaveTextContent("q-5 Ship it");
       expect(notifyMe).toHaveTextContent("Landed");
       expect(unread).toHaveTextContent("q-6 Review");
+      expect(within(unread).getByTestId("attention-item-row")).toHaveAttribute("data-attention-next", "true");
       expect(prompt.compareDocumentPosition(notifyMe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(notifyMe.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("keeps its place across remounts, like switching threads", () => {
+      // The feed chip remounts when the selected thread changes; the walk must
+      // not restart at the top each time.
+      setNotifications("s1", [
+        { id: "a", category: "needs-input", summary: "First", timestamp: 300, messageId: "m-a", done: false },
+        { id: "b", category: "needs-input", summary: "Second", timestamp: 200, messageId: "m-b", done: false },
+      ]);
+      const view = render(<NotificationChip sessionId="s1" />);
+      fireEvent.click(chipButton());
+      view.unmount();
+      render(<NotificationChip sessionId="s1" />);
+      expect(chipButton()).toHaveTextContent("2/2·needs input");
     });
 
     it("shows an unread result on its own and reads the session when opened", () => {
@@ -1284,9 +1303,42 @@ describe("NotificationChip", () => {
       mockStoreState.sessionAttention = new Map([["s1", "review"]]);
       render(<NotificationChip sessionId="s1" />);
 
-      expect(screen.getByRole("button", { name: "Notification inbox: 1 unread result" })).toHaveTextContent("unread");
-      fireEvent.click(screen.getByRole("button", { name: /next item that needs attention in this session \(1\)/ }));
+      expect(chipButton()).toHaveTextContent("1/1·unread");
+      fireEvent.click(chipButton());
       expect(mockMarkSessionRead).toHaveBeenCalledWith("s1", { mode: "session-view" });
+    });
+
+    it("opens the inbox on a phone long-press without stepping to the next item", () => {
+      // The phone gesture uses the shared long-press hook: holding the chip
+      // opens the list, and the click iOS emulates on lift must not step.
+      vi.useFakeTimers();
+      try {
+        setNotifications("s1", [
+          { id: "a", category: "needs-input", summary: "First", timestamp: 1, messageId: "m-a", done: false },
+        ]);
+        render(<NotificationChip sessionId="s1" />);
+        fireEvent.touchStart(chipButton(), { touches: [{ clientX: 5, clientY: 5 }] });
+        act(() => {
+          vi.advanceTimersByTime(600);
+        });
+        fireEvent.touchEnd(chipButton());
+        fireEvent.click(chipButton());
+
+        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+        expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("opens the inbox on a tap when only muted prompts remain", () => {
+      // Nothing to step through: the tap falls back to the list.
+      setNotifications("s1", [
+        { id: "m", category: "needs-input", summary: "Later", timestamp: 1, done: false, muted: true },
+      ]);
+      render(<NotificationChip sessionId="s1" />);
+      fireEvent.click(chipButton());
+      expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     });
   });
 });
