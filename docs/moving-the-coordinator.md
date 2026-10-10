@@ -54,7 +54,10 @@ up rather than shipping scripts for it. The examples use the machine names
    machine would stamp them with its own name.
 3. **A separate checkout for the new coordinator** on the new machine, not one
    that a node's `--auto-update` moves or that workers port into, at the same
-   commit as the old machine's checkout, with a frozen install.
+   commit as the old machine's checkout, with a frozen install. Once the move
+   is done, put it on the branch the coordinator follows, tracking its remote
+   branch, so Restart Server loads what lands there (see "Updating Takode" in
+   [Remote hosts](remote-hosts.md#updating-takode)).
 4. **Connectivity, set up and tested before the move** (next section).
 5. **Someone to run the cutover from outside Takode.** Every Takode session on
    the old machine stops with its server, so the agent or person running the

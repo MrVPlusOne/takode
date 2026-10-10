@@ -349,4 +349,40 @@ describe("SettingsServerDiagnosticsSection", () => {
 
     expect(window.location.hash).toBe("#/changelog");
   });
+
+  it("shows the server checkout's state in the Restart section and re-reads it before a restart", () => {
+    // A checkout that cannot be fast-forwarded is shown as a warning, so a restart onto older code is never silent.
+    const onRefreshCheckoutStatus = vi.fn();
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported
+        restartError=""
+        restarting={false}
+        onRestartServer={vi.fn()}
+        onRefreshCheckoutStatus={onRefreshCheckoutStatus}
+        checkoutStatus={{
+          state: "behind",
+          runningCommit: "a".repeat(40),
+          head: "a".repeat(40),
+          branch: "main",
+          upstream: "origin/main",
+          upstreamHead: "b".repeat(40),
+          behind: 2,
+          ahead: 0,
+          localChanges: true,
+          fetchError: null,
+          checkedAt: 1,
+        }}
+      />,
+    );
+
+    const line = screen.getByTestId("server-checkout-status");
+    expect(line).toHaveAttribute("data-tone", "warning");
+    expect(line).toHaveTextContent("origin/main has 2 commits newer than the checkout (main)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+    expect(onRefreshCheckoutStatus).toHaveBeenCalledOnce();
+  });
 });

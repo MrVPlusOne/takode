@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -8,6 +8,7 @@ import {
   type TranscriptionConfig,
   type EditorKind,
   type InterruptRestartBlockersResponse,
+  type ServerCheckoutStatus,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
 import {
@@ -16,6 +17,7 @@ import {
   observeServerBuildIdentity,
 } from "../build-compatibility.js";
 import { createInitiatingTabRestartIntent, type InitiatingTabRestartIntent } from "../server-restart-auto-reload.js";
+import { describeServerCheckoutUpdate } from "../server-checkout-status.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
@@ -81,14 +83,15 @@ function reloadCurrentPage(): void {
 const RESTART_COMPLETED_STORAGE_KEY = "cc-server-restart-completed-at";
 const RESTART_COMPLETED_NOTICE_MAX_AGE_MS = 5 * 60_000;
 
-function restartCompletedMessage(completedAt: number): string {
+/** `checkoutNote` says what the restart did to the server's checkout first, if anything. */
+function restartCompletedMessage(completedAt: number, checkoutNote = ""): string {
   const time = new Date(completedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return `Server restarted at ${time}.`;
+  return [`Server restarted at ${time}.`, checkoutNote].filter(Boolean).join(" ");
 }
 
-function rememberRestartCompletedForReload(completedAt: number): void {
+function rememberRestartCompletedForReload(completedAt: number, checkoutNote: string): void {
   try {
-    sessionStorage.setItem(RESTART_COMPLETED_STORAGE_KEY, String(completedAt));
+    sessionStorage.setItem(RESTART_COMPLETED_STORAGE_KEY, JSON.stringify({ completedAt, checkoutNote }));
   } catch {
     // Storage can be unavailable; the overlay already said the server is back.
   }
@@ -99,9 +102,13 @@ function takeRestartCompletedAfterReload(): string {
     const raw = sessionStorage.getItem(RESTART_COMPLETED_STORAGE_KEY);
     if (raw === null) return "";
     sessionStorage.removeItem(RESTART_COMPLETED_STORAGE_KEY);
-    const completedAt = Number(raw);
+    const stored = JSON.parse(raw) as { completedAt?: unknown; checkoutNote?: unknown };
+    const completedAt = Number(stored.completedAt);
     if (!Number.isFinite(completedAt) || Date.now() - completedAt > RESTART_COMPLETED_NOTICE_MAX_AGE_MS) return "";
-    return `${restartCompletedMessage(completedAt)} This page loaded the new build.`;
+    const checkoutNote = typeof stored.checkoutNote === "string" ? stored.checkoutNote : "";
+    return [`${restartCompletedMessage(completedAt)} This page loaded the new build.`, checkoutNote]
+      .filter(Boolean)
+      .join(" ");
   } catch {
     return "";
   }
@@ -198,6 +205,8 @@ export function SettingsPage({
   const [restartSuccess, setRestartSuccess] = useState("");
   const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
+  const [checkoutStatus, setCheckoutStatus] = useState<ServerCheckoutStatus | null>(null);
+  const checkoutStatusSequenceRef = useRef(0);
   const [serverSlug, setServerSlug] = useState("");
   const [serverSlugSaving, setServerSlugSaving] = useState(false);
   const [serverSlugError, setServerSlugError] = useState("");
@@ -275,6 +284,21 @@ export function SettingsPage({
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [isActive]);
+
+  // The latest read wins; a failed read keeps the last known status.
+  const loadCheckoutStatus = useCallback((refresh: boolean) => {
+    const sequence = ++checkoutStatusSequenceRef.current;
+    api
+      .getServerCheckout(refresh)
+      .then(({ status }) => {
+        if (checkoutStatusSequenceRef.current === sequence) setCheckoutStatus(status);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (isActive) loadCheckoutStatus(false);
+  }, [isActive, loadCheckoutStatus]);
 
   useEffect(() => {
     const completedNotice = takeRestartCompletedAfterReload();
@@ -538,10 +562,12 @@ export function SettingsPage({
 
     // Whether the old server confirmed it scheduled the restart; a lost response leaves this false.
     let restartConfirmed = false;
+    let checkoutNote = "";
     try {
       const result = await api.restartServer();
       if (restartAttemptSequenceRef.current !== attemptSequence) return;
       restartConfirmed = result.restartRequested === true;
+      checkoutNote = describeServerCheckoutUpdate(result.checkoutUpdate);
       const replacementBuildId =
         result.restartRequested === true && typeof result.replacementBuildId === "string"
           ? result.replacementBuildId.trim()
@@ -592,11 +618,12 @@ export function SettingsPage({
       if (decision === "wait") return;
       if (!finishRestartAttempt(true, decision === "reload")) return;
       if (decision === "reload") {
-        rememberRestartCompletedForReload(Date.now());
+        rememberRestartCompletedForReload(Date.now(), checkoutNote);
         onReloadAfterRestart();
         return;
       }
-      if (restartConfirmed) setRestartSuccess(restartCompletedMessage(Date.now()));
+      loadCheckoutStatus(false);
+      if (restartConfirmed) setRestartSuccess(restartCompletedMessage(Date.now(), checkoutNote));
       else
         setRestartError(
           "The server is responding, but its restart reply was lost, so this page cannot confirm it restarted.",
@@ -1042,8 +1069,10 @@ export function SettingsPage({
                 restartSuccess={restartSuccess}
                 restartPrepResult={restartPrepResult}
                 restarting={restarting}
+                checkoutStatus={checkoutStatus}
                 onSaveServerSlug={onSaveServerSlug}
                 onRestartServer={onRestartServer}
+                onRefreshCheckoutStatus={() => loadCheckoutStatus(true)}
                 isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
               />
             </CollapsibleSection>

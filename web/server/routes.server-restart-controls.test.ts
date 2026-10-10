@@ -40,6 +40,7 @@ import { createSettingsRoutes } from "./routes/settings.js";
 import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
+import type { ServerCheckout, ServerCheckoutStatus, ServerCheckoutUpdate } from "./server-checkout.js";
 
 type TestClaudeAdapter = {
   sendBrowserMessage: ReturnType<typeof vi.fn>;
@@ -347,7 +348,12 @@ describe("server restart controls", () => {
     });
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ ok: true, restartRequested: true, replacementBuildId: null });
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: null,
+      checkoutUpdate: null,
+    });
     expect(devRequestRestart).toHaveBeenCalledOnce();
     // Requests record who asked, so a Settings click can be told apart from an agent's request.
     expect(restartLog.info).toHaveBeenCalledWith("Server restart requested", {
@@ -663,5 +669,186 @@ describe("server restart controls", () => {
     expect(session?.state.backend_state).toBe("recovering");
     expect(session?.pendingCodexTurns[0]?.lastError).toContain("Restart prep moved this Codex turn into recovery");
     await expect(access(join(tempDir, "restart-continuations.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  describe("server checkout", () => {
+    const OLD = "a".repeat(40);
+    const LANDED = "b".repeat(40);
+
+    function checkoutStatus(overrides: Partial<ServerCheckoutStatus> = {}): ServerCheckoutStatus {
+      return {
+        state: "current",
+        runningCommit: OLD,
+        head: LANDED,
+        branch: "main",
+        upstream: "origin/main",
+        upstreamHead: LANDED,
+        behind: 0,
+        ahead: 0,
+        localChanges: false,
+        fetchError: null,
+        checkedAt: 1,
+        ...overrides,
+      };
+    }
+
+    function appWithCheckout(serverCheckout: Partial<ServerCheckout> | undefined, extraOptions: object = {}): Hono {
+      const checkoutApp = new Hono();
+      checkoutApp.route(
+        "/api",
+        createSettingsRoutes({
+          launcher,
+          wsBridge: bridge,
+          sessionStore: { directory: tempDir },
+          options: {
+            requestRestart,
+            prepareRestart,
+            serverCheckout,
+            ...extraOptions,
+          },
+          pushoverNotifier: undefined,
+        } as any),
+      );
+      return checkoutApp;
+    }
+
+    it("fast-forwards the checkout before checking and building the code the restart loads", async () => {
+      // The replacement must be checked and built from the landed code, so the update comes first.
+      const order: string[] = [];
+      const update: ServerCheckoutUpdate = {
+        action: "updated",
+        from: OLD,
+        error: null,
+        status: checkoutStatus(),
+      };
+      const updateBeforeRestart = vi.fn(async () => {
+        order.push("update");
+        return update;
+      });
+      const checkBackendStartup = vi.fn(async () => {
+        order.push("check");
+      });
+      prepareRestart.mockImplementationOnce(async () => {
+        order.push("build");
+        return {
+          frontendRoot: tempDir,
+          buildId: "build-next",
+          publish: publishPreparedRestart,
+          discard: discardPreparedRestart,
+        };
+      });
+
+      const res = await appWithCheckout({ updateBeforeRestart }, { checkBackendStartup }).request(
+        "/api/server/restart",
+        {
+          method: "POST",
+        },
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        restartRequested: true,
+        checkoutUpdate: update,
+      });
+      expect(order).toEqual(["update", "check", "build"]);
+      expect(requestRestart).toHaveBeenCalledOnce();
+      expect(restartLog.info).toHaveBeenCalledWith(
+        "Fast-forwarded the server checkout before restart",
+        expect.objectContaining({
+          from: OLD,
+          head: LANDED,
+          upstream: "origin/main",
+        }),
+      );
+    });
+
+    it("names the fast-forwarded commit when the updated code then blocks the restart", async () => {
+      // e.g. a landed commit changed dependencies: the message must explain why the checkout moved anyway.
+      const updateBeforeRestart = vi.fn(async () => ({
+        action: "updated" as const,
+        from: OLD,
+        error: null,
+        status: checkoutStatus(),
+      }));
+      const checkBackendStartup = vi.fn(async () => {
+        throw new Error("Dependencies are out of date.");
+      });
+
+      const res = await appWithCheckout({ updateBeforeRestart }, { checkBackendStartup }).request(
+        "/api/server/restart",
+        {
+          method: "POST",
+        },
+      );
+
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toEqual({
+        error: "Restart blocked: Dependencies are out of date. The checkout was first fast-forwarded to bbbbbbbb.",
+      });
+      expect(requestRestart).not.toHaveBeenCalled();
+    });
+
+    it("still restarts onto a checkout it cannot update, and reports and logs that it is behind", async () => {
+      const update: ServerCheckoutUpdate = {
+        action: "unchanged",
+        from: null,
+        error: null,
+        status: checkoutStatus({
+          state: "behind",
+          head: OLD,
+          behind: 2,
+          localChanges: true,
+        }),
+      };
+
+      const res = await appWithCheckout({
+        updateBeforeRestart: vi.fn(async () => update),
+      }).request("/api/server/restart", { method: "POST" });
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        checkoutUpdate: update,
+      });
+      expect(requestRestart).toHaveBeenCalledOnce();
+      expect(restartLog.warn).toHaveBeenCalledWith(
+        "Server checkout is behind its branch and was left as it is; restarting onto older code",
+        expect.objectContaining({ behind: 2, localChanges: true }),
+      );
+    });
+
+    it("restarts without a checkout report when reading the checkout fails", async () => {
+      const updateBeforeRestart = vi.fn(async (): Promise<ServerCheckoutUpdate> => {
+        throw new Error("git is not installed");
+      });
+
+      const res = await appWithCheckout({ updateBeforeRestart }).request("/api/server/restart", { method: "POST" });
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        restartRequested: true,
+        checkoutUpdate: null,
+      });
+      expect(restartLog.warn).toHaveBeenCalledWith("Could not check the server checkout before restart", {
+        error: "git is not installed",
+      });
+    });
+
+    it("serves the checkout status for Settings, refreshing on request", async () => {
+      const status = vi.fn(async () => checkoutStatus({ state: "behind", behind: 1 }));
+      const checkoutApp = appWithCheckout({ status });
+
+      const cached = await checkoutApp.request("/api/server/checkout");
+      await expect(cached.json()).resolves.toMatchObject({
+        status: { state: "behind", behind: 1 },
+      });
+      expect(status).toHaveBeenLastCalledWith({ refresh: false });
+
+      await checkoutApp.request("/api/server/checkout?refresh=1");
+      expect(status).toHaveBeenLastCalledWith({ refresh: true });
+
+      // A server without a Git checkout has nothing to show.
+      const none = await appWithCheckout(undefined).request("/api/server/checkout");
+      await expect(none.json()).resolves.toEqual({ status: null });
+    });
   });
 });

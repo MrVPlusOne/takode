@@ -443,6 +443,58 @@ describe("SettingsPage", () => {
     }
   });
 
+  it("shows the server checkout's state and says what the restart did to it", async () => {
+    // The restart fast-forwards a behind checkout first; the page reports the move, then re-reads the status.
+    vi.useFakeTimers();
+    const behind = {
+      state: "behind",
+      runningCommit: "a".repeat(40),
+      head: "a".repeat(40),
+      branch: "main",
+      upstream: "origin/main",
+      upstreamHead: "b".repeat(40),
+      behind: 1,
+      ahead: 0,
+      localChanges: false,
+      fetchError: null,
+      checkedAt: 1,
+    };
+    const current = { ...behind, state: "current", head: "b".repeat(40), behind: 0 };
+    mockApi.getServerCheckout.mockResolvedValue({ status: behind });
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: null,
+      checkoutUpdate: { action: "updated", from: "a".repeat(40), error: null, status: current },
+    });
+
+    try {
+      render(<SettingsPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockApi.getServerCheckout).toHaveBeenCalledWith(false);
+      expect(screen.getByTestId("server-checkout-status")).toHaveTextContent("Restart Server fast-forwards");
+
+      mockApi.getServerCheckout.mockResolvedValue({ status: current });
+      requestRestartFromSettings();
+      expect(mockApi.getServerCheckout).toHaveBeenCalledWith(true);
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(
+        screen.getByText(
+          /^Server restarted at .* The checkout \(main\) was first fast-forwarded from aaaaaaaa to bbbbbbbb\.$/,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("server-checkout-status")).toHaveTextContent("Up to date with origin/main");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("confirms the finished restart after the initiating tab reloads", async () => {
     // The reload replaces the page, so the completion note is carried in sessionStorage
     // and shown once by the freshly loaded Settings page.
@@ -452,6 +504,24 @@ describe("SettingsPage", () => {
       ok: true,
       restartRequested: true,
       replacementBuildId: "backend-after-reload-note",
+      checkoutUpdate: {
+        action: "unchanged",
+        from: null,
+        error: null,
+        status: {
+          state: "diverged",
+          runningCommit: null,
+          head: "a".repeat(40),
+          branch: "main",
+          upstream: "origin/main",
+          upstreamHead: "b".repeat(40),
+          behind: 2,
+          ahead: 1,
+          localChanges: false,
+          fetchError: null,
+          checkedAt: 1,
+        },
+      },
     });
     mockCheckReadinessStatus.mockResolvedValue({
       ok: true,
@@ -477,7 +547,10 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(screen.getByText(/This page loaded the new build\./)).toBeInTheDocument();
+      // The note about a checkout left behind survives the reload with the completion message.
+      expect(
+        screen.getByText(/This page loaded the new build\. The checkout \(main\) is 2 commits behind origin\/main/),
+      ).toBeInTheDocument();
       expect(sessionStorage.getItem("cc-server-restart-completed-at")).toBeNull();
     } finally {
       sessionStorage.clear();

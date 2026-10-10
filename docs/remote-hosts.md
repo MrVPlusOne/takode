@@ -251,6 +251,18 @@ sessions too; they relaunch when next used, and the server starts a new node.
 
 ## Updating Takode
 
+Restart Server loads the code in the coordinator's own checkout. When that
+checkout is on a branch that tracks a remote branch, the restart first fetches
+it and, if the checkout is clean (no uncommitted changes to tracked files) and
+only behind, fast-forwards it, so changes pushed or landed from other checkouts
+take effect without updating it by hand. It never touches a checkout with
+uncommitted changes or local commits, or one not on a branch: the restart then
+loads it as it is. **Settings → Restart** shows which commit the server runs
+and where its checkout stands against its branch, with a warning when a
+restart would load older code than the branch has. A fast-forward that brings
+dependency changes still needs `bun install --cwd web --frozen-lockfile`
+before the restart can go ahead; the restart says so.
+
 The host's checkout should run the same commit as the coordinator. `takode
 host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.

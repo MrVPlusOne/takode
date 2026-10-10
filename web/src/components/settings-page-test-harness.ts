@@ -105,6 +105,7 @@ export const mockApi = {
   updateSettings: vi.fn(),
   getBackendModels: vi.fn(),
   restartServer: vi.fn(),
+  getServerCheckout: vi.fn(),
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
@@ -211,6 +212,7 @@ export function resetSettingsPageMocks() {
     buildId: "development",
     servedFrontendBuildId: "development",
   });
+  mockApi.getServerCheckout.mockResolvedValue({ status: null });
   resetBuildCompatibilityForTest();
   mockApi.updateSettings.mockResolvedValue(settingsResponse());
   mockApi.getNamerLogs.mockResolvedValue([]);

@@ -1,3 +1,7 @@
+import type { ServerCheckoutUpdate } from "../../server/server-checkout.js";
+
+export type { ServerCheckoutStatus, ServerCheckoutUpdate } from "../../server/server-checkout.js";
+
 export interface ServerInterruptResultItem {
   sessionId: string;
   label: string;
@@ -42,6 +46,8 @@ export interface RestartServerResponse {
   restartRequested: boolean;
   /** Exact prepared production build accepted for this restart request. */
   replacementBuildId: string | null;
+  /** What the restart did to the server's checkout first; null when it does not run from a Git checkout. */
+  checkoutUpdate?: ServerCheckoutUpdate | null;
 }
 
 export function isInterruptRestartBlockersResponse(value: unknown): value is InterruptRestartBlockersResponse {

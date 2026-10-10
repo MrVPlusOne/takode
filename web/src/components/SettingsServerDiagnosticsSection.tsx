@@ -1,6 +1,7 @@
 import { useState } from "react";
-import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
+import type { InterruptRestartBlockersResponse, ServerCheckoutStatus, ServerInterruptResultItem } from "../api.js";
 import { RestartHostProgress } from "./RestartHostProgress.js";
+import { describeServerCheckout } from "../server-checkout-status.js";
 import { SettingsSubsection } from "./settings-controls.js";
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
@@ -149,8 +150,10 @@ export function SettingsServerDiagnosticsSection({
   restartSuccess = "",
   restartPrepResult,
   restarting,
+  checkoutStatus = null,
   onSaveServerSlug,
   onRestartServer,
+  onRefreshCheckoutStatus,
   isRowHidden = () => false,
 }: {
   logFile: string;
@@ -164,13 +167,18 @@ export function SettingsServerDiagnosticsSection({
   restartSuccess?: string;
   restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
+  /** The server's Git checkout against its branch; null when unknown or not a Git checkout. */
+  checkoutStatus?: ServerCheckoutStatus | null;
   onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
+  /** Re-reads the checkout status (with a fetch) when the user is about to restart. */
+  onRefreshCheckoutStatus?: () => void;
   /** Whether Settings search hides the row or subsection with this item id. */
   isRowHidden?: (itemId: string) => boolean;
 }) {
   const visibleRestartPrepResult = restartPrepResult ?? null;
   const [confirmingRestart, setConfirmingRestart] = useState(false);
+  const checkout = describeServerCheckout(checkoutStatus);
 
   return (
     <>
@@ -254,9 +262,10 @@ export function SettingsServerDiagnosticsSection({
       <SettingsSubsection title="Restart" hidden={isRowHidden("restart")}>
         <div className="space-y-3">
           <p className="text-xs text-cc-muted">
-            Restart the server process. Useful after pulling new code. Sessions reconnect on demand when queued work or
-            a response needs a backend. If restart readiness is blocked by active turns or pending permission dialogs,
-            restart prep interrupts active blockers first and reports anything still unresolved.
+            Restart the server process to load new code. If the server&apos;s checkout is clean and only behind its
+            branch, it is fast-forwarded first. Sessions reconnect on demand when queued work or a response needs a
+            backend. If restart readiness is blocked by active turns or pending permission dialogs, restart prep
+            interrupts active blockers first and reports anything still unresolved.
           </p>
 
           {!restartSupported && (
@@ -265,6 +274,20 @@ export function SettingsServerDiagnosticsSection({
               <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make dev</code> or{" "}
               <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make serve</code> to enable.
             </div>
+          )}
+
+          {checkout && (
+            <p
+              data-testid="server-checkout-status"
+              data-tone={checkout.tone}
+              className={`text-xs ${
+                checkout.tone === "warning"
+                  ? "px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400"
+                  : "text-cc-muted"
+              }`}
+            >
+              {checkout.text}
+            </p>
           )}
 
           {restartError && (
@@ -312,7 +335,10 @@ export function SettingsServerDiagnosticsSection({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmingRestart(true)}
+                onClick={() => {
+                  setConfirmingRestart(true);
+                  onRefreshCheckoutStatus?.();
+                }}
                 disabled={restarting || !restartSupported}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   restarting || !restartSupported

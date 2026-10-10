@@ -59,6 +59,7 @@ import {
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
 import { processHostOf } from "../remote-host/host-registry.js";
+import type { ServerCheckout, ServerCheckoutUpdate } from "../server-checkout.js";
 import { canonicalTimeZone, serverDefaultTimeZone, timeZoneInEffect } from "../server-time-zone.js";
 import {
   findCodexReasoningEffortSupportIssue,
@@ -529,6 +530,59 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   // ─── Server restart ───────────────────────────────────────────────
 
+  /**
+   * Fast-forwards a clean server checkout that is only behind its branch and
+   * logs a restart onto older code. Never blocks the restart: a checkout the
+   * update cannot move (local changes or commits, no branch) is the user's to
+   * keep, and Settings shows its state before and after.
+   */
+  async function updateServerCheckoutBeforeRestart(checkout: ServerCheckout): Promise<ServerCheckoutUpdate | null> {
+    let update: ServerCheckoutUpdate;
+    try {
+      update = await checkout.updateBeforeRestart();
+    } catch (error) {
+      restartLog.warn("Could not check the server checkout before restart", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+    const { status } = update;
+    const details = {
+      branch: status.branch,
+      upstream: status.upstream,
+      head: status.head,
+      behind: status.behind,
+      ahead: status.ahead,
+      localChanges: status.localChanges,
+      fetchError: status.fetchError,
+    };
+    if (update.action === "updated") {
+      restartLog.info("Fast-forwarded the server checkout before restart", { ...details, from: update.from });
+    } else if (update.action === "failed") {
+      restartLog.warn("Could not fast-forward the server checkout; restarting onto older code", {
+        ...details,
+        error: update.error,
+      });
+    } else if (status.behind > 0) {
+      restartLog.warn(
+        "Server checkout is behind its branch and was left as it is; restarting onto older code",
+        details,
+      );
+    } else if (status.fetchError) {
+      restartLog.warn("Could not fetch the server checkout's branch before restart", details);
+    }
+    return update;
+  }
+
+  api.get("/server/checkout", async (c) => {
+    if (!options?.serverCheckout) return c.json({ status: null });
+    try {
+      return c.json({ status: await options.serverCheckout.status({ refresh: c.req.query("refresh") === "1" }) });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   const handleServerRestart = async (c: Context): Promise<Response> => {
     if (!options?.requestRestart || options.restartSupported === false) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
@@ -564,12 +618,25 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
 
     try {
+      // Load the code that reached the checkout's branch (e.g. by landings
+      // pushed from another checkout) rather than whatever was last checked out.
+      const checkoutUpdate = options.serverCheckout
+        ? await updateServerCheckoutBeforeRestart(options.serverCheckout)
+        : null;
+      const checkoutNote =
+        checkoutUpdate?.action === "updated" && checkoutUpdate.status.head
+          ? ` The checkout was first fast-forwarded to ${checkoutUpdate.status.head.slice(0, 8)}.`
+          : "";
+
       if (options.checkBackendStartup) {
         try {
           // The replacement backend runs the code now on disk and has no fallback, so check it before anything stops.
           await options.checkBackendStartup();
         } catch (error) {
-          return c.json({ error: `Restart blocked: ${error instanceof Error ? error.message : String(error)}` }, 409);
+          return c.json(
+            { error: `Restart blocked: ${error instanceof Error ? error.message : String(error)}${checkoutNote}` },
+            409,
+          );
         }
       }
 
@@ -586,7 +653,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         } catch (error) {
           return c.json(
             {
-              error: `Frontend restart preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+              error: `Frontend restart preparation failed: ${error instanceof Error ? error.message : String(error)}${checkoutNote}`,
             },
             500,
           );
@@ -690,7 +757,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         await requestHostUpdates();
         options.requestRestart();
         restartScheduled = true;
-        return c.json({ ...result, replacementBuildId: preparedRestart?.buildId ?? null });
+        return c.json({ ...result, replacementBuildId: preparedRestart?.buildId ?? null, checkoutUpdate });
       }
 
       try {
@@ -704,7 +771,12 @@ export function createSettingsRoutes(ctx: RouteContext) {
       await requestHostUpdates();
       options.requestRestart();
       restartScheduled = true;
-      return c.json({ ok: true, restartRequested: true, replacementBuildId: preparedRestart?.buildId ?? null });
+      return c.json({
+        ok: true,
+        restartRequested: true,
+        replacementBuildId: preparedRestart?.buildId ?? null,
+        checkoutUpdate,
+      });
     } catch (error) {
       const [preparedCleanupError, continuationCleanupError] = await Promise.all([
         discardPreparedRestart(),

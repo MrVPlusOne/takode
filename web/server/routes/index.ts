@@ -172,6 +172,8 @@ export function createRoutes(
     prepareRestart?: () => Promise<PreparedFrontendRestart>;
     /** Rejects with an actionable reason when the backend on disk could not start. */
     checkBackendStartup?: () => Promise<void>;
+    /** The Git checkout the server runs from: its status in Settings, and the fast-forward before a restart. */
+    serverCheckout?: import("../server-checkout.js").ServerCheckout;
     restartSupported?: boolean;
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
