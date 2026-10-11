@@ -173,7 +173,8 @@ describe("composer minimization", () => {
   });
 
   it("keeps a later outside action authoritative when active voice ends", () => {
-    // A late recording/transcription completion must not reopen a deliberately closed draft.
+    // Ending a temporary reveal alone must not reopen a deliberately closed draft; showing a
+    // transcription result is the Composer's explicit expansion, not the reveal ending.
     const view = render(<Fixture reveal />);
     focusDraft();
     fireEvent.pointerDown(document.body);

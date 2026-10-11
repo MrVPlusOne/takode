@@ -326,8 +326,8 @@ export function Composer({
     }
 
     voiceStartPendingRef.current = true;
-    // Voice shortcuts and touch buttons need not focus the textarea. Keep their
-    // intentional expansion after transcription, unless a later interaction closes it.
+    // Voice shortcuts and touch buttons need not focus the textarea, so record the
+    // expansion here; transcription completion expands again to show its outcome.
     setComposerExpanded(true);
     try {
       setFailedTranscription(null);
@@ -582,6 +582,10 @@ export function Composer({
       const totalElapsedMs = Math.max(0, nowMs() - startedAt);
       setIsTranscribing(false);
       setTranscriptionPhase(null);
+      // Active voice holds the composer open, so a scroll touch or click back into the window
+      // while waiting gives no visible collapse; applying it now would hide the fresh result,
+      // edit proposal or retry. Always show the outcome; the user can minimize it afterwards.
+      setComposerExpanded(true);
       const reportTranscriptionFrontendTiming = api.reportTranscriptionFrontendTiming;
       if (typeof reportTranscriptionFrontendTiming === "function") {
         void afterNextPaint()

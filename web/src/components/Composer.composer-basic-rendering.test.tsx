@@ -1412,9 +1412,10 @@ it.each([
   "hover",
   "outside",
   "navigation",
-])("keeps voice-inserted text expanded unless the user leaves (%s)", async (departure) => {
-  // A voice shortcut can start without textarea focus. Its temporary reveal must become
-  // intentional expansion, while a later outside interaction or navigation still wins.
+])("shows voice-inserted text expanded however the user waited (%s)", async (departure) => {
+  // A voice shortcut can start without textarea focus. Active voice holds the composer open,
+  // so an outside touch or navigation while waiting has no visible effect; completion must
+  // still show the inserted text instead of applying that hidden collapse.
   mediaState.touchDevice = departure !== "hover";
   setViewportWidth(departure === "hover" ? 1440 : 430);
   mockStoreState.shortcutSettings = {
@@ -1462,10 +1463,33 @@ it.each([
     });
   });
   expect(textarea.value).toBe("Voice first line\nVoice second line");
-  expect(textarea.getAttribute("aria-expanded")).toBe(
-    departure === "none" || departure === "transient-blur" || departure === "hover" ? "true" : "false",
-  );
+  expect(textarea.getAttribute("aria-expanded")).toBe("true");
   expect(document.activeElement).not.toBe(textarea);
+  // Expansion after completion is ordinary state: a later outside action still minimizes it.
+  fireEvent.pointerDown(document.body);
+  expect(textarea.getAttribute("aria-expanded")).toBe("false");
+});
+
+it("shows a failed transcription's retry even after an outside touch while waiting", async () => {
+  // The retry lives in the expanded status area; a hidden collapse must not bury it.
+  mediaState.touchDevice = true;
+  setViewportWidth(430);
+  mockStoreState.shortcutSettings = {
+    enabled: true,
+    preset: "standard",
+    overrides: { voice_start: "Ctrl+Y" },
+  };
+  const transcription = deferred<VoiceTranscriptionResult>();
+  mockTranscribe.mockReturnValueOnce(transcription.promise);
+  renderCollapsedComposer(<Composer sessionId="s1" />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+  fireEvent.pointerDown(document.body);
+  await act(async () => {
+    transcription.reject(new Error("Provider unavailable"));
+  });
+  expect(textarea.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText("Provider unavailable")).toBeTruthy();
 });
 
 it.each([
