@@ -423,7 +423,9 @@ describe("quest CLI feedback inspection", () => {
     let labelIds: unknown;
     const server = createServer(async (req, res) => {
       requests.push(`${req.method} ${req.url}`);
-      res.writeHead(200, { "content-type": "application/json" });
+      // Set the status per branch: writing headers twice throws inside the server
+      // and leaves the request hanging, for example for quest show's linked to-do lookup.
+      res.setHeader("content-type", "application/json");
       if (req.method === "GET" && req.url === "/api/quests/q-6") {
         res.end(JSON.stringify({ ...quest, title: "Server title" }));
       } else if (req.method === "POST" && req.url === "/api/sessions/_labels") {
