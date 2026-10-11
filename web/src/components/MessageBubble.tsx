@@ -52,7 +52,7 @@ import {
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
-import { VoiceInputIcon } from "./VoiceInputIcon.js";
+import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
@@ -973,16 +973,7 @@ function UserMessage({
             questLinkSurface={questLinkSurface}
           />
         </CollapsibleContent>
-        {transcribed && (
-          <span
-            data-testid="user-message-transcribed-tag"
-            title="Dictated with voice transcription"
-            className="inline-flex items-center gap-1 text-[11px] text-cc-muted/70"
-          >
-            <VoiceInputIcon className="h-3 w-3" />
-            transcribed
-          </span>
-        )}
+        {transcribed && <TranscriptionTagMarker testId="user-message-transcribed-tag" />}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       {!readOnly && !message.pendingState && (

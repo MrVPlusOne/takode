@@ -204,7 +204,8 @@ describe("composer annotation attachments", () => {
         },
       }),
     );
-    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("New spoken comment");
+    // Dictated comments end with the tag that tells agents the text was transcribed.
+    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("New spoken comment [transcribed]");
     expect(useStore.getState().composerDrafts.get("session")?.annotations).toEqual([first]);
   });
 
@@ -222,6 +223,7 @@ describe("composer annotation attachments", () => {
     });
     fireEvent.click(screen.getByText("Accept edit"));
     fireEvent.click(screen.getByText("Save"));
+    // The user reviews a voice edit before accepting it, so the edited comment carries no transcription tag.
     expect(useStore.getState().composerDrafts.get("session")).toMatchObject({
       text: "Main draft",
       annotations: [{ ...first, comment: "New spoken comment" }],
@@ -257,6 +259,16 @@ describe("composer annotation attachments", () => {
       annotations: [first],
       stage: "failed",
     });
+  });
+
+  it("shows a comment's trailing transcription tag as the feed marker", () => {
+    // A dictated comment is sent with "[transcribed]" for agents; the feed shows a compact marker instead.
+    render(
+      <AnnotationAttachments annotations={[{ ...first, comment: "Spoken note [transcribed]" }]} variant="message" />,
+    );
+    expect(screen.getByText("Spoken note")).toBeTruthy();
+    expect(screen.queryByText(/\[transcribed\]/)).toBeNull();
+    expect(screen.getByTestId("annotation-comment-transcribed-tag").textContent).toBe("transcribed");
   });
 
   it("rehydrates attachment previews from server metadata rather than parsing user text", () => {

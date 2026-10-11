@@ -185,7 +185,8 @@ describe("NeedsInputAnswerField", () => {
     expect(options.focusedContext).toContain("Notification source context:");
     expect(options.focusedContext).toContain("The canary is green and rollback is ready.");
     expect(options.focusedContext).toContain("Suggested answers: yes, no");
-    expect(onChange).toHaveBeenCalledWith("hello Takode");
+    // Dictated answers end with the tag that tells agents the text was transcribed.
+    expect(onChange).toHaveBeenCalledWith("hello Takode [transcribed]");
   });
 
   it("uses simple dictation insertion semantics without edit or append mode", () => {
@@ -259,7 +260,7 @@ describe("NeedsInputAnswerField", () => {
     expect(mockToggleRecording).toHaveBeenCalledTimes(2);
     voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
 
-    await waitFor(() => expect(textarea).toHaveValue("manual editTakode"));
+    await waitFor(() => expect(textarea).toHaveValue("manual editTakode [transcribed]"));
   });
 
   it("keeps failed voice audio retryable and retries with the original needs-input context", async () => {
@@ -298,7 +299,7 @@ describe("NeedsInputAnswerField", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship approved"));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship approved [transcribed]"));
     expect(mockTranscribe).toHaveBeenCalledTimes(2);
     expect(mockTranscribe.mock.calls[1]?.[0]).toBe(voiceBlob);
     expect(mockTranscribe.mock.calls[1]?.[1]).toEqual(

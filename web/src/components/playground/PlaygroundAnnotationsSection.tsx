@@ -37,7 +37,8 @@ export function PlaygroundAnnotationsSection() {
         {
           id: "refresh-comment",
           selectedText: "A background refresh keeps the result current.",
-          comment: "What happens when the refresh fails?",
+          // Dictated comment: the sent message shows its trailing tag as the transcription marker.
+          comment: "What happens when the refresh fails? [transcribed]",
           sourceMessageId: "annotation-example",
         },
       ],

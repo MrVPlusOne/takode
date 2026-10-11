@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
+import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
+import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 export { AnnotationSourceMarkers } from "./AnnotationSourceMarkers.js";
 
@@ -58,6 +60,7 @@ function AnnotationAttachment({
 }) {
   const [open, setOpen] = useState(variant === "message");
   const { preview, triggerProps, close } = useAnnotationPreview(annotation, number, sessionId);
+  const comment = splitTrailingTranscriptionTag(annotation.comment);
   if (onEdit)
     return (
       <>
@@ -99,7 +102,8 @@ function AnnotationAttachment({
           <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-3 text-cc-muted">
             {annotation.selectedText}
           </blockquote>
-          <p className="whitespace-pre-wrap break-words">{annotation.comment}</p>
+          <p className="whitespace-pre-wrap break-words">{comment.text}</p>
+          {comment.transcribed && <TranscriptionTagMarker testId="annotation-comment-transcribed-tag" />}
           {annotation.reportSource && (
             <button
               type="button"

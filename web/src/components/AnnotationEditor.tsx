@@ -2,6 +2,7 @@ import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
+import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import { buildAnnotationVoiceReference, type AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
 import { api } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
@@ -110,7 +111,9 @@ export function AnnotationEditor({
         const before = snapshot.base.slice(0, snapshot.start);
         const after = snapshot.base.slice(snapshot.end);
         const separator = before && !/\s$/.test(before) && result.text ? " " : "";
-        setText(snapshot.mode === "dictation" ? result.text : before + separator + result.text + after);
+        // Edit mode shows a proposal the user reviews, so only dictated or appended text is tagged.
+        const dictated = snapshot.mode === "dictation" ? result.text : before + separator + result.text + after;
+        setText(result.text.trim() ? addTranscriptionTag(dictated) : dictated);
         setProposal(null);
       }
       setAlternate(snapshot.mode === "dictation" ? null : snapshot);

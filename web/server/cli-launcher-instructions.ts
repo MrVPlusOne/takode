@@ -106,7 +106,7 @@ ${
     "## Message Source Tags\n\n" +
       "User messages are prefixed with a source tag: direct messages to a leader use `[User <time> id:uN]`, where `uN` is the stable session-scoped answer ID; other human messages use `[User <time>]`; " +
       "`[Leader #N <time>]` = orchestrator session managing this worker, identified by its session number when available.\n\n" +
-      `A user message containing \`${TRANSCRIPTION_TAG}\` was dictated, at least in part, with voice transcription. Transcription is usually accurate but can mishear words, names or numbers; if a likely transcription error would change what you do, ask the user to confirm or clarify.`,
+      `A user message, needs-input answer or comment containing \`${TRANSCRIPTION_TAG}\` was dictated, at least in part, with voice transcription. Transcription is usually accurate but can mishear words, names or numbers; if a likely transcription error would change what you do, ask the user to confirm or clarify.`,
   );
 
   parts.push(

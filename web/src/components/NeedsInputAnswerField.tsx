@@ -6,6 +6,7 @@ import type { VoiceLevelSample } from "./composer-voice-types.js";
 import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
+import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import {
   buildNeedsInputVoiceFocusedContext,
   insertTextAtSelection,
@@ -184,7 +185,8 @@ export function NeedsInputAnswerField({
         focusedContext: transcriptionState.focusedContext,
         onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       });
-      onChange(insertTextAtSelection(valueRef.current, text, transcriptionState.selection));
+      const answer = insertTextAtSelection(valueRef.current, text, transcriptionState.selection);
+      onChange(text.trim() ? addTranscriptionTag(answer) : answer);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Transcription failed");
       setFailedTranscription(transcriptionState);
