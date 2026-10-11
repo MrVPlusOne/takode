@@ -184,6 +184,15 @@ takode search auth
 takode search jwt --all
 ```
 
+### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
+
+Show what the user did in a time window (default: the last 24 hours): every message the user typed by hand and the final answers to them, as one narrative per session thread, with indexes for `takode read`. From a session it covers that session's own space unless `--space` names others. Use it to catch up on activity, for example for a daily briefing.
+
+```bash
+takode activity --since yesterday --until today
+takode activity --since 6h --space all --json
+```
+
 ### `takode info <session> [--json] [--details | --include <fields>]`
 
 Show detailed session metadata: identity, backend, working directory, git state, worktree info, quest claim, metrics, and timestamps.

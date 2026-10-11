@@ -89,6 +89,32 @@ Options:
   --json  Output JSON
 `;
 
+const ACTIVITY_HELP = `Usage: takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]
+
+Show the user's activity in a time window: every message the user typed by hand and the
+final answers to them, as one narrative per session thread. A leader's answers are the
+explicit answers that name the user's messages; elsewhere the last reply of a turn
+answers the messages sent during it. A message outside the window is still listed when
+it answers, or is answered by, one inside it.
+
+Each message shows its history index: open it with takode read <session> <index>, and
+its quest with quest show q-N. Sessions archived before the server last started are
+read from disk, which can take a few seconds.
+
+Options:
+  --since <time>    Window start (default: 24h ago)
+  --until <time>    Window end (default: now)
+                    Times: a duration ago (30m, 6h, 2d), today, yesterday (local midnight),
+                    a local date (2026-10-10), a date and time, or epoch milliseconds
+  --space <names>   Comma-separated session spaces, or all. From a session, the default is
+                    that session's own space; elsewhere, all spaces
+  --full            Whole messages instead of the first 300 characters
+  --json            Structured output: { since, until, spaces, threads: [{ session,
+                    sessionId, sessionName, space, thread?, messages: [{ role (user or
+                    answer), index, at, text, chars? (full length when shortened), images?,
+                    to? (indexes an answer answers) }] }] }
+`;
+
 const INFO_HELP = `Usage: takode info <session> [--json] [--details | --include <fields>]
 
 Show detailed metadata for a session, including backend, git, quest, and timer state.
@@ -453,6 +479,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "search":
       console.log(SEARCH_HELP);
       return true;
+    case "activity":
+      console.log(ACTIVITY_HELP);
+      return true;
     case "info":
       console.log(INFO_HELP);
       return true;
@@ -684,6 +713,7 @@ Usage: takode <command> [options]
 Commands:
   list     List sessions (--active: all, --herd: herded only, --all: include archived)
   search   Search sessions via server-side ranking (available to all sessions)
+  activity The user's messages and the answers to them in a time window
   info     Show detailed metadata for a session
   leader-context-resume  Recover compact leader/orchestrator context for a session
   file-resolve  Resolve paths or file links against a session filesystem context

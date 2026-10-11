@@ -20,6 +20,7 @@ import {
   stripGlobalFlags,
 } from "./takode-core.js";
 import { handleFileResolve } from "./takode-file-resolve.js";
+import { handleActivity } from "./takode-activity.js";
 import { handleReport } from "./takode-report.js";
 import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
@@ -84,6 +85,7 @@ try {
   const commandAccess = new Map<string, CommandAccess>([
     ["list", { allowSessionlessRead: true }],
     ["search", { allowSessionlessRead: true }],
+    ["activity", { allowSessionlessRead: true }],
     ["info", { allowSessionlessRead: true }],
     ["leader-context-resume", {}],
     ["file-resolve", {}],
@@ -163,6 +165,9 @@ try {
       break;
     case "search":
       await handleSearch(base, args);
+      break;
+    case "activity":
+      await handleActivity(base, args);
       break;
     case "info":
       await handleInfo(base, args);
