@@ -992,7 +992,7 @@ describe("NotificationChip", () => {
       "n-1",
       expect.objectContaining({
         content:
-          "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after the smoke test",
+          "Answers for: Need rollout choices\n\n1. Which rollout?\n   Answer: staged\n\n2. When should it start?\n   Answer: after the smoke test",
         threadKey: "main",
       }),
     );

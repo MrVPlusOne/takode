@@ -39,9 +39,23 @@ export function formatNeedsInputResponse(
 
   const lines = summary?.trim() ? [`Answers for: ${summary.trim()}`, ""] : ["Needs-input answers:", ""];
   answered.forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.prompt}`);
-    lines.push(`Answer: ${item.answer}`);
+    const marker = `${index + 1}. `;
+    // Prompts often carry their own "1." numbering; the list supplies it already.
+    const prompt = item.prompt.trim().replace(LEADING_LIST_NUMBER, "");
+    // Indent every later line to the marker width so multi-line prompts and
+    // answers stay inside their Markdown list item and read unambiguously as text.
+    const body = indentContinuation(`${prompt}\nAnswer: ${item.answer}`, " ".repeat(marker.length));
+    lines.push(`${marker}${body}`);
     if (index < answered.length - 1) lines.push("");
   });
   return lines.join("\n");
+}
+
+const LEADING_LIST_NUMBER = /^\(?\d+[.)]\s+/;
+
+function indentContinuation(text: string, indent: string): string {
+  return text
+    .split("\n")
+    .map((line, index) => (index === 0 || !line.trim() ? line.trimEnd() : `${indent}${line}`))
+    .join("\n");
 }

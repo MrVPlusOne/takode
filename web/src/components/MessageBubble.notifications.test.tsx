@@ -832,7 +832,7 @@ describe("MessageBubble notification markers", () => {
         "n-questions",
         expect.objectContaining({
           content:
-            "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after smoke test",
+            "Answers for: Need rollout choices\n\n1. Which rollout?\n   Answer: staged\n\n2. When should it start?\n   Answer: after smoke test",
           threadKey: "main",
         }),
       );
