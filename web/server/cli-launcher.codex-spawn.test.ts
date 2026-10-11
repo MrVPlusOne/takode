@@ -206,6 +206,14 @@ describe("Codex spawn preparation", () => {
     expect(command[command.indexOf(expectedFlag) + 1]).toBe("multi_agent_v2");
   });
 
+  it("does not herd a Codex leader under the active leader that created it", async () => {
+    // A leader created by another leader is a peer; only workers are herded.
+    (launcher as any).sessions.set("leader-edge", { sessionId: "leader-edge", isOrchestrator: true });
+    const info = await launchCodex({ isOrchestrator: true, createdBySessionRef: "leader-edge" });
+    expect(info.isOrchestrator).toBe(true);
+    expect(info.herdedBy).toBeUndefined();
+  });
+
   it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
     // The session config must allow Takode env vars through Codex's filtered
     // shell policy while preserving unrelated user feature settings.

@@ -33,6 +33,7 @@ import {
 import { printSessionLine } from "./takode-session-commands.js";
 import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-send.js";
+import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
@@ -250,7 +251,7 @@ function collectThreadAttachMessageIndices(args: string[]): number[] {
 
 export const SPAWN_FLAG_USAGE = `Usage: takode spawn [options]
 
-  Create and auto-herd new worker sessions.
+  Create and auto-herd new worker sessions, or with --leader a peer leader.
 
 Options:
   --backend <type>             AI backend: "claude" or "codex" (default: inherit from leader)
@@ -272,6 +273,10 @@ Options:
   --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
   --replace-worktree-worker <session>
                               Archive an owned worktree worker and reuse its reset worktree
+  --leader                     Create a leader instead: not herded, no worktree, in your
+                               session space and memory space unless overridden below
+  --session-space <name|id>    With --leader, put the new leader in another session space
+  --memory-space <slug>        With --leader, use another memory space (its session space follows)
   --json                       Output compact JSON
   --details                    With --json, output full session info payloads
   --include <fields>           With --json, include opt-in bulky session fields:
@@ -282,6 +287,7 @@ Examples:
   takode spawn --backend codex --permission-mode auto-review --model gpt-5.4 --reasoning-effort high --internet
   takode spawn --count 3 --no-worktree
   takode spawn --replace-worktree-worker 42 --message-file /tmp/dispatch.txt
+  takode spawn --leader --host devbox --cwd /home/me --message-file /tmp/handoff.txt
   takode spawn --message-file /tmp/dispatch.txt
   printf '%s\n' 'Review q-10' 'Treat \`$(nope)\` as literal text.' | takode spawn --reviewer 42 --message-file -`;
 
@@ -307,6 +313,9 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "fixed-name",
   "reviewer",
   "replace-worktree-worker",
+  "leader",
+  "session-space",
+  "memory-space",
   "json",
   "details",
   "include",
@@ -539,6 +548,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   }
 
   await ensureTakodeAccess(base, { requireOrchestrator: true });
+  validateLeaderSpawnFlags(flags);
+  const asLeader = flags.leader === true;
 
   const jsonMode = flags.json === true;
   const jsonOptions = resolveSessionInfoJsonOptions(flags, { jsonMode });
@@ -577,7 +588,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   let cwd = explicitCwd ?? process.cwd();
   const hostName = typeof flags.host === "string" ? flags.host.trim() : undefined;
   if (flags.host !== undefined && !hostName) err("--host requires a host name.");
-  const useWorktree = flags["no-worktree"] === true ? false : true;
+  const useWorktree = flags["no-worktree"] === true || asLeader ? false : true;
   const fixedName = typeof flags["fixed-name"] === "string" ? flags["fixed-name"].trim() : "";
   if (flags["fixed-name"] !== undefined && !fixedName) {
     err("--fixed-name requires a non-empty name value.");
@@ -725,6 +736,9 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const inheritedCodexPermissionMode =
     backendRaw === "codex" && isCodexProfilePermissionMode(leader.permissionMode) ? leader.permissionMode : undefined;
 
+  const leaderSessionSpace = asLeader
+    ? await resolveLeaderSpawnSessionSpace(base, flags, leader.memorySessionSpaceSlug)
+    : {};
   const buildCreatePayload = (): Record<string, unknown> => {
     const createPayload: Record<string, unknown> = {
       backend: backendRaw,
@@ -732,9 +746,12 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       useWorktree: reviewerOfNum !== undefined ? false : useWorktree,
       createdBy: leaderSessionId,
     };
-    const memorySessionSpaceSlug = reviewerParentSession?.memorySessionSpaceSlug ?? leader.memorySessionSpaceSlug;
-    if (memorySessionSpaceSlug) {
-      createPayload.memorySessionSpaceSlug = memorySessionSpaceSlug;
+    if (asLeader) {
+      createPayload.role = "orchestrator";
+      Object.assign(createPayload, leaderSessionSpace);
+    } else {
+      const memorySessionSpaceSlug = reviewerParentSession?.memorySessionSpaceSlug ?? leader.memorySessionSpaceSlug;
+      if (memorySessionSpaceSlug) createPayload.memorySessionSpaceSlug = memorySessionSpaceSlug;
     }
 
     // Reviewer sessions: auto-set name and suppress auto-naming

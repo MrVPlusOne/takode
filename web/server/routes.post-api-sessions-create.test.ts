@@ -953,7 +953,10 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
-  it("keeps an explicit memory session-space slug when creating inside a different tree group", async () => {
+  it("rejects a memory session-space slug that disagrees with the requested tree group", async () => {
+    // A session's tree group decides its memory space. A request naming both
+    // must not silently create a session grouped in one space that writes
+    // memory into another, so the mismatch is refused before launch.
     const group = await treeGroupStore.createGroup("MSI");
 
     const res = await app.request("/api/sessions/create", {
@@ -966,15 +969,121 @@ describe("POST /api/sessions/create", () => {
       }),
     });
 
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('Memory space "ExplicitSpace" does not match session space "MSI"');
+    expect(launcher.launch).not.toHaveBeenCalled();
+  });
+
+  it("accepts a memory session-space slug that matches the requested tree group", async () => {
+    const group = await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", treeGroupId: group.id, memorySessionSpaceSlug: "MSI" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: group.id, memorySessionSpaceSlug: "MSI" }),
+    );
+  });
+
+  it("places a session in the tree group named by its memory space when no group is requested", async () => {
+    // The replacement-leader incident: a direct create with role orchestrator,
+    // memorySessionSpaceSlug MSI and no treeGroupId got MSI memory but landed
+    // in Default. The memory space must now pick the matching session space.
+    const group = await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "orchestrator", cwd: "/test", memorySessionSpaceSlug: "MSI" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: group.id, memorySessionSpaceSlug: "MSI" }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
+  });
+
+  it("puts the server's own memory space in Default when no named session space uses it", async () => {
+    launcher.getMemorySessionSpaceSlug.mockReturnValue("Takode");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", memorySessionSpaceSlug: "Takode" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: "default", memorySessionSpaceSlug: "Takode" }),
+    );
+  });
+
+  it("rejects a memory session-space slug that no session space uses", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", memorySessionSpaceSlug: "Nowhere" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('No session space uses memory space "Nowhere"');
+    expect(launcher.launch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a memory session-space slug shared by several session spaces", async () => {
+    await treeGroupStore.createGroup("MSI");
+    await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", memorySessionSpaceSlug: "MSI" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("pass treeGroupId to pick one");
+  });
+
+  it("creates a leader as its creator's peer: same session space and memory space, not herded", async () => {
+    // Leaders create replacement or extra leaders with createdBy so the new
+    // leader inherits their session space, but a leader is never a worker:
+    // it must not be herded, and the creator's grouping must still apply.
+    const group = await treeGroupStore.createGroup("MSI");
+    ensureBridgeSession(bridge, "leader-msi", { state: { treeGroupId: group.id } });
+    launcher.getSession.mockImplementation((id: string) =>
+      id === "leader-msi" ? { sessionId: id, isOrchestrator: true } : undefined,
+    );
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        role: "orchestrator",
+        cwd: "/test",
+        createdBy: "leader-msi",
+        memorySessionSpaceSlug: "MSI",
+      }),
+    });
+
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        memorySessionSpaceSlug: "ExplicitSpace",
-        env: expect.objectContaining({
-          COMPANION_MEMORY_SPACE_SLUG: "ExplicitSpace",
-        }),
-      }),
+      expect.objectContaining({ isOrchestrator: true, memorySessionSpaceSlug: "MSI" }),
     );
+    expect(launcher.herdSessions).not.toHaveBeenCalled();
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: group.id, memorySessionSpaceSlug: "MSI" }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
   });
 
   it("uses the creator tree group as the default memory session-space for spawned sessions", async () => {
@@ -1801,6 +1910,8 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("passes an authoritative memory session-space slug into launch options and env", async () => {
+    // The slug must name a session space; that space's group is then used.
+    await treeGroupStore.createGroup("Other");
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

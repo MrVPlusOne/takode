@@ -749,7 +749,8 @@ export class CliLauncher {
     if (options.createdBySessionRef) {
       const creatorId = this.resolveSessionId(options.createdBySessionRef);
       const creator = creatorId ? this.sessions.get(creatorId) : undefined;
-      if (creatorId && isActivePublicOrchestratorCreator(creator)) info.herdedBy = creatorId;
+      // Only workers are herded by the leader that created them; a created leader is a peer.
+      if (creatorId && isActivePublicOrchestratorCreator(creator) && !info.isOrchestrator) info.herdedBy = creatorId;
       else if (info.codexMultiAgentVersion === "v2") info.codexMultiAgentVersion = "v1";
     }
     options = {

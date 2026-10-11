@@ -446,7 +446,7 @@ Claim worker sessions under your orchestrator. Each session can only have one le
 takode herd 2 3 5
 ```
 
-### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--host NAME] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json] [--details | --include <fields>]`
+### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--host NAME] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--leader [--session-space <name|id>] [--memory-space <slug>]] [--json] [--details | --include <fields>]`
 
 Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
@@ -465,6 +465,8 @@ Use `--replace-worktree-worker <session>` when reclaiming an owned completed wor
 Workers run on your own machine by default, also when you run on a remote host. Use `--host <name> --cwd <checkout on that machine>` to run one on another machine: a registered host (`takode host list`) or the coordinator's machine by its name. Use another machine only when the work needs it. A worker on a machine other than yours gets a worktree from its own clone there, based on your branch, and its port target stays your checkout. When that target is a shared remote branch with a saved landing gate (`takode land gate show`), the worker lands through the landing queue from its own machine (`takode land submit`, see `/port-changes`). Otherwise it does not port: it hands its commits over with `takode bundle send` and reports a bundle ID. Have a worker on your checkout's machine run `takode bundle fetch <id>`, cherry-pick the printed range and land it under the normal port lease, gate and push rules. On your own machine, with or without `--host`, the worker's base and port target are your checkout's branch when it spawns from your checkout, and otherwise the `--cwd` checkout's branch.
 
 Routine dispatch should use compact plain-text output, not spawn `--json`. If structured spawn output is needed for a script, compact JSON is the default and bulky session fields require `--details` or `--include <field>`.
+
+Use `takode spawn --leader` only when the user asks you to create another leader, such as a replacement leader on another machine. The new leader is your peer, not a herded worker: it gets no worktree and lands in your session space and memory space. `--session-space <name|id>` or `--memory-space <slug>` place it elsewhere. `--host` and `--cwd` work as for workers. It cannot be combined with `--count`, `--reviewer`, `--replace-worktree-worker` or `--fixed-name`. Do not call `/api/sessions/create` directly to create leaders.
 
 ### `takode rename <session> <name>`
 
