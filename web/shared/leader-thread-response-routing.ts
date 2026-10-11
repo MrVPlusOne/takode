@@ -190,6 +190,27 @@ export function leaderResponseAssociatedThreadKeys(fields: LeaderResponseThreadR
   return [...keys];
 }
 
+/**
+ * The one thread a leader message belongs to: the thread it was written in.
+ * - An answer belongs to the thread it was authored in. Its stored route may be
+ *   normalized to Main so the answer can also show in other tabs.
+ * - Any other message belongs to its stored route; a message routed only
+ *   through thread references belongs to the earliest non-backfill one.
+ *   Later references (handoffs) transfer responsibility, and backfill
+ *   references only add visibility; neither moves the message.
+ * Messages without a valid route belong to Main.
+ */
+export function leaderMessageThreadKey(
+  fields: LeaderResponseThreadRouteFields & { threadAnswer?: { authoredThreadKey?: string } },
+): string {
+  const authored = fields.threadAnswer?.authoredThreadKey?.trim().toLowerCase();
+  if (authored) return authored;
+  const original = leaderResponseOriginalThreadKey(fields);
+  if (original) return original;
+  const firstRoutedRef = fields.threadRefs?.find((ref) => ref.source !== "backfill");
+  return (firstRoutedRef && leaderResponseOriginalThreadKey(firstRoutedRef)) || "main";
+}
+
 export function leaderResponseMessageIsAssociatedWithThread(
   fields: LeaderResponseThreadRouteFields,
   requestedThreadKey: string,

@@ -1,6 +1,6 @@
 import { createContext, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
-import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
+import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 
 /**
@@ -10,29 +10,18 @@ import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.
 export const MessageThreadHeaderOwnedContext = createContext(false);
 
 /**
- * The one thread a message belongs to: the thread it was written in.
- * - An answer belongs to the thread it was authored in. Its stored route may be
- *   normalized to Main so the answer can also show in other tabs.
- * - Any other message belongs to its stored route; a message routed only
- *   through thread references belongs to the earliest non-backfill one.
- *   Later references (handoffs) transfer responsibility, and backfill
- *   references only add visibility; neither moves the message.
- * Leader-thread messages without a valid route default to Main. Messages with
- * no thread metadata at all (non-leader sessions) belong to no thread.
+ * The one thread a message belongs to (see `leaderMessageThreadKey`). Messages
+ * with no thread metadata at all (non-leader sessions) belong to no thread.
  */
 export function getMessageThreadKey(message: ChatMessage): string | null {
   const metadata = message.metadata;
   if (!metadata) return null;
-  const authored = metadata.threadAnswer?.authoredThreadKey;
-  if (authored) return normalizeThreadKey(authored);
-  const original = leaderResponseOriginalThreadKey(metadata);
-  if (original) return original;
-  const firstRoutedRef = metadata.threadRefs?.find((ref) => ref.source !== "backfill");
-  const routed = firstRoutedRef ? leaderResponseOriginalThreadKey(firstRoutedRef) : null;
-  if (routed) return routed;
   const hasThreadMetadata =
-    metadata.threadKey !== undefined || metadata.questId !== undefined || (metadata.threadRefs?.length ?? 0) > 0;
-  return hasThreadMetadata ? "main" : null;
+    metadata.threadAnswer?.authoredThreadKey ||
+    metadata.threadKey !== undefined ||
+    metadata.questId !== undefined ||
+    (metadata.threadRefs?.length ?? 0) > 0;
+  return hasThreadMetadata ? leaderMessageThreadKey(metadata) : null;
 }
 
 /**

@@ -26,7 +26,10 @@ import {
   type LeaderThreadTabMutationPolicy,
 } from "../../shared/leader-thread-tab-priority.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
-import { leaderResponseMessageIsAssociatedWithThread } from "../../shared/leader-thread-response-routing.js";
+import {
+  leaderMessageThreadKey,
+  leaderResponseMessageIsAssociatedWithThread,
+} from "../../shared/leader-thread-response-routing.js";
 import { randomUUID } from "node:crypto";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 
@@ -548,6 +551,7 @@ export function recordThreadReadyUnreadNotifications(
     const threadRoute = normalizeThreadRoute(record.threadKey, record.questId) ?? { threadKey: "main" };
     const summary = threadReadyUnreadSummary(record);
     if (hasThreadReadyUnreadNotification(session, record, summary)) continue;
+    if (isUnreadOnlyInPrimaryThread(session, record.messageId, threadRoute.threadKey, readyRecords)) continue;
 
     const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
     session.notificationCounter = nextNotificationCounter;
@@ -573,6 +577,36 @@ export function recordThreadReadyUnreadNotifications(
   setAttention(session, "review", deps);
   deps.persistSession(session);
   return true;
+}
+
+/**
+ * A message shown in several threads counts as unread only in the thread it was
+ * written in. When it carries a Ready result for that thread, a Ready result it
+ * carries for another thread that also shows it adds no unread there; otherwise
+ * the user reads the same message once per tab to clear them. Without the
+ * primary thread's result, every result still counts where it was marked.
+ */
+function isUnreadOnlyInPrimaryThread(
+  session: SessionLike,
+  messageId: string,
+  threadKey: string,
+  readyRecords: ReadonlyArray<LeaderThreadStatus>,
+): boolean {
+  const message = (session.messageHistory as BrowserIncomingMessage[] | undefined)?.findLast(
+    (entry) => entry.type === "assistant" && entry.message.id === messageId,
+  ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
+  if (!message) return false;
+  const primaryThreadKey = leaderMessageThreadKey(message);
+  if (threadKey === primaryThreadKey || !leaderResponseMessageIsAssociatedWithThread(message, threadKey)) return false;
+  const isPrimary = (route: { threadKey?: string; questId?: string | null }) =>
+    (normalizeThreadRoute(route.threadKey, route.questId)?.threadKey ?? "main") === primaryThreadKey;
+  return (
+    readyRecords.some((record) => record.messageId === messageId && isPrimary(record)) ||
+    (session.notifications as SessionNotification[]).some(
+      (notification) =>
+        notification.category === "review" && notification.messageId === messageId && isPrimary(notification),
+    )
+  );
 }
 
 function surfaceCreatedNeedsInputThreadTab(

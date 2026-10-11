@@ -576,10 +576,25 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
     if (text && route) {
       const rejectedAnswerObserved =
         entry.type === "assistant" && entry.leaderThreadRole === "answer" && entry.threadAnswer === undefined;
-      touch(route, timestamp, index, text, rejectedAnswerObserved);
+      for (const touchedRoute of answerTouchedRoutes(entry) ?? [route]) {
+        touch(touchedRoute, timestamp, index, text, rejectedAnswerObserved);
+      }
     }
   }
   return [...byThread.values()].sort((left, right) => left.latestIndex - right.latestIndex);
+}
+
+/**
+ * An answer touches the thread it was written in and the threads whose requests
+ * it answers. Other tabs only display it: they cannot be marked Ready for it,
+ * so asking them for an outcome would only make them unread for a message the
+ * user reads in its own thread.
+ */
+function answerTouchedRoutes(entry: BrowserIncomingMessage): ThreadRouteMetadata[] | null {
+  const answer = entry.type === "assistant" ? entry.threadAnswer : undefined;
+  if (!answer?.authoredThreadKey) return null;
+  const threadKeys = new Set([answer.authoredThreadKey, ...(answer.ownerGroups ?? []).map((group) => group.threadKey)]);
+  return [...threadKeys].map((threadKey) => threadRouteForTarget(threadKey));
 }
 
 function getLeaderVisibleOutputText(entry: BrowserIncomingMessage): string | null {

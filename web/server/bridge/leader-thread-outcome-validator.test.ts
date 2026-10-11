@@ -1195,4 +1195,41 @@ describe("explicit answer reminders", () => {
 
     expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: [], injected: false });
   });
+
+  it("asks no outcome from a tab that only displays an answer written elsewhere", () => {
+    // The reported case: a request asked in Main was handed off to q-5 and
+    // answered there. The answer also shows in Main, where it was asked, but
+    // Main owns no request it answers and cannot be marked Ready for it.
+    // Demanding a Main outcome made the leader mark Main Ready, so Main turned
+    // unread for an answer the user already read in q-5.
+    const handedOff = coveredHumanMessage("u1", 10) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    handedOff.threadRefs = [{ threadKey: "q-5", questId: "q-5", source: "explicit", attachedAt: 15 }];
+    const session = {
+      id: "leader",
+      messageHistory: [handedOff] as BrowserIncomingMessage[],
+      notifications: [],
+      state: { leaderThreadStatuses: {} as Record<string, ReturnType<typeof threadStatus>> },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const answer = assistantMessage({ id: "q5-answer", text: "Answer.", timestamp: 20, threadKey: "q-5" }) as Extract<
+      BrowserIncomingMessage,
+      { type: "assistant" }
+    >;
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = ["u1"];
+    answer.leaderAnswerObservedHistoryLength = 1;
+    session.messageHistory.push(answer);
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+    // Stored under Main so it shows there too.
+    expect(answer.threadKey).toBe("main");
+    session.state.leaderThreadStatuses["q-5"] = threadStatus({
+      kind: "ready",
+      timestamp: 30,
+      threadKey: "q-5",
+      messageId: answer.message.id,
+    });
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: [], injected: false });
+  });
 });
