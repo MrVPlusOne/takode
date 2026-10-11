@@ -1077,6 +1077,7 @@ export function ChatView({
                   projectThreadRoutes={isLeaderSession}
                   onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                   showCodexSubagentControl={!preview}
+                  markSharedResultsRead={isLeaderSession && !preview}
                 />
               </ViewportHandoffThreadEntryGate>
             </div>

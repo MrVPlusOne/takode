@@ -57,6 +57,7 @@ import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildFeedWindowModel } from "../utils/feed-render-model.js";
 import { useFeedMessageModel } from "../hooks/use-feed-message-model.js";
+import { useMarkSharedResultsRead } from "../hooks/use-shared-result-read.js";
 import { FeedNotificationProvider } from "./FeedNotificationContext.js";
 import {
   hasMissingSelectedThreadWindowContext,
@@ -135,6 +136,7 @@ export function MessageFeed({
   onSelectThread,
   additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
   showCodexSubagentControl = true,
+  markSharedResultsRead = false,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -146,6 +148,8 @@ export function MessageFeed({
   onSelectThread?: (threadKey: string) => void;
   additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
   showCodexSubagentControl?: boolean;
+  /** Mark other threads' Ready results read when this quest tab shows their message. */
+  markSharedResultsRead?: boolean;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -158,10 +162,7 @@ export function MessageFeed({
   const threadResponseState = useStore((s) => s.threadWindowResponseStates?.get(sessionId)?.get(normalizedThreadKey));
   const herdingLeaderSessionId = useStore((s) => s.sdkSessions?.find((sdk) => sdk.sessionId === sessionId)?.herdedBy);
   const userNavigationSourceSessionId = herdingLeaderSessionId ?? sessionId;
-  const selectedFeedWindowEnabled = useMemo(() => {
-    if (isAllThreadsKey(normalizedThreadKey)) return false;
-    return isLeaderSession;
-  }, [isLeaderSession, normalizedThreadKey]);
+  const selectedFeedWindowEnabled = isLeaderSession && !isAllThreadsKey(normalizedThreadKey);
   const collapseLeaderThreadActivity =
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
   const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
@@ -224,6 +225,7 @@ export function MessageFeed({
   });
   const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, activeNeedsInputAnchorMessageIds } =
     feedMessageModel;
+  useMarkSharedResultsRead(sessionId, threadKey, feedMessageModel, markSharedResultsRead);
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
