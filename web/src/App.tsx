@@ -546,6 +546,12 @@ export default function App() {
         route,
         currentSessionId,
         currentSessionCwd: currentSession?.cwd ?? null,
+        currentSessionHostId:
+          (currentSessionId ? state.sessions.get(currentSessionId)?.host_id : undefined) ??
+          (currentSessionId
+            ? state.sdkSessions.find((session) => session.sessionId === currentSessionId)?.hostId
+            : null) ??
+          null,
         terminalCwd: state.terminalCwd,
         activeTab: state.activeTab,
         isSearchOpen: universalSearchOpen,
@@ -956,6 +962,7 @@ export default function App() {
         open={newSessionModalState !== null}
         groupKey={newSessionModalState?.groupKey}
         groupCwd={newSessionModalState?.cwd}
+        groupHostId={newSessionModalState?.hostId}
         treeGroupId={newSessionModalState?.treeGroupId}
         newSessionDefaultsKey={newSessionModalState?.newSessionDefaultsKey}
         onClose={() => useStore.getState().closeNewSessionModal()}

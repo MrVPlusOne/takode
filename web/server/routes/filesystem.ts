@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
-import { resolve, join, dirname, extname, relative, basename, sep } from "node:path";
+import { resolve, join, dirname, extname, relative, basename, sep, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import * as childProcess from "node:child_process";
 import { promisify } from "node:util";
@@ -26,6 +26,8 @@ const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
 /** Cap file list returned by diff-files to avoid overwhelming the frontend. */
 const MAX_DIFF_FILES = 500;
+/** Paths one `GET /api/fs/folders` request checks at most. */
+const MAX_FOLDER_CHECKS = 20;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
 const FILE_LINK_PREVIEW_MAX_DIM = 1920;
@@ -363,6 +365,32 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       if (host) return remoteHostFailure(c, error, host, ctx.launcher.remoteHosts?.registry);
       const basePath = resolve(expandTilde(path || homedir()));
       return c.json({ error: "Cannot read directory", path: basePath, dirs: [], home: homedir() }, 400);
+    }
+  });
+
+  /**
+   * Which of the `path` values are folders on this machine, or on the registered
+   * remote host `host`. The new-session dialog checks remembered folders with it,
+   * since a path saved on one machine names nothing (or something else) on another.
+   */
+  api.get("/fs/folders", async (c) => {
+    const host = c.req.query("host") || undefined;
+    const paths = (c.req.queries("path") ?? []).slice(0, MAX_FOLDER_CHECKS);
+    try {
+      const machine = machineFor(host);
+      const folders = await Promise.all(
+        paths.map(async (path) => {
+          // Sessions on a host need an absolute folder; this machine expands `~` like session creation.
+          if (host && !isAbsolute(path)) return { path, exists: false };
+          const target = host ? path : resolve(expandTilde(path));
+          const info = host ? await machine.stat(target) : await machine.stat(target).catch(() => null);
+          return { path, exists: info?.isDirectory ?? false };
+        }),
+      );
+      return c.json({ folders });
+    } catch (error) {
+      if (host) return remoteHostFailure(c, error, host, ctx.launcher.remoteHosts?.registry);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
@@ -25,6 +25,7 @@ const mockApi = {
   listCliSessions: vi.fn(),
   getNewSessionDefaults: vi.fn(),
   saveNewSessionDefaults: vi.fn(),
+  checkFolders: vi.fn(),
 };
 
 vi.mock("../api.js", () => ({
@@ -42,12 +43,14 @@ vi.mock("../api.js", () => ({
     listCliSessions: (...args: unknown[]) => mockApi.listCliSessions(...args),
     getNewSessionDefaults: (...args: unknown[]) => mockApi.getNewSessionDefaults(...args),
     saveNewSessionDefaults: (...args: unknown[]) => mockApi.saveNewSessionDefaults(...args),
+    checkFolders: (...args: unknown[]) => mockApi.checkFolders(...args),
   },
 }));
 
 let mockRemoteHosts: Array<{ id: string; name: string; online: boolean }> = [];
+let mockLocalMachine: { id: string; name: string } | null = null;
 vi.mock("../remote-hosts.js", () => ({
-  useRemoteHosts: () => ({ hosts: mockRemoteHosts, loaded: true }),
+  useRemoteHosts: () => ({ hosts: mockRemoteHosts, loaded: true, local: mockLocalMachine }),
 }));
 
 vi.mock("../utils/recent-dirs.js", () => ({
@@ -101,7 +104,10 @@ describe("NewSessionModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRemoteHosts = [];
+    mockLocalMachine = null;
     folderPickerProps = null;
+    // Every folder exists unless a test says otherwise.
+    mockApi.checkFolders.mockImplementation(async (paths: string[]) => paths.map(() => true));
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "claude",
       model: "",
@@ -1017,5 +1023,115 @@ describe("NewSessionModal", () => {
         }),
       );
     });
+  });
+
+  // Regression for a session created in a laptop folder on the DevBox: group
+  // defaults and recent folders recorded while another machine was the server
+  // name folders that are not on the selected machine. The dialog replaces such
+  // a remembered folder with one that exists there and shows where it is.
+  it("replaces a remembered folder that is not on the selected machine", async () => {
+    const user = userEvent.setup();
+    mockLocalMachine = { id: "local", name: "devbox" };
+    mockRemoteHosts = [{ id: "laptop-host", name: "laptop", online: true }];
+    mockGetGroupNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "acceptEdits",
+      askPermission: true,
+      sessionRole: "leader",
+      envSlug: "",
+      cwd: "/Users/me/Code/yolo",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+    mockGetRecentDirs.mockReturnValue(["/Users/me/Code/yolo", "/home/coder/takode"]);
+    mockApi.checkFolders.mockImplementation(async (paths: string[]) =>
+      paths.map((path) => path.startsWith("/home/coder/")),
+    );
+
+    render(
+      <NewSessionModal
+        open={true}
+        onClose={() => {}}
+        treeGroupId="team-alpha"
+        newSessionDefaultsKey="tree-group:team-alpha"
+      />,
+    );
+
+    expect(await screen.findByText("takode")).toBeInTheDocument();
+    expect(screen.getByTestId("new-session-folder-path")).toHaveTextContent("devbox · /home/coder/takode");
+    expect(screen.queryByText("yolo")).not.toBeInTheDocument();
+    expect(mockApi.checkFolders).toHaveBeenCalledWith(["/Users/me/Code/yolo"], undefined);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create Session" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Create Session" }));
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ cwd: "/home/coder/takode" }));
+    expect(latestQueuedCreateOpts()).not.toHaveProperty("hostId");
+  });
+
+  // A folder the user picks that is not on the selected machine is caught in
+  // the dialog, before any session is created.
+  it("blocks creating a session in a chosen folder that does not exist on the machine", async () => {
+    const user = userEvent.setup();
+    mockLocalMachine = { id: "local", name: "devbox" };
+    mockApi.checkFolders.mockImplementation(async (paths: string[]) => paths.map((path) => path === "/tmp/project"));
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.click(await screen.findByText("project"));
+    await act(async () => folderPickerProps!.onSelect("/Users/me/Code/yolo"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This folder does not exist on devbox. Choose a folder on devbox.",
+    );
+    expect(screen.getByText("yolo")).toBeInTheDocument();
+    const create = screen.getByRole("button", { name: "Create Session" });
+    expect(create).toBeDisabled();
+    await user.click(create);
+    expect(mockQueuePendingSession).not.toHaveBeenCalled();
+  });
+
+  // Switching machines never carries a folder over: the new machine starts from
+  // its own recent folders, and one that is gone there is not offered. With no
+  // folder on the host the session cannot be created until one is chosen there.
+  it("starts a newly selected machine from its own folders", async () => {
+    const user = userEvent.setup();
+    mockRemoteHosts = [{ id: "h1", name: "laptop", online: true }];
+    mockGetRecentDirs.mockImplementation((key?: string) => (key === "host:h1" ? ["/Users/me/gone"] : ["/tmp/project"]));
+    mockApi.checkFolders.mockImplementation(async (paths: string[], hostId?: string) =>
+      paths.map((path) => (hostId === "h1" ? path === "/Users/me/app" : path === "/tmp/project")),
+    );
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+    expect(await screen.findByText("project")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Machine"), "h1");
+    expect(await screen.findByText("Select folder")).toBeInTheDocument();
+    expect(screen.getByText("Choose a folder on laptop.")).toBeInTheDocument();
+    expect(screen.queryByText("project")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Session" })).toBeDisabled();
+
+    await user.click(screen.getByText("Select folder"));
+    expect(folderPickerProps).toEqual(expect.objectContaining({ hostId: "h1", recentDirsKey: "host:h1" }));
+    await act(async () => folderPickerProps!.onSelect("/Users/me/app"));
+    expect(await screen.findByText("app")).toBeInTheDocument();
+    expect(screen.getByTestId("new-session-folder-path")).toHaveTextContent("laptop · /Users/me/app");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create Session" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Create Session" }));
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ hostId: "h1", cwd: "/Users/me/app" }));
+  });
+
+  // Opened from a session on a remote host (the new-session shortcut), the
+  // dialog starts on that host with the session's folder.
+  it("opens on the machine of the folder it was given", async () => {
+    mockRemoteHosts = [{ id: "h1", name: "laptop", online: true }];
+    render(<NewSessionModal open={true} onClose={() => {}} groupCwd="/Users/me/app" groupHostId="h1" />);
+
+    expect(await screen.findByText("app")).toBeInTheDocument();
+    expect(screen.getByLabelText("Machine")).toHaveValue("h1");
+    await waitFor(() => expect(mockApi.checkFolders).toHaveBeenCalledWith(["/Users/me/app"], "h1"));
+    expect(mockApi.getRepoInfo).toHaveBeenCalledWith("/Users/me/app", "h1");
   });
 });

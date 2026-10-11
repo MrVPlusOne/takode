@@ -43,6 +43,9 @@ import { useRemoteHosts } from "../remote-hosts.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 
+/** What the selected machine says about the selected folder. */
+type FolderCheck = { state: "idle" | "checking" | "found" | "missing" } | { state: "error"; message: string };
+
 // ─── Branch persistence helpers ─────────────────────────────────────────────
 
 function getSavedBranches(): Record<string, string> {
@@ -99,6 +102,7 @@ export function NewSessionModal({
   onClose,
   groupKey,
   groupCwd,
+  groupHostId,
   treeGroupId,
   newSessionDefaultsKey,
 }: {
@@ -108,6 +112,8 @@ export function NewSessionModal({
   groupKey?: string;
   /** Working directory to pre-fill (typically the group's project root) */
   groupCwd?: string;
+  /** Remote host `groupCwd` is on; absent for the server's machine */
+  groupHostId?: string;
   /** Tree-view group to assign the new session to after creation */
   treeGroupId?: string;
   /** Explicit storage key for per-group new-session defaults */
@@ -176,6 +182,9 @@ export function NewSessionModal({
   const { hosts: remoteHosts, local: localMachine } = useRemoteHosts();
   /** Registered remote host to run on; empty for this machine. Folders and repos are read on that host. */
   const [hostId, setHostId] = useState("");
+  const hostIdRef = useRef(hostId);
+  /** Whether `cwd` is a folder on the selected machine; a remembered path may come from another machine. */
+  const [folderCheck, setFolderCheck] = useState<FolderCheck>({ state: "idle" });
   const recentDirsKey = hostId ? hostRecentDirsKey(hostId) : defaultsKey || undefined;
 
   // Git branch state
@@ -213,7 +222,8 @@ export function NewSessionModal({
     setModel(d.model);
     const nextMode = d.backend === "claude" ? normalizeClaudePermission(d.mode) : getDefaultMode("codex");
     setMode(nextMode);
-    if (!opts?.preserveEditedCwd || !cwdUserEditedRef.current) {
+    // Saved defaults describe the server's machine, so they never replace a remote host's folder.
+    if (!opts?.preserveEditedCwd || (!cwdUserEditedRef.current && !hostIdRef.current)) {
       setSystemCwd(resolveDefaultCwd(d));
     }
     setAskPermission(d.backend === "claude" ? deriveAskPermissionForMode("claude", nextMode) : d.askPermission);
@@ -273,6 +283,11 @@ export function NewSessionModal({
     }
   }
 
+  function selectMachine(nextHostId: string) {
+    hostIdRef.current = nextHostId;
+    setHostId(nextHostId);
+  }
+
   function setSystemCwd(path: string) {
     cwdRef.current = path;
     setCwd(path);
@@ -290,7 +305,8 @@ export function NewSessionModal({
   useEffect(() => {
     if (!open) return;
     cwdUserEditedRef.current = false;
-    setHostId("");
+    // Opened from a session on a registered host: start on that machine, where its folder is.
+    selectMachine(groupHostId && remoteHosts.some((host) => host.id === groupHostId) ? groupHostId : "");
     resetDefaultFieldEdits();
     const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
     applyDefaults(d);
@@ -303,7 +319,8 @@ export function NewSessionModal({
     setPullPrompt(null);
     setPullError("");
     setDynamicModels(null);
-  }, [open, defaultsKey, groupCwd, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setShowFolderPicker(false);
+  }, [open, defaultsKey, groupCwd, groupHostId, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open || !defaultsKey) return;
@@ -343,7 +360,7 @@ export function NewSessionModal({
     api
       .getHome()
       .then(({ home, cwd: serverCwd }) => {
-        if (!cwdRef.current && !cwdUserEditedRef.current) {
+        if (!cwdRef.current && !cwdUserEditedRef.current && !hostIdRef.current) {
           setSystemCwd(serverCwd || home);
         }
       })
@@ -514,6 +531,61 @@ export function NewSessionModal({
     };
   }, [open, cwd, hostId]);
 
+  /**
+   * A folder on `machine` to use instead of a remembered one that is not there:
+   * the machine's first recent folder that exists, else (for the server's
+   * machine) its home folder, else none.
+   */
+  async function replacementFolder(machine: string, missing: string): Promise<string> {
+    const remembered = machine
+      ? getRecentDirs(hostRecentDirsKey(machine))
+      : [...getRecentDirs(defaultsKey || undefined), ...getRecentDirs()];
+    const candidates = [...new Set(remembered)].filter((path) => path !== missing);
+    const exists = await api.checkFolders(candidates, machine || undefined);
+    const found = candidates.find((_, index) => exists[index]);
+    if (found !== undefined || machine) return found ?? "";
+    const { home, cwd: serverCwd } = await api.getHome();
+    return serverCwd || home;
+  }
+
+  // Paths name folders on one machine only, and remembered ones (group defaults,
+  // recent folders, the current session's folder) may come from another, for
+  // example a laptop path after the server moved to a DevBox. Check the folder on
+  // the selected machine: replace a remembered one that is not there, and block
+  // creating a session in a folder the user chose that is missing.
+  useEffect(() => {
+    if (!open || resumeMode || !cwd) {
+      setFolderCheck({ state: "idle" });
+      return;
+    }
+    let current = true;
+    const machine = hostId;
+    setFolderCheck({ state: "checking" });
+    (async () => {
+      const [exists] = await api.checkFolders([cwd], machine || undefined);
+      if (!current) return;
+      if (exists) {
+        setFolderCheck({ state: "found" });
+        return;
+      }
+      if (!cwdUserEditedRef.current) {
+        const replacement = await replacementFolder(machine, cwd);
+        if (!current) return;
+        // Changing the folder checks the replacement in turn; the same folder again would not progress.
+        if (replacement !== cwd) {
+          setSystemCwd(replacement);
+          return;
+        }
+      }
+      setFolderCheck({ state: "missing" });
+    })().catch((error: unknown) => {
+      if (current) setFolderCheck({ state: "error", message: error instanceof Error ? error.message : String(error) });
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, resumeMode, cwd, hostId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load CLI sessions when entering resume mode or switching backend
   const resumeBackend = backend === "codex" ? "codex" : ("claude" as const);
   useEffect(() => {
@@ -562,6 +634,12 @@ export function NewSessionModal({
   });
 
   const dirLabel = cwd ? cwd.split("/").pop() || cwd : "Select folder";
+  const machineName = hostId
+    ? (remoteHosts.find((host) => host.id === hostId)?.name ?? "the selected machine")
+    : (localMachine?.name ?? "this machine");
+  // A session on a host needs a folder there; a missing folder fails only after the session is created.
+  const folderBlocksCreate =
+    folderCheck.state === "checking" || folderCheck.state === "missing" || (Boolean(hostId) && !cwd);
 
   function resolveModelOverrideForCreate(): string | undefined {
     const key = backendDefaultKey(backend);
@@ -577,7 +655,7 @@ export function NewSessionModal({
   }
 
   async function handleCreate() {
-    if (sending) return;
+    if (sending || folderBlocksCreate) return;
 
     setSending(true);
     setError("");
@@ -663,12 +741,12 @@ export function NewSessionModal({
       }
     }
 
-    if (!hostId)
-      saveLastSessionCreationContext({
-        cwd: cwdSnapshot,
-        treeGroupId: treeGroupId || undefined,
-        newSessionDefaultsKey: defaultsGroupKey || undefined,
-      });
+    saveLastSessionCreationContext({
+      cwd: cwdSnapshot,
+      hostId: hostId || undefined,
+      treeGroupId: treeGroupId || undefined,
+      newSessionDefaultsKey: defaultsGroupKey || undefined,
+    });
 
     // Close modal and navigate to the pending session
     onClose();
@@ -1206,9 +1284,11 @@ export function NewSessionModal({
                           aria-label="Machine"
                           onChange={(event) => {
                             const nextHostId = event.target.value;
-                            setHostId(nextHostId);
-                            // Paths name a folder on one machine only: start from that machine's latest folder.
-                            setUserSelectedCwd(
+                            selectMachine(nextHostId);
+                            // Paths name a folder on one machine only: start from that machine's latest folder,
+                            // which the folder check replaces when it is not there.
+                            cwdUserEditedRef.current = false;
+                            setSystemCwd(
                               nextHostId
                                 ? getRecentDirs(hostRecentDirsKey(nextHostId))[0] || ""
                                 : resolveDefaultCwd(defaults),
@@ -1240,8 +1320,35 @@ export function NewSessionModal({
                               <path d="M4 6l4 4 4-4" />
                             </svg>
                           </button>
+                          {/* The folder name alone does not say where it is: show the full path and its machine. */}
+                          {cwd && (
+                            <div
+                              data-testid="new-session-folder-path"
+                              className="px-2 text-[10px] text-cc-muted/80 truncate"
+                              title={`${cwd} on ${machineName}`}
+                            >
+                              {remoteHosts.length > 0 && <span className="text-cc-fg/70">{machineName}</span>}
+                              {remoteHosts.length > 0 && " · "}
+                              <span className="font-mono-code">{cwd}</span>
+                            </div>
+                          )}
+                          {folderCheck.state === "missing" && (
+                            <p role="alert" className="px-2 pt-0.5 text-[11px] text-cc-error">
+                              This folder does not exist on {machineName}. Choose a folder on {machineName}.
+                            </p>
+                          )}
+                          {folderCheck.state === "error" && (
+                            <p className="px-2 pt-0.5 text-[11px] text-cc-warning">
+                              Could not check this folder on {machineName}: {folderCheck.message}
+                            </p>
+                          )}
+                          {hostId && !cwd && (
+                            <p className="px-2 pt-0.5 text-[11px] text-cc-muted">Choose a folder on {machineName}.</p>
+                          )}
                           {showFolderPicker && (
                             <FolderPicker
+                              // A picker browses one machine: another machine gets a fresh one.
+                              key={hostId}
                               initialPath={cwd || ""}
                               recentDirsKey={recentDirsKey}
                               hostId={hostId || undefined}
@@ -1696,7 +1803,7 @@ export function NewSessionModal({
               <div className="px-5 py-4 border-t border-cc-border space-y-2">
                 <button
                   onClick={handleCreate}
-                  disabled={sending}
+                  disabled={sending || folderBlocksCreate}
                   className="w-full py-2.5 px-4 text-sm font-medium rounded-xl bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {sending ? (

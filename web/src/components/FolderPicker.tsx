@@ -22,12 +22,13 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
   const [filter, setFilter] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [focusIndex, setFocusIndex] = useState(-1);
-  const [recentDirs] = useState<string[]>(() => getRecentDirs(recentDirsKey));
+  const [recentDirs, setRecentDirs] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
 
   const loadDirs = useCallback(
-    async (path?: string) => {
+    /** Resolves whether the folder could be listed. */
+    async (path?: string): Promise<boolean> => {
       setBrowseLoading(true);
       setBrowseError("");
       setFilter("");
@@ -36,10 +37,12 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
         const result = await api.listDirs(path, { hidden: showHidden, hostId });
         setBrowsePath(result.path);
         setBrowseDirs(result.dirs);
+        return true;
       } catch (error) {
         setBrowseDirs([]);
         // A remote host may be offline or unreachable; say so instead of showing an empty folder.
         setBrowseError(error instanceof Error ? error.message : String(error));
+        return false;
       } finally {
         setBrowseLoading(false);
       }
@@ -48,7 +51,16 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
   );
 
   useEffect(() => {
-    loadDirs(initialPath || undefined);
+    // A folder remembered on another machine cannot be listed here: start in this machine's home instead.
+    loadDirs(initialPath || undefined).then((listed) => {
+      if (!listed && initialPath) loadDirs();
+    });
+    // Recent folders can name folders on another machine; offer only those that exist on this one.
+    const remembered = getRecentDirs(recentDirsKey);
+    api
+      .checkFolders(remembered, hostId)
+      .then((exists) => setRecentDirs(remembered.filter((_, index) => exists[index])))
+      .catch(() => setRecentDirs([]));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload when hidden toggle changes

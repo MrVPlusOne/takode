@@ -31,6 +31,8 @@ export interface NewSessionDefaults {
 
 export interface LastSessionCreationContext {
   cwd: string;
+  /** Remote host `cwd` is on; absent for the server's machine. */
+  hostId?: string;
   treeGroupId?: string;
   newSessionDefaultsKey?: string;
 }
@@ -150,6 +152,7 @@ function normalizeLastSessionCreationContext(
   if (!cwd) return null;
   return {
     cwd,
+    hostId: candidate.hostId?.trim() || undefined,
     treeGroupId: candidate.treeGroupId?.trim() || undefined,
     newSessionDefaultsKey: candidate.newSessionDefaultsKey?.trim() || undefined,
   };

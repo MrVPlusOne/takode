@@ -49,6 +49,8 @@ export interface ShortcutSessionSummary {
 
 export interface ShortcutNewSessionContext {
   cwd?: string;
+  /** Remote host `cwd` is on; absent for the server's machine. */
+  hostId?: string;
   treeGroupId?: string;
   newSessionDefaultsKey?: string;
 }
@@ -57,6 +59,8 @@ export interface ShortcutRuntime {
   route: Route;
   currentSessionId: string | null;
   currentSessionCwd: string | null;
+  /** Remote host the current session runs on; absent for the server's machine. */
+  currentSessionHostId?: string | null;
   terminalCwd: string | null;
   activeTab: "chat" | "diff";
   isSearchOpen: boolean;
@@ -729,13 +733,17 @@ export function getAdjacentShortcutSessionId(
 export function resolveShortcutNewSessionContext(
   currentSessionCwd: string | null,
   lastContext?: ShortcutNewSessionContext | null,
+  currentSessionHostId?: string | null,
 ): ShortcutNewSessionContext | undefined {
   const cwd = currentSessionCwd ?? lastContext?.cwd ?? "";
+  // The folder and its machine come from the same place.
+  const hostId = currentSessionCwd !== null ? currentSessionHostId : lastContext?.hostId;
   const treeGroupId = lastContext?.treeGroupId;
   const newSessionDefaultsKey = lastContext?.newSessionDefaultsKey;
   if (!cwd && !treeGroupId && !newSessionDefaultsKey) return undefined;
   return {
     ...(cwd ? { cwd } : {}),
+    ...(cwd && hostId ? { hostId } : {}),
     ...(treeGroupId ? { treeGroupId } : {}),
     ...(newSessionDefaultsKey ? { newSessionDefaultsKey } : {}),
   };
@@ -779,7 +787,11 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       return true;
     case "new_session":
       runtime.openNewSessionModal(
-        resolveShortcutNewSessionContext(runtime.currentSessionCwd, runtime.lastNewSessionContext),
+        resolveShortcutNewSessionContext(
+          runtime.currentSessionCwd,
+          runtime.lastNewSessionContext,
+          runtime.currentSessionHostId,
+        ),
       );
       return true;
     default:

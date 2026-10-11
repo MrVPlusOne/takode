@@ -180,4 +180,12 @@ describe("new-session-defaults", () => {
       newSessionDefaultsKey: "tree-group:frontend",
     });
   });
+
+  // A session created on a remote host is remembered with its host, so the
+  // shortcut reopens the dialog on the machine the folder belongs to.
+  it("remembers the remote host with the last folder", () => {
+    saveLastSessionCreationContext({ cwd: "/home/coder/app", hostId: "devbox-host" });
+
+    expect(getLastSessionCreationContext()).toEqual({ cwd: "/home/coder/app", hostId: "devbox-host" });
+  });
 });

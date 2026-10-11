@@ -23,8 +23,11 @@ describe("resolveRemoteHostForCreate", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  // Folders that exist on the fake host; the real check asks the host over its link.
+  const hostFolders = new Set(["/path/that/exists/only/on/the/host", "/srv/repo"]);
+  const folderExists = async (_hostId: string, path: string) => hostFolders.has(path);
   const resolve = (body: Record<string, unknown>, cwd?: string) =>
-    resolveRemoteHostForCreate({ body, cwd, registry, fail });
+    resolveRemoteHostForCreate({ body, cwd, registry, fail, folderExists });
 
   // Sessions without a host stay on this machine; a registered host with an
   // absolute path on that host is accepted without checking the local disk.
@@ -60,6 +63,7 @@ describe("resolveRemoteHostForCreate", () => {
         registry,
         fail: failWithStatus,
         startBlocker: () => blocker,
+        folderExists,
       });
     await expect(blocked("is restarting for a Takode update; try again once it is back")).rejects.toThrow(
       "Host devbox is restarting for a Takode update; try again once it is back",
@@ -67,5 +71,32 @@ describe("resolveRemoteHostForCreate", () => {
     expect(status).toBe(503);
     await expect(blocked("is offline")).rejects.toThrow("Host devbox is offline");
     expect(await blocked(null)).toBe(hostId);
+  });
+
+  // A folder that is not on the host (for example a path remembered on another
+  // machine) is refused before the session is created, naming the host, and a
+  // host that cannot be asked is reported rather than treated as a missing folder.
+  it("refuses a working directory that is not a folder on the host", async () => {
+    let status: number | undefined;
+    const failWithStatus = (message: string, code: number): never => {
+      status = code;
+      throw new Error(message);
+    };
+    await expect(resolve({ hostId }, "/Users/someone/Code/app")).rejects.toThrow(
+      "Directory does not exist on devbox: /Users/someone/Code/app",
+    );
+    await expect(
+      resolveRemoteHostForCreate({
+        body: { hostId },
+        cwd: "/srv/repo",
+        registry,
+        fail: failWithStatus,
+        startBlocker: () => null,
+        folderExists: async () => {
+          throw new Error("link timed out");
+        },
+      }),
+    ).rejects.toThrow("Could not check /srv/repo on host devbox: link timed out");
+    expect(status).toBe(503);
   });
 });

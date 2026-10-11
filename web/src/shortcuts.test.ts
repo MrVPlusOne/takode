@@ -481,6 +481,24 @@ describe("shortcuts", () => {
     });
   });
 
+  // A folder path only means something on its machine, so the new-session
+  // dialog gets the machine from the same place as the folder: the current
+  // session's host with its folder, or the last creation's host with that folder.
+  it("keeps the folder's machine with the folder", () => {
+    const last = { cwd: "/home/coder/app", hostId: "devbox-host", treeGroupId: "frontend" };
+    expect(resolveShortcutNewSessionContext("/Users/me/app", last, "laptop-host")).toEqual({
+      cwd: "/Users/me/app",
+      hostId: "laptop-host",
+      treeGroupId: "frontend",
+    });
+    // A current session on the server's machine does not take the last creation's host.
+    expect(resolveShortcutNewSessionContext("/srv/app", last, null)).toEqual({
+      cwd: "/srv/app",
+      treeGroupId: "frontend",
+    });
+    expect(resolveShortcutNewSessionContext(null, last, null)).toEqual(last);
+  });
+
   it("only blurs editable targets on Escape in vim mode", () => {
     const input = document.createElement("input");
     expect(shouldBlurVimEscape({ enabled: true, preset: "vim-light", overrides: {} }, { key: "Escape" }, input)).toBe(

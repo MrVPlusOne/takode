@@ -1327,6 +1327,16 @@ export const api = {
 
   getHome: () => get<{ home: string; cwd: string }>("/fs/home"),
 
+  /** For each path, whether it is a folder on this machine, or on the remote host `hostId`. */
+  checkFolders: async (paths: string[], hostId?: string): Promise<boolean[]> => {
+    if (paths.length === 0) return [];
+    const params = new URLSearchParams();
+    for (const path of paths) params.append("path", path);
+    if (hostId) params.set("host", hostId);
+    const { folders } = await get<{ folders: { path: string; exists: boolean }[] }>(`/fs/folders?${params}`);
+    return paths.map((_, index) => folders[index]?.exists ?? false);
+  },
+
   // Environments
   listEnvs: () => get<CompanionEnv[]>("/envs"),
   getEnv: (slug: string) => get<CompanionEnv>(`/envs/${encodeURIComponent(slug)}`),

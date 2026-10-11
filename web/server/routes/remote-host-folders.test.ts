@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -115,6 +115,40 @@ describe("folder and repo routes for a remote host", () => {
     expect(await home.json()).toEqual(expect.objectContaining({ path: homedir(), home: homedir() }));
   });
 
+  // The new-session dialog checks remembered folders on the chosen machine: a
+  // path from another machine (or a file, or a relative path) is not a folder
+  // there. The answer comes from the host's own filesystem, over its link.
+  it("checks which paths are folders on the host", async () => {
+    const request = vi.spyOn(manager, "request");
+    const file = join(dir, "notes.txt");
+    await writeFile(file, "x");
+    const missing = join(dir, "missing");
+    const query = [repo, missing, file, "relative/app"].map((path) => `path=${encodeURIComponent(path)}`).join("&");
+
+    const checked = await app.request(`/api/fs/folders?host=${hostId}&${query}`);
+    expect(checked.status).toBe(200);
+    expect(await checked.json()).toEqual({
+      folders: [
+        { path: repo, exists: true },
+        { path: missing, exists: false },
+        { path: file, exists: false },
+        { path: "relative/app", exists: false },
+      ],
+    });
+    expect(request).toHaveBeenCalledWith(hostId, { kind: "stat", path: repo }, expect.any(Number));
+
+    // Without a host the paths are checked on this machine.
+    const local = await app.request(
+      `/api/fs/folders?path=${encodeURIComponent(repo)}&path=${encodeURIComponent(missing)}`,
+    );
+    expect(await local.json()).toEqual({
+      folders: [
+        { path: repo, exists: true },
+        { path: missing, exists: false },
+      ],
+    });
+  });
+
   // The branch picker reads the host's repo: its info, branches and a fetch.
   it("reads a repo and its branches on the host", async () => {
     const info = await app.request(`/api/git/repo-info?host=${hostId}&path=${encodeURIComponent(repo)}`);
@@ -200,6 +234,11 @@ describe("folder and repo routes for a remote host", () => {
     const listed = await app.request(`/api/fs/list?host=${hostId}`);
     expect(listed.status).toBe(503);
     expect(await listed.json()).toEqual({ error: "Host devbox is offline" });
+
+    // A folder check cannot be answered either; it is not reported as a missing folder.
+    const checked = await app.request(`/api/fs/folders?host=${hostId}&path=${encodeURIComponent(repo)}`);
+    expect(checked.status).toBe(503);
+    expect(await checked.json()).toEqual({ error: "Host devbox is offline" });
 
     const info = await app.request(`/api/git/repo-info?host=${hostId}&path=${encodeURIComponent(repo)}`);
     expect(info.status).toBe(503);

@@ -215,6 +215,7 @@ export interface AppState {
   newSessionModalState: {
     groupKey?: string;
     cwd?: string;
+    hostId?: string;
     treeGroupId?: string;
     newSessionDefaultsKey?: string;
   } | null;
@@ -268,6 +269,7 @@ export interface AppState {
   openNewSessionModal: (opts?: {
     groupKey?: string;
     cwd?: string;
+    hostId?: string;
     treeGroupId?: string;
     newSessionDefaultsKey?: string;
   }) => void;
