@@ -1198,6 +1198,77 @@ describe("takode leader-context-resume", () => {
     expect(rendered).not.toContain("[q-800](quest:q-800)");
   });
 
+  it("matches a Work dispatch that names the later Work-to-Memory transition as WORK, not MEMORY", async () => {
+    // Shape of a real dispatch (#2851 -> #2950): the Work instruction names its
+    // exit transition, so "Memory" appears in it. While the row is in Work the
+    // dispatch must match WORK; once the row reaches Memory, that same turn must
+    // not stand in for a Memory dispatch the leader has not sent yet.
+    const dispatch = makeUserMessage(
+      "Work on [q-900](quest:q-900). Load the quest skill, read and claim the quest.\n\n" +
+        "Land through the landing queue, keep the Work note current, and stop after the guarded Work-to-Memory transition.",
+      2_000,
+      { sessionId: "leader-session", sessionLabel: "#20 Leader" },
+    );
+    const buildFor = (status: string, currentPhaseId: "work" | "memory", history: BrowserIncomingMessage[]) =>
+      buildLeaderContextResume({
+        leader: {
+          sessionId: "leader-session",
+          sessionNum: 20,
+          name: "Leader",
+          isOrchestrator: true,
+          messageHistory: [],
+          notifications: [],
+          board: [
+            {
+              questId: "q-900",
+              title: "Fix a bug",
+              worker: "worker-session",
+              status,
+              journey: { phaseIds: ["work", "memory"], currentPhaseId },
+              createdAt: 1_500,
+              updatedAt: 2_000,
+            },
+          ],
+        },
+        rowSessionStatuses: {},
+        participants: new Map([
+          [
+            "worker-session",
+            makeParticipant({
+              sessionId: "worker-session",
+              sessionNum: 21,
+              role: "worker",
+              claimedQuestId: "q-900",
+              messageHistory: history,
+            }),
+          ],
+        ]),
+        loadQuest: async () => null,
+      });
+
+    const working = await buildFor("WORKING", "work", [dispatch]);
+    expect(working.observed.activeBoardQuests[0]?.currentPhaseInstructionMatched).toBe(true);
+    expect(working.synthesized.activeBoardQuests[0]?.warnings ?? []).toEqual([]);
+    expect(renderLeaderContextResumeText(working)).not.toContain("no matched current-phase");
+
+    const awaitingMemory = await buildFor("MEMORY", "memory", [
+      dispatch,
+      makeAssistant("Work handed off to Memory.", 2_010),
+      makeResult("Work note #3 recorded; transitioned to Memory.", 30),
+    ]);
+    expect(awaitingMemory.observed.activeBoardQuests[0]?.currentPhaseInstructionMatched).toBe(false);
+    expect(awaitingMemory.synthesized.activeBoardQuests[0]?.whyHere).toContain("no matched `MEMORY` dispatch");
+    expect(awaitingMemory.synthesized.activeBoardQuests[0]?.whyHere).toContain("`WORK`");
+
+    const inMemory = await buildFor("MEMORY", "memory", [
+      dispatch,
+      makeResult("Work note #3 recorded; transitioned to Memory.", 30),
+      makeUserMessage("Run final Memory for [q-900](quest:q-900).", 3_000, { sessionId: "leader-session" }),
+    ]);
+    expect(inMemory.observed.activeBoardQuests[0]?.currentPhaseInstructionMatched).toBe(true);
+    expect(inMemory.observed.activeBoardQuests[0]?.lastRelevantLeaderInstruction?.source.messageIndex).toBe(2);
+  });
+
   it("rejects non-leader target sessions", async () => {
     await expect(
       buildLeaderContextResume({

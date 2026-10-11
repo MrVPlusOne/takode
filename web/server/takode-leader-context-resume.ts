@@ -206,6 +206,7 @@ type DerivedTurnResult = {
 };
 
 const PHASE_PATTERNS: Record<string, RegExp[]> = {
+  work: [/\bwork(?:ing)?\b/i],
   alignment: [/\balignment\b/i, /\bplanning\b/i, /\bread[\s-]?in\b/i],
   explore: [/\bexplore\b/i, /\bexploring\b/i, /\bexploration\b/i],
   implement: [/\bimplement\b/i, /\bimplementing\b/i, /\bimplementation\b/i],
@@ -213,7 +214,9 @@ const PHASE_PATTERNS: Record<string, RegExp[]> = {
   "mental-simulation": [/\bmental[\s-]?simulation\b/i],
   execute: [/\bexecute\b/i, /\bexecuting\b/i, /\bexecution\b/i],
   "outcome-review": [/\boutcome[\s-]?review(?:ing)?\b/i],
-  memory: [/\bmemory\b/i, /\bfinal[\s-]?memory\b/i, /\bdurable[\s-]?closure\b/i],
+  // Work dispatches name their exit ("stop after the guarded Work-to-Memory
+  // transition"); that names the end of Work, not a Memory dispatch.
+  memory: [/(?<!\bwork\s*(?:-to-|->|→)\s*)\bmemory\b/i, /\bfinal[\s-]?memory\b/i, /\bdurable[\s-]?closure\b/i],
   bookkeeping: [/\bbookkeeping\b/i, /\bstate[\s-]?update\b/i, /\bstream[\s-]?update\b/i],
   port: [/\bport\b/i, /\bporting\b/i],
 };
