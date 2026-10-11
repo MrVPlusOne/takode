@@ -160,6 +160,17 @@ describe("GET /takode/activity", () => {
     expect(body.threads[1]).toMatchObject({ sessionName: "Side chat of #1", space: "Takode" });
   });
 
+  it("cuts each message to 1,000 characters by default and returns whole messages with full=1", async () => {
+    // The user chose 1,000 characters: enough for most answers' substance at a moderate daily token cost.
+    const long: FakeSession = { ...takode, history: [ask("x".repeat(1500), 100)] };
+    const { get } = setup([long], null);
+    const cut = (await get("")).body.threads[0].messages[0];
+    expect(cut).toMatchObject({ text: `${"x".repeat(1000)}…`, chars: 1500 });
+    const whole = (await get("&full=1")).body.threads[0].messages[0];
+    expect(whole.text).toHaveLength(1500);
+    expect(whole.chars).toBeUndefined();
+  });
+
   it("rejects an empty or unreadable window", async () => {
     const { get } = setup([takode], null);
     expect((await get("", "since=500&until=500")).status).toBe(400);

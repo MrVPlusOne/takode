@@ -5,7 +5,7 @@ import * as treeGroupStore from "../tree-group-store.js";
 import type { RouteContext } from "./context.js";
 
 /** Default shortened length of each message; `full=1` returns whole messages. */
-const ACTIVITY_TEXT_LIMIT = 300;
+const ACTIVITY_TEXT_LIMIT = 1000;
 
 /**
  * `GET /takode/activity?since=<ms>&until=<ms>&space=<names|ids|all>&full=1`

@@ -108,7 +108,7 @@ Options:
                     a local date (2026-10-10), a date and time, or epoch milliseconds
   --space <names>   Comma-separated session spaces, or all. From a session, the default is
                     that session's own space; elsewhere, all spaces
-  --full            Whole messages instead of the first 300 characters
+  --full            Whole messages instead of the first 1,000 characters
   --json            Structured output: { since, until, spaces, threads: [{ session,
                     sessionId, sessionName, space, thread?, messages: [{ role (user or
                     answer), index, at, text, chars? (full length when shortened), images?,
