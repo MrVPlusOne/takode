@@ -1,5 +1,250 @@
 # Takode Changelog
 
+## October 2026 release: one Takode across your machines
+
+Until this release, every Takode session ran on the machine that hosted the Takode server. That works until the code you care about lives somewhere else: a cloud workspace, a GPU box, a second computer under your desk. The headline of this release is that one Takode now spans all of them. The server becomes the **coordinator**, which keeps your sessions, quests, work boards and memory in one place, and any machine you register as a **host** can run sessions for it. You keep one browser tab and one session list, and your leaders can start workers wherever the code and the hardware are.
+
+Adding a machine takes two steps: register it with `takode host add` or in Settings → Hosts, then run `takode node` on it. The node dials out to the coordinator, so the host needs no open inbound ports. It signs in with its own token and keeps its own Claude Code and Codex logins. Everything that touches files runs where the files are: Git status, diffs, file previews, worktrees and terminals for a session all run on its machine. The new-session dialog has a machine picker that browses that machine's folders and branches, every remote session carries a chip naming its machine, and a leader can place a worker on a particular machine with `takode spawn --host`. Agents on a host use quests, memory and the Takode commands just as they do locally. All of their reads and writes go through the coordinator, so your data never splits into diverging copies. The [remote hosts guide](docs/remote-hosts.md) walks through the setup, including tunnels and shared machines.
+
+Working across machines also made sessions sturdier everywhere. Sessions now keep running while you restart the Takode server, both on hosts and on the coordinator's own machine, and the restarted server picks them up where they were, pending permission requests included. Restart Server first brings the server's checkout up to date with the branch it tracks, and hosts started with `--auto-update` follow the coordinator onto the new build. When a turn loses its connection to the model API, it now pauses and continues on its own once the network is back instead of failing. If you outgrow a machine, you can move the whole coordinator to another one; the [coordinator move guide](docs/moving-the-coordinator.md) covers rehearsal, cutover and rollback. For reaching Takode from other machines, an optional browser login password guards the app, and a separate token-only host port keeps a tunnel on a shared machine from exposing your server.
+
+The rest of the release is about spending less effort keeping up with your agents. Unsent drafts, including composer text, attached images, comments and half-answered questions, are kept by the server and follow you between your laptop and your phone. An attention list in the top bar gathers every question, Notify Me result and unread result across your sessions, and Next steps through them in priority order. Leader threads show a live preview of the worker they are waiting on, open with a card describing the quest and close with its final summary, and a Board button opens the work board from any thread. Agent activity between messages collapses into compact cards with a one-line summary, and a needs-input question now arrives as an ordinary explanation followed by a short question card, which you can snooze until later. Phone alerts can also go through Web Push, alongside Pushover.
+
+Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
+
+## 2026-10-11
+
+### Fixed
+
+- **New-session folders on the right machine** -- The new-session dialog checks a remembered folder on the selected machine, replaces one that is not there, and shows the full path with its machine. Recent folders list only folders that exist on the machine being browsed, and a remote session whose folder is missing on its host is refused before it is created.
+
+## 2026-10-10
+
+### Added
+
+- **Drafts on every device** -- Unsent composer text, comments, report recipients, partly answered needs-input questions and uploaded composer images are kept by the server and appear in every browser, surviving reloads, including iOS reloading the Home Screen app. The last saved change wins, and a tab never loses its own unsent edit to another browser's change. Uploads still in progress stay in their tab.
+- **Attention list** -- The top-bar attention control opens a list of everything that needs you across sessions, grouped by priority, with Go to on each row and a Next step with its own shortcut. Each chat's attention chip steps to that session's next item on tap and opens its list on long-press or right-click. Both keep their place as items are answered or added.
+- **Peer leaders** -- `takode spawn --leader` lets a leader start another leader session in its own session space and memory space, optionally on another machine. The new leader is not herded under its creator, and a new session whose session space and memory space disagree is refused instead of being split.
+- **Attention row details and actions** -- Rows name the thread tab and quest they belong to. Right-click or long-press a row for actions that fit it: mute, remind me later, acknowledge, mark as read, or close the thread tab, including another leader's closable tab.
+
+### Changed
+
+- **Board button** -- The work board button shows one phase-colored dot per active quest instead of a count, at a fixed size; the count and phase breakdown are in its tooltip.
+- **Diffs from the quest banner** -- The top-bar Diff button is gone. The quest banner chip opens a quest's recorded commits and its worker's changes, labelled in plain text such as "2 commits · +120 -8", with a switch between commits and worker changes. Worker sessions show the same chip, and sessions without a quest get it while they have changes.
+- **Machine chips** -- Machine chips use one neutral style and mark only hosts that cannot be reached, with an unplugged icon and a tooltip saying when the host was last seen.
+- **Session cards** -- The archive button is removed from session cards. Archive from the card's long-press or right-click menu, or by swiping.
+- **Worker preview header** -- The live worker preview in leader threads shows only a status dot, the worker number and Open session; a pulsing dot marks a working worker.
+- **Terminal page** -- One compact row names the machine and folder, and a machine menu moves the terminal to any connected machine.
+
+### Fixed
+
+- **Unread results from quest tabs** -- Going to Main's unread result from a quest tab opens Main at its newest Ready result instead of returning to the quest tab.
+- **Ready turns stay collapsed** -- A leader turn collapses again on each new Ready result, even after it was opened from a notification or expanded earlier in the quest.
+- **Go to bottom** -- Jumping to the bottom from an older part of a conversation no longer restores an older saved reading position.
+- **Resuming after restarts** -- After Takode interrupts a turn to restart or update itself, the resumed session is told that Takode, not the user, cut off the tool call and that the call may have partly run.
+- **Session PATH** -- Sessions get the machine's real login-shell `PATH` instead of a guessed list of directories.
+- **Landing gate errors** -- The landing queue checks unhandled test errors against the base commit like failing tests, so an existing leak no longer bounces unrelated changes while a new reproducible one still blocks.
+
+## 2026-10-09
+
+### Added
+
+- **Landing queue** -- A shared branch can opt into a landing queue by saving a gate for it with `takode land gate`. Workers check their change with `takode land test` and hand it off with `takode land submit`. The server then stacks waiting changes on the branch tip, runs the gate once for the batch and pushes it. A change that conflicts or brings new failures bounces to its owner, while failures that also occur on the base commit do not block. Workers are free once they submit, and the quest completes when its change lands.
+- **Server time zone** -- Settings has a server time zone, applied at every server start, for chat timestamps, herd events and timers on a server whose machine runs in another zone.
+- **Host updates after Restart Server** -- After Restart Server, auto-updating hosts move to the new build right away instead of waiting until they are idle. Interrupted turns continue once their host is back, and Settings shows each host's progress.
+- **Quests led by another leader** -- A quest tab handed to another leader is muted and marked "Led by #N", and the quest header links to that leader. Quests on no board read "Not on board".
+- **Board button** -- Leaders open their work board from a Board button in the top bar on any thread and at every width. The board opens in place with its own Active / Completed switch and is easier to read, especially in the light theme.
+- **Session attention chip** -- Each chat's lower-right chip counts that session's questions, Notify Me results and unread results and opens them one at a time.
+- **Coordinator move guide** -- A guide covers moving the coordinator to another machine: what moves, rehearsal on a copy, cutover, verification and rollback. The remote hosts guide lists the Git version hosts need and how immediate host updates work.
+
+### Changed
+
+- **Restart Server follows its branch** -- Before restarting, a production server fetches the branch its checkout tracks, fast-forwards and reinstalls dependencies. When the checkout cannot simply follow, for example because of local changes, the restart stops before interrupting anything and says why. Settings shows the commit the server runs, warns when a restart would load older code, and can turn the update off. Restart Server asks for confirmation in the page and shows its progress.
+- **Faster switching over slow connections** -- Switching sessions and thread tabs over a remote connection sends far fewer bytes and round trips. The browser keeps one connection across switches, large messages are compressed, including for Safari and iPhone, unchanged session-list polls return nothing, and opaque thinking signatures are no longer sent to browsers.
+- **Faster host connections** -- Traffic between hosts and the coordinator, and agent command answers on hosts, are compressed.
+- **Remote agents use the coordinator's data** -- Agent commands on a host never fall back to that machine's own Takode files, and the stream command also runs through the coordinator.
+- **Agent waiting** -- Agents end their turn instead of chaining sleeps: Claude sessions wait for a background command's completion notice, and Codex sessions use a timer. The work board does not report such workers as stalled.
+- **Running activity time** -- An activity card's heading counts the total time of running tools live.
+- **Lease wait time** -- The lease chip shows how long a session waited for its lease.
+- **Quest header on phones** -- The quest header chip drops its phase total on phones, and finished quests read "Done".
+- **Permission rules** -- Takode no longer re-applies Claude Code `settings.json` allow rules itself; Claude Code applies its own rules. Requests go through hard denies, the permission mode, then you.
+
+### Fixed
+
+- **Phone session lists** -- Compressed API answers are sent whole, so session lists no longer show empty through proxies that speak HTTP/1.0.
+- **Restarts always finish** -- Server shutdown waits at most 30 seconds for accepted work, logs what it waited on, and no longer hangs on a host that cannot reconnect.
+- **Hosts stuck mid-update** -- A host whose update fails is reported and released, and creating a session on an offline or updating host fails at once with its name instead of hanging.
+- **Claude login in launched sessions** -- A server or node started from inside a Claude Code session no longer passes that session's login to the agents it launches, which made them report "Not logged in".
+- **Host CLI tokens** -- `takode host` and server management commands work from sessions on a remote host.
+- **Turn errors** -- A failed turn's error stays in its own turn and thread instead of following later turns in Main.
+- **Installs through registry proxies** -- The Claude Agent SDK is pinned to a version that npm registry proxies already serve, so frozen installs no longer fail with 404s.
+
+## 2026-10-08
+
+### Added
+
+- **Moving the coordinator** -- A coordinator handoff tool moves a whole coordinator to a machine that already runs its sessions as a host, with checksums for every file. The old machine becomes a host, a rehearsal mode packages a copy without stopping anything, and the old machine is fenced off until it is explicitly reclaimed for a rollback.
+- **Next and a cleaner top bar** -- A Next button opens the next item that needs you. The session top bar keeps only the sidebar toggle, the session title, Next and Diffs; the sessions panel opens with a search field for Universal Search and chips for needs input, Notify Me and Quests on desktop and phone. Universal Search can show leaders only and include archived sessions.
+- **Waiting workers** -- Idle workers that wait on a background job, a lease or a landing run show what they wait for in the sidebar, the work board and the top bar instead of a plain idle dot, and the board no longer reports workers queued for a lease as stalled.
+- **Host port** -- The coordinator also listens on a token-only host port (main port + 1000) for hosts and their agents, so a tunnel on a shared machine does not open the server to other users there. The remote hosts guide covers forward tunnels and loopback-only coordinators.
+- **Machines on memory notes** -- Memory notes record which machines wrote them, and the memory catalog and Memory page show it.
+
+### Changed
+
+- **Claude Agent SDK 0.3** -- Claude sessions run on the Claude Code bundled with Agent SDK 0.3, which reads `AGENTS.md`.
+- **Sessions survive restarts by default** -- The server always runs this machine's sessions under its own node, so they keep running across restarts. A deliberate server stop still stops them.
+- **Focused pre-submit checks** -- `takode land test` runs typecheck and format in full but only the tests chosen for the change, with `--full` for the whole gate. Stopping a run frees its test slot at once.
+- **Workers' questions stay with their leader** -- Questions from herded workers stay out of the global needs-input count, title count and Next, and stay answerable by their leader until answered.
+- **Lease exit codes** -- `takode lease acquire` exits non-zero when it only joins the queue.
+
+### Fixed
+
+- **Comment drafts** -- Clicking outside the comment editor saves a non-empty comment instead of discarding it.
+- **Comment-only requests** -- Answer labels preview requests sent only as comments.
+- **Memory locks** -- A memory lock held by a session that has exited is taken over, and only the lock's holder can write.
+- **Delivery checks on hosts** -- Commit evidence for quests is checked on the machine that holds the checkout.
+
+## 2026-10-07
+
+### Added
+
+- **Sessions on other machines** -- Register a machine with `takode host add` and run `takode node` on it to run Claude Code and Codex sessions there, while the coordinator keeps sessions, quests, boards and memory. Git status, diffs, file previews, worktrees and terminals run on the session's machine, and agents there use quests, memory and Takode commands unchanged.
+- **Workers on any machine** -- `takode spawn --host` starts a worker on a registered machine, and workers start on their leader's machine by default. A worker on another machine than its port target hands its commits back as a Git bundle. Each host has its own pool of machine-local leases, while port leases for a branch are shared across machines.
+- **Machines in the UI** -- Settings → Hosts registers and removes machines, names them, and sets which Claude Code and Codex each one runs. The new-session dialog picks a machine and browses its folders and branches. Remote sessions show their machine across the sidebar, top bar, hover cards and board, and `takode list` marks them.
+- **Sessions survive server restarts** -- Sessions on hosts keep running while the coordinator restarts, and a setting does the same for this machine's sessions. The restarted server reattaches to them with their pending permission requests.
+- **Host auto-update** -- Hosts report their Takode build, and a node started with `--auto-update` follows the coordinator's commit when its sessions are idle.
+- **Machine names on quest notes** -- Every machine keeps a stable name, sessions are told which machine they run on, and quest notes are stamped with the machine they were written on.
+- **Network outage recovery** -- When a Claude turn cannot reach the model API, it waits for the connection instead of failing and continues on its own once the network is back, with at most five automatic continues per outage.
+- **Browser login** -- An optional password can guard the app's API, live connections and file previews. Agents and hosts keep using their tokens.
+- **Remind me later** -- Needs-input questions can be snoozed until a chosen time and come back as fresh alerts.
+- **Leader-to-leader messages** -- `takode send` can message another leader session directly.
+- **Delivery status for sent messages** -- `takode send` and `takode answer` report whether a message was delivered, failed or is still queued, and the sender is told when a queued message is finally delivered.
+- **Quest cards in leader threads** -- Quest threads open with a card describing the quest, also when the thread has no messages yet, and completed quests end with a card showing the final summary.
+- **Long-press menus** -- Thread tabs, session rows, file links, the session title and Session Space headers share one native-style long-press menu on touch screens, and thread tabs get a menu with Close tab and Notify Me.
+- **Image zoom** -- Image previews zoom with pinch, drag, mouse wheel and double-tap.
+- **Notification links** -- Agents can link to a needs-input question; the link previews it on hover and jumps to its card.
+- **Collapsible quizzes** -- Quest quizzes in the chat can be collapsed.
+- **Command latency log** -- `takode latency` summarizes how long Takode commands and Codex requests take and where the time goes.
+
+### Changed
+
+- **Settings groups** -- Settings is reorganized into clearer groups, with switches, a visible theme picker and steppers.
+- **LLM auto-approval removed** -- Takode's model-based permission approver is retired now that Claude Code and Codex have their own auto-approval modes. Saved rules stay on disk untouched.
+- **Quest and memory writes go through the server** -- Quest and memory commands no longer write files directly, so a command on another machine cannot create a diverging copy.
+- **Faster quest commands** -- Quest reads are served from memory, so quest commands and the board answer much faster.
+- **Shorter source tags** -- Messages from leaders and agents are tagged only with session numbers.
+- **Rejected leader messages** -- A leader message rejected for a bad thread tag collapses into a compact row that expands to the original.
+- **Session cards** -- The permission shield icon is removed from session cards; the permission mode stays in the composer.
+- **README** -- The README now leads with leader-driven session management, presents sessions on several machines and has refreshed screenshots.
+
+### Fixed
+
+- **Claude status chip** -- The generation chip stays visible while Claude waits on the model, and its timer no longer restarts mid-turn.
+- **Microphone choice** -- Dictation records from the microphone the system has selected and shows its name, and iPhones no longer repeat or silently deny microphone prompts.
+- **Faster startup** -- Large chunked session histories load about ten times faster at startup.
+- **Claude processes end with their session** -- Killing or archiving a Claude session ends its process.
+- **Stale tool progress** -- Opening a running session no longer shows finished tools as still running.
+- **Leader answers for mid-turn input** -- A Claude leader's answer to a message sent mid-turn is accepted, and network errors no longer trigger routing reminders.
+- **Removed project skills** -- Skills removed from the repository are uninstalled at startup instead of leaving dangling links.
+
+## 2026-10-06
+
+### Added
+
+- **Send key setting** -- Comment, quest feedback, Side Chat and answer boxes use the composer's send key, and a new setting makes Enter add a newline and Cmd+Enter (Ctrl+Enter) send.
+- **Screenshots in decisions** -- Local image paths render as file links, and visual decisions show their screenshots inline.
+
+### Changed
+
+- **Needs-input explanations in the conversation** -- The explanation for a needs-input question is written into the thread as an ordinary message, and the card, phone alerts and attention panels show only the question.
+- **Activity cards** -- Activity cards collapse to their heading once later text follows them, and their lines show skill names, shortened file paths and MCP server and tool names.
+- **Thread links** -- A message from another thread shows a clickable link to the one thread it was written in.
+- **Collapsed turns** -- A collapsed leader turn without an answer shows its last message.
+- **Memory page** -- Memory folders start collapsed, like a table of contents.
+- **Memory reading** -- Agents read memory through the catalog and folders; the weighted memory recall command and the Codex `memory_recall` tool are retired.
+
+### Fixed
+
+- **Activity grouping** -- Thinking stays inside activity cards, and cards no longer add an empty Needs input chip below a question.
+
+## 2026-10-05
+
+### Added
+
+- **Web Push phone alerts** -- Phone alerts can go through Web Push alongside Pushover, with the same delay and filters. Devices enroll from Settings (on iPhone from the Home Screen app), and alerts skip a device that has Takode on screen.
+- **Claude Auto mode** -- Claude sessions offer Claude's own Auto permission mode, and permission mode changes apply to the running Claude process.
+- **Claude reasoning effort** -- Claude sessions get the Model and Effort menu, taken from Claude Code's model catalog and applied without a relaunch.
+- **Live worker preview** -- A leader quest thread waiting on its worker shows the worker's latest actions in the conversation, with an edge colored by the worker's status.
+- **Copilot setup guide** -- A guide and setup script run Takode's Claude sessions on Claude models served by a GitHub Copilot subscription.
+
+### Changed
+
+- **Claude runs through the Agent SDK only** -- Claude Code's current versions reject the native WebSocket backend, so Claude sessions run only through the Agent SDK. Saved Claude sessions resume through it, and Claude sessions in containers are refused.
+- **Compact activity cards** -- All agent activity between two pieces of text forms one card with a summary heading of failures, counts and total time over its newest lines. A single tool shows as one light line with its description, and Claude commands group like Codex commands.
+- **Complete messages** -- Assistant text appears once each message is complete instead of streaming into the browser.
+- **Needs-input cards** -- Question cards show their decision context, use a neutral style with full-width option rows, and their text can be commented on or copied.
+- **Lease waits** -- Sessions queued for a resource lease show as waiting, naming the pool, instead of idle.
+- **Memory folders** -- Memory notes live in topic folders, and the catalog shows recent notes plus one line per folder so it stays small. The Memory page groups notes by folder.
+- **Quests start in Work** -- Quest Journeys start in Work, and workers send optional reports instead of waiting for an initial approval.
+- **Large session histories** -- Large histories are saved incrementally instead of rewriting a full snapshot on every save, with bounded memory use and saves committed in order.
+- **Claude model list** -- The Claude model menu lists the models Claude Code itself reports, including the running model.
+
+### Fixed
+
+- **Claude turn control** -- Interrupts end turns Claude never received, queued input reaches resumed sessions, and a Claude process that ends unexpectedly is reported instead of stalling the server.
+- **Claude status readouts** -- Live context usage uses the window Claude reports, long-running tools keep one progress entry, the turn timer keeps its start when a session is opened, and a session created with a permission mode keeps it.
+- **Claude leader routing** -- Thread markers in Claude leader messages that follow a thinking block are routed.
+- **Composer buttons** -- The microphone and send buttons stay in place while a reply streams, with Stop at the far left.
+- **Thread handoffs** -- Requests handed to a quest thread stay there after a server restart.
+- **Restart Server checks** -- Restart Server checks that the backend loads with installed dependencies before shutting down.
+- **Shutdown keeps pending work** -- Server shutdown stops taking new work and finishes work it already accepted before exiting.
+- **Build time** -- The sidebar build time uses the browser's time zone.
+- **Dependency security updates** -- hono, sharp and shell-quote are updated for security advisories.
+
+## 2026-10-03
+
+### Added
+
+- **Markdown reports** -- `takode report` publishes a Markdown file as a fixed snapshot in the chat. Passages can be commented on and the comments sent to the session or its worker, with drafts kept across reloads.
+
+## 2026-10-02
+
+### Fixed
+
+- **Quest detail editing** -- Quest details loaded on demand stay editable.
+
+## 2026-09-30
+
+### Fixed
+
+- **Node REPL previews** -- Node REPL tool calls show their titles in activity previews.
+
+## 2026-09-29
+
+### Added
+
+- **Session menu from the title** -- Clicking the session title in the top bar opens the same session menu as the sidebar.
+
+### Fixed
+
+- **Quest completion evidence** -- Completing a quest whose Journey repeated phases checks only the current run's evidence.
+
+## 2026-09-28
+
+### Changed
+
+- **Codex built-in memory off** -- Codex sessions launched by Takode turn off Codex's own memory, so background consolidation cannot act with orchestration authority. Takode memory is unchanged.
+
+### Fixed
+
+- **Voice transcription retries** -- Failed transcriptions keep their context, and recordings flagged with a warning can be retried.
+
+## 2026-09-24
+
+### Changed
+
+- **Quest commit ranges** -- Commit chips can browse a verified range of commits behind a recorded delivery, and deliveries published to a separate branch record their complete approved commit set.
+
 ## 2026-09-23
 
 ### Added
