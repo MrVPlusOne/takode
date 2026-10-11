@@ -9,7 +9,7 @@ import {
   rmSync,
   type Dirent,
 } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -115,6 +115,20 @@ export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkR
       skipped.length > 0 ? skipped.join(", ") : "none"
     }`,
   );
+}
+
+/**
+ * Names of the skills Takode installs itself: the repo's project skills and the
+ * generated `quest` and `memory` skills. A user skill of the same name gives way.
+ */
+export async function takodeSkillSlugs(mainRepoRoot?: string): Promise<string[]> {
+  const root = mainRepoRoot ?? (await resolveMainRepoRoot());
+  const names = await Promise.all(
+    [join(root, ".claude", "skills"), join(root, ".agents", "skills")].map((dir) =>
+      readdir(dir).catch(() => [] as string[]),
+    ),
+  );
+  return [...new Set(["quest", "memory", ...names.flat().filter((name) => !name.startsWith("."))])].sort();
 }
 
 function assertCompleteSkillSymlinkRoots(roots: SkillSymlinkRoots | undefined): void {

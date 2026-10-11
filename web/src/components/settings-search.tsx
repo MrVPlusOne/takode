@@ -251,6 +251,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         id: "hosts",
         text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI keep sessions running survive server restart local node",
       },
+      {
+        id: "user-content",
+        text: "Your instructions and skills user-level CLAUDE.md AGENTS.md rules preferences personal skills store import take over sync every machine backup approval",
+      },
     ],
   },
   {

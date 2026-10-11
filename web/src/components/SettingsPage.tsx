@@ -25,6 +25,7 @@ import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSec
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
+import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
 import { SettingsServerTimeZoneSection } from "./SettingsServerTimeZoneSection.js";
 import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcutSection.js";
@@ -1049,6 +1050,7 @@ export function SettingsPage({
             {/* ── Hosts ────────────────────────────────────────────── */}
             <CollapsibleSection {...settingsSearch.sectionProps("hosts")}>
               <SettingsHostsSection />
+              <SettingsUserContentSection hidden={settingsSearch.rowHidden("hosts", "user-content")} />
             </CollapsibleSection>
 
             {/* ── Server ───────────────────────────────────────────── */}

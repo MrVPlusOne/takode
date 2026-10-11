@@ -380,6 +380,7 @@ async function planHandoff(input: {
     "streams",
     "envs",
     "bundles",
+    "user-content",
   ];
   for (const path of sharedState) {
     await copyRoot(path);

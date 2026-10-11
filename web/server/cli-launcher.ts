@@ -29,6 +29,7 @@ import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
 import { machineContextForHost } from "./remote-host/machines.js";
+import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
 import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
 
@@ -1064,6 +1065,8 @@ export class CliLauncher {
    */
   private async spawnClaudeSdk(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
     const { ClaudeSdkAdapter } = await import("./claude-sdk-adapter.js");
+    // The user's instructions and skills, delivered to this machine before the process reads them.
+    await userContentService.syncMachine(info.hostId, `launch of session ${sessionTag(sessionId)}`);
     const sdkInstructions = buildCompanionInstructions({
       sessionNum: info.sessionNum,
       ...(info.isWorktree && info.branch
@@ -1153,6 +1156,8 @@ export class CliLauncher {
     /** Set when the host prepared this launch; the process then runs there. */
     let remoteLaunchId: string | undefined;
     const nodeHost = this.nodeHostForLaunch(info, options);
+    // The user's instructions and skills, delivered to this machine before the process reads them.
+    await userContentService.syncMachine(info.hostId, `launch of session ${sessionTag(sessionId)}`);
     try {
       // A remote host prepares Codex with its own settings; here, this machine's apply.
       const codexOptions = info.hostId

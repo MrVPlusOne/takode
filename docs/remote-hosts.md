@@ -303,6 +303,10 @@ waiting for.
 Without `--auto-update`, update the host's checkout and restart `takode node`
 yourself whenever the coordinator is updated.
 
+## Your instructions and skills
+
+Every machine gets the same user-level instructions and skills from the server's store; see [Your instructions and skills on every machine](user-instructions-and-skills.md).
+
 ## Moving the coordinator to another machine
 
 The coordinator role can move to a machine that already runs its sessions as a

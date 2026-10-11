@@ -91,6 +91,8 @@ const INVENTORY: Record<string, string> = {
     "Session worktrees are checkouts on this machine, under its ~/.companion/worktrees",
   "server/remote-host/host-operations.ts -> server/migration.ts": "Recreates a session's checkout on this machine",
   "server/remote-host/host-operations.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
+  "server/remote-host/host-operations.ts -> server/user-content-install.ts":
+    "This machine's copy of the user's skills, which files Takode wrote here, and backups of files it replaced; the content itself comes from the coordinator",
 };
 
 function sourceFiles(dir: string): string[] {

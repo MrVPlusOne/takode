@@ -87,6 +87,8 @@ import { stampQuestMachines } from "./quest-machine-stamps.js";
 import { stampExistingMemoryNotesInOwnSpaces } from "./memory-note-machines.js";
 import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
 import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
+import { createUserContentRoutes } from "./routes/user-content.js";
+import { userContentService } from "./user-content-service.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
@@ -404,6 +406,11 @@ configureMachines({
   },
 });
 hostLinks.start();
+// The user's instructions and skills, delivered to every machine's standard Claude and Codex places.
+userContentService.start({
+  links: hostLinks,
+  listHostIds: async () => (await hostRegistry.list()).map((host) => host.id),
+});
 // This machine's own node, which runs local sessions so they outlive server restarts.
 const localNode = new LocalNode({
   serverId,
@@ -1192,6 +1199,7 @@ app.route(
   }),
 );
 app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
+app.route("/api", createUserContentRoutes(userContentService));
 app.route(
   "/api",
   createRoutes(

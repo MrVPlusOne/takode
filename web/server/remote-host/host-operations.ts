@@ -10,7 +10,10 @@ import { verifyPublishedDeliveryTarget } from "../published-delivery-target.js";
 import { buildCodeDelivery, runPortCommand } from "../quest-code-deliveries.js";
 import { readDeliveryRange, resolveDeliveryRange } from "../quest-delivery-range.js";
 import { assessWorktreeCleanupSafety, removeWorktreeCheckout } from "../routes/worktree-cleanup.js";
+import { collectUserLevelContent } from "../user-content.js";
+import { defaultMachineRoots, installUserContent } from "../user-content-install.js";
 import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
+import { sep } from "node:path";
 import { requestOnHost } from "./session-machine.js";
 
 /**
@@ -47,6 +50,11 @@ const operations = {
   startLandingRunner: (input: Parameters<typeof startLandingRunner>[0]) =>
     startLandingRunner(input, { forRemoteCoordinator: true }),
   syncBaseCheckoutToRemote: (input: Parameters<typeof syncBaseCheckoutToRemote>[0]) => syncBaseCheckoutToRemote(input),
+  // User content from the coordinator's store, delivered to this machine's standard Claude and Codex places.
+  installUserContent: (request: Parameters<typeof installUserContent>[0]) => installUserContent(request),
+  // The one-time import: this machine's user-level instructions and skills, read for the coordinator's store.
+  collectUserContent: (takodeSkills: string[]) =>
+    collectUserLevelContent(takodeSkills, defaultMachineRoots().installRoot + sep),
 };
 
 export type HostOperations = typeof operations;
