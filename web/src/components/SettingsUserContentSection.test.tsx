@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
+import { useStore } from "../store.js";
+import type { SdkSessionInfo } from "../types.js";
 import { requestUserContentFocus, type UserContentStatus } from "../user-content.js";
+import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
 
 /** A fake of GET /api/hosts and the user content routes, in the shapes the server answers with. */
 function serve(status: UserContentStatus) {
@@ -11,7 +13,7 @@ function serve(status: UserContentStatus) {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         posts.push({ url, body: JSON.parse(String(init.body)) });
-        return new Response(JSON.stringify({}), { status: 200 });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       if (url === "/api/hosts") {
         return new Response(
@@ -28,106 +30,76 @@ function serve(status: UserContentStatus) {
   return posts;
 }
 
-const emptyResult = {
-  status: "current",
-  instructionFiles: [],
-  skills: { linked: [], removed: [], shadowedByTakode: [], conflicts: [], takenOver: [] },
-  notes: [],
-};
+const store = { instructions: "/home/u/.companion/user-instructions", skills: "/home/u/.companion/user-skills" };
+
+beforeEach(() => {
+  useStore.setState({
+    sdkSessions: [
+      { sessionId: "s-old", sessionNum: 3, name: "Old work", cwd: "/w" },
+      { sessionId: "s-new", sessionNum: 7, name: "Fresh helper", cwd: "/w" },
+      { sessionId: "s-archived", sessionNum: 5, name: "Archived", cwd: "/w", archived: true },
+    ] as unknown as SdkSessionInfo[],
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const store = { instructions: "/home/u/.companion/user-instructions", skills: "/home/u/.companion/user-skills" };
-
 describe("SettingsUserContentSection", () => {
-  it("previews each machine and imports only after a confirming second click", async () => {
-    const posts = serve({
-      store,
-      storeExists: false,
-      storeEmpty: true,
-      machines: [],
-      importCandidates: [
-        { hostId: null, summary: { claudeChars: 0, codexChars: 0, sharedInstructions: false, skills: [] } },
-        {
-          hostId: "h1",
-          summary: { claudeChars: 12_000, codexChars: 12_000, sharedInstructions: true, skills: ["a", "b"] },
-        },
-      ],
-    });
+  it("hands the setup to the session the user picks instead of offering its own controls", async () => {
+    // Setup and migration are an agent's job; the section only sends the chosen session a prompt.
+    const posts = serve({ store, storeExists: false, storeEmpty: true, machines: [] });
     render(<SettingsUserContentSection />);
 
-    // The preview tells the user which machine holds their real content before anything is copied.
-    expect(await screen.findByText("rules 12 KB (one file for Claude and Codex); 2 skills: a, b")).toBeTruthy();
-    expect(screen.getByText("no rules; no skills")).toBeTruthy();
-    const laptopButton = screen.getAllByRole("button", { name: "Import from here" })[1];
-    fireEvent.click(laptopButton);
-    expect(posts).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm import from laptop" }));
+    expect(await screen.findByText(/Not set up yet/)).toBeTruthy();
+    const picker = screen.getByRole("combobox", { name: "Session to set this up" });
+    // Newest session first; archived sessions cannot take the job.
+    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+      "Pick a session to do this…",
+      "#7 Fresh helper",
+      "#3 Old work",
+    ]);
+    fireEvent.change(picker, { target: { value: "s-new" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask this session to set it up" }));
 
-    await waitFor(() => expect(posts).toEqual([{ url: "/api/user-content/import", body: { hostId: "h1" } }]));
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: "/api/user-content/agent-setup", body: { sessionId: "s-new" } }]),
+    );
+    expect(await screen.findByText(/Sent to #7 Fresh helper/)).toBeTruthy();
   });
 
-  it("shows machines still being read, and scrolls itself into view when the notice sent the user here", async () => {
-    // Set up on the one-time notice must land on this section, not wherever Settings happened to scroll.
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
+  it("shows each machine's state once set up", async () => {
     serve({
-      store,
-      storeExists: false,
-      storeEmpty: true,
-      machines: [],
-      importCandidates: [{ hostId: "h1", pending: true }],
-    });
-    requestUserContentFocus();
-    render(<SettingsUserContentSection />);
-
-    expect(await screen.findByText("Reading this machine's instructions and skills…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Import from here" })).toBeNull();
-    expect(scrollIntoView).toHaveBeenCalled();
-  });
-
-  it("labels what waits for approval, takes it over after confirmation and shows where backups went", async () => {
-    const posts = serve({
       store,
       storeExists: true,
       storeEmpty: false,
-      importCandidates: [],
       machines: [
         {
           hostId: null,
           at: 1,
-          lastBackup: { dir: "/home/u/.companion/backups/user-content/2026-10-11", at: 1 },
           result: {
-            ...emptyResult,
-            instructionFiles: [
-              {
-                backend: "claude",
-                path: "/home/u/.claude/CLAUDE.md",
-                state: "conflict",
-                detail: "differs from the store",
-              },
-              { backend: "codex", path: "/home/u/.codex/AGENTS.md", state: "current" },
-            ],
-            skills: {
-              ...emptyResult.skills,
-              conflicts: [{ path: "/home/u/.agents/skills/mine", detail: "differs from the store" }],
-            },
+            instructionFiles: [{ path: "/home/u/.claude/CLAUDE.md", state: "conflict" }],
+            skills: { conflicts: [{ path: "/home/u/.agents/skills/mine" }] },
           },
         },
-        { hostId: "h1", at: 1, result: emptyResult },
+        { hostId: "h1", at: 1, result: { instructionFiles: [], skills: { conflicts: [] } } },
       ],
     });
     render(<SettingsUserContentSection />);
 
-    expect(await screen.findByText("/home/u/.claude/CLAUDE.md")).toBeTruthy();
-    expect(screen.getAllByText(": differs from the store")).toHaveLength(2);
-    expect(screen.getByText("/home/u/.companion/backups/user-content/2026-10-11")).toBeTruthy();
-    expect(screen.getByText("Up to date")).toBeTruthy(); // the laptop row
-    fireEvent.click(screen.getByRole("button", { name: "Let Takode manage these" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm: replace with the store's copy" }));
+    expect(await screen.findByText("2 items waiting for your approval")).toBeTruthy();
+    expect(screen.getByText("up to date")).toBeTruthy();
+  });
 
-    await waitFor(() => expect(posts).toEqual([{ url: "/api/user-content/take-over", body: { hostId: null } }]));
+  it("scrolls itself into view when the one-time notice sent the user here", async () => {
+    // Set up on the notice must land on this section, not wherever Settings happened to scroll.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    serve({ store, storeExists: false, storeEmpty: true, machines: [] });
+    requestUserContentFocus();
+    render(<SettingsUserContentSection />);
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
   });
 });

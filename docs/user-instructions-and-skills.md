@@ -42,24 +42,38 @@ Takode updates a machine before each session launches there, when a host connect
 
 ## Your own files are never replaced silently
 
-- **A different file or skill that Takode did not write is left alone.** It appears in **Settings → Hosts → Your Instructions and Skills** under its machine as waiting for approval, with the reason: "differs from the store", "edited by hand after Takode wrote it" (a file Takode wrote that someone then changed), or "a link to …". **Let Takode manage these**, then its confirmation, replaces them on that machine.
+- **A different file or skill that Takode did not write is left alone.** It waits for your approval, with the reason ("differs from the store", "edited by hand after Takode wrote it" for a file Takode wrote that someone then changed, or "a link to …") and what it holds that the store lacks. The agent doing your setup shows you this and replaces it on that machine only after you agree.
 - **Something identical to the store's copy needs no approval**, because replacing it loses nothing. Examples: a skill folder with exactly the store's files, or `AGENTS.md` linking to a `CLAUDE.md` that already holds the store's text. Takode replaces it and keeps a backup.
-- **Backups:** before replacing or removing anything, Takode moves or copies it to `~/.companion/backups/user-content/<time>/` on that machine. A link is kept as a link. The newest 50 such folders are kept. Settings shows each machine's latest backup folder.
+- **Backups:** before replacing or removing anything, Takode moves or copies it to `~/.companion/backups/user-content/<time>/` on that machine. A link is kept as a link. The newest 50 such folders are kept.
 - **Takode's own skills win.** A skill with the same name as one of Takode's own (such as `confirm`) is not linked; Takode's skill is used.
 - If `~/.codex/AGENTS.override.md` exists, Codex reads it instead of `AGENTS.md`, and the status shows a note.
 
-## First use after upgrading
+## Setting it up, or migrating your existing files
 
-Until a store folder exists, Takode touches nothing. If some machine has user-level instructions or skills, the app shows a one-time notice with **Set up** and **Dismiss**. Dismissing hides it for every browser.
+An agent does this with you, following Takode's `takode-user-content` skill. Setup involves judgment, so a person and an agent decide it together rather than a fixed sequence of buttons. The judgment calls include:
 
-**Settings → Hosts → Your Instructions and Skills** then lists each connected machine with what an import from it would bring in, for example "rules 12 KB (one file for Claude and Codex); 8 skills: …". **Import from here**, then its confirmation:
+- which machine holds your real copy;
+- which skills you still want;
+- whether a Git repository should hold the content;
+- whether anything on another machine is unique.
 
-1. copies that machine's `CLAUDE.md`, `AGENTS.md` and skills (except Takode's own) into the empty store: one `all.md` when both files hold the same text, otherwise `claude.md` and `codex.md`; a skill found for both backends with the same content goes to `user-skills/all`;
-2. lets Takode manage that machine's files, backing up what it replaces.
+To start it, use either way:
 
-Other machines get any file or skill they lack straight away. Their identical items are replaced without asking, and anything different waits for approval there.
+- **From Settings.** **Settings → Hosts → Your Instructions and Skills** shows whether the store is set up and each machine's state. Pick a session and choose **Ask this session to set it up**; Takode sends that session a prompt. To use a fresh session, create one first.
+- **From any session.** Ask an agent to set up or check Takode-managed instructions and skills.
 
-You can also fill the store yourself, for example by linking it into a checkout, instead of importing.
+After an upgrade, while the store is empty and some machine has instructions or skills of its own, the app shows a one-time notice. **Set up** opens the Settings section; **Dismiss** hides the notice for every browser.
+
+The agent will:
+
+1. look at every connected machine;
+2. explain what it found;
+3. fill the store, either by importing from the machine you choose or from a repository;
+4. go through what waits for approval;
+5. clean up old hand-made copies;
+6. tell you where to edit from then on.
+
+Until a store folder exists, Takode touches nothing. You can also fill the store yourself, for example by linking it into a checkout.
 
 ## Undo and switching off
 
@@ -69,16 +83,6 @@ You can also fill the store yourself, for example by linking it into a checkout,
 
 ## For agents
 
-Agents act through the same steps, on the user's approval:
-
-| Action | Route |
-|---|---|
-| Status, including import previews | `GET /api/user-content` |
-| Import from a machine | `POST /api/user-content/import` |
-| Take over a machine's files | `POST /api/user-content/take-over` |
-
-The two POST routes take `{"hostId": "<host id>"}`, or `null` for the coordinator's machine.
-
-Before moving the coordinator or adding a host, follow [Moving the coordinator](moving-the-coordinator.md#your-instructions-and-skills).
+Follow the `takode-user-content` skill. It uses `takode user-content status`, `import`, `take-over` and `remove-skills` (`takode user-content --help`). Each of these acts on any connected machine through the coordinator, on the user's approval.
 
 A coordinator move carries the store along. A store folder that is a link moves as the same link, so the checkout it points to must exist on the new machine.

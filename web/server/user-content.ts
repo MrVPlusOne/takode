@@ -255,6 +255,45 @@ export async function skillFolderDigest(dir: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/** How many sample lines `onlyHere` lists before summarizing the rest. */
+const ONLY_HERE_SAMPLES = 8;
+
+/**
+ * What a machine's copy holds that the store's does not, so an agent or user
+ * can tell whether replacing it (with a backup) loses anything: lines of text
+ * only here, or for a skill folder, files only here and files that differ.
+ */
+export function linesOnlyHere(here: string, store: string): string[] {
+  const storeLines = new Set(store.split("\n").map((line) => line.trim()));
+  const unique = here
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !storeLines.has(line));
+  return summarizeList(unique.map((line) => (line.length > 120 ? `${line.slice(0, 117)}...` : line)));
+}
+
+export async function skillFilesOnlyHere(here: string, store: string): Promise<string[]> {
+  const [hereFiles, storeFiles] = await Promise.all([listFiles(here, ""), listFiles(store, "")]);
+  const storeSet = new Set(storeFiles);
+  const notes: string[] = [];
+  for (const path of hereFiles) {
+    if (!storeSet.has(path)) {
+      notes.push(`file only here: ${path}`);
+      continue;
+    }
+    const [a, b] = await Promise.all([readFile(join(here, path)), readFile(join(store, path))]);
+    if (a.equals(b)) continue;
+    const unique = linesOnlyHere(a.toString("utf-8"), b.toString("utf-8"));
+    notes.push(`${path} differs${unique.length ? `; lines only here: ${unique.join(" | ")}` : ""}`);
+  }
+  return summarizeList(notes);
+}
+
+function summarizeList(items: string[]): string[] {
+  if (items.length <= ONLY_HERE_SAMPLES) return items;
+  return [...items.slice(0, ONLY_HERE_SAMPLES), `...and ${items.length - ONLY_HERE_SAMPLES} more`];
+}
+
 export interface UserLevelSummary {
   /** Characters in each backend's instruction file; 0 when there is none. */
   claudeChars: number;

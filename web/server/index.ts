@@ -1199,7 +1199,12 @@ app.route(
   }),
 );
 app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
-app.route("/api", createUserContentRoutes(userContentService));
+app.route(
+  "/api",
+  createUserContentRoutes(userContentService, (sessionId, text) =>
+    wsBridge.injectUserMessage(sessionId, text, { sessionId: "user-content-setup", sessionLabel: "Takode Settings" }),
+  ),
+);
 app.route(
   "/api",
   createRoutes(

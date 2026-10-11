@@ -48,6 +48,26 @@ machine runs \`takode node\`, which connects out to this server.
   takode host remove <name>
       Remove a machine; its token stops working at once.`;
 
+const USER_CONTENT_HELP = `Usage: takode user-content <status|import|take-over|remove-skills> ...
+
+The user's instructions and skills that Takode keeps once on the coordinator
+and delivers to every machine. Load the \`takode-user-content\` skill before
+using these; import, take-over and remove-skills change the user's files and
+need the user's approval (each replaced or moved entry is backed up).
+
+  takode user-content status [--json]
+      Store location; per machine, what waits for approval and what it holds
+      that the store lacks; import previews while the store is empty.
+  takode user-content import --machine <name>
+      Fill the empty store from that machine's files and let Takode manage them.
+  takode user-content take-over --machine <name>
+      Replace that machine's waiting files and skills with the store's.
+  takode user-content remove-skills --machine <name> [<skill>...] [--dangling]
+      Move the user's own skill entries (or links that point nowhere) out of
+      that machine's skill folders into a backup folder.
+
+<name> is a machine name from takode host list, or "this" for the server's machine.`;
+
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
 List sessions.
@@ -516,6 +536,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "bundle":
       console.log(BUNDLE_HELP);
       return true;
+    case "user-content":
+      console.log(USER_CONTENT_HELP);
+      return true;
     case "land":
       console.log(args[0] === "gate" ? LAND_GATE_HELP : LAND_HELP);
       return true;
@@ -686,6 +709,7 @@ Commands:
   worktree-cleanup  List or retry archived worktree cleanup
   worktree         Register and inspect auxiliary worktree retention
   host             Register machines that run sessions for this server (takode host add <name>)
+  user-content     The user's instructions and skills on every machine (status, import, take-over)
   bundle           Carry commits to the machine of your port target (takode bundle send|fetch)
   land             Land changes on a shared remote branch through the landing queue (takode land test|submit|finish|gate)
   pending  Show pending questions/plans from a herded session

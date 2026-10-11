@@ -7,60 +7,61 @@ export interface UserContentMachineStatus {
   at: number;
   error?: string;
   result?: {
-    status: string;
-    instructionFiles: { backend: string; path: string; state: string; detail?: string; backup?: string }[];
-    skills: {
-      linked: string[];
-      removed: string[];
-      shadowedByTakode: string[];
-      conflicts: { path: string; detail: string }[];
-      takenOver: string[];
-    };
-    notes: string[];
-    backupDir?: string;
+    instructionFiles: { path: string; state: string }[];
+    skills: { conflicts: { path: string }[] };
   };
-  /** Where this machine's most recent backup went. */
-  lastBackup?: { dir: string; at: number };
 }
 
-/** What an import from one machine would bring in (server/user-content.ts `UserLevelSummary`). */
-export interface UserLevelSummary {
-  claudeChars: number;
-  codexChars: number;
-  sharedInstructions: boolean;
-  skills: string[];
-}
-
+/** The parts of GET /api/user-content that Settings shows; agents read the rest through `takode user-content`. */
 export interface UserContentStatus {
   store: { instructions: string; skills: string };
   storeExists: boolean;
   storeEmpty: boolean;
   machines: UserContentMachineStatus[];
-  importCandidates: { hostId: string | null; summary?: UserLevelSummary; error?: string; pending?: boolean }[];
 }
 
 const POLL_MS = 10_000;
-/** While machines are still being read, poll quickly so each preview appears soon after it is ready. */
-const PENDING_POLL_MS = 1_500;
 
 /** The server's user content status, refreshed while the caller is mounted. */
-export function useUserContentStatus(): { status: UserContentStatus | null; refresh: () => Promise<void> } {
+export function useUserContentStatus(): UserContentStatus | null {
   const [status, setStatus] = useState<UserContentStatus | null>(null);
-  async function refresh() {
-    try {
-      const response = await fetch("/api/user-content");
-      if (response.ok) setStatus((await response.json()) as UserContentStatus);
-    } catch {
-      // Keep the last known status while the server is unreachable.
-    }
-  }
-  const pending = status?.importCandidates.some((candidate) => candidate.pending) ?? false;
   useEffect(() => {
-    if (status === null) void refresh();
-    const timer = setInterval(() => void refresh(), pending ? PENDING_POLL_MS : POLL_MS);
-    return () => clearInterval(timer);
-  }, [pending]);
-  return { status, refresh };
+    let cancelled = false;
+    const refresh = () =>
+      fetch("/api/user-content")
+        .then((response) => (response.ok ? (response.json() as Promise<UserContentStatus>) : null))
+        .then((body) => body && !cancelled && setStatus(body))
+        .catch(() => {
+          // Keep the last known status while the server is unreachable.
+        });
+    void refresh();
+    const timer = setInterval(() => void refresh(), POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+  return status;
+}
+
+/** How many of a machine's files and skills wait for the user's approval. */
+export function waitingCount(machine: UserContentMachineStatus): number {
+  const result = machine.result;
+  if (!result) return 0;
+  return result.instructionFiles.filter((file) => file.state === "conflict").length + result.skills.conflicts.length;
+}
+
+/** Hand the setup to a session the user picked; Takode sends it a prompt that names the setup skill. */
+export async function askSessionToSetUp(sessionId: string): Promise<void> {
+  const response = await fetch("/api/user-content/agent-setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Request failed (${response.status})`);
+  }
 }
 
 /** Set by the one-time notice so the section scrolls itself into view once Settings has rendered it. */
@@ -79,55 +80,6 @@ export function takeUserContentFocusRequest(): boolean {
   const requested = focusRequested;
   focusRequested = false;
   return requested;
-}
-
-async function post(path: string, hostId: string | null): Promise<void> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hostId }),
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error || `Request failed (${response.status})`);
-  }
-}
-
-/** Fill the empty store from one machine's files, then let Takode manage that machine's files. */
-export function importUserContent(hostId: string | null): Promise<void> {
-  return post("/api/user-content/import", hostId);
-}
-
-/** Replace the user's own files and skills on one machine with the store's (each is backed up). */
-export function takeOverUserContent(hostId: string | null): Promise<void> {
-  return post("/api/user-content/take-over", hostId);
-}
-
-/** What on a machine waits for the user's approval, with why; empty when nothing does. */
-export function pendingApprovals(machine: UserContentMachineStatus): { path: string; detail: string }[] {
-  const result = machine.result;
-  if (!result) return [];
-  return [
-    ...result.instructionFiles
-      .filter((file) => file.state === "conflict")
-      .map((file) => ({ path: file.path, detail: file.detail ?? "" })),
-    ...result.skills.conflicts,
-  ];
-}
-
-/** One line describing what an import from a machine would bring in. */
-export function describeImport(summary: UserLevelSummary): string {
-  const kb = (chars: number) => `${Math.max(1, Math.round(chars / 1024))} KB`;
-  const rules = summary.sharedInstructions
-    ? `rules ${kb(summary.claudeChars)} (one file for Claude and Codex)`
-    : [
-        summary.claudeChars ? `Claude rules ${kb(summary.claudeChars)}` : "",
-        summary.codexChars ? `Codex rules ${kb(summary.codexChars)}` : "",
-      ]
-        .filter(Boolean)
-        .join(", ") || "no rules";
-  const count = summary.skills.length;
-  return `${rules}; ${count === 0 ? "no skills" : `${count} skill${count === 1 ? "" : "s"}: ${summary.skills.join(", ")}`}`;
 }
 
 /** Whether the app should show the one-time notice about setting this up. */

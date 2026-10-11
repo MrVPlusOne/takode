@@ -1,35 +1,31 @@
 import { useEffect, useState } from "react";
 import { useRemoteHosts } from "../remote-hosts.js";
+import { useStore } from "../store.js";
 import {
-  describeImport,
-  importUserContent,
-  pendingApprovals,
-  takeOverUserContent,
+  askSessionToSetUp,
   takeUserContentFocusRequest,
   USER_CONTENT_FOCUS_EVENT,
   useUserContentStatus,
-  type UserContentMachineStatus,
+  waitingCount,
 } from "../user-content.js";
 import { SettingsSubsection } from "./settings-controls.js";
-
-const BUTTON =
-  "px-2.5 py-1 rounded-md text-xs font-medium border border-cc-border text-cc-fg hover:bg-cc-hover disabled:opacity-50";
 
 /** Anchor the one-time notice scrolls to. */
 export const USER_CONTENT_SECTION_ID = "settings-user-content";
 
 /**
- * The user's own instructions and skills, kept once on this server's machine
- * and delivered to every machine's standard Claude Code and Codex places.
- * Takode never replaces a file the user made without approval here.
+ * Entry point for the user's own instructions and skills, which Takode keeps
+ * once on this server's machine and delivers to every machine. Setting them
+ * up or migrating is an agent's job (the `takode-user-content` skill): here
+ * the user only sees the state and hands the work to a session of their choice.
  */
 export function SettingsUserContentSection({ hidden = false }: { hidden?: boolean }) {
-  const { status, refresh } = useUserContentStatus();
+  const status = useUserContentStatus();
   const { hosts, local } = useRemoteHosts();
-  const [busy, setBusy] = useState(false);
+  const sessions = useStore((state) => state.sdkSessions);
+  const [sessionId, setSessionId] = useState("");
+  const [sent, setSent] = useState("");
   const [error, setError] = useState("");
-  /** The action waiting for a second click, so nothing is replaced on a single tap. */
-  const [confirming, setConfirming] = useState<string | null>(null);
   /** Highlighted briefly after the one-time notice brought the user here. */
   const [focused, setFocused] = useState(false);
   const loaded = status !== null;
@@ -60,21 +56,20 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
     hostId === null
       ? `${local?.name ?? "This machine"} (this machine)`
       : (hosts.find((host) => host.id === hostId)?.name ?? hostId);
+  const choices = sessions
+    .filter((session) => !session.archived)
+    .sort((a, b) => (b.sessionNum ?? 0) - (a.sessionNum ?? 0));
 
-  function act(key: string, action: () => Promise<void>) {
-    if (confirming !== key) {
-      setConfirming(key);
-      return;
-    }
-    setConfirming(null);
-    setBusy(true);
+  function send() {
+    if (!sessionId) return;
     setError("");
-    action()
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => {
-        setBusy(false);
-        void refresh();
-      });
+    setSent("");
+    askSessionToSetUp(sessionId)
+      .then(() => {
+        const session = choices.find((choice) => choice.sessionId === sessionId);
+        setSent(`Sent to #${session?.sessionNum ?? ""} ${session?.name ?? ""}. Follow along in that session.`);
+      })
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
   }
 
   return (
@@ -84,118 +79,61 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
     >
       <SettingsSubsection
         title="Your Instructions and Skills"
-        description="Kept once on this server's machine and delivered to every machine's ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and skill folders, so every session reads the same copy. Files you made yourself are replaced only after you approve here (identical ones need no approval), and every replaced file is backed up on its machine."
+        description="Takode can keep your instructions and skills once on this server's machine and give every machine's ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and skill folders the same copy. An agent sets it up or migrates your existing files: it checks every machine, explains what it finds and asks you before replacing anything."
         hidden={hidden}
       >
         {status && (
           <div className="space-y-2 text-xs">
             <div className="text-cc-muted">
-              Instructions: <span className="font-mono">{status.store.instructions}</span> (all.md, claude.md,
-              codex.md). Skills: <span className="font-mono">{status.store.skills}</span> (all, claude, codex).
+              {!status.storeExists || status.storeEmpty ? "Not set up yet. " : "Set up. "}
+              Store: <span className="font-mono">{status.store.instructions}</span> and{" "}
+              <span className="font-mono">{status.store.skills}</span>.
             </div>
-            {status.storeEmpty ? (
-              <div className="space-y-1.5">
-                <div className="text-cc-fg">
-                  Not set up yet. Import copies one machine's instruction files and skills into the store, then lets
-                  Takode manage that machine's files. Other machines stay as they are until you approve each.
-                </div>
-                {status.importCandidates.map(({ hostId, summary, error: candidateError, pending }) => {
-                  const key = `import:${hostId ?? ""}`;
-                  return (
-                    <div key={key} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 space-y-1">
-                      <div className="text-cc-fg font-medium">{machineName(hostId)}</div>
-                      <div className="text-cc-muted">
-                        {summary
-                          ? describeImport(summary)
-                          : pending
-                            ? "Reading this machine's instructions and skills…"
-                            : `Could not read it: ${candidateError}`}
-                      </div>
-                      {summary && (
-                        <button
-                          type="button"
-                          className={BUTTON}
-                          disabled={busy}
-                          onClick={() => act(key, () => importUserContent(hostId))}
-                        >
-                          {confirming === key ? `Confirm import from ${machineName(hostId)}` : "Import from here"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              status.machines.map((machine) => (
-                <MachineRow
-                  key={machine.hostId ?? ""}
-                  machine={machine}
-                  name={machineName(machine.hostId)}
-                  busy={busy}
-                  confirming={confirming === `take-over:${machine.hostId ?? ""}`}
-                  onTakeOver={() => act(`take-over:${machine.hostId ?? ""}`, () => takeOverUserContent(machine.hostId))}
-                />
-              ))
-            )}
+            {!status.storeEmpty &&
+              status.machines.map((machine) => {
+                const waiting = waitingCount(machine);
+                return (
+                  <div key={machine.hostId ?? ""} className="text-cc-fg">
+                    {machineName(machine.hostId)}:{" "}
+                    <span className="text-cc-muted">
+                      {machine.error
+                        ? `could not deliver (${machine.error})`
+                        : waiting
+                          ? `${waiting} item${waiting === 1 ? "" : "s"} waiting for your approval`
+                          : "up to date"}
+                    </span>
+                  </div>
+                );
+              })}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <select
+                aria-label="Session to set this up"
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+                className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg"
+              >
+                <option value="">Pick a session to do this…</option>
+                {choices.map((session) => (
+                  <option key={session.sessionId} value={session.sessionId}>
+                    #{session.sessionNum} {session.name ?? session.cwd}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!sessionId}
+                onClick={send}
+                className="px-2.5 py-1.5 rounded-md text-xs font-medium border border-cc-border text-cc-fg hover:bg-cc-hover disabled:opacity-50"
+              >
+                Ask this session to set it up
+              </button>
+            </div>
+            <div className="text-cc-muted">To use a fresh session, create one first, then pick it here.</div>
+            {sent && <div className="text-cc-fg">{sent}</div>}
             {error && <div className="text-cc-error">{error}</div>}
           </div>
         )}
       </SettingsSubsection>
-    </div>
-  );
-}
-
-function MachineRow({
-  machine,
-  name,
-  busy,
-  confirming,
-  onTakeOver,
-}: {
-  machine: UserContentMachineStatus;
-  name: string;
-  busy: boolean;
-  confirming: boolean;
-  onTakeOver: () => void;
-}) {
-  const pending = pendingApprovals(machine);
-  const shadowed = machine.result?.skills.shadowedByTakode ?? [];
-  return (
-    <div className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 space-y-1">
-      <div className="text-cc-fg font-medium">{name}</div>
-      {machine.error && <div className="text-cc-error">Could not deliver: {machine.error}</div>}
-      {!machine.error && pending.length === 0 && <div className="text-cc-muted">Up to date</div>}
-      {pending.length > 0 && (
-        <>
-          <div className="text-cc-fg">Waiting for your approval to replace (each is backed up first):</div>
-          <ul className="list-disc pl-4 text-cc-muted">
-            {pending.map((entry) => (
-              <li key={entry.path}>
-                <span className="font-mono">{entry.path}</span>
-                {entry.detail && <span>: {entry.detail}</span>}
-              </li>
-            ))}
-          </ul>
-          <button type="button" className={BUTTON} disabled={busy} onClick={onTakeOver}>
-            {confirming ? "Confirm: replace with the store's copy" : "Let Takode manage these"}
-          </button>
-        </>
-      )}
-      {machine.lastBackup && (
-        <div className="text-cc-muted">
-          Replaced files were backed up on this machine to <span className="font-mono">{machine.lastBackup.dir}</span>
-        </div>
-      )}
-      {shadowed.length > 0 && (
-        <div className="text-cc-muted">
-          Takode's own skill of the same name is used instead of: {shadowed.join(", ")}
-        </div>
-      )}
-      {machine.result?.notes.map((note) => (
-        <div key={note} className="text-cc-muted">
-          {note}
-        </div>
-      ))}
     </div>
   );
 }

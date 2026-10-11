@@ -273,6 +273,13 @@ export class UserContentService {
     return { ...imported, skipped: collected.skipped, result };
   }
 
+  /** Move the named skills (and, if asked, links that point nowhere) out of one machine's skill folders, with backups. */
+  retireSkills(hostId: string | null, skills: string[], dangling: boolean) {
+    return this.takodeSkills().then((takodeSkills) =>
+      withTimeout(onMachine(hostId, "retireUserSkills", { skills, dangling, takodeSkills })),
+    );
+  }
+
   /** Replace the user's own files and skills on one machine with the store's, after the user approved it there. */
   takeOver(hostId: string | null): Promise<UserContentInstallResult | null> {
     return this.syncMachine(hostId, "take-over approved", { takeOver: true });

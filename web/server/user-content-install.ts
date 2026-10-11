@@ -9,6 +9,7 @@ import {
   readlink,
   rename,
   rm,
+  stat,
   symlink,
   unlink,
   writeFile,
@@ -16,6 +17,8 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, sep } from "node:path";
 import {
+  linesOnlyHere,
+  skillFilesOnlyHere,
   skillFolderDigest,
   USER_CONTENT_SCOPES,
   type UserContent,
@@ -77,6 +80,8 @@ export interface InstructionFileResult {
   state: InstructionFileState;
   /** Why a conflict was left, or why a take-over needed no approval, in a few words. */
   detail?: string;
+  /** For a conflict: what this machine's file holds that the store's does not (empty when nothing). */
+  onlyHere?: string[];
   backup?: string;
 }
 
@@ -90,7 +95,7 @@ export interface UserContentInstallResult {
     /** User skills not linked because a Takode skill of that name is installed. */
     shadowedByTakode: string[];
     /** Skill entries Takode did not create that differ from the store's, left until the user approves a take-over. */
-    conflicts: { path: string; detail: string }[];
+    conflicts: { path: string; detail: string; onlyHere: string[] }[];
     /** Entries replaced by Takode's link: approved, or identical to the store's copy. */
     takenOver: string[];
   };
@@ -311,7 +316,8 @@ async function deliverFile(
         : edited
           ? "edited by hand after Takode wrote it"
           : "differs from the store";
-      return { ...base, state: "conflict", detail };
+      const here = (await readFile(path, "utf-8").catch(() => null)) ?? "";
+      return { ...base, state: "conflict", detail, onlyHere: linesOnlyHere(here, desired) };
     }
     backup = await backups.save(path, backupName);
     await unlink(path);
@@ -380,7 +386,14 @@ async function linkSkills(
         .then(async (digest) => digest === (await skillFolderDigest(source)))
         .catch(() => false);
       if (!takeOver && !same) {
-        result.skills.conflicts.push({ path: entry, detail: "differs from the store" });
+        const reachable = await stat(entry).catch(() => null);
+        if (!reachable) {
+          const detail = `a link to ${await readlink(entry)}, which does not exist`;
+          result.skills.conflicts.push({ path: entry, detail, onlyHere: [] });
+          continue;
+        }
+        const onlyHere = await skillFilesOnlyHere(entry, source).catch((error) => [`could not compare: ${error}`]);
+        result.skills.conflicts.push({ path: entry, detail: "differs from the store", onlyHere });
         continue;
       }
       await backups.move(entry, join(`skills-${label}`, name));
@@ -391,4 +404,66 @@ async function linkSkills(
     await mkdir(skillsHome, { recursive: true });
     await symlink(source, entry);
   }
+}
+
+export interface RetireUserSkillsRequest {
+  /** Skill names to take out of this machine's skill folders. */
+  skills: string[];
+  /** Also take out links that point nowhere. */
+  dangling?: boolean;
+  takodeSkills: string[];
+}
+
+export interface RetireUserSkillsResult {
+  moved: { path: string; backup: string }[];
+  skipped: { path: string; reason: string }[];
+  backupDir?: string;
+}
+
+/**
+ * Take the user's own skill entries out of this machine's Claude and Codex
+ * skill folders, for example copies made by hand that the store replaces or
+ * skills the user no longer wants. Each entry is moved into a backup folder,
+ * never deleted. Takode's own skills and the links Takode delivers from the
+ * store are left alone (remove a store skill from the store instead).
+ */
+export function retireUserSkills(
+  request: RetireUserSkillsRequest,
+  roots: UserContentMachineRoots = defaultMachineRoots(),
+): Promise<RetireUserSkillsResult> {
+  const run = installChain.then(() => retireNow(request, roots));
+  installChain = run.catch(() => {});
+  return run;
+}
+
+async function retireNow(request: RetireUserSkillsRequest, roots: UserContentMachineRoots) {
+  const result: RetireUserSkillsResult = { moved: [], skipped: [] };
+  const backups = new BackupRun(roots.backupRoot);
+  const takode = new Set(request.takodeSkills);
+  const ownPrefix = roots.installRoot + sep;
+  for (const [label, home] of [
+    ["claude", roots.paths.claudeSkills],
+    ["agents", roots.paths.agentsSkills],
+  ] as const) {
+    const names = new Set(request.skills);
+    if (request.dangling) {
+      for (const name of await readdir(home).catch(() => [] as string[])) {
+        const entry = join(home, name);
+        if ((await lstat(entry)).isSymbolicLink() && !(await stat(entry).catch(() => null))) names.add(name);
+      }
+    }
+    for (const name of names) {
+      const entry = join(home, name);
+      if (!(await lstat(entry).catch(() => null))) continue;
+      const target = await readlink(entry).catch(() => null);
+      if (takode.has(name)) result.skipped.push({ path: entry, reason: "a Takode skill" });
+      else if (target?.startsWith(ownPrefix)) result.skipped.push({ path: entry, reason: "delivered from the store" });
+      else result.moved.push({ path: entry, backup: await backups.move(entry, join(`skills-${label}`, name)) });
+    }
+  }
+  if (backups.dir) {
+    result.backupDir = backups.dir;
+    await pruneBackups(roots.backupRoot);
+  }
+  return result;
 }

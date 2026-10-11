@@ -4,6 +4,7 @@
  * Server-authoritative orchestration commands.
  */
 
+import { handleUserContent } from "./takode-user-content-commands.js";
 import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
 import { trackCliLatency } from "./cli-latency.js";
@@ -298,6 +299,9 @@ try {
       break;
     case "bundle":
       await handleBundle(base, args);
+      break;
+    case "user-content":
+      await handleUserContent(base, args);
       break;
     case "land":
       await handleLand(base, args);

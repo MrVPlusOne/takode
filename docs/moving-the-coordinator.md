@@ -52,11 +52,11 @@ machines, which is exactly when their personal instructions and skills tend to
 drift apart. Before you propose or run a move (or add a host), check how they
 are handled today and explain it to the user:
 
-1. **Look.** `GET /api/user-content` on the current coordinator shows whether
-   a store exists and, while it is empty, what each connected machine would
-   bring in: rules size, whether Claude and Codex share one file, and skill
-   names. Also note copies kept by hand (`CLAUDE.md` or skill links into
-   personal checkouts, temporary copies), since those are what drifts.
+1. **Look.** Load the `takode-user-content` skill. `takode user-content status`
+   shows whether a store exists and, while it is empty, what each connected
+   machine would bring in: rules size, whether Claude and Codex share one file,
+   and skill names. Also note copies kept by hand (`CLAUDE.md` or skill links
+   into personal checkouts, temporary copies), since those are what drifts.
 2. **Explain.** Without a store, each machine keeps its own
    `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and skills, and sessions on other
    machines do not see them. With a store, Takode keeps one copy on the
@@ -68,13 +68,13 @@ are handled today and explain it to the user:
    machine: most such users want one copy. Suggest keeping the content in a
    private Git repository, with both store folders linking into one checkout of
    it on the coordinator, so edits are versioned and survive a move.
-4. **Migrate with the user's approval.** Pick the machine that holds the
-   user's real copy (usually the one they have worked on longest), confirm with
-   the preview that nothing unique would be lost elsewhere, then import from it
-   (or fill the store from the repository) and take over each other machine.
-   Identical items switch over by themselves; read out each "waiting" item and
-   its reason before approving its take-over. Afterwards, remove the hand-made
-   copies and links, so no session loads a skill twice.
+4. **Migrate with the user's approval**, following the skill: pick the
+   machine that holds the user's real copy (usually the one they have worked on
+   longest), fill the store from it or from the repository, and take over each
+   other machine once its waiting items are shown to hold nothing unique.
+   Identical items switch over by themselves. Afterwards, remove the hand-made
+   copies and links (`takode user-content remove-skills`), so no session loads
+   a skill twice.
 5. **When moving** with a store that links into a checkout, clone that
    repository on the new machine at the same path before the import, or the
    moved links point nowhere. A store of plain folders moves as is.

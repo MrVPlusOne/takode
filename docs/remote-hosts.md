@@ -305,7 +305,7 @@ yourself whenever the coordinator is updated.
 
 ## Your instructions and skills
 
-Every machine gets the same user-level instructions and skills from the server's store: a newly connected host receives them right away. Files and skills it already has that differ from the store wait for the user's approval in Settings. See [Your instructions and skills on every machine](user-instructions-and-skills.md); when you set up a host for a user, explain this and offer the switch as described in [Moving the coordinator](moving-the-coordinator.md#your-instructions-and-skills).
+Every machine gets the same user-level instructions and skills from the server's store: a newly connected host receives them right away. Files and skills it already has that differ from the store wait for the user's approval (an agent following the `takode-user-content` skill goes through them with the user). See [Your instructions and skills on every machine](user-instructions-and-skills.md); when you set up a host for a user, explain this and offer the switch as described in [Moving the coordinator](moving-the-coordinator.md#your-instructions-and-skills).
 
 ## Moving the coordinator to another machine
 

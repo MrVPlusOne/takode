@@ -6,6 +6,7 @@ import { readUserContentBundle, type UserContentStore } from "./user-content.js"
 import {
   defaultMachineRoots,
   installUserContent,
+  retireUserSkills,
   type UserContentInstallRequest,
   type UserContentMachineRoots,
 } from "./user-content-install.js";
@@ -85,6 +86,25 @@ describe("instruction files", () => {
     const [claudeFile, codexFile] = result.instructionFiles;
     expect(await readFile(claudeFile.backup!, "utf-8")).toBe("The user's own rules");
     expect(await readlink(codexFile.backup!)).toBe(roots.paths.claudeInstructions);
+  });
+
+  it("says what a waiting file or skill holds that the store lacks, so nothing unique is replaced unseen", async () => {
+    await put(join(store.instructions, "all.md"), "Shared rule\nSecond rule");
+    await put(roots.paths.claudeInstructions, "Shared rule\nA rule only this machine has\n");
+    await skill("all", "mine");
+    await put(
+      join(roots.paths.agentsSkills, "mine", "SKILL.md"),
+      "---\nname: mine\ndescription: test\n---\nB\nLocal tip\n",
+    );
+    await put(join(roots.paths.agentsSkills, "mine", "notes.md"), "local notes");
+
+    const result = await deliver();
+
+    expect(result.instructionFiles[0].onlyHere).toEqual(["A rule only this machine has"]);
+    expect(result.skills.conflicts[0].onlyHere).toEqual([
+      "SKILL.md differs; lines only here: Local tip",
+      "file only here: notes.md",
+    ]);
   });
 
   it("labels why each waiting file differs", async () => {
@@ -192,7 +212,11 @@ describe("skills", () => {
 
     expect(result.skills.shadowedByTakode.length).toBe(2);
     expect(result.skills.conflicts).toEqual([
-      { path: join(roots.paths.agentsSkills, "mine"), detail: "differs from the store" },
+      {
+        path: join(roots.paths.agentsSkills, "mine"),
+        detail: "a link to /somewhere/else/mine, which does not exist",
+        onlyHere: [],
+      },
     ]);
     expect(await readFile(join(roots.paths.claudeSkills, "confirm", "SKILL.md"), "utf-8")).toBe("Takode's confirm");
     expect(await readlink(join(roots.paths.agentsSkills, "mine"))).toBe("/somewhere/else/mine");
@@ -278,5 +302,32 @@ describe("skills", () => {
     await expect(installUserContent({ hash: "h", content, takodeSkills: [] }, roots)).rejects.toThrow(
       /Bad skill file path/,
     );
+  });
+});
+
+describe("retireUserSkills", () => {
+  it("moves the user's own entries and dangling links to a backup, leaving Takode's and the store's alone", async () => {
+    await skill("all", "delivered");
+    await deliver();
+    await put(join(roots.paths.claudeSkills, "old-copy", "SKILL.md"), "old");
+    await put(join(roots.paths.claudeSkills, "confirm", "SKILL.md"), "Takode's confirm");
+    await symlink("/gone/away", join(roots.paths.agentsSkills, "broken"));
+
+    const result = await retireUserSkills(
+      { skills: ["old-copy", "confirm", "delivered"], dangling: true, takodeSkills: ["confirm"] },
+      roots,
+    );
+
+    expect(result.moved.map((entry) => entry.path).sort()).toEqual(
+      [join(roots.paths.claudeSkills, "old-copy"), join(roots.paths.agentsSkills, "broken")].sort(),
+    );
+    expect(await readFile(join(result.backupDir!, "skills-claude", "old-copy", "SKILL.md"), "utf-8")).toBe("old");
+    expect(result.skipped.map((entry) => entry.reason).sort()).toEqual([
+      "a Takode skill",
+      "delivered from the store",
+      "delivered from the store",
+    ]);
+    expect(await exists(join(roots.paths.claudeSkills, "confirm"))).toBe(true);
+    expect(await exists(join(roots.paths.agentsSkills, "delivered"))).toBe(true);
   });
 });

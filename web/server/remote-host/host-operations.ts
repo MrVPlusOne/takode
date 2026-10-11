@@ -11,7 +11,7 @@ import { buildCodeDelivery, runPortCommand } from "../quest-code-deliveries.js";
 import { readDeliveryRange, resolveDeliveryRange } from "../quest-delivery-range.js";
 import { assessWorktreeCleanupSafety, removeWorktreeCheckout } from "../routes/worktree-cleanup.js";
 import { collectUserLevelContent, summarizeUserLevelContent } from "../user-content.js";
-import { defaultMachineRoots, installUserContent } from "../user-content-install.js";
+import { defaultMachineRoots, installUserContent, retireUserSkills } from "../user-content-install.js";
 import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
 import { sep } from "node:path";
 import { requestOnHost } from "./session-machine.js";
@@ -55,6 +55,8 @@ const operations = {
   // The one-time import: this machine's user-level instructions and skills, read for the coordinator's store.
   collectUserContent: (takodeSkills: string[]) =>
     collectUserLevelContent(takodeSkills, defaultMachineRoots().installRoot + sep),
+  // Moves the user's own skill entries named by an agent (with the user's approval) into a backup folder.
+  retireUserSkills: (request: Parameters<typeof retireUserSkills>[0]) => retireUserSkills(request),
   // What that import would bring in, without the contents, for choosing the machine to import from.
   summarizeUserContent: (takodeSkills: string[]) =>
     summarizeUserLevelContent(takodeSkills, defaultMachineRoots().installRoot + sep),
