@@ -28,6 +28,7 @@ import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { HoverCardSuppressionProvider } from "./hover-card-suppression-context.js";
+import { QuestSessionActions } from "./QuestSessionActions.js";
 
 export interface QuestPreviewCardContentProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -36,6 +37,8 @@ export interface QuestPreviewCardContentProps {
   headingId?: string;
   headerAction?: ReactNode;
   suppressNestedHoverCards?: boolean;
+  /** Called after Open Worker or Open Thread navigates, so the surrounding preview can close. */
+  onSessionNavigate?: () => void;
 }
 
 export function QuestPreviewHeaderAction({
@@ -103,6 +106,7 @@ export function QuestPreviewCardContent({
   headingId,
   headerAction,
   suppressNestedHoverCards = false,
+  onSessionNavigate,
 }: QuestPreviewCardContentProps) {
   const statusTheme = getQuestStatusTheme(quest.status);
   const owner = getQuestDisplayOwner(quest);
@@ -174,6 +178,13 @@ export function QuestPreviewCardContent({
         </div>
         {headerAction}
       </div>
+      <QuestSessionActions
+        className="mt-2"
+        questId={quest.questId}
+        workerSessionId={workerParticipant?.sessionId ?? ownerSessionId}
+        leaderSessionId={leaderSessionId}
+        onNavigate={onSessionNavigate}
+      />
       <div data-testid="quest-hover-status-row" className="mt-2 flex min-w-0 items-center gap-2">
         <span className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">Status</span>
         <span

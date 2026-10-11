@@ -803,6 +803,8 @@ export default function App() {
       <>
         <ActiveBuildMismatchNotice />
         <Playground />
+        {/* The Playground's Quest Detail Modal section opens this global overlay. */}
+        <QuestDetailPanel />
       </>
     );
   }

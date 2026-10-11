@@ -798,17 +798,35 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(dialog).getByTestId("quest-feed-feedback-unavailable")).toHaveTextContent("stable index");
   });
 
-  it("adds Open Thread only from a recorded, server-known leader quest route", async () => {
+  it("puts Open Worker and Open Thread at the top, ahead of the exact feedback actions", async () => {
+    // The user reviews quests from this preview and most often wants the quest's leader thread, so
+    // both jump buttons sit directly under the title instead of in the footer or participant list.
     const cached = quest({
       questId: "q-490",
-      title: "Authoritative leader route",
+      title: "Leader thread jump",
+      sessionId: "worker-490",
+      claimedAt: 2,
       leaderSessionId: "leader-490",
-      feedback: [{ author: "human", text: "Keep the exact feedback action primary.", ts: 1 }],
+      feedback: [
+        {
+          author: "human",
+          text: "Keep the exact feedback action primary.",
+          ts: 1,
+        },
+      ],
     });
     useStore.setState({
       questDetails: new Map([["q-490", cached]]),
       questDetailEtags: new Map([["q-490", '"leader-route"']]),
       sdkSessions: [
+        {
+          sessionId: "worker-490",
+          sessionNum: 6490,
+          archived: false,
+          state: "running",
+          cwd: "/tmp/worker-490",
+          createdAt: 1,
+        },
         {
           sessionId: "leader-490",
           sessionNum: 7490,
@@ -819,118 +837,93 @@ describe("QuestInlineLink chat-feed preview", () => {
           createdAt: 1,
         },
       ],
-      sessionBoards: new Map([
-        [
-          "leader-490",
-          [
-            {
-              questId: "q-490",
-              title: "Authoritative leader route",
-              status: "WORKING",
-              updatedAt: 1,
-            },
-          ],
-        ],
-      ]),
     });
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"leader-route"' });
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "not-modified",
+      etag: '"leader-route"',
+    });
     renderFeedLink("q-490", { feedbackIndex: 0 });
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-490 feedback #0/ }));
     await act(async () => Promise.resolve());
 
-    const dialog = screen.getByRole("dialog", { name: "Authoritative leader route" });
+    const dialog = screen.getByRole("dialog", { name: "Leader thread jump" });
     const primary = within(dialog).getByTestId("quest-feed-primary-action");
+    const worker = within(dialog).getByRole("link", {
+      name: "Open Worker #6490",
+    });
+    const thread = within(dialog).getByRole("link", {
+      name: "Open Thread #7490",
+    });
     const parent = within(dialog).getByTestId("quest-feed-parent-action");
-    const thread = within(dialog).getByTestId("quest-feed-thread-action");
     expect(primary).toHaveTextContent("Open feedback #0");
-    expect(parent).toHaveTextContent("Open quest");
-    expect(thread).toHaveTextContent("Open Thread");
+    expect(worker).toHaveAttribute("href", "#/session/6490");
     expect(thread).toHaveAttribute("href", "#/session/7490?thread=q-490");
-    expect(primary.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(parent.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Both jump buttons come before the status row and the footer's exact-feedback parent action.
+    const statusRow = within(dialog).getByTestId("quest-hover-status-row");
+    expect(worker.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(thread.compareDocumentPosition(statusRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(thread.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The worker (shown as the owner session without a board row) and leader chips stay listed.
+    expect(within(dialog).getByTestId("quest-hover-owner-session")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("quest-hover-leader-session")).toBeInTheDocument();
 
     fireEvent.click(thread);
     expect(window.location.hash).toBe("#/session/7490?thread=q-490");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("uses synchronized leader-tab authority without requiring legacy tab state", async () => {
+  it("opens the recorded leader's quest thread without needing that leader's board or tabs loaded", async () => {
+    // Quest views opened outside the leader session have no copy of its board or tab projection.
+    // The leader session itself decides on arrival whether the thread exists (falling back to Main).
     const cached = quest({
       questId: "q-493",
-      title: "Projected leader route",
+      title: "Unloaded leader route",
       leaderSessionId: "leader-493",
     });
     useStore.setState({
       questDetails: new Map([["q-493", cached]]),
-      questDetailEtags: new Map([["q-493", '"projected-route"']]),
+      questDetailEtags: new Map([["q-493", '"unloaded-route"']]),
       sdkSessions: [
         {
           sessionId: "leader-493",
           sessionNum: 7493,
           archived: false,
+          isOrchestrator: true,
           state: "running",
           cwd: "/tmp/leader-493",
           createdAt: 1,
         },
       ],
     });
-    useStore.getState().applySyncedProjectionSnapshot(
-      createLeaderThreadTabsProjectionEnvelope({
-        key: "leader-493",
-        overrides: {
-          tabState: {
-            version: 1,
-            orderedOpenThreadKeys: ["q-493"],
-            closedThreadTombstones: [],
-            updatedAt: 10,
-          },
-          tabs: [
-            {
-              threadKey: "q-493",
-              questId: "q-493",
-              title: "Projected leader route",
-              boardStatus: null,
-              journey: null,
-              sourceLeaderSessionId: "leader-493",
-              sourceRowCreatedAt: 1,
-              workerSessionId: null,
-              workerSessionNum: null,
-              ownership: "own",
-              active: false,
-              queued: false,
-              proposed: false,
-              neverStartedScheduled: false,
-              completed: false,
-              canClose: true,
-              attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 10 },
-              updatedAt: 10,
-            },
-          ],
-        },
-      }),
-    );
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"projected-route"' });
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "not-modified",
+      etag: '"unloaded-route"',
+    });
     renderFeedLink("q-493");
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-493/ }));
     await act(async () => Promise.resolve());
 
-    expect(
-      within(screen.getByRole("dialog", { name: "Projected leader route" })).getByTestId("quest-feed-thread-action"),
-    ).toHaveAttribute("href", "#/session/7493?thread=q-493");
+    const dialog = screen.getByRole("dialog", {
+      name: "Unloaded leader route",
+    });
+    expect(within(dialog).getByRole("link", { name: "Open Thread #7493" })).toHaveAttribute(
+      "href",
+      "#/session/7493?thread=q-493",
+    );
   });
 
-  it("hides Open Thread without an authoritative recorded leader route", async () => {
+  it("uses the worker's leader for Open Thread when the quest recorded no leader", async () => {
     const cached = quest({
       questId: "q-491",
-      title: "Display-only leader fallback",
+      title: "Herded worker leader fallback",
       sessionId: "worker-491",
       claimedAt: 2,
     });
     useStore.setState({
       questDetails: new Map([["q-491", cached]]),
-      questDetailEtags: new Map([["q-491", '"display-only-route"']]),
+      questDetailEtags: new Map([["q-491", '"herded-route"']]),
       sdkSessions: [
         {
           sessionId: "worker-491",
@@ -951,83 +944,81 @@ describe("QuestInlineLink chat-feed preview", () => {
         },
       ],
     });
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"display-only-route"' });
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "not-modified",
+      etag: '"herded-route"',
+    });
     renderFeedLink("q-491");
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-491/ }));
     await act(async () => Promise.resolve());
 
-    const dialog = screen.getByRole("dialog", { name: "Display-only leader fallback" });
+    const dialog = screen.getByRole("dialog", {
+      name: "Herded worker leader fallback",
+    });
     expect(within(dialog).getByTestId("quest-hover-leader-session")).toBeInTheDocument();
-    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
+    expect(within(dialog).getByRole("link", { name: "Open Thread #7491" })).toHaveAttribute(
+      "href",
+      "#/session/7491?thread=q-491",
+    );
   });
 
-  it("does not infer an open quest tab from leader role without the canonical projection", async () => {
+  it("keeps a disabled Open Worker in place when the quest has only a leader", async () => {
+    // Both buttons always share the same spot, so a missing session disables its button instead of
+    // shifting the other one.
     const cached = quest({
       questId: "q-492",
-      title: "Non-leader recorded route",
-      leaderSessionId: "not-a-leader-492",
+      title: "Leader-only quest",
+      leaderSessionId: "leader-492",
     });
-    const recordedSession = {
-      sessionId: "not-a-leader-492",
-      sessionNum: 7492,
-      archived: false,
-      state: "running" as const,
-      cwd: "/tmp/not-a-leader-492",
-      createdAt: 1,
-    };
     useStore.setState({
       questDetails: new Map([["q-492", cached]]),
-      questDetailEtags: new Map([["q-492", '"non-leader-route"']]),
-      sdkSessions: [recordedSession],
+      questDetailEtags: new Map([["q-492", '"leader-only"']]),
+      sdkSessions: [
+        {
+          sessionId: "leader-492",
+          sessionNum: 7492,
+          archived: false,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp/leader-492",
+          createdAt: 1,
+        },
+      ],
     });
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"non-leader-route"' });
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "not-modified",
+      etag: '"leader-only"',
+    });
     renderFeedLink("q-492");
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-492/ }));
     await act(async () => Promise.resolve());
 
-    const dialog = screen.getByRole("dialog", { name: "Non-leader recorded route" });
-    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
-
-    await act(async () =>
-      useStore.setState({
-        sdkSessions: [{ ...recordedSession, isOrchestrator: true }],
-      }),
-    );
-    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Leader-only quest" });
+    const worker = within(dialog).getByTestId("quest-open-worker");
+    expect(worker).toBeDisabled();
+    expect(worker).toHaveTextContent("Open Worker");
+    expect(within(dialog).getByTestId("quest-open-thread")).toHaveAttribute("href", "#/session/7492?thread=q-492");
   });
 
-  it("fails closed instead of reviving legacy tabs after an invalid projection is supplied", async () => {
-    const cached = quest({
-      questId: "q-494",
-      title: "Invalid projected route",
-      leaderSessionId: "leader-494",
-    });
+  it("omits the session buttons for a quest with no worker or leader", async () => {
+    const cached = quest({ questId: "q-494", title: "Unassigned quest" });
     useStore.setState({
       questDetails: new Map([["q-494", cached]]),
-      questDetailEtags: new Map([["q-494", '"invalid-projected-route"']]),
-      sdkSessions: [
-        {
-          sessionId: "leader-494",
-          sessionNum: 7494,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-494",
-          createdAt: 1,
-          leaderThreadTabsProjection: { malformed: true } as never,
-        },
-      ],
+      questDetailEtags: new Map([["q-494", '"unassigned"']]),
     });
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"invalid-projected-route"' });
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "not-modified",
+      etag: '"unassigned"',
+    });
     renderFeedLink("q-494");
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-494/ }));
     await act(async () => Promise.resolve());
 
     expect(
-      within(screen.getByRole("dialog", { name: "Invalid projected route" })).queryByTestId("quest-feed-thread-action"),
+      within(screen.getByRole("dialog", { name: "Unassigned quest" })).queryByTestId("quest-session-actions"),
     ).toBeNull();
   });
 

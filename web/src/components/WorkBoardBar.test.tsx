@@ -604,7 +604,9 @@ describe("WorkBoardBar", () => {
     expect(within(card).getByTestId("quest-journey-timeline")).toHaveAttribute("data-journey-mode", "active");
     expect(within(card).getByTestId("quest-hover-worker-session")).toHaveTextContent("Worker");
     expect(within(card).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
-    expect(within(card).getByText("#11")).toBeInTheDocument();
+    // The worker number shows twice: on the top Open Worker button and on the worker participant chip.
+    expect(within(within(card).getByTestId("quest-hover-worker-session")).getByText("#11")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Open Worker #11" })).toBeInTheDocument();
     expect(within(card).getByText("#12")).toBeInTheDocument();
   });
 

@@ -80,47 +80,47 @@ describe("QuestDetailPanel navigation dismissal", () => {
     window.history.replaceState({}, "", "/#/session/123?quest=q-42");
   });
 
-  it("dismisses when the current-session worker header chip navigates", () => {
+  it("dismisses when the current-session Open Worker button navigates", () => {
     useStore.setState({ quests: [makeQuest()], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByRole("link", { name: "#123" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Worker #123" }));
 
     expect(useStore.getState().questOverlayId).toBeNull();
     expect(window.location.hash).toBe("#/session/worker-42");
   });
 
-  it("dismisses and preserves the target quest thread when the current-session leader chip navigates", () => {
+  it("dismisses and preserves the target quest thread when the current-session Open Thread button navigates", () => {
     useStore.setState({ quests: [makeQuest()], questOverlayId: "q-42" });
     window.history.replaceState({}, "", "/#/session/777?quest=q-42");
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByTitle("Open session #777, thread q-42"));
+    fireEvent.click(screen.getByRole("link", { name: "Open Thread #777" }));
 
     expect(useStore.getState().questOverlayId).toBeNull();
     expect(window.location.hash).toBe("#/session/777?thread=q-42");
   });
 
-  it("dismisses when an other-session header chip navigates", () => {
+  it("dismisses when an other-session Open Worker button navigates", () => {
     useStore.setState({ quests: [makeQuest()], questOverlayId: "q-42" });
     window.history.replaceState({}, "", "/#/session/other-session?quest=q-42");
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByRole("link", { name: "#123" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Worker #123" }));
 
     expect(useStore.getState().questOverlayId).toBeNull();
     expect(window.location.hash).toBe("#/session/worker-42");
   });
 
-  it("uses the normal session hover preview for header chips", () => {
+  it("uses the normal session hover preview for the header session buttons", () => {
     useStore.setState({ quests: [makeQuest()], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
 
-    fireEvent.mouseEnter(screen.getByTitle("Open session #777, thread q-42"));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Open Thread #777" }));
 
     expect(screen.getByText("Latest leader preview from the normal session hover card")).toBeInTheDocument();
   });
@@ -130,11 +130,8 @@ describe("QuestDetailPanel navigation dismissal", () => {
 
     const { rerender } = render(<QuestDetailPanel />);
 
-    const leaderLinks = screen.getAllByRole("link", { name: "#777" });
-    expect(leaderLinks).toHaveLength(2);
-    const feedbackLeaderLink = leaderLinks[1];
-    if (!feedbackLeaderLink) throw new Error("missing feedback leader link");
-    fireEvent.click(feedbackLeaderLink);
+    // The header names the leader on its Open Thread button, so the feedback author is the only bare #777 link.
+    fireEvent.click(screen.getByRole("link", { name: "#777" }));
 
     expect(useStore.getState().questOverlayId).toBeNull();
     expect(window.location.hash).toBe("#/session/leader-42");

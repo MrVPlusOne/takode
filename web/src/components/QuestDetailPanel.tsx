@@ -28,6 +28,7 @@ import {
 } from "../utils/quest-helpers.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
+import { QuestSessionActions } from "./QuestSessionActions.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -696,7 +697,10 @@ export function QuestDetailPanel() {
   const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const questMarkdownSessionId = questSessionId ?? undefined;
-  const leaderSessionId = getQuestLeaderSessionId(quest);
+  // Like the quest preview, fall back to the worker's leader when the quest did not record one.
+  const leaderSessionId =
+    getQuestLeaderSessionId(quest) ??
+    (questSessionId ? (sdkSessions.find((s) => s.sessionId === questSessionId)?.herdedBy ?? null) : null);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
   const indexedFeedbackEntries = getQuestFeedback(quest)
@@ -752,21 +756,18 @@ export function QuestDetailPanel() {
                 </span>
               )}
             </div>
+            <QuestSessionActions
+              className="mt-2"
+              questId={quest.questId}
+              workerSessionId={questSessionId}
+              leaderSessionId={leaderSessionId}
+              onNavigate={closePanel}
+            />
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              {questOwner && (
+              {questOwner?.kind === "codex" && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                  <span>{questOwner.kind === "codex" ? "Owner" : "Worker"}</span>
-                  {questOwner.kind === "codex" ? (
-                    <CodexQuestOwnerChip owner={questOwner} />
-                  ) : (
-                    <CompactSessionLink sessionId={questOwner.sessionId} onNavigate={closePanel} />
-                  )}
-                </span>
-              )}
-              {leaderSessionId && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                  <span>Leader</span>
-                  <CompactSessionLink sessionId={leaderSessionId} threadKey={quest.questId} onNavigate={closePanel} />
+                  <span>Owner</span>
+                  <CodexQuestOwnerChip owner={questOwner} />
                 </span>
               )}
               {vProgress && (

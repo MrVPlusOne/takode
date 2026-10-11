@@ -8,6 +8,7 @@ import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse" | "dense";
 
+const PREVIEW_WORKER_SESSION_ID = "playground-inline-preview-worker";
 const PREVIEW_LEADER_SESSION_ID = "playground-inline-preview-leader";
 
 interface PreviewFixtureDefinition {
@@ -53,7 +54,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     questId: "q-9413",
     title: "Reveal rich quest context from the integrated eye",
     description:
-      "Fine-pointer entry on the eye hydrates the local by-ID fixture, opens near the eye, and exposes its authoritative leader thread.",
+      "Fine-pointer entry on the eye hydrates the local by-ID fixture, opens near the eye, and puts Open Worker and Open Thread at the top.",
   },
   {
     id: "error",
@@ -117,7 +118,13 @@ const PREVIEW_QUEST_BY_ID = new Map(
       feedback,
       createdAt: 1_787_990_400_000,
       updatedAt: 1_787_990_460_000 + fixtureIndex,
-      ...(showsFullEstablishedPreview ? { leaderSessionId: PREVIEW_LEADER_SESSION_ID } : {}),
+      ...(showsFullEstablishedPreview
+        ? {
+            leaderSessionId: PREVIEW_LEADER_SESSION_ID,
+            sessionId: PREVIEW_WORKER_SESSION_ID,
+            claimedAt: 1_787_990_430_000,
+          }
+        : {}),
       ...(showsFullEstablishedPreview
         ? {
             completedAt,

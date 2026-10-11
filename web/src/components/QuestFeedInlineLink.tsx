@@ -19,18 +19,10 @@ import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
-import { getQuestLeaderSessionId } from "../utils/quest-helpers.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
-import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
-import {
-  openQuestOverlayRouteAware,
-  routeSessionRefForId,
-  sessionThreadHash,
-  withQuestFeedbackInHash,
-  withQuestIdInHash,
-} from "../utils/routing.js";
+import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
 import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
 import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
 import {
@@ -1282,26 +1274,6 @@ const QuestFeedRichPreview = forwardRef<
   const feedbackUnavailable = feedbackIndex !== undefined && (!feedback || isDeletedQuestFeedbackEntry(feedback));
   const title = displayTitle?.trim() || quest?.title?.trim() || `${questId} preview`;
   const primaryActionLabel = feedbackIndex === undefined ? "Open quest" : `Open feedback #${feedbackIndex}`;
-  const recordedLeaderSessionId = quest ? getQuestLeaderSessionId(quest) : null;
-  const leaderThreadHref = useStore((state) => {
-    if (!recordedLeaderSessionId) return null;
-    const sdkSession = state.sdkSessions.find((session) => session.sessionId === recordedLeaderSessionId);
-    const threadKey = questId.trim().toLowerCase();
-    const hasBoardRow = [
-      state.sessionBoards.get(recordedLeaderSessionId),
-      state.sessionCompletedBoards.get(recordedLeaderSessionId),
-    ].some((rows) => rows?.some((row) => row.questId.trim().toLowerCase() === threadKey));
-    const hasProjectedThread = state.leaderProjections
-      .get(recordedLeaderSessionId)
-      ?.threadSummaries.some((summary) => summary.threadKey.trim().toLowerCase() === threadKey);
-    const leaderTabsResolution = resolveLeaderThreadTabsProjection(state, recordedLeaderSessionId);
-    const hasOpenThread =
-      leaderTabsResolution.projectionState === "accepted" &&
-      leaderTabsResolution.value.tabs.some((tab) => tab.threadKey === threadKey);
-    if (!hasBoardRow && !hasProjectedThread && !hasOpenThread) return null;
-
-    return sessionThreadHash(routeSessionRefForId(recordedLeaderSessionId, state.sdkSessions), questId);
-  });
   const initialWidth = placement?.width ?? RICH_LOGICAL_WIDTH_PX;
   const maxHeight = placement?.maxHeight ?? RICH_MAX_LOGICAL_HEIGHT_PX;
 
@@ -1429,6 +1401,7 @@ const QuestFeedRichPreview = forwardRef<
           headingId={headingId}
           headerAction={primaryAction}
           suppressNestedHoverCards
+          onSessionNavigate={onNavigate}
         />
       ) : (
         <div className="flex min-w-0 items-start gap-3">
@@ -1500,22 +1473,6 @@ const QuestFeedRichPreview = forwardRef<
             onClick={onNavigate}
           >
             Open quest
-          </a>
-        )}
-        {leaderThreadHref && (
-          <a
-            href={leaderThreadHref}
-            data-preview-focusable="true"
-            data-testid="quest-feed-thread-action"
-            className="cc-session-link inline-flex min-h-8 items-center rounded-md px-2.5 py-1 text-xs text-cc-muted hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50"
-            onClick={(event) => {
-              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-              event.preventDefault();
-              onNavigate();
-              navigateTo(leaderThreadHref);
-            }}
-          >
-            Open Thread
           </a>
         )}
         {phase === "rich-error" && (

@@ -71,6 +71,7 @@ export function QuestHoverCard({
               }}
             />
           }
+          onSessionNavigate={onMouseLeave}
         />
       </div>
     </div>,

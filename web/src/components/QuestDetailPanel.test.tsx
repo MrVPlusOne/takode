@@ -275,7 +275,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("mobile")).toBeTruthy();
   });
 
-  it("routes the header leader chip to the matching quest thread", () => {
+  it("routes the header Open Thread button to the matching quest thread", () => {
     const quest = makeVerificationQuest({ leaderSessionId: "leader-42" });
     useStore.setState({
       quests: [quest],
@@ -294,13 +294,13 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByRole("link", { name: "#777" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Thread #777" }));
 
     expect(mockNavigateToSessionThread).toHaveBeenCalledWith("leader-42", "q-42", false, 777);
     expect(mockNavigateToSession).not.toHaveBeenCalled();
   });
 
-  it("labels both worker and leader header session chips", () => {
+  it("names the worker and leader sessions on the header Open Worker and Open Thread buttons", () => {
     const quest = makeVerificationQuest({ sessionId: "worker-42", leaderSessionId: "leader-42" });
     useStore.setState({
       quests: [quest],
@@ -326,10 +326,11 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    expect(screen.getByText("Worker")).toBeInTheDocument();
-    expect(screen.getByText("Leader")).toBeInTheDocument();
+    // The buttons carry the session numbers, so they stay the visible worker and leader session links.
+    expect(screen.getByTestId("quest-open-worker")).toHaveTextContent("Open Worker#123");
+    expect(screen.getByTestId("quest-open-thread")).toHaveTextContent("Open Thread#777");
 
-    fireEvent.click(screen.getByRole("link", { name: "#123" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Worker #123" }));
 
     expect(mockNavigateToSession).toHaveBeenCalledWith("worker-42");
     expect(mockNavigateToSessionThread).not.toHaveBeenCalled();
