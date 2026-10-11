@@ -5,6 +5,7 @@ import type {
   TodoGrantAction,
   TodoItem,
   TodoItemListFilters,
+  TodoLinkedQuest,
   TodoState,
   TodoProposalMutation,
   TodoStatus,
@@ -12,6 +13,8 @@ import type {
 import { TODO_STATUSES } from "../../shared/todo-types.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import * as cronStore from "../cron-store.js";
+import * as questStore from "../quest-store.js";
+import type { QuestmasterTask } from "../quest-types.js";
 import { authorizeTodoMutation, todoProposalActor } from "../todo-authorization.js";
 import {
   TODO_INBOX_CATEGORY_ID,
@@ -45,7 +48,24 @@ function errorResponse(c: Context, error: unknown): Response {
   return c.json({ error: message }, 500);
 }
 
-function compactItem(item: TodoItem, state: TodoState): TodoCompactItem {
+type QuestLookup = Map<string, QuestmasterTask>;
+
+/** Index quests by ID, reading the quest store only when some item links one. */
+async function questLookupFor(items: TodoItem[], listQuests: () => Promise<QuestmasterTask[]>): Promise<QuestLookup> {
+  if (!items.some((item) => item.questIds?.length)) return new Map();
+  return new Map((await listQuests()).map((quest) => [quest.questId, quest]));
+}
+
+function linkedQuests(item: TodoItem, quests: QuestLookup, withTitle: boolean): TodoLinkedQuest[] {
+  return (item.questIds ?? []).map((questId) => {
+    const quest = quests.get(questId);
+    if (!quest) return { questId, status: "missing" };
+    const status = quest.status === "done" && quest.cancelled ? "cancelled" : quest.status;
+    return { questId, status, ...(withTitle ? { title: quest.title } : {}) };
+  });
+}
+
+function compactItem(item: TodoItem, state: TodoState, quests: QuestLookup): TodoCompactItem {
   return {
     id: item.id,
     titleMarkdown: deriveTodoMarkdown(item.markdown).titleMarkdown,
@@ -57,6 +77,7 @@ function compactItem(item: TodoItem, state: TodoState): TodoCompactItem {
     statusChangedAt: item.statusChangedAt,
     ...(item.completedAt ? { completedAt: item.completedAt } : {}),
     ...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
+    ...(item.questIds?.length ? { linkedQuests: linkedQuests(item, quests, false) } : {}),
   };
 }
 
@@ -131,8 +152,25 @@ async function authorize(
   });
 }
 
-export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore) {
+export function createTodoRoutes(
+  ctx: RouteContext,
+  store: TodoStore = todoStore,
+  listQuests: () => Promise<QuestmasterTask[]> = questStore.listQuests,
+) {
   const api = new Hono();
+
+  const compactItems = async (items: TodoItem[], state: TodoState) => {
+    const quests = await questLookupFor(items, listQuests);
+    return items.map((item) => compactItem(item, state, quests));
+  };
+
+  /** Linking fails for quests that do not exist; unlinking never checks, so links to deleted quests can be removed. */
+  const requireQuestsExist = async (questIds: unknown) => {
+    if (!Array.isArray(questIds) || questIds.length === 0) return;
+    const known = new Set((await listQuests()).map((quest) => quest.questId));
+    const missing = questIds.find((id) => typeof id === "string" && !known.has(id.trim()));
+    if (missing !== undefined) throw new TodoStoreError(`Quest not found: ${missing}`, "not_found");
+  };
   const completionUndos = new Map<string, { snapshot: TodoCompletionUndoSnapshot; expiresAt: number }>();
 
   const pruneCompletionUndos = (now = Date.now()) => {
@@ -244,7 +282,7 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
       };
       const state = await store.snapshot();
       const items = await store.listItems(filters);
-      return c.json({ items: items.map((item) => compactItem(item, state)), revision: state.revision });
+      return c.json({ items: await compactItems(items, state), revision: state.revision });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -252,10 +290,13 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
 
   api.get("/todos/find", async (c) => {
     try {
-      const link = c.req.query("link") || "";
+      const includeArchived = c.req.query("includeArchived") === "true";
+      const questId = c.req.query("quest");
       const state = await store.snapshot();
-      const items = await store.findItemsByLink(link, c.req.query("includeArchived") === "true");
-      return c.json({ items: items.map((item) => compactItem(item, state)), revision: state.revision });
+      const items = questId
+        ? await store.findItemsByQuest(questId, includeArchived)
+        : await store.findItemsByLink(c.req.query("link") || "", includeArchived);
+      return c.json({ items: await compactItems(items, state), revision: state.revision });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -265,7 +306,11 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
     try {
       const item = await store.getItem(c.req.param("id"));
       const state = await store.snapshot();
-      return c.json({ item, category: state.categories.find((category) => category.id === item.categoryId) ?? null });
+      return c.json({
+        item,
+        category: state.categories.find((category) => category.id === item.categoryId) ?? null,
+        linkedQuests: linkedQuests(item, await questLookupFor([item], listQuests), true),
+      });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -422,6 +467,25 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
     }
   });
 
+  api.post("/todos/items/:id/links", async (c) => {
+    try {
+      const body = await requestBody(c);
+      const item = await store.getItem(c.req.param("id"));
+      const auth = await authorize(c, ctx, store, body, "item:link", [item.categoryId]);
+      if (!auth.ok) return auth.response;
+      await requireQuestsExist(body.addQuestIds);
+      return withMutation(c, ctx, store, async () => ({
+        item: await store.linkItemQuests(
+          item.id,
+          { addQuestIds: body.addQuestIds, removeQuestIds: body.removeQuestIds },
+          auth.provenance,
+        ),
+      }));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   for (const [path, archived, action] of [
     ["archive", true, "item:archive"],
     ["restore", false, "item:restore"],
@@ -507,7 +571,9 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
       const auth = ctx.authenticateTakodeCaller(c);
       if ("response" in auth) return auth.response;
       const body = await requestBody(c);
-      const proposal = await store.createProposal(body.mutation as TodoProposalMutation, todoProposalActor(auth));
+      const mutation = body.mutation as TodoProposalMutation;
+      if (mutation?.action === "item:link") await requireQuestsExist(mutation.addQuestIds);
+      const proposal = await store.createProposal(mutation, todoProposalActor(auth));
       await broadcastTodoState(ctx, store);
       return c.json({ proposal, state: await store.snapshot() }, 201);
     } catch (error) {

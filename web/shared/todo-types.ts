@@ -8,6 +8,7 @@ export const TODO_GRANT_ACTIONS = [
   "item:move",
   "item:archive",
   "item:restore",
+  "item:link",
   "category:create",
   "category:rename",
   "category:archive",
@@ -81,6 +82,11 @@ export interface TodoItem {
   statusChangedAt: number;
   completedAt?: number;
   archivedAt?: number;
+  /**
+   * Quests related to this to-do, as loose metadata. Many-to-many and purely
+   * informational: quest progress never changes the to-do's status.
+   */
+  questIds?: string[];
   createdBy: TodoMutationProvenance;
   lastModifiedBy: TodoMutationProvenance;
 }
@@ -124,6 +130,12 @@ export interface TodoItemMoveInput {
   afterItemId?: string;
 }
 
+/** Quest links to add to or remove from one to-do. */
+export interface TodoItemLinkInput {
+  addQuestIds?: string[];
+  removeQuestIds?: string[];
+}
+
 export interface TodoCategoryCreateInput {
   name: string;
 }
@@ -135,6 +147,7 @@ export type TodoProposalMutation =
   | ({ action: "item:move"; itemId: string } & TodoItemMoveInput)
   | { action: "item:archive"; itemId: string }
   | { action: "item:restore"; itemId: string }
+  | ({ action: "item:link"; itemId: string } & TodoItemLinkInput)
   | { action: "category:create"; input: TodoCategoryCreateInput }
   | { action: "category:rename"; categoryId: string; name: string }
   | { action: "category:archive"; categoryId: string }
@@ -174,6 +187,15 @@ export interface TodoItemListFilters {
   timeZone?: string;
 }
 
+/** A linked quest as seen when reading a to-do; resolved by the server at read time. */
+export interface TodoLinkedQuest {
+  questId: string;
+  /** "missing" when the quest no longer exists. */
+  status: "idea" | "refined" | "in_progress" | "done" | "cancelled" | "missing";
+  /** Present on single-item reads, omitted from compact lists. */
+  title?: string;
+}
+
 export interface TodoCompactItem {
   id: string;
   /** Derived first non-empty line retained for compact-output compatibility. */
@@ -186,6 +208,8 @@ export interface TodoCompactItem {
   statusChangedAt: number;
   completedAt?: number;
   archivedAt?: number;
+  /** Present only when the to-do links quests. */
+  linkedQuests?: TodoLinkedQuest[];
 }
 
 export interface TodoCompletionUndoHandle {

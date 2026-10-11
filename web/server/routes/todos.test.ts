@@ -14,6 +14,8 @@ let optionalCaller: any = null;
 let requiredCaller: any = null;
 let bridgeSession: any;
 const broadcastGlobal = vi.fn();
+// Quest lookups read this fixture, never the real Questmaster store.
+let quests: Array<Record<string, unknown>> = [];
 
 function caller(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,8 +57,12 @@ beforeEach(() => {
   requiredCaller = null;
   bridgeSession = { messageHistory: [] };
   broadcastGlobal.mockReset();
+  quests = [];
   app = new Hono();
-  app.route("/", createTodoRoutes(makeContext(), store));
+  app.route(
+    "/",
+    createTodoRoutes(makeContext(), store, async () => quests as any),
+  );
 });
 
 afterEach(() => {
@@ -294,5 +300,72 @@ describe("to-do routes", () => {
     const showBody = await (await jsonRequest("/todos/items/td-1")).json();
     expect(showBody.item.markdown).toBe("[Reply](https://example.com/thread)\nLong private details");
     expect(showBody.item.lastModifiedBy.authorization.kind).toBe("ui");
+  });
+
+  it("links quests as metadata, shows their live status from both sides, and keeps to-do status unchanged", async () => {
+    quests = [
+      { questId: "q-7", title: "Build the export", status: "done" },
+      { questId: "q-8", title: "Dropped idea", status: "done", cancelled: true },
+      { questId: "q-9", title: "Polish the export", status: "in_progress" },
+    ];
+    const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Ship export" })).json()).item;
+
+    const missing = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-404"] });
+    expect(missing.status).toBe(404);
+
+    const linked = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7", "q-8", "q-9"] });
+    expect(linked.status).toBe(200);
+    expect((await linked.json()).item).toMatchObject({ questIds: ["q-7", "q-8", "q-9"], status: "todo" });
+
+    // Compact reads carry each quest's current status; a quest deleted later reads as missing.
+    quests = quests.filter((quest) => quest.questId !== "q-9");
+    const listBody = await (await jsonRequest("/todos/items")).json();
+    expect(listBody.items[0].linkedQuests).toEqual([
+      { questId: "q-7", status: "done" },
+      { questId: "q-8", status: "cancelled" },
+      { questId: "q-9", status: "missing" },
+    ]);
+
+    // Show adds titles so an agent can judge the to-do without opening each quest.
+    const showBody = await (await jsonRequest(`/todos/items/${item.id}`)).json();
+    expect(showBody.linkedQuests[0]).toEqual({ questId: "q-7", status: "done", title: "Build the export" });
+
+    // The reverse lookup is what quest show uses to list linked to-dos.
+    const findBody = await (await jsonRequest("/todos/find?quest=q-7")).json();
+    expect(findBody.items.map((found: any) => found.id)).toEqual([item.id]);
+
+    // Unlinking a quest that no longer exists still works.
+    const unlinked = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { removeQuestIds: ["q-9"] });
+    expect((await unlinked.json()).item.questIds).toEqual(["q-7", "q-8"]);
+  });
+
+  it("requires the usual to-do authority to link quests, with item:link grants and proposals", async () => {
+    quests = [{ questId: "q-7", title: "Build the export", status: "done" }];
+    const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Ship export" })).json()).item;
+    await jsonRequest("/todos/grants", "POST", {
+      principal: { kind: "cron", id: "daily-briefing" },
+      actions: ["item:link"],
+      categoryIds: null,
+    });
+
+    optionalCaller = caller();
+    const denied = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7"] });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ canPropose: true, requiredAction: "item:link" });
+
+    optionalCaller = caller({ cronJobId: "daily-briefing" });
+    const granted = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7"] });
+    expect((await granted.json()).item.lastModifiedBy.authorization).toMatchObject({ kind: "grant" });
+
+    requiredCaller = caller();
+    const badProposal = await jsonRequest("/todos/proposals", "POST", {
+      mutation: { action: "item:link", itemId: item.id, addQuestIds: ["q-404"] },
+    });
+    expect(badProposal.status).toBe(404);
+    const proposal = await jsonRequest("/todos/proposals", "POST", {
+      mutation: { action: "item:link", itemId: item.id, removeQuestIds: ["q-7"] },
+    });
+    expect(proposal.status).toBe(201);
+    expect((await store.getItem(item.id)).questIds).toEqual(["q-7"]);
   });
 });

@@ -16,6 +16,7 @@ const ACTION_LABELS: Record<TodoGrantAction, string> = {
   "item:move": "Move or order items",
   "item:archive": "Archive items",
   "item:restore": "Restore items",
+  "item:link": "Link quests",
   "category:create": "Create categories",
   "category:rename": "Rename categories",
   "category:archive": "Archive categories",

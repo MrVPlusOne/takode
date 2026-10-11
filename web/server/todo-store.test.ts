@@ -461,6 +461,56 @@ describe("TodoStore", () => {
     });
   });
 
+  it("keeps quest links as many-to-many metadata that never changes to-do status", async () => {
+    // Links are loose metadata: a to-do can link several quests, a quest can be
+    // linked from several to-dos, and linking leaves status untouched.
+    const release = await store.createItem({ markdown: "Ship the release" }, provenance(10));
+    const notes = await store.createItem({ markdown: "Write release notes" }, provenance(11));
+
+    const linked = await store.linkItemQuests(release.id, { addQuestIds: ["q-7", "q-9", "q-7"] }, provenance(20));
+    await store.linkItemQuests(notes.id, { addQuestIds: ["q-9"] }, provenance(21));
+    expect(linked).toMatchObject({ questIds: ["q-7", "q-9"], status: "todo", updatedAt: 20 });
+    expect((await store.findItemsByQuest("q-9")).map((item) => item.id)).toEqual([release.id, notes.id]);
+
+    // Re-linking an existing quest is a no-op rather than an edit.
+    const unchanged = await store.linkItemQuests(release.id, { addQuestIds: ["q-9"] }, provenance(30));
+    expect(unchanged.updatedAt).toBe(20);
+
+    // Removing the last link drops the field so unlinked items keep their old shape.
+    await store.linkItemQuests(notes.id, { removeQuestIds: ["q-9"] }, provenance(40));
+    expect((await store.getItem(notes.id)).questIds).toBeUndefined();
+    expect((await store.findItemsByQuest("q-9")).map((item) => item.id)).toEqual([release.id]);
+
+    // Archived to-dos are only found when explicitly requested.
+    await store.setItemArchived(release.id, true, provenance(50));
+    expect(await store.findItemsByQuest("q-9")).toEqual([]);
+    expect((await store.findItemsByQuest("q-9", true)).map((item) => item.id)).toEqual([release.id]);
+
+    await expect(store.linkItemQuests(release.id, { addQuestIds: ["42"] }, provenance(60))).rejects.toMatchObject({
+      code: "invalid",
+    });
+    await expect(store.linkItemQuests(release.id, {}, provenance(60))).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("applies quest link proposals only after approval", async () => {
+    const item = await store.createItem({ markdown: "Follow up" }, provenance(10));
+    const proposal = await store.createProposal(
+      { action: "item:link", itemId: item.id, addQuestIds: [" q-3 "] },
+      { kind: "session", sessionId: "agent-1", label: "Worker" },
+    );
+    expect(proposal.mutation).toEqual({
+      action: "item:link",
+      itemId: item.id,
+      addQuestIds: ["q-3"],
+      removeQuestIds: [],
+    });
+    expect((await store.getItem(item.id)).questIds).toBeUndefined();
+
+    const resolved = await store.resolveProposal(proposal.id, "approved", provenance(100));
+    expect(resolved.item?.questIds).toEqual(["q-3"]);
+    expect(resolved.item?.lastModifiedBy.authorization).toMatchObject({ kind: "proposal_approval" });
+  });
+
   it("refuses to overwrite structurally corrupt schema-v2 state", async () => {
     const corruptV2 = {
       schemaVersion: 2,

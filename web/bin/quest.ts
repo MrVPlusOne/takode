@@ -86,7 +86,7 @@ import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { readDeliveryRange } from "../server/quest-delivery-range.js";
-import { runShowCommand } from "./quest-show-command.js";
+import { fetchLinkedTodos, runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { grepQuestsForCli, type QuestCliGrep } from "../server/routes/quest-cli-reads.js";
 import { runQuizCommand } from "./quest-quiz.js";
@@ -1793,6 +1793,7 @@ async function main(): Promise<void> {
         option,
         getQuest,
         getSessionMetadataMap,
+        getLinkedTodos: (questId) => fetchLinkedTodos(companionPort, companionAuthHeaders(), questId),
         currentSessionId,
         getSessionName: getName,
         jsonOutput,

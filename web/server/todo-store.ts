@@ -13,6 +13,7 @@ import {
   type TodoItem,
   type TodoItemCreateInput,
   type TodoItemEditInput,
+  type TodoItemLinkInput,
   type TodoItemListFilters,
   type TodoItemMoveInput,
   type TodoMutationProvenance,
@@ -32,6 +33,7 @@ const MAX_MARKDOWN_LENGTH = MAX_TITLE_LENGTH + 1 + MAX_LEGACY_DETAILS_LENGTH;
 const MAX_CATEGORY_NAME_LENGTH = 120;
 const MAX_PROPOSALS = 1_000;
 const RANK_STEP = 1_024;
+const QUEST_ID_PATTERN = /^q-\d+$/;
 const LEGACY_BACKUP_SUFFIX = ".schema-v1.backup";
 
 interface TodoRankSnapshot {
@@ -157,6 +159,27 @@ function normalizeLegacyDetails(value: unknown): string | undefined {
     throw new TodoStoreError(`Details Markdown must be at most ${MAX_LEGACY_DETAILS_LENGTH} characters`, "invalid");
   }
   return details;
+}
+
+function normalizeQuestIds(value: unknown, label: string): string[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new TodoStoreError(`${label} must be an array of quest IDs`, "invalid");
+  const ids = value.map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+  const invalid = ids.find((id) => !QUEST_ID_PATTERN.test(id));
+  if (invalid !== undefined) throw new TodoStoreError(`Invalid quest ID: ${invalid || "(empty)"}`, "invalid");
+  return [...new Set(ids)];
+}
+
+function normalizeLinkInput(input: TodoItemLinkInput): Required<TodoItemLinkInput> {
+  const addQuestIds = normalizeQuestIds(input.addQuestIds, "addQuestIds");
+  const removeQuestIds = normalizeQuestIds(input.removeQuestIds, "removeQuestIds");
+  if (addQuestIds.length === 0 && removeQuestIds.length === 0) {
+    throw new TodoStoreError("Provide at least one quest ID to link or unlink", "invalid");
+  }
+  if (addQuestIds.some((id) => removeQuestIds.includes(id))) {
+    throw new TodoStoreError("A quest cannot be linked and unlinked in the same change", "invalid");
+  }
+  return { addQuestIds, removeQuestIds };
 }
 
 function hasOwn(value: object, key: string): boolean {
@@ -555,6 +578,13 @@ function normalizeLoadedState(value: unknown): { state: TodoState; migrated: boo
     requireFiniteNumber(rawItem.statusChangedAt, `items[${index}].statusChangedAt`);
     if (rawItem.completedAt != null) requireFiniteNumber(rawItem.completedAt, `items[${index}].completedAt`);
     if (rawItem.archivedAt != null) requireFiniteNumber(rawItem.archivedAt, `items[${index}].archivedAt`);
+    if (rawItem.questIds != null) {
+      try {
+        normalizeQuestIds(rawItem.questIds, `items[${index}].questIds`);
+      } catch (error) {
+        throw new TodoStoreError(`items[${index}].questIds is invalid: ${(error as Error).message}`, "corrupt_store");
+      }
+    }
   }
   return { state, migrated: false };
 }
@@ -720,6 +750,12 @@ export class TodoStore {
     });
   }
 
+  async findItemsByQuest(questId: string, includeArchived = false): Promise<TodoItem[]> {
+    const [target] = normalizeQuestIds([questId], "Quest ID");
+    const state = await this.snapshot();
+    return state.items.filter((item) => (includeArchived || !item.archivedAt) && item.questIds?.includes(target!));
+  }
+
   private resolveCreateCategory(state: TodoState, input: TodoItemCreateInput): string {
     const referenceId = input.beforeItemId || input.afterItemId;
     if (input.beforeItemId && input.afterItemId) {
@@ -777,6 +813,38 @@ export class TodoStore {
     item.updatedAt = provenance.at;
     item.lastModifiedBy = provenance;
     return item;
+  }
+
+  private linkItemQuestsInState(
+    state: TodoState,
+    itemId: string,
+    input: TodoItemLinkInput,
+    provenance: TodoMutationProvenance,
+  ): TodoItem {
+    const item = itemById(state, itemId);
+    const { addQuestIds, removeQuestIds } = normalizeLinkInput(input);
+    const current = item.questIds ?? [];
+    const next = current.filter((id) => !removeQuestIds.includes(id));
+    for (const id of addQuestIds) if (!next.includes(id)) next.push(id);
+    // Re-linking or unlinking what is already in place is a no-op, not an edit.
+    if (next.length === current.length && next.every((id, index) => id === current[index])) return item;
+    if (next.length) item.questIds = next;
+    else delete item.questIds;
+    item.updatedAt = provenance.at;
+    item.lastModifiedBy = provenance;
+    return item;
+  }
+
+  async linkItemQuests(
+    itemId: string,
+    input: TodoItemLinkInput,
+    provenance: TodoMutationProvenance,
+  ): Promise<TodoItem> {
+    return this.mutate((state) => {
+      const item = this.linkItemQuestsInState(state, itemId, input, provenance);
+      touchState(state, provenance.at);
+      return item;
+    });
   }
 
   async editItem(itemId: string, input: TodoItemEditInput, provenance: TodoMutationProvenance): Promise<TodoItem> {
@@ -1186,6 +1254,9 @@ export class TodoStore {
       case "item:restore":
         itemById(state, mutation.itemId);
         return clone(mutation);
+      case "item:link":
+        itemById(state, mutation.itemId);
+        return { action: "item:link", itemId: mutation.itemId, ...normalizeLinkInput(mutation) };
       case "category:create":
         normalizeCategoryName(mutation.input.name);
         return clone(mutation);
@@ -1273,6 +1344,8 @@ export class TodoStore {
         return { item: this.setItemArchivedInState(state, mutation.itemId, true, provenance) };
       case "item:restore":
         return { item: this.setItemArchivedInState(state, mutation.itemId, false, provenance) };
+      case "item:link":
+        return { item: this.linkItemQuestsInState(state, mutation.itemId, mutation, provenance) };
       case "category:create":
         return { category: this.createCategoryInState(state, mutation.input, provenance, false) };
       case "category:rename": {

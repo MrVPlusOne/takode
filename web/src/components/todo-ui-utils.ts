@@ -104,6 +104,13 @@ export function todoProposalSummary(proposal: TodoProposal): string {
       return `Archive ${mutation.itemId}`;
     case "item:restore":
       return `Restore ${mutation.itemId}`;
+    case "item:link":
+      return [
+        mutation.addQuestIds?.length ? `Link ${mutation.itemId} to ${mutation.addQuestIds.join(", ")}` : "",
+        mutation.removeQuestIds?.length ? `Unlink ${mutation.itemId} from ${mutation.removeQuestIds.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
     case "category:create":
       return `Create category “${mutation.input.name}”`;
     case "category:rename":

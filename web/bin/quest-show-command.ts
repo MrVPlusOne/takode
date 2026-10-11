@@ -1,4 +1,5 @@
 import type { QuestmasterTask } from "../server/quest-types.js";
+import type { TodoCompactItem } from "../shared/todo-types.js";
 import { formatQuestDetail, type SessionMetadata } from "./quest-format.js";
 
 type QuestShowCommandDeps = {
@@ -8,6 +9,8 @@ type QuestShowCommandDeps = {
   option: (name: string) => string | undefined;
   getQuest: (id: string) => Promise<QuestmasterTask | null>;
   getSessionMetadataMap: (shown: QuestmasterTask) => Promise<Map<string, SessionMetadata>>;
+  /** Personal to-dos linking this quest; null when no server can answer. */
+  getLinkedTodos: (questId: string) => Promise<{ items: TodoCompactItem[] } | { error: string } | null>;
   currentSessionId?: string;
   getSessionName: (sessionId: string) => string | undefined;
   jsonOutput: boolean;
@@ -40,5 +43,41 @@ export async function runShowCommand(deps: QuestShowCommandDeps): Promise<void> 
       sections: deps.option("sections"),
     }),
   );
+  const linkedTodos = await deps.getLinkedTodos(quest.questId);
+  if (linkedTodos && "error" in linkedTodos) {
+    console.log(`Linked to-dos: unavailable (${linkedTodos.error})`);
+  } else if (linkedTodos?.items.length) {
+    console.log("Linked to-dos:");
+    for (const item of linkedTodos.items) {
+      console.log(`  ${item.id} [${item.status}${item.archivedAt ? " archived" : ""}] ${item.titleMarkdown}`);
+    }
+  }
   deps.printHumanFeedbackWarning(quest);
+}
+
+/**
+ * Read the personal to-dos that link a quest. A to-do route that answers with
+ * an error yields that error so the output can say the list is unavailable; no
+ * reachable server or route yields null, like other best-effort labels.
+ */
+export async function fetchLinkedTodos(
+  companionPort: string | undefined,
+  headers: Record<string, string>,
+  questId: string,
+): Promise<{ items: TodoCompactItem[] } | { error: string } | null> {
+  if (!companionPort) return null;
+  let response: Response;
+  try {
+    response = await fetch(`http://localhost:${companionPort}/api/todos/find?quest=${encodeURIComponent(questId)}`, {
+      headers,
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    return null;
+  }
+  const body = (await response.json().catch(() => null)) as { items?: TodoCompactItem[]; error?: string } | null;
+  // A non-JSON reply is not from the to-do route (for example a server without it), so there is nothing to show.
+  if (!body) return null;
+  if (response.ok && Array.isArray(body.items)) return { items: body.items };
+  return { error: body.error || `HTTP ${response.status}` };
 }

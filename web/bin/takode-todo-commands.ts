@@ -4,6 +4,7 @@ import type {
   TodoGrant,
   TodoGrantAction,
   TodoItem,
+  TodoLinkedQuest,
   TodoProposal,
   TodoProposalMutation,
   TodoState,
@@ -22,7 +23,7 @@ import {
   resolveStringFlag,
 } from "./takode-core.js";
 
-const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|move|archive|restore|category|propose|proposal|grant> ...`;
+const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|move|archive|restore|link|unlink|category|propose|proposal|grant> ...`;
 const BOOL_FLAGS = new Set(["json", "include-archived", "all-categories"]);
 
 function parseArgs(args: string[]): { positionals: string[]; flags: Record<string, string | boolean> } {
@@ -142,6 +143,11 @@ function validStatus(value: string | undefined): TodoStatus | undefined {
   return value as TodoStatus;
 }
 
+/** Quest IDs from positional arguments, each of which may be a comma-separated list. */
+function questIdArgs(values: string[]): string[] {
+  return values.flatMap((value) => value.split(",").map((entry) => entry.trim())).filter(Boolean);
+}
+
 function printItems(items: TodoCompactItem[]): void {
   if (items.length === 0) {
     console.log("No matching to-do items.");
@@ -149,8 +155,11 @@ function printItems(items: TodoCompactItem[]): void {
   }
   for (const item of items) {
     const archived = item.archivedAt ? " archived" : "";
+    const quests = item.linkedQuests?.length
+      ? `  ↳ ${item.linkedQuests.map((quest) => `${quest.questId} ${quest.status}`).join(", ")}`
+      : "";
     console.log(
-      `${item.id.padEnd(7)} [${item.status}${archived}] ${item.categoryName.padEnd(14)} ${titleText(item.titleMarkdown)}`,
+      `${item.id.padEnd(7)} [${item.status}${archived}] ${item.categoryName.padEnd(14)} ${titleText(item.titleMarkdown)}${quests}`,
     );
   }
   const counts = Object.fromEntries(
@@ -161,9 +170,14 @@ function printItems(items: TodoCompactItem[]): void {
   );
 }
 
-function printItem(item: TodoItem, category: TodoCategory | null): void {
+function printItem(item: TodoItem, category: TodoCategory | null, quests: TodoLinkedQuest[]): void {
   console.log(`${item.id}  ${item.status.toUpperCase()}${item.archivedAt ? "  ARCHIVED" : ""}`);
   console.log(`Category: ${category?.name ?? item.categoryId} (${item.categoryId})`);
+  if (quests.length) {
+    console.log("Linked quests:");
+    for (const quest of quests)
+      console.log(`  ${quest.questId} [${quest.status}]${quest.title ? ` ${quest.title}` : ""}`);
+  }
   console.log(`Rank: ${item.rank}`);
   console.log(`Markdown:
 ${item.markdown}`);
@@ -217,20 +231,19 @@ async function handleShow(base: string, id: string | undefined, flags: Record<st
   const response = (await apiGet(base, `/todos/items/${encodeURIComponent(id)}`)) as {
     item: TodoItem;
     category: TodoCategory | null;
+    linkedQuests?: TodoLinkedQuest[];
   };
   if (jsonOutput(flags, response.item)) return;
-  printItem(response.item, response.category);
+  printItem(response.item, response.category, response.linkedQuests ?? []);
 }
 
 async function handleFind(base: string, flags: Record<string, string | boolean>) {
-  assertKnownFlags(
-    flags,
-    new Set(["link", "include-archived", "json"]),
-    "Usage: takode todo find --link <url> [--include-archived] [--json]",
-  );
+  const usage = "Usage: takode todo find (--link <url> | --quest <q-id>) [--include-archived] [--json]";
+  assertKnownFlags(flags, new Set(["link", "quest", "include-archived", "json"]), usage);
   const link = resolveStringFlag(flags, "link", "link destination");
-  if (!link) err("Usage: takode todo find --link <url> [--include-archived] [--json]");
-  const params = new URLSearchParams({ link });
+  const quest = resolveStringFlag(flags, "quest", "quest ID");
+  if (!link === !quest) err(usage);
+  const params = new URLSearchParams(quest ? { quest } : { link: link! });
   if (flags["include-archived"] === true) params.set("includeArchived", "true");
   const response = (await apiGet(base, `/todos/find?${params}`)) as { items: TodoCompactItem[] };
   if (jsonOutput(flags, response.items)) return;
@@ -337,6 +350,26 @@ async function simpleItemMutation(
   );
 }
 
+async function handleLink(
+  base: string,
+  action: "link" | "unlink",
+  id: string | undefined,
+  questArgs: string[],
+  flags: Record<string, string | boolean>,
+) {
+  const usage = `Usage: takode todo ${action} <td-id> <q-id>... [--authorized-by <message-index>] [--json]`;
+  const questIds = questIdArgs(questArgs);
+  if (!id || questIds.length === 0) err(usage);
+  assertKnownFlags(flags, new Set(["authorized-by", "json"]), usage);
+  const response = (await apiPost(base, `/todos/items/${encodeURIComponent(id)}/links`, {
+    [action === "link" ? "addQuestIds" : "removeQuestIds"]: questIds,
+    ...authorizationBody(flags),
+  })) as TodoStateMutationResponse;
+  if (jsonOutput(flags, response.item)) return;
+  const linked = response.item!.questIds ?? [];
+  console.log(`${action === "link" ? "Linked" : "Unlinked"} ${id}. Linked quests: ${linked.join(", ") || "none"}.`);
+}
+
 async function handleCategory(base: string, args: string[], flags: Record<string, string | boolean>) {
   const [action, first, second] = args;
   if (!action || action === "list") {
@@ -420,6 +453,13 @@ function proposalSummary(proposal: TodoProposal): string {
     case "item:archive":
     case "item:restore":
       return `${mutation.action.split(":")[1]} ${mutation.itemId}`;
+    case "item:link":
+      return [
+        mutation.addQuestIds?.length ? `link ${mutation.itemId} to ${mutation.addQuestIds.join(", ")}` : "",
+        mutation.removeQuestIds?.length ? `unlink ${mutation.itemId} from ${mutation.removeQuestIds.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
     case "category:create":
       return `create category ${mutation.input.name}`;
     case "category:rename":
@@ -482,6 +522,15 @@ async function buildProposalMutation(
   if (action === "archive" || action === "restore") {
     if (!args[0]) err(`Usage: takode todo propose ${action} <td-id>`);
     return { action: action === "archive" ? "item:archive" : "item:restore", itemId: args[0] };
+  }
+  if (action === "link" || action === "unlink") {
+    const questIds = questIdArgs(args.slice(1));
+    if (!args[0] || questIds.length === 0) err(`Usage: takode todo propose ${action} <td-id> <q-id>...`);
+    return {
+      action: "item:link",
+      itemId: args[0],
+      [action === "link" ? "addQuestIds" : "removeQuestIds"]: questIds,
+    };
   }
   if (action === "category-create") {
     if (!args[0]) err("Usage: takode todo propose category-create <name>");
@@ -564,7 +613,7 @@ async function handleProposal(
       "after",
       "json",
     ]),
-    "Usage: takode todo propose <add|edit|status|move|archive|restore|category-create|category-rename|category-archive|category-restore> ... [--json]",
+    "Usage: takode todo propose <add|edit|status|move|archive|restore|link|unlink|category-create|category-rename|category-archive|category-restore> ... [--json]",
   );
   const mutation = await buildProposalMutation(base, action, rest, flags);
   const response = (await apiPost(base, "/todos/proposals", { mutation })) as TodoStateMutationResponse;
@@ -703,6 +752,15 @@ export async function handleTodo(base: string, rawArgs: string[]): Promise<void>
       return simpleItemMutation(base, "archive", first, undefined, flags);
     case "restore":
       return simpleItemMutation(base, "restore", first, undefined, flags);
+    case "link":
+    case "unlink":
+      return handleLink(
+        base,
+        command,
+        first,
+        [second, ...rest].filter((value): value is string => !!value),
+        flags,
+      );
     case "category":
       return handleCategory(
         base,

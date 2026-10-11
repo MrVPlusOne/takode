@@ -381,7 +381,7 @@ Read commands:
   list [--status todo,doing,done] [--category <id|name>] [--search <text>]
        [--completed-on YYYY-MM-DD] [--timezone <IANA>] [--include-archived] [--json]
   show <td-id> [--json]
-  find --link <url> [--include-archived] [--json]
+  find (--link <url> | --quest <q-id>) [--include-archived] [--json]
   category list [--include-archived] [--json]
   proposal list|show <tp-id> [--json]
   grant list|show <tg-id> [--include-archived] [--json]
@@ -394,8 +394,9 @@ Mutation commands:
   status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
   move <td-id> [category] [--before <td-id>|--after <td-id>] [--authorized-by <index>] [--json]
   archive|restore <td-id> [--authorized-by <index>] [--json]
+  link|unlink <td-id> <q-id>... [--authorized-by <index>] [--json]
   category create|rename|archive|restore ... [--authorized-by <index>] [--json]
-  propose <add|edit|status|move|archive|restore|category-create|category-rename|category-archive|category-restore> ...
+  propose <add|edit|status|move|archive|restore|link|unlink|category-create|category-rename|category-archive|category-restore> ...
   proposal approve|reject <tp-id> [--authorized-by <index>] [--json]
   grant create --principal-kind session|cron --principal <id> --actions <csv>
       [--categories <csv>|--all-categories] [--authorized-by <index>] [--json]
@@ -403,6 +404,9 @@ Mutation commands:
 
 Authorization:
   Reads and proposals are allowed to authenticated Takode sessions. Real-list mutations require a direct human user-message index from the same session or a matching server-derived session/cron workflow grant. UI actions are user-authorized. Unauthorized commands fail closed; use \`takode todo propose ...\` instead.
+
+Quest links:
+  A to-do can link related quests as metadata (many-to-many). Links are informational only: a quest's progress never changes a to-do's status, so judge whether the to-do is done and change it yourself when authorized. list shows each linked quest's current status, show adds titles, \`find --quest\` lists the to-dos linked to a quest, and \`quest show\` lists them too. Linking is a to-do mutation (grant action item:link) with the usual authorization.
 
 Markdown and ordering:
   Each item is one Markdown body: the first non-empty line is its derived title and later lines are collapsible details. Prefer --markdown-file (use \`-\` for stdin) for links or shell-sensitive content. Legacy --title-file/--details-file inputs remain compatibility aliases. Use --before/--after for active Todo/Doing order; Done remains grouped by completion time. Default list/find output is compact; show and explicit JSON reveal the raw body and provenance.

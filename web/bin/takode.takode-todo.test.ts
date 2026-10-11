@@ -244,4 +244,70 @@ describe("takode todo", () => {
       server.close();
     }
   });
+
+  it("links quests through one link body and shows linked quest status in list and show", async () => {
+    const received: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/api/takode/me") {
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      }
+      if (req.method === "POST" && req.url === "/api/todos/items/td-1/links") {
+        received.push(await readJson(req));
+        return res.end(JSON.stringify({ state: snapshot(), item: { ...item(), questIds: ["q-7", "q-9"] } }));
+      }
+      if (req.url === "/api/todos/items") {
+        return res.end(
+          JSON.stringify({
+            items: [
+              {
+                id: "td-1",
+                titleMarkdown: "Ship export",
+                categoryId: "cat-inbox",
+                categoryName: "Inbox",
+                status: "todo",
+                createdAt: 100,
+                updatedAt: 200,
+                statusChangedAt: 200,
+                linkedQuests: [
+                  { questId: "q-7", status: "done" },
+                  { questId: "q-9", status: "in_progress" },
+                ],
+              },
+            ],
+          }),
+        );
+      }
+      if (req.url === "/api/todos/items/td-1") {
+        return res.end(
+          JSON.stringify({
+            item: item(),
+            category: snapshot().categories[0],
+            linkedQuests: [{ questId: "q-7", status: "done", title: "Build the export" }],
+          }),
+        );
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      // Several quest IDs may be given as separate arguments or comma lists.
+      const link = await runTakode(["todo", "link", "td-1", "q-7,q-9", "--authorized-by", "42"], port);
+      expect(link.status).toBe(0);
+      expect(link.stdout).toContain("Linked quests: q-7, q-9");
+      const unlink = await runTakode(["todo", "unlink", "td-1", "q-3", "q-4"], port);
+      expect(unlink.status).toBe(0);
+      expect(received).toEqual([{ addQuestIds: ["q-7", "q-9"], authorizedBy: 42 }, { removeQuestIds: ["q-3", "q-4"] }]);
+
+      const list = await runTakode(["todo", "list"], port);
+      expect(list.stdout).toContain("Ship export  ↳ q-7 done, q-9 in_progress");
+
+      const show = await runTakode(["todo", "show", "td-1"], port);
+      expect(show.stdout).toContain("Linked quests:\n  q-7 [done] Build the export");
+    } finally {
+      server.close();
+    }
+  });
 });
