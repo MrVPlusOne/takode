@@ -14,12 +14,14 @@ import {
   type TodoCategory,
   type TodoCompletionUndoHandle,
   type TodoItem,
+  type TodoLinkedQuest,
   type TodoState,
   type TodoStatus,
 } from "../../shared/todo-types.js";
 import { api } from "../api.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { TodoQuestChips } from "./TodoQuestChips.js";
 import { activeTodoCategories, TodoManagementDrawer } from "./TodoManagementDrawer.js";
 import {
   filterTodoItems,
@@ -351,6 +353,7 @@ function TodoOutlineRow({
   categories,
   siblings,
   categoryLabel,
+  linkedQuests,
   isDragging,
   dropBefore,
   onState,
@@ -366,6 +369,7 @@ function TodoOutlineRow({
   categories: TodoCategory[];
   siblings: TodoItem[];
   categoryLabel?: string;
+  linkedQuests: ReadonlyMap<string, TodoLinkedQuest>;
   isDragging: boolean;
   dropBefore?: boolean;
   onState: (state: TodoState) => void;
@@ -510,6 +514,7 @@ function TodoOutlineRow({
               className={`min-w-0 font-medium ${item.status === "done" ? "text-cc-muted line-through decoration-cc-muted/50" : ""}`}
             />
           </div>
+          {item.questIds?.length ? <TodoQuestChips questIds={item.questIds} linkedQuests={linkedQuests} /> : null}
           {parts.detailsMarkdown && expanded && (
             <div className="mt-1.5 border-l border-cc-border pl-3 text-cc-muted">
               <MarkdownContent text={parts.detailsMarkdown} size="sm" wrapLongContent stopLinkPropagation />
@@ -595,10 +600,18 @@ export function TodoListPanel() {
   const [completionUndo, setCompletionUndo] = useState<CompletionUndoNotice | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
 
+  const [linkedQuests, setLinkedQuests] = useState<ReadonlyMap<string, TodoLinkedQuest>>(() => new Map());
+
   const applyState = useCallback((next: TodoState) => {
     setState((current) => (!current || next.revision >= current.revision ? next : current));
   }, []);
   const refresh = useCallback(() => {
+    // Linked quest status is a separate server lookup so quest progress reaches the
+    // chips on every refresh; if it fails, the chips keep their last known status.
+    void api
+      .getTodoLinkedQuests()
+      .then((response) => setLinkedQuests(new Map(response.quests.map((quest) => [quest.questId, quest]))))
+      .catch((reason: unknown) => console.warn("[todos] linked quest status unavailable:", reason));
     return api
       .getTodoState()
       .then(applyState)
@@ -746,6 +759,7 @@ export function TodoListPanel() {
         categories={categories}
         siblings={siblings}
         categoryLabel={categoryLabel}
+        linkedQuests={linkedQuests}
         isDragging={draggedItemId === item.id}
         dropBefore={dropTarget?.itemId === item.id ? dropTarget.before : undefined}
         onState={applyState}

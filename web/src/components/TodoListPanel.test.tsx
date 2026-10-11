@@ -4,9 +4,11 @@ import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodoState } from "../../shared/todo-types.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
+import { useStore } from "../store.js";
 
 const mocks = vi.hoisted(() => ({
   getTodoState: vi.fn(),
+  getTodoLinkedQuests: vi.fn(),
   listTodoPrincipals: vi.fn(),
   createTodoItem: vi.fn(),
   editTodoItem: vi.fn(),
@@ -106,10 +108,42 @@ function makeState(revision = 1): TodoState {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getTodoState.mockResolvedValue(makeState());
+  mocks.getTodoLinkedQuests.mockResolvedValue({ quests: [], revision: 1 });
   mocks.listTodoPrincipals.mockResolvedValue({ principals: [] });
 });
 
 describe("TodoListPanel", () => {
+  it("shows linked quests as read-only status chips that open the quest", async () => {
+    // Links are metadata on the item; their status comes from the server's
+    // linked-quest lookup, not from the to-do state.
+    const state = makeState();
+    state.items[1] = { ...state.items[1]!, questIds: ["q-7", "q-8", "q-9"] };
+    mocks.getTodoState.mockResolvedValue(state);
+    mocks.getTodoLinkedQuests.mockResolvedValue({
+      quests: [
+        { questId: "q-7", status: "done", title: "Build the export" },
+        { questId: "q-8", status: "cancelled", title: "Dropped idea" },
+      ],
+      revision: 1,
+    });
+    useStore.getState().reset();
+    window.location.hash = "#/todos";
+    render(<TodoListPanel />);
+
+    const chips = await screen.findByLabelText("Linked quests");
+    await waitFor(() => expect(within(chips).getByRole("link", { name: /q-7\s*Done/ })).toBeInTheDocument());
+    expect(within(chips).getByRole("link", { name: /q-8\s*Cancelled/ })).toBeInTheDocument();
+    // A quest the lookup has not reported shows its ID without a status.
+    expect(within(chips).getByRole("link", { name: "q-9" })).toBeInTheDocument();
+    // Only the linked item gets a chip row.
+    expect(screen.getAllByLabelText("Linked quests")).toHaveLength(1);
+
+    // Clicking a chip opens the quest instead of starting an edit of the row.
+    fireEvent.click(within(chips).getByRole("link", { name: /q-7/ }));
+    expect(useStore.getState().questOverlayId).toBe("q-7");
+    expect(screen.queryByLabelText("Edit Review result", { selector: "textarea" })).not.toBeInTheDocument();
+  });
+
   it("renders the lightweight category outline and one collapsed Done history with visible category labels", async () => {
     render(<TodoListPanel />);
     expect(await screen.findByText("Personal To-dos")).toBeInTheDocument();

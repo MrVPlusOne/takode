@@ -56,8 +56,8 @@ async function questLookupFor(items: TodoItem[], listQuests: () => Promise<Quest
   return new Map((await listQuests()).map((quest) => [quest.questId, quest]));
 }
 
-function linkedQuests(item: TodoItem, quests: QuestLookup, withTitle: boolean): TodoLinkedQuest[] {
-  return (item.questIds ?? []).map((questId) => {
+function linkedQuests(questIds: string[], quests: QuestLookup, withTitle: boolean): TodoLinkedQuest[] {
+  return questIds.map((questId) => {
     const quest = quests.get(questId);
     if (!quest) return { questId, status: "missing" };
     const status = quest.status === "done" && quest.cancelled ? "cancelled" : quest.status;
@@ -77,7 +77,7 @@ function compactItem(item: TodoItem, state: TodoState, quests: QuestLookup): Tod
     statusChangedAt: item.statusChangedAt,
     ...(item.completedAt ? { completedAt: item.completedAt } : {}),
     ...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
-    ...(item.questIds?.length ? { linkedQuests: linkedQuests(item, quests, false) } : {}),
+    ...(item.questIds?.length ? { linkedQuests: linkedQuests(item.questIds, quests, false) } : {}),
   };
 }
 
@@ -187,6 +187,18 @@ export function createTodoRoutes(
   api.get("/todos", async (c) => {
     try {
       return c.json(await store.snapshot());
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  /** Every quest any to-do links, with live status and title, for the To-dos UI's quest chips. */
+  api.get("/todos/linked-quests", async (c) => {
+    try {
+      const state = await store.snapshot();
+      const quests = await questLookupFor(state.items, listQuests);
+      const questIds = [...new Set(state.items.flatMap((item) => item.questIds ?? []))];
+      return c.json({ quests: linkedQuests(questIds, quests, true), revision: state.revision });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -309,7 +321,7 @@ export function createTodoRoutes(
       return c.json({
         item,
         category: state.categories.find((category) => category.id === item.categoryId) ?? null,
-        linkedQuests: linkedQuests(item, await questLookupFor([item], listQuests), true),
+        linkedQuests: linkedQuests(item.questIds ?? [], await questLookupFor([item], listQuests), true),
       });
     } catch (error) {
       return errorResponse(c, error);

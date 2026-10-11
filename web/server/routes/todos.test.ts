@@ -330,6 +330,14 @@ describe("to-do routes", () => {
     const showBody = await (await jsonRequest(`/todos/items/${item.id}`)).json();
     expect(showBody.linkedQuests[0]).toEqual({ questId: "q-7", status: "done", title: "Build the export" });
 
+    // The To-dos UI reads every linked quest once, with titles, for its quest chips.
+    const uiBody = await (await jsonRequest("/todos/linked-quests")).json();
+    expect(uiBody.quests).toEqual([
+      { questId: "q-7", status: "done", title: "Build the export" },
+      { questId: "q-8", status: "cancelled", title: "Dropped idea" },
+      { questId: "q-9", status: "missing" },
+    ]);
+
     // The reverse lookup is what quest show uses to list linked to-dos.
     const findBody = await (await jsonRequest("/todos/find?quest=q-7")).json();
     expect(findBody.items.map((found: any) => found.id)).toEqual([item.id]);
