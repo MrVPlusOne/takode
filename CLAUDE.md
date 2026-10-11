@@ -39,6 +39,7 @@ If an implementation plan or user proposal conflicts with an existing design-pri
 | `explain-clearly` | `.claude/skills/explain-clearly/` | High-level preferences and anti-patterns for natural substantial explanations and informative artifacts |
 | `takode-cli-design` | `.claude/skills/takode-cli-design/`, `.agents/skills/takode-cli-design/` | Progressive Takode CLI output design: compact defaults, explicit detail/include paths, and bulky-field guardrails |
 | `takode-injected-message-design` | `.claude/skills/takode-injected-message-design/`, `.agents/skills/takode-injected-message-design/` | Design guardrails for Takode injected messages and reminders, including interrupted-generation skip decisions |
+| `takode-agent-run-workflows` | `.claude/skills/takode-agent-run-workflows/` | When to build rarely used, failure-prone features and workflows (setup, migration, repair) as instructions an agent follows, with UI or code only as the entry point, instead of dedicated UI and rigid logic |
 | `takode-codex-session-safety` | `.claude/skills/takode-codex-session-safety/`, `.agents/skills/takode-codex-session-safety/` | Guardrails for Codex `skills/changed`, skill/app metadata refresh, close-wave diagnostics, browser-open recovery triggers, and image attachment transport |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
