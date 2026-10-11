@@ -126,8 +126,8 @@ import * as envManager from "./env-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
-import { ensureSkillSymlinks } from "./skill-symlink.js";
-import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "./startup-readiness.js";
+import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
+import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { CodexWorkerV2RolloutService } from "./codex-worker-v2-rollout-service.js";
@@ -555,7 +555,7 @@ await runPreListenStartupReadiness(
     ensureBuiltInQuestJourneyPhaseData,
     ensureSkillSymlinks,
   },
-  { port, packageRoot, startupSkillSlugs: STARTUP_SKILL_SYMLINKS },
+  { port, packageRoot, startupSkillSlugs: GLOBAL_SKILL_SLUGS },
 );
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();

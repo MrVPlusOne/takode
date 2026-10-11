@@ -47,10 +47,10 @@ import {
 } from "../server/remote-host/host-update.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "../server/quest-journey-phases.js";
 import { ensureQuestmasterIntegration } from "../server/quest-integration.js";
-import { ensureSkillSymlinks } from "../server/skill-symlink.js";
+import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "../server/skill-symlink.js";
 import { ensureTakodeIntegration } from "../server/takode-integration.js";
 import { setLandingRunnerApiPort } from "../server/landing-runner-launcher.js";
-import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "../server/startup-readiness.js";
+import { runPreListenStartupReadiness } from "../server/startup-readiness.js";
 
 const args = process.argv.slice(2);
 const USAGE =
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
         ensureBuiltInQuestJourneyPhaseData,
         ensureSkillSymlinks,
       },
-      { port: proxy.port, packageRoot, startupSkillSlugs: STARTUP_SKILL_SYMLINKS },
+      { port: proxy.port, packageRoot, startupSkillSlugs: GLOBAL_SKILL_SLUGS },
     );
   }
   const build = await readCheckoutCommit(packageRoot);

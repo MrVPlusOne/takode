@@ -88,7 +88,7 @@ export class UserContentService {
   constructor(options: { store?: UserContentStore; noticeFile?: string; takodeSkills?: () => Promise<string[]> } = {}) {
     this.store = options.store ?? userContentStore();
     this.noticeFile = options.noticeFile ?? join(homedir(), ".companion", "user-content-notice.json");
-    this.takodeSkills = options.takodeSkills ?? (() => takodeSkillSlugs());
+    this.takodeSkills = options.takodeSkills ?? (async () => takodeSkillSlugs());
   }
 
   /** Watch the store and connecting hosts. */

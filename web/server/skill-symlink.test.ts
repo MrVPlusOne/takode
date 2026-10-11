@@ -288,9 +288,9 @@ describe("ensureSkillSymlinks", () => {
     warnSpy.mockRestore();
   });
 
-  it("discovers agents-only project skills and installs them only for agents", async () => {
-    // Validates startup discovery for agent-specific skills that intentionally
-    // exist only under the repo's .agents/skills directory.
+  it("installs a global agents-only skill only for agents", async () => {
+    // A global skill that intentionally exists only under the repo's
+    // .agents/skills directory has no Claude source, so only agents get it.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
       return targetDir === "/repo/.agents/skills" || targetDir === "/repo/.agents/skills/browser-analyst";
     });
@@ -307,7 +307,7 @@ describe("ensureSkillSymlinks", () => {
       return [];
     });
 
-    await ensureSkillSymlinks([]);
+    await ensureSkillSymlinks(["browser-analyst"]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
       "/repo/.agents/skills/browser-analyst",
@@ -319,39 +319,75 @@ describe("ensureSkillSymlinks", () => {
     );
   });
 
-  it("discovers Claude-only project skills and installs them for Claude and agents", async () => {
-    // Validates concise project skills can live only in the canonical Claude
+  it("installs a global Claude-only skill for Claude and agents", async () => {
+    // Validates concise global skills can live only in the canonical Claude
     // source while still becoming available to non-Claude agents.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
-      return targetDir === "/repo/.claude/skills" || targetDir === "/repo/.claude/skills/takode-orchestration-design";
-    });
-    fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
-      if (targetDir === "/repo/.claude/skills") {
-        return [
-          {
-            name: "takode-orchestration-design",
-            isDirectory: () => true,
-            isSymbolicLink: () => false,
-          },
-        ] as any[];
-      }
-      return [];
+      return targetDir === "/repo/.claude/skills" || targetDir === "/repo/.claude/skills/leader-dispatch";
     });
 
-    await ensureSkillSymlinks([]);
+    await ensureSkillSymlinks(["leader-dispatch"]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.claude/skills/takode-orchestration-design",
-      "/home/tester/.claude/skills/takode-orchestration-design",
+      "/repo/.claude/skills/leader-dispatch",
+      "/home/tester/.claude/skills/leader-dispatch",
     );
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.claude/skills/takode-orchestration-design",
-      "/home/tester/.agents/skills/takode-orchestration-design",
+      "/repo/.claude/skills/leader-dispatch",
+      "/home/tester/.agents/skills/leader-dispatch",
     );
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
       expect.any(String),
-      "/home/tester/.codex/skills/takode-orchestration-design",
+      "/home/tester/.codex/skills/leader-dispatch",
     );
+  });
+
+  it("keeps unlisted repo skills project-only and removes their earlier global links", async () => {
+    // Skills about developing Takode load only as project skills inside the repo.
+    // Startup used to link every repo skill globally, so an upgrade must remove
+    // those links from every skill home, while leaving a user's own skill and a
+    // link of the same kind that points outside the repo alone.
+    const repoSkills = ["takode-cli-design", "takode-orchestration-design"];
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return (
+        ["/repo/.claude/skills", "/repo/.agents/skills", "/home/tester/.claude/skills"].includes(targetDir) ||
+        targetDir.startsWith("/repo/.claude/skills/") ||
+        targetDir.startsWith("/repo/.agents/skills/") ||
+        targetDir.startsWith("/home/tester/.agents/skills") ||
+        targetDir.startsWith("/home/tester/.codex/skills")
+      );
+    });
+    fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
+      const entry = (name: string) => ({ name, isDirectory: () => false, isSymbolicLink: () => true });
+      if (targetDir === "/repo/.claude/skills") {
+        return repoSkills.map((name) => ({ name, isDirectory: () => true, isSymbolicLink: () => false }));
+      }
+      if (targetDir === "/home/tester/.claude/skills") return [...repoSkills, "my-own-skill"].map(entry);
+      if (targetDir === "/home/tester/.agents/skills") return [entry("takode-cli-design")];
+      if (targetDir === "/home/tester/.codex/skills") return [entry("takode-orchestration-design")];
+      return [];
+    });
+    const links: Record<string, string> = {
+      "/home/tester/.claude/skills/takode-cli-design": "/repo/.claude/skills/takode-cli-design",
+      "/home/tester/.claude/skills/takode-orchestration-design": "/repo/.claude/skills/takode-orchestration-design",
+      "/home/tester/.claude/skills/my-own-skill": "/home/tester/my-skills/my-own-skill",
+      "/home/tester/.agents/skills/takode-cli-design": "/repo/.agents/skills/takode-cli-design",
+      "/home/tester/.codex/skills/takode-orchestration-design": "/repo/.claude/skills/takode-orchestration-design",
+    };
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir in links) return { isSymbolicLink: () => true };
+      throw missingPathError();
+    });
+    fsMocks.readlinkSync.mockImplementation((targetDir: string) => links[targetDir]);
+
+    await ensureSkillSymlinks([]);
+
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/takode-cli-design");
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/takode-orchestration-design");
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.agents/skills/takode-cli-design");
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.codex/skills/takode-orchestration-design");
+    expect(fsMocks.unlinkSync).not.toHaveBeenCalledWith("/home/tester/.claude/skills/my-own-skill");
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalled();
   });
 
   it("skips Quest Journey phase skills and removes stale global installs", async () => {
@@ -420,7 +456,7 @@ describe("ensureSkillSymlinks", () => {
       throw missingPathError();
     });
 
-    await ensureSkillSymlinks([]);
+    await ensureSkillSymlinks(["takode-orchestration", ...questJourneySkillSlugs]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
       "/repo/.claude/skills/takode-orchestration",

@@ -1,12 +1,11 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, lstat, mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { ensureSkillSymlinks } from "./skill-symlink.js";
+import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const INDEX_PATH = join(SERVER_DIR, "startup-readiness.ts");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
   "quest-journey-alignment",
@@ -27,15 +26,15 @@ const QUEST_JOURNEY_SKILL_SLUGS = [
 ];
 
 describe("index startup skill registration", () => {
-  it("registers canonical startup skills without stale hardcoded slugs", async () => {
+  it("registers canonical global skills without stale hardcoded slugs", async () => {
     // If a nonexistent project skill is reintroduced here, startup will recreate
     // warning spam and potentially broken symlink state. Guard the actual
-    // STARTUP_SKILL_SYMLINKS registration list in startup-readiness.ts directly.
-    const source = await readFile(INDEX_PATH, "utf-8");
-    const match = source.match(/STARTUP_SKILL_SYMLINKS = \[([\s\S]*?)\];/);
-    expect(match).toBeTruthy();
-
-    const registered = [...match![1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+    // GLOBAL_SKILL_SLUGS list that startup links into the global skill homes.
+    const registered = [...GLOBAL_SKILL_SLUGS];
+    for (const slug of registered) {
+      const skill = await readFile(join(REPO_ROOT, ".claude", "skills", slug, "SKILL.md"), "utf-8");
+      expect(skill).toMatch(new RegExp(`^name: ${slug}$`, "m"));
+    }
 
     expect(registered).not.toContain("cron-scheduling");
     expect(registered).toContain("takode-orchestration");
@@ -60,6 +59,8 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("reviewer-groom");
     expect(registered).toContain("skeptic-review");
     expect(registered).toContain("worktree-rules");
+    expect(registered).toContain("quest-design");
+    expect(registered).toContain("takode-user-content");
     expect(registered).not.toContain("playwright-e2e-tester");
   });
 
@@ -86,39 +87,63 @@ describe("index startup skill registration", () => {
     "leader-decision-communication",
   ])("keeps %s discoverable from its canonical source", async (slug) => {
     // Preserve identity, discoverability, and source ownership without copying
-    // the design/communication policy or its examples into assertions.
+    // the design/communication policy or its examples into assertions. A Codex
+    // project entry may only link to the canonical source, never be a copy.
     const relativeRoot = `.claude/skills/${slug}`;
     const skill = await readFile(join(REPO_ROOT, relativeRoot, "SKILL.md"), "utf-8");
     expect(skill).toMatch(new RegExp(`^name: ${slug}$`, "m"));
     for (const filename of ["CLAUDE.md", "AGENTS.md"]) {
       expect(await readFile(join(REPO_ROOT, filename), "utf-8")).toContain(`${relativeRoot}/`);
     }
-    for (const directory of [".agents", ".codex"]) {
-      await expect(access(join(REPO_ROOT, directory, "skills", slug, "SKILL.md"))).rejects.toThrow();
+    const agentsEntry = join(REPO_ROOT, ".agents", "skills", slug);
+    const isLink = await lstat(agentsEntry).then(
+      (entry) => entry.isSymbolicLink(),
+      () => null,
+    );
+    if (isLink !== null) {
+      expect(isLink).toBe(true);
+      expect(await realpath(agentsEntry)).toBe(await realpath(join(REPO_ROOT, relativeRoot)));
     }
+    await expect(access(join(REPO_ROOT, ".codex", "skills", slug, "SKILL.md"))).rejects.toThrow();
   });
 
-  it("installs the shared UI/E2E validation skill for both Claude and Codex sessions", async () => {
-    // This backend-neutral skill was once kept only under .agents/skills, so
-    // startup installed it for Codex but never for Claude. Install the real repo
-    // skills into disposable homes and check both backends resolve it, with the
-    // Codex UI metadata still reachable through the shared source.
+  it("loads every development skill as a project skill for Claude and Codex, never globally", async () => {
+    // Skills about developing Takode must reach sessions working inside the repo
+    // and no others. Claude reads the repo's .claude/skills itself; Codex reads only
+    // .agents/skills, so each such skill needs an entry there. Startup must not link
+    // any of them into the global homes. The UI/E2E skill also keeps its Codex
+    // UI metadata reachable through the shared source.
+    const repoSkills = async (directory: string) =>
+      (await readdir(join(REPO_ROOT, directory, "skills"))).filter((name) => !name.startsWith("."));
+    const global = new Set<string>(GLOBAL_SKILL_SLUGS);
+    const development = [...new Set([...(await repoSkills(".claude")), ...(await repoSkills(".agents"))])].filter(
+      (slug) => !global.has(slug),
+    );
+    expect(development).toContain("takode-ui-e2e-validation");
+    for (const slug of development) {
+      const skill = await readFile(join(REPO_ROOT, ".agents", "skills", slug, "SKILL.md"), "utf-8");
+      expect(skill).toMatch(new RegExp(`^name: ${slug}$`, "m"));
+    }
+    const codexMetadata = await readFile(
+      join(REPO_ROOT, ".agents", "skills", "takode-ui-e2e-validation", "agents", "openai.yaml"),
+      "utf-8",
+    );
+    expect(codexMetadata).toContain("interface:");
+
     const homes = await mkdtemp(join(tmpdir(), "takode-skill-homes-"));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      await ensureSkillSymlinks([], {
+      await ensureSkillSymlinks(GLOBAL_SKILL_SLUGS, {
         mainRepoRoot: REPO_ROOT,
         claudeSkillsHome: join(homes, "claude"),
         agentsSkillsHome: join(homes, "agents"),
         legacyCodexSkillsHome: join(homes, "codex"),
       });
-      const slug = "takode-ui-e2e-validation";
       for (const home of ["claude", "agents"]) {
-        const skill = await readFile(join(homes, home, slug, "SKILL.md"), "utf-8");
-        expect(skill).toMatch(new RegExp(`^name: ${slug}$`, "m"));
+        const installed = await readdir(join(homes, home));
+        expect(installed.filter((slug) => development.includes(slug))).toEqual([]);
+        expect(installed).toContain("takode-orchestration");
       }
-      const codexMetadata = await readFile(join(homes, "agents", slug, "agents", "openai.yaml"), "utf-8");
-      expect(codexMetadata).toContain("interface:");
     } finally {
       log.mockRestore();
       await rm(homes, { recursive: true, force: true });

@@ -9,7 +9,7 @@ import {
   rmSync,
   type Dirent,
 } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -59,6 +59,26 @@ const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
 ]);
 const LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS = new Set(["quest"]);
 
+/**
+ * Repo skills that are part of Takode as a product: sessions need them in any
+ * repository, so startup links them into the global skill homes. Every other
+ * skill in the repo is about developing Takode and loads only as a project
+ * skill, when a session works inside the Takode repo or one of its worktrees.
+ */
+export const GLOBAL_SKILL_SLUGS = [
+  "takode-orchestration",
+  "leader-dispatch",
+  "leader-decision-communication",
+  "explain-clearly",
+  "quest-design",
+  "confirm",
+  "self-groom",
+  "reviewer-groom",
+  "skeptic-review",
+  "worktree-rules",
+  "takode-user-content",
+];
+
 export interface SkillSymlinkRoots {
   mainRepoRoot: string;
   claudeSkillsHome: string;
@@ -67,14 +87,13 @@ export interface SkillSymlinkRoots {
 }
 
 /**
- * Symlink repo skills into the global Claude and agent skill homes so all
- * sessions discover the same project-defined skills regardless of working
- * directory. `.agents` is the non-Claude source used by Codex/new agents;
- * legacy `.codex/skills` content is compatibility-only migration input.
+ * Link the given repo skills into the global Claude and agent skill homes so
+ * sessions in any repository discover them. `.agents` is the non-Claude source
+ * used by Codex/new agents and falls back to `.claude`; legacy `.codex/skills`
+ * content is compatibility-only migration input.
  *
- * Call once at startup with the core skill directory names (slugs). Startup
- * also discovers repo skill slugs from `.claude/skills` and `.agents/skills`
- * so agent-only project skills are installed without touching Claude's root.
+ * Links into the repo's skill folders for any other skill are removed, so a
+ * skill that becomes project-only or is deleted leaves the global homes.
  */
 export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkRoots): Promise<void> {
   assertCompleteSkillSymlinkRoots(roots);
@@ -84,16 +103,20 @@ export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkR
   const claudeSkillsHome = roots?.claudeSkillsHome ?? CLAUDE_SKILLS_HOME;
   const agentsSkillsHome = roots?.agentsSkillsHome ?? AGENTS_SKILLS_HOME;
   const legacyCodexSkillsHome = roots?.legacyCodexSkillsHome ?? LEGACY_CODEX_SKILLS_HOME;
+  const globalSlugs = slugs.filter((slug) => !isDeprecatedProjectSkillSlug(slug));
 
+  removeRepoSkillLinksNotInstalled(
+    [claudeSkillsHome, agentsSkillsHome, legacyCodexSkillsHome],
+    [repoClaudeSkillsHome, repoAgentsSkillsHome],
+    new Set(globalSlugs),
+  );
   migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome, agentsSkillsHome);
   removeDeprecatedProjectSkillSymlinks(claudeSkillsHome, agentsSkillsHome, legacyCodexSkillsHome);
   removeLegacyCodexProjectOwnedSkillCopies(legacyCodexSkillsHome);
-  removeOrphanedRepoSkillSymlinks([claudeSkillsHome, agentsSkillsHome], [repoClaudeSkillsHome, repoAgentsSkillsHome]);
 
-  const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
   const installed: string[] = [];
   const skipped: string[] = [];
-  for (const slug of allSlugs) {
+  for (const slug of globalSlugs) {
     const repoClaudeDir = join(repoClaudeSkillsHome, slug);
     const repoAgentsDir = join(repoAgentsSkillsHome, slug);
     const claudeTarget = join(claudeSkillsHome, slug);
@@ -118,17 +141,11 @@ export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkR
 }
 
 /**
- * Names of the skills Takode installs itself: the repo's project skills and the
- * generated `quest` and `memory` skills. A user skill of the same name gives way.
+ * Names of the skills Takode installs globally itself: its product skills and
+ * the generated `quest` and `memory` skills. A user skill of the same name gives way.
  */
-export async function takodeSkillSlugs(mainRepoRoot?: string): Promise<string[]> {
-  const root = mainRepoRoot ?? (await resolveMainRepoRoot());
-  const names = await Promise.all(
-    [join(root, ".claude", "skills"), join(root, ".agents", "skills")].map((dir) =>
-      readdir(dir).catch(() => [] as string[]),
-    ),
-  );
-  return [...new Set(["quest", "memory", ...names.flat().filter((name) => !name.startsWith("."))])].sort();
+export function takodeSkillSlugs(): string[] {
+  return [...new Set(["quest", "memory", ...GLOBAL_SKILL_SLUGS])].sort();
 }
 
 function assertCompleteSkillSymlinkRoots(roots: SkillSymlinkRoots | undefined): void {
@@ -282,20 +299,6 @@ function hasSemanticMarkdownBody(body: string): boolean {
   return body.replace(/<!--[\s\S]*?(?:-->|$)/g, "").trim().length > 0;
 }
 
-function discoverRepoSkillSlugs(
-  requiredSlugs: string[],
-  repoClaudeSkillsHome: string,
-  repoAgentsSkillsHome: string,
-): string[] {
-  return [
-    ...new Set([
-      ...requiredSlugs,
-      ...readRepoSkillSlugs(repoClaudeSkillsHome),
-      ...readRepoSkillSlugs(repoAgentsSkillsHome),
-    ]),
-  ].filter((slug) => !isDeprecatedProjectSkillSlug(slug));
-}
-
 function migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome: string, agentsSkillsHome: string): void {
   if (!existsSync(legacyCodexSkillsHome)) return; // sync-ok: startup cold path
 
@@ -337,12 +340,11 @@ function removeDeprecatedProjectSkillSymlinks(
 }
 
 /**
- * Removes installed links to repo skills that the repo no longer ships, so
- * deleting a project skill also retires it from every session. Only symlinks
- * that point directly into the repo's skill roots and now dangle are removed;
- * user-owned skills and links elsewhere are left alone.
+ * Removes installed links into the repo's skill folders for skills that are not
+ * installed globally: development skills, which load only as project skills, and
+ * skills the repo no longer ships. User-owned skills and links elsewhere are left alone.
  */
-function removeOrphanedRepoSkillSymlinks(installHomes: string[], repoSkillRoots: string[]): void {
+function removeRepoSkillLinksNotInstalled(installHomes: string[], repoSkillRoots: string[], keep: Set<string>): void {
   for (const home of installHomes) {
     for (const slug of readRepoSkillSlugs(home)) {
       const linkPath = join(home, slug);
@@ -357,7 +359,7 @@ function removeOrphanedRepoSkillSymlinks(installHomes: string[], repoSkillRoots:
         continue;
       }
       if (!repoSkillRoots.includes(dirname(linkTarget))) continue;
-      if (existsSync(linkTarget)) continue; // sync-ok: startup cold path
+      if (keep.has(slug) && existsSync(linkTarget)) continue; // sync-ok: startup cold path
       unlinkSync(linkPath); // sync-ok: startup cold path
     }
   }

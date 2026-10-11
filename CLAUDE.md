@@ -19,37 +19,42 @@ Before any action that could delete, reset, overwrite, migrate, or bulk-mutate d
 
 Treat destructive tests and helpers as dangerous until their data paths are proven isolated to temporary or disposable state. Before destructive operations against durable user data, have a backup, snapshot, or explicit recovery plan; if isolation or recovery status is uncertain, stop and route for approval. Standard approved workflows may proceed when their documented steps provide verified isolation or recovery.
 
-## Skills (Auto-Installed)
+## Skills
 
-The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there. A `.claude/skills/` skill reaches both backends because the `~/.agents/skills/` install falls back to it, while a skill that exists only under `.agents/skills/` never reaches Claude sessions; keep backend-neutral skills in `.claude/skills/`.
+The repo's skills come in two kinds:
 
-Global skills are auto-discovered by every session and can be hard to remove once installed. Avoid adding global skills for context-dependent instructions. Prefer repo instruction files in known locations, then inject or reference those exact file paths only for the agents that need that context.
+- **Global skills** are part of Takode as a product: sessions need them in any repository. They are listed in `GLOBAL_SKILL_SLUGS` (`web/server/skill-symlink.ts`), and the server and every `takode node` link them into `~/.claude/skills/` and `~/.agents/skills/` at startup.
+- **Project skills** are about developing Takode. They are every other skill in the repo, and they load only when a session works inside the Takode repo or one of its worktrees, as ordinary project skills: Claude reads the repo's `.claude/skills/`, and Codex reads only the repo's `.agents/skills/`. Startup removes global links into the repo for any skill not in the list, so a skill moved out of the list, or deleted, leaves the global folders on the next start.
+
+A new skill is a project skill unless it belongs in the list. Add it to `GLOBAL_SKILL_SLUGS` only when sessions outside the Takode repo need it; global skills reach every session and are hard to scope later, so avoid them for context-dependent instructions and prefer repo instruction files in known locations, injected or referenced only for the agents that need them.
+
+The canonical source is `.claude/skills/<slug>/`. Give a project skill a relative link `.agents/skills/<slug> -> ../../.claude/skills/<slug>` so Codex finds it too; use a real `.agents/skills/<slug>/` folder only when a distinct non-Claude source is needed (the global install prefers it for `~/.agents/skills/` and otherwise falls back to `.claude/skills/`). A skill that exists only under `.agents/skills/` never reaches Claude sessions. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add skills there.
 
 ### Design Decisions as Skills
 
 For Takode repo work only, leaders should proactively propose focused repo-level design-principle skills when a user describes reusable guidance or when repeated failures suggest codified guidance would prevent recurrence. These skills should explain the principle, motivation, and practical application. Their frontmatter descriptions must clearly state when future agents should read them, using concrete trigger terms rather than vague names.
 
-If an implementation plan or user proposal conflicts with an existing design-principle skill, surface the conflict before changing code and decide whether to update the principle or revise the proposal. Preserve the existing skill-source boundaries above: use `.claude/skills` for Claude-facing Takode project skills, `.agents/skills` only when a distinct non-Claude source is needed, and do not add new project skills under legacy `.codex/skills`. This is a Takode-repo instruction, not a universal rule for other repositories.
+If an implementation plan or user proposal conflicts with an existing design-principle skill, surface the conflict before changing code and decide whether to update the principle or revise the proposal. Design-principle skills are project skills: keep them out of `GLOBAL_SKILL_SLUGS` and follow the source boundaries above. This is a Takode-repo instruction, not a universal rule for other repositories.
 
-| Skill | Source | Purpose |
-|-------|--------|---------|
-| `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
-| `takode-orchestration-design` | `.claude/skills/takode-orchestration-design/` | Placement rubric for Takode leader/worker/reviewer orchestration guidance and phase instruction design |
-| `leader-decision-communication` | `.claude/skills/leader-decision-communication/` | Decision-first, plain-language leader prompts and status updates with a material-detail necessity filter |
-| `explain-clearly` | `.claude/skills/explain-clearly/` | High-level preferences and anti-patterns for natural substantial explanations and informative artifacts |
-| `takode-cli-design` | `.claude/skills/takode-cli-design/`, `.agents/skills/takode-cli-design/` | Progressive Takode CLI output design: compact defaults, explicit detail/include paths, and bulky-field guardrails |
-| `takode-injected-message-design` | `.claude/skills/takode-injected-message-design/`, `.agents/skills/takode-injected-message-design/` | Design guardrails for Takode injected messages and reminders, including interrupted-generation skip decisions |
-| `takode-agent-run-workflows` | `.claude/skills/takode-agent-run-workflows/` | When to build rarely used, failure-prone features and workflows (setup, migration, repair) as instructions an agent follows, with UI or code only as the entry point, instead of dedicated UI and rigid logic |
-| `takode-codex-session-safety` | `.claude/skills/takode-codex-session-safety/`, `.agents/skills/takode-codex-session-safety/` | Guardrails for Codex `skills/changed`, skill/app metadata refresh, close-wave diagnostics, browser-open recovery triggers, and image attachment transport |
-| `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
-| `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
-| `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
-| `self-groom` | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
-| `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
-| `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
-| `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
-| `takode-ui-e2e-validation` | `.claude/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
-| `takode-user-content` | `.claude/skills/takode-user-content/` | Agent procedure for setting up, migrating and repairing the user's Takode-managed instructions and skills (Settings hands this job to a session) |
+| Skill | Scope | Source | Purpose |
+|-------|-------|--------|---------|
+| `takode-orchestration` | Global | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
+| `leader-dispatch` | Global | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
+| `leader-decision-communication` | Global | `.claude/skills/leader-decision-communication/` | Decision-first, plain-language leader prompts and status updates with a material-detail necessity filter |
+| `explain-clearly` | Global | `.claude/skills/explain-clearly/` | High-level preferences and anti-patterns for natural substantial explanations and informative artifacts |
+| `confirm` | Global | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
+| `quest-design` | Global | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
+| `self-groom` | Global | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
+| `reviewer-groom` | Global | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
+| `skeptic-review` | Global | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
+| `worktree-rules` (`/port-changes`) | Global | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
+| `takode-user-content` | Global | `.claude/skills/takode-user-content/` | Agent procedure for setting up, migrating and repairing the user's Takode-managed instructions and skills (Settings hands this job to a session) |
+| `takode-orchestration-design` | Project | `.claude/skills/takode-orchestration-design/` | Placement rubric for Takode leader/worker/reviewer orchestration guidance and phase instruction design |
+| `takode-cli-design` | Project | `.claude/skills/takode-cli-design/`, `.agents/skills/takode-cli-design/` | Progressive Takode CLI output design: compact defaults, explicit detail/include paths, and bulky-field guardrails |
+| `takode-injected-message-design` | Project | `.claude/skills/takode-injected-message-design/`, `.agents/skills/takode-injected-message-design/` | Design guardrails for Takode injected messages and reminders, including interrupted-generation skip decisions |
+| `takode-agent-run-workflows` | Project | `.claude/skills/takode-agent-run-workflows/` | When to build rarely used, failure-prone features and workflows (setup, migration, repair) as instructions an agent follows, with UI or code only as the entry point, instead of dedicated UI and rigid logic |
+| `takode-codex-session-safety` | Project | `.claude/skills/takode-codex-session-safety/`, `.agents/skills/takode-codex-session-safety/` | Guardrails for Codex `skills/changed`, skill/app metadata refresh, close-wave diagnostics, browser-open recovery triggers, and image attachment transport |
+| `takode-ui-e2e-validation` | Project | `.claude/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) and the `memory` skill (from `web/server/templates/memory-skill-docs.md`, the reading, writing, upkeep and curation workflow for file-based memory) into the Claude and `.agents` skill directories at startup.
 Quest Journey phases are guided by the canonical phase briefs in `~/.companion/quest-journey-phases/<phase-id>/`, not by globally installed phase skills. Historical and canonical phase skill slugs remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.
@@ -235,7 +240,7 @@ Claude's former native `--sdk-url` WebSocket backend is retired; see [Claude bac
   - `sleep-inhibitor.ts` — Prevents OS sleep during active sessions.
   - `ripgrep.ts` / `fs-search.ts` — Server-side file search via ripgrep.
   - `migration.ts` — Data migration utilities for session/settings schema changes.
-  - `skill-symlink.ts` — Symlinks project skills into global skill directories at startup.
+  - `skill-symlink.ts` — Links Takode's global skills into the global skill directories at startup and removes global links to project-only repo skills.
 
   **Bridge controllers** (`bridge/` -- extracted from `ws-bridge.ts`):
 

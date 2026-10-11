@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureSkillSymlinks } from "./skill-symlink.js";
+import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
@@ -28,8 +28,9 @@ describe("explain-clearly project skill", () => {
   });
 
   it("distributes one canonical Claude source to both supported skill homes", async () => {
-    // Takode deliberately falls back from the repo's Claude source for non-Claude
-    // agents. This temp-only integration check prevents an unnecessary divergent
+    // explain-clearly is a global skill because injected session instructions
+    // reference it in every repository. Takode deliberately falls back from the
+    // repo's Claude source for non-Claude agents. This temp-only integration check prevents an unnecessary divergent
     // .agents or legacy .codex copy from becoming the canonical implementation.
     const root = await mkdtemp(join(tmpdir(), "takode-explain-clearly-"));
     tempRoots.push(root);
@@ -42,7 +43,7 @@ describe("explain-clearly project skill", () => {
       mkdir(legacyCodexSkillsHome, { recursive: true }),
     ]);
 
-    await ensureSkillSymlinks([], {
+    await ensureSkillSymlinks(GLOBAL_SKILL_SLUGS, {
       mainRepoRoot: REPO_ROOT,
       claudeSkillsHome,
       agentsSkillsHome,
@@ -53,10 +54,5 @@ describe("explain-clearly project skill", () => {
     expect(await readlink(join(agentsSkillsHome, "explain-clearly"))).toBe(SKILL_ROOT);
     await expect(access(join(REPO_ROOT, ".agents", "skills", "explain-clearly"))).rejects.toThrow();
     await expect(access(join(REPO_ROOT, ".codex", "skills", "explain-clearly"))).rejects.toThrow();
-
-    const indexSource = await readFile(join(SERVER_DIR, "startup-readiness.ts"), "utf-8");
-    const startupMatch = indexSource.match(/STARTUP_SKILL_SYMLINKS = \[([\s\S]*?)\];/);
-    expect(startupMatch).toBeTruthy();
-    expect(startupMatch![1]).not.toContain('"explain-clearly"');
   });
 });
