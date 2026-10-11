@@ -624,6 +624,14 @@ Check [this guide](https://example.com/auth) for reference.`,
   timestamp: Date.now() - 59000,
 };
 
+export const MSG_USER_TRANSCRIBED: ChatMessage = {
+  id: "msg-1-transcribed",
+  role: "user",
+  content:
+    "Let's keep the refresh token in memory for now and revisit persistent storage after the rollout. [transcribed]",
+  timestamp: Date.now() - 58000,
+};
+
 export const MSG_USER_SELECTION: ChatMessage = {
   id: "msg-1b",
   role: "user",

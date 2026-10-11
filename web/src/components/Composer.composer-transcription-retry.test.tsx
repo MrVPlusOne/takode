@@ -577,9 +577,9 @@ describe("Composer transcription retry", () => {
     // Click Retry
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-    // The second transcribe call should succeed and fill the textarea
+    // The second transcribe call should succeed and fill the textarea, tagged as transcribed
     await waitFor(() => {
-      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("hello world");
+      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("hello world [transcribed]");
     });
 
     // Retry banner should be gone

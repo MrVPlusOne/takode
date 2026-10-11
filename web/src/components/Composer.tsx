@@ -3,6 +3,7 @@ import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { useReportCommentSend } from "./use-report-comment-send.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
+import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -528,7 +529,8 @@ export function Composer({
         const needsSpace = before.length > 0 && !/\s$/.test(before);
         const separator = needsSpace ? " " : "";
         applyVoiceResult(() => {
-          setText(before + separator + appendText + after);
+          const appended = before + separator + appendText + after;
+          setText(appendText.trim() ? addTranscriptionTag(appended) : appended);
           setVoiceEditProposal(null);
           setAlternateVoiceRerun({
             resultId: requestId,
@@ -548,7 +550,7 @@ export function Composer({
         });
         markApiResolved();
         applyVoiceResult(() => {
-          setText(transcript);
+          setText(transcript.trim() ? addTranscriptionTag(transcript) : transcript);
           setVoiceEditProposal(null);
           setAlternateVoiceRerun(null);
         });

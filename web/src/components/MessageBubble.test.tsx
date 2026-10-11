@@ -191,6 +191,22 @@ describe("MessageBubble - user messages", () => {
     expect(screen.getByText("Hello Claude")).toBeTruthy();
   });
 
+  it("shows a trailing transcription tag as a small marker instead of message text", () => {
+    // Voice transcription appends "[transcribed]" so agents know the text was dictated;
+    // the feed shows it as a compact marker rather than raw prose.
+    const msg = makeMessage({ role: "user", content: "Dictated request [transcribed]" });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByText("Dictated request")).toBeTruthy();
+    expect(screen.queryByText(/\[transcribed\]/)).toBeNull();
+    expect(screen.getByTestId("user-message-transcribed-tag").textContent).toBe("transcribed");
+  });
+
+  it("does not show the transcription marker for ordinary user messages", () => {
+    render(<MessageBubble message={makeMessage({ role: "user", content: "Typed request" })} />);
+    expect(screen.queryByTestId("user-message-transcribed-tag")).toBeNull();
+  });
+
   it("renders a timestamp for user messages", () => {
     const ts = 1700000000000;
     const msg = makeMessage({ role: "user", content: "With timestamp", timestamp: ts });

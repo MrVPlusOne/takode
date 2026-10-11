@@ -1064,7 +1064,7 @@ describe("Composer voice edit mode", () => {
 
     await waitFor(() => {
       expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-        "Improve this introduction. Add one more detail.",
+        "Improve this introduction. Add one more detail. [transcribed]",
       );
     });
     expect(screen.queryByText("Voice edit preview")).toBeNull();
@@ -1096,7 +1096,7 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByLabelText("Voice input"));
 
     await waitFor(() => {
-      expect(textarea.value).toBe("Original draft. Appended note.");
+      expect(textarea.value).toBe("Original draft. Appended note. [transcribed]");
     });
     fireEvent.click(screen.getByRole("button", { name: "Rerun as voice edit" }));
 
@@ -1126,6 +1126,44 @@ describe("Composer voice edit mode", () => {
     await screen.findByText("Voice edit preview");
     expect(textarea.value).toBe("Original draft.");
     expect(screen.getByRole("button", { name: "Rerun as append" })).toBeTruthy();
+  });
+
+  it("tags appended transcription once when the draft already carries the tag", async () => {
+    // The draft carries the tag from an earlier dictation and the cursor sits mid-draft:
+    // the appended text goes at the cursor without a second tag.
+    setupMockStore({ draftText: "First part. Second part. [transcribed]" });
+    mockGetSettings.mockResolvedValueOnce({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+    mockTranscribe.mockResolvedValueOnce({ mode: "append", text: "Inserted.", backend: "openai", enhanced: true });
+
+    render(<Composer sessionId="s1" />);
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange("First part.".length, "First part.".length);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("First part. Inserted. Second part. [transcribed]");
+    });
+  });
+
+  it("does not tag a draft when the appended transcript is blank", async () => {
+    // Nothing dictated was inserted, so the typed draft must not be marked as transcribed.
+    setupMockStore({ draftText: "Typed only." });
+    mockGetSettings.mockResolvedValueOnce({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+    mockTranscribe.mockResolvedValueOnce({ mode: "append", text: "  ", backend: "openai", enhanced: true });
+
+    render(<Composer sessionId="s1" />);
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await screen.findByRole("button", { name: "Rerun as voice edit" });
+    expect(textarea.value).not.toContain("[transcribed]");
   });
 
   it("lets the user undo a pending voice edit and keep the original draft", async () => {

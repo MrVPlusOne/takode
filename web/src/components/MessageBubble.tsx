@@ -1,4 +1,5 @@
 import { compactionMarkerLabel } from "../../shared/compaction-marker.js";
+import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { AnnotationAttachments, AnnotationSourceMarkers } from "./AnnotationAttachments.js";
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
 import type { ChatMessage, ContentBlock, ToolResultPreview } from "../types.js";
@@ -51,6 +52,7 @@ import {
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
+import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
@@ -822,7 +824,9 @@ function UserMessage({
     () => getDisplayReplyContext(message.content, message.metadata?.replyContext),
     [message.content, message.metadata?.replyContext],
   );
-  const displayContent = replyContext ? replyContext.userMessage : message.content;
+  const { text: displayContent, transcribed } = splitTrailingTranscriptionTag(
+    replyContext ? replyContext.userMessage : message.content,
+  );
   const imagePreviewItems = useMemo(() => buildUserImagePreviewItems(message, sessionId), [message, sessionId]);
   const retireLocalImage = useCallback(
     (image: ImagePreviewItem) => {
@@ -969,6 +973,16 @@ function UserMessage({
             questLinkSurface={questLinkSurface}
           />
         </CollapsibleContent>
+        {transcribed && (
+          <span
+            data-testid="user-message-transcribed-tag"
+            title="Dictated with voice transcription"
+            className="inline-flex items-center gap-1 text-[11px] text-cc-muted/70"
+          >
+            <VoiceInputIcon className="h-3 w-3" />
+            transcribed
+          </span>
+        )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       {!readOnly && !message.pendingState && (

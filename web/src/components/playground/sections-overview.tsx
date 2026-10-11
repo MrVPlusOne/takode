@@ -67,6 +67,7 @@ import {
   MSG_TASK_COMPLETED,
   MSG_TOOL_ERROR,
   MSG_USER,
+  MSG_USER_TRANSCRIBED,
   MSG_USER_UNAVAILABLE_TIME,
   MSG_USER_AGENT,
   MSG_USER_IMAGE,
@@ -666,6 +667,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="User message with Markdown (conservative subset)">
             <MessageBubble message={MSG_USER_MARKDOWN} />
+          </Card>
+          <Card label="User message dictated with voice transcription">
+            <MessageBubble message={MSG_USER_TRANSCRIBED} />
           </Card>
           <Card label="User message with VS Code selection">
             <MessageBubble message={MSG_USER_SELECTION} />
