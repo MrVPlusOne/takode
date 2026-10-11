@@ -18,7 +18,7 @@ import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
-import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import { currentCachedQuestDetail, hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
@@ -418,15 +418,23 @@ export function QuestFeedInlineLink({
   const startRichHydration = useCallback(
     (epoch: number) => {
       hydrationEpochRef.current = epoch;
+      // Like the full quest view, show a current cached body at once and refresh it in place:
+      // waiting for the round trip made the preview open about a second late on a phone.
+      const cached = currentCachedQuestDetail(questId);
+      if (cached) {
+        setValidatedRichQuest(cached);
+        setPhase("rich-ready");
+      }
       void loadQuest(questId)
         .then((hydrated) => {
-          if (!mountedRef.current || epochRef.current !== epoch || phaseRef.current !== "rich-loading") return;
+          if (!mountedRef.current || epochRef.current !== epoch || !phaseRef.current.startsWith("rich")) return;
           if (!hydrated) throw new Error(`Quest ${questId} is unavailable.`);
           setRichError(null);
           setValidatedRichQuest(hydrated);
           setPhase("rich-ready");
         })
         .catch((error) => {
+          // A failed refresh keeps a cached body that is already showing.
           if (!mountedRef.current || epochRef.current !== epoch || phaseRef.current !== "rich-loading") return;
           setValidatedRichQuest(null);
           setRichError(describeLoadError(error));

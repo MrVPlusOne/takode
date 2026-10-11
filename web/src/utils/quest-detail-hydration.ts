@@ -10,6 +10,20 @@ function cachedQuestDetail(questId: string): QuestmasterTask | null {
   return state.questDetails?.get(key) ?? state.quests?.find((quest) => quest.questId.toLowerCase() === key) ?? null;
 }
 
+/**
+ * A cached full quest body that a preview may show while it revalidates, or null when there is
+ * none or a newer live version (pushed with quest updates) shows the cached body is out of date.
+ */
+export function currentCachedQuestDetail(questId: string): QuestmasterTask | null {
+  const key = questId.trim().toLowerCase();
+  const state = useStore.getState();
+  const cached = state.questDetails?.get(key);
+  if (!cached) return null;
+  const live = state.questTitlePreviews?.get(key);
+  if (live === null) return null;
+  return live && live.version > cached.version ? null : cached;
+}
+
 /** Revalidate one full quest body for a rich hover/detail surface, deduped by id + ETag. */
 export function hydrateQuestDetail(questId: string): Promise<QuestmasterTask | null> {
   const key = questId.trim().toLowerCase();

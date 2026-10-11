@@ -650,32 +650,96 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("opens a labelled explicit loading dialog on eye activation, then reuses 304 cached detail", async () => {
-    const cached = quest({ questId: "q-48", title: "Cached detail", tldr: "Validated summary" });
+  it("shows a cached quest's full preview at once on eye activation, keeps it on 304 and refreshes it on 200", async () => {
+    // Like the full quest view, a cached body renders without waiting for the by-id
+    // revalidation, which takes about a second over a phone connection.
+    const cached = quest({ questId: "q-48", title: "Cached detail", tldr: "Cached summary" });
     useStore.setState({
       questDetails: new Map([["q-48", cached]]),
       questDetailEtags: new Map([["q-48", '"detail-v1"']]),
     });
-    const request = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
-    mockGetQuestValidated.mockReturnValueOnce(request.promise);
+    const notModified = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    mockGetQuestValidated.mockReturnValueOnce(notModified.promise);
     renderFeedLink("q-48", { nextControl: true });
     const preview = screen.getByRole("button", { name: /Preview q-48/ });
 
     fireEvent.click(preview);
-    const dialog = screen.getByRole("dialog", { name: "Cached detail" });
+    let dialog = screen.getByRole("dialog", { name: "Cached detail" });
     expect(dialog).toHaveAttribute("aria-modal", "false");
-    expect(dialog).toHaveAttribute("aria-busy", "true");
-    expect(within(dialog).getByRole("status")).toHaveTextContent("Refreshing…");
+    expect(dialog).toHaveAttribute("aria-busy", "false");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Refined");
+    expect(dialog).toHaveTextContent("Cached summary");
     expect(preview).toHaveAttribute("aria-expanded", "true");
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toHaveAttribute("href", "#/session/s1?quest=q-48");
     expect(document.activeElement).toBe(dialog);
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-48", '"detail-v1"');
 
-    await act(async () => request.resolve({ status: "not-modified", etag: '"detail-v1"' }));
+    await act(async () => notModified.resolve({ status: "not-modified", etag: '"detail-v1"' }));
+    expect(dialog).toHaveTextContent("Cached summary");
+
+    // A changed body replaces the cached one in place, in the same dialog.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await act(async () => vi.runOnlyPendingTimers());
+    const fresh = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    mockGetQuestValidated.mockReturnValueOnce(fresh.promise);
+    fireEvent.click(preview);
+    dialog = screen.getByRole("dialog", { name: "Cached detail" });
+    expect(dialog).toHaveTextContent("Cached summary");
+    await act(async () =>
+      fresh.resolve({
+        status: "fresh",
+        data: { ...cached, version: 2, status: "in_progress", tldr: "Fresh summary" } as QuestmasterTask,
+        etag: '"detail-v2"',
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Cached detail" })).toBe(dialog);
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("In Progress");
+    expect(dialog).toHaveTextContent("Fresh summary");
+  });
+
+  it("waits for the refresh when a newer live version shows the cached quest body is stale", async () => {
+    // Quest updates push a title preview with the new version; a cached body older than it must not
+    // show an outdated status, so the dialog loads as it does for an uncached quest.
+    const stale = quest({ questId: "q-47", title: "Changed quest", tldr: "Old summary", version: 1 });
+    useStore.setState({
+      questDetails: new Map([["q-47", stale]]),
+      questDetailEtags: new Map([["q-47", '"detail-v1"']]),
+      questTitlePreviews: new Map([["q-47", { questId: "q-47", title: "Changed quest", version: 2 }]]),
+    });
+    const request = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    mockGetQuestValidated.mockReturnValueOnce(request.promise);
+    renderFeedLink("q-47");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-47/ }));
+    const dialog = screen.getByRole("dialog", { name: "Changed quest" });
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Refreshing…");
+    expect(dialog).not.toHaveTextContent("Old summary");
+    expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();
+
+    await act(async () =>
+      request.resolve({
+        status: "fresh",
+        data: { ...stale, version: 2, status: "done", tldr: "New summary" } as QuestmasterTask,
+        etag: '"detail-v2"',
+      }),
+    );
     expect(dialog).toHaveAttribute("aria-busy", "false");
     expect(within(dialog).getByTestId("quest-feed-rich-ready-announcement")).toHaveTextContent("Quest preview ready.");
-    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Refined");
-    expect(dialog).toHaveTextContent("Validated summary");
-    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-48", '"detail-v1"');
+    expect(dialog).toHaveTextContent("New summary");
+  });
+
+  it("keeps showing a cached quest body when its background refresh fails", async () => {
+    const cached = quest({ questId: "q-46", title: "Offline detail", tldr: "Cached while offline" });
+    useStore.setState({ questDetails: new Map([["q-46", cached]]) });
+    mockGetQuestValidated.mockRejectedValueOnce(new Error("offline"));
+    renderFeedLink("q-46");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-46/ }));
+    await act(async () => Promise.resolve());
+    const dialog = screen.getByRole("dialog", { name: "Offline detail" });
+    expect(dialog).toHaveTextContent("Cached while offline");
+    expect(within(dialog).queryByRole("alert")).toBeNull();
   });
 
   it("reuses the established full quest preview content inside the eye-owned dialog", async () => {
