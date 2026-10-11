@@ -14,6 +14,7 @@ const WORKING: WaitingWorkerTarget = {
   workerSessionId: "playground-worker",
   workerNum: 2781,
   workerStatus: "running",
+  turnStartedAt: NOW - 12 * MINUTE - 34_000,
 };
 
 const WORKING_PREVIEW: SessionActivityPreview = {
@@ -116,12 +117,12 @@ export function PlaygroundWaitingWorkerPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Waiting Worker Preview"
-        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working (pulsing dot, no status pill) and idle-while-waiting (idle pill with time since the last activity). The title bar shows only the worker number and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
+        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working (pulsing dot and a live timer of the worker's current turn, no status pill) and idle-while-waiting (idle pill with time since the last activity). The title bar shows only the worker number, its turn timer while working, and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
       >
         <div className="space-y-4" data-testid="playground-waiting-worker-preview">
           <FeedFooterDemo target={WORKING} preview={WORKING_PREVIEW} summary="#2781 implementing the preview" />
           <FeedFooterDemo
-            target={{ ...WORKING, workerStatus: "idle" }}
+            target={{ ...WORKING, workerStatus: "idle", turnStartedAt: null }}
             preview={IDLE_PREVIEW}
             summary="#2781 running the full suite"
           />

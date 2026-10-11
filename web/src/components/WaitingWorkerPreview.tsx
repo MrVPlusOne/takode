@@ -8,12 +8,15 @@ import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { formatQuestJourneyDuration } from "../../shared/quest-journey.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { navigateToSession, navigateToSessionMessage } from "../utils/routing.js";
+import { formatElapsed } from "./message-feed-utils.js";
 import type { BoardRowData } from "./BoardTable.js";
 
 /** How long the preview survives a cleared thread status after the leader stops generating. */
 export const WAITING_WORKER_PREVIEW_HOLD_MS = 5_000;
 const POLL_INTERVAL_MS = 3_000;
 const CLOCK_TICK_MS = 5_000;
+/** The working worker's turn timer counts seconds, so it ticks every second. */
+const TURN_CLOCK_TICK_MS = 1_000;
 
 export type WaitingWorkerStatus = "running" | "idle" | "disconnected";
 
@@ -22,6 +25,8 @@ export interface WaitingWorkerTarget {
   workerSessionId: string;
   workerNum: number | null;
   workerStatus: WaitingWorkerStatus;
+  /** Server time the worker's current turn started; null unless it is running. */
+  turnStartedAt: number | null;
 }
 
 /**
@@ -49,12 +54,14 @@ export function resolveWaitingWorkerGate(input: {
   const workerSessionId = participant?.sessionId ?? row.worker;
   if (!workerSessionId || participant?.status === "archived") return { kind: "hide" };
 
+  const workerStatus =
+    participant?.status === "running" || participant?.status === "idle" ? participant.status : "disconnected";
   const target: WaitingWorkerTarget = {
     questId: threadKey,
     workerSessionId,
     workerNum: participant?.sessionNum ?? row.workerNum ?? null,
-    workerStatus:
-      participant?.status === "running" || participant?.status === "idle" ? participant.status : "disconnected",
+    workerStatus,
+    turnStartedAt: workerStatus === "running" ? (participant?.generationStartedAt ?? null) : null,
   };
 
   const status = input.statuses.at(-1);
@@ -129,7 +136,7 @@ function useFlashFreeTarget(
 /** Live in-feed peek at the waiting thread's worker; transient UI, never thread history. */
 export function WaitingWorkerPreview({ target }: { target: WaitingWorkerTarget }) {
   const preview = useSessionActivityPreview(target.workerSessionId, target.workerStatus === "running");
-  const now = useNow(CLOCK_TICK_MS);
+  const now = useNow(target.turnStartedAt === null ? CLOCK_TICK_MS : TURN_CLOCK_TICK_MS);
   return (
     <WaitingWorkerPreviewPanel
       target={target}
@@ -215,7 +222,7 @@ export function WaitingWorkerPreviewPanel({
       data-testid="waiting-worker-preview"
     >
       {/* The quest header already names the worker's machine and phase, so the bar keeps
-          only who it is, whether it is working, and the way into its session. */}
+          only who it is, whether (and for how long) it is working, and the way into its session. */}
       <div className="flex min-w-0 items-center gap-2 text-[11px]">
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -229,6 +236,16 @@ export function WaitingWorkerPreviewPanel({
           data-testid="waiting-worker-preview-dot"
         />
         <span className="shrink-0 font-mono-code font-medium text-cc-fg/85">{workerLabel}</span>
+        {running && target.turnStartedAt !== null && (
+          // Server turn start, so every device and reload shows the same elapsed time.
+          <span
+            className="shrink-0 font-mono-code tabular-nums text-cc-muted"
+            title="Time in the worker's current turn"
+            data-testid="waiting-worker-preview-turn-time"
+          >
+            · {formatElapsed(Math.max(0, now - target.turnStartedAt))}
+          </span>
+        )}
         {target.workerStatus !== "running" && (
           <WorkerStatusLabel status={target.workerStatus} lastActivityAt={preview?.lastActivityAt ?? null} now={now} />
         )}

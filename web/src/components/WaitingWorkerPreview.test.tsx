@@ -74,8 +74,11 @@ function boardRow(overrides: Partial<BoardRowData> = {}): BoardRowData {
   };
 }
 
-function rowStatuses(status: "running" | "idle" | "archived" = "running"): Record<string, BoardRowSessionStatus> {
-  return { "q-42": { worker: { sessionId: WORKER, sessionNum: 7, status } } };
+function rowStatuses(
+  status: "running" | "idle" | "archived" = "running",
+  generationStartedAt?: number,
+): Record<string, BoardRowSessionStatus> {
+  return { "q-42": { worker: { sessionId: WORKER, sessionNum: 7, status, generationStartedAt } } };
 }
 
 function setLeaderState({
@@ -143,8 +146,19 @@ describe("resolveWaitingWorkerGate", () => {
         workerSessionId: WORKER,
         workerNum: 7,
         workerStatus: "running",
+        turnStartedAt: null,
       },
     });
+  });
+
+  it("carries the server turn start only while the worker is running", () => {
+    // The turn timer reads the board participant's server-set generation start, so it
+    // is the same on every device and survives reloads.
+    const started = { ...base, rowStatuses: rowStatuses("running", PHASE_STARTED_AT) };
+    const gate = resolveWaitingWorkerGate(started);
+    expect(gate.kind === "show" && gate.target.turnStartedAt).toBe(PHASE_STARTED_AT);
+    const idle = resolveWaitingWorkerGate({ ...base, rowStatuses: rowStatuses("idle", PHASE_STARTED_AT) });
+    expect(idle.kind === "show" && idle.target.turnStartedAt).toBeNull();
   });
 
   it("treats a cleared status as soft so a re-written marker does not flash", () => {
@@ -223,6 +237,24 @@ describe("WaitingWorkerPreview", () => {
     const idle = await screen.findByTestId("waiting-worker-preview");
     expect(idle.className).toContain("border-l-cc-muted/50");
     expect(idle.className).not.toContain("border-l-cc-success");
+  });
+
+  it("ticks the working worker's current turn time next to its number", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(PHASE_STARTED_AT + 12 * 60_000 + 5_000);
+    setLeaderState({ participants: rowStatuses("running", PHASE_STARTED_AT) });
+    render(<FeedFooterHost />);
+
+    const timer = screen.getByTestId("waiting-worker-preview-turn-time");
+    expect(timer).toHaveTextContent("· 12m 5s");
+    // Live: the timer advances every second without a server update.
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(timer).toHaveTextContent("· 12m 6s");
+
+    // Once the worker stops, the timer gives way to the idle pill.
+    setLeaderState({ participants: rowStatuses("idle") });
+    expect(screen.queryByTestId("waiting-worker-preview-turn-time")).not.toBeInTheDocument();
+    expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent("idle");
   });
 
   it("shows idle time since the last activity while the thread still waits", async () => {
