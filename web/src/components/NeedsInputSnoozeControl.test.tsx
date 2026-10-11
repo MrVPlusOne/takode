@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification } from "../types.js";
 
@@ -39,6 +39,10 @@ beforeEach(() => {
   mockSetNotificationMuted.mockReset();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("NeedsInputSnoozeControl", () => {
   it("snoozes for a preset duration and stores the server-returned prompt", async () => {
     // The server owns the wake time; the browser only sends the chosen duration and stores the reply.
@@ -58,13 +62,52 @@ describe("NeedsInputSnoozeControl", () => {
     renderControl(prompt);
 
     fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
-    const snoozeButton = screen.getByRole("button", { name: "Snooze" });
+    const snoozeButton = within(screen.getByRole("group", { name: "Remind me in" })).getByRole("button", {
+      name: "Snooze",
+    });
     expect(snoozeButton).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Custom snooze amount"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("Custom snooze unit"), { target: { value: "hours" } });
     fireEvent.click(snoozeButton);
 
     await waitFor(() => expect(mockSnoozeNotification).toHaveBeenCalledWith("s1", "n-1", 7_200_000));
+  });
+
+  it("snoozes until a picked day, at 9 AM unless another time is chosen", async () => {
+    // Only Date is faked so waitFor's timers keep running. Sunday Oct 11, 2026, 3 PM local.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 11, 15, 0));
+    mockSnoozeNotification.mockResolvedValue({ ok: true, notification: { ...prompt, snoozedUntil: 1 } });
+    renderControl(prompt);
+
+    fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
+    const dayGroup = screen.getByRole("group", { name: "Remind me on" });
+    // The picker starts on tomorrow so a single tap snoozes until the next morning.
+    expect(screen.getByLabelText("Snooze until day")).toHaveValue("2026-10-12");
+    expect(screen.getByLabelText("Snooze until time")).toHaveValue("09:00");
+    fireEvent.click(within(dayGroup).getByRole("button", { name: "Snooze" }));
+
+    // Next Monday 9 AM is 18 hours after Sunday 3 PM; the server receives that duration.
+    await waitFor(() => expect(mockSnoozeNotification).toHaveBeenCalledWith("s1", "n-1", 18 * 3_600_000));
+  });
+
+  it("disables the day snooze outside the server's one-minute to 30-day range", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 11, 15, 0));
+    renderControl(prompt);
+
+    fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
+    const daySnooze = within(screen.getByRole("group", { name: "Remind me on" })).getByRole("button", {
+      name: "Snooze",
+    });
+    // Earlier today has already passed.
+    fireEvent.change(screen.getByLabelText("Snooze until day"), { target: { value: "2026-10-11" } });
+    expect(daySnooze).toBeDisabled();
+    // More than 30 days ahead is refused by the server.
+    fireEvent.change(screen.getByLabelText("Snooze until day"), { target: { value: "2026-11-11" } });
+    expect(daySnooze).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Snooze until day"), { target: { value: "2026-11-09" } });
+    expect(daySnooze).toBeEnabled();
   });
 
   it("shows when a snoozed prompt returns and cancels the snooze by unmuting it", async () => {
@@ -84,7 +127,7 @@ describe("NeedsInputSnoozeControl", () => {
     renderControl(prompt);
 
     fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
-    fireEvent.click(screen.getByRole("button", { name: "15 min" }));
+    fireEvent.click(screen.getByRole("button", { name: "6 hours" }));
 
     expect(await screen.findByText("Snooze failed. Server unreachable")).toBeInTheDocument();
     expect(storedNotification()).toEqual(prompt);
@@ -103,5 +146,13 @@ describe("formatSnoozeUntil", () => {
     const tomorrow = new Date(2026, 9, 8, 9, 0).getTime();
     expect(formatSnoozeUntil(tonight, now)).not.toMatch(/Thu|Wed/);
     expect(formatSnoozeUntil(tomorrow, now)).toMatch(/^Thu /);
+    expect(formatSnoozeUntil(tomorrow, now)).not.toMatch(/Oct/);
+  });
+
+  it("adds the date once the weekday alone would be ambiguous", () => {
+    // A week or more ahead, "Wed 9:00 AM" could mean this week or next, so the month and day are shown.
+    const now = new Date(2026, 9, 7, 19, 0).getTime();
+    const nextWeek = new Date(2026, 9, 14, 9, 0).getTime();
+    expect(formatSnoozeUntil(nextWeek, now)).toMatch(/^Wed.*Oct.*14/);
   });
 });
