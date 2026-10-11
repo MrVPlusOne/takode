@@ -49,6 +49,8 @@ export interface UserContentImportCandidate {
   hostId: string | null;
   summary?: UserLevelSummary;
   error?: string;
+  /** Still being read from the machine. */
+  pending?: boolean;
 }
 
 export interface UserContentStatus {
@@ -79,7 +81,9 @@ export class UserContentService {
   private readonly store: UserContentStore;
   private readonly noticeFile: string;
   private readonly takodeSkills: () => Promise<string[]>;
-  private candidates: { at: number; value: Promise<UserContentImportCandidate[]> } | null = null;
+  /** Import previews by machine (`""` for this one), kept for a minute. */
+  private readonly candidates = new Map<string, { at: number; candidate: UserContentImportCandidate }>();
+  private candidateRefresh: Promise<void> | null = null;
 
   constructor(options: { store?: UserContentStore; noticeFile?: string; takodeSkills?: () => Promise<string[]> } = {}) {
     this.store = options.store ?? userContentStore();
@@ -172,29 +176,53 @@ export class UserContentService {
       storeExists,
       storeEmpty,
       machines: [...this.statuses.values()],
-      importCandidates: storeEmpty ? await this.importCandidates() : [],
+      importCandidates: storeEmpty ? await this.currentCandidates() : [],
     };
   }
 
-  /** What an import from each connected machine would bring in (reused for a minute). */
-  private importCandidates(): Promise<UserContentImportCandidate[]> {
-    if (this.candidates && Date.now() - this.candidates.at < SUMMARY_TTL_MS) return this.candidates.value;
-    const value = (async () => {
+  /**
+   * Import previews as known now, without waiting: a machine still being read
+   * shows as pending, so Settings can list every machine at once and fill in
+   * each preview as it arrives. A refresh starts when previews are missing or a
+   * minute old.
+   */
+  private async currentCandidates(): Promise<UserContentImportCandidate[]> {
+    const machines = await this.onlineMachines();
+    const stale = machines.some((hostId) => {
+      const known = this.candidates.get(hostId ?? "");
+      return !known || Date.now() - known.at > SUMMARY_TTL_MS;
+    });
+    if (stale) void this.refreshCandidates(machines);
+    return machines.map((hostId) => {
+      const known = this.candidates.get(hostId ?? "");
+      return known ? known.candidate : { hostId, pending: true };
+    });
+  }
+
+  /** Read each machine's import preview; each result is kept as soon as it arrives. */
+  private refreshCandidates(machines: (string | null)[]): Promise<void> {
+    this.candidateRefresh ??= (async () => {
       const takodeSkills = await this.takodeSkills();
-      const hostIds = (await this.hosts?.listHostIds().catch(() => [])) ?? [];
-      const machines = [null, ...hostIds.filter((id) => id !== LOCAL_HOST_ID && this.hosts?.links.status(id).online)];
-      return Promise.all(
-        machines.map(async (hostId): Promise<UserContentImportCandidate> => {
+      await Promise.all(
+        machines.map(async (hostId) => {
+          let candidate: UserContentImportCandidate;
           try {
-            return { hostId, summary: await withTimeout(onMachine(hostId, "summarizeUserContent", takodeSkills)) };
+            candidate = { hostId, summary: await withTimeout(onMachine(hostId, "summarizeUserContent", takodeSkills)) };
           } catch (error) {
-            return { hostId, error: error instanceof Error ? error.message : String(error) };
+            candidate = { hostId, error: error instanceof Error ? error.message : String(error) };
           }
+          this.candidates.set(hostId ?? "", { at: Date.now(), candidate });
         }),
       );
-    })();
-    this.candidates = { at: Date.now(), value };
-    return value;
+    })().finally(() => {
+      this.candidateRefresh = null;
+    });
+    return this.candidateRefresh;
+  }
+
+  private async onlineMachines(): Promise<(string | null)[]> {
+    const hostIds = (await this.hosts?.listHostIds().catch(() => [])) ?? [];
+    return [null, ...hostIds.filter((id) => id !== LOCAL_HOST_ID && this.hosts?.links.status(id).online)];
   }
 
   /**
@@ -205,9 +233,10 @@ export class UserContentService {
   async notice(): Promise<{ show: boolean }> {
     if (await this.noticeDismissed()) return { show: false };
     if (!(await userContentStoreIsEmpty(this.store))) return { show: false };
-    const candidates = await this.importCandidates();
-    const show = candidates.some(
-      ({ summary }) => summary && (summary.claudeChars || summary.codexChars || summary.skills.length),
+    const machines = await this.onlineMachines();
+    if (machines.some((hostId) => !this.candidates.has(hostId ?? ""))) await this.refreshCandidates(machines);
+    const show = [...this.candidates.values()].some(
+      ({ candidate: { summary } }) => summary && (summary.claudeChars || summary.codexChars || summary.skills.length),
     );
     return { show };
   }
@@ -238,7 +267,7 @@ export class UserContentService {
     const collected = await onMachine(hostId, "collectUserContent", await this.takodeSkills());
     const imported = await writeImportedUserContent(collected, this.store);
     this.signature = await userContentStoreSignature(this.store);
-    this.candidates = null;
+    this.candidates.clear();
     const result = await this.syncMachine(hostId, "import", { takeOver: true });
     void this.syncAll("import");
     return { ...imported, skipped: collected.skipped, result };

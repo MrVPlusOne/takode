@@ -1,5 +1,4 @@
-import { USER_CONTENT_SECTION_ID } from "./SettingsUserContentSection.js";
-import { useUserContentNotice } from "../user-content.js";
+import { requestUserContentFocus, useUserContentNotice } from "../user-content.js";
 
 /**
  * One-time notice after an upgrade: Takode can now keep the user's
@@ -10,9 +9,9 @@ export function UserContentNotice() {
   const { show, dismiss } = useUserContentNotice();
   if (!show) return null;
   function setUp() {
+    // The section scrolls itself into view and highlights once Settings has rendered it.
+    requestUserContentFocus();
     window.location.hash = "#/settings";
-    // The Settings page mounts on the hash change; scroll once it has rendered.
-    setTimeout(() => document.getElementById(USER_CONTENT_SECTION_ID)?.scrollIntoView({ block: "start" }), 300);
   }
   return (
     <div className="px-4 py-2 border-b border-cc-border bg-cc-hover/60 text-xs flex items-center gap-3">

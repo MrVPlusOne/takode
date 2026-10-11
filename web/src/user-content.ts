@@ -36,10 +36,12 @@ export interface UserContentStatus {
   storeExists: boolean;
   storeEmpty: boolean;
   machines: UserContentMachineStatus[];
-  importCandidates: { hostId: string | null; summary?: UserLevelSummary; error?: string }[];
+  importCandidates: { hostId: string | null; summary?: UserLevelSummary; error?: string; pending?: boolean }[];
 }
 
 const POLL_MS = 10_000;
+/** While machines are still being read, poll quickly so each preview appears soon after it is ready. */
+const PENDING_POLL_MS = 1_500;
 
 /** The server's user content status, refreshed while the caller is mounted. */
 export function useUserContentStatus(): { status: UserContentStatus | null; refresh: () => Promise<void> } {
@@ -52,12 +54,31 @@ export function useUserContentStatus(): { status: UserContentStatus | null; refr
       // Keep the last known status while the server is unreachable.
     }
   }
+  const pending = status?.importCandidates.some((candidate) => candidate.pending) ?? false;
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    if (status === null) void refresh();
+    const timer = setInterval(() => void refresh(), pending ? PENDING_POLL_MS : POLL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [pending]);
   return { status, refresh };
+}
+
+/** Set by the one-time notice so the section scrolls itself into view once Settings has rendered it. */
+let focusRequested = false;
+
+export const USER_CONTENT_FOCUS_EVENT = "takode:user-content-focus";
+
+export function requestUserContentFocus(): void {
+  focusRequested = true;
+  // A section that is already on screen (Settings was open) hears this instead of waiting for a mount.
+  window.dispatchEvent(new Event(USER_CONTENT_FOCUS_EVENT));
+}
+
+/** Whether the notice asked for the section; asking clears the request. */
+export function takeUserContentFocusRequest(): boolean {
+  const requested = focusRequested;
+  focusRequested = false;
+  return requested;
 }
 
 async function post(path: string, hostId: string | null): Promise<void> {

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRemoteHosts } from "../remote-hosts.js";
 import {
   describeImport,
   importUserContent,
   pendingApprovals,
   takeOverUserContent,
+  takeUserContentFocusRequest,
+  USER_CONTENT_FOCUS_EVENT,
   useUserContentStatus,
   type UserContentMachineStatus,
 } from "../user-content.js";
@@ -28,6 +30,31 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
   const [error, setError] = useState("");
   /** The action waiting for a second click, so nothing is replaced on a single tap. */
   const [confirming, setConfirming] = useState<string | null>(null);
+  /** Highlighted briefly after the one-time notice brought the user here. */
+  const [focused, setFocused] = useState(false);
+  const loaded = status !== null;
+
+  // Scroll once the section has its content, so later layout changes on the page cannot move it out of view.
+  useEffect(() => {
+    if (!loaded) return;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    let unhighlight: ReturnType<typeof setTimeout> | undefined;
+    const focus = () => {
+      if (!takeUserContentFocusRequest()) return;
+      const scroll = () => document.getElementById(USER_CONTENT_SECTION_ID)?.scrollIntoView({ block: "start" });
+      scroll();
+      setFocused(true);
+      again = setTimeout(scroll, 400);
+      unhighlight = setTimeout(() => setFocused(false), 4000);
+    };
+    focus();
+    window.addEventListener(USER_CONTENT_FOCUS_EVENT, focus);
+    return () => {
+      window.removeEventListener(USER_CONTENT_FOCUS_EVENT, focus);
+      clearTimeout(again);
+      clearTimeout(unhighlight);
+    };
+  }, [loaded]);
 
   const machineName = (hostId: string | null) =>
     hostId === null
@@ -51,7 +78,10 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
   }
 
   return (
-    <div id={USER_CONTENT_SECTION_ID}>
+    <div
+      id={USER_CONTENT_SECTION_ID}
+      className={`scroll-mt-28 rounded-lg transition-shadow ${focused ? "ring-2 ring-cc-primary/60" : ""}`}
+    >
       <SettingsSubsection
         title="Your Instructions and Skills"
         description="Kept once on this server's machine and delivered to every machine's ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and skill folders, so every session reads the same copy. Files you made yourself are replaced only after you approve here (identical ones need no approval), and every replaced file is backed up on its machine."
@@ -69,13 +99,17 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
                   Not set up yet. Import copies one machine's instruction files and skills into the store, then lets
                   Takode manage that machine's files. Other machines stay as they are until you approve each.
                 </div>
-                {status.importCandidates.map(({ hostId, summary, error: candidateError }) => {
+                {status.importCandidates.map(({ hostId, summary, error: candidateError, pending }) => {
                   const key = `import:${hostId ?? ""}`;
                   return (
                     <div key={key} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 space-y-1">
                       <div className="text-cc-fg font-medium">{machineName(hostId)}</div>
                       <div className="text-cc-muted">
-                        {summary ? describeImport(summary) : `Could not read it: ${candidateError}`}
+                        {summary
+                          ? describeImport(summary)
+                          : pending
+                            ? "Reading this machine's instructions and skills…"
+                            : `Could not read it: ${candidateError}`}
                       </div>
                       {summary && (
                         <button

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
-import type { UserContentStatus } from "../user-content.js";
+import { requestUserContentFocus, type UserContentStatus } from "../user-content.js";
 
 /** A fake of GET /api/hosts and the user content routes, in the shapes the server answers with. */
 function serve(status: UserContentStatus) {
@@ -67,6 +67,25 @@ describe("SettingsUserContentSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm import from laptop" }));
 
     await waitFor(() => expect(posts).toEqual([{ url: "/api/user-content/import", body: { hostId: "h1" } }]));
+  });
+
+  it("shows machines still being read, and scrolls itself into view when the notice sent the user here", async () => {
+    // Set up on the one-time notice must land on this section, not wherever Settings happened to scroll.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    serve({
+      store,
+      storeExists: false,
+      storeEmpty: true,
+      machines: [],
+      importCandidates: [{ hostId: "h1", pending: true }],
+    });
+    requestUserContentFocus();
+    render(<SettingsUserContentSection />);
+
+    expect(await screen.findByText("Reading this machine's instructions and skills…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Import from here" })).toBeNull();
+    expect(scrollIntoView).toHaveBeenCalled();
   });
 
   it("labels what waits for approval, takes it over after confirmation and shows where backups went", async () => {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UserContentNotice } from "./UserContentNotice.js";
+import { takeUserContentFocusRequest } from "../user-content.js";
 
 /** The notice asks the server whether to show; dismissing tells the server, so it stays gone in every browser. */
 function serve(show: boolean) {
@@ -34,6 +35,8 @@ describe("UserContentNotice", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     expect(window.location.hash).toBe("#/settings");
+    // The Settings section picks this up and scrolls itself into view once rendered.
+    expect(takeUserContentFocusRequest()).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();

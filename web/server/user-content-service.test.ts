@@ -109,23 +109,31 @@ describe("UserContentService", () => {
     expect(mocks.onMachine).toHaveBeenCalledTimes(2);
   });
 
-  it("previews each connected machine for import and shows the one-time notice until dismissed", async () => {
-    mocks.onMachine.mockImplementation(async (hostId) => ({
-      claudeChars: hostId === null ? 0 : 1200,
-      codexChars: 0,
-      sharedInstructions: false,
-      skills: [],
-    }));
+  it("lists every machine at once, fills in each import preview as it arrives, and shows the notice until dismissed", async () => {
+    // A slow machine must not hold the whole status: Settings showed nothing for a minute before this.
+    let finishLaptop: (summary: unknown) => void = () => {};
+    mocks.onMachine.mockImplementation((hostId) =>
+      hostId === null
+        ? Promise.resolve({ claudeChars: 0, codexChars: 0, sharedInstructions: false, skills: [] })
+        : new Promise((resolve) => {
+            finishLaptop = resolve;
+          }),
+    );
     const links = { status: () => ({ online: true }), onStatusChange: () => () => {} };
     service.start({ links: links as never, listHostIds: async () => ["laptop"] });
 
-    const status = await service.status();
-
-    expect(status.storeEmpty).toBe(true);
-    expect(status.importCandidates.map((candidate) => [candidate.hostId, candidate.summary?.claudeChars])).toEqual([
-      [null, 0],
-      ["laptop", 1200],
+    const first = await service.status();
+    expect(first.storeEmpty).toBe(true);
+    expect(first.importCandidates).toEqual([
+      { hostId: null, pending: true },
+      { hostId: "laptop", pending: true },
     ]);
+
+    await vi.waitFor(async () => expect((await service.status()).importCandidates[0].summary?.claudeChars).toBe(0));
+    expect((await service.status()).importCandidates[1]).toEqual({ hostId: "laptop", pending: true });
+
+    finishLaptop({ claudeChars: 1200, codexChars: 0, sharedInstructions: false, skills: [] });
+    await vi.waitFor(async () => expect((await service.status()).importCandidates[1].summary?.claudeChars).toBe(1200));
     expect(await service.notice()).toEqual({ show: true });
     await service.dismissNotice();
     expect(await service.notice()).toEqual({ show: false });
