@@ -5,21 +5,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   collectUserLevelContent,
   readUserContentBundle,
+  summarizeUserLevelContent,
   userContentStoreIsEmpty,
   userContentStoreSignature,
   userLevelPaths,
   writeImportedUserContent,
+  type UserContentStore,
 } from "./user-content.js";
 
 // The coordinator's store and a machine's home live under a fresh temp root,
 // so no test reads or writes a real home directory.
 let root: string;
-let store: string;
+let store: UserContentStore;
 let home: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "user-content-test-"));
-  store = join(root, "store");
+  store = { instructions: join(root, "user-instructions"), skills: join(root, "user-skills") };
   home = join(root, "home");
 });
 
@@ -37,9 +39,9 @@ const skillText = (name: string, description = "test") =>
 
 describe("readUserContentBundle", () => {
   it("gives each backend the shared instructions followed by its own", async () => {
-    await put(join(store, "instructions", "all.md"), "Shared rule\n");
-    await put(join(store, "instructions", "claude.md"), "Claude rule");
-    await put(join(store, "instructions", "codex.md"), "Codex rule");
+    await put(join(store.instructions, "all.md"), "Shared rule\n");
+    await put(join(store.instructions, "claude.md"), "Claude rule");
+    await put(join(store.instructions, "codex.md"), "Codex rule");
 
     const { content } = await readUserContentBundle(store);
 
@@ -47,15 +49,15 @@ describe("readUserContentBundle", () => {
   });
 
   it("reads skill files with their modes, follows links and skips hidden files and folders without SKILL.md", async () => {
-    await put(join(store, "skills", "all", "alpha", "SKILL.md"), skillText("alpha"));
-    await put(join(store, "skills", "all", "alpha", "scripts", "run.sh"), "#!/bin/sh\n");
-    await chmod(join(store, "skills", "all", "alpha", "scripts", "run.sh"), 0o755);
-    await put(join(store, "skills", "all", "alpha", ".DS_Store"), "x");
-    await put(join(store, "skills", "all", "not-a-skill", "notes.md"), "no SKILL.md here");
+    await put(join(store.skills, "all", "alpha", "SKILL.md"), skillText("alpha"));
+    await put(join(store.skills, "all", "alpha", "scripts", "run.sh"), "#!/bin/sh\n");
+    await chmod(join(store.skills, "all", "alpha", "scripts", "run.sh"), 0o755);
+    await put(join(store.skills, "all", "alpha", ".DS_Store"), "x");
+    await put(join(store.skills, "all", "not-a-skill", "notes.md"), "no SKILL.md here");
     // A store entry may link to a skill kept elsewhere, such as a personal skills repo.
     await put(join(root, "elsewhere", "beta", "SKILL.md"), skillText("beta"));
-    await mkdir(join(store, "skills", "codex"), { recursive: true });
-    await symlink(join(root, "elsewhere", "beta"), join(store, "skills", "codex", "beta"));
+    await mkdir(join(store.skills, "codex"), { recursive: true });
+    await symlink(join(root, "elsewhere", "beta"), join(store.skills, "codex", "beta"));
 
     const { content } = await readUserContentBundle(store);
 
@@ -68,21 +70,39 @@ describe("readUserContentBundle", () => {
   });
 
   it("changes its hash, and the store signature, when content changes", async () => {
-    await put(join(store, "skills", "all", "alpha", "SKILL.md"), skillText("alpha"));
+    await put(join(store.skills, "all", "alpha", "SKILL.md"), skillText("alpha"));
     const before = await readUserContentBundle(store);
     const signature = await userContentStoreSignature(store);
     expect((await readUserContentBundle(store)).hash).toBe(before.hash);
 
-    await put(join(store, "instructions", "all.md"), "New rule");
+    await put(join(store.instructions, "all.md"), "New rule");
 
     expect((await readUserContentBundle(store)).hash).not.toBe(before.hash);
+    expect(await userContentStoreSignature(store)).not.toBe(signature);
+  });
+
+  it("follows store folders that link into a checkout and notices changes made through the link", async () => {
+    // The recommended setup: both store folders are links into a Git checkout of the user's instructions.
+    const checkout = join(root, "checkout");
+    await put(join(checkout, "user-instructions", "all.md"), "Rules v1");
+    await put(join(checkout, "user-skills", "all", "alpha", "SKILL.md"), skillText("alpha"));
+    await symlink(join(checkout, "user-instructions"), store.instructions);
+    await symlink(join(checkout, "user-skills"), store.skills);
+    const signature = await userContentStoreSignature(store);
+
+    const { content } = await readUserContentBundle(store);
+    expect(content.instructions.claude).toBe("Rules v1");
+    expect(content.skills.map((file) => file.skill)).toEqual(["alpha"]);
+
+    // An edit in the checkout, for example a git pull, changes the signature the coordinator watches.
+    await put(join(checkout, "user-skills", "all", "alpha", "SKILL.md"), skillText("alpha", "edited in the checkout"));
     expect(await userContentStoreSignature(store)).not.toBe(signature);
   });
 
   it("treats a missing or contentless store as empty, and reports no signature without a store", async () => {
     expect(await userContentStoreIsEmpty(store)).toBe(true);
     expect(await userContentStoreSignature(store)).toBeNull();
-    await mkdir(join(store, "skills", "all"), { recursive: true });
+    await mkdir(join(store.skills, "all"), { recursive: true });
     expect(await userContentStoreIsEmpty(store)).toBe(true);
   });
 });
@@ -109,10 +129,23 @@ describe("one-time import", () => {
     const summary = await writeImportedUserContent(collected, store);
 
     expect(summary.instructionFiles).toEqual(["all.md"]);
-    expect(await readFile(join(store, "instructions", "all.md"), "utf-8")).toBe("Same rules\n");
+    expect(await readFile(join(store.instructions, "all.md"), "utf-8")).toBe("Same rules\n");
     expect(summary.skills.sort()).toEqual(["all/both", "claude/differs", "claude/only-claude", "codex/differs"]);
     expect(collected.skipped.some((entry) => entry.includes("quest"))).toBe(true);
     expect(collected.skipped.some((entry) => entry.includes("delivered"))).toBe(true);
+  });
+
+  it("summarizes what an import would bring in without the contents", async () => {
+    await put(paths().claudeInstructions, "Same rules");
+    await put(paths().codexInstructions, "Same rules");
+    await put(join(paths().agentsSkills, "mine", "SKILL.md"), skillText("mine"));
+
+    expect(await summarizeUserLevelContent([], join(root, "installed") + sep, paths())).toEqual({
+      claudeChars: 10,
+      codexChars: 10,
+      sharedInstructions: true,
+      skills: ["mine"],
+    });
   });
 
   it("keeps each backend's file separately when their instructions differ", async () => {

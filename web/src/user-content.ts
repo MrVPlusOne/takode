@@ -13,18 +13,30 @@ export interface UserContentMachineStatus {
       linked: string[];
       removed: string[];
       shadowedByTakode: string[];
-      conflicts: string[];
+      conflicts: { path: string; detail: string }[];
       takenOver: string[];
     };
     notes: string[];
+    backupDir?: string;
   };
+  /** Where this machine's most recent backup went. */
+  lastBackup?: { dir: string; at: number };
+}
+
+/** What an import from one machine would bring in (server/user-content.ts `UserLevelSummary`). */
+export interface UserLevelSummary {
+  claudeChars: number;
+  codexChars: number;
+  sharedInstructions: boolean;
+  skills: string[];
 }
 
 export interface UserContentStatus {
-  storeRoot: string;
+  store: { instructions: string; skills: string };
   storeExists: boolean;
   storeEmpty: boolean;
   machines: UserContentMachineStatus[];
+  importCandidates: { hostId: string | null; summary?: UserLevelSummary; error?: string }[];
 }
 
 const POLL_MS = 10_000;
@@ -70,14 +82,51 @@ export function takeOverUserContent(hostId: string | null): Promise<void> {
   return post("/api/user-content/take-over", hostId);
 }
 
-/** What on a machine waits for the user's approval, one line each; empty when nothing does. */
-export function pendingApprovals(machine: UserContentMachineStatus): string[] {
+/** What on a machine waits for the user's approval, with why; empty when nothing does. */
+export function pendingApprovals(machine: UserContentMachineStatus): { path: string; detail: string }[] {
   const result = machine.result;
   if (!result) return [];
   return [
     ...result.instructionFiles
       .filter((file) => file.state === "conflict")
-      .map((file) => `${file.path}${file.detail ? ` (${file.detail})` : ""}`),
+      .map((file) => ({ path: file.path, detail: file.detail ?? "" })),
     ...result.skills.conflicts,
   ];
+}
+
+/** One line describing what an import from a machine would bring in. */
+export function describeImport(summary: UserLevelSummary): string {
+  const kb = (chars: number) => `${Math.max(1, Math.round(chars / 1024))} KB`;
+  const rules = summary.sharedInstructions
+    ? `rules ${kb(summary.claudeChars)} (one file for Claude and Codex)`
+    : [
+        summary.claudeChars ? `Claude rules ${kb(summary.claudeChars)}` : "",
+        summary.codexChars ? `Codex rules ${kb(summary.codexChars)}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ") || "no rules";
+  const count = summary.skills.length;
+  return `${rules}; ${count === 0 ? "no skills" : `${count} skill${count === 1 ? "" : "s"}: ${summary.skills.join(", ")}`}`;
+}
+
+/** Whether the app should show the one-time notice about setting this up. */
+export function useUserContentNotice(): { show: boolean; dismiss: () => void } {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/user-content/notice")
+      .then((response) => (response.ok ? (response.json() as Promise<{ show: boolean }>) : { show: false }))
+      .then((body) => !cancelled && setShow(body.show))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return {
+    show,
+    dismiss: () => {
+      setShow(false);
+      void fetch("/api/user-content/notice/dismiss", { method: "POST" });
+    },
+  };
 }

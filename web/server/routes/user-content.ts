@@ -12,6 +12,14 @@ export function createUserContentRoutes(service: UserContentService) {
 
   api.get("/user-content", async (c) => c.json(await service.status()));
 
+  /** The one-time notice after an upgrade, until the store has content or the user dismisses it. */
+  api.get("/user-content/notice", async (c) => c.json(await service.notice()));
+
+  api.post("/user-content/notice/dismiss", async (c) => {
+    await service.dismissNotice();
+    return c.json({ ok: true });
+  });
+
   api.post("/user-content/import", async (c) => {
     const hostId = await readHostId(c.req.json());
     try {

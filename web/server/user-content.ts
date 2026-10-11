@@ -4,17 +4,19 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /**
- * User content: the instructions and skills a user keeps once, in a store on
- * the coordinator (see `user-content-service.ts`), for every session on every
- * machine:
+ * User content: the instructions and skills a user keeps once, in two store
+ * folders on the coordinator (see `user-content-service.ts`), for every session
+ * on every machine:
  *
- *   <store>/instructions/{all,claude,codex}.md
- *   <store>/skills/{all,claude,codex}/<skill>/SKILL.md
+ *   ~/.companion/user-instructions/{all,claude,codex}.md
+ *   ~/.companion/user-skills/{all,claude,codex}/<skill>/SKILL.md
  *
- * Takode delivers it to the standard places Claude Code and Codex read on each
- * machine: `~/.claude/CLAUDE.md` (all + claude), `~/.codex/AGENTS.md`
- * (all + codex), and links in `~/.claude/skills` and `~/.agents/skills`.
- * See `user-content-install.ts` for the machine side.
+ * Either folder, and any entry in them, may be a link (for example into a Git
+ * checkout); links are followed. Takode delivers the content to the standard
+ * places Claude Code and Codex read on each machine: `~/.claude/CLAUDE.md`
+ * (all + claude), `~/.codex/AGENTS.md` (all + codex), and links in
+ * `~/.claude/skills` and `~/.agents/skills`. See `user-content-install.ts` for
+ * the machine side.
  */
 
 export const USER_CONTENT_SCOPES = ["all", "claude", "codex"] as const;
@@ -46,18 +48,28 @@ export interface UserContentBundle {
   content: UserContent;
 }
 
-/** Whether the store exists. Without it nothing is delivered and no machine's files are touched. */
-export async function userContentStoreExists(root: string): Promise<boolean> {
+/** The two store folders. */
+export interface UserContentStore {
+  instructions: string;
+  skills: string;
+}
+
+async function isDirectory(path: string): Promise<boolean> {
   try {
-    return (await stat(root)).isDirectory();
+    return (await stat(path)).isDirectory();
   } catch {
     return false;
   }
 }
 
+/** Whether a store folder exists. Without either, nothing is delivered and no machine's files are touched. */
+export async function userContentStoreExists(store: UserContentStore): Promise<boolean> {
+  return (await isDirectory(store.instructions)) || (await isDirectory(store.skills));
+}
+
 /** Whether the store holds no instructions and no skills (a fresh install). */
-export async function userContentStoreIsEmpty(root: string): Promise<boolean> {
-  const bundle = await readUserContentBundle(root);
+export async function userContentStoreIsEmpty(store: UserContentStore): Promise<boolean> {
+  const bundle = await readUserContentBundle(store);
   return !bundle.content.instructions.claude && !bundle.content.instructions.codex && !bundle.content.skills.length;
 }
 
@@ -75,19 +87,19 @@ async function readOptionalText(path: string): Promise<string> {
  * may point at a skill kept elsewhere. Hidden files and folders are left out,
  * as are skill folders without a SKILL.md.
  */
-export async function readUserContentBundle(root: string): Promise<UserContentBundle> {
+export async function readUserContentBundle(store: UserContentStore): Promise<UserContentBundle> {
   const [all, claude, codex] = await Promise.all(
-    USER_CONTENT_SCOPES.map((scope) => readOptionalText(join(root, "instructions", `${scope}.md`))),
+    USER_CONTENT_SCOPES.map((scope) => readOptionalText(join(store.instructions, `${scope}.md`))),
   );
-  const join2 = (a: string, b: string) => [a, b].filter(Boolean).join("\n\n");
-  const instructions = { claude: join2(all, claude), codex: join2(all, codex) };
+  const both = (a: string, b: string) => [a, b].filter(Boolean).join("\n\n");
+  const instructions = { claude: both(all, claude), codex: both(all, codex) };
   const skills: UserSkillFile[] = [];
   for (const scope of USER_CONTENT_SCOPES) {
-    for (const skill of await listSkillFolders(join(root, "skills", scope))) {
-      skills.push(...(await readSkillFolder(join(root, "skills", scope, skill), scope, skill)));
+    for (const skill of await listSkillFolders(join(store.skills, scope))) {
+      skills.push(...(await readSkillFolder(join(store.skills, scope, skill), scope, skill)));
     }
   }
-  checkSkillSize(skills, join(root, "skills"));
+  checkSkillSize(skills, store.skills);
   const hash = createHash("sha256");
   hash.update(`claude\0${instructions.claude}\0codex\0${instructions.codex}\0`);
   for (const file of skills) hash.update(`${file.scope}/${file.skill}/${file.path}\0${file.mode}\0${file.content}\0`);
@@ -100,11 +112,12 @@ function checkSkillSize(skills: UserSkillFile[], where: string): void {
 }
 
 /**
- * A cheap fingerprint of the store (names, sizes and modification times,
- * following links), so watching it for changes does not read every file.
+ * A cheap fingerprint of the store (names, sizes and modification times),
+ * following links, so a change made through a link into a checkout is noticed
+ * without reading every file.
  */
-export async function userContentStoreSignature(root: string): Promise<string | null> {
-  if (!(await userContentStoreExists(root))) return null;
+export async function userContentStoreSignature(store: UserContentStore): Promise<string | null> {
+  if (!(await userContentStoreExists(store))) return null;
   const parts: string[] = [];
   const walk = async (dir: string, prefix: string, depth: number) => {
     if (depth > 12) return;
@@ -115,7 +128,8 @@ export async function userContentStoreSignature(root: string): Promise<string | 
       if (info.isDirectory()) await walk(join(dir, name), `${prefix}${name}/`, depth + 1);
     }
   };
-  await walk(root, "", 0);
+  await walk(store.instructions, "instructions/", 0);
+  await walk(store.skills, "skills/", 0);
   return createHash("sha256").update(parts.join("\n")).digest("hex");
 }
 
@@ -230,6 +244,42 @@ export async function collectUserLevelContent(
   return { instructions, skills, skipped };
 }
 
+/** A digest of a skill folder's files and their bytes (links followed), to tell identical copies apart. */
+export async function skillFolderDigest(dir: string): Promise<string> {
+  const hash = createHash("sha256");
+  for (const path of await listFiles(dir, ""))
+    hash
+      .update(`${path}\0`)
+      .update(await readFile(join(dir, path)))
+      .update("\0");
+  return hash.digest("hex");
+}
+
+export interface UserLevelSummary {
+  /** Characters in each backend's instruction file; 0 when there is none. */
+  claudeChars: number;
+  codexChars: number;
+  /** Both backends read the same instruction text (one file, or one linking to the other). */
+  sharedInstructions: boolean;
+  /** Names of the user's own skills (Takode's skills and links excluded). */
+  skills: string[];
+}
+
+/** What an import from this machine would bring in, without the file contents. */
+export async function summarizeUserLevelContent(
+  takodeSkills: string[],
+  ownPrefix: string,
+  paths: UserLevelPaths = userLevelPaths(),
+): Promise<UserLevelSummary> {
+  const { instructions, skills } = await collectUserLevelContent(takodeSkills, ownPrefix, paths);
+  return {
+    claudeChars: instructions.claude.length,
+    codexChars: instructions.codex.length,
+    sharedInstructions: !!instructions.claude && instructions.claude === instructions.codex,
+    skills: [...new Set(skills.map((file) => file.skill))].sort(),
+  };
+}
+
 function sameFiles(a: UserSkillFile[], b: UserSkillFile[]): boolean {
   const key = (files: UserSkillFile[]) => files.map((f) => `${f.path}\0${f.mode}\0${f.content}`).join("\n");
   return key(a) === key(b);
@@ -239,7 +289,7 @@ function sameFiles(a: UserSkillFile[], b: UserSkillFile[]): boolean {
  * Write collected content into an empty store: one shared file when both
  * backends read the same instructions, otherwise each backend's own file.
  */
-export async function writeImportedUserContent(collected: CollectedUserContent, root: string) {
+export async function writeImportedUserContent(collected: CollectedUserContent, store: UserContentStore) {
   const { claude, codex } = collected.instructions;
   const files: Record<string, string> = {};
   if (claude && claude === codex) files.all = claude;
@@ -247,13 +297,13 @@ export async function writeImportedUserContent(collected: CollectedUserContent, 
     if (claude) files.claude = claude;
     if (codex) files.codex = codex;
   }
-  for (const scope of USER_CONTENT_SCOPES) await mkdir(join(root, "skills", scope), { recursive: true });
-  await mkdir(join(root, "instructions"), { recursive: true });
+  for (const scope of USER_CONTENT_SCOPES) await mkdir(join(store.skills, scope), { recursive: true });
+  await mkdir(store.instructions, { recursive: true });
   for (const [scope, text] of Object.entries(files)) {
-    await writeFile(join(root, "instructions", `${scope}.md`), `${text}\n`);
+    await writeFile(join(store.instructions, `${scope}.md`), `${text}\n`);
   }
   for (const file of collected.skills) {
-    const target = join(root, "skills", file.scope, file.skill, file.path);
+    const target = join(store.skills, file.scope, file.skill, file.path);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, Buffer.from(file.content, "base64"));
     await chmod(target, file.mode);

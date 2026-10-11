@@ -25,7 +25,11 @@ up rather than shipping scripts for it. The examples use the machine names
   - memory repos, whole, with their Git history and remotes;
   - unarchived sessions with their timers, notifications, boards and attachments;
   - registered hosts, landing gates and the landing queue, to-dos and the other
-    server state.
+    server state;
+  - your instructions and skills store (`~/.companion/user-instructions` and
+    `~/.companion/user-skills`). A store folder that is a link moves as the same
+    link, so clone the checkout it points to on the new machine first, at the
+    same path (see the next section).
 - **Stays on the old machine:**
   - archived sessions, whose history remains in its files and is not searchable
     on the new coordinator;
@@ -40,6 +44,40 @@ up rather than shipping scripts for it. The examples use the machine names
   refuses to start on the old machine and prints where it moved (exit code 44,
   which `make serve` does not restart). Two coordinators with one identity would
   split quests, memory and sessions. `reclaim` lifts the fence for a rollback.
+
+## Your instructions and skills
+
+Moving the coordinator usually means the user now works across several
+machines, which is exactly when their personal instructions and skills tend to
+drift apart. Before you propose or run a move (or add a host), check how they
+are handled today and explain it to the user:
+
+1. **Look.** `GET /api/user-content` on the current coordinator shows whether
+   a store exists and, while it is empty, what each connected machine would
+   bring in: rules size, whether Claude and Codex share one file, and skill
+   names. Also note copies kept by hand (`CLAUDE.md` or skill links into
+   personal checkouts, temporary copies), since those are what drifts.
+2. **Explain.** Without a store, each machine keeps its own
+   `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and skills, and sessions on other
+   machines do not see them. With a store, Takode keeps one copy on the
+   coordinator and owns those files on every machine. See
+   [Your instructions and skills on every machine](user-instructions-and-skills.md)
+   for how it works, what is backed up, and how identical items need no
+   approval while different ones wait for the user's.
+3. **Recommend switching** when the user runs sessions on more than one
+   machine: most such users want one copy. Suggest keeping the content in a
+   private Git repository, with both store folders linking into one checkout of
+   it on the coordinator, so edits are versioned and survive a move.
+4. **Migrate with the user's approval.** Pick the machine that holds the
+   user's real copy (usually the one they have worked on longest), confirm with
+   the preview that nothing unique would be lost elsewhere, then import from it
+   (or fill the store from the repository) and take over each other machine.
+   Identical items switch over by themselves; read out each "waiting" item and
+   its reason before approving its take-over. Afterwards, remove the hand-made
+   copies and links, so no session loads a skill twice.
+5. **When moving** with a store that links into a checkout, clone that
+   repository on the new machine at the same path before the import, or the
+   moved links point nowhere. A store of plain folders moves as is.
 
 ## Prerequisites
 

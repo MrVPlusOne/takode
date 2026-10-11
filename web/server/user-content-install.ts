@@ -16,6 +16,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, sep } from "node:path";
 import {
+  skillFolderDigest,
   USER_CONTENT_SCOPES,
   type UserContent,
   type UserContentScope,
@@ -67,14 +68,14 @@ export type InstructionFileState =
   | "written" // created
   | "updated" // replaced Takode's earlier version
   | "removed" // Takode's file removed because nothing is left to deliver
-  | "conflict" // the user's own file, left until they approve a take-over
-  | "taken-over"; // the user's own file replaced with their approval
+  | "conflict" // a different file Takode did not write, left until the user approves a take-over
+  | "taken-over"; // a file Takode did not write, replaced: approved, or identical to the store's
 
 export interface InstructionFileResult {
   backend: "claude" | "codex";
   path: string;
   state: InstructionFileState;
-  /** Why a conflict was left, in a few words. */
+  /** Why a conflict was left, or why a take-over needed no approval, in a few words. */
   detail?: string;
   backup?: string;
 }
@@ -88,8 +89,9 @@ export interface UserContentInstallResult {
     removed: string[];
     /** User skills not linked because a Takode skill of that name is installed. */
     shadowedByTakode: string[];
-    /** The user's own skill entries in the way, left until they approve a take-over. */
-    conflicts: string[];
+    /** Skill entries Takode did not create that differ from the store's, left until the user approves a take-over. */
+    conflicts: { path: string; detail: string }[];
+    /** Entries replaced by Takode's link: approved, or identical to the store's copy. */
     takenOver: string[];
   };
   /** Other facts the user should know, such as an AGENTS.override.md that hides AGENTS.md. */
@@ -297,22 +299,31 @@ async function deliverFile(
   }
   let state: InstructionFileState = "written";
   let backup: string | undefined;
+  let detail: string | undefined;
   if (info) {
     if (!isLink && current === null) return { ...base, state: "conflict", detail: "not a regular file" };
-    if (!ours && !takeOver) {
-      const detail = isLink ? `a link to ${await readlink(path)}` : "not written by Takode";
+    // A link to a file that already holds the store's text loses nothing when replaced.
+    const linkedSame = isLink && (await readFile(path, "utf-8").catch(() => null))?.trim() === desired;
+    if (!ours && !takeOver && !linkedSame) {
+      const edited = current !== null && ownership[path] !== undefined;
+      detail = isLink
+        ? `a link to ${await readlink(path)}, differs from the store`
+        : edited
+          ? "edited by hand after Takode wrote it"
+          : "differs from the store";
       return { ...base, state: "conflict", detail };
     }
     backup = await backups.save(path, backupName);
     await unlink(path);
     state = ours ? "updated" : "taken-over";
+    if (linkedSame && !ours) detail = "same as the store";
   }
   await mkdir(dirname(path), { recursive: true });
   const staging = `${path}.takode-${randomBytes(3).toString("hex")}`;
   await writeFile(staging, `${desired}\n`);
   await rename(staging, path);
   ownership[path] = sha(desired);
-  return { ...base, state, ...(backup ? { backup } : {}) };
+  return { ...base, state, ...(backup ? { backup } : {}), ...(detail ? { detail } : {}) };
 }
 
 async function installedSkills(installRoot: string): Promise<Map<UserContentScope, string[]>> {
@@ -364,8 +375,12 @@ async function linkSkills(
     const existing = await lstat(entry).catch(() => null);
     if (existing?.isSymbolicLink() && (await readlink(entry)) === source) continue;
     if (existing) {
-      if (!takeOver) {
-        result.skills.conflicts.push(entry);
+      // An entry with exactly the store's files loses nothing when replaced, so it needs no approval.
+      const same = await skillFolderDigest(entry)
+        .then(async (digest) => digest === (await skillFolderDigest(source)))
+        .catch(() => false);
+      if (!takeOver && !same) {
+        result.skills.conflicts.push({ path: entry, detail: "differs from the store" });
         continue;
       }
       await backups.move(entry, join(`skills-${label}`, name));

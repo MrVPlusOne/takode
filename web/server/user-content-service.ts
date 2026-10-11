@@ -1,10 +1,13 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { LOCAL_HOST_ID } from "./remote-host/host-registry.js";
 import type { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { onMachine } from "./remote-host/host-operations.js";
 import { takodeSkillSlugs } from "./skill-symlink.js";
 import {
+  type UserContentStore,
+  type UserLevelSummary,
   readUserContentBundle,
   userContentStoreExists,
   userContentStoreIsEmpty,
@@ -13,14 +16,23 @@ import {
 } from "./user-content.js";
 import type { UserContentInstallResult } from "./user-content-install.js";
 
-/** The coordinator's store: `instructions/{all,claude,codex}.md` and `skills/{all,claude,codex}/<skill>/`. */
-export function userContentRoot(): string {
-  return join(homedir(), ".companion", "user-content");
+/**
+ * The coordinator's store: `user-instructions/{all,claude,codex}.md` and
+ * `user-skills/{all,claude,codex}/<skill>/`. Either may be a link, for example
+ * into a Git checkout of the user's instructions.
+ */
+export function userContentStore(home = homedir()): UserContentStore {
+  return {
+    instructions: join(home, ".companion", "user-instructions"),
+    skills: join(home, ".companion", "user-skills"),
+  };
 }
 
 /** A slow or unreachable machine must not hold a launch for the host link's full operation timeout. */
 const SYNC_TIMEOUT_MS = 20_000;
 const STORE_POLL_MS = 30_000;
+/** Import previews read every machine's skills, so they are reused for a while. */
+const SUMMARY_TTL_MS = 60_000;
 
 export interface UserContentMachineStatus {
   /** Null for the coordinator's own machine. */
@@ -28,14 +40,25 @@ export interface UserContentMachineStatus {
   at: number;
   result?: UserContentInstallResult;
   error?: string;
+  /** Where this machine's most recent backup went, kept after later deliveries that back nothing up. */
+  lastBackup?: { dir: string; at: number };
+}
+
+/** What an import from one machine would bring in, for choosing the machine to import from. */
+export interface UserContentImportCandidate {
+  hostId: string | null;
+  summary?: UserLevelSummary;
+  error?: string;
 }
 
 export interface UserContentStatus {
-  storeRoot: string;
+  store: UserContentStore;
   /** Without a store nothing is delivered and no machine's files are touched. */
   storeExists: boolean;
   storeEmpty: boolean;
   machines: UserContentMachineStatus[];
+  /** Each connected machine's import preview; only while the store is empty. */
+  importCandidates: UserContentImportCandidate[];
 }
 
 interface HostAccess {
@@ -53,11 +76,14 @@ export class UserContentService {
   private hosts: HostAccess | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private signature: string | null | undefined;
-  private readonly root: string;
+  private readonly store: UserContentStore;
+  private readonly noticeFile: string;
   private readonly takodeSkills: () => Promise<string[]>;
+  private candidates: { at: number; value: Promise<UserContentImportCandidate[]> } | null = null;
 
-  constructor(options: { root?: string; takodeSkills?: () => Promise<string[]> } = {}) {
-    this.root = options.root ?? userContentRoot();
+  constructor(options: { store?: UserContentStore; noticeFile?: string; takodeSkills?: () => Promise<string[]> } = {}) {
+    this.store = options.store ?? userContentStore();
+    this.noticeFile = options.noticeFile ?? join(homedir(), ".companion", "user-content-notice.json");
     this.takodeSkills = options.takodeSkills ?? (() => takodeSkillSlugs());
   }
 
@@ -84,7 +110,7 @@ export class UserContentService {
 
   /** Deliver to every connected machine when the store changed since the last check. */
   async checkForChanges(): Promise<void> {
-    const signature = await userContentStoreSignature(this.root).catch(() => null);
+    const signature = await userContentStoreSignature(this.store).catch(() => null);
     if (signature === this.signature) return;
     this.signature = signature;
     if (signature !== null) await this.syncAll("store changed");
@@ -106,29 +132,31 @@ export class UserContentService {
     reason: string,
     options: { takeOver?: boolean } = {},
   ): Promise<UserContentInstallResult | null> {
-    if (!(await userContentStoreExists(this.root))) return null;
+    if (!(await userContentStoreExists(this.store))) return null;
     const key = hostId ?? null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`timed out after ${SYNC_TIMEOUT_MS} ms`)), SYNC_TIMEOUT_MS);
-    });
     try {
-      const result = await Promise.race([this.deliver(key, !!options.takeOver), timeout]);
-      this.statuses.set(key ?? "", { hostId: key, at: Date.now(), result });
+      const result = await withTimeout(this.deliver(key, !!options.takeOver));
+      const previous = this.statuses.get(key ?? "")?.lastBackup;
+      const lastBackup = result.backupDir ? { dir: result.backupDir, at: Date.now() } : previous;
+      this.statuses.set(key ?? "", { hostId: key, at: Date.now(), result, ...(lastBackup ? { lastBackup } : {}) });
       logChanges(key, reason, result);
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.statuses.set(key ?? "", { hostId: key, at: Date.now(), error: message });
+      const lastBackup = this.statuses.get(key ?? "")?.lastBackup;
+      this.statuses.set(key ?? "", {
+        hostId: key,
+        at: Date.now(),
+        error: message,
+        ...(lastBackup ? { lastBackup } : {}),
+      });
       console.warn(`[user-content] Could not deliver user content to ${machineLabel(key)} (${reason}): ${message}`);
       return null;
-    } finally {
-      clearTimeout(timer);
     }
   }
 
   private async deliver(hostId: string | null, takeOver: boolean): Promise<UserContentInstallResult> {
-    const [bundle, takodeSkills] = await Promise.all([readUserContentBundle(this.root), this.takodeSkills()]);
+    const [bundle, takodeSkills] = await Promise.all([readUserContentBundle(this.store), this.takodeSkills()]);
     const request = { hash: bundle.hash, takodeSkills, takeOver };
     if (!hostId) return onMachine(null, "installUserContent", { ...request, content: bundle.content });
     const first = await onMachine(hostId, "installUserContent", { ...request, content: null });
@@ -137,13 +165,63 @@ export class UserContentService {
   }
 
   async status(): Promise<UserContentStatus> {
-    const storeExists = await userContentStoreExists(this.root);
+    const storeExists = await userContentStoreExists(this.store);
+    const storeEmpty = !storeExists || (await userContentStoreIsEmpty(this.store));
     return {
-      storeRoot: this.root,
+      store: this.store,
       storeExists,
-      storeEmpty: !storeExists || (await userContentStoreIsEmpty(this.root)),
+      storeEmpty,
       machines: [...this.statuses.values()],
+      importCandidates: storeEmpty ? await this.importCandidates() : [],
     };
+  }
+
+  /** What an import from each connected machine would bring in (reused for a minute). */
+  private importCandidates(): Promise<UserContentImportCandidate[]> {
+    if (this.candidates && Date.now() - this.candidates.at < SUMMARY_TTL_MS) return this.candidates.value;
+    const value = (async () => {
+      const takodeSkills = await this.takodeSkills();
+      const hostIds = (await this.hosts?.listHostIds().catch(() => [])) ?? [];
+      const machines = [null, ...hostIds.filter((id) => id !== LOCAL_HOST_ID && this.hosts?.links.status(id).online)];
+      return Promise.all(
+        machines.map(async (hostId): Promise<UserContentImportCandidate> => {
+          try {
+            return { hostId, summary: await withTimeout(onMachine(hostId, "summarizeUserContent", takodeSkills)) };
+          } catch (error) {
+            return { hostId, error: error instanceof Error ? error.message : String(error) };
+          }
+        }),
+      );
+    })();
+    this.candidates = { at: Date.now(), value };
+    return value;
+  }
+
+  /**
+   * Whether to show the one-time notice after an upgrade: the store is empty,
+   * some machine has user-level instructions or skills to import, and the user
+   * has not dismissed the notice.
+   */
+  async notice(): Promise<{ show: boolean }> {
+    if (await this.noticeDismissed()) return { show: false };
+    if (!(await userContentStoreIsEmpty(this.store))) return { show: false };
+    const candidates = await this.importCandidates();
+    const show = candidates.some(
+      ({ summary }) => summary && (summary.claudeChars || summary.codexChars || summary.skills.length),
+    );
+    return { show };
+  }
+
+  async dismissNotice(): Promise<void> {
+    await mkdir(dirname(this.noticeFile), { recursive: true });
+    await writeFile(this.noticeFile, `${JSON.stringify({ dismissedAt: Date.now() })}\n`);
+  }
+
+  private async noticeDismissed(): Promise<boolean> {
+    return readFile(this.noticeFile, "utf-8").then(
+      () => true,
+      () => false,
+    );
   }
 
   /**
@@ -154,12 +232,13 @@ export class UserContentService {
    * approves a take-over there too.
    */
   async importFrom(hostId: string | null) {
-    if (!(await userContentStoreIsEmpty(this.root))) {
+    if (!(await userContentStoreIsEmpty(this.store))) {
       throw new Error("The user content store already has content; import only fills an empty store");
     }
     const collected = await onMachine(hostId, "collectUserContent", await this.takodeSkills());
-    const imported = await writeImportedUserContent(collected, this.root);
-    this.signature = await userContentStoreSignature(this.root);
+    const imported = await writeImportedUserContent(collected, this.store);
+    this.signature = await userContentStoreSignature(this.store);
+    this.candidates = null;
     const result = await this.syncMachine(hostId, "import", { takeOver: true });
     void this.syncAll("import");
     return { ...imported, skipped: collected.skipped, result };
@@ -169,6 +248,14 @@ export class UserContentService {
   takeOver(hostId: string | null): Promise<UserContentInstallResult | null> {
     return this.syncMachine(hostId, "take-over approved", { takeOver: true });
   }
+}
+
+function withTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${SYNC_TIMEOUT_MS} ms`)), SYNC_TIMEOUT_MS);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 function machineLabel(hostId: string | null): string {

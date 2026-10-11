@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRemoteHosts } from "../remote-hosts.js";
 import {
+  describeImport,
   importUserContent,
   pendingApprovals,
   takeOverUserContent,
@@ -11,6 +12,9 @@ import { SettingsSubsection } from "./settings-controls.js";
 
 const BUTTON =
   "px-2.5 py-1 rounded-md text-xs font-medium border border-cc-border text-cc-fg hover:bg-cc-hover disabled:opacity-50";
+
+/** Anchor the one-time notice scrolls to. */
+export const USER_CONTENT_SECTION_ID = "settings-user-content";
 
 /**
  * The user's own instructions and skills, kept once on this server's machine
@@ -29,7 +33,6 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
     hostId === null
       ? `${local?.name ?? "This machine"} (this machine)`
       : (hosts.find((host) => host.id === hostId)?.name ?? hostId);
-  const machines: (string | null)[] = [null, ...hosts.filter((host) => host.online).map((host) => host.id)];
 
   function act(key: string, action: () => Promise<void>) {
     if (confirming !== key) {
@@ -48,56 +51,63 @@ export function SettingsUserContentSection({ hidden = false }: { hidden?: boolea
   }
 
   return (
-    <SettingsSubsection
-      title="Your Instructions and Skills"
-      description="Kept once on this server's machine and delivered to every machine's ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and skill folders, so every session reads the same copy. Files you made yourself are replaced only after you approve here, and every replaced file is backed up."
-      hidden={hidden}
-    >
-      {status && (
-        <div className="space-y-2 text-xs">
-          <div className="text-cc-muted">
-            Store: <span className="font-mono">{status.storeRoot}</span> (instructions/all.md, claude.md, codex.md;
-            skills/all, claude, codex)
-          </div>
-          {status.storeEmpty ? (
-            <div className="space-y-1.5">
-              <div className="text-cc-fg">
-                Not set up yet. Import copies one machine's instruction files and skills into the store, then lets
-                Takode manage that machine's files. Other machines stay as they are until you approve each.
-              </div>
-              {machines.map((hostId) => {
-                const key = `import:${hostId ?? ""}`;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`${BUTTON} mr-2`}
-                    disabled={busy}
-                    onClick={() => act(key, () => importUserContent(hostId))}
-                  >
-                    {confirming === key
-                      ? `Confirm import from ${machineName(hostId)}`
-                      : `Import from ${machineName(hostId)}`}
-                  </button>
-                );
-              })}
+    <div id={USER_CONTENT_SECTION_ID}>
+      <SettingsSubsection
+        title="Your Instructions and Skills"
+        description="Kept once on this server's machine and delivered to every machine's ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md and skill folders, so every session reads the same copy. Files you made yourself are replaced only after you approve here (identical ones need no approval), and every replaced file is backed up on its machine."
+        hidden={hidden}
+      >
+        {status && (
+          <div className="space-y-2 text-xs">
+            <div className="text-cc-muted">
+              Instructions: <span className="font-mono">{status.store.instructions}</span> (all.md, claude.md,
+              codex.md). Skills: <span className="font-mono">{status.store.skills}</span> (all, claude, codex).
             </div>
-          ) : (
-            status.machines.map((machine) => (
-              <MachineRow
-                key={machine.hostId ?? ""}
-                machine={machine}
-                name={machineName(machine.hostId)}
-                busy={busy}
-                confirming={confirming === `take-over:${machine.hostId ?? ""}`}
-                onTakeOver={() => act(`take-over:${machine.hostId ?? ""}`, () => takeOverUserContent(machine.hostId))}
-              />
-            ))
-          )}
-          {error && <div className="text-cc-error">{error}</div>}
-        </div>
-      )}
-    </SettingsSubsection>
+            {status.storeEmpty ? (
+              <div className="space-y-1.5">
+                <div className="text-cc-fg">
+                  Not set up yet. Import copies one machine's instruction files and skills into the store, then lets
+                  Takode manage that machine's files. Other machines stay as they are until you approve each.
+                </div>
+                {status.importCandidates.map(({ hostId, summary, error: candidateError }) => {
+                  const key = `import:${hostId ?? ""}`;
+                  return (
+                    <div key={key} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 space-y-1">
+                      <div className="text-cc-fg font-medium">{machineName(hostId)}</div>
+                      <div className="text-cc-muted">
+                        {summary ? describeImport(summary) : `Could not read it: ${candidateError}`}
+                      </div>
+                      {summary && (
+                        <button
+                          type="button"
+                          className={BUTTON}
+                          disabled={busy}
+                          onClick={() => act(key, () => importUserContent(hostId))}
+                        >
+                          {confirming === key ? `Confirm import from ${machineName(hostId)}` : "Import from here"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              status.machines.map((machine) => (
+                <MachineRow
+                  key={machine.hostId ?? ""}
+                  machine={machine}
+                  name={machineName(machine.hostId)}
+                  busy={busy}
+                  confirming={confirming === `take-over:${machine.hostId ?? ""}`}
+                  onTakeOver={() => act(`take-over:${machine.hostId ?? ""}`, () => takeOverUserContent(machine.hostId))}
+                />
+              ))
+            )}
+            {error && <div className="text-cc-error">{error}</div>}
+          </div>
+        )}
+      </SettingsSubsection>
+    </div>
   );
 }
 
@@ -124,15 +134,23 @@ function MachineRow({
       {pending.length > 0 && (
         <>
           <div className="text-cc-fg">Waiting for your approval to replace (each is backed up first):</div>
-          <ul className="list-disc pl-4 font-mono text-cc-muted">
+          <ul className="list-disc pl-4 text-cc-muted">
             {pending.map((entry) => (
-              <li key={entry}>{entry}</li>
+              <li key={entry.path}>
+                <span className="font-mono">{entry.path}</span>
+                {entry.detail && <span>: {entry.detail}</span>}
+              </li>
             ))}
           </ul>
           <button type="button" className={BUTTON} disabled={busy} onClick={onTakeOver}>
             {confirming ? "Confirm: replace with the store's copy" : "Let Takode manage these"}
           </button>
         </>
+      )}
+      {machine.lastBackup && (
+        <div className="text-cc-muted">
+          Replaced files were backed up on this machine to <span className="font-mono">{machine.lastBackup.dir}</span>
+        </div>
       )}
       {shadowed.length > 0 && (
         <div className="text-cc-muted">

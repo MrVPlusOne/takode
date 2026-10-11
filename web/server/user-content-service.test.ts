@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { UserContentStore } from "./user-content.js";
 import type { UserContentInstallResult } from "./user-content-install.js";
 
 // The service decides what crosses the host link and when; the machine side is
@@ -19,14 +20,18 @@ const done = (status: UserContentInstallResult["status"]): UserContentInstallRes
 });
 
 let root: string;
-let store: string;
+let store: UserContentStore;
 let service: UserContentService;
 
 beforeEach(async () => {
   vi.clearAllMocks();
   root = await mkdtemp(join(tmpdir(), "user-content-service-test-"));
-  store = join(root, "store");
-  service = new UserContentService({ root: store, takodeSkills: async () => ["quest"] });
+  store = { instructions: join(root, "user-instructions"), skills: join(root, "user-skills") };
+  service = new UserContentService({
+    store,
+    noticeFile: join(root, "notice.json"),
+    takodeSkills: async () => ["quest"],
+  });
 });
 
 afterEach(async () => {
@@ -35,8 +40,8 @@ afterEach(async () => {
 });
 
 async function seed(text = "Rules") {
-  await mkdir(join(store, "instructions"), { recursive: true });
-  await writeFile(join(store, "instructions", "all.md"), text);
+  await mkdir(store.instructions, { recursive: true });
+  await writeFile(join(store.instructions, "all.md"), text);
 }
 
 describe("UserContentService", () => {
@@ -102,6 +107,37 @@ describe("UserContentService", () => {
     await seed("Edited rules");
     await service.checkForChanges();
     expect(mocks.onMachine).toHaveBeenCalledTimes(2);
+  });
+
+  it("previews each connected machine for import and shows the one-time notice until dismissed", async () => {
+    mocks.onMachine.mockImplementation(async (hostId) => ({
+      claudeChars: hostId === null ? 0 : 1200,
+      codexChars: 0,
+      sharedInstructions: false,
+      skills: [],
+    }));
+    const links = { status: () => ({ online: true }), onStatusChange: () => () => {} };
+    service.start({ links: links as never, listHostIds: async () => ["laptop"] });
+
+    const status = await service.status();
+
+    expect(status.storeEmpty).toBe(true);
+    expect(status.importCandidates.map((candidate) => [candidate.hostId, candidate.summary?.claudeChars])).toEqual([
+      [null, 0],
+      ["laptop", 1200],
+    ]);
+    expect(await service.notice()).toEqual({ show: true });
+    await service.dismissNotice();
+    expect(await service.notice()).toEqual({ show: false });
+  });
+
+  it("keeps showing where a machine's last backup went after later deliveries", async () => {
+    await seed();
+    mocks.onMachine.mockResolvedValueOnce({ ...done("installed"), backupDir: "/b/1" });
+    await service.syncMachine(null, "test");
+    mocks.onMachine.mockResolvedValueOnce(done("current"));
+    await service.syncMachine(null, "test");
+    expect((await service.status()).machines[0].lastBackup?.dir).toBe("/b/1");
   });
 
   it("imports into an empty store only, then takes over the source machine", async () => {
