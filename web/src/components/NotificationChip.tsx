@@ -26,7 +26,7 @@ import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { formatSnoozeUntil } from "./NeedsInputSnoozeControl.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { needsInputMenuItems } from "../utils/attention-item-menu.js";
+import { canCloseThreadTab, closeThreadTab, needsInputMenuItems } from "../utils/attention-item-menu.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
@@ -898,12 +898,18 @@ function NotificationPopover({
 
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
+function inThread(threadKey: string) {
+  return (item: NextAttentionItem) => item.threadKey !== null && normalizeThreadKey(item.threadKey) === threadKey;
+}
+
 /**
  * Floating attention chip: a one-tap "next" button for this session. Each tap
  * opens the next item that needs the user here (needs-input prompts, then
  * pending Notify Me results, then unread results), walking the whole list and
  * wrapping at the end; the label shows the next item's position and kind.
- * Long-press (phone) or right-click (desktop) opens the inbox listing them.
+ * Long-press (phone) or right-click (desktop) opens the inbox listing them,
+ * or, on a closable leader thread tab, a menu offering to close the tab and go
+ * to the next item (for reviewing tabs one by one) or to show the inbox.
  * With nothing to step through (only muted prompts, or counts whose details
  * have not loaded), a tap opens the inbox instead.
  * `attentionPreview` supplies fixed Notify Me and unread data for the Playground.
@@ -930,13 +936,44 @@ export function NotificationChip({
     [active, summary],
   );
   const mutedNeedsInput = muted.length;
-  const { next, goNext } = attention;
+  const { next, goNext, peekNext, open: openItem } = attention;
   const total = attention.queue.length;
   const inboxLabel = useMemo(
     () => formatChipAriaLabel({ needsInput, review, waiting, mutedNeedsInput }),
     [mutedNeedsInput, needsInput, review, waiting],
   );
-  const longPress = useLongPress(() => setOpen(true));
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+
+  // Items in the closed tab are skipped: the user is done reviewing it. The
+  // view moves straight to the next item's thread instead of passing through
+  // Main, then the item opens there.
+  const closeTabAndGoNext = useCallback(
+    (threadKey: string) => {
+      const landed = peekNext(inThread(threadKey));
+      closeThreadTab(sessionId, threadKey, landed?.item.threadKey ?? undefined);
+      if (!landed) return;
+      openItem(landed.item);
+      setLanding({ ...landed, sessionNum: null });
+    },
+    [openItem, peekNext, sessionId],
+  );
+  const longPress = useLongPress((x, y) => {
+    const threadKey = currentThreadKey ? normalizeThreadKey(currentThreadKey) : null;
+    if (!threadKey || !canCloseThreadTab(sessionId, threadKey)) {
+      setOpen(true);
+      return;
+    }
+    const closeLabel = peekNext(inThread(threadKey)) ? "Close tab and go to next" : "Close tab";
+    setOpen(false);
+    setMenu({
+      x,
+      y,
+      items: [
+        { label: closeLabel, onClick: () => closeTabAndGoNext(threadKey) },
+        { label: "Show list", onClick: () => setOpen(true) },
+      ],
+    });
+  });
 
   useEffect(() => {
     if (!landing) return;
@@ -969,10 +1006,14 @@ export function NotificationChip({
           onClick={activate}
           aria-label={
             next
-              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${next.position + 1} of ${total}. Right-click or long-press for the list.`
+              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${next.position + 1} of ${total}. Right-click or long-press for the list or to close this tab.`
               : inboxLabel
           }
-          title={next ? "Next item that needs attention here. Right-click or long-press for the list." : undefined}
+          title={
+            next
+              ? "Next item that needs attention here. Right-click or long-press for the list or to close this tab."
+              : undefined
+          }
           data-testid={next ? "session-attention-next" : undefined}
           className={`relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[18px] border bg-cc-card/95 py-1 pl-2.5 pr-1.5 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-cc-muted/35 cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${
             tone ? tone.border : "border-cc-border pr-2.5"
@@ -1022,6 +1063,7 @@ export function NotificationChip({
           onOpenAttentionItem={attention.open}
         />
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </>
   );
 }

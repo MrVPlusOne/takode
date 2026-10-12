@@ -777,10 +777,10 @@ export function ChatView({
   useEffect(() => {
     if (!isLeaderSession || preview) return;
     const onClose = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: string; threadKey?: string }>).detail;
+      const detail = (event as CustomEvent<{ sessionId?: string; threadKey?: string; nextThreadKey?: string }>).detail;
       if (detail?.sessionId !== sessionId || !detail.threadKey) return;
       event.preventDefault();
-      handleCloseThreadTab(detail.threadKey);
+      handleCloseThreadTab(detail.threadKey, detail.nextThreadKey);
     };
     window.addEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
     return () => window.removeEventListener(CLOSE_THREAD_TAB_EVENT, onClose);

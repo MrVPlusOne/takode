@@ -26,6 +26,11 @@ export interface AttentionNavigator {
   next: { item: NextAttentionItem; position: number } | null;
   /** Open the next item and say where it landed. */
   goNext: () => NextAttentionLanding | null;
+  /**
+   * Where the next step would land, without opening it, leaving out items
+   * `skip` rejects (position and total then count only the rest).
+   */
+  peekNext: (skip?: (item: NextAttentionItem) => boolean) => NextAttentionLanding | null;
   /** Open one item; later steps continue after it. */
   open: (item: NextAttentionItem) => void;
 }
@@ -73,16 +78,26 @@ export function useAttentionNavigator(
     [navigate, scope],
   );
 
-  const goNext = useCallback((): NextAttentionLanding | null => {
-    const step = pickAttentionAfter(queue, cursors.get(scope) ?? null);
-    if (!step) return null;
-    open(step.item);
-    const sessionNum =
-      useStore.getState().sdkSessions.find((session) => session.sessionId === step.item.sessionId)?.sessionNum ?? null;
-    return { item: step.item, sessionNum, position: step.position + 1, total: queue.length };
-  }, [open, queue, scope]);
+  const peekNext = useCallback(
+    (skip?: (item: NextAttentionItem) => boolean): NextAttentionLanding | null => {
+      const walked = skip ? queue.filter((item) => !skip(item)) : queue;
+      const step = pickAttentionAfter(walked, cursors.get(scope) ?? null);
+      if (!step) return null;
+      const sessionNum =
+        useStore.getState().sdkSessions.find((session) => session.sessionId === step.item.sessionId)?.sessionNum ??
+        null;
+      return { item: step.item, sessionNum, position: step.position + 1, total: walked.length };
+    },
+    [queue, scope],
+  );
 
-  return { next, goNext, open };
+  const goNext = useCallback((): NextAttentionLanding | null => {
+    const landing = peekNext();
+    if (landing) open(landing.item);
+    return landing;
+  }, [open, peekNext]);
+
+  return { next, goNext, peekNext, open };
 }
 
 /**

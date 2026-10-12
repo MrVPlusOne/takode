@@ -109,6 +109,17 @@ vi.mock("./MarkdownContent.js", () => ({
   ),
 }));
 
+// Tab closability comes from the leader's tab projection, and closing goes
+// through ChatView; both are covered in attention-item-menu and ChatView tests.
+const mockCanCloseThreadTab = vi.fn((_sessionId: string, _threadKey: string) => false);
+const mockCloseThreadTab = vi.fn((_sessionId: string, _threadKey: string, _nextThreadKey?: string) => {});
+vi.mock("../utils/attention-item-menu.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/attention-item-menu.js")>()),
+  canCloseThreadTab: (sessionId: string, threadKey: string) => mockCanCloseThreadTab(sessionId, threadKey),
+  closeThreadTab: (sessionId: string, threadKey: string, nextThreadKey?: string) =>
+    mockCloseThreadTab(sessionId, threadKey, nextThreadKey),
+}));
+
 import { NotificationChip } from "./NotificationChip.js";
 import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
 
@@ -259,6 +270,9 @@ describe("NotificationChip", () => {
     mockSendToSession.mockClear();
     mockSendToSession.mockReturnValue(true);
     mockSetSessionNotifications.mockClear();
+    mockCanCloseThreadTab.mockReset();
+    mockCanCloseThreadTab.mockReturnValue(false);
+    mockCloseThreadTab.mockClear();
   });
 
   afterEach(() => {
@@ -1489,6 +1503,90 @@ describe("NotificationChip", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    describe("close tab and go to next", () => {
+      // Long-press or right-click on a closable thread tab offers to close it
+      // and move on, for reviewing tabs one by one; the list stays one tap away.
+      function setPrompts() {
+        setNotifications("s1", [
+          { id: "here", category: "needs-input", summary: "Here", timestamp: 300, threadKey: "q-1", done: false },
+          { id: "next", category: "needs-input", summary: "Next", timestamp: 200, threadKey: "q-2", done: false },
+        ]);
+      }
+
+      it("closes the current tab, skips its own items and opens the next item", () => {
+        setPrompts();
+        mockCanCloseThreadTab.mockReturnValue(true);
+        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
+
+        fireEvent.contextMenu(chipButton());
+        expect(mockCanCloseThreadTab).toHaveBeenCalledWith("s1", "q-1");
+        expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Close tab and go to next" }));
+
+        // The prompt in the closed tab comes first in the queue but is skipped;
+        // the view is told to move straight to the next item's thread.
+        expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", "q-2");
+        expect(window.location.hash).toContain("thread=q-2");
+        expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 1");
+      });
+
+      it("only closes the tab when nothing else needs attention", () => {
+        setNotifications("s1", [
+          { id: "here", category: "needs-input", summary: "Here", timestamp: 300, threadKey: "q-1", done: false },
+        ]);
+        mockCanCloseThreadTab.mockReturnValue(true);
+        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
+
+        fireEvent.contextMenu(chipButton());
+        fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
+        expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", undefined);
+        expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
+      });
+
+      it("keeps the list one choice away", () => {
+        setPrompts();
+        mockCanCloseThreadTab.mockReturnValue(true);
+        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
+
+        fireEvent.contextMenu(chipButton());
+        fireEvent.click(screen.getByRole("button", { name: "Show list" }));
+        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+        expect(mockCloseThreadTab).not.toHaveBeenCalled();
+      });
+
+      it("opens the list directly on a tab that cannot close, like Main or active work", () => {
+        setPrompts();
+        render(<NotificationChip sessionId="s1" currentThreadKey="main" />);
+
+        fireEvent.contextMenu(chipButton());
+        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Close tab and go to next" })).not.toBeInTheDocument();
+      });
+
+      it("offers the choice on a phone long-press without stepping on lift", () => {
+        vi.useFakeTimers();
+        try {
+          setPrompts();
+          mockCanCloseThreadTab.mockReturnValue(true);
+          render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
+          fireEvent.touchStart(chipButton(), { touches: [{ clientX: 5, clientY: 5 }] });
+          act(() => {
+            vi.advanceTimersByTime(600);
+          });
+          fireEvent.touchEnd(chipButton());
+          // iOS can emulate mouse events on lift; they must neither step the
+          // chip nor dismiss the menu.
+          fireEvent.mouseDown(chipButton());
+          fireEvent.click(chipButton());
+
+          expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
+          expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it("opens the inbox on a tap when only muted prompts remain", () => {

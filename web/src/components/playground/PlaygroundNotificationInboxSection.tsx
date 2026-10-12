@@ -1,3 +1,10 @@
+import { useEffect } from "react";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
+import {
+  createLeaderThreadTabsProjectionEnvelope,
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "../../test-fixtures/leader-thread-tabs-projection.js";
 import { NotificationChip } from "../NotificationChip.js";
 import { PlaygroundNotifyMe } from "./PlaygroundNotifyMe.js";
 import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
@@ -499,6 +506,41 @@ function seedOwnerThreadNeedsInputPanel() {
   });
 }
 
+const CLOSE_TAB_SESSION_ID = "playground-attention-close-tab";
+
+/**
+ * The chip on a closable quest tab: its long-press or right-click offers
+ * "Close tab and go to next" before the list. The tab state is seeded so the
+ * chip sees q-2419 as closable; choosing Close asks the server, which has no
+ * such session here.
+ */
+function ClosableTabChip() {
+  useEffect(() => {
+    const store = useStore.getState();
+    store.applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: CLOSE_TAB_SESSION_ID,
+        generation: "playground-attention-close-tab",
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: { version: 1, orderedOpenThreadKeys: ["q-2419"], closedThreadTombstones: [], updatedAt: 1 },
+          tabs: [createLeaderThreadTabsProjectionTab("q-2419", { canClose: true })],
+        }),
+      }),
+    );
+    return () => store.clearSyncedProjectionKey(LEADER_THREAD_TABS_PROJECTION, CLOSE_TAB_SESSION_ID);
+  }, []);
+  return (
+    <NotificationChip
+      sessionId={CLOSE_TAB_SESSION_ID}
+      currentThreadKey="q-2419"
+      attentionPreview={{
+        notifyMe: ATTENTION_PREVIEW.notifyMe.map((entry) => ({ ...entry, sessionId: CLOSE_TAB_SESSION_ID })),
+        unread: ATTENTION_PREVIEW.unread.map((item) => ({ ...item, sessionId: CLOSE_TAB_SESSION_ID })),
+      }}
+    />
+  );
+}
+
 export function PlaygroundNotificationInboxSection() {
   return (
     <Section
@@ -545,10 +587,11 @@ export function PlaygroundNotificationInboxSection() {
               each tap opens the next item that needs attention (needs-input prompts, then Notify Me results, then
               unread results, newest first in each kind) and wraps at the end, and its label shows the next item&apos;s
               position and kind, like &quot;1/4 · needs input&quot;. Right-click or long-press opens the inbox, which
-              lists Notify Me and Unread sections after the prompts and marks the next row. Rows keep only Go to;
-              right-click or long-press a row (not the chip) for its own menu: Acknowledge and Stop tracking for Notify
-              Me, Mark as read and Close tab for unread threads. Here steps only move the position and toast; in a
-              session they jump to each item.
+              lists Notify Me and Unread sections after the prompts and marks the next row. On a closable quest tab it
+              first offers &quot;Close tab and go to next&quot; (skipping items in that tab) or &quot;Show list&quot;.
+              Rows keep only Go to; right-click or long-press a row (not the chip) for its own menu: Acknowledge and
+              Stop tracking for Notify Me, Mark as read and Close tab for unread threads. Here steps only move the
+              position and toast; in a session they jump to each item.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">
@@ -561,6 +604,12 @@ export function PlaygroundNotificationInboxSection() {
                 <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Phone width</span>
                 <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
                   <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
+                </div>
+              </div>
+              <div className="relative h-24 w-[390px] rounded-lg border border-cc-border bg-cc-bg">
+                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">On closable tab q-2419</span>
+                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
+                  <ClosableTabChip />
                 </div>
               </div>
               <div className="relative h-24 w-[390px] rounded-lg border border-cc-border bg-cc-bg">

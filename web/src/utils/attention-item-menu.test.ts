@@ -24,6 +24,7 @@ import { useStore } from "../store.js";
 import {
   CLOSE_THREAD_TAB_EVENT,
   attentionItemMenuItems,
+  closeThreadTab,
   markThreadRead,
   needsInputMenuItems,
 } from "./attention-item-menu.js";
@@ -142,6 +143,20 @@ describe("attentionItemMenuItems", () => {
 
     attentionItemMenuItems(unread("q-1"))[1]!.onClick();
     expect(mockApi.closeLeaderThreadTab).toHaveBeenCalledWith("leader", "q-1");
+  });
+
+  it("tells the on-screen view which thread to move to after closing the selected tab", () => {
+    // The feed chip's "Close tab and go to next" moves straight to the next
+    // item's thread instead of passing through Main.
+    const handled = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(CLOSE_THREAD_TAB_EVENT, handled);
+    closeThreadTab("leader", "q-1", "q-7");
+    window.removeEventListener(CLOSE_THREAD_TAB_EVENT, handled);
+    expect((handled.mock.calls[0]![0] as CustomEvent).detail).toEqual({
+      sessionId: "leader",
+      threadKey: "q-1",
+      nextThreadKey: "q-7",
+    });
   });
 
   it("reads a session-level unread result through the session read route", () => {
