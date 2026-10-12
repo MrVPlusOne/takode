@@ -576,6 +576,7 @@ function NotificationItem({
                     sourceContext={notif.questionOnly ? null : sourceContext}
                     titleClassName={labelClassName}
                     testIdPrefix="notification"
+                    sessionId={sessionId}
                   />
                 </div>
               ) : jumpTargetMessageId ? (

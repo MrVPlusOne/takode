@@ -17,7 +17,7 @@ import {
   type LocalImageVariantKind,
 } from "../local-image-variant-store.js";
 import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
-import { machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
+import { hostIsOnline, machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
 import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
 import { onMachine } from "../remote-host/host-operations.js";
 import { remoteHostFailure } from "./session-remote-host.js";
@@ -33,6 +33,7 @@ const MAX_DIFF_FILES = 500;
 /** Paths one `GET /api/fs/folders` request checks at most. */
 const MAX_FOLDER_CHECKS = 20;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
+const MAX_FILE_LINK_TEXT_BYTES = 2 * 1024 * 1024;
 const FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
 const FILE_LINK_PREVIEW_MAX_DIM = 1920;
 const FILE_LINK_PREVIEW_JPEG_QUALITY = 82;
@@ -534,6 +535,32 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       return c.json(await resolveFileLinkPath(request, wsBridge));
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot resolve file link" }, 400);
+    }
+  });
+
+  /**
+   * A linked text file's contents, read on the machine that holds the linking
+   * session's files, so Takode can show it in place of a local editor.
+   */
+  api.get("/fs/file-link/text", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.json({ error: "path required" }, 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.exists) {
+        if (target.hostId && !hostIsOnline(target.hostId)) {
+          return remoteHostFailure(c, null, target.hostId, ctx.launcher.remoteHosts?.registry);
+        }
+        return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
+      }
+      if (!target.isFile) return c.json({ error: "Not a file", absolutePath: target.absolutePath }, 400);
+      if ((target.size ?? 0) > MAX_FILE_LINK_TEXT_BYTES) {
+        return c.json({ error: "File too large (>2MB)", absolutePath: target.absolutePath }, 413);
+      }
+      const content = (await machineFor(target.hostId).readFile(target.absolutePath)).toString("utf-8");
+      return c.json({ absolutePath: target.absolutePath, content });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot read file" }, 404);
     }
   });
 

@@ -25,6 +25,7 @@ export function NeedsInputSourceTarget({
   titleClassName = "text-cc-fg/95",
   contextClassName = "text-cc-muted/85",
   testIdPrefix,
+  sessionId,
 }: {
   title: string;
   sourceContext?: string | null;
@@ -32,6 +33,8 @@ export function NeedsInputSourceTarget({
   titleClassName?: string;
   contextClassName?: string;
   testIdPrefix?: string;
+  /** Session that asked; file links in the context resolve on its machine, not the viewed session's. */
+  sessionId?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const contextId = useId();
@@ -73,6 +76,7 @@ export function NeedsInputSourceTarget({
             id={contextId}
             data-testid={sourceContextTestId}
             text={sourceText}
+            sessionId={sessionId}
             size="sm"
             variant="conservative"
             wrapLongContent

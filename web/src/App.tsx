@@ -58,6 +58,7 @@ import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { ViewportHandoffSessionEntryGate } from "./components/ViewportHandoffEntryGate.js";
 import { ServerRestartOverlay } from "./components/ServerRestartOverlay.js";
+import { MarkdownFileViewerHost } from "./components/MarkdownFileViewer.js";
 import { createViewportHandoffEntryId } from "./utils/viewport-handoff-client.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
@@ -841,6 +842,7 @@ export default function App() {
         <Playground />
         {/* The Playground's Quest Detail Modal section opens this global overlay. */}
         <QuestDetailPanel />
+        <MarkdownFileViewerHost />
       </>
     );
   }
@@ -999,6 +1001,7 @@ export default function App() {
 
       {/* Global quest detail overlay */}
       <QuestDetailPanel />
+      <MarkdownFileViewerHost />
 
       <UniversalSearchOverlay
         open={universalSearchOpen}

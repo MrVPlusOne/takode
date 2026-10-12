@@ -9,6 +9,7 @@ const mockFetchMessagePreview = vi.fn();
 const mockGetQuestValidated = vi.fn();
 const mockResolveFileLinkAction = vi.fn();
 const mockRevealFileLinkInFinder = vi.fn();
+const mockReadFileLinkText = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -26,10 +27,12 @@ vi.mock("../api/file-link-actions.js", async () => {
     ...actual,
     resolveFileLinkAction: (...args: unknown[]) => mockResolveFileLinkAction(...args),
     revealFileLinkInFinder: (...args: unknown[]) => mockRevealFileLinkInFinder(...args),
+    readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
   };
 });
 
 import { MarkdownContent } from "./MarkdownContent.js";
+import { MarkdownFileViewerHost } from "./MarkdownFileViewer.js";
 
 describe("MarkdownContent line breaks", () => {
   beforeEach(() => {
@@ -221,6 +224,7 @@ describe("MarkdownContent quest links", () => {
     mockGetQuestValidated.mockReset();
     mockResolveFileLinkAction.mockReset();
     mockRevealFileLinkInFinder.mockReset();
+    mockReadFileLinkText.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
     mockGetQuestValidated.mockImplementation(async (questId: string, etag?: string | null) => {
@@ -947,12 +951,12 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-    render(<MarkdownContent text="[CLAUDE.md:53-54](file:/tmp/project/CLAUDE.md:53-54)" />);
-    fireEvent.click(screen.getByRole("link", { name: "CLAUDE.md:53-54" }));
+    render(<MarkdownContent text="[config.ts:53-54](file:/tmp/project/config.ts:53-54)" />);
+    fireEvent.click(screen.getByRole("link", { name: "config.ts:53-54" }));
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//tmp/project/CLAUDE.md:53:1",
+        "vscode://file//tmp/project/config.ts:53:1",
         "_blank",
         "noopener,noreferrer",
       );
@@ -1097,12 +1101,12 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-range" });
 
-    render(<MarkdownContent text="[CLAUDE.md:53-54](file:/tmp/project/CLAUDE.md:53-54)" />);
-    fireEvent.click(screen.getByRole("link", { name: "CLAUDE.md:53-54" }));
+    render(<MarkdownContent text="[config.ts:53-54](file:/tmp/project/config.ts:53-54)" />);
+    fireEvent.click(screen.getByRole("link", { name: "config.ts:53-54" }));
 
     await waitFor(() => {
       expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/tmp/project/CLAUDE.md",
+        absolutePath: "/tmp/project/config.ts",
         line: 53,
         column: 1,
         endLine: 54,
@@ -1227,6 +1231,41 @@ describe("MarkdownContent quest links", () => {
     expect(image.getAttribute("src")).toContain("sessionId=s1");
     expect(mockGetSettings).not.toHaveBeenCalled();
     expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+  });
+
+  it("opens Markdown file links in the in-app viewer instead of an editor", async () => {
+    // A phone has no editor to open, and a local editor cannot reach a file on another machine
+    // (the iPhone showed "the address is invalid" for the vscode:// URL). Markdown files are read
+    // through the linking session, so the server reads them on that session's machine.
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    mockReadFileLinkText.mockResolvedValue({
+      absolutePath: "/repo/reports/briefing.md",
+      content: "# Daily briefing\n\nAll quiet.",
+    });
+    setRepoSession();
+
+    render(
+      <>
+        <MarkdownContent text="[briefing](file:/repo/reports/briefing.md)" />
+        <MarkdownFileViewerHost />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "briefing" }));
+
+    const viewer = await screen.findByRole("dialog", { name: "briefing.md" });
+    expect(await within(viewer).findByRole("heading", { name: "Daily briefing" })).toBeTruthy();
+    expect(within(viewer).getByText("/repo/reports/briefing.md")).toBeTruthy();
+    expect(mockReadFileLinkText).toHaveBeenCalledWith(
+      { path: "/repo/reports/briefing.md", isRelative: false, sessionId: "s1" },
+      expect.any(AbortSignal),
+    );
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(viewer).getByRole("button", { name: "Close file" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    openSpy.mockRestore();
   });
 
   it("opens explicit and standard HTML file links through native same-browser new-tab navigation", () => {

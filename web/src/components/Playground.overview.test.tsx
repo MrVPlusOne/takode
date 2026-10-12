@@ -84,8 +84,9 @@ describe("Playground", { timeout: 30_000 }, () => {
     render(<PlaygroundOverviewSections />);
 
     expect(screen.getByRole("heading", { name: "File Link Context Menu" })).toBeTruthy();
-    expect(screen.getByText("Chat markdown with browser, editor, and image file links")).toBeTruthy();
+    expect(screen.getByText("Chat markdown with browser, viewer, editor, and image file links")).toBeTruthy();
     expect(screen.getByText(/interactive HTML demo/)).toBeTruthy();
+    expect(screen.getByText(/markdown-reports\.md/)).toBeTruthy();
   });
 
   it("documents multi-file Write blocks whose change diff fields contain raw file content", () => {

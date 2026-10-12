@@ -40,22 +40,32 @@ export async function revealFileLinkInFinder(
   );
 }
 
-export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
+/** A linked text file's contents, read on the machine that holds the linking session's files. */
+export async function readFileLinkText(
+  target: FileLinkActionTarget,
+  signal?: AbortSignal,
+): Promise<{ absolutePath: string; content: string }> {
+  return requestJson<{ absolutePath: string; content: string }>(`/fs/file-link/text?${fileLinkParams(target)}`, {
+    method: "GET",
+    signal,
+  });
+}
+
+function fileLinkParams(target: FileLinkActionTarget): string {
   const params = new URLSearchParams({
     path: target.path,
     isRelative: target.isRelative ? "1" : "0",
   });
   if (target.sessionId) params.set("sessionId", target.sessionId);
-  return `/file-preview/open?${params.toString()}`;
+  return params.toString();
+}
+
+export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
+  return `/file-preview/open?${fileLinkParams(target)}`;
 }
 
 export function buildFileLinkPreviewUrl(target: FileLinkActionTarget): string {
-  const params = new URLSearchParams({
-    path: target.path,
-    isRelative: target.isRelative ? "1" : "0",
-  });
-  if (target.sessionId) params.set("sessionId", target.sessionId);
-  return `${BASE}/fs/file-link/preview?${params.toString()}`;
+  return `${BASE}/fs/file-link/preview?${fileLinkParams(target)}`;
 }
 
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {

@@ -47,6 +47,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
 import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.js";
+import { isMarkdownFilePath, openMarkdownFileViewer } from "./MarkdownFileViewer.js";
 import {
   buildFileLinkBrowserUrl,
   buildFileLinkPreviewUrl,
@@ -1146,9 +1147,13 @@ function FileMarkdownLink({
       e.preventDefault();
       // An image the message already previews opens in that preview's viewer.
       if (imagePathLinks?.open({ path: target.path, isRelative: target.isRelative })) return;
+      if (isMarkdownFilePath(target.path)) {
+        openMarkdownFileViewer(actionTarget);
+        return;
+      }
       void openDefaultTarget();
     },
-    [imagePathLinks, openDefaultTarget, opensInBrowser, stopPropagation, target.isRelative, target.path],
+    [actionTarget, imagePathLinks, openDefaultTarget, opensInBrowser, stopPropagation, target.isRelative, target.path],
   );
 
   const locationSuffix = formatFileLinkLocation(target);

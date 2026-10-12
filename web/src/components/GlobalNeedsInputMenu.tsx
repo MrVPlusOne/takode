@@ -289,6 +289,7 @@ function GlobalNeedsInputRow({
                 title={summary}
                 sourceContext={entry.notification.questionOnly ? null : sourceContext}
                 testIdPrefix="global-needs-input"
+                sessionId={entry.sessionId}
               />
             </div>
             <div className="mt-4 flex shrink-0 items-center gap-1">

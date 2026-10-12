@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 const HISTORY_STATE_KEY = "takodeQuestPreviewSheet";
 let nextEntryToken = 0;
@@ -19,9 +19,15 @@ export function usePreviewSheetHistoryEntry(
 ): void {
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
+  // A sheet that mounts already open adds its entry only after mounting. Development's StrictMode
+  // runs mount effects twice, and the first run's history.back() would otherwise land after the
+  // second run's pushState and close the sheet at once.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const live = active && mounted;
 
   useEffect(() => {
-    if (!active) return;
+    if (!live) return;
     const token = `${Date.now()}-${++nextEntryToken}`;
     const ownsCurrentEntry = () => historyStateRecord()[HISTORY_STATE_KEY] === token;
     history.pushState({ ...historyStateRecord(), [HISTORY_STATE_KEY]: token }, "", location.href);
@@ -30,7 +36,8 @@ export function usePreviewSheetHistoryEntry(
     let replaying = false;
 
     const handlePopState = () => {
-      if (entryRemoved) return;
+      // A sheet stacked above this one removed its own entry; this sheet's entry is current again.
+      if (entryRemoved || ownsCurrentEntry()) return;
       entryRemoved = true;
       if (!heldLink) {
         onBackRef.current();
@@ -66,7 +73,7 @@ export function usePreviewSheetHistoryEntry(
       document.removeEventListener("click", handleClick, true);
       if (!entryRemoved && ownsCurrentEntry()) history.back();
     };
-  }, [active, sheetRef]);
+  }, [live, sheetRef]);
 }
 
 function historyStateRecord(): Record<string, unknown> {
