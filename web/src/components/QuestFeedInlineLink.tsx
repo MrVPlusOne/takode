@@ -806,7 +806,9 @@ export function QuestFeedInlineLink({
     }
     const sourceRects = collectNonEmptyClientRects(source);
     const previewRects = collectNonEmptyClientRects(preview);
-    const triggerRect = previewRects[0];
+    // Touch-first devices hide the eye (a tap on the link previews), so the preview then
+    // anchors to the link's last line instead.
+    const triggerRect = previewRects[0] ?? sourceRects[sourceRects.length - 1];
     const viewport = getVisualViewportRect();
     if (
       !triggerRect ||

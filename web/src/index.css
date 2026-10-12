@@ -104,20 +104,25 @@ html, body {
   max-width: 100%;
   flex-shrink: 0;
   white-space: nowrap;
-  vertical-align: middle;
+  vertical-align: baseline;
 }
 
 .cc-feed-quest-link-pair > .cc-quest-link {
   white-space: normal;
 }
 
+/*
+ * The preview eye sits in the text like a glyph: about one em, a hair after the link, and
+ * negative block margins so it never makes its line taller. Where a touch pointer exists, an
+ * invisible ::after enlarges only the tap target, not the layout.
+ */
 .cc-feed-quest-preview-trigger {
+  position: relative;
   display: inline-flex;
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  margin-inline-start: 2px;
+  width: 1.2em;
+  height: 1.2em;
+  margin-block: -0.3em;
+  margin-inline-start: 0.12em;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -146,25 +151,38 @@ html, body {
 }
 
 .cc-feed-quest-preview-trigger > svg {
-  width: 15px;
-  height: 15px;
+  width: 0.95em;
+  height: 0.95em;
   flex: none;
 }
 
 @media (any-pointer: coarse) {
-  .cc-feed-quest-preview-trigger {
+  .cc-feed-quest-preview-trigger::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
     width: 44px;
     height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    transform: translate(-50%, -50%);
   }
 }
 
-.cc-feed-quest-preview-trigger-force-coarse {
+.cc-feed-quest-preview-trigger-force-coarse::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 44px;
   height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+/* On a touch-first device a tap on the link itself opens the preview, so the eye is redundant. */
+@media (hover: none) and (pointer: coarse) {
+  .cc-feed-quest-preview-trigger {
+    display: none;
+  }
 }
 
 .cc-thread-link {

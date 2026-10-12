@@ -23,6 +23,22 @@ describe("chat-feed quest link adjacency styles", () => {
     expect(pair).toContain("white-space: nowrap");
     expect(pair).not.toContain("display: inline-flex");
     expect(anchor).toContain("white-space: normal");
-    expect(eye).toContain("margin-inline-start: 2px");
+    // A hair of space after the link, about a sixth of a space; it used to be 2 px plus a
+    // 26 px (44 px on touch) box that left wide gaps around the icon.
+    expect(eye).toContain("margin-inline-start: 0.12em");
+  });
+
+  it("keeps the eye from making its line taller and hides it on touch-first devices", async () => {
+    // A box taller than the text pushed lines with quest links apart; negative block margins
+    // keep the eye out of the line height, and touch hit area comes from an ::after overlay
+    // rather than the layout box. Phones drop the eye because tapping the link previews.
+    const css = await readFile(new URL("../index.css", import.meta.url), "utf8");
+    const eye = ruleBody(css, ".cc-feed-quest-preview-trigger");
+    expect(eye).toContain("height: 1.2em");
+    expect(eye).toContain("margin-block: -0.3em");
+    expect(css).toMatch(
+      /@media \(hover: none\) and \(pointer: coarse\) \{\s*\.cc-feed-quest-preview-trigger \{\s*display: none;/,
+    );
+    expect(ruleBody(css, ".cc-feed-quest-preview-trigger-force-coarse::after")).toContain("width: 44px");
   });
 });

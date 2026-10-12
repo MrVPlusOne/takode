@@ -48,6 +48,8 @@ function domRect(x: number, y: number, width: number, height: number): DOMRect {
 interface GeometryFixture {
   sourceRects: DOMRect[];
   previewRect: DOMRect;
+  /** The eye is not rendered (no client rects), as on touch-first devices. */
+  eyeHidden?: boolean;
   nextControlRect: DOMRect;
   nearbyControlRects: DOMRect[];
   microRect: DOMRect;
@@ -71,7 +73,7 @@ function installGeometry() {
   vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function getClientRects(this: Element) {
     const element = this as HTMLElement;
     if (element.dataset.testid === "quest-feed-preview-button") {
-      return [geometryFixture.previewRect] as unknown as DOMRectList;
+      return (geometryFixture.eyeHidden ? [] : [geometryFixture.previewRect]) as unknown as DOMRectList;
     }
     if (element.matches("a.cc-quest-link")) {
       return geometryFixture.sourceRects as unknown as DOMRectList;
@@ -1345,6 +1347,20 @@ describe("QuestInlineLink chat-feed preview", () => {
     const sheetAction = within(dialog).getByTestId("quest-feed-sheet-primary-action");
     expect(sheetAction).toHaveTextContent("Open feedback #3");
     expect(sheetAction).toHaveAttribute("href", "#/session/s1?quest=q-58&feedback=3");
+  });
+
+  it("keeps a touch-opened sheet open where the eye is hidden", async () => {
+    // Touch-first devices hide the eye with CSS because a tap on the link previews; with no
+    // eye on the page, the preview anchors to the link instead of closing itself again.
+    geometryFixture.eyeHidden = true;
+    renderFeedLink("q-59", { title: "No eye on touch" });
+    const link = screen.getByRole("link", { name: "q-59" });
+
+    fireEvent.pointerDown(link, { pointerType: "touch" });
+    fireEvent.click(link, { button: 0, detail: 1 });
+    await act(async () => vi.advanceTimersByTime(500));
+
+    expect(screen.getByRole("dialog", { name: "No eye on touch" })).toHaveAttribute("data-surface", "bottom-sheet");
   });
 
   it("opens the full view for a mouse click or a keyboard activation of the text link", () => {
