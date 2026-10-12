@@ -92,7 +92,8 @@ export interface PrimaryThreadChip {
   groupChangedAt?: number;
 }
 
-export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<PrimaryThreadChip>): string {
+/** The tab to show after closing `threadKey`: the next one in tab order, else Main. */
+export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<{ threadKey: string }>): string {
   const normalized = normalizeThreadKey(threadKey);
   const closingIndex = tabs.findIndex((tab) => normalizeThreadKey(tab.threadKey) === normalized);
   if (closingIndex < 0) return MAIN_THREAD_KEY;

@@ -184,7 +184,7 @@ describe("ThreadTabGroupBar active output", () => {
   it("marks the group whose tab the leader is writing in", () => {
     renderBar({ activeOutputThreadKey: "q-11" });
     const chips = screen.getAllByTestId("thread-tab-group-chip");
-    const withDot = chips.filter((chip) => within(chip).queryByTestId("thread-tab-active-output-dot"));
+    const withDot = chips.filter((chip) => within(chip).queryByTestId("thread-tab-active-output-spinner"));
     expect(withDot.map((chip) => chip.dataset.group)).toEqual(["needs-input"]);
   });
 });

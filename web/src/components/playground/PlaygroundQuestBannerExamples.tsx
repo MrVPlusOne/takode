@@ -343,6 +343,22 @@ export function PlaygroundQuestBannerExamples() {
           diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
         />
       </div>
+
+      <div
+        data-testid="playground-quest-banner-close-tab"
+        className="w-full max-w-[430px] overflow-hidden rounded-lg border border-cc-border bg-cc-card"
+      >
+        <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+          Closable tab: close button at the end of the strip
+        </div>
+        <QuestThreadBanner
+          row={compactQuestThreadBannerRows[7].row}
+          threadKey={compactQuestThreadBannerRows[7].threadKey}
+          monitorSessionId="playground-mobile-banner"
+          diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
+          onCloseTab={() => {}}
+        />
+      </div>
     </>
   );
 }

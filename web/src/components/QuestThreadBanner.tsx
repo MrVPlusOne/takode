@@ -425,6 +425,7 @@ export function QuestThreadBanner({
   currentSessionId,
   monitorSessionId,
   diffSessionId,
+  onCloseTab,
 }: {
   row?: QuestThreadBannerRow;
   threadKey: string;
@@ -433,6 +434,8 @@ export function QuestThreadBanner({
   monitorSessionId?: string;
   /** Session whose diff chip this banner holds; the chip opens that session's diff target for this thread. */
   diffSessionId?: string;
+  /** Closes the thread tab this strip names; only passed while that tab can close. */
+  onCloseTab?: () => void;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const [collapsed, setCollapsed] = useState(false);
@@ -475,7 +478,7 @@ export function QuestThreadBanner({
       data-layout="compact-inline"
       data-mobile-collapsed={collapsed}
     >
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:flex-wrap sm:gap-x-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:flex-wrap sm:gap-x-2">
         <div className="col-start-1 row-start-1 inline-flex min-w-0 max-w-full items-baseline gap-1.5 sm:flex-[1_1_16rem]">
           {isSessionBanner && (
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">Quest</span>
@@ -547,7 +550,7 @@ export function QuestThreadBanner({
             <div
               id={detailsId}
               data-testid="quest-thread-details"
-              className={`${collapsed ? "hidden" : "flex"} col-span-3 min-w-0 flex-wrap items-center gap-1.5 sm:contents`}
+              className={`${collapsed ? "hidden" : "flex"} col-span-4 min-w-0 flex-wrap items-center gap-1.5 sm:contents`}
             >
               {queuedWaitCondition &&
                 (row?.journey ? (
@@ -615,6 +618,21 @@ export function QuestThreadBanner({
               )}
             </div>
           </div>
+        )}
+        {onCloseTab && (
+          // Closing the tab on screen without opening its group to find it.
+          <button
+            type="button"
+            className="col-start-4 row-start-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
+            aria-label={`Close the ${questId} tab`}
+            title="Close tab"
+            onClick={onCloseTab}
+            data-testid="quest-thread-close-tab"
+          >
+            <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
         )}
       </div>
     </div>

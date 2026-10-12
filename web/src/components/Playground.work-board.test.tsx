@@ -92,7 +92,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(tab("q-42")).toHaveAttribute("data-closable", "false");
     expect(within(tab("q-42")).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
     expect(tab("q-42")).toHaveAttribute("data-active-output", "true");
-    expect(within(tab("q-42")).getByTestId("thread-tab-active-output-dot")).toBeTruthy();
+    expect(within(tab("q-42")).getByTestId("thread-tab-active-output-spinner")).toBeTruthy();
     expect(within(tab("q-42")).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
 
     // The queued q-55 reads in the normal foreground; the finished q-88 stays in Thread
@@ -138,7 +138,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(waitingTab).toHaveAttribute("data-selected", "false");
     expect(waitingTab).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
     expect(within(waitingTab).queryByTestId("thread-tab-bell")).toBeNull();
-    expect(within(waitingTab).queryByTestId("thread-tab-active-output-dot")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-active-output-spinner")).toBeNull();
   });
 
   it("documents the approved active v2 phase palette with separate readable text and accent tokens", () => {

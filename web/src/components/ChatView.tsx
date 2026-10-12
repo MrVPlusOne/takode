@@ -16,6 +16,7 @@ import {
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
 import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.js";
+import { threadKeyToSelectAfterClosing } from "./WorkBoardThreadTabs.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
@@ -780,6 +781,18 @@ export function ChatView({
     },
     [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
   );
+  // The quest strip closes the tab on screen the way its listed row's close button does:
+  // only while the server lets it close, then moving to the next tab in order.
+  const selectedTabKey = normalizeThreadKey(selectedThreadKey);
+  const selectedTabCanClose =
+    isLeaderSession && !!leaderTabsProjection?.tabs.some((tab) => tab.threadKey === selectedTabKey && tab.canClose);
+  const closeSelectedThreadTab = selectedTabCanClose
+    ? () =>
+        handleCloseThreadTab(
+          selectedTabKey,
+          threadKeyToSelectAfterClosing(selectedTabKey, leaderTabsProjection?.tabs ?? []),
+        )
+    : undefined;
   // Attention lists close this session's tabs through the same path as the tab's own close button.
   useEffect(() => {
     if (!isLeaderSession || preview) return;
@@ -1042,6 +1055,7 @@ export function ChatView({
                   threadKey={selectedThreadKey}
                   monitorSessionId={sessionId}
                   diffSessionId={sessionId}
+                  onCloseTab={closeSelectedThreadTab}
                 />
               )}
               {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (

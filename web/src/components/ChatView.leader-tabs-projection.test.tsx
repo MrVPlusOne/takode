@@ -258,6 +258,26 @@ describe("ChatView leader thread tabs projection", () => {
     expect(card).not.toHaveTextContent("Duration unavailable");
   });
 
+  it("closes the tab on screen from the quest strip only while that tab can close", async () => {
+    // q-1 is active work the server will not close, so its strip has no close button;
+    // the finished q-2 does, and closing it sends the same close command as its listed row.
+    const active = render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1" />);
+    await screen.findByTestId("quest-thread-banner");
+    expect(screen.queryByTestId("quest-thread-close-tab")).toBeNull();
+    active.unmount();
+
+    window.location.hash = "#/session/leader?thread=q-2";
+    render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-2" />);
+    const close = await screen.findByTestId("quest-thread-close-tab");
+    expect(close).toHaveAccessibleName("Close the q-2 tab");
+    mockSendToSession.mockClear();
+    fireEvent.click(close);
+    expect(mockSendToSession).toHaveBeenCalledWith("leader", {
+      type: "leader_thread_tabs_update",
+      operation: { type: "close", threadKey: "q-2", closedAt: expect.any(Number) },
+    });
+  });
+
   it("does not feed authoritative projection refreshes back into tab commands or navigation", async () => {
     const viewportSnapshots: string[] = [];
     const onViewportSnapshot = (event: Event) => {

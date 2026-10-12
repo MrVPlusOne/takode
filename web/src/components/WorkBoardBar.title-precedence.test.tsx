@@ -205,7 +205,7 @@ describe("WorkBoardBar tab title source precedence", () => {
     const waitingTab = getTabTitle(view.container, "q-1972");
     expect(waitingTab).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
     expect(within(waitingTab).queryByTestId("thread-tab-bell")).toBeNull();
-    expect(within(waitingTab).queryByTestId("thread-tab-active-output-dot")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-active-output-spinner")).toBeNull();
 
     mockState.sessions = new Map([["s1", { leaderThreadStatuses: { "q-1972": threadStatus("q-1972", "ready") } }]]);
     view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);

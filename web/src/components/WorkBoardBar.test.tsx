@@ -758,7 +758,7 @@ describe("WorkBoardBar", () => {
     expect(mainTab).toHaveAttribute("aria-selected", "true");
     expect(mainTab).toHaveAttribute("data-active-output", "true");
     expect(mainTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
-    expect(within(mainTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(mainTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
   });
 
@@ -775,7 +775,7 @@ describe("WorkBoardBar", () => {
     const mainTab = getByTestId("thread-tab-group-main");
     expect(mainTab).toHaveAttribute("aria-selected", "true");
     expect(mainTab).toHaveAttribute("data-active-output", "false");
-    expect(within(mainTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
+    expect(within(mainTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
   });
 
   it("composes selected and active-output states when they are on different tabs", () => {
@@ -799,7 +799,7 @@ describe("WorkBoardBar", () => {
     const activeTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(activeTab).toHaveAttribute("data-selected", "false");
     expect(activeTab).toHaveAttribute("data-active-output", "true");
-    expect(within(activeTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(activeTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(activeTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
       getPhaseThreadTabTitleColor("WORKING"),
@@ -808,7 +808,7 @@ describe("WorkBoardBar", () => {
     const selectedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(selectedTab).toHaveAttribute("data-selected", "true");
     expect(selectedTab).toHaveAttribute("data-active-output", "false");
-    expect(within(selectedTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
+    expect(within(selectedTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
   });
 
   it("colors explicitly opened quest tabs by phase on their listed meta line", () => {
@@ -990,7 +990,7 @@ describe("WorkBoardBar", () => {
 
     const needsInputTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(needsInputTab).toHaveAttribute("data-active-output", "true");
-    expect(within(needsInputTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(needsInputTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(needsInputTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
     expect(within(needsInputTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
@@ -999,7 +999,7 @@ describe("WorkBoardBar", () => {
 
     const inactiveTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(inactiveTab).toHaveAttribute("data-active-output", "false");
-    expect(within(inactiveTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
+    expect(within(inactiveTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
     withBellView.unmount();
 
     resetStore({
@@ -1011,7 +1011,7 @@ describe("WorkBoardBar", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
     const noBellTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    expect(within(noBellTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(noBellTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(noBellTab).queryByTestId("thread-tab-bell")).not.toBeInTheDocument();
   });
 

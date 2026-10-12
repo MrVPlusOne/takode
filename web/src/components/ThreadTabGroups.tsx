@@ -272,11 +272,17 @@ function AttentionBell({ tab, size = "sm" }: { tab: PrimaryThreadChip; size?: "s
   );
 }
 
-function ActiveOutputDot() {
+/**
+ * Marks where the leader is writing right now: a small spinner, so it reads as activity
+ * rather than as one more phase-color dot. It holds still when motion is reduced.
+ */
+function ActiveOutputSpinner() {
   return (
     <span
-      className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] motion-safe:animate-pulse"
-      data-testid="thread-tab-active-output-dot"
+      role="img"
+      aria-label="Leader working here"
+      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-cc-info/30 border-t-cc-info motion-safe:animate-spin"
+      data-testid="thread-tab-active-output-spinner"
     />
   );
 }
@@ -348,7 +354,7 @@ function BarItem({
       data-selected={selected ? "true" : "false"}
       data-active-output={activeOutput ? "true" : "false"}
     >
-      {activeOutput && <ActiveOutputDot />}
+      {activeOutput && <ActiveOutputSpinner />}
       {children}
     </button>
   );
@@ -492,7 +498,7 @@ function ThreadTabListRow({
         />
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className={`flex min-w-0 items-center gap-1.5 text-[14px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
-            {isActiveOutput(tab, context.activeOutputThreadKey) && <ActiveOutputDot />}
+            {isActiveOutput(tab, context.activeOutputThreadKey) && <ActiveOutputSpinner />}
             {tab.ledElsewhere && (
               // Another leader runs this quest now; the meta line names it ("Led by #N").
               <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-led-elsewhere-icon">
