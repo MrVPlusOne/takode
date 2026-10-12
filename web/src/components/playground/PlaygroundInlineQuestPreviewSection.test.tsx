@@ -198,9 +198,9 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(within(dialog).getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
     expect(within(dialog).getByRole("link", { name: "Open feedback #4" })).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Open Thread" })).toHaveAttribute(
+    expect(within(dialog).getByRole("link", { name: "Open Thread #7" })).toHaveAttribute(
       "href",
-      "#/session/playground-inline-preview-leader?thread=q-9413",
+      "#/session/7?thread=q-9413",
     );
     live = within(section).getByTestId("playground-inline-quest-preview-live");
     expect(within(live).getByRole("button", { name: /Preview q-9413 feedback #4/ })).toHaveAttribute(
@@ -265,7 +265,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       expect(screen.getByRole("dialog")).toHaveAttribute("data-surface", "bottom-sheet");
     });
     expect(within(screen.getByRole("dialog")).getByTestId("quest-feed-sheet-primary-action")).toHaveTextContent(
-      "Open feedback #4",
+      "Open quest",
     );
   });
 
@@ -297,9 +297,10 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer eye-hover details" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("link", { name: "Open Thread" })).toHaveAttribute(
+    // The fixture re-seeds its numbered sessions after the refresh, so the button names the leader again.
+    expect(await within(dialog).findByRole("link", { name: "Open Thread #7" })).toHaveAttribute(
       "href",
-      "#/session/playground-inline-preview-leader?thread=q-9413",
+      "#/session/7?thread=q-9413",
     );
   });
 

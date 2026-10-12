@@ -391,7 +391,7 @@ describe("QuestHoverCard", () => {
     expect(statusChip.compareDocumentPosition(waitForReason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("uses whole-chip session links for worker, reviewer, and leader participants", async () => {
+  it("names the worker and leader once on the top buttons and keeps a whole-chip reviewer link", async () => {
     const quest: QuestmasterTask = {
       id: "q-42-v1",
       questId: "q-42",
@@ -455,31 +455,28 @@ describe("QuestHoverCard", () => {
 
     const card = screen.getByTestId("quest-hover-card");
     const participants = within(card).getByTestId("quest-hover-participants");
-    const worker = within(card).getByRole("link", { name: "Worker #123 Auth Worker" });
+    // The worker and leader are named once, by the Open Worker and Open Thread buttons; the
+    // participant row keeps only the reviewer, which no button covers.
+    const worker = within(card).getByRole("link", { name: "Open Worker #123" });
+    const leader = within(card).getByRole("link", { name: "Open Thread #7" });
     const reviewer = within(card).getByRole("link", { name: "Reviewer #8 Quest Reviewer" });
-    const leader = within(card).getByRole("link", { name: "Leader #7 Quest Leader" });
 
     expect(card.style.width).toBe("560px");
-    expect(participants.contains(worker)).toBe(true);
     expect(participants.contains(reviewer)).toBe(true);
-    expect(participants.contains(leader)).toBe(true);
-    expect(within(card).queryByText("Leader session")).toBeNull();
+    expect(participants.contains(worker)).toBe(false);
+    expect(participants.contains(leader)).toBe(false);
+    expect(within(participants).queryByText("Worker")).toBeNull();
+    expect(within(participants).queryByText("Leader")).toBeNull();
     expect(worker.getAttribute("href")).toBe("#/session/123");
-    expect(worker.textContent).toContain("Worker");
-    expect(worker.textContent).toContain("#123");
-    expect(worker.textContent).toContain("Auth Worker");
-    expect(worker.textContent).not.toContain("running");
+    expect(worker.getAttribute("title")).toBe("Open worker session #123 (Auth Worker)");
+    // The worker's live status rides on its button instead of a separate chip.
+    expect(within(worker).getByTestId("session-status-dot")).toBeTruthy();
+    expect(reviewer.textContent).toContain("Reviewer");
+    expect(reviewer.textContent).toContain("#8");
     expect(reviewer.textContent).not.toContain("idle");
-    expect(worker.className).toContain("rounded-full");
-    expect(worker.className).toContain("bg-cc-hover/25");
-    expect(worker.className).not.toContain("bg-cc-primary");
-    expect(reviewer.className).not.toContain("bg-violet");
-    expect(leader.className).not.toContain("bg-amber-400");
+    expect(reviewer.className).toContain("rounded-full");
     expect(reviewer.getAttribute("href")).toBe("#/session/8");
     expect(leader.getAttribute("href")).toBe("#/session/7?thread=q-42");
-
-    fireEvent.mouseEnter(worker);
-    await waitFor(() => expect(screen.getAllByText("Auth Worker").length).toBeGreaterThan(1));
   });
 
   it("opens the existing quest detail overlay from the compact action", () => {

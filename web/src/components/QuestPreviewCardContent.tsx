@@ -20,9 +20,8 @@ import {
   QUEST_PARTICIPANT_CHIP_CLASS,
   QUEST_PARTICIPANT_NAME_CLASS,
   QUEST_PARTICIPANT_SESSION_CLASS,
-  QUEST_REVIEWER_ROLE_CLASS,
+  QUEST_PARTICIPANT_ROLE_CLASS,
 } from "./quest-participant-chip-style.js";
-import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { SessionHostBadge } from "./HostBadge.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -120,13 +119,8 @@ export function QuestPreviewCardContent({
   const ownerSession = useStore((state) =>
     ownerSessionId ? state.sdkSessions.find((session) => session.sessionId === ownerSessionId) : undefined,
   );
-  const leaderSession = useStore((state) =>
-    leaderSessionId ? state.sdkSessions.find((session) => session.sessionId === leaderSessionId) : undefined,
-  );
   const ownerSessionName = ownerSession?.name;
   const ownerSessionNum = ownerSession?.sessionNum ?? null;
-  const leaderSessionName = leaderSession?.name;
-  const leaderSessionNum = leaderSession?.sessionNum ?? null;
   const sessionBoards = useStore((state) => state.sessionBoards);
   const sessionCompletedBoards = useStore((state) => state.sessionCompletedBoards);
   const sessionBoardRowStatuses = useStore((state) => state.sessionBoardRowStatuses);
@@ -147,7 +141,10 @@ export function QuestPreviewCardContent({
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
-  const displayOwner = owner?.kind === "codex" || workerParticipant?.sessionId !== ownerSessionId ? owner : null;
+  const workerSessionId = workerParticipant?.sessionId ?? ownerSessionId;
+  // Open Worker and Open Thread already name the worker and leader; the owner gets its own chip only
+  // when it is a Codex owner or a different session from the one Open Worker opens.
+  const displayOwner = owner?.kind === "codex" || (owner && owner.sessionId !== workerSessionId) ? owner : null;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
   const progressTldr = useMemo(() => {
     if ("phasePreviewLines" in quest && quest.phasePreviewLines?.length) {
@@ -167,11 +164,33 @@ export function QuestPreviewCardContent({
     <HoverCardSuppressionProvider value={suppressNestedHoverCards}>
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] text-cc-muted">{eyebrowLabel}</div>
+          <div data-testid="quest-hover-status-row" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="shrink-0 text-xs text-cc-muted">{eyebrowLabel}</span>
+            <span
+              data-testid="quest-hover-status-chip"
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium leading-none ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${statusDotStyle ? "" : statusTheme.dot}`}
+                style={statusDotStyle}
+              />
+              {statusLabel}
+            </span>
+            {queuedWaitForReason && (
+              <span data-testid="quest-hover-wait-for-reason" className="min-w-0 truncate text-xs text-cc-muted">
+                {queuedWaitForReason}
+              </span>
+            )}
+            {completedAt != null && (
+              <span data-testid="quest-hover-completed-at" className="min-w-0 truncate text-xs text-cc-muted">
+                Finished {timeAgo(completedAt)}
+              </span>
+            )}
+          </div>
           <h2
             id={headingId}
             data-testid="quest-hover-title"
-            className="mt-0.5 text-sm font-semibold text-cc-fg leading-snug break-words"
+            className="mt-1 text-[15px] font-semibold leading-snug text-cc-fg break-words"
           >
             {title}
           </h2>
@@ -179,98 +198,79 @@ export function QuestPreviewCardContent({
         {headerAction}
       </div>
       <QuestSessionActions
-        className="mt-2"
+        className="mt-2.5"
         questId={quest.questId}
-        workerSessionId={workerParticipant?.sessionId ?? ownerSessionId}
+        workerSessionId={workerSessionId}
+        workerStatus={workerParticipant?.status}
         leaderSessionId={leaderSessionId}
         onNavigate={onSessionNavigate}
       />
-      <div data-testid="quest-hover-status-row" className="mt-2 flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">Status</span>
-        <span
-          data-testid="quest-hover-status-chip"
-          className={`shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${statusDotStyle ? "" : statusTheme.dot}`}
-            style={statusDotStyle}
-          />
-          {statusLabel}
-        </span>
-        {queuedWaitForReason && (
-          <span data-testid="quest-hover-wait-for-reason" className="min-w-0 truncate text-[10px] text-cc-muted/80">
-            {queuedWaitForReason}
-          </span>
-        )}
-        {completedAt != null && (
-          <span data-testid="quest-hover-completed-at" className="min-w-0 truncate text-[10px] text-cc-muted/70">
-            Finished {timeAgo(completedAt)}
-          </span>
-        )}
-      </div>
-      {quest.tags && quest.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {quest.tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
       {quest.tldr && (
-        <div data-testid="quest-hover-tldr" className="mt-2 pt-2 border-t border-cc-border/50">
-          <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">Summary</div>
-          <MarkdownContent
-            text={quest.tldr}
-            size="sm"
-            variant="conservative"
-            wrapLongContent
-            questLinkSurface="legacy"
-            className="mt-1 text-[11px] leading-snug text-cc-muted [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:text-cc-muted [&_li]:text-cc-muted [&_ul]:mb-1.5 [&_ol]:mb-1.5"
-          />
-        </div>
+        <QuestPreviewSection testId="quest-hover-tldr" label="Summary">
+          <QuestPreviewMarkdown text={quest.tldr} />
+        </QuestPreviewSection>
       )}
       {progressTldr && (
-        <div data-testid="quest-hover-progress-tldr" className="mt-2 pt-2 border-t border-cc-border/50">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <div className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">{progressTldr.label}</div>
-            {progressTldr.kind === "phase" && (
-              <div className="min-w-0 truncate text-[10px] text-cc-muted/70">
-                {progressTldr.phaseLabel}
-                {progressTldr.metaLabel ? ` / ${progressTldr.metaLabel}` : ""}
-              </div>
-            )}
-          </div>
-          <MarkdownContent
-            text={progressTldr.text}
-            size="sm"
-            variant="conservative"
-            wrapLongContent
-            questLinkSurface="legacy"
-            className="mt-1 text-[11px] leading-snug text-cc-muted [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:text-cc-muted [&_li]:text-cc-muted [&_ul]:mb-1.5 [&_ol]:mb-1.5"
-          />
-        </div>
+        <QuestPreviewSection
+          testId="quest-hover-progress-tldr"
+          label={progressTldr.label}
+          detail={
+            progressTldr.kind === "phase"
+              ? `${progressTldr.phaseLabel}${progressTldr.metaLabel ? ` / ${progressTldr.metaLabel}` : ""}`
+              : undefined
+          }
+        >
+          <QuestPreviewMarkdown text={progressTldr.text} />
+        </QuestPreviewSection>
       )}
       {journeyBoardRow?.journey && (
-        <div data-testid="quest-hover-journey" className="mt-2 pt-2 border-t border-cc-border/50">
+        <div data-testid="quest-hover-journey" className="mt-3 border-t border-cc-border/50 pt-3">
           <QuestJourneyPreviewCard journey={journeyBoardRow.journey} status={journeyStatus} />
         </div>
       )}
       <QuestHoverParticipants
-        questId={quest.questId}
-        workerParticipant={workerParticipant}
         reviewerParticipant={reviewerParticipant}
         owner={displayOwner}
         ownerSessionNum={ownerSessionNum}
         ownerSessionName={ownerSessionName}
-        leaderSessionId={leaderSessionId !== ownerSessionId ? leaderSessionId : null}
-        leaderSessionNum={leaderSessionNum}
-        leaderSessionName={leaderSessionName}
       />
     </HoverCardSuppressionProvider>
+  );
+}
+
+function QuestPreviewSection({
+  testId,
+  label,
+  detail,
+  children,
+}: {
+  testId: string;
+  label: string;
+  detail?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="mt-3 border-t border-cc-border/50 pt-3">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <div className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-cc-muted">{label}</div>
+        {detail && <div className="min-w-0 truncate text-[11px] text-cc-muted/80">{detail}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// The summaries are what a reader opens the preview for, so they use body-size, full-contrast text.
+function QuestPreviewMarkdown({ text }: { text: string }) {
+  return (
+    <MarkdownContent
+      text={text}
+      size="sm"
+      variant="conservative"
+      wrapLongContent
+      questLinkSurface="legacy"
+      className="mt-1 text-[13px] leading-relaxed text-cc-fg [&_li]:text-cc-fg [&_ol]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:mb-1.5 [&_p]:text-cc-fg [&_ul]:mb-1.5"
+    />
   );
 }
 
@@ -290,46 +290,26 @@ function formatQueuedWaitForReason(row: QuestJourneyBoardRow | undefined): strin
   return `Waiting for ${waitFor.map(formatWaitForRefLabel).join(", ")}`;
 }
 
+/** Sessions the top buttons do not already name: the reviewer, and an owner that is not the worker. */
 function QuestHoverParticipants({
-  questId,
-  workerParticipant,
   reviewerParticipant,
   owner,
   ownerSessionNum,
   ownerSessionName,
-  leaderSessionId,
-  leaderSessionNum,
-  leaderSessionName,
 }: {
-  questId: string;
-  workerParticipant: BoardParticipantStatus | null;
   reviewerParticipant: BoardParticipantStatus | null;
   owner: QuestOwnerRef | null;
   ownerSessionNum: number | null;
   ownerSessionName?: string;
-  leaderSessionId: string | null;
-  leaderSessionNum: number | null;
-  leaderSessionName?: string;
 }) {
-  if (!workerParticipant && !reviewerParticipant && !owner && !leaderSessionId) return null;
+  if (!reviewerParticipant && !owner) return null;
 
   return (
     <div
       data-testid="quest-hover-participants"
-      className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-cc-border/50 pt-2"
-      aria-label="Quest participant sessions"
+      className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-cc-border/50 pt-3"
+      aria-label="Other quest sessions"
     >
-      {workerParticipant && (
-        <QuestHoverParticipantSlot testId="quest-hover-worker-session">
-          <QuestHoverSessionChip
-            role="Worker"
-            sessionId={workerParticipant.sessionId}
-            sessionNum={workerParticipant.sessionNum}
-            sessionName={workerParticipant.name}
-            status={workerParticipant.status}
-          />
-        </QuestHoverParticipantSlot>
-      )}
       {reviewerParticipant && (
         <QuestHoverParticipantSlot testId="quest-hover-reviewer-session">
           <QuestHoverSessionChip
@@ -355,17 +335,6 @@ function QuestHoverParticipants({
           )}
         </QuestHoverParticipantSlot>
       )}
-      {leaderSessionId && (
-        <QuestHoverParticipantSlot testId="quest-hover-leader-session">
-          <QuestHoverSessionChip
-            role="Leader"
-            sessionId={leaderSessionId}
-            sessionNum={leaderSessionNum}
-            sessionName={leaderSessionName}
-            threadKey={questId}
-          />
-        </QuestHoverParticipantSlot>
-      )}
     </div>
   );
 }
@@ -380,14 +349,12 @@ function QuestHoverSessionChip({
   sessionNum,
   sessionName,
   status,
-  threadKey,
 }: {
   role: string;
   sessionId: string;
   sessionNum: number | null | undefined;
   sessionName?: string;
   status?: BoardParticipantStatus["status"];
-  threadKey?: string | null;
 }) {
   const dotProps = useParticipantSessionStatusDotProps(sessionId, status);
   const displaySession = sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8);
@@ -402,14 +369,9 @@ function QuestHoverSessionChip({
       dataTestId="quest-hover-session-chip"
       ariaLabel={ariaLabel}
       title={`Open ${role.toLowerCase()} ${titleSession}`}
-      threadKey={threadKey}
     >
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
-      {role === "Leader" || role === "Worker" ? (
-        <SessionRoleLabel role={role} />
-      ) : (
-        <span className={QUEST_REVIEWER_ROLE_CLASS}>{role}</span>
-      )}
+      <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{displaySession}</span>
       <SessionHostBadge sessionId={sessionId} />
       {sessionName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{sessionName}</span>}

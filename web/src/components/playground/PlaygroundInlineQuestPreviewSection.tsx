@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { QuestmasterTask, QuestTitlePreview } from "../../types.js";
+import type { QuestmasterTask, QuestTitlePreview, SdkSessionInfo } from "../../types.js";
 import { useStore } from "../../store.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
@@ -19,6 +19,14 @@ type PreviewFixtureState =
 
 const PREVIEW_WORKER_SESSION_ID = "playground-inline-preview-worker";
 const PREVIEW_LEADER_SESSION_ID = "playground-inline-preview-leader";
+const PREVIEW_REVIEWER_SESSION_ID = "playground-inline-preview-reviewer";
+// The link-tap fixture is an active quest with a running worker, a reviewer and numbered sessions,
+// so the phone sheet shows the session buttons, live status and latest phase as a real quest would.
+const PREVIEW_SESSIONS = [
+  { sessionId: PREVIEW_WORKER_SESSION_ID, sessionNum: 41, name: "Preview worker" },
+  { sessionId: PREVIEW_LEADER_SESSION_ID, sessionNum: 7, name: "Preview leader" },
+  { sessionId: PREVIEW_REVIEWER_SESSION_ID, sessionNum: 42, name: "Preview reviewer" },
+] as const;
 
 interface PreviewFixtureDefinition {
   id: PreviewFixtureState;
@@ -115,6 +123,7 @@ const PREVIEW_FIXTURE_BY_ID = new Map(PREVIEW_FIXTURES.map((fixture) => [fixture
 const PREVIEW_QUEST_BY_ID = new Map(
   PREVIEW_FIXTURES.map((fixture, fixtureIndex) => {
     const showsFullEstablishedPreview = fixture.id === "rich";
+    if (fixture.id === "link-touch") return [fixture.questId, activeLinkTouchQuest(fixture)] as const;
     const completedAt = 1_787_990_520_000 + fixtureIndex;
     const feedback = Array.from({ length: 5 }, (_, feedbackIndex) => ({
       author: (feedbackIndex === 4 ? "human" : "agent") as "human" | "agent",
@@ -195,6 +204,31 @@ const PREVIEW_QUEST_BY_ID = new Map(
   }),
 );
 
+function activeLinkTouchQuest(fixture: PreviewFixtureDefinition): QuestmasterTask {
+  return {
+    id: `${fixture.questId}-v2`,
+    questId: fixture.questId,
+    version: 2,
+    status: "in_progress",
+    title: fixture.title,
+    description: fixture.description,
+    tldr: "Image thumbnails shown for local image paths in leader messages reload slowly every time the user sends a new message. Find out whether images are re-downloaded unnecessarily and fix it.",
+    tags: ["ui", "bugfix"],
+    leaderSessionId: PREVIEW_LEADER_SESSION_ID,
+    sessionId: PREVIEW_WORKER_SESSION_ID,
+    claimedAt: 1_787_990_430_000,
+    createdAt: 1_787_990_400_000,
+    updatedAt: 1_787_990_470_000,
+    phasePreviewLines: [
+      {
+        label: "Work",
+        metaLabel: "Work 1",
+        text: "Thumbnails re-mount on every send because their keys change; keyed them by image path and confirmed one download per image.",
+      },
+    ],
+  } as unknown as QuestmasterTask;
+}
+
 function restoreMapEntries<T>(current: ReadonlyMap<string, T>, previous: Map<string, { present: boolean; value?: T }>) {
   const restored = new Map(current);
   for (const [key, snapshot] of previous) {
@@ -244,7 +278,35 @@ function useSeedPreviewFixtures(): boolean {
       });
     }
 
-    useStore.setState({ questTitlePreviews, sessionCompletedBoards });
+    const linkTouchQuestId = PREVIEW_FIXTURE_BY_ID.get("link-touch")!.questId;
+    const previousActiveBoard = {
+      present: state.sessionBoards.has(PREVIEW_LEADER_SESSION_ID),
+      value: state.sessionBoards.get(PREVIEW_LEADER_SESSION_ID),
+    };
+    const previousRowStatuses = {
+      present: state.sessionBoardRowStatuses.has(PREVIEW_LEADER_SESSION_ID),
+      value: state.sessionBoardRowStatuses.get(PREVIEW_LEADER_SESSION_ID),
+    };
+    const sessionBoards = new Map(state.sessionBoards);
+    sessionBoards.set(PREVIEW_LEADER_SESSION_ID, [
+      {
+        questId: linkTouchQuestId,
+        title: PREVIEW_FIXTURE_BY_ID.get("link-touch")!.title,
+        status: "WORKING",
+        worker: PREVIEW_WORKER_SESSION_ID,
+        workerNum: 41,
+        updatedAt: 1_787_990_470_000,
+        journey: { mode: "active", phaseIds: ["work", "memory"], currentPhaseId: "work" },
+      },
+    ]);
+    const sessionBoardRowStatuses = new Map(state.sessionBoardRowStatuses);
+    sessionBoardRowStatuses.set(PREVIEW_LEADER_SESSION_ID, {
+      [linkTouchQuestId]: {
+        worker: { sessionId: PREVIEW_WORKER_SESSION_ID, sessionNum: 41, name: "Preview worker", status: "running" },
+        reviewer: { sessionId: PREVIEW_REVIEWER_SESSION_ID, sessionNum: 42, name: "Preview reviewer", status: "idle" },
+      },
+    });
+    useStore.setState({ questTitlePreviews, sessionCompletedBoards, sessionBoards, sessionBoardRowStatuses });
     setSeeded(true);
 
     return () => {
@@ -255,15 +317,51 @@ function useSeedPreviewFixtures(): boolean {
         } else {
           restoredBoards.delete(PREVIEW_LEADER_SESSION_ID);
         }
+        const restoredActiveBoards = new Map(current.sessionBoards);
+        if (previousActiveBoard.present)
+          restoredActiveBoards.set(PREVIEW_LEADER_SESSION_ID, previousActiveBoard.value ?? []);
+        else restoredActiveBoards.delete(PREVIEW_LEADER_SESSION_ID);
+        const restoredRowStatuses = new Map(current.sessionBoardRowStatuses);
+        if (previousRowStatuses.present)
+          restoredRowStatuses.set(PREVIEW_LEADER_SESSION_ID, previousRowStatuses.value ?? {});
+        else restoredRowStatuses.delete(PREVIEW_LEADER_SESSION_ID);
         return {
           questTitlePreviews: restoreMapEntries(current.questTitlePreviews, previousTitles),
           sessionCompletedBoards: restoredBoards,
+          sessionBoards: restoredActiveBoards,
+          sessionBoardRowStatuses: restoredRowStatuses,
         };
       });
     };
   }, []);
 
   return seeded;
+}
+
+/** Session buttons read numbers from sdkSessions, which session-list refreshes replace, so re-seed when missing. */
+function useSeedPreviewSessions(): void {
+  const seeded = useStore((state) =>
+    PREVIEW_SESSIONS.every(({ sessionId }) => state.sdkSessions.some((session) => session.sessionId === sessionId)),
+  );
+  useEffect(() => {
+    if (seeded) return;
+    const fixtureSessionIds = new Set<string>(PREVIEW_SESSIONS.map((session) => session.sessionId));
+    useStore.setState((state) => ({
+      sdkSessions: [
+        ...state.sdkSessions.filter((session) => !fixtureSessionIds.has(session.sessionId)),
+        ...PREVIEW_SESSIONS.map(
+          (session) =>
+            ({
+              ...session,
+              state: session.sessionId === PREVIEW_WORKER_SESSION_ID ? "running" : "connected",
+              cliConnected: true,
+              cwd: "/playground",
+              createdAt: 1_787_990_400_000,
+            }) as SdkSessionInfo,
+        ),
+      ],
+    }));
+  }, [seeded]);
 }
 
 function dispatchTouchActivation(button: HTMLElement) {
@@ -354,16 +452,20 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
     };
   }, [revision, state]);
 
+  // The link-tap fixture links the whole quest, as most message links do; the others keep an exact feedback target.
+  const feedbackIndex = state === "link-touch" ? undefined : 4;
   const wrappedLabel =
     state === "no-fit"
       ? `${fixture.questId} feedback #4 with a deliberately long wrapped exact-target label`
-      : `${fixture.questId} feedback #4`;
+      : feedbackIndex === undefined
+        ? fixture.questId
+        : `${fixture.questId} feedback #4`;
   const exactTarget = (
     <>
       Review{" "}
       <QuestFeedInlineLink
         questId={fixture.questId}
-        feedbackIndex={4}
+        feedbackIndex={feedbackIndex}
         className="cc-quest-link break-words hover:underline"
         stopPropagation={false}
         loadQuest={loadQuest}
@@ -495,6 +597,7 @@ function ColorParityFixture() {
 
 export function PlaygroundInlineQuestPreviewSection() {
   const seeded = useSeedPreviewFixtures();
+  useSeedPreviewSessions();
   const [selection, setSelection] = useState<{
     state: PreviewFixtureState;
     revision: number;

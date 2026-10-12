@@ -1437,11 +1437,11 @@ const QuestFeedRichPreview = forwardRef<
       ) : (
         <div className="flex min-w-0 items-start gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] text-cc-muted">{targetLabel}</div>
+            <div className="text-xs text-cc-muted">{targetLabel}</div>
             <h2
               id={headingId}
               data-testid="quest-feed-rich-title"
-              className="mt-0.5 text-sm font-semibold leading-snug text-cc-fg break-words"
+              className="mt-1 text-[15px] font-semibold leading-snug text-cc-fg break-words"
             >
               {title}
             </h2>
@@ -1476,17 +1476,17 @@ const QuestFeedRichPreview = forwardRef<
       )}
 
       {phase === "rich-ready" && feedbackIndex !== undefined && (
-        <div data-testid="quest-feed-feedback-context" className="mt-2 border-t border-cc-border/50 pt-2">
+        <div data-testid="quest-feed-feedback-context" className="mt-3 border-t border-cc-border/50 pt-3">
           {feedbackUnavailable ? (
             <div data-testid="quest-feed-feedback-unavailable" className="text-xs text-cc-muted">
               Feedback #{feedbackIndex} is unavailable at this stable index. The exact link remains unchanged.
             </div>
           ) : (
             <>
-              <div className="text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-cc-muted">
                 Feedback #{feedbackIndex} · {feedback?.author === "human" ? "Human" : "Agent"}
               </div>
-              <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-cc-muted">
+              <div className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-cc-fg">
                 {feedback?.text}
               </div>
             </>

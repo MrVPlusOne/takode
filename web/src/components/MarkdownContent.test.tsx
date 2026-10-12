@@ -385,11 +385,12 @@ describe("MarkdownContent quest links", () => {
     // The status row is separate so the pill cannot steal horizontal space from the title.
     expect(within(screen.getByTestId("quest-hover-status-row")).getByText("In Progress")).toBeTruthy();
     expect(screen.getByTestId("quest-hover-status-row").contains(screen.getByTestId("quest-hover-title"))).toBe(false);
-    expect(screen.getByText("ui")).toBeTruthy();
-    expect(screen.getByText("bugfix")).toBeTruthy();
+    // Tags are not essential in a preview, so the card leaves them out.
+    expect(screen.queryByText("ui")).toBeNull();
+    expect(screen.queryByText("bugfix")).toBeNull();
   });
 
-  it("shows the owner session cross-link when hovering a claimed quest link", async () => {
+  it("names a claimed quest's owner once, on the Open Worker button", async () => {
     useStore.setState((state) => ({
       ...state,
       quests: [
@@ -421,9 +422,10 @@ describe("MarkdownContent quest links", () => {
     render(<MarkdownContent text="[q-42](quest:q-42)" />);
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
-    expect(await screen.findByTestId("quest-hover-owner-session")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Owner session #123 Auth Worker" })).toBeTruthy();
-    expect(screen.getByText("Auth Worker")).toBeTruthy();
+    // The owner is the session Open Worker opens, so no separate owner chip repeats it.
+    const openWorker = await screen.findByRole("link", { name: "Open Worker #123" });
+    expect(openWorker.getAttribute("title")).toBe("Open worker session #123 (Auth Worker)");
+    expect(screen.queryByTestId("quest-hover-owner-session")).toBeNull();
   });
 
   it("shows leader attribution and full Journey data when hovering an orchestrated quest link", async () => {
@@ -505,20 +507,13 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     // Leader can come from live herding metadata even when the quest record itself lacks leaderSessionId.
-    expect(await screen.findByTestId("quest-hover-leader-session")).toBeTruthy();
-    expect(
-      within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", {
-        name: "Leader #7 Quest Leader",
-      }),
-    ).toBeTruthy();
-    expect(screen.getByText("Quest Leader")).toBeTruthy();
-    expect(screen.getByTestId("quest-hover-worker-session").textContent).toContain("Worker");
+    // The worker and leader appear once, on the top buttons; only the reviewer keeps a chip.
+    const openThread = await screen.findByRole("link", { name: "Open Thread #7" });
+    expect(openThread.getAttribute("href")).toBe("#/session/7?thread=q-42");
+    expect(screen.getByRole("link", { name: "Open Worker #123" })).toBeTruthy();
+    expect(screen.queryByTestId("quest-hover-leader-session")).toBeNull();
+    expect(screen.queryByTestId("quest-hover-worker-session")).toBeNull();
     expect(screen.getByTestId("quest-hover-reviewer-session").textContent).toContain("Reviewer");
-    expect(
-      within(screen.getByTestId("quest-hover-worker-session")).getByRole("link", {
-        name: "Worker #123 Auth Worker",
-      }),
-    ).toBeTruthy();
     expect(
       within(screen.getByTestId("quest-hover-reviewer-session")).getByRole("link", {
         name: "Reviewer #8 Quest Reviewer",

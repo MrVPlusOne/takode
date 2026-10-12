@@ -814,8 +814,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(dialog).toHaveClass("overflow-y-auto");
     expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
     expect(within(dialog).getByTestId("quest-hover-completed-at")).toHaveTextContent("Finished");
-    expect(within(dialog).getByText("ui")).toBeInTheDocument();
-    expect(within(dialog).getByText("bugfix")).toBeInTheDocument();
+    // Tags are left out of the preview as non-essential.
+    expect(within(dialog).queryByText("ui")).toBeNull();
+    expect(within(dialog).queryByText("bugfix")).toBeNull();
     expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
       "Full Summary from the established quest preview.",
     );
@@ -923,14 +924,15 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(primary).toHaveTextContent("Open feedback #0");
     expect(worker).toHaveAttribute("href", "#/session/6490");
     expect(thread).toHaveAttribute("href", "#/session/7490?thread=q-490");
-    // Both jump buttons come before the status row and the footer's exact-feedback parent action.
+    // The jump buttons sit right under the status line and title, ahead of the summaries and the
+    // footer's exact-feedback parent action.
     const statusRow = within(dialog).getByTestId("quest-hover-status-row");
+    expect(statusRow.compareDocumentPosition(worker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(worker.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(thread.compareDocumentPosition(statusRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(thread.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The worker (shown as the owner session without a board row) and leader chips stay listed.
-    expect(within(dialog).getByTestId("quest-hover-owner-session")).toBeInTheDocument();
-    expect(within(dialog).getByTestId("quest-hover-leader-session")).toBeInTheDocument();
+    // The buttons are the only place the worker (here the owner session) and the leader appear.
+    expect(within(dialog).queryByTestId("quest-hover-owner-session")).toBeNull();
+    expect(within(dialog).queryByTestId("quest-hover-leader-session")).toBeNull();
 
     fireEvent.click(thread);
     expect(window.location.hash).toBe("#/session/7490?thread=q-490");
@@ -1020,7 +1022,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     const dialog = screen.getByRole("dialog", {
       name: "Herded worker leader fallback",
     });
-    expect(within(dialog).getByTestId("quest-hover-leader-session")).toBeInTheDocument();
+    expect(within(dialog).queryByTestId("quest-hover-leader-session")).toBeNull();
     expect(within(dialog).getByRole("link", { name: "Open Thread #7491" })).toHaveAttribute(
       "href",
       "#/session/7491?thread=q-491",

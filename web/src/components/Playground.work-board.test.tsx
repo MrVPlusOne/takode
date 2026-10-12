@@ -202,9 +202,10 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(within(journey).getByText("Sixth previous phase hidden by default in tab hover previews.")).toBeTruthy();
     expect(within(journey).getByText("First visible previous phase for the tab hover clamp.")).toBeTruthy();
     expect(within(journey).getByRole("button", { name: "Show 2 earlier phases" })).toBeTruthy();
-    expect(within(hoverCard).getByTestId("quest-hover-worker-session")).toHaveTextContent("Worker");
+    // The worker is named once, by the Open Worker button.
+    expect(within(hoverCard).queryByTestId("quest-hover-worker-session")).toBeNull();
     expect(within(hoverCard).queryByTestId("quest-hover-reviewer-session")).toBeNull();
-    expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();
+    expect(within(hoverCard).getByRole("link", { name: "Open Worker #5" })).toBeTruthy();
     expect(within(hoverCard).queryByRole("link", { name: "Reviewer #6 Review Lead" })).toBeNull();
 
     fireEvent.click(workBoardBar.getByRole("button", { name: "Quest thread" }));
