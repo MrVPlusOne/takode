@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { LEADER_PROFILE_PORTRAITS } from "../../../shared/leader-profile-portraits.js";
 import { useStore } from "../../store.js";
 import type { SdkSessionInfo } from "../../types.js";
 import { toSidebarSessionItem } from "../../utils/sidebar-session-item.js";
@@ -10,6 +11,7 @@ import { Section } from "./shared.js";
  * Idle workers that are waiting on something: the server describes each wait in
  * `waitingFor` (background jobs, landing runs, lease queues) next to the timer
  * count, and sidebar rows and the work board name it instead of showing idle.
+ * A leader with a portrait carries the timer icon on the portrait's corner.
  */
 const NOW = Date.now();
 const WORKERS: Array<{ quest: string; title: string; session: SdkSessionInfo }> = [
@@ -38,6 +40,15 @@ const WORKERS: Array<{ quest: string; title: string; session: SdkSessionInfo }> 
   },
   { quest: "q-705", title: "Waiting on nothing", session: worker(7105, "Idle worker", {}) },
 ];
+
+const LEADER: SdkSessionInfo = {
+  ...worker(7100, "Leader on a timer", { pendingTimerCount: 1 }),
+  sessionId: "playground-waiting-leader",
+  herdedBy: undefined,
+  isOrchestrator: true,
+  leaderProfilePortraitId: LEADER_PROFILE_PORTRAITS[0].id,
+  leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0],
+};
 
 function worker(sessionNum: number, name: string, wait: Partial<SdkSessionInfo>): SdkSessionInfo {
   return {
@@ -92,10 +103,18 @@ export function PlaygroundWaitingWorkers() {
   return (
     <Section
       title="Waiting Workers"
-      description="Idle workers that wait on a background job, a lease line, a landing run or a timer show a timer icon and name the wait in sidebar rows and the work board's worker column; a worker waiting on nothing stays a grey idle dot."
+      description="Idle sessions that wait on a background job, a lease line, a landing run or a timer show a timer icon; sidebar rows and the work board's worker column name job and queue waits, while timers need no text. A leader's icon sits on its portrait corner. A worker waiting on nothing stays a grey idle dot."
     >
       <div className="grid gap-3 md:grid-cols-2" data-testid="playground-waiting-workers">
         <div className="rounded-xl bg-cc-sidebar p-2">
+          <SessionItem
+            {...itemProps}
+            session={toSidebarSessionItem(LEADER)}
+            sessionName={LEADER.name ?? ""}
+            permCount={0}
+            attention={null}
+            hasUnread={false}
+          />
           {WORKERS.map(({ session }) => (
             <SessionItem
               key={session.sessionId}

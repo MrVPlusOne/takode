@@ -7,7 +7,6 @@ import {
   deriveSessionStatus,
   WaitingStatusIcon,
   waitingStatusLabel,
-  waitingStatusShortLabel,
   type SessionVisualStatus,
 } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
@@ -646,6 +645,11 @@ function SessionItemComponent({
                 portrait={s.leaderProfilePortrait}
                 size="lg"
                 statusRing={leaderPortraitStatusRing}
+                cornerBadge={
+                  showWaitingIcon ? (
+                    <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} className="mt-0" />
+                  ) : undefined
+                }
               />
             </div>
           )}
@@ -654,8 +658,9 @@ function SessionItemComponent({
             className={`flex min-w-0 items-center gap-1.5 ${usesExpandedLeaderPortrait ? "col-start-2 row-start-1" : ""}`}
             data-testid={usesExpandedLeaderPortrait ? "session-title-row" : undefined}
           >
-            {/* Status marker for sidebar rows. Timers and server-reported waits replace the idle dot. */}
-            {showWaitingIcon ? (
+            {/* Status marker for sidebar rows. Timers and server-reported waits replace the idle dot;
+                an expanded leader portrait carries that icon on its corner instead. */}
+            {showWaitingIcon && !usesExpandedLeaderPortrait ? (
               <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} />
             ) : (
               !useStatusBar &&
@@ -939,14 +944,15 @@ function SessionItemComponent({
                   !
                 </span>
               )}
-              {/* Name what a waiting session waits for; the icon alone reads the same for every wait. */}
-              {showWaitingIcon && (
+              {/* Name a job or queue wait, which the icon alone cannot tell apart. Timers need no text:
+                  the icon stands for them, and its tooltip and the hover card give the count. */}
+              {showWaitingIcon && waitingFor && (
                 <span
                   className="min-w-0 truncate text-[10px] text-emerald-500/80"
                   title={waitingStatusLabel(timerCount, waitingFor)}
                   data-testid="session-waiting-for"
                 >
-                  {waitingStatusShortLabel(timerCount, waitingFor)}
+                  {waitingFor}
                 </span>
               )}
             </div>

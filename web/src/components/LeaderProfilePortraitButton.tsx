@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -22,6 +22,8 @@ interface LeaderProfilePortraitButtonProps {
     status: string;
     style?: CSSProperties;
   };
+  /** Small status marker drawn on the portrait's bottom-right corner, like the session top bar. */
+  cornerBadge?: ReactNode;
 }
 
 export function LeaderProfilePortraitButton({
@@ -31,6 +33,7 @@ export function LeaderProfilePortraitButton({
   ariaLabel,
   title = "Leader profile",
   statusRing,
+  cornerBadge,
 }: LeaderProfilePortraitButtonProps) {
   const triggerRef = useRef<HTMLSpanElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -120,7 +123,7 @@ export function LeaderProfilePortraitButton({
           if (event.key !== "Enter" && event.key !== " ") return;
           openPanel(event);
         }}
-        className={`inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ${ringClass} transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
+        className={`relative inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ${ringClass} transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
         data-status={statusRing?.status}
         style={statusRing?.style}
       >
@@ -134,6 +137,9 @@ export function LeaderProfilePortraitButton({
           className="h-full w-full rounded-full object-cover"
           draggable={false}
         />
+        {cornerBadge && (
+          <span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-cc-card p-px">{cornerBadge}</span>
+        )}
       </span>
       {open && panelStyle
         ? createPortal(

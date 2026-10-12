@@ -25,8 +25,12 @@ describe("PlaygroundWaitingWorkers", () => {
       'background job "Run full gate"',
       "full-suite:takode@devbox (#2 in line)",
       "landing run",
-      '2 background jobs: "Run full gate", "Dev server", 1 timer',
+      '2 background jobs: "Run full gate", "Dev server"',
     ]);
+
+    // The leader row carries its timer icon on the portrait corner, with no text.
+    const portrait = within(section).getByRole("button", { name: /open .* profile/i });
+    expect(within(portrait).getByTestId("session-status-timer-icon")).toHaveAttribute("title", "1 scheduled timer");
 
     // Board rows resolve worker status from the seeded sessions.
     await waitFor(() => expect(within(section).getAllByTestId("board-participant-waiting")).toHaveLength(4));

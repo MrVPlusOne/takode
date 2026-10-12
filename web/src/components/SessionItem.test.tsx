@@ -553,6 +553,29 @@ describe("SessionItem leader profiles", () => {
     expect(screen.queryByText("recent activity stays readable")).not.toBeInTheDocument();
   });
 
+  it("draws a waiting leader's timer icon on the portrait corner instead of before the title", () => {
+    // Matches the session top bar: the clock badge sits on the bottom-right of
+    // the portrait, and the title row carries no separate status marker.
+    renderSessionItem({
+      session: makeSession({
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+        status: "idle",
+        sdkState: "connected",
+        pendingTimerCount: 1,
+      }),
+      permCount: 0,
+    });
+
+    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
+    const timerIcon = within(portraitButton).getByTestId("session-status-timer-icon");
+    expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
+    expect(timerIcon.parentElement).toHaveClass("absolute", "-bottom-0.5", "-right-0.5");
+    expect(screen.getAllByTestId("session-status-timer-icon")).toHaveLength(1);
+    expect(within(screen.getByTestId("session-title-row")).queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.queryByTestId("session-waiting-for")).toBeNull();
+  });
+
   it.each([false, true])("uses stronger selected-row metadata text (leader=%s)", (isOrchestrator) => {
     // The selected light sidebar row background is darker than the base app
     // background, so ordinary muted metadata needs a stronger selected-row tone.
@@ -856,7 +879,8 @@ describe("SessionItem status dot", () => {
     // A worker running its gate in the background or queued for a lease ends
     // its turn and would otherwise read as idle. The server-described wait
     // reuses the timer icon and is spelled out in the metadata row, which
-    // compact worker rows also show (no hover on phones).
+    // compact worker rows also show (no hover on phones). Timers get no text:
+    // the icon stands for them and its tooltip carries the count.
     const { container } = renderSessionItem({
       session: makeSession({
         status: "idle",
@@ -869,8 +893,21 @@ describe("SessionItem status dot", () => {
 
     const icon = screen.getByTestId("session-status-timer-icon");
     expect(icon).toHaveAttribute("title", 'Waiting for background job "Run full gate"; 1 scheduled timer');
-    expect(screen.getByTestId("session-waiting-for")).toHaveTextContent('background job "Run full gate", 1 timer');
+    expect(screen.getByTestId("session-waiting-for")).toHaveTextContent(/^background job "Run full gate"$/);
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
+  });
+
+  it("shows no wait text for a session waiting only on timers", () => {
+    // The user found a "1 timer" label next to the icon redundant; the icon
+    // and its tooltip say it already.
+    renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected", pendingTimerCount: 1 }),
+      permCount: 0,
+    });
+
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("title", "1 scheduled timer");
+    expect(screen.queryByTestId("session-waiting-for")).toBeNull();
+    expect(screen.queryByText(/timer/)).toBeNull();
   });
 
   it("keeps a session waiting on nothing as a plain idle dot without a wait label", () => {
