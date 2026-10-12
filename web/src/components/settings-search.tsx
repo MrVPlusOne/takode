@@ -167,7 +167,8 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "sessions",
     title: "Sessions",
-    description: "Defaults for new sessions, automatic naming, environments, and moving sessions between machines.",
+    description:
+      "Defaults for new sessions, worker slots per leader, automatic naming, environments, and moving sessions between machines.",
     aliases: ["defaults", "leader", "worker"],
     items: [
       {
@@ -177,6 +178,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       {
         id: "codex-leader-mode",
         text: "Codex Leader Context Mode recycle compaction compact",
+      },
+      {
+        id: "worker-slots",
+        text: "Worker Slots herd limit parallel workers per leader Claude Codex",
       },
       {
         id: "namer-enabled",

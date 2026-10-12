@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
+import { getWorkerSlotLimit } from "../settings-manager.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import { isValidQuestId } from "../../shared/quest-journey.js";
 import {
@@ -555,7 +556,13 @@ export function createTakodeRoutes(ctx: RouteContext) {
       timerManager,
       getSessionName: (sessionId) => sessionNames.getName(sessionId),
     });
-    return c.json(enriched);
+    // Leaders read their worker-slot limit here, so `takode list` and `takode spawn` report
+    // the configured per-backend limit rather than a constant built into the CLI.
+    return c.json(
+      enriched.map((session) =>
+        session.isOrchestrator ? { ...session, workerSlotLimit: getWorkerSlotLimit(session.backendType) } : session,
+      ),
+    );
   });
 
   // ─── Takode: Session Info ──────────────────────────────────

@@ -32,6 +32,7 @@ import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcu
 import { SettingsPhoneAlertRules, SettingsPushoverSection } from "./SettingsPhoneAlertsSection.js";
 import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
 import { SettingsSessionNamerSection } from "./SettingsSessionNamerSection.js";
+import { SettingsWorkerSlotsSection } from "./SettingsWorkerSlotsSection.js";
 import {
   NumberStepper,
   SegmentedControl,
@@ -919,6 +920,11 @@ export function SettingsPage({
                   }}
                 />
               </SettingsRow>
+
+              <SettingsWorkerSlotsSection
+                settings={loadedSettings}
+                hidden={settingsSearch.rowHidden("sessions", "worker-slots")}
+              />
 
               <SettingsSessionNamerSection
                 settings={loadedSettings}

@@ -5,8 +5,38 @@
 /** Content truncation limit for message text in peek, scan, and list views. */
 export const TAKODE_PEEK_CONTENT_LIMIT = 500;
 
-/** Max worker sessions a leader should keep active in their herd at once. */
-export const HERD_WORKER_SLOT_LIMIT = 5;
+/**
+ * Most worker sessions a leader keeps in its herd at once, set per leader backend because
+ * a Claude leader's context lasts through more parallel work than a Codex leader's.
+ * Reviewers never use worker slots.
+ */
+export interface WorkerSlotLimits {
+  claude: number;
+  codex: number;
+}
+
+export const DEFAULT_WORKER_SLOT_LIMITS: WorkerSlotLimits = { claude: 8, codex: 5 };
+
+/** Highest limit Settings accepts. */
+export const MAX_WORKER_SLOT_LIMIT = 50;
+
+export function isValidWorkerSlotLimit(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_WORKER_SLOT_LIMIT;
+}
+
+/** Fill missing or invalid per-backend limits from the defaults. */
+export function normalizeWorkerSlotLimits(raw: unknown): WorkerSlotLimits {
+  const value = (raw && typeof raw === "object" ? raw : {}) as Partial<Record<keyof WorkerSlotLimits, unknown>>;
+  return {
+    claude: isValidWorkerSlotLimit(value.claude) ? value.claude : DEFAULT_WORKER_SLOT_LIMITS.claude,
+    codex: isValidWorkerSlotLimit(value.codex) ? value.codex : DEFAULT_WORKER_SLOT_LIMITS.codex,
+  };
+}
+
+/** The limit for a leader running on `backendType`; every non-Codex backend is Claude. */
+export function workerSlotLimitFor(limits: WorkerSlotLimits, backendType: string | undefined): number {
+  return backendType === "codex" ? limits.codex : limits.claude;
+}
 
 /** Escape a string for TypeScript-style string literal display.
  *  Used by herd event formatter, takode scan, and takode peek for consistent quoting. */

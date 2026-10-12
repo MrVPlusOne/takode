@@ -57,6 +57,11 @@ import {
   normalizeSessionDefaults,
 } from "../../shared/session-defaults.js";
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
+import {
+  MAX_WORKER_SLOT_LIMIT,
+  isValidWorkerSlotLimit,
+  normalizeWorkerSlotLimits,
+} from "../../shared/takode-constants.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
 import { processHostOf } from "../remote-host/host-registry.js";
 import type { ServerCheckout, ServerCheckoutUpdate } from "../server-checkout.js";
@@ -1033,6 +1038,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
+      workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -1267,6 +1273,23 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.sendKeyScheme !== undefined && !isSendKeyScheme(body.sendKeyScheme)) {
       return c.json({ error: 'sendKeyScheme must be "enter" or "mod-enter"' }, 400);
     }
+    if (body.workerSlotLimits !== undefined) {
+      const limits = body.workerSlotLimits as Record<string, unknown> | null;
+      const valid =
+        typeof limits === "object" &&
+        limits !== null &&
+        Object.entries(limits).every(
+          ([backend, limit]) => (backend === "claude" || backend === "codex") && isValidWorkerSlotLimit(limit),
+        );
+      if (!valid) {
+        return c.json(
+          {
+            error: `workerSlotLimits must map "claude" and/or "codex" to an integer between 1 and ${MAX_WORKER_SLOT_LIMIT}`,
+          },
+          400,
+        );
+      }
+    }
     if (
       body.codexLeaderContextWindowOverrideTokens !== undefined &&
       (typeof body.codexLeaderContextWindowOverrideTokens !== "number" ||
@@ -1372,6 +1395,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "leaderProfilePools",
       "shortcutSettings",
       "sessionDefaults",
+      "workerSlotLimits",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1439,6 +1463,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
           ? parseShortcutSettingsFromBody(body.shortcutSettings as Record<string, unknown>)
           : undefined,
       sessionDefaults: parsedSessionDefaults,
+      // Either backend's limit can change alone; the other keeps its saved value.
+      workerSlotLimits: body.workerSlotLimits
+        ? normalizeWorkerSlotLimits({ ...getSettings().workerSlotLimits, ...body.workerSlotLimits })
+        : undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
       serverTimeZone: normalizedServerTimeZone,
     };

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
-import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
+import { TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
 import { isValidQuestId } from "../shared/quest-journey.ts";
 import { formatNotificationMarkdownLink } from "../shared/notification-link.ts";
 import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../shared/session-defaults.ts";
@@ -896,15 +896,17 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       archived?: boolean;
       herdedBy?: string;
       reviewerOf?: number;
+      workerSlotLimit?: number;
     }>;
     const activeHerdWorkers = allSessions.filter(
       (s) => !s.archived && s.herdedBy === leaderSessionId && s.reviewerOf === undefined,
     );
-    if (activeHerdWorkers.length > HERD_WORKER_SLOT_LIMIT) {
+    const limit = allSessions.find((s) => s.sessionId === leaderSessionId)?.workerSlotLimit;
+    if (limit !== undefined && activeHerdWorkers.length > limit) {
       herdWarning = {
         workerSlotsUsed: activeHerdWorkers.length,
-        excessWorkers: activeHerdWorkers.length - HERD_WORKER_SLOT_LIMIT,
-        limit: HERD_WORKER_SLOT_LIMIT,
+        excessWorkers: activeHerdWorkers.length - limit,
+        limit,
       };
     }
   } catch {

@@ -44,6 +44,7 @@ import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { SendKeyScheme } from "../shared/send-key-scheme.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import type { WorkerSlotLimits } from "../shared/takode-constants.js";
 import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 
 export { checkHealth, checkHealthStatus, checkReadiness, checkReadinessStatus } from "./api/server-status.js";
@@ -684,6 +685,7 @@ export interface AppSettings {
   leaderProfilePoolOptions: LeaderProfilePool[];
   shortcutSettings?: ShortcutSettings;
   sessionDefaults: SessionDefaultsSettings;
+  workerSlotLimits: WorkerSlotLimits;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1423,6 +1425,7 @@ export const api = {
     leaderProfilePools?: LeaderProfilePoolSettings;
     shortcutSettings?: ShortcutSettings;
     sessionDefaults?: SessionDefaultsSettings;
+    workerSlotLimits?: Partial<WorkerSlotLimits>;
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

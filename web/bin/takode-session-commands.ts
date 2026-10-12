@@ -1,5 +1,4 @@
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
-import { HERD_WORKER_SLOT_LIMIT } from "../shared/takode-constants.ts";
 import {
   renderLeaderContextResumeText,
   type LeaderContextResumeModel,
@@ -92,6 +91,8 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     model?: string;
     backendType?: string;
     isOrchestrator?: boolean;
+    /** Set on leader rows: how many workers the leader may keep in its herd. */
+    workerSlotLimit?: number;
     isAssistant?: boolean;
     cliConnected?: boolean;
     lastMessagePreview?: string;
@@ -245,7 +246,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
   );
   if (activeHerdWorkerCount !== null) {
     console.log(
-      `Worker slots used: ${activeHerdWorkerCount}/${HERD_WORKER_SLOT_LIMIT}. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.`,
+      `Worker slots used: ${activeHerdWorkerCount}/${mySelf?.workerSlotLimit}. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.`,
     );
   }
   console.log(

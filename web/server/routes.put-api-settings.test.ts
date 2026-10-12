@@ -1494,6 +1494,32 @@ describe("PUT /api/settings", () => {
     });
   });
 
+  it("changes one backend's worker-slot limit and keeps the other's saved value", async () => {
+    // The mocked saved settings carry no limits, so Claude keeps its default of 8.
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workerSlotLimits: { codex: 6 } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ workerSlotLimits: { claude: 8, codex: 6 } }),
+    );
+  });
+
+  it("rejects worker-slot limits that are not whole numbers in range or name an unknown backend", async () => {
+    for (const workerSlotLimits of [{ claude: 0 }, { codex: 2.5 }, { claude: 51 }, { gemini: 4 }, 7]) {
+      const res = await app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerSlotLimits }),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid non-leader Codex auto-compact threshold percent", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

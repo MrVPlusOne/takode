@@ -25,6 +25,12 @@ import {
   normalizeCodexLeaderCompactionMode,
   type CodexLeaderCompactionMode,
 } from "../shared/codex-leader-compaction-mode.js";
+import {
+  DEFAULT_WORKER_SLOT_LIMITS,
+  normalizeWorkerSlotLimits,
+  workerSlotLimitFor,
+  type WorkerSlotLimits,
+} from "../shared/takode-constants.js";
 
 import {
   DEFAULT_TRANSCRIPTION_STT_MODEL,
@@ -93,6 +99,8 @@ export interface CompanionSettings {
   shortcutSettings?: ShortcutSettings;
   /** Server-authoritative defaults for future manually-created and spawned sessions. Optional for backward-compatible tests/mocks. */
   sessionDefaults?: SessionDefaultsSettings;
+  /** Most herded workers per leader, by the leader's backend. Optional for backward-compatible tests/mocks. */
+  workerSlotLimits?: WorkerSlotLimits;
   updatedAt: number;
 }
 
@@ -247,6 +255,7 @@ let settings: CompanionSettings = {
   codexLeaderCompactionMode: DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
+  workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
   updatedAt: 0,
 };
 
@@ -539,6 +548,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
+    workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -677,6 +687,7 @@ export function updateSettings(
       | "leaderProfilePools"
       | "shortcutSettings"
       | "sessionDefaults"
+      | "workerSlotLimits"
       | "serverSlug"
       | "serverTimeZone"
     >
@@ -693,6 +704,9 @@ export function updateSettings(
   }
   if (defined.sessionDefaults) {
     defined.sessionDefaults = normalizeSessionDefaults(defined.sessionDefaults);
+  }
+  if (defined.workerSlotLimits) {
+    defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }
   if (typeof defined.serverSlug === "string") {
     const normalizedSlug = normalizeServerSlug(defined.serverSlug);
@@ -737,6 +751,12 @@ export function updateSettings(
     persistSecrets();
   }
   return getSettings();
+}
+
+/** How many workers a leader on `backendType` may keep in its herd; reviewers do not count. */
+export function getWorkerSlotLimit(backendType: string | undefined): number {
+  ensureLoaded();
+  return workerSlotLimitFor(normalizeWorkerSlotLimits(settings.workerSlotLimits), backendType);
 }
 
 export function getServerName(): string {

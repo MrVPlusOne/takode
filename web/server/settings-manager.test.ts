@@ -15,6 +15,7 @@ import {
   _getSecretsPathForTest,
   clearLegacyMachineSettings,
   getLegacyMachineSettings,
+  getWorkerSlotLimit,
 } from "./settings-manager.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../shared/session-defaults.js";
 
@@ -76,6 +77,7 @@ describe("settings-manager", () => {
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
+      workerSlotLimits: { claude: 8, codex: 5 },
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -621,9 +623,26 @@ describe("settings-manager", () => {
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
+      workerSlotLimits: { claude: 8, codex: 5 },
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
+  });
+
+  it("gives each leader backend its own worker-slot limit", () => {
+    // Defaults: 8 for Claude leaders, 5 for Codex. A saved limit that is out of range
+    // falls back to that backend's default, and any non-Codex backend counts as Claude.
+    expect(getWorkerSlotLimit("claude-sdk")).toBe(8);
+    expect(getWorkerSlotLimit(undefined)).toBe(8);
+    expect(getWorkerSlotLimit("codex")).toBe(5);
+
+    updateSettings({ workerSlotLimits: { claude: 12, codex: 3 } });
+    expect(getWorkerSlotLimit("claude-sdk")).toBe(12);
+    expect(getWorkerSlotLimit("codex")).toBe(3);
+
+    writeFileSync(settingsPath, JSON.stringify({ workerSlotLimits: { claude: 0, codex: 6 } }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().workerSlotLimits).toEqual({ claude: 8, codex: 6 });
   });
 
   it("normalizes per-model Codex leader recycle thresholds from disk", () => {

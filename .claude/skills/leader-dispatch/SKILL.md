@@ -157,7 +157,7 @@ Rules:
 
 ### Capacity
 
-Worker slots are limited to five. Reviewer sessions do not use worker slots, and archiving reviewers does not free worker capacity.
+Each leader's worker slots are limited by its backend, a Settings value that defaults to 8 for Claude leaders and 5 for Codex leaders; `takode list` and `takode spawn` show your limit. The limit is a ceiling for the worst case, not a reason to parallelize: dispatch in parallel only when work dependencies allow it, and the rules here (fresh worker by default, reclaiming completed workers) apply at any limit. Reviewer sessions do not use worker slots, and archiving reviewers does not free worker capacity.
 
 When all worker slots are used, compare active board work to your herd. If ready work is blocked only by completed/off-board workers waiting in review, do not treat that as a real capacity blocker:
 

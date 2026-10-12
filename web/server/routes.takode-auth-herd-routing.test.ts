@@ -148,6 +148,7 @@ vi.mock("./settings-manager.js", () => ({
   setServerName: vi.fn(),
   getServerId: vi.fn(() => "test-server-id"),
   getClaudeUserDefaultModel: vi.fn(async () => ""),
+  getWorkerSlotLimit: vi.fn((backendType?: string) => (backendType === "codex" ? 5 : 8)),
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());
@@ -619,6 +620,22 @@ describe("Takode server-authoritative auth", () => {
     const workerJson = await workerAllowed.json();
     expect(Array.isArray(workerJson)).toBe(true);
     expect(workerJson).toHaveLength(3);
+  });
+
+  it("reports each leader's worker-slot limit on its own row in takode list", async () => {
+    // takode list and takode spawn read the limit here, so it must follow the leader's
+    // backend (the settings mock gives Claude 8 and Codex 5) and appear only on leaders.
+    const sessions = setupTakodeSessions();
+    sessions["worker-2"].isOrchestrator = true;
+    sessions["worker-2"].backendType = "codex";
+
+    const res = await app.request("/api/takode/sessions", { method: "GET" });
+    const rows = (await res.json()) as Array<{ sessionId: string; workerSlotLimit?: number }>;
+    expect(Object.fromEntries(rows.map((row) => [row.sessionId, row.workerSlotLimit]))).toEqual({
+      "orch-1": 8,
+      "worker-1": undefined,
+      "worker-2": 5,
+    });
   });
 
   it("reads exact leader user messages by session-scoped source-envelope ID", async () => {

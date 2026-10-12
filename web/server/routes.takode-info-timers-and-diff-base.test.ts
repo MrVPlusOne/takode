@@ -148,6 +148,7 @@ vi.mock("./settings-manager.js", () => ({
   setServerName: vi.fn(),
   getServerId: vi.fn(() => "test-server-id"),
   getClaudeUserDefaultModel: vi.fn(async () => ""),
+  getWorkerSlotLimit: vi.fn((backendType?: string) => (backendType === "codex" ? 5 : 8)),
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());

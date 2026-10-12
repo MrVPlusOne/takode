@@ -1542,6 +1542,8 @@ describe("takode spawn", () => {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify([
+            // The server reports the leader's configured limit on its own row.
+            { sessionId: "leader-slot-warning", isOrchestrator: true, archived: false, workerSlotLimit: 5 },
             { sessionId: "worker-slot-1", herdedBy: "leader-slot-warning", archived: false },
             { sessionId: "worker-slot-2", herdedBy: "leader-slot-warning", archived: false },
             { sessionId: "worker-slot-3", herdedBy: "leader-slot-warning", archived: false },

@@ -589,6 +589,8 @@ describe("board stall warnings", () => {
     blocked?: boolean;
     workerLiveState?: "idle" | "running";
     reviewerLiveState?: "idle" | "running";
+    /** The leader's backend sets its worker-slot limit: 8 for Claude, 5 for Codex by default. */
+    leaderBackend?: "claude" | "codex";
   }) {
     const leaderId = "orch-board-stall";
     const workerId = "worker-board-stall";
@@ -601,7 +603,7 @@ describe("board stall warnings", () => {
           sessionId: leaderId,
           sessionNum: 1,
           isOrchestrator: true,
-          backendType: "claude",
+          backendType: opts?.leaderBackend ?? "claude",
           cwd: "/repo",
           lastActivityAt: now,
         },
@@ -1388,7 +1390,8 @@ describe("board stall warnings", () => {
   });
 
   it("emits a one-shot leader nudge when a completed quest normalizes a queued row to reclaimable free-worker capacity", async () => {
-    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    // A Codex leader, whose five worker slots these five workers fill.
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness({ leaderBackend: "codex" });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
 
@@ -1651,7 +1654,8 @@ describe("board stall warnings", () => {
   });
 
   it("injects a non-notification leader nudge for free-worker rows when workers are reclaimable", async () => {
-    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    // A Codex leader, whose five worker slots these five workers fill.
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness({ leaderBackend: "codex" });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
 
@@ -1695,8 +1699,47 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
+  it("counts a Claude leader's worker slots against its higher limit", async () => {
+    // The same five workers that fill a Codex leader's slots leave a Claude leader three
+    // free (default limits 8 and 5), so the free-worker row is plainly dispatchable.
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness({ leaderBackend: "claude" });
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+    leaderSession.messageHistory.push({
+      type: "assistant",
+      message: { id: "leader-board-note-claude", content: [{ type: "text", text: "Queued follow-up noted." }] },
+      timestamp: Date.now(),
+    });
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-1", 4);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-2", 5);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-3", 6);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-4", 7);
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-5",
+      title: "Free-worker-only row",
+      status: "QUEUED",
+      waitFor: ["free-worker"],
+      updatedAt: Date.now() - 60_000,
+    });
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, content, source]) =>
+        sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-5"),
+    );
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("worker slots are available (5/8 used; active worker-owned board demand 1/8)");
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
   it("keeps free-worker rows blocked when all worker slots are occupied by active board work", async () => {
-    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    // A Codex leader, whose five worker slots these five workers fill.
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness({ leaderBackend: "codex" });
     const leaderSession = (bridge as any).sessions.get(leaderId);
 
     addLauncherWorker(launcherSessions, leaderId, "worker-extra-1", 4);

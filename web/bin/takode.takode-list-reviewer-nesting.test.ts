@@ -256,6 +256,8 @@ describe("takode list reviewer nesting", () => {
               lastActivityAt: Date.now() - 12_000,
               cliConnected: true,
               isOrchestrator: true,
+              // The server reports the leader's configured limit on its own row.
+              workerSlotLimit: 8,
             },
             {
               sessionId: "worker-a",
@@ -317,7 +319,7 @@ describe("takode list reviewer nesting", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("3 session(s) shown (2 workers, 1 reviewer)");
       expect(result.stdout).toContain(
-        "Worker slots used: 2/5. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.",
+        "Worker slots used: 2/8. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.",
       );
     } finally {
       server.close();

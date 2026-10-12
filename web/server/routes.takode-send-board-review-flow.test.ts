@@ -148,6 +148,7 @@ vi.mock("./settings-manager.js", () => ({
   setServerName: vi.fn(),
   getServerId: vi.fn(() => "test-server-id"),
   getClaudeUserDefaultModel: vi.fn(async () => ""),
+  getWorkerSlotLimit: vi.fn((backendType?: string) => (backendType === "codex" ? 5 : 8)),
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());
@@ -747,7 +748,8 @@ describe("Takode server-authoritative auth", () => {
         { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING" },
       ],
       queueWarnings: [],
-      workerSlotUsage: { used: 1, limit: 5 },
+      // orch-1 is a Claude leader, so it gets the Claude default.
+      workerSlotUsage: { used: 1, limit: 8 },
       rowSessionStatuses: {
         "q-1": {
           worker: { sessionId: "worker-1", sessionNum: 11, status: "running" },

@@ -24,7 +24,7 @@ import {
   isNeverStartedScheduledLeaderThreadTabRow,
   promoteInMotionLeaderThreadTabsBeforeScheduled,
 } from "../../shared/leader-thread-tab-priority.js";
-import { HERD_WORKER_SLOT_LIMIT } from "../../shared/takode-constants.js";
+import { getWorkerSlotLimit } from "../settings-manager.js";
 import type {
   BoardRow,
   BrowserIncomingMessage,
@@ -350,14 +350,12 @@ export function getBoardWorkerSlotUsage(
   sessionId: string,
   deps: Pick<BoardWatchdogDeps, "listSessions">,
 ): { used: number; limit: number } {
+  const sessions = deps.listSessions();
   return {
-    used: deps
-      .listSessions()
-      .filter(
-        (candidate: any) =>
-          !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
-      ).length,
-    limit: HERD_WORKER_SLOT_LIMIT,
+    used: sessions.filter(
+      (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
+    ).length,
+    limit: getWorkerSlotLimit(sessions.find((candidate: any) => candidate.sessionId === sessionId)?.backendType),
   };
 }
 
@@ -1884,11 +1882,8 @@ function resolveBoardReviewerSessionId(workerNum: number | undefined, deps: Boar
 }
 
 function getLeaderWorkerCapacity(session: SessionLike, deps: BoardWatchdogDeps): LeaderWorkerCapacity {
-  return {
-    rawSlotsUsed: getLeaderWorkerSlotUsage(session.id, deps),
-    activeWorkerDemand: getActiveWorkerOwnedBoardDemand(session),
-    limit: HERD_WORKER_SLOT_LIMIT,
-  };
+  const { used, limit } = getBoardWorkerSlotUsage(session.id, deps);
+  return { rawSlotsUsed: used, activeWorkerDemand: getActiveWorkerOwnedBoardDemand(session), limit };
 }
 
 function getActiveWorkerOwnedBoardDemand(session: SessionLike): number {
@@ -1902,14 +1897,6 @@ function getActiveWorkerOwnedBoardDemand(session: SessionLike): number {
 function isActiveWorkerOwnedBoardRow(row: BoardRow): boolean {
   const stage = (row.status || "").trim().toUpperCase();
   return WORKER_OWNED_BOARD_STAGES.has(stage);
-}
-
-function getLeaderWorkerSlotUsage(sessionId: string, deps: BoardWatchdogDeps): number {
-  return deps
-    .listSessions()
-    .filter(
-      (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
-    ).length;
 }
 
 function isLiveBoardWatchdogEvent(session: SessionLike, event: TakodeEvent, deps: BoardWatchdogDeps): boolean {
