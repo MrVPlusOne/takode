@@ -133,7 +133,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
         groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
       ) ?? null);
   const barRef = useRef<HTMLDivElement | null>(null);
-  useGroupMoveAnimation(barRef, currentKey, currentGroup);
+  useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
   const select = (threadKey: string) => {
     setOpenGroup(null);
     setSheetOpen(false);

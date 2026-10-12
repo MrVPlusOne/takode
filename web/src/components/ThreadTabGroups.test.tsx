@@ -236,10 +236,20 @@ describe("ThreadTabGroupBar group move animation", () => {
     expect(played).toEqual(["done"]);
   });
 
-  it("stays still when the user switches tabs or prefers reduced motion", () => {
+  it("glides a tab opened from New results into the group it moves to once read", () => {
+    // q-12 has an unread result; opening it reads it, so it leaves New results for Done
+    // in the same render that selects it. That is a move the user should see.
+    const played = trackAnimations();
+    const unread = [tab("q-10"), tab("q-12", { completed: true, blueNudge: true }), tab("q-13", { completed: true })];
+    const { rerender } = render(<ThreadTabGroupBar {...props(unread, "q-10")} />);
+    rerender(<ThreadTabGroupBar {...props(unread, "q-12")} />);
+    expect(played).toEqual(["done"]);
+  });
+
+  it("stays still when the user opens a tab that stays in its group, or prefers reduced motion", () => {
     const played = trackAnimations();
     const { rerender } = render(<ThreadTabGroupBar {...props(working, "q-10")} />);
-    // Switching to a tab in another group is a selection change, not a move.
+    // Opening a tab that stays in its group is a selection change, not a move.
     rerender(<ThreadTabGroupBar {...props(working, "q-13")} />);
     expect(played).toEqual([]);
     cleanup();
