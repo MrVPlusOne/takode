@@ -81,6 +81,16 @@ official pages before relying on any of this.
   only available for Codex.
 - **Revert.** Reverting to an earlier message relaunches Claude with
   `--resume-session-at`, so Claude's own context is truncated as well as the feed.
+- **Commit attribution.** Claude Code's own instructions ask for
+  "Co-Authored-By: Claude" and "Generated with Claude Code" lines in commits and
+  PRs. Takode turns that off for every Claude session it starts, on every
+  machine, by applying `attribution: { commit: "", pr: "" }` as a flag-settings
+  overlay right after launch. The overlay merges with a configured launcher's own
+  `--settings` file; the SDK's `settings` launch option would add a second
+  `--settings` flag that replaces it (which drops the Copilot launcher's
+  credentials). Codex adds none: in this repository's history, where Codex
+  sessions also commit, every attribution line is Claude's. The repository's
+  `commit-msg` hook rejects such lines as a backstop where Git hooks are on.
 - **Permissions.** Takode owns the permission mode. "Always allow" choices are
   passed to Claude as permission updates, and a long `sleep` run in bypass mode
   (where Claude does not ask first) is interrupted with the timer reminder.

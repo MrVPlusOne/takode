@@ -396,6 +396,15 @@ export class ClaudeSdkAdapter
     const sdkQuery = sdk.query({ prompt: prompts as AsyncIterable<any>, options: queryOptions });
     this.prompts = prompts;
     this.sdkQuery = sdkQuery;
+    // Commits and PRs made in Takode sessions carry no Claude attribution
+    // ("Co-Authored-By: Claude", "Generated with Claude Code"); Claude Code's
+    // own instructions otherwise ask for it. This goes through the flag-settings
+    // overlay rather than the `settings` option, which would become a second
+    // --settings flag and replace a launcher's own (such as the Copilot
+    // launcher's credentials) instead of merging with it.
+    sdkQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }).catch((err: Error) => {
+      console.error(`[claude-sdk-adapter] Turning off commit attribution failed for session ${this.sessionId}:`, err);
+    });
 
     this.connected = true;
     this.watchProcessStart();

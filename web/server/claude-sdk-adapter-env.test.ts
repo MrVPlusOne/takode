@@ -6,9 +6,11 @@ vi.mock("./path-resolver.js", () => ({
 }));
 
 const sdkMocks = vi.hoisted(() => ({
+  applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
   // Records each query the adapter starts: its prompt input and options.
   query: vi.fn((_params: { prompt: AsyncIterable<unknown>; options: Record<string, any> }) => ({
     close: vi.fn(),
+    applyFlagSettings: sdkMocks.applyFlagSettings,
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
   })),
 }));
@@ -90,6 +92,16 @@ describe("ClaudeSdkAdapter launch env", () => {
 
     expect(options.settingSources).toEqual(["user", "project", "local"]);
     expect(options.plugins).toEqual([{ type: "local", path: "/plugins/takode" }]);
+  });
+
+  it("turns off Claude's commit and PR attribution through the flag-settings overlay", async () => {
+    // Claude Code's own instructions ask for "Co-Authored-By: Claude" and
+    // "Generated with Claude Code" lines; Takode sessions add none. The overlay
+    // merges with a launcher's own --settings (the Copilot launcher keeps its
+    // credentials there), which the `settings` option would replace.
+    const { options } = await launchOptions({ claudeBinary: "claude-copilot" });
+    expect(sdkMocks.applyFlagSettings).toHaveBeenCalledWith({ attribution: { commit: "", pr: "" } });
+    expect(options).not.toHaveProperty("settings");
   });
 
   it("uses a configured Claude binary and a host spawn hook, else the SDK's bundled Claude", async () => {

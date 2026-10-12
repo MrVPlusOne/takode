@@ -1,0 +1,8 @@
+# Reject AI attribution lines. Agent sessions add them by default, and this
+# repository's history records who did the work without them.
+pattern='^(co-authored-by:.*(claude|anthropic|codex|openai|copilot|chatgpt)|(🤖 *)?(generated|created) (with|by) .*(claude|codex|copilot|chatgpt|mai agents))'
+if grep -qiE "$pattern" "$1"; then
+  echo "commit-msg: remove the AI attribution lines from the commit message:" >&2
+  grep -iE "$pattern" "$1" | sed 's/^/  /' >&2
+  exit 1
+fi
