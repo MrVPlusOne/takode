@@ -345,12 +345,10 @@ export function MessageFeed({
     visibleAssistantChildMessageIds,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
-  const latestGlobalMessageId = allMessages.at(-1)?.id ?? "";
   const userNavigationTargets = useMessageFeedUserNavigationTargets({
-    allMessagesLength: allMessages.length,
+    allMessages,
     herdingLeaderSessionId,
     isLeaderSession,
-    latestGlobalMessageId,
     normalizedThreadKey,
     sessionId,
     starredMessages,

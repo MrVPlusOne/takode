@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
-import type { HistoryWindowState, StarredMessageRecord, ThreadWindowState } from "../types.js";
+import type { ChatMessage, HistoryWindowState, StarredMessageRecord, ThreadWindowState } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
@@ -19,10 +19,9 @@ const USER_NAVIGATION_SEARCH_LIMIT = 200;
 const USER_NAVIGATION_SEARCH_MAX_RESULTS = 1000;
 
 export function useMessageFeedUserNavigationTargets({
-  allMessagesLength,
+  allMessages,
   herdingLeaderSessionId,
   isLeaderSession,
-  latestGlobalMessageId,
   normalizedThreadKey,
   sessionId,
   starredMessages,
@@ -30,10 +29,9 @@ export function useMessageFeedUserNavigationTargets({
   turns,
   userNavigationSourceSessionId,
 }: {
-  allMessagesLength: number;
+  allMessages: readonly ChatMessage[];
   herdingLeaderSessionId?: string | null;
   isLeaderSession: boolean;
-  latestGlobalMessageId: string;
   normalizedThreadKey: string;
   sessionId: string;
   starredMessages?: Record<string, StarredMessageRecord>;
@@ -46,6 +44,13 @@ export function useMessageFeedUserNavigationTargets({
     [starredMessages, turns, userNavigationSourceSessionId],
   );
   const [serverUserNavigationTargets, setServerUserNavigationTargets] = useState<UserNavigationTarget[] | null>(null);
+  // The server index changes only when a navigable user message arrives (assistant replies and
+  // worker events are never targets; starring is tracked separately), so refetch on that, not on
+  // every message: the whole index is re-downloaded each time.
+  const latestNavigableUserMessageId = useMemo(
+    () => findLatestNavigableUserMessageId(allMessages, sessionId),
+    [allMessages, sessionId],
+  );
   const useServerUserNavigationTargets = !herdingLeaderSessionId;
 
   useEffect(() => {
@@ -91,9 +96,8 @@ export function useMessageFeedUserNavigationTargets({
       controller.abort();
     };
   }, [
-    allMessagesLength,
     isLeaderSession,
-    latestGlobalMessageId,
+    latestNavigableUserMessageId,
     normalizedThreadKey,
     sessionId,
     starredMessages,
@@ -396,4 +400,15 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     ),
     handleSelectUserNavigationTarget: scrollToUserNavigationTarget,
   };
+}
+
+/** The newest user message the server index lists as a navigation target: typed in this session, not injected. */
+function findLatestNavigableUserMessageId(messages: readonly ChatMessage[], sessionId: string): string {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    if (message.agentSource && message.agentSource.sessionId !== sessionId) continue;
+    return message.id;
+  }
+  return "";
 }
