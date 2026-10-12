@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join, dirname, extname, relative, basename, sep, isAbsolute } from "node:path";
 import { homedir } from "node:os";
@@ -11,7 +11,11 @@ import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
-import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-image-variant-store.js";
+import {
+  LocalImageVariantStore,
+  type LocalImageVariant,
+  type LocalImageVariantKind,
+} from "../local-image-variant-store.js";
 import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
 import { machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
 import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
@@ -296,12 +300,19 @@ function parseImageVariantKind(raw: string | undefined): LocalImageVariantKind |
   return null;
 }
 
-function localImageVariantHeaders(variant: { contentType: string; cacheHit: boolean }): Record<string, string> {
-  return {
+/**
+ * Serve an image variant under a stable, path-based URL. The file at that path can
+ * change, so browsers must revalidate; the ETag lets them do it with a bodiless 304.
+ */
+async function localImageVariantResponse(c: Context, variant: LocalImageVariant): Promise<Response> {
+  const headers = {
     "Content-Type": variant.contentType,
     "Cache-Control": "private, max-age=0, must-revalidate",
+    ETag: variant.etag,
     "X-Takode-Image-Variant-Cache": variant.cacheHit ? "hit" : "miss",
   };
+  if (c.req.header("If-None-Match") === variant.etag) return c.body(null, 304, headers);
+  return c.body(await readFile(variant.path), 200, headers);
 }
 
 export function createFilesystemRoutes(ctx: RouteContext) {
@@ -482,7 +493,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const variantKind = parseImageVariantKind(c.req.query("variant"));
       if (variantKind) {
         const variant = await localImageVariantStore.getVariant(absPath, contentType, variantKind);
-        return c.body(await readFile(variant.path), 200, localImageVariantHeaders(variant));
+        return localImageVariantResponse(c, variant);
       }
       const content = await readFile(absPath);
       return c.body(content, 200, {
@@ -510,7 +521,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         ? await localCopyOfHostFile(target.hostId, target.absolutePath, target.size)
         : target.absolutePath;
       const variant = await localImageVariantStore.getVariant(localPath, target.mimeType, variantKind);
-      return c.body(await readFile(variant.path), 200, localImageVariantHeaders(variant));
+      return localImageVariantResponse(c, variant);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot read image file" }, 404);
     }

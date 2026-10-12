@@ -318,6 +318,10 @@ export const TurnEntries = memo(function TurnEntries({
   hasNewerSections?: boolean;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
+  const sectionStartTurnIds = useMemo(
+    () => new Set(sections.flatMap((section) => section.turns.slice(0, 1).map((turn) => turn.id))),
+    [sections],
+  );
   const threadQuestId =
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
   const completionSummaryHost = useMemo(
@@ -373,217 +377,207 @@ export const TurnEntries = memo(function TurnEntries({
           questLinkSurface={questLinkSurface}
         />
       )}
-      {(() => {
-        let globalIndex = 0;
-        return sections.map((section) => (
-          <div key={section.id} data-feed-section-id={section.id} className="space-y-3 sm:space-y-5">
-            {section.turns.map((turn) => {
-              const turnIndex = globalIndex++;
-              const turnState = turnStates[turnIndex];
-              const isActivityExpanded = turnState?.isActivityExpanded ?? false;
-              const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
-              const turnResponsePresentation =
-                threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
-                  ? threadResponsePresentation
-                  : null;
-              const collapsedThreadResponsePresentation =
-                turnResponsePresentation &&
-                (readyThreadResponsePresentation ||
-                  threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
-                  ? turnResponsePresentation
-                  : null;
-              const collapsedShowsMessage = collapsedThreadResponsePresentation
-                ? readyThreadResponseTurnHasMessage(
-                    turn,
-                    collapsedThreadResponsePresentation,
-                    activeNeedsInputAnchorMessageIds,
-                  )
-                : turn.subConclusions.length > 0 ||
-                  (turn.collapsedEntries?.some(
-                    (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
-                  ) ??
-                    false);
-              // Display only: a handed-off or dispatch-only turn keeps its last note
-              // visible, while answer coverage and Ready state stay unchanged.
-              const unansweredMessageEntry =
-                leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
-                  ? collapsedResponseEntry(turn.lastMessageEntry)
-                  : null;
-              const hasCollapsedContent =
-                unansweredMessageEntry !== null ||
-                (collapsedThreadResponsePresentation
-                  ? readyThreadResponseTurnHasContent(
-                      turn,
-                      collapsedThreadResponsePresentation,
-                      activeNeedsInputAnchorMessageIds,
-                    )
-                  : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
-                    turn.subConclusions.length > 0);
-              const hasCollapsedCurrentAnswer =
-                collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ??
-                false;
-              const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
-              const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
-              const isCompletionHost = completionSummaryHost?.turnId === turn.id;
-              const completionSummaryCard =
-                threadQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
-                  <div className="min-w-0 pl-9">
-                    <QuestCompletionSummaryCard
-                      questId={threadQuestId}
-                      sessionId={sessionId}
-                      questLinkSurface={questLinkSurface}
+      {/* One flat list keyed by turn: section boundaries move whenever the latest
+          window slides, and a turn re-parented into another section wrapper would
+          remount, reloading every visible message and image. */}
+      {turns.map((turn, turnIndex) => {
+        const turnState = turnStates[turnIndex];
+        const isActivityExpanded = turnState?.isActivityExpanded ?? false;
+        const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
+        const turnResponsePresentation =
+          threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
+            ? threadResponsePresentation
+            : null;
+        const collapsedThreadResponsePresentation =
+          turnResponsePresentation &&
+          (readyThreadResponsePresentation || threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
+            ? turnResponsePresentation
+            : null;
+        const collapsedShowsMessage = collapsedThreadResponsePresentation
+          ? readyThreadResponseTurnHasMessage(
+              turn,
+              collapsedThreadResponsePresentation,
+              activeNeedsInputAnchorMessageIds,
+            )
+          : turn.subConclusions.length > 0 ||
+            (turn.collapsedEntries?.some(
+              (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
+            ) ??
+              false);
+        // Display only: a handed-off or dispatch-only turn keeps its last note
+        // visible, while answer coverage and Ready state stay unchanged.
+        const unansweredMessageEntry =
+          leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
+            ? collapsedResponseEntry(turn.lastMessageEntry)
+            : null;
+        const hasCollapsedContent =
+          unansweredMessageEntry !== null ||
+          (collapsedThreadResponsePresentation
+            ? readyThreadResponseTurnHasContent(
+                turn,
+                collapsedThreadResponsePresentation,
+                activeNeedsInputAnchorMessageIds,
+              )
+            : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) || turn.subConclusions.length > 0);
+        const hasCollapsedCurrentAnswer =
+          collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ?? false;
+        const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
+        const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
+        const isCompletionHost = completionSummaryHost?.turnId === turn.id;
+        const completionSummaryCard =
+          threadQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
+            <div className="min-w-0 pl-9">
+              <QuestCompletionSummaryCard
+                questId={threadQuestId}
+                sessionId={sessionId}
+                questLinkSurface={questLinkSurface}
+              />
+            </div>
+          ) : null;
+        const threadStatusFooter =
+          showThreadStatusFooter || completionSummaryCard ? (
+            <>
+              {completionSummaryCard}
+              {showThreadStatusFooter && (
+                <TurnThreadStatusFooter
+                  statuses={visibleThreadStatuses}
+                  workerPreviewTarget={workerPreviewTarget}
+                  currentThreadKey={currentThreadKey}
+                  onSelectThread={onSelectThread}
+                  onLayoutContributionChange={onThreadStatusLayoutContributionChange}
+                />
+              )}
+            </>
+          ) : null;
+
+        return (
+          <QuestCompletionSummaryContext.Provider
+            key={turn.id}
+            value={isCompletionHost && completionSummaryHost.withQuiz ? threadQuestId : null}
+          >
+            <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
+              <div
+                data-turn-id={turn.id}
+                data-feed-block-id={getTurnFeedBlockId(turn.id)}
+                className="turn-container space-y-2 sm:space-y-3"
+                data-user-turn={isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined}
+              >
+                {turn.userEntry && (
+                  <FeedEntries
+                    entries={[turn.userEntry]}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    minuteBoundaryLabels={minuteBoundaryLabels}
+                    isCodexSession={isCodexSession}
+                    activeCodexTerminalIds={activeCodexTerminalIds}
+                    onOpenCodexTerminal={onOpenCodexTerminal}
+                    onSelectThread={onSelectThread}
+                    questLinkSurface={questLinkSurface}
+                  />
+                )}
+
+                {turnPresentationEntries(turn).length > 0 && (
+                  <div className="min-w-0">
+                    <TurnActivityDisclosure
+                      stats={turn.stats}
+                      durationMs={turnSummaryDuration}
+                      expanded={isActivityExpanded}
+                      onToggle={() => toggleTurn(turn.id)}
                     />
                   </div>
-                ) : null;
-              const threadStatusFooter =
-                showThreadStatusFooter || completionSummaryCard ? (
+                )}
+                {!isActivityExpanded && !collapsedThreadResponsePresentation && (
+                  <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
+                )}
+                {isActivityExpanded ? (
+                  turnPresentationEntries(turn).length > 0 && (
+                    <TurnEntriesExpanded
+                      turn={turn}
+                      isLatestTurn={turnIndex === turns.length - 1}
+                      sessionId={sessionId}
+                      currentThreadKey={currentThreadKey}
+                      threadStatusFooter={threadStatusFooter}
+                      minuteBoundaryLabels={minuteBoundaryLabels}
+                      isCodexSession={isCodexSession}
+                      activeCodexTerminalIds={activeCodexTerminalIds}
+                      onOpenCodexTerminal={onOpenCodexTerminal}
+                      onSelectThread={onSelectThread}
+                      questLinkSurface={questLinkSurface}
+                      threadResponsePresentation={turnResponsePresentation}
+                    />
+                  )
+                ) : (
                   <>
-                    {completionSummaryCard}
-                    {showThreadStatusFooter && (
-                      <TurnThreadStatusFooter
-                        statuses={visibleThreadStatuses}
-                        workerPreviewTarget={workerPreviewTarget}
+                    {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
+                      <FeedEntries
+                        entries={turn.systemEntries}
+                        sessionId={sessionId}
                         currentThreadKey={currentThreadKey}
+                        minuteBoundaryLabels={minuteBoundaryLabels}
+                        isCodexSession={isCodexSession}
+                        activeCodexTerminalIds={activeCodexTerminalIds}
+                        onOpenCodexTerminal={onOpenCodexTerminal}
                         onSelectThread={onSelectThread}
-                        onLayoutContributionChange={onThreadStatusLayoutContributionChange}
+                        suppressThreadSystemMarkers
+                        questLinkSurface={questLinkSurface}
                       />
                     )}
-                  </>
-                ) : null;
-
-              return (
-                <QuestCompletionSummaryContext.Provider
-                  key={turn.id}
-                  value={isCompletionHost && completionSummaryHost.withQuiz ? threadQuestId : null}
-                >
-                  <div>
-                    <div
-                      data-turn-id={turn.id}
-                      data-feed-block-id={getTurnFeedBlockId(turn.id)}
-                      className="turn-container space-y-2 sm:space-y-3"
-                      data-user-turn={
-                        isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined
-                      }
-                    >
-                      {turn.userEntry && (
-                        <FeedEntries
-                          entries={[turn.userEntry]}
-                          sessionId={sessionId}
-                          currentThreadKey={currentThreadKey}
-                          minuteBoundaryLabels={minuteBoundaryLabels}
-                          isCodexSession={isCodexSession}
-                          activeCodexTerminalIds={activeCodexTerminalIds}
-                          onOpenCodexTerminal={onOpenCodexTerminal}
-                          onSelectThread={onSelectThread}
-                          questLinkSurface={questLinkSurface}
-                        />
-                      )}
-
-                      {turnPresentationEntries(turn).length > 0 && (
-                        <div className="min-w-0">
-                          <TurnActivityDisclosure
-                            stats={turn.stats}
-                            durationMs={turnSummaryDuration}
-                            expanded={isActivityExpanded}
-                            onToggle={() => toggleTurn(turn.id)}
-                          />
-                        </div>
-                      )}
-                      {!isActivityExpanded && !collapsedThreadResponsePresentation && (
-                        <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
-                      )}
-                      {isActivityExpanded ? (
-                        turnPresentationEntries(turn).length > 0 && (
-                          <TurnEntriesExpanded
+                    {hasCollapsedContent && (
+                      <div
+                        className={
+                          hasCollapsedCurrentAnswer
+                            ? "flex min-w-0 items-start"
+                            : "flex min-w-0 items-start gap-2 sm:gap-3"
+                        }
+                        data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
+                      >
+                        {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
+                        <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                          {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
+                            <div className="px-3 pt-2 space-y-1.5">
+                              <HidePawContext.Provider value={true}>
+                                {turn.subConclusions.map((sc, scIdx) => (
+                                  <FeedEntries
+                                    key={scIdx}
+                                    entries={[sc.entry]}
+                                    sessionId={sessionId}
+                                    currentThreadKey={currentThreadKey}
+                                    isCodexSession={isCodexSession}
+                                    activeCodexTerminalIds={activeCodexTerminalIds}
+                                    onOpenCodexTerminal={onOpenCodexTerminal}
+                                    onSelectThread={onSelectThread}
+                                    questLinkSurface={questLinkSurface}
+                                  />
+                                ))}
+                              </HidePawContext.Provider>
+                            </div>
+                          )}
+                          <CollapsedTurnRows
                             turn={turn}
-                            isLatestTurn={turnIndex === turns.length - 1}
                             sessionId={sessionId}
                             currentThreadKey={currentThreadKey}
-                            threadStatusFooter={threadStatusFooter}
                             minuteBoundaryLabels={minuteBoundaryLabels}
                             isCodexSession={isCodexSession}
                             activeCodexTerminalIds={activeCodexTerminalIds}
                             onOpenCodexTerminal={onOpenCodexTerminal}
                             onSelectThread={onSelectThread}
                             questLinkSurface={questLinkSurface}
-                            threadResponsePresentation={turnResponsePresentation}
+                            threadResponsePresentation={collapsedThreadResponsePresentation}
+                            activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                            preserveHostQuestQuiz={preserveHostQuestQuiz}
+                            unansweredMessageEntry={unansweredMessageEntry}
                           />
-                        )
-                      ) : (
-                        <>
-                          {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
-                            <FeedEntries
-                              entries={turn.systemEntries}
-                              sessionId={sessionId}
-                              currentThreadKey={currentThreadKey}
-                              minuteBoundaryLabels={minuteBoundaryLabels}
-                              isCodexSession={isCodexSession}
-                              activeCodexTerminalIds={activeCodexTerminalIds}
-                              onOpenCodexTerminal={onOpenCodexTerminal}
-                              onSelectThread={onSelectThread}
-                              suppressThreadSystemMarkers
-                              questLinkSurface={questLinkSurface}
-                            />
-                          )}
-                          {hasCollapsedContent && (
-                            <div
-                              className={
-                                hasCollapsedCurrentAnswer
-                                  ? "flex min-w-0 items-start"
-                                  : "flex min-w-0 items-start gap-2 sm:gap-3"
-                              }
-                              data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
-                            >
-                              {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
-                              <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                                {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
-                                  <div className="px-3 pt-2 space-y-1.5">
-                                    <HidePawContext.Provider value={true}>
-                                      {turn.subConclusions.map((sc, scIdx) => (
-                                        <FeedEntries
-                                          key={scIdx}
-                                          entries={[sc.entry]}
-                                          sessionId={sessionId}
-                                          currentThreadKey={currentThreadKey}
-                                          isCodexSession={isCodexSession}
-                                          activeCodexTerminalIds={activeCodexTerminalIds}
-                                          onOpenCodexTerminal={onOpenCodexTerminal}
-                                          onSelectThread={onSelectThread}
-                                          questLinkSurface={questLinkSurface}
-                                        />
-                                      ))}
-                                    </HidePawContext.Provider>
-                                  </div>
-                                )}
-                                <CollapsedTurnRows
-                                  turn={turn}
-                                  sessionId={sessionId}
-                                  currentThreadKey={currentThreadKey}
-                                  minuteBoundaryLabels={minuteBoundaryLabels}
-                                  isCodexSession={isCodexSession}
-                                  activeCodexTerminalIds={activeCodexTerminalIds}
-                                  onOpenCodexTerminal={onOpenCodexTerminal}
-                                  onSelectThread={onSelectThread}
-                                  questLinkSurface={questLinkSurface}
-                                  threadResponsePresentation={collapsedThreadResponsePresentation}
-                                  activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
-                                  preserveHostQuestQuiz={preserveHostQuestQuiz}
-                                  unansweredMessageEntry={unansweredMessageEntry}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                      {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
-                    </div>
-                  </div>
-                </QuestCompletionSummaryContext.Provider>
-              );
-            })}
-          </div>
-        ));
-      })()}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+              </div>
+            </div>
+          </QuestCompletionSummaryContext.Provider>
+        );
+      })}
     </InlineMessageTimingVisibilityContext.Provider>
   );
 });

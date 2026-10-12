@@ -35,6 +35,8 @@ describe("LocalImageVariantStore", () => {
     const reused = await store.getVariant(sourcePath, "image/png", "thumbnail");
     expect(reused.path).toBe(first.path);
     expect(reused.cacheHit).toBe(true);
+    // The ETag follows the variant, so browsers can revalidate without re-downloading.
+    expect(reused.etag).toBe(first.etag);
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     await writeFile(sourcePath, await makePng(640, 420, 210));
@@ -42,6 +44,7 @@ describe("LocalImageVariantStore", () => {
     const regenerated = await store.getVariant(sourcePath, "image/png", "thumbnail");
     expect(regenerated.path).not.toBe(first.path);
     expect(regenerated.cacheHit).toBe(false);
+    expect(regenerated.etag).not.toBe(first.etag);
   });
 
   it("generates reusable full display variants using the shared store optimization policy", async () => {

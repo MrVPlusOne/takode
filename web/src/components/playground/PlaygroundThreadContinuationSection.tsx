@@ -92,7 +92,10 @@ export function PlaygroundThreadContinuationSection() {
             </button>
             <span>Viewing {thread === "all" ? "All Threads" : thread === "main" ? "Main" : `thread:${thread}`}</span>
           </div>
-          <div className="max-h-[620px] overflow-y-auto rounded-xl bg-cc-bg p-3 sm:p-6" data-testid="continuation-feed">
+          <div
+            className="max-h-[620px] space-y-3 overflow-y-auto rounded-xl bg-cc-bg p-3 sm:space-y-5 sm:p-6"
+            data-testid="continuation-feed"
+          >
             <TurnEntries
               sections={sections}
               sessionId="playground-continuation"

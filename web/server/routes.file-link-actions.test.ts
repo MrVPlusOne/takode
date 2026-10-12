@@ -140,6 +140,7 @@ describe("file-link filesystem actions", () => {
         path: variantPath,
         contentType: "image/jpeg",
         cacheHit: true,
+        etag: '"variant-v1"',
       })),
     };
     const app = makeApp(tempDir, localImageVariantStore);
@@ -155,6 +156,30 @@ describe("file-link filesystem actions", () => {
       expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
       expect(res.headers.get("Cache-Control")).not.toContain("immutable");
       expect(res.headers.get("X-Takode-Image-Variant-Cache")).toBe("hit");
+      expect(res.headers.get("ETag")).toBe('"variant-v1"');
     }
+  });
+
+  it("answers an image variant revalidation with a bodiless 304 while the variant is unchanged", async () => {
+    // Stable path-based URLs must revalidate; the ETag keeps that from re-downloading
+    // the image each time a browser mounts the same thumbnail again.
+    const sourcePath = join(tempDir, "preview.png");
+    const variantPath = join(tempDir, "variant.jpeg");
+    await writeFile(sourcePath, Buffer.from("source"));
+    await writeFile(variantPath, Buffer.from("variant"));
+    const app = makeApp(tempDir, {
+      getVariant: vi.fn(async () => ({ path: variantPath, contentType: "image/jpeg", cacheHit: true, etag: '"v1"' })),
+    });
+    const url = `/api/fs/image?path=${encodeURIComponent(sourcePath)}&variant=thumbnail`;
+
+    const unchanged = await app.request(url, { headers: { "If-None-Match": '"v1"' } });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+    expect(unchanged.headers.get("ETag")).toBe('"v1"');
+
+    // A changed source gets a new ETag, so the browser's stale tag gets the new bytes.
+    const changed = await app.request(url, { headers: { "If-None-Match": '"v0"' } });
+    expect(changed.status).toBe(200);
+    expect(Buffer.from(await changed.arrayBuffer()).toString("utf-8")).toBe("variant");
   });
 });

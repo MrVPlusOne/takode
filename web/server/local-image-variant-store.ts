@@ -19,6 +19,8 @@ export interface LocalImageVariant {
   path: string;
   contentType: string;
   cacheHit: boolean;
+  /** HTTP entity tag that changes whenever the source file or variant recipe changes. */
+  etag: string;
 }
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "image-variants");
@@ -45,16 +47,18 @@ export class LocalImageVariantStore {
       throw new Error("image path is not a file");
     }
 
+    const cacheKey = this.cacheKeyFor(absolutePath, sourceStat.size, sourceStat.mtimeMs, kind);
+    const etag = `"${cacheKey.hash}"`;
     if (sourceContentType === "image/svg+xml") {
       return {
         path: absolutePath,
         contentType: sourceContentType,
         cacheHit: false,
+        etag,
       };
     }
 
-    const cacheKey = this.cacheKeyFor(absolutePath, sourceStat.size, sourceStat.mtimeMs, kind);
-    const cached = await this.findCachedVariant(cacheKey);
+    const cached = await this.findCachedVariant(cacheKey, etag);
     if (cached) {
       return cached;
     }
@@ -91,6 +95,7 @@ export class LocalImageVariantStore {
       path: variantPath,
       contentType,
       cacheHit: false,
+      etag,
     };
   }
 
@@ -120,10 +125,13 @@ export class LocalImageVariantStore {
     return join(this.baseDir, `${key.kind}-${key.hash}.${ext}`);
   }
 
-  private async findCachedVariant(key: {
-    kind: LocalImageVariantKind;
-    hash: string;
-  }): Promise<LocalImageVariant | null> {
+  private async findCachedVariant(
+    key: {
+      kind: LocalImageVariantKind;
+      hash: string;
+    },
+    etag: string,
+  ): Promise<LocalImageVariant | null> {
     if (!(await fileExists(this.baseDir))) return null;
     const prefix = `${key.kind}-${key.hash}.`;
     const files = await readdir(this.baseDir);
@@ -133,6 +141,7 @@ export class LocalImageVariantStore {
       path: join(this.baseDir, match),
       contentType: contentTypeFromExtension(match),
       cacheHit: true,
+      etag,
     };
   }
 }
