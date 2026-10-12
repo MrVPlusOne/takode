@@ -354,17 +354,22 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
   const [needsCollapse, setNeedsCollapse] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
 
+  const hasResizeObserver = typeof ResizeObserver !== "undefined";
   useLayoutEffect(() => {
     const el = contentRef.current;
-    if (!el) return;
+    if (!el || !hasResizeObserver) return;
     const measure = () => setNeedsCollapse(el.scrollHeight > COLLAPSE_THRESHOLD);
     measure();
     // Observe the unclipped body so comment disclosure and wrapping update the whole-message preview.
-    if (typeof ResizeObserver === "undefined") return;
+    // The observer reports every later size change, so re-renders need no layout read of their own.
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [children]);
+  }, [hasResizeObserver]);
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (el && !hasResizeObserver) setNeedsCollapse(el.scrollHeight > COLLAPSE_THRESHOLD);
+  }, [children, hasResizeObserver]);
 
   const isCollapsed = needsCollapse && collapsed;
 
@@ -804,11 +809,11 @@ function UserMessage({
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
-  const messagesBySession = useStore((s) => s.messages);
-  const sessionMessages = sessionId ? (messagesBySession.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES;
-  const canRevert = useMemo(() => {
+  // Select the boolean, not the messages map, so every incoming message does not re-render every user bubble.
+  const canRevert = useStore((s) => {
     if (!sessionId) return false;
     if (!isCodex) return true;
+    const sessionMessages = s.messages.get(sessionId) ?? EMPTY_MESSAGES;
     const idx = sessionMessages.findIndex((m) => m.id === message.id);
     if (idx < 0) return true;
     for (let i = idx - 1; i >= 0; i--) {
@@ -817,7 +822,7 @@ function UserMessage({
       return false;
     }
     return true;
-  }, [sessionId, isCodex, sessionMessages, message.id]);
+  });
 
   const replyContext = useMemo(
     () => getDisplayReplyContext(message.content, message.metadata?.replyContext),

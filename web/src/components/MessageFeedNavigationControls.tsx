@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { type ScrollActivity, useIsScrolling } from "./message-feed-scroll-activity.js";
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 
@@ -7,6 +8,8 @@ const DESKTOP_NAV_STACK_BOTTOM_CLASS = "bottom-16";
 interface MessageFeedNavigationControlsProps {
   showScrollButton: boolean;
   navFabStackClassName: string;
+  /** On touch screens the buttons show only while the feed is scrolling. */
+  scrollActivity?: ScrollActivity;
   isTouch: boolean;
   mobileNavBottomOffsetPx: number;
   navFabButtonClassName: string;
@@ -30,6 +33,7 @@ interface MessageFeedNavigationControlsProps {
 export function MessageFeedNavigationControls({
   showScrollButton,
   navFabStackClassName,
+  scrollActivity,
   isTouch,
   mobileNavBottomOffsetPx,
   navFabButtonClassName,
@@ -49,11 +53,14 @@ export function MessageFeedNavigationControls({
   onSelectUserNavigationTarget,
   onScrollToBottom,
 }: MessageFeedNavigationControlsProps) {
+  const isScrolling = useIsScrolling(scrollActivity);
   if (!showScrollButton) return null;
+  const visibilityClassName =
+    isTouch && scrollActivity ? (isScrolling ? "opacity-60" : "opacity-0 pointer-events-none") : "";
   return (
     <div
       data-testid="message-feed-nav-fabs"
-      className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName}`}
+      className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName} ${visibilityClassName}`}
       style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
     >
       <button onClick={onScrollToTop} className={navFabButtonClassName} title="Go to top" aria-label="Go to top">

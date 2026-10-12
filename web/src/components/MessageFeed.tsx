@@ -7,6 +7,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
 import { FeedFooter } from "./MessageFeedEntries.js";
 import { TurnEntries } from "./MessageFeedTurns.js";
+import { useScrollActivity } from "./message-feed-scroll-activity.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
 import { type FeedViewportPosition, getFeedViewportKey } from "../utils/thread-viewport.js";
 import {
@@ -262,17 +263,15 @@ export function MessageFeed({
   const suppressLatestPillOnRestoreRef = useRef(false);
   const [showScrollButton, setShowScrollButton] = useIdempotentState(false);
   const [showLatestPill, setShowLatestPill] = useIdempotentState(false);
-  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollActivity = useScrollActivity();
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
   const [pendingSectionLoadDirection, setPendingSectionLoadDirection] = useState<"older" | "newer" | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
   const [dismissedSubagentChips, setDismissedSubagentChips] = useState<Map<string, string>>(new Map());
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
   const [navigatorStarredOnly, setNavigatorStarredOnly] = useState(false);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The scroll-settle timer must not outlive the feed: it would set state after unmount (and, in tests,
   // after jsdom teardown).
-  useEffect(() => () => clearTimeout(scrollTimeoutRef.current), []);
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
   const restoredViewportRef = useRef<{ key: string; container: HTMLDivElement | null } | null>(null);
@@ -1001,9 +1000,7 @@ export function MessageFeed({
   const navFabButtonClassName = isTouch
     ? "h-10 w-10 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
     : "h-8 w-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer";
-  const navFabStackClassName = isTouch
-    ? `gap-2 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}`
-    : "gap-4";
+  const navFabStackClassName = isTouch ? "gap-2" : "gap-4";
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
       if (activeThreadWindow && hasNewerSections) {
@@ -1221,9 +1218,7 @@ export function MessageFeed({
     }
     const shouldShow = !nearBottom || !autoFollowEnabledRef.current;
     setShowScrollButton((prev) => (prev === shouldShow ? prev : shouldShow));
-    setIsScrolling(true);
-    clearTimeout(scrollTimeoutRef.current);
-    scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1500);
+    scrollActivity.markScrolling();
     lastScrollTopRef.current = currentScrollTop;
     snapshotViewportAnchor(el);
   }
@@ -1970,6 +1965,7 @@ export function MessageFeed({
         <MessageFeedNavigationControls
           showScrollButton={showScrollButton}
           navFabStackClassName={navFabStackClassName}
+          scrollActivity={scrollActivity}
           isTouch={isTouch}
           mobileNavBottomOffsetPx={mobileNavBottomOffsetPx}
           navFabButtonClassName={navFabButtonClassName}
