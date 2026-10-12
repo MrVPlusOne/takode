@@ -15,6 +15,7 @@ type PreviewFixtureState =
   | "keyboard"
   | "coarse"
   | "link-touch"
+  | "cancelled"
   | "dense";
 
 const PREVIEW_WORKER_SESSION_ID = "playground-inline-preview-worker";
@@ -109,6 +110,15 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
       "A touch tap on the text link opens the same modal sheet, with its large Open action pinned at the bottom; a mouse or keyboard click opens the full view.",
   },
   {
+    id: "cancelled",
+    label: "Cancelled / no TLDR",
+    buttonLabel: "Show a cancelled quest without a TLDR",
+    questId: "q-9419",
+    title: "Live check: automatic User Checkpoint",
+    description:
+      "A cancelled quest with a description but no TLDR, taken off the board: the sheet labels it Cancelled and still shows its description and cancellation note.",
+  },
+  {
     id: "dense",
     label: "Dense feed / link hover",
     buttonLabel: "Show dense-feed link-hover title preview",
@@ -124,6 +134,7 @@ const PREVIEW_QUEST_BY_ID = new Map(
   PREVIEW_FIXTURES.map((fixture, fixtureIndex) => {
     const showsFullEstablishedPreview = fixture.id === "rich";
     if (fixture.id === "link-touch") return [fixture.questId, activeLinkTouchQuest(fixture)] as const;
+    if (fixture.id === "cancelled") return [fixture.questId, cancelledQuest(fixture)] as const;
     const completedAt = 1_787_990_520_000 + fixtureIndex;
     const feedback = Array.from({ length: 5 }, (_, feedbackIndex) => ({
       author: (feedbackIndex === 4 ? "human" : "agent") as "human" | "agent",
@@ -226,6 +237,27 @@ function activeLinkTouchQuest(fixture: PreviewFixtureDefinition): QuestmasterTas
         text: "Thumbnails re-mount on every send because their keys change; keyed them by image path and confirmed one download per image.",
       },
     ],
+  } as unknown as QuestmasterTask;
+}
+
+function cancelledQuest(fixture: PreviewFixtureDefinition): QuestmasterTask {
+  return {
+    id: `${fixture.questId}-v2`,
+    questId: fixture.questId,
+    version: 2,
+    status: "done",
+    cancelled: true,
+    title: fixture.title,
+    description:
+      "Throwaway quest for a live check of the automatic User Checkpoint after the restart: a leader question in this thread should move the quest into User Checkpoint and back to Work when answered.",
+    notes:
+      "Passed: an open leader question moved the quest into User Checkpoint, and answering it returned the quest to Work.",
+    tags: ["orchestration", "validation"],
+    verificationItems: [],
+    claimedAt: 1_787_990_430_000,
+    completedAt: 1_787_990_520_000,
+    createdAt: 1_787_990_400_000,
+    updatedAt: 1_787_990_520_000,
   } as unknown as QuestmasterTask;
 }
 
@@ -436,7 +468,7 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
         dispatchTouchActivation(preview);
         return;
       }
-      if (state === "link-touch") {
+      if (state === "link-touch" || state === "cancelled") {
         dispatchTouchActivation(link);
         return;
       }
@@ -453,7 +485,7 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
   }, [revision, state]);
 
   // The link-tap fixture links the whole quest, as most message links do; the others keep an exact feedback target.
-  const feedbackIndex = state === "link-touch" ? undefined : 4;
+  const feedbackIndex = state === "link-touch" || state === "cancelled" ? undefined : 4;
   const wrappedLabel =
     state === "no-fit"
       ? `${fixture.questId} feedback #4 with a deliberately long wrapped exact-target label`

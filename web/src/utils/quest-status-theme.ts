@@ -50,3 +50,19 @@ export function getQuestStatusTheme(status: string): QuestStatusTheme {
     border: "border-cc-status-idea/25",
   };
 }
+
+/** Cancelled quests are stored as done; they share the red Cancelled look used by Questmaster and the quest view. */
+export const CANCELLED_QUEST_STATUS_THEME: QuestStatusTheme = {
+  label: "Cancelled",
+  dot: "bg-red-400",
+  bg: "bg-red-500/10",
+  text: "text-red-400",
+  border: "border-red-500/20",
+};
+
+/** Status theme for a quest record, showing a cancelled quest as Cancelled rather than done. */
+export function getQuestRecordStatusTheme(quest: { status: string; cancelled?: boolean }): QuestStatusTheme {
+  return quest.status === "done" && quest.cancelled === true
+    ? CANCELLED_QUEST_STATUS_THEME
+    : getQuestStatusTheme(quest.status);
+}

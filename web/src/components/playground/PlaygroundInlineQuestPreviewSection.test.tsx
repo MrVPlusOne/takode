@@ -127,7 +127,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const controls = within(section).getByRole("group", {
       name: "Inline quest preview fixture state",
     });
-    expect(within(controls).getAllByRole("button")).toHaveLength(9);
+    expect(within(controls).getAllByRole("button")).toHaveLength(10);
     expect(within(section).getByText(/cohesive fixed-gap unit/)).toBeInTheDocument();
 
     let live = await within(section).findByTestId("playground-inline-quest-preview-live");
@@ -266,6 +266,20 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     });
     expect(within(screen.getByRole("dialog")).getByTestId("quest-feed-sheet-primary-action")).toHaveTextContent(
       "Open quest",
+    );
+
+    // A cancelled quest without a TLDR still shows its description and cancellation note.
+    fireEvent.click(
+      within(controls).getByRole("button", {
+        name: "Show a cancelled quest without a TLDR",
+      }),
+    );
+    await waitFor(() => {
+      expect(within(screen.getByRole("dialog")).getByTestId("quest-hover-status-chip")).toHaveTextContent("Cancelled");
+    });
+    expect(within(screen.getByRole("dialog")).getByTestId("quest-hover-tldr")).toHaveTextContent("Description");
+    expect(within(screen.getByRole("dialog")).getByTestId("quest-hover-progress-tldr")).toHaveTextContent(
+      "Cancellation Note",
     );
   });
 

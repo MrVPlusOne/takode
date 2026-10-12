@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import type { BoardParticipantStatus, BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import type { QuestOwnerRef } from "../../shared/quest-owner.js";
-import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
+import { isQuestCancelled } from "../utils/quest-editor-helpers.js";
 import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
 import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
@@ -28,6 +29,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { HoverCardSuppressionProvider } from "./hover-card-suppression-context.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
+import { descriptionExcerpt } from "./QuestDescriptionSummaryCard.js";
 
 export interface QuestPreviewCardContentProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -107,7 +109,8 @@ export function QuestPreviewCardContent({
   suppressNestedHoverCards = false,
   onSessionNavigate,
 }: QuestPreviewCardContentProps) {
-  const statusTheme = getQuestStatusTheme(quest.status);
+  const isCancelled = isQuestCancelled(quest);
+  const statusTheme = getQuestRecordStatusTheme(quest);
   const owner = getQuestDisplayOwner(quest);
   const ownerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = useStore((state) => {
@@ -137,7 +140,7 @@ export function QuestPreviewCardContent({
   const canUseJourneyStatusLabel = !isTerminalQuest && !journeyContext?.completed;
   const journeyPhase = canUseJourneyStatusLabel ? getQuestJourneyPhaseForState(journeyBoardRow?.status) : null;
   const journeyPresentation = canUseJourneyStatusLabel ? getQuestJourneyPresentation(journeyBoardRow?.status) : null;
-  const terminalStatusLabel = quest.status === "done" ? "Completed" : statusTheme.label;
+  const terminalStatusLabel = quest.status === "done" && !isCancelled ? "Completed" : statusTheme.label;
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
@@ -157,7 +160,14 @@ export function QuestPreviewCardContent({
         text: latest.text,
       };
     }
-    return selectQuestPreviewProgressTldr(quest as QuestmasterTask);
+    return selectQuestPreviewProgressTldr(quest as QuestmasterTask) ?? selectClosingText(quest);
+  }, [quest]);
+  // Quests without a TLDR still say what they are about, from the start of their description.
+  const summary = useMemo(() => {
+    const tldr = quest.tldr?.trim();
+    if (tldr) return { label: "Summary", text: tldr };
+    const excerpt = "description" in quest ? descriptionExcerpt(quest.description?.trim() ?? "") : "";
+    return excerpt ? { label: "Description", text: excerpt } : null;
   }, [quest]);
 
   return (
@@ -183,7 +193,7 @@ export function QuestPreviewCardContent({
             )}
             {completedAt != null && (
               <span data-testid="quest-hover-completed-at" className="min-w-0 truncate text-xs text-cc-muted">
-                Finished {timeAgo(completedAt)}
+                {isCancelled ? "Cancelled" : "Finished"} {timeAgo(completedAt)}
               </span>
             )}
           </div>
@@ -205,9 +215,9 @@ export function QuestPreviewCardContent({
         leaderSessionId={leaderSessionId}
         onNavigate={onSessionNavigate}
       />
-      {quest.tldr && (
-        <QuestPreviewSection testId="quest-hover-tldr" label="Summary">
-          <QuestPreviewMarkdown text={quest.tldr} />
+      {summary && (
+        <QuestPreviewSection testId="quest-hover-tldr" label={summary.label}>
+          <QuestPreviewMarkdown text={summary.text} />
         </QuestPreviewSection>
       )}
       {progressTldr && (
@@ -272,6 +282,20 @@ function QuestPreviewMarkdown({ text }: { text: string }) {
       className="mt-1 text-[13px] leading-relaxed text-cc-fg [&_li]:text-cc-fg [&_ol]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:mb-1.5 [&_p]:text-cc-fg [&_ul]:mb-1.5"
     />
   );
+}
+
+/**
+ * What a finished quest without a debrief TLDR can still show: the start of its debrief, or the
+ * note it was closed or cancelled with. Cancelled quests have no debrief, only that note.
+ */
+function selectClosingText(quest: QuestmasterTask | QuestListPreview) {
+  if (quest.status !== "done" || !("description" in quest)) return null;
+  const cancelled = isQuestCancelled(quest);
+  const debrief = cancelled ? "" : descriptionExcerpt(quest.debrief?.trim() ?? "");
+  if (debrief) return { kind: "debrief" as const, label: "Final Debrief" as const, text: debrief };
+  const note = quest.notes?.trim();
+  if (!note) return null;
+  return { kind: "note" as const, label: cancelled ? "Cancellation Note" : "Closing Note", text: note };
 }
 
 function resolveWorkerParticipant(

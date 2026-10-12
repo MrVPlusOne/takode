@@ -45,7 +45,7 @@ export function QuestDescriptionSummaryCard({
 }
 
 /** First prose paragraph of a description, skipping headings, shortened at a word boundary. */
-function descriptionExcerpt(description: string): string {
+export function descriptionExcerpt(description: string): string {
   const paragraph =
     description
       .split(/\n\s*\n/)

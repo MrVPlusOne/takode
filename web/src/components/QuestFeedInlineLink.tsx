@@ -19,7 +19,7 @@ import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { currentCachedQuestDetail, hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
-import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
@@ -1059,7 +1059,7 @@ export function QuestFeedInlineLink({
   }, [ownerId]);
 
   const microVisible = phase === "micro" && canonicalTitle && !microHydrationFailed;
-  const microStatusTheme = validatedMicroQuest ? getQuestStatusTheme(validatedMicroQuest.status) : null;
+  const microStatusTheme = validatedMicroQuest ? getQuestRecordStatusTheme(validatedMicroQuest) : null;
   const richOpen = phase.startsWith("rich");
   usePreviewSheetHistoryEntry(richOpen && richPlacement?.kind === "bottom-sheet", richRef, () =>
     closeAllRef.current(false),

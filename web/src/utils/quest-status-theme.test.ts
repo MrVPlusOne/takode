@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUEST_STATUS_THEME, getQuestStatusTheme } from "./quest-status-theme.js";
+import { QUEST_STATUS_THEME, getQuestRecordStatusTheme, getQuestStatusTheme } from "./quest-status-theme.js";
 
 describe("quest-status-theme", () => {
   it("uses the workflow-aligned quest status palette", () => {
@@ -14,5 +14,14 @@ describe("quest-status-theme", () => {
     expect(unknown.label).toBe("paused");
     expect(unknown.text).toBe("text-cc-muted");
     expect(unknown.dot).toBe("bg-cc-status-idea");
+  });
+});
+
+describe("getQuestRecordStatusTheme", () => {
+  it("shows a cancelled quest, stored as done, as Cancelled rather than done", () => {
+    // Quest previews and compact title layers read the record, not just its status.
+    expect(getQuestRecordStatusTheme({ status: "done", cancelled: true }).label).toBe("Cancelled");
+    expect(getQuestRecordStatusTheme({ status: "done" }).label).toBe("Done");
+    expect(getQuestRecordStatusTheme({ status: "in_progress", cancelled: true }).label).toBe("In Progress");
   });
 });

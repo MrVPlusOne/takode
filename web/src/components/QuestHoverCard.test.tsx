@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { useStore } from "../store.js";
 import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { QuestmasterTask } from "../types.js";
@@ -477,6 +478,80 @@ describe("QuestHoverCard", () => {
     expect(reviewer.className).toContain("rounded-full");
     expect(reviewer.getAttribute("href")).toBe("#/session/8");
     expect(leader.getAttribute("href")).toBe("#/session/7?thread=q-42");
+  });
+
+  it("falls back to the description's first paragraph when a quest has no TLDR", () => {
+    // A quest preview must still say what the quest is about when no TLDR was written.
+    const quest: QuestmasterTask = {
+      id: "q-80-v1",
+      questId: "q-80",
+      version: 1,
+      title: "No TLDR quest",
+      status: "refined",
+      description: "## Background\nCheck that previews stay useful without a TLDR.\n\n## Details\nSecond paragraph.",
+      createdAt: 1,
+    };
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const section = screen.getByTestId("quest-hover-tldr");
+    expect(section).toHaveTextContent("Description");
+    expect(section).toHaveTextContent("Check that previews stay useful without a TLDR.");
+    expect(section).not.toHaveTextContent("Background");
+    expect(section).not.toHaveTextContent("Second paragraph.");
+  });
+
+  it("labels a cancelled quest Cancelled and shows its cancellation note instead of a bare card", () => {
+    // Cancelled quests are stored as done without a debrief; the preview must neither call them
+    // Completed nor drop to just the title.
+    const completedAt = Date.now() - 60_000;
+    const quest = {
+      id: "q-81-v2",
+      questId: "q-81",
+      version: 2,
+      title: "Throwaway live check",
+      status: "done",
+      description: "Throwaway quest for a live check.",
+      createdAt: 1,
+      completedAt,
+      verificationItems: [],
+      cancelled: true,
+      notes: "Passed: the checkpoint opened and closed by itself.",
+    } as QuestmasterTask;
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const statusRow = screen.getByTestId("quest-hover-status-row");
+    expect(within(statusRow).getByTestId("quest-hover-status-chip")).toHaveTextContent("Cancelled");
+    expect(statusRow).not.toHaveTextContent("Completed");
+    expect(screen.getByTestId("quest-hover-completed-at").textContent).toMatch(/^Cancelled /);
+    expect(screen.getByTestId("quest-hover-tldr")).toHaveTextContent("Throwaway quest for a live check.");
+    const note = screen.getByTestId("quest-hover-progress-tldr");
+    expect(note).toHaveTextContent("Cancellation Note");
+    expect(note).toHaveTextContent("Passed: the checkpoint opened and closed by itself.");
+  });
+
+  it("shows the start of the final debrief when a completed quest has no debrief TLDR", () => {
+    const quest = {
+      id: "q-82-v2",
+      questId: "q-82",
+      version: 2,
+      title: "Older completed quest",
+      status: "done",
+      description: "Older quest.",
+      createdAt: 1,
+      completedAt: Date.now() - 60_000,
+      verificationItems: [],
+      debrief: "The fix shipped and the flake is gone.\n\nMore detail follows.",
+    } as QuestmasterTask;
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    expect(screen.getByTestId("quest-hover-status-chip")).toHaveTextContent("Completed");
+    const debrief = screen.getByTestId("quest-hover-progress-tldr");
+    expect(debrief).toHaveTextContent("Final Debrief");
+    expect(debrief).toHaveTextContent("The fix shipped and the flake is gone.");
+    expect(debrief).not.toHaveTextContent("More detail follows.");
   });
 
   it("opens the existing quest detail overlay from the compact action", () => {
