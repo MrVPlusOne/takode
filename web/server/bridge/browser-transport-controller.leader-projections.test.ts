@@ -902,6 +902,9 @@ describe("selected feed thread windows", () => {
 
 describe("initial selected thread subscribe", () => {
   it("sends the selected window before tree state, transient replay, and the final snapshot", async () => {
+    // Notifications and attention records precede the window: the feed places chips
+    // and rows from them, and arriving with the final snapshot (about a second later
+    // on a phone) they pushed the first rendered messages around.
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps({
       getTreeGroupState: vi.fn(async () => ({
@@ -914,6 +917,18 @@ describe("initial selected thread subscribe", () => {
       state: { permissionMode: "default", isOrchestrator: true } as any,
       isGenerating: true,
       activeTurnRoute: { threadKey: "q-1825", questId: "q-1825" },
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Pick one",
+          timestamp: 1,
+          messageId: "u-thread",
+          threadKey: "q-1825",
+          questId: "q-1825",
+          done: false,
+        },
+      ],
       nextEventSeq: 2,
       browserSockets: new Set(),
       messageHistory: [
@@ -965,6 +980,7 @@ describe("initial selected thread subscribe", () => {
     const types = calls.map((message) => message.type);
     expect(types).toEqual([
       "leader_projection_snapshot",
+      "feed_attention_snapshot",
       "thread_window_sync",
       "tree_groups_update",
       "event_replay",
@@ -973,6 +989,12 @@ describe("initial selected thread subscribe", () => {
       "state_snapshot",
     ]);
     expect(calls[1]).toMatchObject({
+      type: "feed_attention_snapshot",
+      notifications: [expect.objectContaining({ id: "n-1" })],
+      attentionRecords: [],
+      activeNeedsInputNotificationCount: 1,
+    });
+    expect(calls[2]).toMatchObject({
       type: "thread_window_sync",
       thread_key: "q-1825",
       entries: [expect.objectContaining({ message: expect.objectContaining({ id: "u-thread" }) })],

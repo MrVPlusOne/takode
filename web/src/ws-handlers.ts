@@ -673,6 +673,30 @@ function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
   return retained;
 }
 
+/** The notification inbox and attention records a session's feed places chips and rows from. */
+function applyFeedAttention(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "state_snapshot" | "feed_attention_snapshot" }>,
+): void {
+  if (data.notifications) {
+    applySessionNotifications(
+      sessionId,
+      data.notifications,
+      {
+        notificationUrgency: data.notificationUrgency,
+        activeNotificationCount: data.activeNotificationCount,
+        activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
+        activeReviewNotificationCount: data.activeReviewNotificationCount,
+        mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
+        notificationStatusVersion: data.notificationStatusVersion,
+        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+      },
+      { authoritativeStatus: true },
+    );
+  }
+  useStore.getState().setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+}
+
 function resetAuthoritativeHistoryState(
   sessionId: string,
   options?: { preserveToolStateIds?: Iterable<string> },
@@ -1415,15 +1439,6 @@ function handleParsedMessage(
 
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
-      const authoritativeNotificationStatus = {
-        notificationUrgency: data.notificationUrgency,
-        activeNotificationCount: data.activeNotificationCount,
-        activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
-        activeReviewNotificationCount: data.activeReviewNotificationCount,
-        mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
-        notificationStatusVersion: data.notificationStatusVersion,
-        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
-      };
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews ?? []);
@@ -1475,12 +1490,12 @@ function handleParsedMessage(
       // Drafts shared by the user's browsers; replace this tab's copy except edits it is still sending.
       applySessionDraftsSnapshot(sessionId, data.drafts);
       // Sync notification inbox from server on connect/reconnect
-      if (data.notifications) {
-        applySessionNotifications(sessionId, data.notifications, authoritativeNotificationStatus, {
-          authoritativeStatus: true,
-        });
-      }
-      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+      applyFeedAttention(sessionId, data);
+      break;
+    }
+
+    case "feed_attention_snapshot": {
+      applyFeedAttention(sessionId, data);
       break;
     }
 

@@ -586,4 +586,33 @@ describe("handleMessage: state_snapshot", () => {
     });
     expect(useStore.getState().sessionAttentionRecords.get("s1")).toBeUndefined();
   });
+
+  it("applies the feed attention snapshot sent ahead of the conversation window, without a sound", () => {
+    // The server sends notifications and attention records before the window on
+    // subscribe, so the feed's first render already holds their chips and rows
+    // instead of gaining them about a second later with the final state snapshot.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "feed_attention_snapshot",
+      notifications: [
+        { id: "n-1", category: "needs-input", summary: "Pick one", timestamp: 1000, threadKey: "main", done: false },
+      ],
+      attentionRecords: [attentionRecord({ state: "seen" })],
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      activeReviewNotificationCount: 0,
+      mutedNeedsInputNotificationCount: 0,
+      notificationStatusVersion: 3,
+      notificationStatusUpdatedAt: 1000,
+    });
+
+    expect(useStore.getState().sessionNotifications.get("s1")?.map((notification) => notification.id)).toEqual([
+      "n-1",
+    ]);
+    expect(useStore.getState().sessionAttentionRecords.get("s1")?.[0]?.state).toBe("seen");
+    expect(playNotificationSoundMock).not.toHaveBeenCalled();
+  });
 });

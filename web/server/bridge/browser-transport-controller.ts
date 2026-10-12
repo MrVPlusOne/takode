@@ -1026,6 +1026,18 @@ export function sendLeaderProjectionSnapshot(
   } as BrowserIncomingMessage);
 }
 
+/** Notifications and attention records go ahead of the conversation window: the
+ *  feed places chips and rows from them, so arriving after it (the state snapshot
+ *  comes last) they would push the first rendered messages around. */
+function sendFeedAttentionSnapshot(session: BrowserTransportSessionLike, ws: BrowserTransportSocketLike): void {
+  sendToBrowser(ws, {
+    type: "feed_attention_snapshot",
+    notifications: getUserVisibleSessionNotifications(session),
+    attentionRecords: session.attentionRecords ?? [],
+    ...getNotificationStatusSnapshot(session),
+  } as BrowserIncomingMessage);
+}
+
 export function sendStateSnapshot(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
@@ -1455,6 +1467,7 @@ export async function handleSessionSubscribe(
     );
   if (boundedView) {
     sendLeaderProjectionSnapshot(session, ws, deps);
+    sendFeedAttentionSnapshot(session, ws);
     if (explicitFullHistorySync) {
       completeProjectionSubscribe();
       await sendHistorySync(session, ws, 0, undefined);

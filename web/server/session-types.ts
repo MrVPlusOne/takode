@@ -1262,6 +1262,20 @@ export type BrowserIncomingMessageBase =
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
     }
+  | {
+      /** Sent before a subscribe's conversation window, so the feed's first render
+       *  already has the notification chips and attention rows placed in it. */
+      type: "feed_attention_snapshot";
+      notifications: SessionNotification[];
+      attentionRecords: SessionAttentionRecord[];
+      notificationUrgency?: "needs-input" | "review" | null;
+      activeNotificationCount?: number;
+      activeNeedsInputNotificationCount?: number;
+      activeReviewNotificationCount?: number;
+      mutedNeedsInputNotificationCount?: number;
+      notificationStatusVersion?: number;
+      notificationStatusUpdatedAt?: number;
+    }
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated"; quest?: QuestTitlePreview }
