@@ -107,6 +107,9 @@ export function SessionInfoPopover({
       ) {
         return;
       }
+      // A press on the trigger is left to its own toggle; closing here would let
+      // the click that follows reopen the panel.
+      if (anchorElement?.contains(e.target as Node)) return;
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -118,7 +121,7 @@ export function SessionInfoPopover({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [onClose]);
+  }, [onClose, anchorElement]);
 
   // Close on Escape
   useEffect(() => {

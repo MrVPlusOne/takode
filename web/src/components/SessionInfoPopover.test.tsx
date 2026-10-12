@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import "@testing-library/jest-dom";
 import { api } from "../api.js";
 import { sessionNavigationProjectionToSessionFields } from "../../shared/session-navigation-projection.js";
@@ -668,6 +669,48 @@ describe("SessionInfoPopover", () => {
       });
     } finally {
       scrollHeightSpy.mockRestore();
+    }
+  });
+
+  it("closes when its trigger is tapped again instead of reopening", () => {
+    // The top bar's session title toggles the panel on click. A tap delivers
+    // mousedown before click (iOS emulates both after touchend), so if the
+    // outside-press handler closed the panel on mousedown, the click would
+    // reopen it. Presses on the anchor must be left to the trigger's toggle.
+    resetStore([]);
+    vi.useFakeTimers();
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+      return (
+        <>
+          <button ref={setAnchor} type="button" onClick={() => setOpen((value) => !value)}>
+            Session title
+          </button>
+          <button type="button">Elsewhere</button>
+          {open && <SessionInfoPopover sessionId="s1" onClose={() => setOpen(false)} anchorElement={anchor} />}
+        </>
+      );
+    }
+    try {
+      render(<Harness />);
+      act(() => vi.runAllTimers());
+      expect(screen.getByText("Session Info")).toBeInTheDocument();
+
+      const trigger = screen.getByRole("button", { name: "Session title" });
+      fireEvent.mouseDown(trigger);
+      fireEvent.click(trigger);
+      expect(screen.queryByText("Session Info")).not.toBeInTheDocument();
+
+      // Tapping the trigger again reopens it, and a press elsewhere still closes it.
+      fireEvent.mouseDown(trigger);
+      fireEvent.click(trigger);
+      act(() => vi.runAllTimers());
+      expect(screen.getByText("Session Info")).toBeInTheDocument();
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Elsewhere" }));
+      expect(screen.queryByText("Session Info")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
     }
   });
 
