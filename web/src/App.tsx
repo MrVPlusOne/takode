@@ -98,8 +98,6 @@ type TakodeDebugWindow = Window &
     __TAKODE_CLEAR_VSCODE_CONTEXT__?: () => void;
   };
 
-const EMPTY_MESSAGES: [] = [];
-
 function feedbackIndexOf(target: QuestLinkTarget | null): number | null {
   return target?.feedbackIndex ?? null;
 }
@@ -303,9 +301,6 @@ export default function App() {
     viewportSessionEntryIdentity,
     threadRoute.hasThreadParam ? (threadRoute.threadKey ?? "main") : "bare",
   ]);
-  const currentMessages = useStore((s) =>
-    currentSessionId ? (s.messages.get(currentSessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
-  );
   // The chip that opened the diff view names its session and thread; a different session falls back to its route.
   const diffTarget = useStore(
     useShallow((s) => {
@@ -798,6 +793,38 @@ export default function App() {
     };
   }, []);
 
+  // The app shell re-renders on every session-list update; reusing this element lets React skip the
+  // whole conversation then, while ChatView still re-renders for its own props and store slices.
+  const conversationView = useMemo(
+    () =>
+      displayedSessionId ? (
+        <ViewportHandoffSessionEntryGate
+          key={`${displayedSessionId}:${searchPreviewSessionId === displayedSessionId ? "preview" : "active"}`}
+          sessionId={searchPreviewSessionId === displayedSessionId ? null : displayedSessionId}
+          entryId={viewportSessionEntryId}
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-cc-muted">Loading conversation...</div>
+          }
+        >
+          <ChatView
+            sessionId={displayedSessionId}
+            preview={searchPreviewSessionId === displayedSessionId}
+            routeThreadKey={threadRoute.threadKey}
+            hasThreadRoute={threadRoute.hasThreadParam}
+            viewportHandoffThreadEntryScopeId={viewportThreadEntryScopeId}
+          />
+        </ViewportHandoffSessionEntryGate>
+      ) : null,
+    [
+      displayedSessionId,
+      searchPreviewSessionId,
+      threadRoute.hasThreadParam,
+      threadRoute.threadKey,
+      viewportSessionEntryId,
+      viewportThreadEntryScopeId,
+    ],
+  );
+
   if (route.page === "playground") {
     return (
       <>
@@ -925,24 +952,7 @@ export default function App() {
                   isPendingId(displayedSessionId) ? (
                   <SessionCreationView pendingId={displayedSessionId} />
                 ) : displayedSessionId ? (
-                  <ViewportHandoffSessionEntryGate
-                    key={`${displayedSessionId}:${searchPreviewSessionId === displayedSessionId ? "preview" : "active"}`}
-                    sessionId={searchPreviewSessionId === displayedSessionId ? null : displayedSessionId}
-                    entryId={viewportSessionEntryId}
-                    fallback={
-                      <div className="flex h-full items-center justify-center text-sm text-cc-muted">
-                        Loading conversation...
-                      </div>
-                    }
-                  >
-                    <ChatView
-                      sessionId={displayedSessionId}
-                      preview={searchPreviewSessionId === displayedSessionId}
-                      routeThreadKey={threadRoute.threadKey}
-                      hasThreadRoute={threadRoute.hasThreadParam}
-                      viewportHandoffThreadEntryScopeId={viewportThreadEntryScopeId}
-                    />
-                  </ViewportHandoffSessionEntryGate>
+                  conversationView
                 ) : (
                   <EmptyState />
                 )}
@@ -986,7 +996,6 @@ export default function App() {
         currentSessionId={currentSessionId}
         currentThreadKey={universalSearchThreadKey}
         sessions={sdkSessions}
-        messages={currentMessages}
         leaderSessionId={currentSessionId ?? undefined}
         onClose={closeUniversalSearch}
         onOpenQuest={handleOpenUniversalQuest}

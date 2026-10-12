@@ -24,6 +24,7 @@ import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { getHerdEventHeaderSummary } from "../utils/herd-event-classification.js";
 import { useStore } from "../store.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { navigateToSession } from "../utils/routing.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
@@ -512,8 +513,6 @@ function HerdEventEntry({
   const { sessionLabel, remainder } = useMemo(() => splitHerdEventHeader(header), [header]);
   const summaryHeader = useMemo(() => getHerdEventHeaderSummary(header), [header]);
   const { remainder: summaryRemainder } = useMemo(() => splitHerdEventHeader(summaryHeader), [summaryHeader]);
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -530,11 +529,11 @@ function HerdEventEntry({
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : null;
   }, [sessionLabel]);
-  const sdkInfo = useMemo(
-    () => (sessionNum == null ? null : (sdkSessions.find((session) => session.sessionNum === sessionNum) ?? null)),
-    [sdkSessions, sessionNum],
-  );
+  const sdkInfo = useSdkSessionRow(null, sessionNum);
   const resolvedSessionId = sdkInfo?.sessionId ?? null;
+  const hoverTaskHistory = useStore((s) =>
+    resolvedSessionId && hoverRect ? s.sessionTaskHistory.get(resolvedSessionId) : undefined,
+  );
   const resolvedNavigation = useStore((state) =>
     resolvedSessionId ? resolveSessionNavigation(state, resolvedSessionId) : null,
   );
@@ -635,7 +634,7 @@ function HerdEventEntry({
           session={sessionItem}
           sessionName={resolvedNavigation?.sidebarItem.name}
           sessionPreview={resolvedNavigation?.sidebarItem.lastMessagePreview || undefined}
-          taskHistory={sessionTaskHistory.get(resolvedSessionId)}
+          taskHistory={hoverTaskHistory}
           cliSessionId={sdkInfo?.cliSessionId}
           anchorRect={hoverRect}
           onMouseEnter={handleHoverCardEnter}

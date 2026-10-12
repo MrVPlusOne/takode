@@ -18,7 +18,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { rehypeCommitGroups } from "../utils/markdown-commit-groups.js";
 import { api } from "../api.js";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { QuestCommitChip } from "./QuestCommitChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
@@ -1010,11 +1012,7 @@ function SessionMarkdownLink({
   onNavigate?: () => void;
   stopPropagation: boolean;
 }) {
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionId = useMemo(
-    () => sdkSessions.find((session) => session.sessionNum === sessionNum)?.sessionId ?? null,
-    [sdkSessions, sessionNum],
-  );
+  const sessionId = useSdkSessionRow(null, sessionNum)?.sessionId ?? null;
 
   return (
     <SessionInlineLink
@@ -1044,17 +1042,15 @@ function FileMarkdownLink({
   stopPropagation: boolean;
 }) {
   const currentSessionId = useStore((s) => s.currentSessionId);
-  const sessions = useStore((s) => s.sessions);
-  const sdkSessions = useStore((s) => s.sdkSessions);
+  // Select only the three base-path fields, so other session updates do not re-render every file link.
+  const basePath = useStore(
+    useShallow((s) => getFileLinkBasePath(sessionId, s.currentSessionId, s.sessions, s.sdkSessions)),
+  );
   const activeSessionId = sessionId ?? currentSessionId ?? undefined;
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [fileInfo, setFileInfo] = useState<FileLinkResolveResponse | null>(null);
   const [fileInfoError, setFileInfoError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const basePath = useMemo(
-    () => getFileLinkBasePath(sessionId, currentSessionId, sessions, sdkSessions),
-    [currentSessionId, sdkSessions, sessionId, sessions],
-  );
   const resolvedTarget = useMemo(() => resolveFileLinkTarget(target, basePath), [basePath, target]);
   const actionTarget = useMemo<FileLinkActionTarget>(
     () => ({

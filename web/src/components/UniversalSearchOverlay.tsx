@@ -19,7 +19,7 @@ import {
   type RecentAskBundlesResponse,
   type RecentAskFilter,
 } from "../api.js";
-import type { ChatMessage, QuestListPreview, SdkSessionInfo } from "../types.js";
+import type { QuestListPreview, SdkSessionInfo } from "../types.js";
 import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -58,7 +58,6 @@ export interface UniversalSearchOverlayProps {
   currentSessionId: string | null;
   currentThreadKey?: string | null;
   sessions: SdkSessionInfo[];
-  messages: ChatMessage[];
   leaderSessionId?: string;
   recentAskPreviewResponse?: RecentAskBundlesResponse;
   messageSearchPreviewResponse?: MessageSearchResponse;

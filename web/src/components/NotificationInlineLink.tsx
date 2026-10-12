@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import type { SessionNotification } from "../types.js";
 import { navigateToNotification } from "../utils/notification-navigation.js";
 import { getNotificationTitle } from "../utils/notification-source-context.js";
@@ -41,8 +42,7 @@ export function NotificationInlineLink({
   onNavigate?: () => void;
 }) {
   const hoverCardsSuppressed = useHoverCardsSuppressed();
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionInfo = sdkSessions.find((session) => session.sessionNum === sessionNum) ?? null;
+  const sessionInfo = useSdkSessionRow(null, sessionNum);
   const sessionId = sessionInfo?.sessionId ?? null;
   const storeNotification = useStore((s) =>
     sessionId ? s.sessionNotifications.get(sessionId)?.find((entry) => entry.id === notificationId) : undefined,
@@ -87,7 +87,7 @@ export function NotificationInlineLink({
     if (stopPropagation) e.stopPropagation();
     if (!sessionId) return;
     const notification = await loadNotification();
-    if (notification) navigateToNotification(sessionId, notification, sdkSessions);
+    if (notification) navigateToNotification(sessionId, notification, useStore.getState().sdkSessions);
     else navigateToSession(sessionId);
     onNavigate?.();
   }

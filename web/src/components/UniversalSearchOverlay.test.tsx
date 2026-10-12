@@ -34,7 +34,7 @@ import type {
   QuestListPage,
   RecentAskBundlesResponse,
 } from "../api.js";
-import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import type { QuestmasterTask, SdkSessionInfo } from "../types.js";
 
 const now = 1778274000000;
 type OverlayProps = ComponentProps<typeof UniversalSearchOverlay>;
@@ -62,75 +62,6 @@ const sessions: SdkSessionInfo[] = [
     lastActivityAt: now - 8_000,
     name: "Old session",
     backendType: "claude-sdk",
-  },
-];
-
-const messages: ChatMessage[] = [
-  {
-    id: "user-old",
-    role: "user",
-    content: "Older user request about search controls",
-    timestamp: now - 30_000,
-  },
-  {
-    id: "assistant-new",
-    role: "assistant",
-    content: "Assistant note about the search overlay",
-    timestamp: now - 20_000,
-  },
-  {
-    id: "user-new",
-    role: "user",
-    content: "Recent user request about universal search",
-    timestamp: now - 10_000,
-  },
-];
-
-const threadScopedMessages: ChatMessage[] = [
-  {
-    id: "main-visible",
-    role: "user",
-    content: "Visible main request about apples",
-    timestamp: now - 40_000,
-  },
-  {
-    id: "quest-hidden-new",
-    role: "user",
-    content: "Hidden quest dragonfruit request",
-    timestamp: now - 10_000,
-    metadata: {
-      threadKey: "q-1272",
-      questId: "q-1272",
-    },
-  },
-  {
-    id: "quest-ref-hidden",
-    role: "user",
-    content: "Hidden quest reference with banana",
-    timestamp: now - 20_000,
-    metadata: {
-      threadRefs: [{ threadKey: "q-1272", questId: "q-1272", source: "explicit" }],
-    },
-  },
-  {
-    id: "quest-visible",
-    role: "user",
-    content: "Quest thread-specific request about pears",
-    timestamp: now - 30_000,
-    metadata: {
-      threadKey: "q-1272",
-      questId: "q-1272",
-    },
-  },
-  {
-    id: "other-quest-hidden",
-    role: "user",
-    content: "Other quest thread-specific request about pears",
-    timestamp: now - 5_000,
-    metadata: {
-      threadKey: "q-999",
-      questId: "q-999",
-    },
   },
 ];
 
@@ -308,7 +239,6 @@ function renderOverlay(
       currentSessionId="s-new"
       currentThreadKey="main"
       sessions={sessions}
-      messages={messages}
       onClose={onClose}
       onOpenQuest={onOpenQuest}
       onOpenMessage={onOpenMessage}
@@ -506,7 +436,6 @@ describe("UniversalSearchOverlay", () => {
             currentSessionId="s-new"
             currentThreadKey="main"
             sessions={sessions}
-            messages={messages}
             onClose={() => setOpen(false)}
             onOpenQuest={() => {}}
             onOpenMessage={() => {}}
@@ -549,7 +478,6 @@ describe("UniversalSearchOverlay", () => {
         currentSessionId="s-new"
         currentThreadKey="main"
         sessions={sessions}
-        messages={messages}
         onClose={onClose}
         onOpenQuest={onOpenQuest}
         onOpenMessage={onOpenMessage}
@@ -561,7 +489,6 @@ describe("UniversalSearchOverlay", () => {
         currentSessionId="s-new"
         currentThreadKey="main"
         sessions={sessions}
-        messages={messages}
         onClose={onClose}
         onOpenQuest={onOpenQuest}
         onOpenMessage={onOpenMessage}
@@ -628,7 +555,7 @@ describe("UniversalSearchOverlay", () => {
   });
 
   it("keeps Messages selectable without a current session and explains the required context", async () => {
-    renderOverlay({ currentSessionId: null, messages: [] });
+    renderOverlay({ currentSessionId: null });
 
     expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Browse recent conversations...");
     expect(await screen.findByRole("button", { name: "Open Messages" })).toBeInTheDocument();
@@ -766,7 +693,7 @@ describe("UniversalSearchOverlay", () => {
 
   it("restores persisted Session mode even without a current session", async () => {
     localStorage.setItem("cc-universal-search-mode", "sessions");
-    renderOverlay({ currentSessionId: null, currentThreadKey: null, messages: [] });
+    renderOverlay({ currentSessionId: null, currentThreadKey: null });
 
     expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("New session")).toBeInTheDocument();
@@ -930,7 +857,6 @@ describe("UniversalSearchOverlay", () => {
     mockSearchSessionMessages.mockResolvedValueOnce(questResponse).mockResolvedValueOnce(questResponse);
     renderOverlay({
       currentThreadKey: "q-1272",
-      messages: threadScopedMessages,
       sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!],
       initialMode: "messages",
       initialQuery: "thread specific",
@@ -1254,7 +1180,6 @@ describe("UniversalSearchOverlay", () => {
         currentSessionId="s-new"
         currentThreadKey="main"
         sessions={sessions}
-        messages={messages}
         onClose={onClose}
         onOpenQuest={onOpenQuest}
         onOpenMessage={onOpenMessage}
@@ -1266,7 +1191,6 @@ describe("UniversalSearchOverlay", () => {
         currentSessionId="s-new"
         currentThreadKey="main"
         sessions={sessions}
-        messages={messages}
         onClose={onClose}
         onOpenQuest={onOpenQuest}
         onOpenMessage={onOpenMessage}
@@ -1316,7 +1240,6 @@ describe("UniversalSearchOverlay", () => {
         currentSessionId="s-new"
         currentThreadKey="main"
         sessions={[...sessions]}
-        messages={messages}
         onClose={callbacks.onClose}
         onOpenQuest={callbacks.onOpenQuest}
         onOpenMessage={callbacks.onOpenMessage}

@@ -6,13 +6,13 @@ import {
   navigateToSessionMessage,
   navigateToSessionMessageId,
   navigateToSessionThread,
-  routeSessionRefForId,
   sessionHash,
   sessionThreadHash,
 } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
-import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
+import { resolveSdkSessionNavigation } from "../utils/session-navigation-resolver.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
 import type { ChatMessage } from "../types.js";
 import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
@@ -57,8 +57,7 @@ export function SessionInlineLink({
   onNavigate?: () => void;
 }) {
   const hoverCardsSuppressed = useHoverCardsSuppressed();
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
+  const sdkInfo = useSdkSessionRow(sessionId, sessionNum);
 
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,19 +69,10 @@ export function SessionInlineLink({
     [],
   );
 
-  const sdkInfo = useMemo(() => {
-    if (sessionId) {
-      return sdkSessions.find((session) => session.sessionId === sessionId) ?? null;
-    }
-    if (sessionNum != null) {
-      return sdkSessions.find((session) => session.sessionNum === sessionNum) ?? null;
-    }
-    return null;
-  }, [sdkSessions, sessionId, sessionNum]);
   const resolvedSessionId = sessionId ?? sdkInfo?.sessionId ?? null;
-  const resolvedNavigation = useMemo(
-    () => (resolvedSessionId ? resolveSessionNavigation({ sdkSessions }, resolvedSessionId) : null),
-    [resolvedSessionId, sdkSessions],
+  const resolvedNavigation = useMemo(() => (sdkInfo ? resolveSdkSessionNavigation(sdkInfo) : null), [sdkInfo]);
+  const sessionTaskHistory = useStore((s) =>
+    resolvedSessionId && hoverRect ? s.sessionTaskHistory.get(resolvedSessionId) : undefined,
   );
   const sessionItem = resolvedNavigation?.sidebarItem ?? null;
   const resolvedSessionNum = sessionItem?.sessionNum ?? sdkInfo?.sessionNum ?? sessionNum ?? null;
@@ -106,9 +96,7 @@ export function SessionInlineLink({
     setHoverRect(null);
   }
 
-  const routeSessionRef = resolvedSessionId
-    ? (resolvedSessionNum ?? routeSessionRefForId(resolvedSessionId, sdkSessions))
-    : null;
+  const routeSessionRef = resolvedSessionId ? (resolvedSessionNum ?? resolvedSessionId) : null;
   const href = resolvedSessionId
     ? messageIndex != null
       ? `${sessionHash(routeSessionRef ?? resolvedSessionId)}?msg=${messageIndex}`
@@ -187,7 +175,7 @@ export function SessionInlineLink({
             session={sessionItem}
             sessionName={resolvedNavigation?.sidebarItem.name}
             sessionPreview={resolvedNavigation?.sidebarItem.lastMessagePreview || undefined}
-            taskHistory={sessionTaskHistory.get(resolvedSessionId)}
+            taskHistory={sessionTaskHistory}
             cliSessionId={sdkInfo?.cliSessionId}
             anchorRect={hoverRect}
             onMouseEnter={handleHoverCardEnter}

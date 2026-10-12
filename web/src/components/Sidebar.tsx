@@ -27,6 +27,7 @@ import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SortableTreeGroup } from "./SortableTreeGroup.js";
 import { SessionItem } from "./SessionItem.js";
 import { ArchivedSessionSection, type CommonSessionItemProps } from "./ArchivedSessionSection.js";
+import { useStableCallbacks } from "../hooks/useStableCallbacks.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -698,7 +699,9 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     return sessionThemes;
   }, [allSessionList]);
 
-  const sessionItemProps: CommonSessionItemProps = {
+  // Stable handler identities let memoized session rows skip re-rendering when the list
+  // re-renders for another session's update.
+  const sessionItemHandlers = useStableCallbacks({
     onSelect: handleSelectSession,
     onStartRename: handleStartRename,
     onArchive: handleArchiveSession,
@@ -709,16 +712,19 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     onContextMenu: handleContextMenu,
     onHoverStart: handleHoverStart,
     onHoverEnd: handleHoverEnd,
-    editingSessionId,
-    editingName,
-    setEditingName,
     onConfirmRename: confirmRename,
     onCancelRename: cancelRename,
-    editInputRef,
-    archiveConfirmation,
     onConfirmArchive: confirmArchive,
     onConfirmArchiveHerdMembers: confirmArchiveHerdMembers,
     onCancelArchive: cancelArchive,
+  });
+  const sessionItemProps: CommonSessionItemProps = {
+    ...sessionItemHandlers,
+    editingSessionId,
+    editingName,
+    setEditingName,
+    editInputRef,
+    archiveConfirmation,
   };
 
   return (

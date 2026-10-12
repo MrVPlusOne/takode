@@ -3,7 +3,7 @@ import { DndContext, closestCenter } from "@dnd-kit/core";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
 import { TreeViewGroup } from "../TreeViewGroup.js";
 import type { GlobalStarredMessageSearchResponse, MessageSearchResponse, RecentAskBundlesResponse } from "../../api.js";
-import type { ChatMessage, SdkSessionInfo } from "../../types.js";
+import type { SdkSessionInfo } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
 import { Card, Section } from "./shared.js";
@@ -252,33 +252,6 @@ const PLAYGROUND_STARRED_SEARCH_RESPONSE: GlobalStarredMessageSearchResponse = {
   ],
 };
 
-const PLAYGROUND_UNIVERSAL_MESSAGES: ChatMessage[] = [
-  {
-    id: "search-new",
-    role: "user",
-    content: "Search should return every matching message in scope instead of one result per destination.",
-    timestamp: Date.now() - 2 * 60_000,
-  },
-  {
-    id: "universal-assistant",
-    role: "assistant",
-    content: "Separated query-free Recent browsing from exhaustive Messages search within the selected scope.",
-    timestamp: Date.now() - 90_000,
-  },
-  {
-    id: "search-older-same-tab",
-    role: "user",
-    content: "When a search has two matching messages in this tab, keep both results.",
-    timestamp: Date.now() - 14 * 60_000,
-  },
-  {
-    id: "search-other-tab",
-    role: "user",
-    content: "Search filters should remain available when inspecting another tab.",
-    timestamp: Date.now() - 30 * 60_000,
-  },
-];
-
 function makeSidebarSession(
   id: string,
   index: number,
@@ -390,7 +363,6 @@ export function PlaygroundUniversalSearchStates() {
                 currentSessionId="playground-universal"
                 currentThreadKey="main"
                 sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-                messages={PLAYGROUND_UNIVERSAL_MESSAGES}
                 leaderSessionId="playground-universal"
                 recentAskPreviewResponse={PLAYGROUND_RECENT_ASKS_RESPONSE}
                 onClose={() => {}}
@@ -410,7 +382,6 @@ export function PlaygroundUniversalSearchStates() {
                 currentSessionId="playground-universal"
                 currentThreadKey="all"
                 sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-                messages={PLAYGROUND_UNIVERSAL_MESSAGES}
                 leaderSessionId="playground-universal"
                 messageSearchPreviewResponse={PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE}
                 onClose={() => {}}
@@ -428,7 +399,6 @@ export function PlaygroundUniversalSearchStates() {
             initialQuery="search"
             currentSessionId={null}
             sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={[]}
             onClose={() => {}}
             onOpenQuest={() => {}}
             onOpenMessage={() => {}}
@@ -443,7 +413,6 @@ export function PlaygroundUniversalSearchStates() {
             currentSessionId="playground-universal"
             currentThreadKey="main"
             sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
             leaderSessionId="playground-universal"
             onClose={() => {}}
             onOpenQuest={() => {}}
@@ -458,7 +427,6 @@ export function PlaygroundUniversalSearchStates() {
             currentSessionId="playground-universal"
             currentThreadKey="main"
             sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
             leaderSessionId="playground-universal"
             starredSearchPreviewResponse={PLAYGROUND_STARRED_SEARCH_RESPONSE}
             onClose={() => {}}
@@ -473,7 +441,6 @@ export function PlaygroundUniversalSearchStates() {
             currentSessionId={null}
             currentThreadKey={null}
             sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={[]}
             onClose={() => {}}
             onOpenQuest={() => {}}
             onOpenMessage={() => {}}

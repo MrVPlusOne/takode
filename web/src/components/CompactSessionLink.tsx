@@ -1,6 +1,4 @@
-import { useMemo } from "react";
-import { useStore } from "../store.js";
-import { routeSessionRefForId } from "../utils/routing.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
 interface CompactSessionLinkProps {
@@ -23,12 +21,8 @@ export function CompactSessionLink({
   stopPropagation = true,
   onNavigate,
 }: CompactSessionLinkProps) {
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sdkSession = useMemo(
-    () => sdkSessions.find((session) => session.sessionId === sessionId) ?? null,
-    [sdkSessions, sessionId],
-  );
-  const routeSessionRef = sdkSession?.sessionNum ?? routeSessionRefForId(sessionId, sdkSessions);
+  const sdkSession = useSdkSessionRow(sessionId);
+  const routeSessionRef = sdkSession?.sessionNum ?? sessionId;
   const label = sdkSession?.sessionNum != null ? `#${sdkSession.sessionNum}` : "#?";
 
   return (

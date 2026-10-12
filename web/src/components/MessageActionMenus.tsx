@@ -70,7 +70,6 @@ export function UserMessageMenu({
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
-  const sdkSessions = useStore((s) => s.sdkSessions);
   const starAction = useMessageStarActions(sessionId, message);
 
   const showCopied = useCallback(() => {
@@ -85,10 +84,10 @@ export function UserMessageMenu({
   }, [message.content, message.metadata?.annotations, showCopied]);
 
   const handleCopyLink = useCallback(() => {
-    const link = buildCopyMessageLink(sessionId, message, sdkSessions);
+    const link = buildCopyMessageLink(sessionId, message, useStore.getState().sdkSessions);
     if (!link) return;
     writeClipboardText(link).then(showCopied).catch(console.error);
-  }, [message, sdkSessions, sessionId, showCopied]);
+  }, [message, sessionId, showCopied]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
@@ -209,7 +208,6 @@ export function AssistantMessageMenu({
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const sdkSessions = useStore((s) => s.sdkSessions);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChatAction = useSideChatActionState({
     currentThreadKey,
@@ -241,12 +239,12 @@ export function AssistantMessageMenu({
   }, [message, contentRef, showFeedback]);
 
   const handleCopyLink = useCallback(() => {
-    const link = buildCopyMessageLink(sessionId, message, sdkSessions);
+    const link = buildCopyMessageLink(sessionId, message, useStore.getState().sdkSessions);
     if (!link) return;
     writeClipboardText(link)
       .then(() => showFeedback("Link"))
       .catch(console.error);
-  }, [message, sdkSessions, sessionId, showFeedback]);
+  }, [message, sessionId, showFeedback]);
 
   const handleReply = useCallback(() => {
     if (!sessionId) return;

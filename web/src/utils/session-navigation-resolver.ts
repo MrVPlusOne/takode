@@ -13,7 +13,7 @@ export interface ResolvedSessionNavigation {
 
 const resolvedSessionNavigationCache = new WeakMap<SdkSessionInfo, ResolvedSessionNavigation>();
 
-function resolveSdkSessionNavigation(session: SdkSessionInfo): ResolvedSessionNavigation {
+export function resolveSdkSessionNavigation(session: SdkSessionInfo): ResolvedSessionNavigation {
   const cached = resolvedSessionNavigationCache.get(session);
   if (cached) return cached;
 

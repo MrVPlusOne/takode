@@ -1,5 +1,6 @@
 import { Fragment, useContext, useEffect, useMemo } from "react";
 import { api } from "../api.js";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -177,23 +178,29 @@ export function AssistantQuestQuizContent({
   questLinkSurface = "legacy",
 }: AssistantQuestQuizContentProps) {
   const segments = useMemo(() => parseQuestQuizContentSegments(text), [text]);
-  const quests = useStore((state) => state.quests);
-  const questDetails = useStore((state) => state.questDetails);
-  const questDetailEtags = useStore((state) => state.questDetailEtags);
   const quizQuestIds = useMemo(() => uniqueQuestQuizIds(segments), [segments]);
+  // Select only this message's quiz quests and their ETags, aligned with quizQuestIds, so quest updates
+  // elsewhere do not re-render every assistant message. Messages without a quiz select empty lists.
+  const quizQuests = useStore(
+    useShallow((state) =>
+      quizQuestIds.map((questId) => findRenderableQuest(state.questDetails, state.quests, questId)),
+    ),
+  );
+  const quizQuestEtags = useStore(
+    useShallow((state) => quizQuestIds.map((questId) => state.questDetailEtags.get(questId.toLowerCase()) ?? null)),
+  );
   const completionSummaryQuestId = useContext(QuestCompletionSummaryContext);
 
   useEffect(() => {
-    for (const questId of quizQuestIds) {
-      const quest = findRenderableQuest(questDetails, quests, questId);
-      if (quizItemsCount(quest) > 0) continue;
+    quizQuestIds.forEach((questId, index) => {
+      if (quizItemsCount(quizQuests[index]) > 0) return;
 
-      const fetchKey = questDetailFetchKey(questId, questDetailEtags.get(questId.toLowerCase()) ?? null);
-      if (resolvedEmptyQuestQuizDetailKeys.has(fetchKey) || questQuizDetailFetches.has(fetchKey)) continue;
+      const fetchKey = questDetailFetchKey(questId, quizQuestEtags[index]);
+      if (resolvedEmptyQuestQuizDetailKeys.has(fetchKey) || questQuizDetailFetches.has(fetchKey)) return;
 
       void fetchQuestDetailForQuizDirective(questId);
-    }
-  }, [questDetailEtags, questDetails, quizQuestIds, quests]);
+    });
+  }, [quizQuestEtags, quizQuestIds, quizQuests]);
 
   return (
     <>
@@ -211,7 +218,7 @@ export function AssistantQuestQuizContent({
           );
         }
 
-        const quest = findRenderableQuest(questDetails, quests, segment.questId);
+        const quest = quizQuests[quizQuestIds.indexOf(segment.questId)] ?? null;
         const summary = segment.questId === completionSummaryQuestId && (
           <QuestCompletionSummaryCard
             questId={segment.questId}
