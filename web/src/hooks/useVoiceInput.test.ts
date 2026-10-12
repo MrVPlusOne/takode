@@ -926,3 +926,105 @@ describe("useVoiceInput — warming promise coalescing", () => {
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Hook tests: screen wake lock ───────────────────────────────────────────
+
+describe("useVoiceInput — screen wake lock", () => {
+  // On iPhone, the screen auto-locking during a long dictation ends microphone capture, so the
+  // hook keeps the screen on from the tap that starts recording until recording ends.
+  let releaseLock: ReturnType<typeof vi.fn>;
+  let requestLock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    releaseLock = vi.fn(async () => {});
+    requestLock = vi.fn(async () => ({ released: false, release: releaseLock }));
+    Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: requestLock } });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "wakeLock");
+  });
+
+  it("asks for the lock inside the tap, after the microphone, and releases it when recording stops", async () => {
+    // WebKit grants the first wake lock only during the tap, and only the tap's first
+    // microphone request counts as user-initiated, so both happen before any await, mic first.
+    const order: string[] = [];
+    getUserMediaMock.mockImplementation(async () => {
+      order.push("microphone");
+      return makeMockStream();
+    });
+    requestLock.mockImplementation(async () => {
+      order.push("wake-lock");
+      return { released: false, release: releaseLock };
+    });
+    const { result } = renderHook(() => useVoiceInput());
+
+    act(() => {
+      result.current.startRecording();
+    });
+    expect(order).toEqual(["microphone", "wake-lock"]);
+
+    await act(async () => {});
+    expect(result.current.isRecording).toBe(true);
+    expect(releaseLock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lock when the browser stops the recording by itself", async () => {
+    // iPhone ends capture when the screen locks anyway; the recorder then stops on its own.
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+
+    await act(async () => {
+      MockMediaRecorder.lastInstance!.stop();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lock when microphone access fails", async () => {
+    getUserMediaMock.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    const { result } = renderHook(() => useVoiceInput());
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(requestLock).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lock when the recorder errors or the input unmounts", async () => {
+    const first = renderHook(() => useVoiceInput());
+    await act(async () => {
+      first.result.current.startRecording();
+    });
+    act(() => MockMediaRecorder.lastInstance!.triggerError());
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+
+    const second = renderHook(() => useVoiceInput());
+    await act(async () => {
+      second.result.current.startRecording();
+    });
+    second.unmount();
+    expect(releaseLock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a single lock for a pre-warmed recording", async () => {
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    expect(requestLock).toHaveBeenCalledTimes(1);
+  });
+});

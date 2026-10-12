@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import type { VoiceRecordingTiming } from "../transcription-progress.js";
+import { holdScreenWakeLock } from "../utils/screen-wake-lock.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
@@ -310,6 +311,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     firstTrackEventAt?: number;
   } | null>(null);
   const trackListenerCleanupRef = useRef<(() => void) | null>(null);
+  const releaseScreenWakeLockRef = useRef<(() => void) | null>(null);
 
   // Pre-warmed mic stream, kept alive between recordings to avoid getUserMedia latency
   const cachedStreamRef = useRef<MediaStream | null>(null);
@@ -389,6 +391,11 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const detachTrackListeners = useCallback(() => {
     trackListenerCleanupRef.current?.();
     trackListenerCleanupRef.current = null;
+  }, []);
+
+  const releaseScreenWakeLock = useCallback(() => {
+    releaseScreenWakeLockRef.current?.();
+    releaseScreenWakeLockRef.current = null;
   }, []);
 
   const attachTrackListeners = useCallback(
@@ -506,7 +513,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     }
     // Also clear preparing state in case cancel happens during getUserMedia
     setIsPreparing(false);
-  }, [stopRecorder]);
+    releaseScreenWakeLock();
+  }, [releaseScreenWakeLock, stopRecorder]);
 
   const startRecording = useCallback(async () => {
     if (!support.isSupported) {
@@ -526,13 +534,14 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         await warmingPromiseRef.current;
       }
 
-      // Attempt to reuse cached pre-warmed stream
-      let stream: MediaStream | null = isCachedStreamLive() ? cachedStreamRef.current : null;
-      if (!stream) {
-        cachedStreamRef.current = null;
-        // No cached stream available -- fall back to fresh getUserMedia
-        stream = await requestVoiceCaptureStream();
-      }
+      // Attempt to reuse cached pre-warmed stream, else fall back to fresh getUserMedia
+      const cachedStream = isCachedStreamLive() ? cachedStreamRef.current : null;
+      const streamRequest = cachedStream ? Promise.resolve(cachedStream) : requestVoiceCaptureStream();
+      // Keep the screen on until recording ends, so a phone's auto-lock can't cut it off. Asked
+      // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
+      // but before awaiting it: WebKit grants the first wake lock only while the tap is recent.
+      releaseScreenWakeLockRef.current ??= holdScreenWakeLock();
+      const stream = await streamRequest;
 
       // Clear idle timeout -- we're using the stream now
       if (idleTimeoutRef.current) {
@@ -591,6 +600,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         // Stop volume monitor
         stopVolumeMonitor();
         detachTrackListeners();
+        releaseScreenWakeLock();
         // Release mic
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -687,6 +697,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         setInputDeviceLabel(null);
         stopVolumeMonitor();
         detachTrackListeners();
+        releaseScreenWakeLock();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         recorderRef.current = null;
@@ -702,6 +713,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       setIsRecording(true);
     } catch (err) {
       setIsPreparing(false);
+      releaseScreenWakeLock();
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone access denied");
       } else {
@@ -712,6 +724,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, [
     attachTrackListeners,
     detachTrackListeners,
+    releaseScreenWakeLock,
     startVolumeMonitor,
     stopVolumeMonitor,
     support.isSupported,
@@ -742,8 +755,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       }
       stopVolumeMonitor();
       detachTrackListeners();
+      releaseScreenWakeLock();
     };
-  }, [detachTrackListeners, stopRecorder, stopVolumeMonitor]);
+  }, [detachTrackListeners, releaseScreenWakeLock, stopRecorder, stopVolumeMonitor]);
 
   return {
     isRecording,
