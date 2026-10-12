@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { QuestDisclosureChip } from "./QuestDisclosureChip.js";
 import type { QuestCommitLookup } from "../api.js";
 
 export type QuestCommitKind = "code" | "memory";
@@ -43,40 +44,27 @@ export function sortedCommitEntries(
   });
 }
 
+/**
+ * A commits chip for the quest view's wrapping chip row. Its expanded list is a full-width flex
+ * item ordered last, so it opens on its own line below the whole row instead of splitting it.
+ */
 export function QuestCommitEvidenceList({ entries, lookupByKey, onOpenCommit }: QuestCommitEvidenceListProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const listId = useId();
   if (entries.length === 0) return null;
   const countLabel = commitCountLabel(entries.length);
   return (
-    <section className="mt-2 max-w-full space-y-1" aria-label="Commits">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((value) => !value)}
-        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-cc-border bg-cc-hover/60 px-2 py-1.5 text-left text-[11px] text-cc-fg transition-colors hover:border-cc-primary/30 hover:text-cc-primary"
-        aria-expanded={isExpanded}
-        aria-controls={listId}
-        aria-label={`${isExpanded ? "Collapse" : "Expand"} commits, ${countLabel}`}
+    <>
+      <QuestDisclosureChip
+        expanded={isExpanded}
+        controls={listId}
+        onToggle={() => setIsExpanded((value) => !value)}
+        ariaLabel={`${isExpanded ? "Collapse" : "Expand"} commits, ${countLabel}`}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-3 w-3 shrink-0 text-cc-muted/70 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            aria-hidden="true"
-          >
-            <path d="M6 4l4 4-4 4" />
-          </svg>
-          <span className="truncate text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Commits</span>
-        </span>
-        <span className="shrink-0 text-[10px] text-cc-muted">{countLabel}</span>
-      </button>
+        {countLabel}
+      </QuestDisclosureChip>
       {isExpanded && (
-        <div id={listId} className="space-y-1">
+        <div id={listId} role="region" aria-label="Commits" className="order-last basis-full space-y-1">
           {entries.map((entry) => {
             const key = commitLookupKey(entry.kind, entry.sha);
             const details = lookupByKey[key];
@@ -103,6 +91,6 @@ export function QuestCommitEvidenceList({ entries, lookupByKey, onOpenCommit }: 
           })}
         </div>
       )}
-    </section>
+    </>
   );
 }

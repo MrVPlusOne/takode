@@ -29,6 +29,7 @@ import {
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
+import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -721,10 +722,16 @@ export function QuestDetailPanel() {
     : indexedFeedbackEntries;
   const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
   const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
+  const hasChips = Boolean(
+    quest.tags?.length ||
+      questOwner?.kind === "codex" ||
+      commitDiffState.commitEntries.length > 0 ||
+      quest.relatedQuests?.some((entry) => entry.kind !== "references"),
+  );
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-2 py-4 sm:px-3"
       onClick={closePanel}
       data-testid="quest-detail-panel-backdrop"
     >
@@ -736,40 +743,17 @@ export function QuestDetailPanel() {
         onClick={(e) => e.stopPropagation()}
         data-testid="quest-detail-panel"
       >
-        {/* Header */}
-        <div className="min-w-0 shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
-              <span
-                className={`text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}
-              >
-                {cfg.label}
-              </span>
-              <CopyableQuestId questId={quest.questId} />
-            </div>
-            <div className="flex items-center gap-2 mt-1 min-w-0">
-              <div className="text-sm font-semibold text-cc-fg truncate">{quest.title}</div>
-              {quest.parentId && (
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
-                  sub:{quest.parentId}
-                </span>
-              )}
-            </div>
-            <QuestSessionActions
-              className="mt-2"
-              questId={quest.questId}
-              workerSessionId={questSessionId}
-              leaderSessionId={leaderSessionId}
-              onNavigate={closePanel}
-            />
-            <div className="flex flex-wrap items-center gap-2 mt-1">
-              {questOwner?.kind === "codex" && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                  <span>Owner</span>
-                  <CodexQuestOwnerChip owner={questOwner} />
-                </span>
-              )}
+        {/* Header: only status, title and the session buttons, so the body keeps the space on phones. */}
+        <div className="min-w-0 shrink-0 px-3 sm:px-4 py-3 border-b border-cc-border">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
+            <span
+              className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}
+            >
+              {cfg.label}
+            </span>
+            <CopyableQuestId questId={quest.questId} />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               {vProgress && (
                 <span className="text-[10px] text-cc-muted flex items-center gap-1">
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
@@ -806,36 +790,35 @@ export function QuestDetailPanel() {
               )}
               <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestRecencyTs(quest))}</span>
             </div>
-            {quest.tags && quest.tags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                {quest.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="min-w-0 max-w-full break-words rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted"
-                  >
-                    {tag.toLowerCase()}
-                  </span>
-                ))}
-              </div>
-            )}
-            <QuestCommitEvidenceList
-              key={quest.questId}
-              entries={commitDiffState.commitEntries}
-              lookupByKey={commitDiffState.commitLookupByKey}
-              onOpenCommit={commitDiffState.openCommit}
-            />
+            <button
+              type="button"
+              onClick={closePanel}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer shrink-0"
+              aria-label="Close quest details"
+              data-testid="quest-detail-panel-close"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={closePanel}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer shrink-0"
-            aria-label="Close quest details"
-            data-testid="quest-detail-panel-close"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="flex items-start gap-2 mt-1 min-w-0">
+            <div className="text-sm font-semibold text-cc-fg line-clamp-2 break-words" title={quest.title}>
+              {quest.title}
+            </div>
+            {quest.parentId && (
+              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
+                sub:{quest.parentId}
+              </span>
+            )}
+          </div>
+          <QuestSessionActions
+            className="mt-2"
+            questId={quest.questId}
+            workerSessionId={questSessionId}
+            leaderSessionId={leaderSessionId}
+            onNavigate={closePanel}
+          />
         </div>
 
         {/* Stale edit notice */}
@@ -852,10 +835,36 @@ export function QuestDetailPanel() {
 
         {/* Scrollable body */}
         <div
-          className="min-w-0 overflow-x-hidden overflow-y-auto px-4 pb-4 pt-3 space-y-3"
+          className="min-w-0 overflow-x-hidden overflow-y-auto px-3 sm:px-4 pb-4 pt-3 space-y-3"
           onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
           data-testid="quest-detail-scroll-container"
         >
+          {/* One wrapping chip row; an expanded commits or related-quests list opens on its own line below it. */}
+          {hasChips && (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="quest-detail-chips">
+              {quest.tags?.map((tag) => (
+                <span
+                  key={tag}
+                  className="min-w-0 max-w-full break-words rounded-full bg-cc-hover px-2 py-0.5 text-[11px] text-cc-muted"
+                >
+                  {tag.toLowerCase()}
+                </span>
+              ))}
+              {questOwner?.kind === "codex" && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-cc-muted">
+                  <span>Owner</span>
+                  <CodexQuestOwnerChip owner={questOwner} />
+                </span>
+              )}
+              <QuestCommitEvidenceList
+                key={quest.questId}
+                entries={commitDiffState.commitEntries}
+                lookupByKey={commitDiffState.commitLookupByKey}
+                onOpenCommit={commitDiffState.openCommit}
+              />
+              <QuestRelationshipLinks key={`related:${quest.questId}`} quest={quest} />
+            </div>
+          )}
           {quest.status !== "done" && journeyBoardRow?.journey && !phaseDocumentationSummary.hasPhaseDocumentation && (
             <div className="max-w-full" data-testid="quest-detail-journey-section">
               <QuestJourneyTimeline journey={journeyBoardRow.journey} status={journeyStatus} variant="vertical" />

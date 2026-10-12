@@ -180,7 +180,8 @@ describe("QuestDetailPanel commit evidence", () => {
     render(<QuestDetailPanel />);
 
     const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
-    expect(commitsToggle).toHaveTextContent("Commits");
+    // Commits are a compact chip in the quest view's chip row, not a bar in the pinned header.
+    expect(screen.getByTestId("quest-detail-chips")).toContainElement(commitsToggle);
     expect(commitsToggle).toHaveTextContent("2 commits");
     expect(screen.queryByText("First ported commit")).toBeNull();
     expect(screen.queryByText("Second ported commit")).toBeNull();
@@ -358,7 +359,6 @@ describe("QuestDetailPanel commit evidence", () => {
 
     const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
     expect(screen.queryByText("Commit evidence")).toBeNull();
-    expect(commitsToggle).toHaveTextContent("Commits");
     expect(commitsToggle).toHaveTextContent("2 commits");
     expect(screen.queryByText("Record memory handoff")).toBeNull();
     expect(screen.queryByText("Port quest detail UI")).toBeNull();

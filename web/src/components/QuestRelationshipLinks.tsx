@@ -1,4 +1,6 @@
 import type { QuestListPreview, QuestRelatedQuest, QuestRelatedQuestKind, QuestmasterTask } from "../types.js";
+import { useId, useState } from "react";
+import { QuestDisclosureChip, QUEST_CHIP_CLASS } from "./QuestDisclosureChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
 type DisplayedQuestRelationshipKind = Exclude<QuestRelatedQuestKind, "references">;
@@ -28,12 +30,7 @@ export function QuestRelationshipLinks({
           <span key={kind} className="inline-flex min-w-0 items-center gap-1">
             <span className="text-cc-muted/70">{RELATIONSHIP_LABELS[kind]}</span>
             {entries.map((entry) => (
-              <QuestInlineLink
-                key={`${kind}:${entry.questId}`}
-                questId={entry.questId}
-                className="font-mono-code text-cc-primary hover:underline"
-                stopPropagation
-              />
+              <RelatedQuestLink key={entry.questId} entry={entry} />
             ))}
           </span>
         ))}
@@ -41,28 +38,66 @@ export function QuestRelationshipLinks({
     );
   }
 
+  return <QuestRelationshipChip groups={groups} />;
+}
+
+/**
+ * The quest view's single related-quests chip. One related quest is shown directly; more collapse
+ * into one counted chip whose list opens on its own line below the parent's wrapping chip row.
+ */
+function QuestRelationshipChip({ groups }: { groups: Array<[DisplayedQuestRelationshipKind, QuestRelatedQuest[]]> }) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
+  const total = groups.reduce((count, [, entries]) => count + entries.length, 0);
+  if (total === 1) {
+    const [kind, [entry]] = groups[0];
+    return (
+      <span className={QUEST_CHIP_CLASS} data-testid="quest-relationships">
+        <span>{RELATIONSHIP_LABELS[kind]}</span>
+        <RelatedQuestLink entry={entry} />
+      </span>
+    );
+  }
+  const label = groups.length === 1 ? `${RELATIONSHIP_LABELS[groups[0][0]]} ${total}` : `${total} related quests`;
   return (
-    <div className="space-y-1.5" data-testid="quest-relationships">
-      <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">Related Quests</div>
-      <div className="flex flex-wrap gap-1.5">
-        {groups.flatMap(([kind, entries]) =>
-          entries.map((entry) => (
-            <span
-              key={`${kind}:${entry.questId}`}
-              className="inline-flex items-center gap-1 rounded-full border border-cc-border bg-cc-hover/60 px-2 py-0.5 text-[11px] text-cc-muted"
-            >
+    <>
+      <QuestDisclosureChip
+        expanded={expanded}
+        controls={listId}
+        onToggle={() => setExpanded((value) => !value)}
+        ariaLabel={`${expanded ? "Collapse" : "Expand"} related quests, ${total}`}
+      >
+        {label}
+      </QuestDisclosureChip>
+      {expanded && (
+        <div
+          id={listId}
+          role="region"
+          aria-label="Related quests"
+          data-testid="quest-relationships"
+          className="order-last basis-full space-y-1 rounded-md border border-cc-border bg-cc-hover/40 px-2 py-1.5 text-[11px] text-cc-muted"
+        >
+          {groups.map(([kind, entries]) => (
+            <div key={kind} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span>{RELATIONSHIP_LABELS[kind]}</span>
-              <QuestInlineLink
-                questId={entry.questId}
-                className="font-mono-code text-cc-primary hover:underline"
-                stopPropagation
-              />
-              {!entry.explicit && <span className="text-cc-muted/50">detected</span>}
-            </span>
-          )),
-        )}
-      </div>
-    </div>
+              {entries.map((entry) => (
+                <RelatedQuestLink key={entry.questId} entry={entry} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function RelatedQuestLink({ entry }: { entry: QuestRelatedQuest }) {
+  return (
+    <QuestInlineLink
+      questId={entry.questId}
+      className="font-mono-code text-cc-primary hover:underline"
+      stopPropagation
+    />
   );
 }
 

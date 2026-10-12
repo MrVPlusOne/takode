@@ -7,7 +7,7 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 
 const BUTTON_CLASS =
-  "inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
+  "inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
 const WORKER_BUTTON_CLASS = `${BUTTON_CLASS} border-cc-border bg-cc-hover/30 text-cc-fg hover:border-cc-primary/45 hover:bg-cc-hover/60`;
 // Open Thread is the jump users want most often, so it carries the accent.
 const THREAD_BUTTON_CLASS = `${BUTTON_CLASS} border-cc-primary/50 bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25`;
@@ -41,7 +41,7 @@ export function QuestSessionActions({
   return (
     <div
       data-testid="quest-session-actions"
-      className={`flex min-w-0 flex-wrap items-center gap-2 ${className}`}
+      className={`flex min-w-0 flex-wrap items-center gap-1.5 ${className}`}
       aria-label="Quest sessions"
     >
       <QuestSessionButton

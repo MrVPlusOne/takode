@@ -56,6 +56,12 @@ function openPlaygroundQuestDetail() {
           debriefTldr: "Bounded, scrollable sidebar on narrow screens.",
           debriefMachine: "laptop",
           tags: ["ui", "mobile", "bug"],
+          // Several backlinks collapse into one "Referenced by 4" chip in the quest view chip row.
+          relatedQuests: ["q-43", "q-47", "q-48", "q-51"].map((questId) => ({
+            questId,
+            kind: "referenced_by" as const,
+            explicit: false,
+          })),
           verificationItems: [
             { text: "Sidebar does not overflow on iPhone SE", checked: true },
             { text: "Scroll works on sidebar content", checked: false },
@@ -107,7 +113,7 @@ function openPlaygroundQuestDetail() {
     sdkSessions: [
       {
         sessionId: "playground-worker",
-        sessionNum: 142,
+        sessionNum: 2970,
         state: "connected",
         cwd: "/repo/takode",
         createdAt: now - 43200000,
@@ -116,7 +122,7 @@ function openPlaygroundQuestDetail() {
       },
       {
         sessionId: "playground-leader",
-        sessionNum: 141,
+        sessionNum: 2851,
         state: "connected",
         cwd: "/repo/takode",
         createdAt: now - 7200000,
