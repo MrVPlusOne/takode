@@ -17,7 +17,7 @@ import { BoardTable } from "./BoardTable.js";
 import { SessionChangesChip } from "./DiffChip.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
+import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 import {
   activeBoardSummarySegments,
   boardSummary,
@@ -128,8 +128,15 @@ function projectedThreadTabTitleColor(tab: LeaderThreadTabsProjectionTab, owners
   return fallbackPhase ? getQuestPhaseThreadTabTitleColorValue(fallbackPhase.color) : undefined;
 }
 
+function projectedThreadTabAccent(tab: LeaderThreadTabsProjectionTab, ownershipNote?: string): string | undefined {
+  if (tab.completed || ownershipNote) return DONE_THREAD_TITLE_COLOR;
+  if (tab.queued) return QUEUED_THREAD_TITLE_COLOR;
+  const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
+  const fallbackPhase = phase ?? getQuestJourneyPhaseForState(tab.boardStatus ?? undefined);
+  return fallbackPhase ? getQuestPhaseAccentValue(fallbackPhase.color) : undefined;
+}
+
 function projectedThreadTabDetail(tab: LeaderThreadTabsProjectionTab): string | undefined {
-  if (tab.attention.needsInput) return "Needs input";
   if (tab.completed) return "Done";
   if (tab.queued) return "Queued";
   const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
@@ -147,6 +154,8 @@ function buildProjectedThreadTabs(
   return projection.tabs.map((tab) => {
     const questId = tab.questId ?? tab.threadKey;
     const ownershipNote = projectedThreadTabOwnershipNote(tab, leaderSessionNums, doneQuestIds);
+    // Questmaster can know an off-board quest finished before any board row says so.
+    const finished = tab.completed || doneQuestIds.has(normalizeThreadKey(tab.threadKey));
     return {
       threadKey: tab.threadKey,
       questId,
@@ -157,6 +166,9 @@ function buildProjectedThreadTabs(
       mutedNeedsInput: tab.attention.mutedNeedsInput,
       blueNudge: tab.attention.reviewUnread,
       titleColor: projectedThreadTabTitleColor(tab, ownershipNote),
+      accentColor: finished ? DONE_THREAD_TITLE_COLOR : projectedThreadTabAccent(tab, ownershipNote),
+      stateLabel: ownershipNote ?? (finished ? "Done" : projectedThreadTabDetail(tab)),
+      completed: finished,
       projectedCurrentState: true,
       canClose: tab.canClose,
       updatedAt: tab.updatedAt,

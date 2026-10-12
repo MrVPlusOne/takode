@@ -24,6 +24,8 @@ import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
+import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 
 export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
@@ -177,6 +179,12 @@ export interface PrimaryThreadChip {
   ledElsewhere?: boolean;
   canClose: boolean;
   updatedAt: number;
+  /** True once the quest is finished; the phone tab groups file it under Done. */
+  completed?: boolean;
+  /** Phase accent for dots and bars, where the title color is tuned for text. */
+  accentColor?: string;
+  /** The tab's phase or state ("Work", "Done", "Led by #12"), even while it needs input. */
+  stateLabel?: string;
 }
 
 export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<PrimaryThreadChip>): string {
@@ -669,6 +677,8 @@ export function ThreadTabRail({
   const activeTurnRoute = useStore((state) => state.activeTurnRoutes.get(sessionId));
   const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
   const hover = useQuestTabHover();
+  // Phones get status groups, by the same rule that switches the app to its phone shell.
+  const phoneLayout = !useDesktopShellLayout();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const [railWidth, setRailWidth] = useState<number | null>(null);
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
@@ -702,7 +712,7 @@ export function ThreadTabRail({
     }
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, []);
+  }, [phoneLayout]);
 
   useEffect(() => {
     if (hasOverflowTabs) return;
@@ -804,6 +814,37 @@ export function ThreadTabRail({
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
   } as CSSProperties;
+
+  const tabMenuElement = tabMenu && menuItems.length > 0 && (
+    <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
+  );
+  if (phoneLayout) {
+    return (
+      <div
+        className="border-b border-cc-border bg-cc-card px-3"
+        data-testid="thread-tab-rail"
+        data-layout="groups"
+        data-open-tab-count={tabs.length + 1}
+      >
+        <ThreadTabGroupBar
+          main={mainState}
+          tabs={tabs}
+          currentThreadKey={currentThreadKey}
+          activeOutputThreadKey={runningRoute?.threadKey ?? null}
+          monitors={monitors}
+          threadStatuses={threadStatuses}
+          onSelect={openThread}
+          onClose={onCloseThreadTab}
+          onOpenMenu={(tab) =>
+            tabMenuItems(tab).length > 0
+              ? (x, y) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
+              : undefined
+          }
+        />
+        {tabMenuElement}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1009,9 +1050,7 @@ export function ThreadTabRail({
           onMouseLeave={hover.hideImmediately}
         />
       )}
-      {tabMenu && menuItems.length > 0 && (
-        <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
-      )}
+      {tabMenuElement}
     </div>
   );
 }

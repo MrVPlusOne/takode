@@ -2,8 +2,8 @@
 
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
-import { render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../store.js";
 import {
@@ -169,6 +169,29 @@ describe("quest tabs led by another leader", () => {
     expect(within(removed).queryByTestId("thread-tab-led-elsewhere-icon")).toBeNull();
     expect(tab("q-4")).toHaveAttribute("data-ownership-note", "");
     expect(tab("q-5")).toHaveAttribute("data-ownership-note", "");
+  });
+
+  it("files off-board tabs under Done in the phone tab groups once Questmaster says they finished", () => {
+    // Phone layout: the rail shows status groups. q-4 finished on its board row and q-5
+    // only in its loaded Questmaster record; both belong under Done, while the unfinished
+    // off-board q-3 and the handed-off q-2 stay in progress.
+    const desktopWidth = window.innerWidth;
+    window.innerWidth = 430;
+    onTestFinished(() => {
+      window.innerWidth = desktopWidth;
+    });
+    installLeader(ownershipProjection());
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
+
+    const chip = (group: string) =>
+      screen.getAllByTestId("thread-tab-group-chip").find((candidate) => candidate.dataset.group === group)!;
+    fireEvent.click(chip("done"));
+    const doneRows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+    expect(doneRows.map((row) => row.dataset.threadKey)).toEqual(["q-4", "q-5"]);
+    expect(doneRows[1]).toHaveTextContent("q-5 · Done");
+    fireEvent.click(chip("in-progress"));
+    const progressRows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+    expect(progressRows.map((row) => row.dataset.threadKey)).toEqual(["q-1", "q-2", "q-3"]);
   });
 
   it("names the leader that runs the quest in the quest header", () => {

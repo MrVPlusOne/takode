@@ -1,0 +1,207 @@
+// @vitest-environment jsdom
+/**
+ * Phone thread tab groups: how tabs are filed into groups, the chips and their lists,
+ * the switcher sheet's search and closing, and the rail choosing groups on phones.
+ */
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { ThreadTabGroupBar, groupThreadTabs } from "./ThreadTabGroups.js";
+import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
+
+function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
+  return {
+    threadKey,
+    questId: threadKey,
+    title: `Quest ${threadKey}`,
+    needsInput: false,
+    mutedNeedsInput: false,
+    blueNudge: false,
+    canClose: false,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
+
+const MAIN = tab("main", { questId: undefined, title: "Main Thread", blueNudge: true });
+const TABS = [
+  tab("q-10", { title: "Fix the relay proxy" }),
+  tab("q-11", { needsInput: true, stateLabel: "User Checkpoint" }),
+  tab("q-12", { completed: true, blueNudge: true, canClose: true }),
+  tab("q-13", { completed: true, canClose: true }),
+  tab("q-14", { completed: true, canClose: true }),
+  tab("q-15", { completed: true, mutedNeedsInput: true }),
+];
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+function renderBar(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {}) {
+  const onSelect = vi.fn();
+  const onClose = vi.fn();
+  render(
+    <ThreadTabGroupBar
+      main={MAIN}
+      tabs={TABS}
+      currentThreadKey="q-10"
+      activeOutputThreadKey={null}
+      onSelect={onSelect}
+      onClose={onClose}
+      {...props}
+    />,
+  );
+  return { onSelect, onClose };
+}
+
+describe("groupThreadTabs", () => {
+  it("files tabs by prompt, unread result, finished state, keeping tab order", () => {
+    // A prompt outranks an unread result, and a finished tab with an unread result stays
+    // under New results until it is read; Main joins only through its bells.
+    const groups = groupThreadTabs(TABS, MAIN);
+    const keys = (id: keyof typeof groups) => groups[id].map((item) => item.threadKey);
+    expect(keys("needs-input")).toEqual(["q-11"]);
+    expect(keys("new-results")).toEqual(["main", "q-12"]);
+    expect(keys("in-progress")).toEqual(["q-10"]);
+    expect(keys("done")).toEqual(["q-13", "q-14", "q-15"]);
+    expect(groupThreadTabs([], tab("main")).done).toEqual([]);
+  });
+});
+
+describe("ThreadTabGroupBar", () => {
+  it("shows Main, one item per non-empty group and search, marking the current tab's group", () => {
+    renderBar({ tabs: TABS.filter((item) => !item.needsInput) });
+    // The quest strip names the current quest, so the bar repeats no title: it only
+    // marks the group that holds it (q-10 is in progress).
+    expect(screen.queryByText("Fix the relay proxy")).toBeNull();
+    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
+    expect(screen.getByTestId("thread-tab-group-search")).toBeTruthy();
+    const chips = screen.getAllByTestId("thread-tab-group-chip");
+    // No prompt is waiting, so the Needs you chip is hidden rather than showing 0.
+    expect(chips.map((chip) => [chip.dataset.group, chip.textContent])).toEqual([
+      ["new-results", "2"],
+      ["in-progress", "1"],
+      ["done", "3"],
+    ]);
+    expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
+  });
+
+  it("opens a chip's list and switches tabs from it", () => {
+    const { onSelect } = renderBar();
+    const needsChip = screen
+      .getAllByTestId("thread-tab-group-chip")
+      .find((chip) => chip.dataset.group === "needs-input")!;
+    fireEvent.click(needsChip);
+    const list = screen.getByTestId("thread-tab-group-list");
+    expect(
+      within(list)
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey),
+    ).toEqual(["q-11"]);
+    // The row keeps the phase label even though the tab needs input.
+    expect(list.textContent).toContain("q-11 · User Checkpoint");
+    fireEvent.click(within(list).getByTestId("thread-tab-list-row-select"));
+    expect(onSelect).toHaveBeenCalledWith("q-11");
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("finds tabs by quest number in the switcher and closes them", () => {
+    const { onClose } = renderBar();
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    const sheet = screen.getByTestId("thread-tab-switcher");
+    expect(sheet.textContent).toContain("7 tabs");
+    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "q-13" } });
+    const rows = within(sheet).getAllByTestId("thread-tab-list-row");
+    expect(rows.map((row) => row.dataset.threadKey)).toEqual(["q-13"]);
+    fireEvent.click(within(rows[0]!).getByTestId("thread-tab-list-row-close"));
+    expect(onClose).toHaveBeenCalledWith("q-13");
+  });
+
+  it("asks once before closing every finished tab that can close", () => {
+    const { onClose } = renderBar();
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    const closeAll = screen.getByTestId("thread-tab-switcher-close-all");
+    fireEvent.click(closeAll);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(closeAll.textContent).toBe("Close 2 tabs?");
+    fireEvent.click(closeAll);
+    // q-12 is finished but unread, and q-15 cannot close, so neither is closed.
+    expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
+  });
+
+  it("switches to Main in one tap and marks it as current there", () => {
+    const { onSelect } = renderBar({ currentThreadKey: "main" });
+    const main = screen.getByTestId("thread-tab-group-main");
+    expect(main.dataset.selected).toBe("true");
+    fireEvent.click(main);
+    expect(onSelect).toHaveBeenCalledWith("main");
+  });
+});
+
+describe("ThreadTabGroupBar at the bottom of the screen", () => {
+  it("opens group lists upward", () => {
+    renderBar({ placement: "bottom" });
+    expect(screen.getByTestId("thread-tab-group-bar").dataset.placement).toBe("bottom");
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done);
+    // Above the bar rather than below it, where there is no room at the screen's bottom edge.
+    expect(screen.getByTestId("thread-tab-group-list").className).toContain("bottom-full");
+  });
+});
+
+describe("ThreadTabGroupBar active output", () => {
+  it("marks the group whose tab the leader is writing in", () => {
+    renderBar({ activeOutputThreadKey: "q-11" });
+    const chips = screen.getAllByTestId("thread-tab-group-chip");
+    const withDot = chips.filter((chip) => within(chip).queryByTestId("thread-tab-active-output-dot"));
+    expect(withDot.map((chip) => chip.dataset.group)).toEqual(["needs-input"]);
+  });
+});
+
+describe("ThreadTabRail on phones", () => {
+  const desktopWidth = window.innerWidth;
+  afterEach(() => {
+    window.innerWidth = desktopWidth;
+  });
+
+  function renderRail(onCloseThreadTab = vi.fn()) {
+    render(
+      <ThreadTabRail
+        mainState={MAIN}
+        tabs={TABS}
+        reorderableThreadKeys={[]}
+        sessionId="phone-session"
+        currentThreadKey="q-10"
+        onSelectThread={vi.fn()}
+        onCloseThreadTab={onCloseThreadTab}
+      />,
+    );
+    return onCloseThreadTab;
+  }
+
+  it("shows status groups at phone width and the tab strip on desktop", () => {
+    // Phones follow the app's phone-shell rule; jsdom's default width is a desktop one.
+    renderRail();
+    expect(screen.getByTestId("thread-tab-rail").dataset.layout).toBeUndefined();
+    expect(screen.getByTestId("thread-tab-strip")).toBeTruthy();
+    cleanup();
+
+    window.innerWidth = 430;
+    renderRail();
+    expect(screen.getByTestId("thread-tab-rail").dataset.layout).toBe("groups");
+    expect(screen.queryByTestId("thread-tab-strip")).toBeNull();
+    expect(screen.getByTestId("thread-tab-group-bar")).toBeTruthy();
+  });
+
+  it("offers the tab menu on a listed tab and closes it through the rail", () => {
+    window.innerWidth = 430;
+    const onCloseThreadTab = renderRail();
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done);
+    const row = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row")[0]!;
+    // Right-click stands in for the phone long-press; both open the same menu.
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
+    fireEvent.click(screen.getByText("Close tab"));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-13");
+  });
+});
