@@ -43,18 +43,11 @@ import {
 } from "./session-list-hydration.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffTabView } from "./components/DiffTabView.js";
-import { Playground } from "./components/Playground.js";
 import { ActiveBuildMismatchNotice } from "./components/BuildMismatchNotice.js";
-import { SettingsPage } from "./components/SettingsPage.js";
-import { ChangelogPage } from "./components/ChangelogPage.js";
-import { LogsPage } from "./components/LogsPage.js";
+import { lazyComponent } from "./components/lazy-component.js";
 import { EnvManager } from "./components/EnvManager.js";
-import { TodosAndTimersPage } from "./components/TodosAndTimersPage.js";
-import { MemoryPage } from "./components/MemoryPage.js";
-import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
-import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
 import { UniversalSearchOverlay } from "./components/UniversalSearchOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
@@ -90,6 +83,22 @@ import {
   shouldBlurVimEscape,
   type ShortcutActionId,
 } from "./shortcuts.js";
+
+// Pages most sessions never open load on first use, keeping them out of the startup bundle.
+const Playground = lazyComponent(() => import("./components/Playground.js").then((module) => module.Playground));
+const SettingsPage = lazyComponent(() => import("./components/SettingsPage.js").then((module) => module.SettingsPage));
+const ChangelogPage = lazyComponent(() =>
+  import("./components/ChangelogPage.js").then((module) => module.ChangelogPage),
+);
+const LogsPage = lazyComponent(() => import("./components/LogsPage.js").then((module) => module.LogsPage));
+const TodosAndTimersPage = lazyComponent(() =>
+  import("./components/TodosAndTimersPage.js").then((module) => module.TodosAndTimersPage),
+);
+const MemoryPage = lazyComponent(() => import("./components/MemoryPage.js").then((module) => module.MemoryPage));
+const TerminalPage = lazyComponent(() => import("./components/TerminalPage.js").then((module) => module.TerminalPage));
+const QuestmasterPage = lazyComponent(() =>
+  import("./components/QuestmasterPage.js").then((module) => module.QuestmasterPage),
+);
 
 type TakodeDebugWindow = Window &
   typeof globalThis & {

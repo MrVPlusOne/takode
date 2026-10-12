@@ -747,16 +747,17 @@ describe("App hidden panels", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9&quest=q-1272"));
   });
 
-  it("mounts TodosAndTimersPage on the scheduled route", () => {
+  it("mounts TodosAndTimersPage on the scheduled route", async () => {
     window.location.hash = "#/scheduled";
 
     render(<App />);
 
-    expect(screen.getByTestId("todos-and-timers-page")).toBeInTheDocument();
+    // Full pages load on first use, outside the startup bundle.
+    expect(await screen.findByTestId("todos-and-timers-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
-  it("lets full-page routes own the top chrome instead of rendering session identity chrome", () => {
+  it("lets full-page routes own the top chrome instead of rendering session identity chrome", async () => {
     for (const [hash, testId, label] of [
       ["#/memory", "memory-page", "Memory"],
       ["#/changelog", "changelog-page", "Changelog"],
@@ -768,28 +769,28 @@ describe("App hidden panels", () => {
       window.location.hash = hash;
       const view = render(<App />);
 
-      expect(screen.getByTestId(testId)).toBeInTheDocument();
+      expect(await screen.findByTestId(testId)).toBeInTheDocument();
       expect(screen.getByTestId("top-bar")).toHaveAttribute("data-full-page-label", label);
 
       view.unmount();
     }
   });
 
-  it("mounts MemoryPage on the memory route", () => {
+  it("mounts MemoryPage on the memory route", async () => {
     window.location.hash = "#/memory";
 
     render(<App />);
 
-    expect(screen.getByTestId("memory-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
-  it("keeps the legacy streams hash pointed at MemoryPage", () => {
+  it("keeps the legacy streams hash pointed at MemoryPage", async () => {
     window.location.hash = "#/streams";
 
     render(<App />);
 
-    expect(screen.getByTestId("memory-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
