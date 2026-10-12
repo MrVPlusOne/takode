@@ -5,10 +5,21 @@
  */
 export const TRANSCRIPTION_TAG = "[transcribed]";
 
-/** Appends the transcription tag to `text` unless the text already carries it. */
+/**
+ * Ends `text` with exactly one transcription tag. A tag left from an earlier dictation is
+ * removed first, so appending after it leaves no tag between the two passages.
+ */
 export function addTranscriptionTag(text: string): string {
-  if (text.includes(TRANSCRIPTION_TAG)) return text;
-  return `${text.trimEnd()} ${TRANSCRIPTION_TAG}`;
+  const parts = text.split(TRANSCRIPTION_TAG);
+  const untagged = parts
+    .map((part, index) => {
+      const next = parts[index + 1];
+      // Drop the space before a removed tag only when whitespace or the end follows the tag;
+      // text joined straight onto the tag keeps that space as its separator.
+      return next !== undefined && /^(\s|$)/.test(next) ? part.replace(/[ \t]+$/, "") : part;
+    })
+    .join("");
+  return `${untagged.trimEnd()} ${TRANSCRIPTION_TAG}`;
 }
 
 /**

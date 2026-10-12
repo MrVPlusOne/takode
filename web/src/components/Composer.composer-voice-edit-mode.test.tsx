@@ -1148,6 +1148,26 @@ describe("Composer voice edit mode", () => {
     });
   });
 
+  it("moves the tag to the end when appending after a dictated draft", async () => {
+    // Reported on a phone: the cursor sits after the earlier dictation's tag, so the old
+    // "only once" rule left "[transcribed]" between the two passages.
+    setupMockStore({ draftText: "Earlier passage. [transcribed]" });
+    mockGetSettings.mockResolvedValueOnce({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+    mockTranscribe.mockResolvedValueOnce({ mode: "append", text: "Also, more.", backend: "openai", enhanced: true });
+
+    render(<Composer sessionId="s1" />);
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("Earlier passage. Also, more. [transcribed]");
+    });
+  });
+
   it("does not tag a draft when the appended transcript is blank", async () => {
     // Nothing dictated was inserted, so the typed draft must not be marked as transcribed.
     setupMockStore({ draftText: "Typed only." });

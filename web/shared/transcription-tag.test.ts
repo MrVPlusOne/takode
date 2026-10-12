@@ -6,9 +6,18 @@ describe("addTranscriptionTag", () => {
     expect(addTranscriptionTag("hello world\n")).toBe("hello world [transcribed]");
   });
 
-  it("does not add a second tag when the text already carries one anywhere", () => {
-    // A user may keep typing after the tag; repeated dictation must not stack tags.
-    expect(addTranscriptionTag("dictated [transcribed] typed later")).toBe("dictated [transcribed] typed later");
+  it("moves an earlier tag to the end instead of leaving it between passages", () => {
+    // Appending after a dictated draft puts new text after its tag; the result must end with one tag.
+    expect(addTranscriptionTag("First passage. [transcribed] Second passage.")).toBe(
+      "First passage. Second passage. [transcribed]",
+    );
+    expect(addTranscriptionTag("Line one [transcribed]\nLine two")).toBe("Line one\nLine two [transcribed]");
+    // Needs-input dictation inserts text straight after the tag; the space before it must survive.
+    expect(addTranscriptionTag("ship it [transcribed]Takode")).toBe("ship it Takode [transcribed]");
+  });
+
+  it("keeps a single tag already at the end", () => {
+    expect(addTranscriptionTag("dictated [transcribed]")).toBe("dictated [transcribed]");
   });
 });
 

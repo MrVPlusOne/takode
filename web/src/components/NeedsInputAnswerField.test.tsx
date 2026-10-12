@@ -189,6 +189,29 @@ describe("NeedsInputAnswerField", () => {
     expect(onChange).toHaveBeenCalledWith("hello Takode [transcribed]");
   });
 
+  it("moves an earlier answer's tag to the end when dictating after it", async () => {
+    // Dictating at the end of an already-dictated answer must leave one tag, at the end.
+    const onChange = vi.fn();
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="ship it [transcribed]"
+        onChange={onChange}
+        placeholder="Your answer"
+      />,
+    );
+    const textarea = screen.getByLabelText("Answer for Approve deployment?") as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
+    voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship it Takode [transcribed]"));
+  });
+
   it("uses simple dictation insertion semantics without edit or append mode", () => {
     expect(insertTextAtSelection("ship now", "please ", { value: "ship now", start: 0, end: 0 })).toBe(
       "please ship now",
