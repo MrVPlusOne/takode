@@ -408,6 +408,28 @@ describe("handleMessage: thread_attachment_update", () => {
     });
   });
 
+  it("refreshes the thread on screen when the saved selection names another thread", async () => {
+    // Regression: a Main-to-quest handoff refetches the visible window with
+    // activate_view. Main was on screen while the saved selection still named an
+    // earlier quest tab, so the refetch moved the socket's view to that quest and
+    // Main stopped receiving the leader's handoff note and transition marker.
+    const { markLeaderThreadDisplayed } = await import("./utils/thread-viewport.js");
+    connectAndHydrateSession("q-2479");
+    const unmark = markLeaderThreadDisplayed("s1", "main");
+    try {
+      fireMessage(threadAttachmentUpdate());
+    } finally {
+      unmark();
+    }
+
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toMatchObject({
+      type: "thread_window_request",
+      thread_key: "main",
+      activate_view: true,
+    });
+  });
+
   it("does not passively fetch conversation windows for a background session", async () => {
     connectAndHydrateSession("q-1087", false);
     setPatchSentinelMessages();

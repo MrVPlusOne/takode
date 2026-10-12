@@ -33,6 +33,7 @@ import {
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
+  markLeaderThreadDisplayed,
   persistLeaderSelectedThreadKey,
   readLeaderSelectedThreadKey,
   requestThreadViewportSnapshot,
@@ -521,6 +522,13 @@ export function ChatView({
     if (!isLeaderSession) return;
     markThreadNavigationCommitted(sessionId, normalizeThreadKey(selectedThreadKey));
   }, [isLeaderSession, selectedThreadKey, sessionId]);
+
+  // Reconnects and handoff refetches request the window of the thread on screen,
+  // which the saved selection does not always match.
+  useLayoutEffect(() => {
+    if (!isLeaderSession || preview) return;
+    return markLeaderThreadDisplayed(sessionId, selectedThreadKey);
+  }, [isLeaderSession, preview, selectedThreadKey, sessionId]);
 
   useLayoutEffect(() => {
     markColdReplayFlushCommitted(sessionId);

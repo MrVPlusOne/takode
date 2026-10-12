@@ -2,7 +2,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useSyncExternalStore, type ReactNode } from "react";
-import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
+import {
+  persistLeaderSelectedThreadKey,
+  readDisplayedLeaderThreadKey,
+  readLeaderSelectedThreadKey,
+} from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { needsInputNotification, threadMessage } from "./chat-view-leader-tabs-fixtures.js";
 import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
@@ -324,6 +328,8 @@ describe("ChatView passive leader-session returns", () => {
     // reproduction after Main was already visibly selected.
     persistLeaderSelectedThreadKey(LEADER_SESSION_ID, QUEST_ID);
     expect(readLeaderSelectedThreadKey(LEADER_SESSION_ID)).toBe(QUEST_ID);
+    // Reconnects and handoff refetches ask for the thread on screen, not the stale value.
+    expect(readDisplayedLeaderThreadKey(LEADER_SESSION_ID)).toBe("main");
 
     mockState.currentSessionId = OTHER_SESSION_ID;
     navigate(`#/session/${OTHER_SESSION_ID}`);
@@ -385,6 +391,7 @@ describe("ChatView passive leader-session returns", () => {
     expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     view.unmount();
     expect(readLeaderSelectedThreadKey(LEADER_SESSION_ID)).toBe("main");
+    expect(readDisplayedLeaderThreadKey(LEADER_SESSION_ID)).toBeNull();
   });
 
   it("still lets an explicit route or tab click select the completed open quest", async () => {

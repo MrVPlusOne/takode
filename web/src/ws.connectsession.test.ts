@@ -394,6 +394,36 @@ describe("connectSession", () => {
     });
   });
 
+  it("resubscribes to the leader thread on screen when the URL or saved selection points elsewhere", async () => {
+    // Regression: the phone showed Main while the subscribe guessed an earlier
+    // quest tab from browser state. The server then sent neither Main's fresh
+    // window nor its live events, so a leader note written while the socket was
+    // down never appeared in Main.
+    const { markLeaderThreadDisplayed } = await import("./utils/thread-viewport.js");
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true, archived: false } as any] });
+    window.location.hash = "#/session/s1?thread=q-2479";
+
+    // Before any leader view mounts, the URL names the thread to open.
+    wsModule.connectSession("s1");
+    const originalSocket = lastWs;
+    originalSocket.onopen?.(new Event("open"));
+    expect(JSON.parse(originalSocket.send.mock.calls[0][0]).initial_thread_window).toMatchObject({
+      thread_key: "q-2479",
+    });
+
+    // The mounted view shows Main instead; the socket drops and reconnects.
+    const unmark = markLeaderThreadDisplayed("s1", "main");
+    try {
+      originalSocket.onclose?.();
+      vi.advanceTimersByTime(2_000);
+      expect(lastWs).not.toBe(originalSocket);
+      lastWs.onopen?.(new Event("open"));
+      expect(JSON.parse(lastWs.send.mock.calls[0][0]).initial_thread_window).toMatchObject({ thread_key: "main" });
+    } finally {
+      unmark();
+    }
+  });
+
   it("snapshots the active leader viewport before reconnecting an unexpectedly closed socket", async () => {
     // Restart regression: the mounted feed can visibly reach message 130 while
     // browser-local storage still contains the earlier message-117 anchor. An

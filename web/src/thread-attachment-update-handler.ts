@@ -10,7 +10,7 @@ import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-n
 import { invalidateHistoryWindowCache, invalidateThreadWindowCache } from "./utils/history-window-cache.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "./utils/thread-projection.js";
-import { readLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
+import { readDisplayedLeaderThreadKey, readLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
 import type { WsMessageHandlerDeps } from "./ws-handlers.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
@@ -355,7 +355,9 @@ function requestVisibleConversationWindow(
   const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
   const isLeader = store.sessions.get(sessionId)?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
   const selectedThreadKey = isLeader
-    ? normalizeThreadKey(readLeaderSelectedThreadKey(sessionId) ?? MAIN_THREAD_KEY)
+    ? normalizeThreadKey(
+        readDisplayedLeaderThreadKey(sessionId) ?? readLeaderSelectedThreadKey(sessionId) ?? MAIN_THREAD_KEY,
+      )
     : MAIN_THREAD_KEY;
 
   if (isLeader && !isAllThreadsKey(selectedThreadKey)) {

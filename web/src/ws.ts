@@ -11,7 +11,11 @@ import { resolveInitialLeaderThreadKey } from "./utils/initial-leader-thread.js"
 import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
 import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
-import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
+import {
+  readDisplayedLeaderThreadKey,
+  readLeaderViewportPosition,
+  requestThreadViewportSnapshot,
+} from "./utils/thread-viewport.js";
 import {
   SYNCED_PROJECTION_DESCRIPTOR_LIST,
   isSyncedProjectionEligibleForSession,
@@ -48,13 +52,17 @@ function getInitialLeaderThreadWindow(
   const threadRoute = routeMatchesSession
     ? threadRouteFromHash(window.location.hash)
     : { hasThreadParam: false, threadKey: null };
-  const threadKey = resolveInitialLeaderThreadKey({
-    sessionId,
-    isLeaderSession,
-    hasThreadRoute: threadRoute.hasThreadParam,
-    routeThreadKey: threadRoute.threadKey,
-    leaderOpenThreadTabs: projectedLeaderOpenThreadTabs(leaderTabsProjection),
-  });
+  // A reconnect must resubscribe to the thread on screen: live events and the
+  // fresh window follow the subscribed view, so a stale guess leaves it frozen.
+  const threadKey =
+    readDisplayedLeaderThreadKey(sessionId) ??
+    resolveInitialLeaderThreadKey({
+      sessionId,
+      isLeaderSession,
+      hasThreadRoute: threadRoute.hasThreadParam,
+      routeThreadKey: threadRoute.threadKey,
+      leaderOpenThreadTabs: projectedLeaderOpenThreadTabs(leaderTabsProjection),
+    });
   if (threadKey === ALL_THREADS_KEY) return undefined;
 
   const existingWindow = store.threadWindows.get(sessionId)?.get(threadKey);

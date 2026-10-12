@@ -120,6 +120,27 @@ export function readLeaderSelectedThreadKey(sessionId: string): string | null {
   return readLeaderSessionViewState(sessionId)?.selectedThreadKey ?? null;
 }
 
+const displayedLeaderThreads = new Map<string, { threadKey: string }>();
+
+/**
+ * Record the thread a mounted leader conversation shows; returns the cleanup.
+ * The saved selection is a restore preference: another device's handoff or a
+ * route the view did not adopt can change it while a different thread is on
+ * screen, so window requests must follow this instead.
+ */
+export function markLeaderThreadDisplayed(sessionId: string, threadKey: string): () => void {
+  const entry = { threadKey: normalizeThreadKey(threadKey || MAIN_THREAD_KEY) };
+  displayedLeaderThreads.set(sessionId, entry);
+  return () => {
+    if (displayedLeaderThreads.get(sessionId) === entry) displayedLeaderThreads.delete(sessionId);
+  };
+}
+
+/** The thread a mounted leader conversation shows, or null when none is mounted. */
+export function readDisplayedLeaderThreadKey(sessionId: string): string | null {
+  return displayedLeaderThreads.get(sessionId)?.threadKey ?? null;
+}
+
 export function persistLeaderSelectedThreadKey(sessionId: string, threadKey: string): void {
   const selectedThreadKey = normalizeRestorableThreadKey(threadKey);
   if (!selectedThreadKey) return;

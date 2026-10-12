@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
-import { persistLeaderSelectedThreadKey } from "./thread-viewport.js";
+import { markLeaderThreadDisplayed, persistLeaderSelectedThreadKey } from "./thread-viewport.js";
 
 const mockRequestSnapshot = vi.hoisted(() => vi.fn(async () => {}));
 const mockNoteSelectionActivity = vi.hoisted(() => vi.fn());
@@ -74,6 +74,26 @@ describe("viewport handoff route departure", () => {
     expect(mockRequestSnapshot).toHaveBeenCalledWith("leader-1", {
       threadKey: "q-2035",
       selectedThreadKey: "q-2035",
+      publishHandoff: true,
+      keepalive: true,
+      reason: "session-departure",
+    });
+  });
+
+  it("publishes the thread on screen rather than a stale saved selection when leaving the session", () => {
+    // Publishing the stale value would make the server, and every device that
+    // restores from it, treat a quest tab as selected while Main was shown.
+    persistLeaderSelectedThreadKey("leader-1", "q-2035");
+    const unmark = markLeaderThreadDisplayed("leader-1", "main");
+    try {
+      requestViewportHandoffForRouteDeparture("#/session/leader-1", "#/settings");
+    } finally {
+      unmark();
+    }
+
+    expect(mockRequestSnapshot).toHaveBeenCalledWith("leader-1", {
+      threadKey: "main",
+      selectedThreadKey: "main",
       publishHandoff: true,
       keepalive: true,
       reason: "session-departure",
