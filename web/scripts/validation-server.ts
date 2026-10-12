@@ -5,9 +5,12 @@
  * validation runs never collide with each other or with the live server.
  *
  * From web/:  bun --no-install scripts/validation-server.ts <status|start [--fresh]|stop>
+ *              bun --no-install scripts/validation-server.ts <add-session <id|#N>|remove-session <id|#N|all>|list-sessions>
  *
  * `start` refuses occupied ports instead of stopping their owners. `stop` only
  * stops processes this session started and that still listen on their ports.
+ * `add-session` copies a live session into the slot, merged with what the slot
+ * already holds and unable to run a backend; `remove-session` takes it out again.
  */
 import { spawn } from "node:child_process";
 import { mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -21,7 +24,15 @@ import {
   devServerSlot,
   findHeldSlot,
 } from "../bin/validation-slots.js";
+import { homedir } from "node:os";
 import { listeningPids } from "./listening-pids.js";
+import {
+  addSessionCopy,
+  listSessionCopies,
+  removeSessionCopies,
+  type SessionCopyPaths,
+  type SessionCopyRecord,
+} from "./validation-session-copy.js";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_ROOT = dirname(devServerSlot(1).stateDir);
@@ -42,7 +53,68 @@ async function main(): Promise<void> {
   if (command === "start") return start(flags.includes("--fresh"));
   if (command === "stop") return stop();
   if (command === "status") return status();
-  fail("Usage: bun --no-install scripts/validation-server.ts <status|start [--fresh]|stop>");
+  if (command === "add-session" && flags[0]) return addCopy(flags[0]);
+  if (command === "remove-session" && flags[0]) return removeCopies(flags[0]);
+  if (command === "list-sessions") return listCopies();
+  fail(
+    "Usage: bun --no-install scripts/validation-server.ts " +
+      "<status|start [--fresh]|stop|add-session <id|#N>|remove-session <id|#N|all>|list-sessions>",
+  );
+}
+
+/** The live server's session data (read only) and the held slot's copy of it. */
+async function sessionCopyPaths(): Promise<{ res: DevServerSlot; paths: SessionCopyPaths }> {
+  sessionId();
+  const slot = await findHeldSlot(DEV_SERVER_LEASE);
+  if (slot === null) fail(`Acquire ${DEV_SERVER_LEASE} first; this session holds no slot.`);
+  const res = devServerSlot(slot);
+  const liveCompanionDir = join(homedir(), ".companion");
+  const slotCompanionDir = join(res.home, ".companion");
+  return {
+    res,
+    paths: {
+      liveCompanionDir,
+      liveSessionsRoot: join(liveCompanionDir, "sessions"),
+      slotCompanionDir,
+      slotSessionsDir: join(slotCompanionDir, "sessions", String(res.backendPort)),
+      // Inside HOME, so `start --fresh` forgets the copies along with them.
+      manifestPath: join(res.home, "copied-sessions.json"),
+    },
+  };
+}
+
+async function addCopy(ref: string): Promise<void> {
+  const { res, paths } = await stoppedSlotPaths();
+  console.log(`Added ${describeCopy(await addSessionCopy(paths, ref))} to slot ${res.slot}.`);
+}
+
+async function removeCopies(ref: string): Promise<void> {
+  const { res, paths } = await stoppedSlotPaths();
+  const removed = await removeSessionCopies(paths, ref);
+  if (removed.length === 0) console.log(`Slot ${res.slot} holds no copied sessions.`);
+  for (const record of removed) console.log(`Removed ${describeCopy(record)} from slot ${res.slot}.`);
+}
+
+/** A running slot server keeps its own copy of these lists and would write it back over the change. */
+async function stoppedSlotPaths(): Promise<{ res: DevServerSlot; paths: SessionCopyPaths }> {
+  const slotPaths = await sessionCopyPaths();
+  if ((await listeningPids(slotPaths.res.backendPort)).length > 0) {
+    fail(`Stop the slot ${slotPaths.res.slot} server first (\`stop\`), and start it again after the change.`);
+  }
+  return slotPaths;
+}
+
+async function listCopies(): Promise<void> {
+  const { res, paths } = await sessionCopyPaths();
+  const copies = await listSessionCopies(paths);
+  if (copies.length === 0) console.log(`Slot ${res.slot} holds no copied sessions.`);
+  for (const record of copies) console.log(describeCopy(record));
+}
+
+function describeCopy(record: SessionCopyRecord): string {
+  const number = record.sessionNum === null ? "" : `#${record.sessionNum} `;
+  const quests = record.addedQuestIds.length > 0 ? `, ${record.addedQuestIds.length} quests` : "";
+  return `${number}${record.sessionId} (${record.files.length} files${record.images ? ", images" : ""}${quests})`;
 }
 
 async function status(): Promise<void> {

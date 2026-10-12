@@ -53,7 +53,7 @@ Unported worktree code does not automatically justify empty isolated state. Code
 
 Use Playground or browser fixtures when the target is a frontend-only component state and the behavior does not need real backend/session history. This keeps setup cheap and makes unusual visual states repeatable, especially for message rows, tool blocks, permission banners, composer states, and compacted/streaming examples.
 
-Use a sanitized copied-live snapshot when a bug is anchored to a specific live session, quest history, or session-store shape that cannot be represented with the shared persistent state or Playground. Copy the minimum needed state, remove secrets or unrelated user data when applicable, run against isolated ports, and treat the copied snapshot as disposable unless the quest explicitly asks to preserve it.
+Use a sanitized copied-live snapshot when a bug is anchored to a specific live session, quest history, or session-store shape that cannot be represented with the shared persistent state or Playground. Copy a session into your slot with `scripts/validation-server.ts add-session` (see **Lease Slots** in the skill), which merges it into the slot without dropping other holders' sessions and makes it unable to run a backend. Copy nothing else by hand, remove secrets or unrelated user data when applicable, run against isolated ports, and remove the copy with `remove-session` when done unless the quest explicitly asks to preserve it.
 
 Curated fixture packs are a later evolution. Do not block current validation on repo-checked fixture packs unless a quest specifically implements them.
 

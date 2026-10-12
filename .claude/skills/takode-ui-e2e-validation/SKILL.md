@@ -71,6 +71,15 @@ Slot 2, for example, gets backend `3472`, frontend `http://127.0.0.1:5182` and b
   ```
 
 - The slot's state directory belongs to whoever holds the slot. It may contain an earlier holder's state, so use `start --fresh` when you need empty state.
+- To validate on a real session, copy it into your slot with the helper instead of copying files by hand. With the slot server stopped:
+
+  ```bash
+  bun --no-install scripts/validation-server.ts add-session '#2851'     # live session by #N, UUID or UUID prefix
+  bun --no-install scripts/validation-server.ts list-sessions
+  bun --no-install scripts/validation-server.ts remove-session '#2851'  # or `all`; do this when you are done
+  ```
+
+  `add-session` copies the session's saved state, every history file, its images, its name and the quests its tabs and boards name that the slot lacks, and merges them into the slot's lists; it never replaces them, so sessions earlier holders left stay. The copy is paused and has no process, resume ID or live token, so it can never run a backend. `remove-session` takes out exactly what the copy added. Never rewrite the slot's `launcher.json`, `session-names.json` or quest store yourself: replacing them drops other holders' sessions.
 - Takode's `agent-browser` wrapper drives your slot's session automatically while you hold an `agent-browser` slot, including `agent-browser close`. If you call the real binary directly, pass `--session takode-browser-N`. Never run `agent-browser close --all`; it closes other slots' browsers too.
 - `make dev` and `scripts/dev-start.sh` use the default ports `3457`/`5174`, which belong to no slot. Do not use them for leased validation.
 
