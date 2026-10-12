@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { QuestmasterTask } from "../types.js";
+import type { QuestmasterTask, SdkSessionInfo } from "../types.js";
 import {
   buildQuestJourneyContextByQuestId,
   findQuestJourneyContext,
+  resolveQuestSessionTargets,
   type QuestJourneyBoardRow,
 } from "./quest-journey-context.js";
 
@@ -119,6 +120,64 @@ describe("quest journey context selection", () => {
     expect(context).toMatchObject({
       completed: false,
       row: { status: "USER_CHECKPOINTING", journey: { currentPhaseId: "user-checkpoint", activePhaseIndex: 2 } },
+    });
+  });
+});
+
+describe("quest session targets", () => {
+  const workingRow: QuestJourneyBoardRow = {
+    questId: "q-95",
+    status: "WORKING",
+    worker: "worker-95",
+    workerNum: 95,
+    journey: { mode: "active", phaseIds: ["work", "memory"], currentPhaseId: "work", activePhaseIndex: 0 },
+  };
+
+  it("finds the leader of a dispatched quest whose worker has not claimed it yet", () => {
+    // A quest records its leader only when the worker claims it. Between dispatch and claim it has
+    // neither owner nor leader, so the leader comes from the board that holds the row, which once
+    // made Open Thread say "No leader session for this quest".
+    const unclaimed = quest({ status: "refined" });
+    const context = findQuestJourneyContext(unclaimed, new Map([["leader-95", [workingRow]]]), new Map(), new Map());
+
+    expect(resolveQuestSessionTargets(unclaimed, context, [])).toEqual({
+      workerSessionId: "worker-95",
+      workerStatus: "idle",
+      leaderSessionId: "leader-95",
+    });
+  });
+
+  it("falls back to the Journey run's leader, then to the board worker's herding leader", () => {
+    const withRun = quest({
+      journeyRuns: [
+        {
+          runId: "run-95",
+          leaderSessionId: "run-leader-95",
+          workerSessionId: "worker-95",
+          source: "board",
+          phaseIds: ["work", "memory"],
+          status: "active",
+          createdAt: 1,
+          updatedAt: 1,
+          phaseOccurrences: [],
+        },
+      ],
+    });
+    const runContext = findQuestJourneyContext(withRun, new Map(), new Map(), new Map());
+    expect(resolveQuestSessionTargets(withRun, runContext, []).leaderSessionId).toBe("run-leader-95");
+
+    // Without a known board or run leader (a context built by hand), the worker's herdedBy decides.
+    const herded = [{ sessionId: "worker-95", herdedBy: "herding-leader-95" }] as SdkSessionInfo[];
+    expect(
+      resolveQuestSessionTargets(quest({ status: "refined" }), { row: workingRow, completed: false }, herded),
+    ).toMatchObject({ workerSessionId: "worker-95", leaderSessionId: "herding-leader-95" });
+  });
+
+  it("keeps the recorded leader and owner when there is no board row", () => {
+    const claimed = quest({ sessionId: "owner-95", leaderSessionId: "recorded-leader-95" } as Partial<QuestmasterTask>);
+    expect(resolveQuestSessionTargets(claimed, null, [])).toEqual({
+      workerSessionId: "owner-95",
+      leaderSessionId: "recorded-leader-95",
     });
   });
 });

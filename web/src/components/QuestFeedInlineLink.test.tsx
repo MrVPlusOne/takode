@@ -1029,6 +1029,46 @@ describe("QuestInlineLink chat-feed preview", () => {
     );
   });
 
+  it("offers Open Thread for a dispatched quest its worker has not claimed yet", async () => {
+    // Reproduces the "No leader session for this quest" report: right after dispatch the quest has
+    // no owner and no recorded leader (both arrive with the worker's claim), but the leader's board
+    // already holds the row with its worker.
+    const cached = quest({ questId: "q-495", title: "Freshly dispatched quest", status: "refined" });
+    useStore.setState({
+      questDetails: new Map([["q-495", cached]]),
+      questDetailEtags: new Map([["q-495", '"dispatched"']]),
+      sessionBoards: new Map([
+        [
+          "leader-495",
+          [{ questId: "q-495", status: "WORKING", worker: "worker-495", workerNum: 7496, updatedAt: 1, createdAt: 1 }],
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "leader-495",
+          sessionNum: 7495,
+          archived: false,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp/leader-495",
+          createdAt: 1,
+        },
+      ],
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"dispatched"' });
+    renderFeedLink("q-495");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-495/ }));
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Freshly dispatched quest" });
+    expect(within(dialog).getByRole("link", { name: "Open Thread #7495" })).toHaveAttribute(
+      "href",
+      "#/session/7495?thread=q-495",
+    );
+    expect(within(dialog).getByTestId("quest-open-worker")).not.toBeDisabled();
+  });
+
   it("keeps a disabled Open Worker in place when the quest has only a leader", async () => {
     // Both buttons always share the same spot, so a missing session disables its button instead of
     // shifting the other one.

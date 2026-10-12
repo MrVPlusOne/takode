@@ -1,11 +1,15 @@
 import { useMemo, type ReactNode } from "react";
-import type { BoardParticipantStatus, BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
+import type { BoardParticipantStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import type { QuestOwnerRef } from "../../shared/quest-owner.js";
 import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
 import { isQuestCancelled } from "../utils/quest-editor-helpers.js";
 import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
-import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
-import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
+import { getQuestDisplayOwner, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import {
+  findQuestJourneyContext,
+  resolveQuestSessionTargets,
+  type QuestJourneyBoardRow,
+} from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
 import {
   formatWaitForRefLabel,
@@ -113,12 +117,6 @@ export function QuestPreviewCardContent({
   const statusTheme = getQuestRecordStatusTheme(quest);
   const owner = getQuestDisplayOwner(quest);
   const ownerSessionId = getQuestOwnerSessionId(quest);
-  const leaderSessionId = useStore((state) => {
-    const recordedLeader = getQuestLeaderSessionId(quest);
-    if (recordedLeader) return recordedLeader;
-    if (!ownerSessionId) return null;
-    return state.sdkSessions.find((session) => session.sessionId === ownerSessionId)?.herdedBy ?? null;
-  });
   const ownerSession = useStore((state) =>
     ownerSessionId ? state.sdkSessions.find((session) => session.sessionId === ownerSessionId) : undefined,
   );
@@ -132,7 +130,11 @@ export function QuestPreviewCardContent({
     [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses],
   );
   const journeyBoardRow = journeyContext?.row;
-  const workerParticipant = resolveWorkerParticipant(journeyBoardRow, journeyContext?.rowStatus);
+  const sdkSessions = useStore((state) => state.sdkSessions);
+  const { workerSessionId, workerStatus, leaderSessionId } = useMemo(
+    () => resolveQuestSessionTargets(quest, journeyContext, sdkSessions),
+    [quest, journeyContext, sdkSessions],
+  );
   const reviewerParticipant = journeyContext?.rowStatus?.reviewer ?? null;
 
   const isTerminalQuest = isCompletedJourneyPresentationStatus(quest.status);
@@ -144,7 +146,6 @@ export function QuestPreviewCardContent({
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
-  const workerSessionId = workerParticipant?.sessionId ?? ownerSessionId;
   // Open Worker and Open Thread already name the worker and leader; the owner gets its own chip only
   // when it is a Codex owner or a different session from the one Open Worker opens.
   const displayOwner = owner?.kind === "codex" || (owner && owner.sessionId !== workerSessionId) ? owner : null;
@@ -211,7 +212,7 @@ export function QuestPreviewCardContent({
         className="mt-2.5"
         questId={quest.questId}
         workerSessionId={workerSessionId}
-        workerStatus={workerParticipant?.status}
+        workerStatus={workerStatus}
         leaderSessionId={leaderSessionId}
         onNavigate={onSessionNavigate}
       />
@@ -296,15 +297,6 @@ function selectClosingText(quest: QuestmasterTask | QuestListPreview) {
   const note = quest.notes?.trim();
   if (!note) return null;
   return { kind: "note" as const, label: cancelled ? "Cancellation Note" : "Closing Note", text: note };
-}
-
-function resolveWorkerParticipant(
-  row: QuestJourneyBoardRow | undefined,
-  rowStatus: BoardRowSessionStatus | undefined,
-): BoardParticipantStatus | null {
-  if (rowStatus?.worker) return rowStatus.worker;
-  if (!row?.worker) return null;
-  return { sessionId: row.worker, sessionNum: row.workerNum ?? null, status: "idle" };
 }
 
 function formatQueuedWaitForReason(row: QuestJourneyBoardRow | undefined): string | null {

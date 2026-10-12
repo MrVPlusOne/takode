@@ -23,9 +23,9 @@ import {
   verificationProgress,
   getQuestDisplayOwner,
   getQuestOwnerSessionId,
-  getQuestLeaderSessionId,
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
+import { findQuestJourneyContext, resolveQuestSessionTargets } from "../utils/quest-journey-context.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
@@ -74,6 +74,12 @@ export function QuestDetailPanel() {
     return null;
   }, [quest, sessionBoards, sessionCompletedBoards]);
   const journeyStatus = isCompletedJourneyPresentationStatus(quest?.status) ? "done" : journeyBoardRow?.status;
+  const sessionBoardRowStatuses = useStore((s) => s.sessionBoardRowStatuses);
+  const sessionTargets = useMemo(() => {
+    if (!quest) return null;
+    const context = findQuestJourneyContext(quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses);
+    return resolveQuestSessionTargets(quest, context, sdkSessions);
+  }, [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses, sdkSessions]);
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -698,10 +704,6 @@ export function QuestDetailPanel() {
   const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const questMarkdownSessionId = questSessionId ?? undefined;
-  // Like the quest preview, fall back to the worker's leader when the quest did not record one.
-  const leaderSessionId =
-    getQuestLeaderSessionId(quest) ??
-    (questSessionId ? (sdkSessions.find((s) => s.sessionId === questSessionId)?.herdedBy ?? null) : null);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
   const indexedFeedbackEntries = getQuestFeedback(quest)
@@ -815,8 +817,9 @@ export function QuestDetailPanel() {
           <QuestSessionActions
             className="mt-2"
             questId={quest.questId}
-            workerSessionId={questSessionId}
-            leaderSessionId={leaderSessionId}
+            workerSessionId={sessionTargets?.workerSessionId ?? null}
+            workerStatus={sessionTargets?.workerStatus}
+            leaderSessionId={sessionTargets?.leaderSessionId ?? null}
             onNavigate={closePanel}
           />
         </div>

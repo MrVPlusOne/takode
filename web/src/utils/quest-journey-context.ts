@@ -1,4 +1,11 @@
-import type { BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
+import type {
+  BoardParticipantStatus,
+  BoardRowSessionStatus,
+  QuestListPreview,
+  QuestmasterTask,
+  SdkSessionInfo,
+} from "../types.js";
+import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "./quest-helpers.js";
 import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
 
 export interface QuestJourneyBoardRow {
@@ -15,6 +22,42 @@ export interface QuestJourneyContext {
   row: QuestJourneyBoardRow;
   rowStatus?: BoardRowSessionStatus;
   completed: boolean;
+  /** The leader whose board holds the row, or the Journey run's leader. */
+  leaderSessionId?: string;
+}
+
+/** The sessions behind a quest's Open Worker and Open Thread buttons. */
+export interface QuestSessionTargets {
+  workerSessionId: string | null;
+  /** The board's worker status, for the worker's dot when its session is not listed. */
+  workerStatus?: BoardParticipantStatus["status"];
+  leaderSessionId: string | null;
+}
+
+/**
+ * Resolve a quest's worker and leader sessions. The worker is the Journey row's worker, else the
+ * quest's owner. The leader is the recorded leader, else the leader whose board or Journey run
+ * holds the quest, else the worker's herding leader. A quest only records its leader once a worker
+ * claims it, so a freshly dispatched quest depends on the board fallbacks.
+ */
+export function resolveQuestSessionTargets(
+  quest: QuestmasterTask | QuestListPreview,
+  context: QuestJourneyContext | null,
+  sdkSessions: readonly SdkSessionInfo[],
+): QuestSessionTargets {
+  const worker = context?.rowStatus?.worker ?? null;
+  const workerSessionId = worker?.sessionId ?? context?.row.worker ?? getQuestOwnerSessionId(quest);
+  const leaderSessionId =
+    getQuestLeaderSessionId(quest) ??
+    context?.leaderSessionId ??
+    (workerSessionId
+      ? (sdkSessions.find((session) => session.sessionId === workerSessionId)?.herdedBy ?? null)
+      : null);
+  return {
+    workerSessionId,
+    ...(worker ? { workerStatus: worker.status } : context?.row.worker ? { workerStatus: "idle" } : {}),
+    leaderSessionId,
+  };
 }
 
 export function buildQuestJourneyContextByQuestId(
@@ -23,15 +66,15 @@ export function buildQuestJourneyContextByQuestId(
   completedBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
 ): Map<string, QuestJourneyContext> {
   const contexts = new Map<string, QuestJourneyContext>();
-  for (const board of sessionBoards.values()) {
+  for (const [leaderSessionId, board] of sessionBoards) {
     for (const row of board) {
-      contexts.set(row.questId.toLowerCase(), { row, completed: false });
+      contexts.set(row.questId.toLowerCase(), { row, completed: false, leaderSessionId });
     }
   }
-  for (const board of completedBoards.values()) {
+  for (const [leaderSessionId, board] of completedBoards) {
     for (const row of board) {
       const questKey = row.questId.toLowerCase();
-      if (!contexts.has(questKey)) contexts.set(questKey, { row, completed: true });
+      if (!contexts.has(questKey)) contexts.set(questKey, { row, completed: true, leaderSessionId });
     }
   }
   for (const quest of quests) {
@@ -53,13 +96,23 @@ export function findQuestJourneyContext(
   for (const [sessionId, board] of sessionBoards) {
     const match = board.find((row) => row.questId.toLowerCase() === normalizedQuestId);
     if (match) {
-      return { row: match, rowStatus: rowStatuses.get(sessionId)?.[match.questId], completed: false };
+      return {
+        row: match,
+        rowStatus: rowStatuses.get(sessionId)?.[match.questId],
+        completed: false,
+        leaderSessionId: sessionId,
+      };
     }
   }
   for (const [sessionId, board] of completedBoards) {
     const match = board.find((row) => row.questId.toLowerCase() === normalizedQuestId);
     if (match) {
-      return { row: match, rowStatus: rowStatuses.get(sessionId)?.[match.questId], completed: true };
+      return {
+        row: match,
+        rowStatus: rowStatuses.get(sessionId)?.[match.questId],
+        completed: true,
+        leaderSessionId: sessionId,
+      };
     }
   }
   return questJourneyContextFromRuns(quest);
@@ -93,6 +146,7 @@ function questJourneyContextFromRuns(quest: QuestmasterTask | QuestListPreview):
 
   return {
     completed,
+    ...(run.leaderSessionId ? { leaderSessionId: run.leaderSessionId } : {}),
     row: {
       questId: quest.questId,
       journey,
