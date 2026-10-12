@@ -30,6 +30,7 @@ export function useLongPress(
   const startRef = useRef<{ x: number; y: number } | null>(null);
   // Set when a long-press opens the menu and kept until the next touchstart.
   const firedRef = useRef(false);
+  const endSuppressionRef = useRef<(() => void) | null>(null);
   const [pressing, setPressing] = useState(false);
   const clearTimer = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -39,16 +40,49 @@ export function useLongPress(
     clearTimer();
     setPressing(false);
   };
-  useEffect(() => clearTimer, []);
+  const endSuppression = () => {
+    endSuppressionRef.current?.();
+    endSuppressionRef.current = null;
+    firedRef.current = false;
+  };
+  useEffect(
+    () => () => {
+      clearTimer();
+      endSuppression();
+    },
+    [],
+  );
   // iOS does not reliably honor the cancelled touchend after a long press and
-  // can still emulate mousedown/mouseup/click when the finger lifts. Swallow
-  // them here: the mousedown would otherwise reach the menu's outside-press
-  // dismissal and close the menu the moment it opened, and the click would
-  // activate the target.
-  const swallowEmulatedMouse = (event: MouseEvent<HTMLElement>) => {
-    if (!firedRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
+  // can still emulate mousedown/mouseup/click when the finger lifts. It aims
+  // them at whatever is under the finger at lift, which is the menu itself
+  // when the menu had to be moved up into view (a target near the bottom of
+  // the screen). So swallow them on the whole window, in the capture phase:
+  // the mousedown would otherwise reach the menu's outside-press dismissal,
+  // and the click would activate the target or the menu item under the
+  // finger. Emulated mouse events never start with touchstart, and a real
+  // mouse announces itself with a mouse pointerdown, so either ends this.
+  const suppressEmulatedMouse = () => {
+    endSuppression();
+    firedRef.current = true;
+    const swallow = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const end = (event: Event) => {
+      if (event.type === "pointerdown" && (event as PointerEvent).pointerType !== "mouse") return;
+      endSuppression();
+    };
+    const listeners: [string, (event: Event) => void][] = [
+      ["mousedown", swallow],
+      ["mouseup", swallow],
+      ["click", swallow],
+      ["touchstart", end],
+      ["pointerdown", end],
+    ];
+    for (const [type, listener] of listeners) window.addEventListener(type, listener, true);
+    endSuppressionRef.current = () => {
+      for (const [type, listener] of listeners) window.removeEventListener(type, listener, true);
+    };
   };
 
   return {
@@ -61,9 +95,6 @@ export function useLongPress(
     handlers: {
       onTouchStart: (event: TouchEvent<HTMLElement>) => {
         clearTimer();
-        // Emulated mouse events never start with touchstart, so this ends
-        // the previous long-press's suppression without swallowing this tap.
-        firedRef.current = false;
         const touch = event.touches[0];
         if (!onOpen || !touch || event.touches.length > 1) {
           setPressing(false);
@@ -75,7 +106,7 @@ export function useLongPress(
         const press = { x: touch.clientX, y: touch.clientY };
         timerRef.current = setTimeout(() => {
           timerRef.current = null;
-          firedRef.current = true;
+          suppressEmulatedMouse();
           setPressing(false);
           // Android haptics. iOS has no web API that can tick mid-press.
           navigator.vibrate?.(10);
@@ -99,9 +130,6 @@ export function useLongPress(
         if (firedRef.current) event.preventDefault();
       },
       onTouchCancel: cancel,
-      onMouseDownCapture: swallowEmulatedMouse,
-      onMouseUpCapture: swallowEmulatedMouse,
-      onClickCapture: swallowEmulatedMouse,
       onContextMenu: (event: MouseEvent<HTMLElement>) => {
         if (!onOpen) return;
         event.preventDefault();

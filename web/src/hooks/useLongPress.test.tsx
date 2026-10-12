@@ -84,8 +84,21 @@ describe("useLongPress", () => {
     expect(menuOpen()).toBe(true);
     expect(log()).toBe("");
 
-    // Menu items still work.
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
+    // iOS aims the emulated events at whatever is under the finger at lift.
+    // A target near the bottom of the screen gets its menu moved up into view,
+    // over the finger, so the lift must not choose the item under it either.
+    const action = screen.getByRole("button", { name: "Action" });
+    fireEvent.mouseDown(action);
+    fireEvent.mouseUp(action);
+    fireEvent.click(action);
+    expect(menuOpen()).toBe(true);
+    expect(log()).toBe("");
+
+    // Menu items still work: a real tap starts with touchstart.
+    fireEvent.touchStart(action, { touches: [{ clientX: 10, clientY: 60 }] });
+    fireEvent.touchEnd(action);
+    fireEvent.mouseDown(action);
+    fireEvent.click(action);
     expect(log()).toBe("action");
     expect(menuOpen()).toBe(false);
   });
@@ -110,6 +123,23 @@ describe("useLongPress", () => {
     // Positive control for the hover suppression above.
     expect(log()).toBe("hover,tap");
     expect(menuOpen()).toBe(false);
+  });
+
+  it("lets a real mouse click through right after a touch long-press", () => {
+    // Touch-screen laptops: a real mouse announces itself with a mouse
+    // pointerdown, which ends the suppression meant for iOS's emulated events.
+    vi.useFakeTimers();
+    render(<Target />);
+    const target = screen.getByTestId("target");
+    fireEvent.touchStart(target, { touches: [{ clientX: 10, clientY: 10 }] });
+    act(() => vi.advanceTimersByTime(500));
+    fireEvent.touchEnd(target);
+
+    const action = screen.getByRole("button", { name: "Action" });
+    fireEvent.pointerDown(action, { pointerType: "mouse" });
+    fireEvent.mouseDown(action);
+    fireEvent.click(action);
+    expect(log()).toBe("action");
   });
 
   it("does not open when the finger moves, so scrolling and swiping are unaffected", () => {

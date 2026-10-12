@@ -91,7 +91,11 @@ describe("TerminalView paste menu", () => {
     const paste = screen.getByRole("button", { name: "Paste" });
     expect((paste.closest(".fixed") as HTMLElement).style.top).toBe("124px");
 
-    // The clipboard is read inside the tap itself, which iOS requires.
+    // The clipboard is read inside the tap itself, which iOS requires. A real
+    // tap starts with touchstart; mouse events iOS emulates on the long-press
+    // lift are ignored, even over the menu.
+    fireEvent.touchStart(paste, { touches: [{ clientX: 50, clientY: 130 }] });
+    fireEvent.touchEnd(paste);
     fireEvent.click(paste);
     expect(readText).toHaveBeenCalledTimes(1);
     await act(async () => {});

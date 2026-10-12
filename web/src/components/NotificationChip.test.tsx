@@ -1587,6 +1587,42 @@ describe("NotificationChip", () => {
           vi.useRealTimers();
         }
       });
+
+      it("does not close and move on when the finger lifts over the menu", () => {
+        // Reported on a real iPhone: the chip sits near the bottom of the
+        // screen, so its menu is moved up over the finger, and the click iOS
+        // emulates on lift landed on "Close tab and go to next" and jumped to
+        // the next tab. Only a real tap on the item may choose it.
+        vi.useFakeTimers();
+        window.location.hash = "#/session/s1?thread=q-1";
+        try {
+          setPrompts();
+          mockCanCloseThreadTab.mockReturnValue(true);
+          render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
+          fireEvent.touchStart(chipButton(), { touches: [{ clientX: 5, clientY: 5 }] });
+          act(() => {
+            vi.advanceTimersByTime(600);
+          });
+          fireEvent.touchEnd(chipButton());
+          const closeAndNext = screen.getByRole("button", { name: "Close tab and go to next" });
+          fireEvent.mouseDown(closeAndNext);
+          fireEvent.mouseUp(closeAndNext);
+          fireEvent.click(closeAndNext);
+
+          expect(mockCloseThreadTab).not.toHaveBeenCalled();
+          expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
+          expect(window.location.hash).not.toContain("thread=q-2");
+          expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
+
+          // A real tap on the item still closes and moves on.
+          fireEvent.touchStart(closeAndNext, { touches: [{ clientX: 5, clientY: 5 }] });
+          fireEvent.touchEnd(closeAndNext);
+          fireEvent.click(closeAndNext);
+          expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", "q-2");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it("opens the inbox on a tap when only muted prompts remain", () => {
