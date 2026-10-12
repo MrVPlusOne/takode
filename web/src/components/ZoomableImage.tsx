@@ -6,6 +6,10 @@ const DOUBLE_TAP_SCALE = 2.5;
 const TAP_SLOP_PX = 10;
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_DISTANCE_PX = 30;
+/** A one-finger drag this far sideways switches images; a quick flick needs less. */
+const SWIPE_DISTANCE_PX = 60;
+const FLICK_DISTANCE_PX = 25;
+const FLICK_MS = 250;
 
 interface Point {
   x: number;
@@ -34,6 +38,11 @@ interface ZoomableImageProps {
   className?: string;
   imageClassName?: string;
   imageTestId?: string;
+  /**
+   * Called when a one-finger horizontal swipe ends on the unzoomed image: "next" for a swipe to the
+   * left. Without it, a drag on the unzoomed image does nothing.
+   */
+  onSwipe?: (direction: "previous" | "next") => void;
 }
 
 /**
@@ -42,11 +51,21 @@ interface ZoomableImageProps {
  * double-click to toggle zoom at that point. The app viewport disables browser
  * pinch-zoom (so iOS does not zoom on input focus), so previews provide their own.
  *
+ * With `onSwipe`, a one-finger horizontal swipe on the unzoomed image switches images;
+ * once zoomed in, one finger pans instead.
+ *
  * Clicks on the image, or ending a drag or pinch, do not propagate, so a parent's
  * click-to-close only fires for plain taps on the empty stage. Zoom resets when
  * `src` changes.
  */
-export function ZoomableImage({ src, alt, className = "", imageClassName = "", imageTestId }: ZoomableImageProps) {
+export function ZoomableImage({
+  src,
+  alt,
+  className = "",
+  imageClassName = "",
+  imageTestId,
+  onSwipe,
+}: ZoomableImageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const transformRef = useRef<ZoomTransform>({ scale: 1, x: 0, y: 0 });
@@ -56,6 +75,8 @@ export function ZoomableImage({ src, alt, className = "", imageClassName = "", i
   const tapRef = useRef<{ point: Point; valid: boolean } | null>(null);
   const lastTapRef = useRef<{ point: Point; time: number } | null>(null);
   const suppressClickRef = useRef(false);
+  // A one-finger touch drag that began on the unzoomed image, until a second finger joins.
+  const swipeRef = useRef<{ start: Point; time: number } | null>(null);
 
   // Image layout position with the current transform removed. The transform
   // origin is the image's top-left corner, so translation is the only offset.
@@ -104,6 +125,14 @@ export function ZoomableImage({ src, alt, className = "", imageClassName = "", i
     applyTransform({ scale: 1, x: 0, y: 0 });
   }, [src]);
 
+  // Slide the unzoomed image sideways with the finger; applyTransform's clamp would pin it.
+  const showSwipeOffset = (dx: number, animate = false) => {
+    const image = imageRef.current;
+    if (!image) return;
+    image.style.transition = animate ? "transform 150ms ease-out" : "";
+    image.style.transform = dx === 0 ? "translate(0px, 0px) scale(1)" : `translate(${dx}px, 0px) scale(1)`;
+  };
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -127,6 +156,12 @@ export function ZoomableImage({ src, alt, className = "", imageClassName = "", i
     tapRef.current = firstPointer ? { point, valid: true } : null;
     // Pointer capture retargets the click to the stage, so remember whether the gesture began on the image.
     if (firstPointer) suppressClickRef.current = event.target === imageRef.current;
+    // A second finger turns a swipe into a pinch, starting from the unshifted image.
+    if (swipeRef.current) showSwipeOffset(0);
+    swipeRef.current =
+      firstPointer && onSwipe && event.pointerType !== "mouse" && transformRef.current.scale === 1
+        ? { start: point, time: Date.now() }
+        : null;
     beginGesture();
   };
 
@@ -141,6 +176,10 @@ export function ZoomableImage({ src, alt, className = "", imageClassName = "", i
     if (tap?.valid) return;
 
     suppressClickRef.current = true;
+    if (swipeRef.current) {
+      showSwipeOffset(point.x - swipeRef.current.start.x);
+      return;
+    }
     const points = [...pointers.values()];
     const currentSpread = spread(points);
     const scale =
@@ -153,6 +192,17 @@ export function ZoomableImage({ src, alt, className = "", imageClassName = "", i
   const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!pointersRef.current.delete(event.pointerId)) return;
     beginGesture();
+    const swipe = swipeRef.current;
+    swipeRef.current = null;
+    if (swipe) {
+      const dx = event.clientX - swipe.start.x;
+      const dy = event.clientY - swipe.start.y;
+      const isFlick = Date.now() - swipe.time < FLICK_MS && Math.abs(dx) >= FLICK_DISTANCE_PX;
+      const isSwipe =
+        event.type !== "pointercancel" && Math.abs(dx) > Math.abs(dy) && (Math.abs(dx) >= SWIPE_DISTANCE_PX || isFlick);
+      showSwipeOffset(0, !isSwipe);
+      if (isSwipe) onSwipe?.(dx < 0 ? "next" : "previous");
+    }
     const tap = tapRef.current;
     if (pointersRef.current.size > 0 || !tap?.valid) return;
     tapRef.current = null;

@@ -4,10 +4,10 @@ import { ZoomableImage } from "./ZoomableImage.js";
 
 // jsdom has no layout, so give the image a 200x100 box at the viewport origin
 // whose reported rect moves with its translate(), as a real browser would.
-function renderZoomable(onParentClick = vi.fn()) {
+function renderZoomable(onParentClick = vi.fn(), onSwipe?: (direction: "previous" | "next") => void) {
   const view = render(
     <div onClick={onParentClick}>
-      <ZoomableImage src="/a.png" alt="preview" imageTestId="image" />
+      <ZoomableImage src="/a.png" alt="preview" imageTestId="image" onSwipe={onSwipe} />
     </div>,
   );
   const image = screen.getByTestId("image") as HTMLImageElement;
@@ -32,8 +32,9 @@ function pointer(
   x: number,
   y: number,
   target: HTMLElement = stage,
+  pointerType = "touch",
 ) {
-  fireEvent[type](target, { pointerId, clientX: x, clientY: y, pointerType: "touch", button: 0 });
+  fireEvent[type](target, { pointerId, clientX: x, clientY: y, pointerType, button: 0 });
 }
 
 function doubleTap(stage: HTMLElement, x: number, y: number) {
@@ -120,5 +121,87 @@ describe("ZoomableImage", () => {
     pointer(stage, "pointerUp", 1, 50, 50);
     fireEvent.click(stage);
     expect(onParentClick).toHaveBeenCalledTimes(1);
+  });
+
+  describe("swiping between images", () => {
+    // Swipes are judged by distance, or by speed for a short flick, so pin the clock.
+    let now = 0;
+    beforeEach(() => {
+      now = 1_000;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    function drag(stage: HTMLElement, from: { x: number; y: number }, to: { x: number; y: number }, ms = 400) {
+      pointer(stage, "pointerDown", 1, from.x, from.y);
+      now += ms;
+      pointer(stage, "pointerMove", 1, to.x, to.y);
+      pointer(stage, "pointerUp", 1, to.x, to.y);
+    }
+
+    it("swipes left for the next image and right for the previous one", () => {
+      const onSwipe = vi.fn();
+      const { stage, image } = renderZoomable(vi.fn(), onSwipe);
+
+      // The image follows the finger sideways while it drags.
+      pointer(stage, "pointerDown", 1, 150, 50);
+      pointer(stage, "pointerMove", 1, 70, 60);
+      expect(readTransform(image)).toEqual({ x: -80, y: 0, scale: 1 });
+      pointer(stage, "pointerUp", 1, 70, 60);
+      expect(onSwipe).toHaveBeenLastCalledWith("next");
+      expect(readTransform(image)).toEqual({ x: 0, y: 0, scale: 1 });
+
+      drag(stage, { x: 50, y: 50 }, { x: 130, y: 50 });
+      expect(onSwipe).toHaveBeenLastCalledWith("previous");
+      expect(onSwipe).toHaveBeenCalledTimes(2);
+    });
+
+    it("needs a long drag or a quick flick, sideways rather than vertical", () => {
+      const onSwipe = vi.fn();
+      const { stage, image } = renderZoomable(vi.fn(), onSwipe);
+
+      drag(stage, { x: 100, y: 50 }, { x: 70, y: 50 });
+      expect(onSwipe).not.toHaveBeenCalled();
+      // A short drag that does not switch slides back into place.
+      expect(readTransform(image)).toEqual({ x: 0, y: 0, scale: 1 });
+
+      drag(stage, { x: 100, y: 50 }, { x: 30, y: 150 });
+      expect(onSwipe).not.toHaveBeenCalled();
+
+      drag(stage, { x: 100, y: 50 }, { x: 70, y: 50 }, 100);
+      expect(onSwipe).toHaveBeenCalledWith("next");
+    });
+
+    it("pans instead of swiping once zoomed in, and pinches when a second finger joins", () => {
+      const onSwipe = vi.fn();
+      const { stage, image } = renderZoomable(vi.fn(), onSwipe);
+
+      // A second finger mid-swipe starts a pinch from the unshifted image.
+      pointer(stage, "pointerDown", 1, 80, 50);
+      pointer(stage, "pointerMove", 1, 40, 50);
+      pointer(stage, "pointerDown", 2, 120, 50);
+      expect(readTransform(image)).toEqual({ x: 0, y: 0, scale: 1 });
+      pointer(stage, "pointerMove", 1, 20, 50);
+      pointer(stage, "pointerMove", 2, 140, 50);
+      expect(readTransform(image).scale).toBe(1.5);
+      pointer(stage, "pointerUp", 1, 20, 50);
+      pointer(stage, "pointerUp", 2, 140, 50);
+      expect(onSwipe).not.toHaveBeenCalled();
+
+      drag(stage, { x: 150, y: 50 }, { x: 50, y: 50 });
+      expect(onSwipe).not.toHaveBeenCalled();
+      expect(readTransform(image).scale).toBe(1.5);
+    });
+
+    it("leaves mouse drags alone", () => {
+      const onSwipe = vi.fn();
+      const { stage, image } = renderZoomable(vi.fn(), onSwipe);
+      pointer(stage, "pointerDown", 1, 150, 50, stage, "mouse");
+      pointer(stage, "pointerMove", 1, 50, 50, stage, "mouse");
+      pointer(stage, "pointerUp", 1, 50, 50, stage, "mouse");
+
+      expect(onSwipe).not.toHaveBeenCalled();
+      expect(readTransform(image)).toEqual({ x: 0, y: 0, scale: 1 });
+    });
   });
 });

@@ -439,6 +439,7 @@ function ImagePreviewModal({
           className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4"
           imageClassName="max-h-full max-w-full object-contain"
           imageTestId="image-preview-modal-image"
+          onSwipe={canNavigate ? (direction) => selectOffset(direction === "next" ? 1 : -1) : undefined}
         />
       </div>
     </div>,
