@@ -154,7 +154,14 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
                 group: id,
                 activeOutput: groups[id].some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
                 testId: "thread-tab-group-chip",
-                onClick: () => setOpenGroup((open) => (open === id ? null : id)),
+                // A group of one opens its tab directly; its list (with the tab's latest
+                // result and menu) stays a long-press or right-click away.
+                onClick: () =>
+                  groups[id].length === 1
+                    ? select(groups[id][0]!.threadKey)
+                    : setOpenGroup((open) => (open === id ? null : id)),
+                onOpenList: () => setOpenGroup(id),
+                single: groups[id].length === 1,
                 children: <GroupContent id={id} tabs={groups[id]} />,
               })
             : null,
@@ -250,6 +257,10 @@ interface BarItemProps {
   activeOutput?: boolean;
   testId: string;
   onClick: () => void;
+  /** Long-press or right-click on a group item opens its list. */
+  onOpenList?: () => void;
+  /** A group of one switches on tap instead of opening a list. */
+  single?: boolean;
   children: ReactNode;
 }
 
@@ -267,8 +278,11 @@ function BarItem({
   activeOutput,
   testId,
   onClick,
+  onOpenList,
+  single = false,
   children,
 }: BarItemProps) {
+  const longPress = useLongPress(onOpenList ? () => onOpenList() : undefined);
   const size = compact ? "w-10 shrink-0" : "min-w-0 flex-1";
   const edge = placement === "bottom" ? "rounded-b-md border-t-0" : "rounded-t-md border-b-0";
   const tone = selected
@@ -281,11 +295,13 @@ function BarItem({
       type="button"
       role="tab"
       onClick={onClick}
-      className={`relative inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone}`}
+      {...longPress.handlers}
+      style={longPress.pressStyle}
+      className={`relative inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
       aria-label={label}
       aria-selected={selected}
-      aria-expanded={group ? open : undefined}
-      aria-haspopup={group ? "menu" : compact ? "dialog" : undefined}
+      aria-expanded={group && !single ? open : undefined}
+      aria-haspopup={group && !single ? "menu" : compact ? "dialog" : undefined}
       data-testid={testId}
       data-group={group}
       data-selected={selected ? "true" : "false"}

@@ -86,23 +86,39 @@ describe("ThreadTabGroupBar", () => {
     expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
   });
 
-  it("opens a chip's list and switches tabs from it", () => {
+  it("opens a group's list and switches tabs from it", () => {
     const { onSelect } = renderBar();
-    const needsChip = screen
+    const results = screen
       .getAllByTestId("thread-tab-group-chip")
-      .find((chip) => chip.dataset.group === "needs-input")!;
-    fireEvent.click(needsChip);
+      .find((chip) => chip.dataset.group === "new-results")!;
+    fireEvent.click(results);
     const list = screen.getByTestId("thread-tab-group-list");
     expect(
       within(list)
         .getAllByTestId("thread-tab-list-row")
         .map((row) => row.dataset.threadKey),
-    ).toEqual(["q-11"]);
-    // The row keeps the phase label even though the tab needs input.
-    expect(list.textContent).toContain("q-11 · User Checkpoint");
-    fireEvent.click(within(list).getByTestId("thread-tab-list-row-select"));
+    ).toEqual(["main", "q-12"]);
+    fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[1]!);
+    expect(onSelect).toHaveBeenCalledWith("q-12");
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("switches straight to the tab of a group of one, keeping its list a right-click away", () => {
+    // Needs you holds only q-11: a tap opens it without a one-row list to tap again.
+    const { onSelect } = renderBar();
+    const needs = () =>
+      screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "needs-input")!;
+    fireEvent.click(needs());
     expect(onSelect).toHaveBeenCalledWith("q-11");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+
+    // Right-click (or a long-press on the phone) still shows the list, with the tab's
+    // phase even though it needs input, and its row menu and latest result.
+    fireEvent.contextMenu(needs(), { clientX: 10, clientY: 10 });
+    const list = screen.getByTestId("thread-tab-group-list");
+    expect(list.textContent).toContain("q-11 · User Checkpoint");
+    fireEvent.click(within(list).getByTestId("thread-tab-list-row-select"));
+    expect(onSelect).toHaveBeenLastCalledWith("q-11");
   });
 
   it("finds tabs by quest number in the switcher and closes them", () => {
