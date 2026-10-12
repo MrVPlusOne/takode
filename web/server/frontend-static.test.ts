@@ -45,6 +45,23 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+it("serves hashed build assets as immutable, compressed or not, while the entry document stays uncached", async () => {
+  // The browser may keep a hashed bundle forever only because index.html is never cached:
+  // a new build always reaches the browser through a fresh index.html naming new files.
+  await writeFile(join(root, "assets", "index-AbCd1234.js"), body);
+  await writeFile(join(root, "assets", "index-AbCd1234.js.gz"), gzipSync(body));
+  for (const encoding of ["gzip", "identity"]) {
+    const response = await app.request("/assets/index-AbCd1234.js", { headers: { "Accept-Encoding": encoding } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  }
+  const entry = await app.request("/");
+  expect(entry.headers.get("Cache-Control")).toBe("no-store");
+  // A hashed name that this build does not contain must never be answered as immutable.
+  const missing = await app.request("/assets/index-Missing1.js");
+  expect(missing.headers.get("Cache-Control") ?? "").not.toContain("immutable");
+});
+
 async function expectRepresentation(header: string | undefined, encoding: "gzip" | "identity" | "none") {
   const response = await app.request("/assets/app.js", {
     headers: header === undefined ? {} : { "Accept-Encoding": header },
