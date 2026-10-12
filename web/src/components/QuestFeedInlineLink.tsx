@@ -25,6 +25,7 @@ import { useHashLocation } from "../utils/hash-location.js";
 import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
 import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
 import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
+import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import {
   chooseQuestBlockSheetPlacement,
   chooseQuestRichPopoverPlacement,
@@ -282,6 +283,7 @@ export function QuestFeedInlineLink({
   const focusSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerFocusSuppressedRef = useRef(false);
   const pendingPreviewPointerTypeRef = useRef<string | null>(null);
+  const linkPointerTypeRef = useRef<string | null>(null);
   const hoverActivationPointerDownRef = useRef(false);
   const pendingFocusedLinkRestoreRef = useRef(false);
   const suppressedUntilExitRef = useRef(false);
@@ -700,28 +702,10 @@ export function QuestFeedInlineLink({
     }
   }, []);
 
-  const handleLinkClick = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
-      if (stopPropagation) event.stopPropagation();
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      if (normalizedFeedbackIndex === undefined) {
-        openQuestOverlayRouteAware(questId);
-      } else {
-        useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
-        navigateTo(questHash);
-      }
-      onNavigate?.();
-    },
-    [normalizedFeedbackIndex, onNavigate, questHash, questId, stopPropagation],
-  );
-
-  const activateRichPreview = useCallback(
-    (event: MouseEvent<HTMLElement>) => {
-      if (stopPropagation) event.stopPropagation();
+  const openExplicitRichPreview = useCallback(
+    (activationPointerType: string) => {
       pendingFocusedLinkRestoreRef.current = false;
       claimThisPreview("rich");
-      const activationPointerType = pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse");
       pendingPreviewPointerTypeRef.current = null;
       hoverActivationPointerDownRef.current = false;
       lastActivationPointerTypeRef.current = activationPointerType;
@@ -750,7 +734,40 @@ export function QuestFeedInlineLink({
       setPhase("rich-loading");
       startRichHydration(epoch);
     },
-    [claimThisPreview, setPhase, setRichOpenMode, startRichHydration, stopPropagation],
+    [claimThisPreview, setPhase, setRichOpenMode, startRichHydration],
+  );
+
+  const activateRichPreview = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      if (stopPropagation) event.stopPropagation();
+      openExplicitRichPreview(pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse"));
+    },
+    [openExplicitRichPreview, stopPropagation],
+  );
+
+  const handleLinkClick = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      if (stopPropagation) event.stopPropagation();
+      const pointerType =
+        (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerType || linkPointerTypeRef.current;
+      linkPointerTypeRef.current = null;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      // A touch tap previews the quest, keeping the conversation in view; the preview's Open quest is
+      // one more tap. A mouse or keyboard click opens the full view, where hovering the eye previews.
+      if (pointerType === "touch" && event.detail !== 0) {
+        openExplicitRichPreview("touch");
+        return;
+      }
+      if (normalizedFeedbackIndex === undefined) {
+        openQuestOverlayRouteAware(questId);
+      } else {
+        useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+        navigateTo(questHash);
+      }
+      onNavigate?.();
+    },
+    [normalizedFeedbackIndex, onNavigate, openExplicitRichPreview, questHash, questId, stopPropagation],
   );
 
   const retryRichPreview = useCallback(() => {
@@ -1044,6 +1061,9 @@ export function QuestFeedInlineLink({
   const microVisible = phase === "micro" && canonicalTitle && !microHydrationFailed;
   const microStatusTheme = validatedMicroQuest ? getQuestStatusTheme(validatedMicroQuest.status) : null;
   const richOpen = phase.startsWith("rich");
+  usePreviewSheetHistoryEntry(richOpen && richPlacement?.kind === "bottom-sheet", richRef, () =>
+    closeAllRef.current(false),
+  );
   const previewAccessibleLabel = canonicalTitle
     ? `Preview ${targetLabel}: ${canonicalTitle}`
     : `Preview ${targetLabel}`;
@@ -1063,7 +1083,10 @@ export function QuestFeedInlineLink({
             schedulePreviewColorSync();
           }}
           onPointerMove={handlePointerMove}
-          onPointerDown={(event) => handlePointerDown("link", event)}
+          onPointerDown={(event) => {
+            linkPointerTypeRef.current = event.pointerType || "mouse";
+            handlePointerDown("link", event);
+          }}
           onFocus={() => {
             syncPreviewColor();
             handleFocus("link");
@@ -1407,7 +1430,7 @@ const QuestFeedRichPreview = forwardRef<
           eyebrowLabel={targetLabel}
           title={title}
           headingId={headingId}
-          headerAction={primaryAction}
+          headerAction={isModal ? undefined : primaryAction}
           suppressNestedHoverCards
           onSessionNavigate={onNavigate}
         />
@@ -1434,7 +1457,7 @@ const QuestFeedRichPreview = forwardRef<
                 Refreshing…
               </span>
             )}
-            {primaryAction}
+            {!isModal && primaryAction}
           </div>
         </div>
       )}
@@ -1471,7 +1494,25 @@ const QuestFeedRichPreview = forwardRef<
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-cc-border/50 pt-2">
+      <div
+        data-testid="quest-feed-rich-footer"
+        className={`mt-2 flex flex-wrap items-center gap-2 border-t border-cc-border/50 pt-2 ${
+          isModal ? "sticky -bottom-2.5 -mx-3 -mb-2.5 bg-cc-card px-3 pb-2.5" : ""
+        }`}
+      >
+        {isModal && (
+          // On the phone the link opens this sheet, so the way on to the full view is the
+          // sheet's main action: large and pinned to the bottom while the content scrolls.
+          <a
+            href={questHash}
+            data-preview-focusable="true"
+            data-testid="quest-feed-sheet-primary-action"
+            className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-cc-primary px-3 py-2 text-sm font-semibold text-white hover:bg-cc-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-cc-card"
+            onClick={onNavigate}
+          >
+            {primaryActionLabel}
+          </a>
+        )}
         {feedbackIndex !== undefined && (
           <a
             href={parentQuestHash}
@@ -1496,7 +1537,9 @@ const QuestFeedRichPreview = forwardRef<
         <button
           type="button"
           data-preview-focusable="true"
-          className="ml-auto inline-flex min-h-8 items-center rounded-md px-2.5 py-1 text-xs text-cc-muted hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50"
+          className={`ml-auto inline-flex items-center rounded-md py-1 text-cc-muted hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 ${
+            isModal ? "min-h-11 px-3 text-sm" : "min-h-8 px-2.5 text-xs"
+          }`}
           onPointerDown={rememberDismissalPointer}
           onClick={closeFromControl}
         >

@@ -6,7 +6,16 @@ import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
 import { QuestQuizSection } from "../QuestQuizSection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
-type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse" | "dense";
+type PreviewFixtureState =
+  | "idle"
+  | "title"
+  | "no-fit"
+  | "rich"
+  | "error"
+  | "keyboard"
+  | "coarse"
+  | "link-touch"
+  | "dense";
 
 const PREVIEW_WORKER_SESSION_ID = "playground-inline-preview-worker";
 const PREVIEW_LEADER_SESSION_ID = "playground-inline-preview-leader";
@@ -81,6 +90,15 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     title: "Use a separate eye touch target and a modal bottom sheet",
     description:
       "A first-touch eye activation opens the real modal sheet and forces the 44 px Playground target style.",
+  },
+  {
+    id: "link-touch",
+    label: "Link tap / sheet",
+    buttonLabel: "Show touch tap on the text link",
+    questId: "q-9418",
+    title: "Preview the quest when a message link is tapped",
+    description:
+      "A touch tap on the text link opens the same modal sheet, with its large Open action pinned at the bottom; a mouse or keyboard click opens the full view.",
   },
   {
     id: "dense",
@@ -248,7 +266,7 @@ function useSeedPreviewFixtures(): boolean {
   return seeded;
 }
 
-function dispatchTouchActivation(button: HTMLButtonElement) {
+function dispatchTouchActivation(button: HTMLElement) {
   const pointerDown = new Event("pointerdown", {
     bubbles: true,
     cancelable: true,
@@ -318,6 +336,10 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
       if (state === "coarse") {
         preview.classList.add("cc-feed-quest-preview-trigger-force-coarse");
         dispatchTouchActivation(preview);
+        return;
+      }
+      if (state === "link-touch") {
+        dispatchTouchActivation(link);
         return;
       }
       if (state === "keyboard") {

@@ -127,7 +127,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const controls = within(section).getByRole("group", {
       name: "Inline quest preview fixture state",
     });
-    expect(within(controls).getAllByRole("button")).toHaveLength(8);
+    expect(within(controls).getAllByRole("button")).toHaveLength(9);
     expect(within(section).getByText(/cohesive fixed-gap unit/)).toBeInTheDocument();
 
     let live = await within(section).findByTestId("playground-inline-quest-preview-live");
@@ -253,6 +253,19 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     live = within(section).getByTestId("playground-inline-quest-preview-live");
     expect(within(live).getByRole("button", { name: /Preview q-9416 feedback #4/ })).toHaveClass(
       "cc-feed-quest-preview-trigger-force-coarse",
+    );
+
+    // A touch tap on the text link opens the same sheet, with its Open action pinned at the bottom.
+    fireEvent.click(
+      within(controls).getByRole("button", {
+        name: "Show touch tap on the text link",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toHaveAttribute("data-surface", "bottom-sheet");
+    });
+    expect(within(screen.getByRole("dialog")).getByTestId("quest-feed-sheet-primary-action")).toHaveTextContent(
+      "Open feedback #4",
     );
   });
 

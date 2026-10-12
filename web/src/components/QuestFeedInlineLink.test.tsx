@@ -1259,7 +1259,10 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
-  it("keeps a delayed first touch on the exact text link native to that exact target", async () => {
+  it("opens the exact target's preview sheet for a touch tap on the text link, without a title layer", async () => {
+    // The user chose that a touch tap on a message quest link previews the quest (the full view is
+    // one tap further, through the sheet's primary action), while mouse and keyboard clicks keep
+    // opening the full view directly.
     const openQuestOverlay = vi.fn();
     useStore.setState({ openQuestOverlay });
     renderFeedLink("q-58", { feedbackIndex: 3, title: "Exact touch target" });
@@ -1272,8 +1275,32 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
     fireEvent.click(link, { button: 0, detail: 1 });
-    expect(openQuestOverlay).toHaveBeenCalledWith("q-58", undefined, 3);
-    expect(window.location.hash).toBe("#/session/s1?quest=q-58&feedback=3");
+    await act(async () => Promise.resolve());
+    expect(openQuestOverlay).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/session/s1");
+    const dialog = screen.getByRole("dialog", { name: "Exact touch target" });
+    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
+    const sheetAction = within(dialog).getByTestId("quest-feed-sheet-primary-action");
+    expect(sheetAction).toHaveTextContent("Open feedback #3");
+    expect(sheetAction).toHaveAttribute("href", "#/session/s1?quest=q-58&feedback=3");
+  });
+
+  it("opens the full view for a mouse click or a keyboard activation of the text link", () => {
+    const openQuestOverlay = vi.fn();
+    useStore.setState({ openQuestOverlay });
+    renderFeedLink("q-57", { feedbackIndex: 2, title: "Direct full view" });
+    const link = screen.getByRole("link", { name: "q-57 feedback #2" });
+
+    fireEvent.pointerDown(link, { pointerType: "mouse" });
+    fireEvent.click(link, { button: 0, detail: 1 });
+    expect(openQuestOverlay).toHaveBeenCalledWith("q-57", undefined, 2);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Enter on the focused link reports detail 0; an earlier touch must not turn it into a preview.
+    openQuestOverlay.mockClear();
+    fireEvent.pointerDown(link, { pointerType: "touch" });
+    fireEvent.click(link, { button: 0, detail: 0 });
+    expect(openQuestOverlay).toHaveBeenCalledWith("q-57", undefined, 2);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
