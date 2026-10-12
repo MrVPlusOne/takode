@@ -18,6 +18,7 @@ interface TestSession {
 let app: Hono;
 let session: TestSession;
 let sessions: Map<string, TestSession>;
+let markNotificationDone: ReturnType<typeof vi.fn>;
 
 function createSession(id = "leader-1"): TestSession {
   return {
@@ -67,7 +68,7 @@ function createRouteApp(): Hono {
     },
     workBoardStateDeps: {
       getBoardDispatchableSignature: vi.fn(() => null),
-      markNotificationDone: vi.fn(() => true),
+      markNotificationDone,
       broadcastBoard: vi.fn(),
       broadcastAttentionRecords: vi.fn(),
       persistSession: vi.fn(),
@@ -82,6 +83,7 @@ function createRouteApp(): Hono {
 function setupTakodeSessions(): void {
   session = createSession();
   sessions = new Map([[session.id, session]]);
+  markNotificationDone = vi.fn(() => true);
   app = createRouteApp();
 }
 
@@ -161,7 +163,8 @@ describe("Takode board automatic User Checkpoint routes", () => {
     expect(session.notifications[0]).toMatchObject({ id: "n-5", done: false });
   });
 
-  it("ends a checkpoint by hand and resolves its questions when asked to clear them", async () => {
+  it("ends a checkpoint by hand the same way when its links are also cleared", async () => {
+    // Clearing the links never resolves the questions: they stay open for the user, no longer blocking.
     session.board.set("q-9", workingRow(["work", "memory"]));
     addOpenNotification("n-5");
     await postBoard({ questId: "q-9", waitForInput: ["5"] });
@@ -172,7 +175,69 @@ describe("Takode board automatic User Checkpoint routes", () => {
     const row = session.board.get("q-9")!;
     expect(row).toMatchObject({ status: "WORKING", journey: { activePhaseIndex: 2, currentPhaseId: "work" } });
     expect(row.waitForInput).toBeUndefined();
-    expect(row.openQuestions).toBeUndefined();
+    expect(row.openQuestions).toEqual(["n-5"]);
+    expect(markNotificationDone).not.toHaveBeenCalled();
+  });
+
+  // The reported case: a question that did not need to block took the planned checkpoint that came
+  // next, and clearing its link to end that checkpoint resolved the question before the user saw it.
+  describe("a question that entered the planned checkpoint", () => {
+    const plannedJourney = ["work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"];
+
+    async function askBlockingQuestion(): Promise<void> {
+      session.board.set("q-9", workingRow(plannedJourney, 2));
+      addOpenNotification("n-193");
+      await postBoard({ questId: "q-9", waitForInput: ["193"] });
+      expect(session.board.get("q-9")).toMatchObject({
+        status: "USER_CHECKPOINTING",
+        waitForInput: ["n-193"],
+        journey: { activePhaseIndex: 3, currentPhaseId: "user-checkpoint" },
+      });
+    }
+
+    it("refuses a generic advance and names how to end the checkpoint by hand", async () => {
+      await askBlockingQuestion();
+
+      const res = await postAdvance("q-9");
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("--status WORKING") });
+      expect(session.board.get("q-9")?.waitForInput).toEqual(["n-193"]);
+    });
+
+    it("ends by hand into the later Work with the question still open", async () => {
+      await askBlockingQuestion();
+
+      const res = await postBoard({ questId: "q-9", status: "WORKING" });
+
+      expect(res.status).toBe(200);
+      const row = session.board.get("q-9")!;
+      // It resumes the Work after the checkpoint instead of pausing again in a new checkpoint.
+      expect(row).toMatchObject({ status: "WORKING", journey: { activePhaseIndex: 4, currentPhaseId: "work" } });
+      expect(row.journey?.phaseIds).toEqual(plannedJourney);
+      expect(row.waitForInput).toBeUndefined();
+      expect(row.openQuestions).toEqual(["n-193"]);
+      expect(markNotificationDone).not.toHaveBeenCalled();
+    });
+
+    it("keeps the question open when its link is cleared, and the planned checkpoint then resumes", async () => {
+      await askBlockingQuestion();
+
+      const cleared = await postBoard({ questId: "q-9", clearWaitForInput: true });
+
+      expect(cleared.status).toBe(200);
+      expect(session.board.get("q-9")).toMatchObject({ status: "USER_CHECKPOINTING", openQuestions: ["n-193"] });
+      expect(session.board.get("q-9")?.waitForInput).toBeUndefined();
+      expect(markNotificationDone).not.toHaveBeenCalled();
+
+      const advanced = await postAdvance("q-9");
+      expect(advanced.status).toBe(200);
+      expect(session.board.get("q-9")).toMatchObject({
+        status: "WORKING",
+        openQuestions: ["n-193"],
+        journey: { activePhaseIndex: 4, currentPhaseId: "work" },
+      });
+    });
   });
 
   it("refuses a generic advance after Takode returned the quest to Work", async () => {

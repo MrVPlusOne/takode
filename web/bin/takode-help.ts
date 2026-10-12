@@ -360,7 +360,9 @@ Leaders only: a question in a quest's thread, while your board has that quest in
 Work, puts the quest into User Checkpoint until all such questions are resolved;
 Takode links the question to the board row and returns the quest to Work after
 the last one is resolved. Add --no-checkpoint when the work does not wait on the
-question: it then shows as an open question without pausing Work.
+question: it then shows as an open question without pausing Work. To stop an
+already-posted question blocking, run takode board set q-N --clear-wait-for-input
+(or --wait-for-input with the questions that should still block); it stays open.
 
 Whenever you ask the user a question, include concise suggested replies with
 --suggest so the UI can render convenient response buttons. When the question

@@ -1076,7 +1076,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("resolves removed wait-for-input notifications when a row is updated", async () => {
+  it("keeps removed wait-for-input notifications open as non-blocking questions when a row is updated", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [
       { id: "n-1", category: "needs-input", summary: "Need answer one", timestamp: 1000, messageId: null, done: false },
@@ -1112,11 +1112,13 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           waitForInput: ["n-2"],
+          openQuestions: ["n-1"],
         },
       ],
     });
+    // Dropping a link only stops the question blocking; the user can still answer it.
     expect(bridge._sessions["orch-1"].notifications).toMatchObject([
-      { id: "n-1", done: true },
+      { id: "n-1", done: false },
       { id: "n-2", done: false },
     ]);
   });
@@ -1249,6 +1251,9 @@ describe("Takode server-authoritative auth", () => {
 
   it("promotes a proposed Journey into active execution without redefining phases", async () => {
     setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-3", category: "needs-input", summary: "Approve?", timestamp: 1000, messageId: null, done: false },
+    ];
     const proposedJourney = {
       presetId: "v2-work",
       mode: "proposed" as const,
@@ -1302,6 +1307,9 @@ describe("Takode server-authoritative auth", () => {
         },
       ],
     });
+    // Promotion consumes the approval question the proposal was held on.
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([{ id: "n-3", done: true }]);
+    expect(bridge._sessions["orch-1"].board.get("q-9")?.openQuestions).toBeUndefined();
   });
 
   it("presents a proposed Journey draft with a current approval signature", async () => {

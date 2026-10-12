@@ -8,6 +8,7 @@
  * Takode added is resolved, the row returns to that later Work; a question soon after reopens the
  * same checkpoint, so a back-and-forth with the user stays one checkpoint. Planned checkpoints keep
  * leader-driven resumption. Each checkpoint has its own phase timing, so Work time excludes the wait.
+ * A leader can end any checkpoint by hand; its questions stay open for the user without blocking.
  */
 import { normalizeKnownQuestJourneyPhaseIds, normalizeQuestJourneyPlan } from "../../shared/quest-journey.js";
 import type { QuestJourneyPhaseId, QuestJourneyPhaseTiming } from "../../shared/quest-journey.js";
@@ -84,17 +85,25 @@ export function syncAutomaticUserCheckpoint(row: BoardRow, now: number): boolean
 }
 
 /**
- * Applies a leader's manual end of a checkpoint Takode added (`board set --status WORKING`): its
- * links stay open as non-blocking questions and the row continues in the Work after it.
- * Returns the journey position to resume at, or undefined when the row is not in such a checkpoint.
+ * Applies a leader's manual end of the current User Checkpoint, planned or added by Takode
+ * (`board set --status WORKING`): its links stay open as non-blocking questions, and a checkpoint
+ * Takode added does not reopen for the next question. Returns the position of the Work after the
+ * checkpoint, or undefined when the row is not in a checkpoint followed by Work.
  */
-export function endAutomaticUserCheckpointByHand(row: BoardRow): number | undefined {
-  if (normalizedStatus(row) !== "USER_CHECKPOINTING" || !isAutomaticCheckpointCurrent(row)) return undefined;
-  const checkpointIndex = row.autoCheckpoint!.checkpointIndex;
-  row.openQuestions = addIds(row.openQuestions, row.waitForInput ?? []);
+export function endUserCheckpointByHand(row: BoardRow): number | undefined {
+  if (normalizedStatus(row) !== "USER_CHECKPOINTING") return undefined;
+  keepQuestionsOpen(row, row.waitForInput ?? []);
   row.waitForInput = undefined;
-  row.autoCheckpoint = { checkpointIndex };
-  return checkpointIndex + 1;
+  const index = row.journey?.activePhaseIndex;
+  if (typeof index !== "number") return undefined;
+  if (isAutomaticCheckpointCurrent(row)) row.autoCheckpoint = { checkpointIndex: index };
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey!.phaseIds);
+  return phaseIds[index] === "user-checkpoint" && phaseIds[index + 1] === "work" ? index + 1 : undefined;
+}
+
+/** Keeps questions open as non-blocking: dropping a question's link never resolves it. */
+export function keepQuestionsOpen(row: BoardRow, notificationIds: string[]): void {
+  row.openQuestions = addIds(row.openQuestions, notificationIds);
 }
 
 /** Whether the row is in the Work occurrence that follows a checkpoint Takode added. */

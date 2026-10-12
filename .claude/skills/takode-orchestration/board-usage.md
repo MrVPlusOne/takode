@@ -76,10 +76,12 @@ takode board set q-12 --status QUEUED --wait-for q-9,#14,free-worker
 A question you post in a quest's thread pauses its Work by itself (see Automatic User Checkpoints in `quest-journey.md`). By hand:
 
 ```bash
-takode board set q-12 --wait-for-input 7     # make an open question blocking
-takode board set q-12 --status WORKING       # end a checkpoint; its questions stay open, not blocking
-takode board set q-12 --status WORKING --clear-wait-for-input   # end it and resolve its questions
+takode board set q-12 --wait-for-input 7     # make an open question blocking (replaces the list)
+takode board set q-12 --clear-wait-for-input # stop its questions blocking; they stay open
+takode board set q-12 --status WORKING       # end a checkpoint, planned or added, and resume the Work after it
 ```
+
+Dropping a link never resolves its question: it stays open for the user, no longer blocking (only promoting a proposal consumes the approval questions it was held on). Resolve one with `takode notify resolve <id>`.
 
 ## Rules
 

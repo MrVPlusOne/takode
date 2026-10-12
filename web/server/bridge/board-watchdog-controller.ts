@@ -36,7 +36,8 @@ import type {
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
 import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recovery-summary.js";
 import {
-  endAutomaticUserCheckpointByHand,
+  endUserCheckpointByHand,
+  keepQuestionsOpen,
   isWorkAfterAutomaticCheckpoint,
   syncAutomaticUserCheckpoint,
 } from "./board-user-checkpoint.js";
@@ -310,20 +311,6 @@ function arraysEqual<T>(left: readonly T[] | undefined, right: readonly T[] | un
   if (left === right) return true;
   if (!left || !right || left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
-}
-
-function resolveRemovedBoardWaitForInputIds(
-  session: SessionLike,
-  previousNotificationIds: string[],
-  nextNotificationIds: string[],
-  deps: Pick<WorkBoardStateDeps, "markNotificationDone">,
-): void {
-  if (previousNotificationIds.length === 0) return;
-  const nextIds = new Set(nextNotificationIds);
-  for (const notificationId of previousNotificationIds) {
-    if (nextIds.has(notificationId)) continue;
-    deps.markNotificationDone(session.id, notificationId, true);
-  }
 }
 
 export function getBoardStallSignatureForSession(
@@ -908,12 +895,15 @@ export function upsertBoardRow(
       }),
     };
   }
-  // A leader ending a checkpoint Takode added keeps its questions open without blocking Work.
-  const handEndCandidate =
-    existing && (row.status ?? "").trim().toUpperCase() === "WORKING" ? { ...existing } : undefined;
-  const handEndResumeIndex = handEndCandidate ? endAutomaticUserCheckpointByHand(handEndCandidate) : undefined;
-  // An explicit link list (or clear) still applies; otherwise the links stay open as non-blocking questions.
-  const handEnded = handEndResumeIndex !== undefined && row.waitForInput === undefined ? handEndCandidate : undefined;
+  // A leader ending a checkpoint by hand keeps its questions open without blocking Work.
+  const handEnded =
+    existing &&
+    (existing.status ?? "").trim().toUpperCase() === "USER_CHECKPOINTING" &&
+    (row.status ?? "").trim().toUpperCase() === "WORKING" &&
+    (row.waitForInput ?? []).length === 0
+      ? { ...existing }
+      : undefined;
+  const handEndResumeIndex = handEnded ? endUserCheckpointByHand(handEnded) : undefined;
   if (handEndResumeIndex !== undefined && baseJourney) {
     baseJourney = { ...baseJourney, activePhaseIndex: handEndResumeIndex, currentPhaseId: "work" };
   }
@@ -930,10 +920,7 @@ export function upsertBoardRow(
   const mergedOpenQuestions = (handEnded?.openQuestions ?? row.openQuestions ?? existing?.openQuestions)?.filter(
     (id: string) => !mergedWaitForInput?.includes(id),
   );
-  const mergedAutoCheckpoint =
-    handEndResumeIndex !== undefined
-      ? handEndCandidate!.autoCheckpoint
-      : (row.autoCheckpoint ?? existing?.autoCheckpoint);
+  const mergedAutoCheckpoint = handEnded ? handEnded.autoCheckpoint : (row.autoCheckpoint ?? existing?.autoCheckpoint);
   const merged: BoardRow = {
     questId: row.questId,
     title: mergeStr(row.title, existing?.title),
@@ -956,6 +943,13 @@ export function upsertBoardRow(
   const becameNeverStartedScheduled =
     !isNeverStartedScheduledLeaderThreadTabRow(existing) && isNeverStartedScheduledLeaderThreadTabRow(merged);
   applyBoardWaitStateInvariant(merged);
+  // Promoting a proposal consumes the approval questions it was held on. Any other dropped link
+  // leaves its question open for the user, no longer blocking: only answers and `notify resolve`
+  // resolve a question.
+  const mergedLinks = getBoardRowWaitForInputIds(merged);
+  const droppedLinks = getBoardRowWaitForInputIds(existing).filter((id) => !mergedLinks.includes(id));
+  const promoted = !!existing && isProposedBoardRowStatus(existing.status) && !isProposedBoardRowStatus(merged.status);
+  if (!promoted) keepQuestionsOpen(merged, droppedLinks);
   applyQuestJourneyPhaseTiming(merged, existing, now);
   syncAutomaticUserCheckpoint(merged, now);
   session.board.set(row.questId, merged);
@@ -965,12 +959,9 @@ export function upsertBoardRow(
     const startedAt = existing && isProposedBoardRowStatus(existing.status) ? merged.updatedAt : merged.createdAt;
     upsertJourneyLifecycleAttentionRecord(session, merged, "started", deps, startedAt);
   }
-  resolveRemovedBoardWaitForInputIds(
-    session,
-    getBoardRowWaitForInputIds(existing),
-    [...getBoardRowWaitForInputIds(merged), ...(merged.openQuestions ?? [])],
-    deps,
-  );
+  if (promoted) {
+    for (const notificationId of droppedLinks) deps.markNotificationDone(session.id, notificationId, true);
+  }
   return commitBoard(session, deps, [row.questId]);
 }
 
@@ -1120,7 +1111,7 @@ export function advanceBoardRow(
   let traversedCheckpointIndex: number | undefined;
   if (normalizedStatus === "USER_CHECKPOINTING" && (row.waitForInput ?? []).length > 0) {
     return {
-      error: "Cannot advance while the User Checkpoint is unresolved.",
+      error: `Cannot advance ${questId} while its User Checkpoint is unresolved. To end it by hand, use takode board set ${questId} --status WORKING; its questions stay open without blocking.`,
       previousState,
     };
   }

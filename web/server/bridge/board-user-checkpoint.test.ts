@@ -3,7 +3,7 @@ import type { BoardRow } from "../session-types.js";
 import {
   AUTO_CHECKPOINT_REOPEN_WINDOW_MS,
   addLeaderQuestionToBoardRow,
-  endAutomaticUserCheckpointByHand,
+  endUserCheckpointByHand,
   findUserCheckpointQuestsForWorker,
   isWorkAfterAutomaticCheckpoint,
   removeResolvedQuestionFromBoardRow,
@@ -152,11 +152,21 @@ describe("automatic User Checkpoint", () => {
     const row = workingRow(["work", "memory"]);
     addLeaderQuestionToBoardRow(row, "n-3", { blocking: true, now: T0 });
 
-    expect(endAutomaticUserCheckpointByHand(row)).toBe(2);
+    expect(endUserCheckpointByHand(row)).toBe(2);
     expect(row.waitForInput).toBeUndefined();
     expect(row.openQuestions).toEqual(["n-3"]);
     // A manual end does not reopen the checkpoint for the next question.
     expect(row.autoCheckpoint).toEqual({ checkpointIndex: 1 });
+  });
+
+  it("ends a planned checkpoint by hand into the Work after it, keeping its questions open", () => {
+    const row = workingRow(["work", "user-checkpoint", "work", "memory"]);
+    addLeaderQuestionToBoardRow(row, "n-2", { blocking: true, now: T0 });
+
+    expect(endUserCheckpointByHand(row)).toBe(2);
+    expect(row.waitForInput).toBeUndefined();
+    expect(row.openQuestions).toEqual(["n-2"]);
+    expect(row.autoCheckpoint).toBeUndefined();
   });
 
   it("names the quests that hold a worker in a User Checkpoint", () => {

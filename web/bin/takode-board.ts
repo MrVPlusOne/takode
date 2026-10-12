@@ -106,8 +106,9 @@ Quest Journey phases:
   --journey-file <path|-> reads { phases: [{ id, note? }] } JSON for initial Journey creation
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
-  --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
-  --clear-wait-for-input removes any existing linked needs-input wait state
+  --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3) as blocking questions; it replaces the list
+  --clear-wait-for-input stops the linked questions blocking; they stay open for the user (resolve one with takode notify resolve)
+  --status WORKING on a User Checkpoint ends it by hand and resumes the Work after it; its questions stay open, not blocking
 
 Quest Journey v2 has one active workflow: Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
 
