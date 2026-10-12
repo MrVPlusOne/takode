@@ -45,6 +45,7 @@ import { openAttentionItem } from "../hooks/useNextAttention.js";
 import { threadRouteFromHash } from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import { ChatView } from "./ChatView.js";
+import { THREAD_READ_DWELL_MS } from "../hooks/use-thread-read-on-screen.js";
 
 const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 };
 
@@ -157,7 +158,9 @@ describe("ChatView attention navigation", () => {
     view.rerender(<ChatView sessionId="leader" {...routeProps()} />);
 
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true));
+    await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
+      timeout: THREAD_READ_DWELL_MS + 1_000,
+    });
     view.unmount();
   });
 
@@ -189,7 +192,9 @@ describe("ChatView attention navigation", () => {
     view.rerender(<ChatView sessionId="leader" {...routeProps()} />);
 
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true));
+    await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
+      timeout: THREAD_READ_DWELL_MS + 1_000,
+    });
     view.unmount();
   });
 

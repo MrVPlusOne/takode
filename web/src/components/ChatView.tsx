@@ -39,6 +39,7 @@ import {
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
+import { useThreadReadOnScreen } from "../hooks/use-thread-read-on-screen.js";
 import { createViewportHandoffEntryId, noteViewportSelectionActivity } from "../utils/viewport-handoff-client.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
@@ -658,16 +659,22 @@ export function ChatView({
     if (!leaderTabsProjection) return detailRows;
     return mergeProjectedLeaderThreadRows(detailRows, leaderTabsProjection, canonicalQuestTitles) as LeaderThreadRow[];
   }, [canonicalQuestTitles, leaderTabsProjection, threadRows]);
+  // A result is read only once its thread has really been on screen: not while a
+  // returning session briefly shows its saved tab, nor while the page is hidden.
+  const selectedThreadReadOnScreen = useThreadReadOnScreen(
+    `${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`,
+    !preview,
+  );
   const reviewNotificationIdsToClear = useMemo(
     () =>
-      !preview
+      selectedThreadReadOnScreen
         ? reviewNotificationIdsForSelectedThread(
             sessionNotifications,
             reviewAttentionRecords,
             isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY,
           )
         : [],
-    [isLeaderSession, preview, reviewAttentionRecords, selectedThreadKey, sessionNotifications],
+    [isLeaderSession, reviewAttentionRecords, selectedThreadKey, selectedThreadReadOnScreen, sessionNotifications],
   );
   useEffect(() => {
     for (const notificationId of reviewNotificationIdsToClear) {
@@ -1092,7 +1099,7 @@ export function ChatView({
                   projectThreadRoutes={isLeaderSession}
                   onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                   showCodexSubagentControl={!preview}
-                  markSharedResultsRead={isLeaderSession && !preview}
+                  markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
                 />
               </ViewportHandoffThreadEntryGate>
             </div>
