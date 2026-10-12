@@ -155,6 +155,31 @@ describe("ImagePreviewGroup pending attachments", () => {
     expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
   });
 
+  it("shows a speculative image this browser already loaded at once when its group remounts", () => {
+    // Opening a thread remounts its preview groups. Hiding an image that loaded
+    // before until it reloads made the strip appear about a second late and
+    // push every message below it down.
+    const loadable = makeImage("loadable", { expectedAttachment: false });
+    const first = render(<ImagePreviewGroup images={[loadable]} testId="speculative-images" />);
+    fireEvent.load(screen.getByTestId("image-preview-preload"));
+    first.unmount();
+
+    const second = render(<ImagePreviewGroup images={[loadable]} testId="speculative-images" />);
+    const group = screen.getByTestId("speculative-images");
+    expect(previewIds(group)).toEqual(["loadable"]);
+    expect(within(group).getByRole("button", { name: "Open image loadable.png" })).toBeEnabled();
+    expect(screen.queryByTestId("image-preview-preload")).toBeNull();
+
+    // A remembered image that now fails is forgotten, so the next mount goes
+    // back to the silent preload instead of reserving a strip for it.
+    fireEvent.error(thumbnailFor(group, "loadable"));
+    expect(screen.queryByTestId("speculative-images")).toBeNull();
+    second.unmount();
+    render(<ImagePreviewGroup images={[loadable]} testId="speculative-images" />);
+    expect(screen.queryByTestId("speculative-images")).toBeNull();
+    expect(screen.getByTestId("image-preview-preload")).toBeInTheDocument();
+  });
+
   it("shows an origin-local preview immediately and falls back to the backend after a local error", () => {
     const onImageError = vi.fn();
     const image = makeImage("origin", {

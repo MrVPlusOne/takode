@@ -1,6 +1,7 @@
 // Setup file for jsdom-based tests
 // Polyfills that must be available before any module import
 import { afterEach, vi } from "vitest";
+import { resetThumbnailLoadMemoryForTest } from "./utils/image-thumbnail-load-memory.js";
 
 // Guard against fake-timer leaks across test files. Some tests intentionally
 // switch to fake timers; this ensures each test always starts from real timers
@@ -8,6 +9,8 @@ import { afterEach, vi } from "vitest";
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
+  // Remembered thumbnail loads would let one test's images skip another test's loading state.
+  resetThumbnailLoadMemoryForTest();
 });
 
 if (typeof window !== "undefined") {

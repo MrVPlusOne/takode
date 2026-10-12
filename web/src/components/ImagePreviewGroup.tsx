@@ -5,6 +5,11 @@ import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
+import {
+  forgetThumbnailLoaded,
+  rememberThumbnailLoaded,
+  wasThumbnailLoaded,
+} from "../utils/image-thumbnail-load-memory.js";
 
 export interface ImagePreviewGroupHandle {
   /** Opens the image with this preview ID; false when the group cannot show it (absent or failed). */
@@ -126,11 +131,16 @@ export function ImagePreviewGroup({
     };
   }, [localPreviewSessionId, retainedLocalPreviewKey]);
 
-  const isLoaded = (image: ImagePreviewItem) =>
-    image.immediatelyAvailable === true || loadedUrls.get(image.id) === image.thumbnailUrl;
   const isFailed = (image: ImagePreviewItem) => failedUrls.get(image.id) === image.thumbnailUrl;
+  // An image this browser loaded before shows at once, so reopening a thread
+  // does not hide it and then push the messages below it down.
+  const isLoaded = (image: ImagePreviewItem) =>
+    image.immediatelyAvailable === true ||
+    loadedUrls.get(image.id) === image.thumbnailUrl ||
+    (!isFailed(image) && wasThumbnailLoaded(image.thumbnailUrl));
 
   const markLoaded = (image: ImagePreviewItem, originalImage: ImagePreviewItem = image) => {
+    rememberThumbnailLoaded(image.thumbnailUrl);
     setLoadedUrls((current) => {
       if (current.get(image.id) === image.thumbnailUrl) return current;
       const next = new Map(current);
@@ -159,6 +169,7 @@ export function ImagePreviewGroup({
   };
 
   const markFailed = (image: ImagePreviewItem, originalImage: ImagePreviewItem = image) => {
+    forgetThumbnailLoaded(image.thumbnailUrl);
     const localImage = originalImage.localImageId && originalImage.fallback ? originalImage : image;
     if (localImage.localImageId && localImage.fallback && image.thumbnailUrl === localImage.thumbnailUrl) {
       settledLocalUrlsRef.current.delete(localImage.thumbnailUrl);
