@@ -642,14 +642,15 @@ export function QuestThreadBanner({
           // Closing the tab on screen without opening its group to find it.
           <button
             type="button"
-            className="col-start-4 row-start-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
+            // 32 px to tap easily on a phone; the negative margin keeps the strip's height.
+            className="col-start-4 row-start-1 -my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
             aria-label={`Close the ${questId} tab`}
             title="Close tab"
             onClick={onCloseTab}
             data-testid="quest-thread-close-tab"
           >
-            <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
         )}

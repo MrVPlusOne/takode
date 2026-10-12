@@ -78,6 +78,33 @@ function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThread
   return tab.blueNudge && normalizeThreadKey(tab.threadKey) === currentKey ? { ...tab, blueNudge: false } : tab;
 }
 
+/**
+ * The tab to open after closing `threadKey`: the next tab in the same status group as the
+ * bar lists it (the one below, or above when it was last), so closing a finished tab in Done
+ * moves on to the next finished one instead of jumping into other work. When the group
+ * empties, Main, which also holds the board. Uses the bar's grouping and order exactly.
+ */
+export function threadKeyToSelectAfterClosing(
+  threadKey: string,
+  tabs: readonly PrimaryThreadChip[],
+  currentThreadKey: string,
+  main?: PrimaryThreadChip,
+): string {
+  const closing = normalizeThreadKey(threadKey);
+  const currentKey = normalizeThreadKey(currentThreadKey);
+  const groups = groupThreadTabs(
+    tabs.map((tab) => readOnScreen(tab, currentKey)),
+    main ? readOnScreen(main, currentKey) : undefined,
+  );
+  for (const group of Object.values(groups)) {
+    const index = group.findIndex((tab) => normalizeThreadKey(tab.threadKey) === closing);
+    if (index < 0) continue;
+    const next = group[index + 1] ?? group[index - 1];
+    return next ? normalizeThreadKey(next.threadKey) : MAIN_THREAD_KEY;
+  }
+  return MAIN_THREAD_KEY;
+}
+
 function isMain(tab: PrimaryThreadChip): boolean {
   return normalizeThreadKey(tab.threadKey) === MAIN_THREAD_KEY;
 }
@@ -197,12 +224,15 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
                 count: groups[id].length,
                 activeOutput: groups[id].some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
                 testId: "thread-tab-group-chip",
-                // A group of one opens its tab directly; its list (with the tab's latest
-                // result and menu) stays a long-press or right-click away.
-                onClick: () =>
-                  groups[id].length === 1
-                    ? select(groups[id][0]!.threadKey)
-                    : setOpenGroup((open) => (open === id ? null : id)),
+                // A tap opens the group's first tab. A group of one stops there, its list
+                // (with the tab's latest result and menu) a long-press or right-click away;
+                // a larger group also opens its list to pick another. On a tab of this group
+                // already, a tap only toggles the list, so it never moves the user away.
+                onClick: () => {
+                  if (groups[id].length === 1) return select(groups[id][0]!.threadKey);
+                  if (currentGroup !== id) rows.onSelect(groups[id][0]!.threadKey);
+                  setOpenGroup((open) => (open === id ? null : id));
+                },
                 onOpenList: () => setOpenGroup(id),
                 single: groups[id].length === 1,
                 children: <GroupContent id={id} tabs={groups[id]} />,

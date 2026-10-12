@@ -92,14 +92,6 @@ export interface PrimaryThreadChip {
   groupChangedAt?: number;
 }
 
-/** The tab to show after closing `threadKey`: the next one in tab order, else Main. */
-export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<{ threadKey: string }>): string {
-  const normalized = normalizeThreadKey(threadKey);
-  const closingIndex = tabs.findIndex((tab) => normalizeThreadKey(tab.threadKey) === normalized);
-  if (closingIndex < 0) return MAIN_THREAD_KEY;
-  return normalizeThreadKey(tabs[closingIndex + 1]?.threadKey ?? MAIN_THREAD_KEY);
-}
-
 function displayThreadTabTitleColor(
   tab: PrimaryThreadChip,
   hydratedQuest: QuestmasterTask | undefined,

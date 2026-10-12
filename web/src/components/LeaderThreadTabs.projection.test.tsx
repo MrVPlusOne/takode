@@ -397,8 +397,10 @@ describe("leader thread tabs projected component behavior", () => {
     }
     fireEvent.click(within(listedThreadTab("q-105")!).getByRole("button", { name: "Close q-105" }));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-105", "q-106");
+    // q-106 is last in In progress, so the tab above it in that group opens next, not q-107
+    // from Done.
     fireEvent.click(within(listedThreadTab("q-106")!).getByRole("button", { name: "Close q-106" }));
-    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-106", "q-107");
+    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-106", "q-105");
   });
 
   it("does not rebuild leader tabs from raw board rows when the current projection is unavailable", () => {

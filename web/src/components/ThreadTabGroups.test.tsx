@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { ThreadTabGroupBar, groupThreadTabs } from "./ThreadTabGroups.js";
+import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
@@ -82,6 +82,33 @@ describe("groupThreadTabs order", () => {
   });
 });
 
+describe("threadKeyToSelectAfterClosing", () => {
+  // Done lists newest first: q-31 (entered at 300), q-30 (200), q-33 (100). The leader's
+  // tab order puts the in-progress q-32 between them, which must never be picked from Done.
+  const tabs = [
+    tab("q-30", { completed: true, canClose: true, groupChangedAt: 200 }),
+    tab("q-32"),
+    tab("q-33", { completed: true, canClose: true, groupChangedAt: 100 }),
+    tab("q-31", { completed: true, canClose: true, groupChangedAt: 300 }),
+  ];
+
+  it("opens the next tab below in the closed tab's group, by the group's order", () => {
+    expect(threadKeyToSelectAfterClosing("q-31", tabs, "q-31")).toBe("q-30");
+    expect(threadKeyToSelectAfterClosing("q-30", tabs, "q-30")).toBe("q-33");
+  });
+
+  it("opens the tab above when the closed tab was last, and Main when the group empties", () => {
+    expect(threadKeyToSelectAfterClosing("q-33", tabs, "q-33")).toBe("q-30");
+    expect(threadKeyToSelectAfterClosing("q-30", [tab("q-30", { completed: true }), tab("q-32")], "q-30")).toBe("main");
+  });
+
+  it("files the tab on screen the way the bar shows it", () => {
+    // q-34 has an unread result, but it is on screen, so the bar shows it under Done.
+    const withResult = [...tabs, tab("q-34", { completed: true, blueNudge: true, groupChangedAt: 400 })];
+    expect(threadKeyToSelectAfterClosing("q-34", withResult, "q-34")).toBe("q-31");
+  });
+});
+
 describe("ThreadTabGroupBar", () => {
   it("shows Main, one item per non-empty group and search, marking the current tab's group", () => {
     renderBar({ tabs: TABS.filter((item) => !item.needsInput) });
@@ -116,6 +143,27 @@ describe("ThreadTabGroupBar", () => {
     fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[1]!);
     expect(onSelect).toHaveBeenCalledWith("q-12");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("opens a larger group's first tab and its list in one tap", () => {
+    // Done lists q-13, q-14, q-15; a tap switches to q-13 at once and leaves the list open
+    // to pick another, consistent with a group of one switching on tap.
+    const { onSelect } = renderBar();
+    const done = () => screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done());
+    expect(onSelect).toHaveBeenCalledWith("q-13");
+    expect(screen.getByTestId("thread-tab-group-list").dataset.group).toBe("done");
+  });
+
+  it("only toggles the list when the tab on screen is already in that group", () => {
+    // On q-14, a Done tab, tapping Done must not move the user to the group's first tab.
+    const { onSelect } = renderBar({ currentThreadKey: "q-14" });
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done);
+    expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
+    fireEvent.click(done);
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("switches straight to the tab of a group of one, keeping its list a right-click away", () => {

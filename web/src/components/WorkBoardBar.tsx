@@ -5,7 +5,7 @@
  * board rows stay independently authoritative and load only while their panel
  * is open.
  */
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import {
@@ -43,9 +43,9 @@ import {
   ThreadNavButton,
   ThreadTabRail,
   isSelectedThread,
-  threadKeyToSelectAfterClosing,
   type PrimaryThreadChip,
 } from "./WorkBoardThreadTabs.js";
+import { threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
 
 export { activeBoardSummarySegments, boardSummary };
 export type { BoardSummarySegment };
@@ -448,6 +448,7 @@ function WorkBoardBarComponent({
   openThreadKeys = [],
   onCloseThreadTab,
   threadRows = [],
+  closeTabRef,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -455,6 +456,8 @@ function WorkBoardBarComponent({
   openThreadKeys?: string[];
   onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
+  /** Filled with this bar's close handler, for closing a tab from outside the bar. */
+  closeTabRef?: MutableRefObject<((threadKey: string) => void) | null>;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));
@@ -542,9 +545,19 @@ function WorkBoardBarComponent({
 
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, displayedThreadTabs);
+    const nextThreadKey = threadKeyToSelectAfterClosing(
+      normalized,
+      displayedThreadTabs,
+      currentThreadKey,
+      mainThreadState,
+    );
     onCloseThreadTab?.(normalized, nextThreadKey);
   };
+  // The quest strip's close button closes through here too, so every close picks the next
+  // tab by the same rule.
+  useLayoutEffect(() => {
+    if (closeTabRef) closeTabRef.current = onCloseThreadTab ? handleCloseThreadTab : null;
+  });
   const handleSelectView = (view: LeaderWorkboardView) => {
     setLeaderWorkboardView(sessionId, activeView === view ? null : view);
   };

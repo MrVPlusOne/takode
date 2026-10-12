@@ -60,26 +60,40 @@ vi.mock("./MessageFeed.js", () => ({
     />
   ),
 }));
+// The tab bar's close handler, which picks the next tab; the quest strip closes through it.
+const mockBarCloseTab = vi.hoisted(() => vi.fn());
 vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     currentThreadKey,
     openThreadKeys,
     threadRows,
     onSelectThread,
+    onCloseThreadTab,
+    closeTabRef,
   }: {
     currentThreadKey: string;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
     onSelectThread?: (threadKey: string) => void;
-  }) => (
-    <div
-      data-testid="work-board-bar"
-      data-current-thread-key={currentThreadKey}
-      data-open-thread-keys={(openThreadKeys ?? []).join(",")}
-      data-thread-titles={(threadRows ?? []).map((row) => `${row.threadKey}:${row.title}`).join("|")}
-      data-has-thread-navigation={onSelectThread ? "true" : "false"}
-    />
-  ),
+    onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
+    closeTabRef?: { current: ((threadKey: string) => void) | null };
+  }) => {
+    if (closeTabRef) {
+      closeTabRef.current = (threadKey) => {
+        mockBarCloseTab(threadKey);
+        onCloseThreadTab?.(threadKey, "main");
+      };
+    }
+    return (
+      <div
+        data-testid="work-board-bar"
+        data-current-thread-key={currentThreadKey}
+        data-open-thread-keys={(openThreadKeys ?? []).join(",")}
+        data-thread-titles={(threadRows ?? []).map((row) => `${row.threadKey}:${row.title}`).join("|")}
+        data-has-thread-navigation={onSelectThread ? "true" : "false"}
+      />
+    );
+  },
 }));
 
 import { useStore } from "../store.js";
@@ -272,6 +286,9 @@ describe("ChatView leader thread tabs projection", () => {
     expect(close).toHaveAccessibleName("Close the q-2 tab");
     mockSendToSession.mockClear();
     fireEvent.click(close);
+    // The tab bar closes it, so the strip's X picks the next tab by the same rule as a
+    // listed tab's X: the next tab in the closed tab's status group.
+    expect(mockBarCloseTab).toHaveBeenCalledWith("q-2");
     expect(mockSendToSession).toHaveBeenCalledWith("leader", {
       type: "leader_thread_tabs_update",
       operation: { type: "close", threadKey: "q-2", closedAt: expect.any(Number) },

@@ -16,7 +16,6 @@ import {
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
 import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.js";
-import { threadKeyToSelectAfterClosing } from "./WorkBoardThreadTabs.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
@@ -75,6 +74,7 @@ import {
 } from "../utils/leader-thread-tabs-resolver.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { useLeaderOpenThreadTabStateSync } from "../hooks/use-leader-open-thread-tab-state-sync.js";
+import { playStripClose } from "./quest-strip-close-animation.js";
 import type {
   ChatMessage,
   LeaderProjectionSnapshot,
@@ -768,6 +768,8 @@ export function ChatView({
     },
     [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
+  // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
+  const questStripRef = useRef<HTMLDivElement | null>(null);
   const handleCloseThreadTab = useCallback(
     (threadKey: string, nextThreadKey = MAIN_THREAD_KEY) => {
       const normalized = normalizeThreadKey(threadKey);
@@ -776,22 +778,22 @@ export function ChatView({
       setOpenThreadTabKeys(nextOpenThreadTabKeys);
       sendLeaderThreadTabUpdate({ type: "close", threadKey: normalized, closedAt: Date.now() });
       if (normalizeThreadKey(selectedThreadKey) === normalized) {
+        const strip = questStripRef.current;
+        playStripClose(strip?.querySelector<HTMLElement>('[data-testid="quest-thread-banner"]'), strip?.parentElement);
         handleSelectThread(nextThreadKey);
       }
     },
     [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
   );
   // The quest strip closes the tab on screen the way its listed row's close button does:
-  // only while the server lets it close, then moving to the next tab in order.
+  // only while the server lets it close, and through the tab bar, which picks the next tab
+  // in the same status group.
   const selectedTabKey = normalizeThreadKey(selectedThreadKey);
   const selectedTabCanClose =
     isLeaderSession && !!leaderTabsProjection?.tabs.some((tab) => tab.threadKey === selectedTabKey && tab.canClose);
+  const workBoardCloseTabRef = useRef<((threadKey: string) => void) | null>(null);
   const closeSelectedThreadTab = selectedTabCanClose
-    ? () =>
-        handleCloseThreadTab(
-          selectedTabKey,
-          threadKeyToSelectAfterClosing(selectedTabKey, leaderTabsProjection?.tabs ?? []),
-        )
+    ? () => (workBoardCloseTabRef.current ?? handleCloseThreadTab)(selectedTabKey)
     : undefined;
   // Attention lists close this session's tabs through the same path as the tab's own close button.
   useEffect(() => {
@@ -1039,6 +1041,7 @@ export function ChatView({
           openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
+          closeTabRef={workBoardCloseTabRef}
         />
       )}
 
@@ -1050,13 +1053,15 @@ export function ChatView({
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
               {!preview && showQuestThreadBanner && (
-                <QuestThreadBanner
-                  row={selectedThreadRow}
-                  threadKey={selectedThreadKey}
-                  monitorSessionId={sessionId}
-                  diffSessionId={sessionId}
-                  onCloseTab={closeSelectedThreadTab}
-                />
+                <div ref={questStripRef} className="contents">
+                  <QuestThreadBanner
+                    row={selectedThreadRow}
+                    threadKey={selectedThreadKey}
+                    monitorSessionId={sessionId}
+                    diffSessionId={sessionId}
+                    onCloseTab={closeSelectedThreadTab}
+                  />
+                </div>
               )}
               {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (
                 <QuestThreadBanner

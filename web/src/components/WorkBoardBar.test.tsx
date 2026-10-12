@@ -619,7 +619,9 @@ describe("WorkBoardBar", () => {
     expect(q1066Tab).not.toHaveTextContent("rework requested");
 
     fireEvent.click(view.getByLabelText("Close q-1066"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1066", "q-1119");
+    // q-1066 is the only finished tab and q-1119 is still in progress, so closing it
+    // leaves Done empty and returns to Main rather than jumping into other work.
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1066", "main");
 
     view.rerender(
       <WorkBoardBar
@@ -1238,7 +1240,8 @@ describe("WorkBoardBar", () => {
     expect(completedTab).toHaveAttribute("data-closable", "true");
     expect(within(activeTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
     fireEvent.click(getByLabelText("Close q-3"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3", "q-2");
+    // q-3 is alone in Done; the next tab comes from its own group, so Main opens.
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3", "main");
   });
 
   it("uses sibling select and close buttons for listed tabs", () => {
