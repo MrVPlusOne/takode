@@ -1,4 +1,5 @@
 import { useStore } from "../../store.js";
+import { PlaygroundQuestLabelComparison } from "./PlaygroundQuestLabelComparison.js";
 import { Card, Section } from "./shared.js";
 
 export function PlaygroundQuestDetailModalSection() {
@@ -22,6 +23,7 @@ export function PlaygroundQuestDetailModalSection() {
             </p>
           </div>
         </Card>
+        <PlaygroundQuestLabelComparison />
       </div>
     </Section>
   );

@@ -129,7 +129,7 @@ describe("QuestInlineLink", () => {
     expect(mockGetQuestValidated).toHaveBeenCalledWith("q-240", null);
     expect(screen.queryByTestId("quest-hover-card")).toBeNull();
     await waitFor(() => expect(screen.getByTestId("quest-hover-title").textContent).toBe("Quest 240"));
-    expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Completed");
+    expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Done");
   });
 
   it("fetches an uncached quest by id on hover and renders the rich preview", async () => {
@@ -238,7 +238,7 @@ describe("QuestInlineLink", () => {
     expect(screen.queryByTestId("quest-hover-card")).toBeNull();
     resolveFetch({ status: "fresh", data: fresh, etag: '"detail-v2"' });
 
-    await waitFor(() => expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Completed"));
+    await waitFor(() => expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Done"));
     expect(useStore.getState().questDetails.get("q-77")).toBe(fresh);
     expect(useStore.getState().questDetailEtags.get("q-77")).toBe('"detail-v2"');
   });

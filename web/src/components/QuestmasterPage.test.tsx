@@ -760,7 +760,7 @@ describe("QuestmasterPage status display", () => {
 
     fireEvent.mouseEnter(staleBoardStatus);
     expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();
-    expect(screen.getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
+    expect(screen.getByTestId("quest-hover-status-row")).toHaveTextContent("Done");
     expect(screen.getByTestId("quest-hover-status-row")).not.toHaveTextContent("Port");
     expect(screen.getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
   });

@@ -1289,21 +1289,20 @@ describe("QuestDetailPanel", () => {
 
     const quizSection = screen.getByTestId("quest-quiz-section");
     expect(screen.getByText("TLDR")).toBeTruthy();
-    expect(screen.getByText("Description TLDR")).toBeTruthy();
     expect(screen.getByText("Debrief TLDR")).toBeTruthy();
     expect(screen.getByText("Full Description")).toBeTruthy();
-    expect(screen.getByText("Full Final Debrief")).toBeTruthy();
+    expect(screen.getByText("Full Debrief")).toBeTruthy();
     expect(screen.getByText("Journey Details")).toBeTruthy();
     expect(quizSection.compareDocumentPosition(screen.getByText("TLDR")) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     const text = document.body.textContent ?? "";
-    expect(text.indexOf("Quiz")).toBeLessThan(text.indexOf("Description TLDR"));
+    expect(text.indexOf("Quiz")).toBeLessThan(text.indexOf("TLDR"));
     expect(text.indexOf("Initial TLDR.")).toBeLessThan(text.indexOf("Final debrief TLDR."));
     expect(text.indexOf("Final debrief TLDR.")).toBeLessThan(text.indexOf("Full Description"));
     expect(text.indexOf("Full Description")).toBeLessThan(text.indexOf("Initial quest description."));
-    expect(text.indexOf("Initial quest description.")).toBeLessThan(text.indexOf("Full Final Debrief"));
-    expect(text.indexOf("Full Final Debrief")).toBeLessThan(text.indexOf("Final debrief outcome."));
+    expect(text.indexOf("Initial quest description.")).toBeLessThan(text.indexOf("Full Debrief"));
+    expect(text.indexOf("Full Debrief")).toBeLessThan(text.indexOf("Final debrief outcome."));
     expect(text.indexOf("Final debrief outcome.")).toBeLessThan(text.indexOf("Journey Details"));
     expect(text.indexOf("Journey Details")).toBeLessThan(text.indexOf("Implementation phase TLDR."));
   });
@@ -1328,15 +1327,15 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("Full Description").compareDocumentPosition(descriptionImages)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(descriptionImages.compareDocumentPosition(screen.getByText("Full Final Debrief"))).toBe(
+    expect(descriptionImages.compareDocumentPosition(screen.getByText("Full Debrief"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
     const text = document.body.textContent ?? "";
-    expect(text.indexOf("Initial quest description with screenshots")).toBeLessThan(text.indexOf("Full Final Debrief"));
+    expect(text.indexOf("Initial quest description with screenshots")).toBeLessThan(text.indexOf("Full Debrief"));
   });
 
-  it("shows image previews after Full Final Debrief when it contains supported local image links", () => {
+  it("shows image previews after Full Debrief when it contains supported local image links", () => {
     const quest = makeVerificationQuest({
       description: "Initial quest description.",
       debrief: "Final debrief evidence: [mobile](file:artifacts/mobile.png) and [notes](file:artifacts/notes.txt).",
@@ -1352,7 +1351,7 @@ describe("QuestDetailPanel", () => {
     const debriefImages = screen.getByTestId("quest-debrief-image-thumbnails");
     expect(within(debriefImages).getByRole("button", { name: "Open image mobile.png" })).toBeVisible();
     expect(within(debriefImages).queryByRole("button", { name: "Open image notes.txt" })).toBeNull();
-    expect(screen.getByText("Full Final Debrief").compareDocumentPosition(debriefImages)).toBe(
+    expect(screen.getByText("Full Debrief").compareDocumentPosition(debriefImages)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
@@ -1374,10 +1373,10 @@ describe("QuestDetailPanel", () => {
     render(<QuestDetailPanel />);
 
     expect(screen.getByText("Description")).toBeTruthy();
-    expect(screen.getByText("Final Debrief")).toBeTruthy();
-    expect(screen.queryByText("Description TLDR")).toBeNull();
+    expect(screen.getByText("Debrief")).toBeTruthy();
+    expect(screen.queryByText("Debrief TLDR")).toBeNull();
     expect(screen.queryByText("Full Description")).toBeNull();
-    expect(screen.queryByText("Full Final Debrief")).toBeNull();
+    expect(screen.queryByText("Full Debrief")).toBeNull();
     const text = document.body.textContent ?? "";
     expect(text.indexOf("Initial quest description.")).toBeLessThan(text.indexOf("Debrief TLDR without full debrief."));
   });

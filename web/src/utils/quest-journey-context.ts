@@ -50,9 +50,7 @@ export function resolveQuestSessionTargets(
   const leaderSessionId =
     getQuestLeaderSessionId(quest) ??
     context?.leaderSessionId ??
-    (workerSessionId
-      ? (sdkSessions.find((session) => session.sessionId === workerSessionId)?.herdedBy ?? null)
-      : null);
+    (workerSessionId ? (sdkSessions.find((session) => session.sessionId === workerSessionId)?.herdedBy ?? null) : null);
   return {
     workerSessionId,
     ...(worker ? { workerStatus: worker.status } : context?.row.worker ? { workerStatus: "idle" } : {}),

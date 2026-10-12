@@ -190,11 +190,11 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     let dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
     expect(dialog).toHaveTextContent("Reveal rich quest context from the integrated eye");
-    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Done");
     expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
       "A deterministic Playground fixture for the accepted chat-feed inline quest preview contract.",
     );
-    expect(within(dialog).getByTestId("quest-hover-progress-tldr")).toHaveTextContent("Final Debrief");
+    expect(within(dialog).getByTestId("quest-hover-progress-tldr")).toHaveTextContent("Debrief");
     expect(within(dialog).getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
     expect(within(dialog).getByRole("link", { name: "Open feedback #4" })).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();

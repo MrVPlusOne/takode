@@ -302,6 +302,26 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(mockGetQuestValidated).toHaveBeenCalledWith("q-430", '"compact-v1"');
   });
 
+  it("labels the compact status with the Journey phase, like the quest preview and quest view", async () => {
+    // The user saw "In Progress" here and "Work" in the preview for the same quest; all quest views
+    // now show the active Journey phase.
+    const working = quest({ questId: "q-433", title: "Compact phase status", status: "in_progress" });
+    useStore.setState({
+      questDetails: new Map([["q-433", working]]),
+      sessionBoards: new Map([["leader-433", [{ questId: "q-433", status: "WORKING", updatedAt: 1, createdAt: 1 }]]]),
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"compact-phase"' });
+    render(
+      <div data-message-id="compact-phase">
+        <QuestInlineLink questId="q-433" surface="chat-feed" />
+      </div>,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "q-433" }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId("quest-feed-title-preview-status")).toHaveTextContent("Work");
+  });
+
   it("ignores a late compact-status result after the keyed quest target changes", async () => {
     const oldRequest = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
     const newRequest = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
@@ -812,7 +832,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     const dialog = screen.getByRole("dialog", { name: "Completed full preview" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(dialog).toHaveClass("overflow-y-auto");
-    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Done");
     expect(within(dialog).getByTestId("quest-hover-completed-at")).toHaveTextContent("Finished");
     // Tags are left out of the preview as non-essential.
     expect(within(dialog).queryByText("ui")).toBeNull();

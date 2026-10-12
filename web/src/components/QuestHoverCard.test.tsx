@@ -116,7 +116,7 @@ describe("QuestHoverCard", () => {
     const journey = within(card).getByTestId("quest-hover-journey");
 
     expect(within(card).getByTestId("quest-hover-completed-at").textContent).toBe("Finished 2h ago");
-    expect(tldr.textContent).toContain("Summary");
+    expect(tldr.textContent).toContain("TLDR");
     expect(tldr.textContent).toContain("Compact hover cards should show the outcome before Journey details.");
     expect(within(tldr).getByText("outcome").tagName).toBe("STRONG");
     expect(within(tldr).getByText("Keep it scannable.").tagName).toBe("LI");
@@ -197,7 +197,7 @@ describe("QuestHoverCard", () => {
     const progress = within(card).getByTestId("quest-hover-progress-tldr");
     const journey = within(card).getByTestId("quest-hover-journey");
 
-    expect(summary.textContent).toContain("Summary");
+    expect(summary.textContent).toContain("TLDR");
     expect(summary.textContent).toContain("Description scan text.");
     expect(progress.textContent).toContain("Latest Phase");
     expect(progress.textContent).toContain("Work / phase 2");
@@ -289,7 +289,7 @@ describe("QuestHoverCard", () => {
     render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
 
     const progress = within(screen.getByTestId("quest-hover-card")).getByTestId("quest-hover-progress-tldr");
-    expect(progress.textContent).toContain("Final Debrief");
+    expect(progress.textContent).toContain("Debrief");
     expect(progress.textContent).toContain("Final debrief TLDR.");
     expect(progress.textContent).not.toContain("Work phase TLDR.");
   });
@@ -523,7 +523,7 @@ describe("QuestHoverCard", () => {
 
     const statusRow = screen.getByTestId("quest-hover-status-row");
     expect(within(statusRow).getByTestId("quest-hover-status-chip")).toHaveTextContent("Cancelled");
-    expect(statusRow).not.toHaveTextContent("Completed");
+    expect(statusRow).not.toHaveTextContent("Done");
     expect(screen.getByTestId("quest-hover-completed-at").textContent).toMatch(/^Cancelled /);
     expect(screen.getByTestId("quest-hover-tldr")).toHaveTextContent("Throwaway quest for a live check.");
     const note = screen.getByTestId("quest-hover-progress-tldr");
@@ -547,9 +547,9 @@ describe("QuestHoverCard", () => {
 
     render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
 
-    expect(screen.getByTestId("quest-hover-status-chip")).toHaveTextContent("Completed");
+    expect(screen.getByTestId("quest-hover-status-chip")).toHaveTextContent("Done");
     const debrief = screen.getByTestId("quest-hover-progress-tldr");
-    expect(debrief).toHaveTextContent("Final Debrief");
+    expect(debrief).toHaveTextContent("Debrief");
     expect(debrief).toHaveTextContent("The fix shipped and the flake is gone.");
     expect(debrief).not.toHaveTextContent("More detail follows.");
   });

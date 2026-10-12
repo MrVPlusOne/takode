@@ -44,7 +44,7 @@ export interface QuestPhaseDocumentationSummary {
 export type QuestPreviewProgressTldr =
   | {
       kind: "debrief";
-      label: "Final Debrief";
+      label: "Debrief";
       text: string;
     }
   | {
@@ -125,7 +125,7 @@ export function selectQuestPreviewProgressTldr(
   if (quest.status === "done" && quest.cancelled === true) return null;
   if (quest.status === "done") {
     const debriefTldr = normalizeTldr(quest.debriefTldr);
-    if (debriefTldr) return { kind: "debrief", label: "Final Debrief", text: debriefTldr };
+    if (debriefTldr) return { kind: "debrief", label: "Debrief", text: debriefTldr };
     return null;
   }
 

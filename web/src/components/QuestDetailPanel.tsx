@@ -26,6 +26,7 @@ import {
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, resolveQuestSessionTargets } from "../utils/quest-journey-context.js";
+import { getQuestStatusPresentation } from "../utils/quest-status-presentation.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
@@ -75,11 +76,15 @@ export function QuestDetailPanel() {
   }, [quest, sessionBoards, sessionCompletedBoards]);
   const journeyStatus = isCompletedJourneyPresentationStatus(quest?.status) ? "done" : journeyBoardRow?.status;
   const sessionBoardRowStatuses = useStore((s) => s.sessionBoardRowStatuses);
-  const sessionTargets = useMemo(() => {
-    if (!quest) return null;
-    const context = findQuestJourneyContext(quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses);
-    return resolveQuestSessionTargets(quest, context, sdkSessions);
-  }, [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses, sdkSessions]);
+  const journeyContext = useMemo(
+    () =>
+      quest ? findQuestJourneyContext(quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses) : null,
+    [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses],
+  );
+  const sessionTargets = useMemo(
+    () => (quest ? resolveQuestSessionTargets(quest, journeyContext, sdkSessions) : null),
+    [quest, journeyContext, sdkSessions],
+  );
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -697,6 +702,7 @@ export function QuestDetailPanel() {
 
   const isCancelled = isQuestCancelled(quest);
   const cfg = STATUS_CONFIG[quest.status];
+  const statusPresentation = getQuestStatusPresentation(quest, journeyContext);
   const isEditing = editingId === quest.questId;
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
@@ -748,11 +754,15 @@ export function QuestDetailPanel() {
         {/* Header: only status, title and the session buttons, so the body keeps the space on phones. */}
         <div className="min-w-0 shrink-0 px-3 sm:px-4 py-3 border-b border-cc-border">
           <div className="flex min-w-0 items-center gap-2">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
             <span
-              className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}
+              className={`w-2 h-2 rounded-full shrink-0 ${statusPresentation.dotStyle ? "" : statusPresentation.theme.dot}`}
+              style={statusPresentation.dotStyle}
+            />
+            <span
+              data-testid="quest-detail-status-chip"
+              className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full border ${statusPresentation.theme.border} ${statusPresentation.theme.bg} ${statusPresentation.theme.text}`}
             >
-              {cfg.label}
+              {statusPresentation.label}
             </span>
             <CopyableQuestId questId={quest.questId} />
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -1434,14 +1444,20 @@ export function QuestDetailPanel() {
 
               {/* Notes */}
               {questNotes && (
-                <div className="min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
-                  <MarkdownContent
-                    text={questNotes}
-                    size="sm"
-                    sessionId={questMarkdownSessionId}
-                    wrapLongContent
-                    onSessionNavigate={closePanel}
-                  />
+                <div className="min-w-0 max-w-full space-y-2" data-testid="quest-detail-notes">
+                  {/* Named like the quest preview names the same note. */}
+                  <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                    {isCancelled ? "Cancellation Note" : "Closing Note"}
+                  </div>
+                  <div className="min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
+                    <MarkdownContent
+                      text={questNotes}
+                      size="sm"
+                      sessionId={questMarkdownSessionId}
+                      wrapLongContent
+                      onSessionNavigate={closePanel}
+                    />
+                  </div>
                 </div>
               )}
 

@@ -1,9 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import type { BoardParticipantStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import type { QuestOwnerRef } from "../../shared/quest-owner.js";
-import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
 import { isQuestCancelled } from "../utils/quest-editor-helpers.js";
-import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
+import { getQuestStatusPresentation } from "../utils/quest-status-presentation.js";
 import { getQuestDisplayOwner, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import {
   findQuestJourneyContext,
@@ -11,11 +10,7 @@ import {
   type QuestJourneyBoardRow,
 } from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
-import {
-  formatWaitForRefLabel,
-  getQuestJourneyPhaseForState,
-  getQuestJourneyPresentation,
-} from "../../shared/quest-journey.js";
+import { formatWaitForRefLabel } from "../../shared/quest-journey.js";
 import { selectQuestPreviewProgressTldr } from "../../shared/quest-phase-documentation-summary.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
@@ -114,7 +109,6 @@ export function QuestPreviewCardContent({
   onSessionNavigate,
 }: QuestPreviewCardContentProps) {
   const isCancelled = isQuestCancelled(quest);
-  const statusTheme = getQuestRecordStatusTheme(quest);
   const owner = getQuestDisplayOwner(quest);
   const ownerSessionId = getQuestOwnerSessionId(quest);
   const ownerSession = useStore((state) =>
@@ -137,14 +131,10 @@ export function QuestPreviewCardContent({
   );
   const reviewerParticipant = journeyContext?.rowStatus?.reviewer ?? null;
 
-  const isTerminalQuest = isCompletedJourneyPresentationStatus(quest.status);
-  const journeyStatus = isTerminalQuest || journeyContext?.completed ? "done" : journeyBoardRow?.status;
-  const canUseJourneyStatusLabel = !isTerminalQuest && !journeyContext?.completed;
-  const journeyPhase = canUseJourneyStatusLabel ? getQuestJourneyPhaseForState(journeyBoardRow?.status) : null;
-  const journeyPresentation = canUseJourneyStatusLabel ? getQuestJourneyPresentation(journeyBoardRow?.status) : null;
-  const terminalStatusLabel = quest.status === "done" && !isCancelled ? "Completed" : statusTheme.label;
-  const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
-  const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
+  const journeyStatus =
+    isCompletedJourneyPresentationStatus(quest.status) || journeyContext?.completed ? "done" : journeyBoardRow?.status;
+  const status = getQuestStatusPresentation(quest, journeyContext ?? null);
+  const statusTheme = status.theme;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
   // Open Worker and Open Thread already name the worker and leader; the owner gets its own chip only
   // when it is a Codex owner or a different session from the one Open Worker opens.
@@ -166,7 +156,7 @@ export function QuestPreviewCardContent({
   // Quests without a TLDR still say what they are about, from the start of their description.
   const summary = useMemo(() => {
     const tldr = quest.tldr?.trim();
-    if (tldr) return { label: "Summary", text: tldr };
+    if (tldr) return { label: "TLDR", text: tldr };
     const excerpt = "description" in quest ? descriptionExcerpt(quest.description?.trim() ?? "") : "";
     return excerpt ? { label: "Description", text: excerpt } : null;
   }, [quest]);
@@ -182,10 +172,10 @@ export function QuestPreviewCardContent({
               className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium leading-none ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${statusDotStyle ? "" : statusTheme.dot}`}
-                style={statusDotStyle}
+                className={`h-1.5 w-1.5 rounded-full ${status.dotStyle ? "" : statusTheme.dot}`}
+                style={status.dotStyle}
               />
-              {statusLabel}
+              {status.label}
             </span>
             {queuedWaitForReason && (
               <span data-testid="quest-hover-wait-for-reason" className="min-w-0 truncate text-xs text-cc-muted">
@@ -293,7 +283,7 @@ function selectClosingText(quest: QuestmasterTask | QuestListPreview) {
   if (quest.status !== "done" || !("description" in quest)) return null;
   const cancelled = isQuestCancelled(quest);
   const debrief = cancelled ? "" : descriptionExcerpt(quest.debrief?.trim() ?? "");
-  if (debrief) return { kind: "debrief" as const, label: "Final Debrief" as const, text: debrief };
+  if (debrief) return { kind: "debrief" as const, label: "Debrief" as const, text: debrief };
   const note = quest.notes?.trim();
   if (!note) return null;
   return { kind: "note" as const, label: cancelled ? "Cancellation Note" : "Closing Note", text: note };

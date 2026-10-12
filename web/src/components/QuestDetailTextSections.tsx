@@ -78,9 +78,8 @@ export function QuestDetailTextSections({
         <>
           {(questTldr || questDebriefTldr) && (
             <div className="min-w-0 max-w-full space-y-2">
-              <QuestDetailSectionLabel>TLDR</QuestDetailSectionLabel>
               {questTldr && (
-                <QuestDetailTldrCard label="Description TLDR">
+                <QuestDetailTldrCard label="TLDR">
                   <MarkdownContent
                     text={questTldr}
                     size="sm"
@@ -125,7 +124,7 @@ export function QuestDetailTextSections({
           )}
           <div className="min-w-0 max-w-full space-y-2">
             <div className="flex items-baseline gap-1.5">
-              <QuestDetailSectionLabel>Full Final Debrief</QuestDetailSectionLabel>
+              <QuestDetailSectionLabel>Full Debrief</QuestDetailSectionLabel>
               <QuestMachineStamp machine={quest.status === "done" ? quest.debriefMachine : undefined} />
             </div>
             <MarkdownContent
@@ -174,8 +173,8 @@ export function QuestDetailTextSections({
           )}
           {questDebriefTldr && (
             <div className="min-w-0 max-w-full space-y-2">
-              <QuestDetailSectionLabel>Final Debrief</QuestDetailSectionLabel>
-              <QuestDetailTldrCard label="Debrief TLDR">
+              <QuestDetailSectionLabel>Debrief</QuestDetailSectionLabel>
+              <QuestDetailTldrCard label="TLDR">
                 <MarkdownContent
                   text={questDebriefTldr}
                   size="sm"

@@ -105,7 +105,7 @@ describe("opaque legacy Quest Outcome behavior", () => {
 
     expect(selectQuestPreviewProgressTldr(completed)).toEqual({
       kind: "debrief",
-      label: "Final Debrief",
+      label: "Debrief",
       text: "Trusted final TLDR.",
     });
   });

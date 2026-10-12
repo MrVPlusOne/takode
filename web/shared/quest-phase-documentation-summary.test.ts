@@ -330,7 +330,7 @@ describe("selectQuestPreviewProgressTldr", () => {
 
     expect(preview).toEqual({
       kind: "debrief",
-      label: "Final Debrief",
+      label: "Debrief",
       text: "Final outcome TLDR.",
     });
   });
@@ -429,7 +429,7 @@ describe("legacy Quest Outcome preview isolation", () => {
 
     expect(selectQuestPreviewProgressTldr(quest)).toEqual({
       kind: "debrief",
-      label: "Final Debrief",
+      label: "Debrief",
       text: "Trusted final debrief.",
     });
   });
@@ -449,7 +449,7 @@ describe("legacy Quest Outcome preview isolation", () => {
 
     expect(selectQuestPreviewProgressTldr(preview)).toEqual({
       kind: "debrief",
-      label: "Final Debrief",
+      label: "Debrief",
       text: "Trusted bounded debrief.",
     });
   });

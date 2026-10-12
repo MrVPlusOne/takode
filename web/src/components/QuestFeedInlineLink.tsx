@@ -20,6 +20,8 @@ import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { currentCachedQuestDetail, hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
+import { getQuestStatusPresentation } from "../utils/quest-status-presentation.js";
+import { findQuestJourneyContext } from "../utils/quest-journey-context.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
@@ -268,6 +270,20 @@ export function QuestFeedInlineLink({
   const [microPlacement, setMicroPlacement] = useState<PreviewPlacement | null | undefined>(undefined);
   const [microHydrationFailed, setMicroHydrationFailed] = useState(false);
   const [validatedMicroQuest, setValidatedMicroQuest] = useState<QuestmasterTask | null>(null);
+  // Same status label as the quest preview and quest view: the Journey phase while one is active.
+  const microStatusLabel = useStore((state) =>
+    validatedMicroQuest
+      ? getQuestStatusPresentation(
+          validatedMicroQuest,
+          findQuestJourneyContext(
+            validatedMicroQuest,
+            state.sessionBoards,
+            state.sessionCompletedBoards,
+            state.sessionBoardRowStatuses,
+          ),
+        ).label
+      : null,
+  );
   const [richPlacement, setRichPlacement] = useState<RichPlacement | null>(null);
   const [richError, setRichError] = useState<string | null>(null);
   const [validatedRichQuest, setValidatedRichQuest] = useState<QuestmasterTask | null>(null);
@@ -1207,7 +1223,7 @@ export function QuestFeedInlineLink({
                   data-testid="quest-feed-title-preview-status"
                   className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-none ${microStatusTheme.bg} ${microStatusTheme.text} ${microStatusTheme.border}`}
                 >
-                  {microStatusTheme.label}
+                  {microStatusLabel ?? microStatusTheme.label}
                 </span>
               )}
             </div>
