@@ -90,13 +90,7 @@ function buildStandaloneReminderBody(
   if (questThreadReminder) return <QuestThreadReminderView reminder={questThreadReminder} />;
 
   const needsInputReminder = buildNeedsInputReminderViewModel(message, notifications);
-  if (needsInputReminder) {
-    return (
-      <div className="rounded-md border border-cc-border/45 bg-cc-hover/15 px-2 py-1">
-        <NeedsInputReminderView reminder={needsInputReminder} />
-      </div>
-    );
-  }
+  if (needsInputReminder) return <NeedsInputReminderView reminder={needsInputReminder} />;
 
   const needsInputResolutionNotice = buildNeedsInputResolutionNoticeViewModel(message);
   if (needsInputResolutionNotice) {

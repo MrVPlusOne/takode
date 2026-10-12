@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { NeedsInputResolutionNoticeViewModel } from "../utils/needs-input-resolution-notice.js";
-import type { NeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
+import type { NeedsInputReminderEntryStatus, NeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
 import type { QuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
 import type { ThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
 
@@ -118,97 +118,102 @@ function ModelOnlyReminderIcon({ icon, className }: { icon: "link" | "route"; cl
 }
 
 export function NeedsInputReminderView({ reminder }: { reminder: NeedsInputReminderViewModel }) {
+  // Always start collapsed, like the other injected reminder chips: the live
+  // prompts themselves already demand attention elsewhere in the UI.
+  const [expanded, setExpanded] = useState(false);
   const hasActive = reminder.activeCount > 0;
-  const isFullyResolved =
-    !hasActive && !reminder.hasPartialState && reminder.resolvedCount > 0 && reminder.unknownCount === 0;
-  const shouldCollapseByDefault = !hasActive && !reminder.hasPartialState;
-  const [collapsed, setCollapsed] = useState(shouldCollapseByDefault);
-
-  useEffect(() => {
-    setCollapsed(shouldCollapseByDefault);
-  }, [shouldCollapseByDefault]);
-
-  const statusLabel = hasActive
-    ? "active"
-    : reminder.hasPartialState
-      ? "partial state"
-      : isFullyResolved
-        ? "resolved"
-        : reminder.unknownCount > 0
-          ? "state unavailable"
-          : "historical";
-  const toneClass = hasActive
-    ? "border-amber-500/25 bg-amber-500/6 text-amber-100"
-    : reminder.hasPartialState
-      ? "border-cc-border/60 bg-cc-hover/40 text-cc-muted"
-      : "border-cc-border/50 bg-cc-hover/30 text-cc-muted";
+  const status = needsInputReminderStatus(reminder);
 
   return (
-    <div className={collapsed ? "" : "space-y-2"}>
+    <div className="text-left">
       <button
         type="button"
-        className="flex w-full min-w-0 items-start gap-2 rounded-md text-left transition-colors hover:bg-cc-hover/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
-        onClick={() => setCollapsed((value) => !value)}
-        aria-expanded={!collapsed}
-        aria-label={`${collapsed ? "Expand" : "Collapse"} ${reminder.title}`}
+        className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-cc-border/35 bg-cc-hover/20 px-2 py-1 text-left text-[12px] leading-snug transition-colors hover:border-cc-border/55 hover:bg-cc-hover/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} ${reminder.title}`}
+        data-testid="needs-input-reminder-chip"
       >
         <svg
           viewBox="0 0 16 16"
           fill="currentColor"
-          className={`mt-1 h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"} text-cc-muted/60`}
+          className={`h-3 w-3 shrink-0 text-cc-muted/55 transition-transform ${expanded ? "rotate-90" : ""}`}
         >
           <path d="M6 4l4 4-4 4" />
         </svg>
         <svg
           viewBox="0 0 16 16"
           fill="currentColor"
-          className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${hasActive ? "text-amber-400" : "text-cc-muted/70"}`}
+          className={`h-3.5 w-3.5 shrink-0 ${hasActive ? "text-cc-attention" : "text-cc-muted/60"}`}
+          aria-hidden="true"
         >
           <path d="M8 1.5A3.5 3.5 0 004.5 5v2.5c0 .78-.26 1.54-.73 2.16L3 10.66V11.5h10v-.84l-.77-1A3.49 3.49 0 0111.5 7.5V5A3.5 3.5 0 008 1.5zM6.5 13a1.5 1.5 0 003 0h-3z" />
         </svg>
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-medium">{reminder.title}</span>
-            <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-mono-code ${toneClass}`}>
-              {statusLabel}
-            </span>
-          </span>
-          {!collapsed && (
-            <span className="mt-0.5 block text-xs leading-relaxed text-cc-muted">{reminder.description}</span>
-          )}
+        <span className="min-w-0 truncate font-medium text-cc-fg/85">{reminder.title}</span>
+        <span className={`shrink-0 rounded-full border px-1.5 py-px text-[11px] font-medium ${status.className}`}>
+          {status.label}
         </span>
       </button>
 
-      {!collapsed && reminder.entries.length > 0 && (
-        <div className="space-y-1 font-mono-code text-[12px] leading-relaxed">
-          {reminder.entries.map((entry) => (
-            <div key={`${entry.notificationId}-${entry.rawId}`} className="flex min-w-0 items-start gap-2">
-              <span className="shrink-0 text-cc-muted/70">{entry.rawId}.</span>
-              <span
-                className={
-                  entry.status === "active"
-                    ? "min-w-0 flex-1 text-cc-fg"
-                    : "min-w-0 flex-1 text-cc-muted line-through decoration-cc-muted/50"
-                }
-              >
-                {entry.summary}
-              </span>
-              <span
-                className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${
-                  entry.status === "active"
-                    ? "border-amber-500/25 text-amber-300"
-                    : entry.status === "resolved"
-                      ? "border-emerald-500/20 text-emerald-300/80"
-                      : "border-cc-border/60 text-cc-muted"
-                }`}
-              >
-                {entry.status === "unknown" ? "state unavailable" : entry.status}
-              </span>
-            </div>
-          ))}
+      {expanded && (
+        <div className="mt-1.5 rounded-md border border-cc-border/25 bg-cc-card/35 px-2.5 py-2">
+          <p className="text-[12px] leading-snug text-cc-muted">{reminder.description}</p>
+          {reminder.entries.length > 0 && (
+            <ul className="mt-1.5 space-y-1 text-[13px] leading-snug">
+              {reminder.entries.map((entry) => (
+                <li key={`${entry.notificationId}-${entry.rawId}`} className="flex min-w-0 items-start gap-2">
+                  <NeedsInputEntryStatusIcon status={entry.status} />
+                  <span className={`min-w-0 flex-1 ${entry.status === "active" ? "text-cc-fg" : "text-cc-muted"}`}>
+                    {entry.summary}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-cc-muted/80">{ENTRY_STATUS_LABELS[entry.status]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+const ENTRY_STATUS_LABELS = { active: "Open", resolved: "Resolved", unknown: "Unavailable" } as const;
+
+function needsInputReminderStatus(reminder: NeedsInputReminderViewModel): { label: string; className: string } {
+  if (reminder.activeCount > 0) {
+    return {
+      label: `${reminder.activeCount} open`,
+      className: "border-cc-attention-border bg-cc-attention-bg text-cc-attention",
+    };
+  }
+  const muted = "border-cc-border/50 text-cc-muted";
+  if (reminder.hasPartialState) return { label: "Partial state", className: muted };
+  if (reminder.resolvedCount > 0 && reminder.unknownCount === 0) {
+    return { label: "Resolved", className: "border-cc-success/30 text-cc-success" };
+  }
+  if (reminder.unknownCount > 0) return { label: "State unavailable", className: muted };
+  return { label: "Historical", className: muted };
+}
+
+function NeedsInputEntryStatusIcon({ status }: { status: NeedsInputReminderEntryStatus }) {
+  if (status === "resolved") {
+    return (
+      <svg viewBox="0 0 16 16" fill="none" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cc-success" aria-hidden="true">
+        <path
+          d="M4 8.25l2.35 2.35L12 4.95"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  const dotClass = status === "active" ? "bg-cc-attention" : "border border-cc-muted/60";
+  return (
+    <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+    </span>
   );
 }
 

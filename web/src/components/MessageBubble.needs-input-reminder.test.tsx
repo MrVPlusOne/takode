@@ -153,7 +153,7 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
-      expect(screen.getByText("resolved")).toBeTruthy();
+      expect(screen.getByText("Resolved")).toBeTruthy();
       expect(screen.queryByTestId("agent-source-badge")).toBeNull();
       expect(screen.queryByTitle("Message options")).toBeNull();
       expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
@@ -187,8 +187,17 @@ describe("MessageBubble needs-input reminder messages", () => {
     try {
       render(<MessageBubble message={makeNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
+      // Active reminders start collapsed like the other injected reminder chips;
+      // the badge carries the open count and details appear only on demand.
       expect(screen.getByText("Needs-input reminder")).toBeTruthy();
+      expect(screen.getByText("1 open")).toBeTruthy();
+      expect(screen.queryByText("1 referenced needs-input notification is still unresolved.")).toBeNull();
+      expect(screen.queryByText("Confirm rollout scope")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input reminder" }));
       expect(screen.getByText("1 referenced needs-input notification is still unresolved.")).toBeTruthy();
+      expect(screen.getByText("Confirm rollout scope")).toBeTruthy();
+      expect(screen.getByText("Open")).toBeTruthy();
 
       const resolvedNotifications = new Map(useStore.getState().sessionNotifications);
       resolvedNotifications.set("reminder-session", [
@@ -206,8 +215,10 @@ describe("MessageBubble needs-input reminder messages", () => {
       await waitFor(() => {
         expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
       });
-      expect(screen.getByText("resolved")).toBeTruthy();
-      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
+      // The open details stay expanded across the live state change and now
+      // describe the resolved state.
+      expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
+      expect(screen.getByText("All referenced needs-input notifications have since been resolved.")).toBeTruthy();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
@@ -223,7 +234,7 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
-      expect(screen.getByText("state unavailable")).toBeTruthy();
+      expect(screen.getByText("State unavailable")).toBeTruthy();
       expect(screen.queryByText("Notification state is no longer available for this historical reminder.")).toBeNull();
       expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
       expect(screen.queryByText("Unresolved same-session needs-input notifications: 1.")).toBeNull();
@@ -237,7 +248,7 @@ describe("MessageBubble needs-input reminder messages", () => {
     }
   });
 
-  it("keeps truncated reminders active when an unlisted older notification is still unresolved", () => {
+  it("keeps truncated reminders active when an unlisted older notification is still unresolved", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const nextNotifications = new Map(prevNotifications);
     nextNotifications.set("reminder-session", [
@@ -280,6 +291,8 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeTruncatedNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Needs-input reminder")).toBeTruthy();
+      expect(screen.getByText("1 open")).toBeTruthy();
+      await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input reminder" }));
       expect(
         screen.getByText("1 unlisted needs-input notification from this reminder may still be unresolved."),
       ).toBeTruthy();
@@ -291,7 +304,7 @@ describe("MessageBubble needs-input reminder messages", () => {
     }
   });
 
-  it("renders truncated all-listed-resolved reminders as partial state instead of fully resolved", () => {
+  it("renders truncated all-listed-resolved reminders as partial state instead of fully resolved", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const nextNotifications = new Map(prevNotifications);
     nextNotifications.set("reminder-session", [
@@ -326,7 +339,8 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeTruncatedNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Needs-input reminder")).toBeTruthy();
-      expect(screen.getByText("partial state")).toBeTruthy();
+      expect(screen.getByText("Partial state")).toBeTruthy();
+      await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input reminder" }));
       expect(
         screen.getByText(
           "This reminder originally had 4 unresolved notifications but only listed 3; 1 unlisted notification state is unavailable.",

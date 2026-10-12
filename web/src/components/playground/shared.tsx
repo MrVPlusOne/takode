@@ -1161,8 +1161,9 @@ export function PlaygroundNeedsInputReminderMessage({ variant }: { variant: "res
         ].join("\n")
       : [
           "[Needs-input reminder]",
-          "Unresolved same-session needs-input notifications: 1.",
+          "Unresolved same-session needs-input notifications: 2.",
           "  17. Confirm rollout scope",
+          "  15. Keep the old export format as a fallback?",
           "Review or resolve these before assuming the user's latest message answered them.",
         ].join("\n"),
     timestamp: Date.now() - 30_000,
@@ -1209,6 +1210,14 @@ export function PlaygroundNeedsInputReminderMessage({ variant }: { variant: "res
               messageId: null,
               summary: "Confirm rollout scope",
               done: variant === "resolved",
+            },
+            {
+              id: "n-15",
+              category: "needs-input",
+              timestamp: Date.now() - 50_000,
+              messageId: null,
+              summary: "Keep the old export format as a fallback?",
+              done: true,
             },
           ],
     );
