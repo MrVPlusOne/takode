@@ -189,6 +189,68 @@ describe("ThreadTabGroupBar active output", () => {
   });
 });
 
+describe("ThreadTabGroupBar group move animation", () => {
+  // jsdom has no Web Animations, so the test supplies animate() and records who played.
+  function trackAnimations(reducedMotion = false) {
+    const played: string[] = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: function (this: HTMLElement) {
+        played.push(this.dataset.group ?? this.tagName);
+        return { onfinish: null, oncancel: null } as unknown as Animation;
+      },
+    });
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: reducedMotion && query === "(prefers-reduced-motion: reduce)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    return played;
+  }
+  afterEach(() => {
+    delete (HTMLElement.prototype as { animate?: unknown }).animate;
+  });
+
+  const props = (tabs: PrimaryThreadChip[], currentThreadKey: string) => ({
+    main: MAIN,
+    tabs,
+    currentThreadKey,
+    activeOutputThreadKey: null,
+    onSelect: vi.fn(),
+  });
+  const working = [tab("q-10"), tab("q-13", { completed: true })];
+  const finished = [tab("q-10", { completed: true }), tab("q-13", { completed: true })];
+
+  it("plays once when the tab on screen moves to another group", () => {
+    const played = trackAnimations();
+    const { rerender } = render(<ThreadTabGroupBar {...props(working, "q-10")} />);
+    expect(played).toEqual([]);
+    rerender(<ThreadTabGroupBar {...props(finished, "q-10")} />);
+    expect(played).toEqual(["done"]);
+    // Later renders without a move do not replay it.
+    rerender(<ThreadTabGroupBar {...props(finished, "q-10")} />);
+    expect(played).toEqual(["done"]);
+  });
+
+  it("stays still when the user switches tabs or prefers reduced motion", () => {
+    const played = trackAnimations();
+    const { rerender } = render(<ThreadTabGroupBar {...props(working, "q-10")} />);
+    // Switching to a tab in another group is a selection change, not a move.
+    rerender(<ThreadTabGroupBar {...props(working, "q-13")} />);
+    expect(played).toEqual([]);
+    cleanup();
+
+    const still = trackAnimations(true);
+    const reduced = render(<ThreadTabGroupBar {...props(working, "q-10")} />);
+    reduced.rerender(<ThreadTabGroupBar {...props(finished, "q-10")} />);
+    expect(still).toEqual([]);
+  });
+});
+
 describe("ThreadTabRail", () => {
   const defaultWidth = window.innerWidth;
   afterEach(() => {

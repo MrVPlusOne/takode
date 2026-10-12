@@ -298,6 +298,72 @@ describe("WorkBoardBar tab groups", () => {
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
+  it("moves the tab on screen from In progress straight to Done when its quest finishes", () => {
+    // The server finishes a quest in two steps (completeBoardRow): it moves the board row to
+    // the completed board, then posts a "ready for review" result for that quest. The user
+    // is watching q-4, so the browser marks that result read as soon as it arrives, one
+    // round trip later. Each step below is one server update; the bar must never show the
+    // tab on screen under New results in between.
+    const onScreenGroups: Array<{ selected: string | undefined; groups: string[] }> = [];
+    const snapshot = () =>
+      onScreenGroups.push({
+        selected: screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.selected === "true")
+          ?.dataset.group,
+        groups: screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group!),
+      });
+    const workingRow = { questId: "q-4", title: "Quest 4 thread", status: "IMPLEMENTING", updatedAt: 4 };
+    const finishedRow = { ...workingRow, status: "DONE", updatedAt: 200, completedAt: 200 };
+    const bar = (attentionRecords: SessionAttentionRecord[]) => (
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-4"
+        openThreadKeys={["q-1", "q-4"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={attentionRecords}
+      />
+    );
+    const result = { ...reviewAttentionRecord("q-4"), createdAt: 201, updatedAt: 201 };
+
+    resetStore({ sessionBoards: new Map([["s1", [workingRow]]]) });
+    const { rerender } = render(bar([]));
+    snapshot();
+
+    // The board row finishes and the result arrives unread.
+    mockState.sessionBoards = new Map([["s1", []]]);
+    mockState.sessionCompletedBoards = new Map([["s1", [finishedRow]]]);
+    rerender(bar([result]));
+    snapshot();
+
+    // The browser's read lands.
+    rerender(bar([{ ...result, state: "resolved", resolvedAt: 260, updatedAt: 260 }]));
+    snapshot();
+
+    expect(onScreenGroups).toEqual([
+      { selected: "in-progress", groups: ["in-progress"] },
+      { selected: "done", groups: ["in-progress", "done"] },
+      { selected: "done", groups: ["in-progress", "done"] },
+    ]);
+  });
+
+  it("still files another tab's unread result under New results", () => {
+    // Only the tab on screen counts as read: q-1 finished while the user watched q-4.
+    resetStore({
+      sessionCompletedBoards: new Map([
+        ["s1", [{ questId: "q-1", title: "Quest 1 thread", status: "DONE", updatedAt: 9, completedAt: 9 }]],
+      ]),
+    });
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-4"
+        openThreadKeys={["q-1", "q-4"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={[reviewAttentionRecord("q-1")]}
+      />,
+    );
+    expect(row(openGroup("new-results"), "q-1")).toHaveAttribute("data-blue-notification", "true");
+  });
+
   it("uses the done gray for finished quests listed under Done", () => {
     resetStore({
       sessionCompletedBoards: new Map([

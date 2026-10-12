@@ -15,6 +15,7 @@ import { BellIcon } from "./GlobalNeedsInputMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
+import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -67,6 +68,16 @@ export function groupThreadTabs(
   return groups;
 }
 
+/**
+ * The tab on screen shows its result as read. The browser marks a result in the open tab
+ * read as soon as it arrives, but the server confirms that a round trip later; filing the
+ * tab under New results meanwhile flashed it through that group, for example on its way
+ * from In progress to Done when its quest finishes while the user watches.
+ */
+function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThreadChip {
+  return tab.blueNudge && normalizeThreadKey(tab.threadKey) === currentKey ? { ...tab, blueNudge: false } : tab;
+}
+
 function isMain(tab: PrimaryThreadChip): boolean {
   return normalizeThreadKey(tab.threadKey) === MAIN_THREAD_KEY;
 }
@@ -109,8 +120,11 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     canClose: false,
     updatedAt: 0,
   };
-  const groups = groupThreadTabs(tabs, mainTab);
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
+  const groups = groupThreadTabs(
+    tabs.map((tab) => readOnScreen(tab, currentKey)),
+    readOnScreen(mainTab, currentKey),
+  );
   // The All view sits under the Main strip too, so Main is the selected tab there.
   const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
   const currentGroup = onMain
@@ -118,13 +132,14 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     : (THREAD_TAB_GROUP_ORDER.find((id) =>
         groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
       ) ?? null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useGroupMoveAnimation(barRef, currentKey, currentGroup);
   const select = (threadKey: string) => {
     setOpenGroup(null);
     setSheetOpen(false);
     rows.onSelect(threadKey);
   };
   const rowContext = { ...rows, onSelect: select };
-  const barRef = useRef<HTMLDivElement | null>(null);
   const [listLeft, setListLeft] = useState<number | null>(null);
 
   // On wide screens a group's list opens under its own tab instead of spanning the bar.
