@@ -36,7 +36,8 @@ export function formatSnoozeUntil(until: number, now = Date.now()): string {
 /**
  * "Remind me later" for an unresolved needs-input prompt. Snoozing hides the prompt from attention and phone
  * alerts until the chosen time, when the server brings it back as a fresh alert. Rendered as fragment items so
- * it joins the caller's flex-wrap action row; the duration picker takes a full row of its own.
+ * it joins the caller's right-aligned flex-wrap action row ahead of the send button; the duration picker and any
+ * error take full rows of their own after the whole row, so they never split the buttons apart.
  */
 export function NeedsInputSnoozeControl({
   sessionId,
@@ -85,7 +86,9 @@ export function NeedsInputSnoozeControl({
     event.stopPropagation();
     if (canSnoozeDay && !busy) void snooze(dayDurationMs);
   };
-  const errorLine = error ? <p className="basis-full text-[10px] leading-snug text-cc-error">{error}</p> : null;
+  const errorLine = error ? (
+    <p className="order-last basis-full text-[10px] leading-snug text-cc-error">{error}</p>
+  ) : null;
 
   if (notification.snoozedUntil !== undefined) {
     return (
@@ -127,10 +130,10 @@ export function NeedsInputSnoozeControl({
       </button>
       {open && (
         <div
-          className="flex basis-full flex-col items-start gap-1 font-normal"
+          className="order-last flex basis-full flex-col items-end gap-1 font-normal"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Remind me in">
+          <div className="flex flex-wrap items-center justify-end gap-1" role="group" aria-label="Remind me in">
             <span className="text-[11px] text-cc-muted">Remind me in</span>
             {NEEDS_INPUT_SNOOZE_PRESETS.map((preset) => (
               <button
@@ -176,7 +179,7 @@ export function NeedsInputSnoozeControl({
               </button>
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Remind me on">
+          <div className="flex flex-wrap items-center justify-end gap-1" role="group" aria-label="Remind me on">
             <span className="text-[11px] text-cc-muted">Remind me on</span>
             <input
               type="date"

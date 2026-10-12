@@ -20,6 +20,7 @@ import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 import {
+  NEEDS_INPUT_ACTION_ROW_CLASS,
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
   NeedsInputSuggestedAnswers,
@@ -350,7 +351,8 @@ function GlobalNeedsInputRow({
               />
             </div>
           ))}
-          <div className="flex flex-wrap items-center gap-1">
+          <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
+            <NeedsInputSnoozeControl sessionId={entry.sessionId} notification={entry.notification} />
             <button
               type="button"
               onClick={sendResponse}
@@ -359,7 +361,6 @@ function GlobalNeedsInputRow({
             >
               {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
             </button>
-            <NeedsInputSnoozeControl sessionId={entry.sessionId} notification={entry.notification} />
           </div>
           {deliveryError && <p className="text-[10px] leading-snug text-cc-attention">{deliveryError}</p>}
           {muteError && <p className="text-[10px] leading-snug text-cc-error">{muteError}</p>}

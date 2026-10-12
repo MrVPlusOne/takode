@@ -17,6 +17,7 @@ import {
 } from "../utils/notification-source-context.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import {
+  NEEDS_INPUT_ACTION_ROW_CLASS,
   NEEDS_INPUT_CARD_CLASS,
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -372,7 +373,9 @@ export function NotificationMarker({
                 />
               )}
               {questionViews.length === 1 && (
-                <div className="flex flex-wrap items-center gap-1 pt-0.5" data-testid="notification-answer-footer">
+                <div className={`${NEEDS_INPUT_ACTION_ROW_CLASS} pt-0.5`} data-testid="notification-answer-footer">
+                  {snoozeControl}
+                  {replyButton}
                   <button
                     type="button"
                     onClick={sendQuickReply}
@@ -381,14 +384,14 @@ export function NotificationMarker({
                   >
                     Reply
                   </button>
-                  {replyButton}
-                  {snoozeControl}
                 </div>
               )}
             </div>
           ))}
           {questionViews.length > 1 && (
-            <div className="flex flex-wrap items-center gap-1">
+            <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
+              {snoozeControl}
+              {replyButton}
               <button
                 type="button"
                 onClick={sendQuickReply}
@@ -397,8 +400,6 @@ export function NotificationMarker({
               >
                 Reply
               </button>
-              {replyButton}
-              {snoozeControl}
             </div>
           )}
         </div>

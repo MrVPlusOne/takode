@@ -1081,7 +1081,7 @@ export function PlaygroundInteractiveSections() {
       {/* ─── Notification Marker ──────────────────────────────── */}
       <Section
         title="Notification Marker"
-        description="Rendered after assistant message content when a notification was anchored to it via takode notify."
+        description="Rendered after assistant message content when a notification was anchored to it via takode notify. Its action row is right-aligned with Reply last, so the send action sits under a right thumb on phones like the composer's send button."
       >
         <div className="max-w-3xl">
           <Card label="needs-input (amber, no summary)">

@@ -42,6 +42,7 @@ import {
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import {
+  NEEDS_INPUT_ACTION_ROW_CLASS,
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
   NeedsInputSuggestedAnswers,
@@ -668,7 +669,14 @@ function NotificationItem({
                 />
               </div>
             ))}
-            <div className="flex flex-wrap items-center gap-1">
+            <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
+              <button
+                type="button"
+                onClick={startReply()}
+                className="rounded-md border border-cc-border/60 px-2.5 py-1 text-[11px] cc-muted-readable transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
+              >
+                Use composer
+              </button>
               <button
                 type="button"
                 onClick={sendResponse}
@@ -676,13 +684,6 @@ function NotificationItem({
                 className={NEEDS_INPUT_SEND_BUTTON_CLASS}
               >
                 Send Response
-              </button>
-              <button
-                type="button"
-                onClick={startReply()}
-                className="rounded-md border border-cc-border/60 px-2.5 py-1 text-[11px] cc-muted-readable transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
-              >
-                Use composer
               </button>
             </div>
           </div>

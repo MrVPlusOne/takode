@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -418,6 +418,55 @@ describe("MessageBubble notification markers", () => {
       expect(fieldRow?.contains(answer)).toBe(true);
       expect(answer).toMatchObject({ value: longAnswer });
       expect((reply as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("keeps the Reply button at the right edge of the action row for right-thumb reach", () => {
+    // On phones the primary send action must sit where the composer's send button does: right-aligned and last,
+    // with secondary actions to its left. The snooze picker must wrap below the whole row rather than between
+    // Remind me later and Reply.
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-right-actions",
+        category: "needs-input",
+        summary: "Approve the rollout?",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <NotificationMarker
+          category="needs-input"
+          summary="Approve the rollout?"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-right-actions"
+        />,
+      );
+
+      const footer = screen.getByTestId("notification-answer-footer");
+      const buttons = within(footer).getAllByRole("button");
+      expect(footer.className).toContain("justify-end");
+      expect(buttons.map((button) => button.textContent?.trim() || button.getAttribute("aria-label"))).toEqual([
+        "Remind me later",
+        "reply in composer",
+        "Reply",
+      ]);
+      expect(footer.lastElementChild).toBe(screen.getByRole("button", { name: "Reply" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Remind me later" }));
+      const picker = screen.getByRole("group", { name: "Remind me in" }).parentElement!;
+      expect(picker.className).toContain("order-last");
+      expect(picker.className).toContain("basis-full");
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }

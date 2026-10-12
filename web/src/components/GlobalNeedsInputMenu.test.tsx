@@ -713,7 +713,11 @@ describe("GlobalNeedsInputMenu", () => {
     fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
       target: { value: "after smoke test" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+    // Send Response sits last in a right-aligned row so it stays within right-thumb reach on phones.
+    const sendResponseButton = screen.getByRole("button", { name: "Send Response" });
+    expect(sendResponseButton.parentElement?.className).toContain("justify-end");
+    expect(sendResponseButton.parentElement?.lastElementChild).toBe(sendResponseButton);
+    fireEvent.click(sendResponseButton);
 
     await waitFor(() =>
       expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(

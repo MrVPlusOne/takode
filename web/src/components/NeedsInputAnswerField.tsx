@@ -20,6 +20,9 @@ export const NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX = 132;
 export const NEEDS_INPUT_CARD_CLASS = "border border-cc-border border-l-[3px] border-l-cc-attention/70 bg-cc-card";
 export const NEEDS_INPUT_SEND_BUTTON_CLASS =
   "rounded-md bg-cc-primary px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer";
+// Send actions sit at the right edge, primary button last, so they stay within right-thumb reach on phones
+// like the composer's send button. Callers list secondary actions first.
+export const NEEDS_INPUT_ACTION_ROW_CLASS = "flex flex-wrap items-center justify-end gap-1";
 export const NEEDS_INPUT_ANSWER_TEXTAREA_CLASS =
   "min-h-[30px] min-w-0 flex-1 resize-none overflow-y-hidden rounded border border-cc-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention";
 

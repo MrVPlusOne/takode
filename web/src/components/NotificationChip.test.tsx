@@ -515,7 +515,11 @@ describe("NotificationChip", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
     expect(screen.getByLabelText("Answer for Deploy now?")).toHaveValue("yes");
-    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+    // Send Response sits last in a right-aligned row, after Use composer, for right-thumb reach on phones.
+    const sendResponseButton = screen.getByRole("button", { name: "Send Response" });
+    expect(sendResponseButton.parentElement?.className).toContain("justify-end");
+    expect(sendResponseButton.parentElement?.lastElementChild).toBe(sendResponseButton);
+    fireEvent.click(sendResponseButton);
 
     await waitFor(() =>
       expect(mockSendNeedsInputResponse).toHaveBeenCalledWith("s1", "n-1", {
