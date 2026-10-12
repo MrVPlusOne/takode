@@ -202,6 +202,8 @@ quest optimize-image /tmp/takode-q-N/example.png
 
 Do not recompress paths that already contain `.takode-agent.`. Clean up large temporary directories when they are no longer useful.
 
+When a report, phase note or question shows a screenshot to its reader, use Markdown image syntax with the absolute path, such as `![mobile, permission denied](/tmp/takode-q-N/mobile-permission-banner-denied.takode-agent.jpeg)`. Takode renders it as a thumbnail with its space held from the start, and as a missing-image tile if the file is gone; a plain path is only a best-effort preview.
+
 Name screenshots and artifact directories so the state provenance is visible, for example `persistent-profile-desktop-quest-detail.png`, `isolated-home-mobile-permission-denied.png`, or `playground-tool-block-streaming.png`. If screenshots come from a copied snapshot, include the snapshot source and sanitization status in the notes rather than only in the filename.
 
 ## Playground Coverage

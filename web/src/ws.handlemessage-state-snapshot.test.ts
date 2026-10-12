@@ -609,9 +609,12 @@ describe("handleMessage: state_snapshot", () => {
       notificationStatusUpdatedAt: 1000,
     });
 
-    expect(useStore.getState().sessionNotifications.get("s1")?.map((notification) => notification.id)).toEqual([
-      "n-1",
-    ]);
+    expect(
+      useStore
+        .getState()
+        .sessionNotifications.get("s1")
+        ?.map((notification) => notification.id),
+    ).toEqual(["n-1"]);
     expect(useStore.getState().sessionAttentionRecords.get("s1")?.[0]?.state).toBe("seen");
     expect(playNotificationSoundMock).not.toHaveBeenCalled();
   });

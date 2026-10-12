@@ -180,6 +180,49 @@ describe("image preview item provenance", () => {
     expect(items[1]?.expectedAttachment).toBeUndefined();
   });
 
+  it("reserves Markdown image syntax as a deliberate image that stays visible when missing", () => {
+    // `![caption](path)` is how agents ask to show an image, so it gets a slot from the
+    // first render and resolves through the session (a remote host's path works). A plain
+    // mention of the same path is the same image, and syntax quoted as code shows nothing.
+    const items = buildAssistantImagePreviewItems(
+      message({
+        role: "assistant",
+        content: [
+          "Before: ![Main before](/tmp/shots/main.png)",
+          "After: ![quest tab](file:artifacts/quest.png) and again /tmp/shots/main.png",
+          "Plain: /tmp/shots/plain.png",
+          "Example syntax: `![caption](/tmp/shots/example.png)`",
+          "```",
+          "![caption](/tmp/shots/fenced.png)",
+          "```",
+        ].join("\n"),
+      }),
+      "session-1",
+    );
+
+    expect(items.filter((item) => item.showWhenMissing).map((item) => item.id)).toEqual([
+      "path:/tmp/shots/main.png",
+      "file:artifacts/quest.png",
+    ]);
+    expect(items.filter((item) => item.id === "path:/tmp/shots/main.png")).toHaveLength(1);
+    expect(items.slice(0, 3).map((item) => item.id)).toEqual([
+      "path:/tmp/shots/main.png",
+      "file:artifacts/quest.png",
+      "path:/tmp/shots/plain.png",
+    ]);
+    expect(items[0]).toMatchObject({
+      expectedAttachment: true,
+      showWhenMissing: true,
+      sourcePath: "/tmp/shots/main.png",
+      thumbnailUrl:
+        "/api/fs/file-link/image?path=%2Ftmp%2Fshots%2Fmain.png&isRelative=0&variant=thumbnail&sessionId=session-1",
+    });
+    expect(items[1]).toMatchObject({ expectedAttachment: true, showWhenMissing: true });
+    // Plain paths keep the hidden-until-loaded behavior.
+    expect(items[2]?.expectedAttachment).toBeUndefined();
+    expect(items[2]?.showWhenMissing).toBeUndefined();
+  });
+
   it("finds screenshot paths in leader messages shaped like real stored history", () => {
     // Text copied from a leader session's stored messages (README screenshots review). A text
     // block listing bare paths on their own lines, followed by a tool call in the same message,

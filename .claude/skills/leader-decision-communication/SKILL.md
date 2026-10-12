@@ -59,7 +59,7 @@ Example:
 
 ## Show Visual Evidence Inline
 
-When the user must judge something visual, such as design alternatives, a checkpoint sign-off, or a before/after comparison, show the screenshots in the decision surface itself rather than only pointing to quest feedback. Write each image's absolute path, as plain text, inline code, or an absolute `file:` link, beside the option it shows. Takode shows local image paths in message text, including needs-input context, as thumbnails the user can open. Resolve worktree-relative paths to absolute ones first. The images support the written options; they do not replace them.
+When the user must judge something visual, such as design alternatives, a checkpoint sign-off, or a before/after comparison, show the screenshots in the decision surface itself rather than only pointing to quest feedback. Show each image with Markdown image syntax beside the option it shows: `![short caption](/absolute/path.png)`, or `![short caption](file:relative/path.png)` for a file in the session's repository. Takode renders each one, including in needs-input context, as a thumbnail the user can open; its space is held from the first render, and an image that cannot be loaded shows as missing instead of disappearing. Resolve worktree-relative paths to absolute ones, or use a `file:` target. A plain path in the text is only a best-effort preview. The images support the written options; they do not replace them.
 
 ## Preserve Authority and Delivery Safety
 

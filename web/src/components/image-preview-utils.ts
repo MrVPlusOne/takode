@@ -12,6 +12,9 @@ export interface ImagePreviewItem {
   sourcePath?: string;
   /** Explicit attachment refs reserve a visible slot while their preview loads. */
   expectedAttachment?: boolean;
+  /** The author asked for this image to be shown (Markdown image syntax), so a file
+   *  that cannot load keeps its slot as a missing-image tile instead of vanishing. */
+  showWhenMissing?: boolean;
   /** Browser-local bytes/URL are already available; do not flash a loading placeholder. */
   immediatelyAvailable?: boolean;
   /** Exact server attachment represented by a browser-local preview. */
@@ -67,6 +70,36 @@ export function extractMentionedLocalImagePreviewItems(
         : previewItemForAbsolutePath(target.path),
     });
   };
+
+  // `![caption](/abs/shot.png)` and `![caption](file:...)` deliberately show an image,
+  // so they keep a slot from the first render and stay visible as missing if the file
+  // cannot load. They resolve through the session, so a remote host's path works too.
+  const addMarkdownImage = (rawTarget: string, index: number) => {
+    const target = /^file:/i.test(rawTarget)
+      ? parseFileHref(rawTarget)
+      : isAbsoluteLocalPath(rawTarget) && isSupportedLocalImagePath(cleanCandidatePath(rawTarget))
+        ? { path: cleanCandidatePath(rawTarget), isRelative: false }
+        : null;
+    if (!target) return;
+    const key = target.isRelative ? `file:${target.path}:relative` : `path:${target.path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    // Plain mentions of the same absolute path elsewhere in the text are the same image.
+    if (!target.isRelative) seen.add(`file:${target.path}:absolute`);
+    references.push({ index, item: markdownImagePreviewItem(target, options.sessionId) });
+  };
+
+  // Image syntax quoted as code (an instruction example) shows nothing.
+  const literalRanges = [...text.matchAll(/```[\s\S]*?(?:```|$)|`[^`\n]+`/g)].map((match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+  }));
+  for (const match of text.matchAll(/!\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"\n]*")?\s*\)/g)) {
+    const matchStart = match.index ?? 0;
+    if (literalRanges.some((range) => matchStart >= range.start && matchStart < range.end)) continue;
+    localLinkRanges.push({ start: matchStart, end: matchStart + match[0].length });
+    addMarkdownImage(match[1] ?? "", matchStart);
+  }
 
   for (const match of text.matchAll(/`([^`\n]+)`/g)) {
     const matchStart = match.index ?? 0;
@@ -240,6 +273,23 @@ function previewItemForAbsolutePath(path: string): ImagePreviewItem {
     fullUrl: api.getFsImageUrl(path, "full"),
     title: path,
     sourcePath: path,
+  };
+}
+
+function markdownImagePreviewItem(
+  target: { path: string; isRelative: boolean },
+  sessionId: string | undefined,
+): ImagePreviewItem {
+  const fileTarget = { ...target, ...(sessionId ? { sessionId } : {}) };
+  return {
+    id: imagePreviewIdForLocalPath(target.path, target.isRelative),
+    filename: filenameForPath(target.path),
+    thumbnailUrl: buildFileLinkImageVariantUrl(fileTarget, "thumbnail"),
+    fullUrl: buildFileLinkImageVariantUrl(fileTarget, "full"),
+    title: target.path,
+    sourcePath: target.path,
+    expectedAttachment: true,
+    showWhenMissing: true,
   };
 }
 

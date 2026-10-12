@@ -155,6 +155,26 @@ describe("ImagePreviewGroup pending attachments", () => {
     expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
   });
 
+  it("keeps an image shown with Markdown image syntax as a missing tile when it cannot load", () => {
+    // The author deliberately showed this image, so a file that cannot be fetched stays
+    // visible as missing instead of vanishing, and cannot be opened.
+    const intended = { ...makeImage("intended"), showWhenMissing: true };
+    const other = makeImage("other");
+    render(<ImagePreviewGroup images={[intended, other]} testId="intended-images" />);
+    const group = screen.getByTestId("intended-images");
+    expect(within(group).getByRole("button", { name: "Loading image intended.png" })).toBeDisabled();
+
+    fireEvent.error(thumbnailFor(group, "intended"));
+    fireEvent.error(thumbnailFor(group, "other"));
+
+    expect(previewIds(group)).toEqual(["intended"]);
+    const missing = within(group).getByRole("button", { name: "Missing image intended.png" });
+    expect(missing).toBeDisabled();
+    expect(missing).not.toHaveAttribute("aria-busy");
+    expect(within(missing).getByTestId("image-preview-missing-placeholder")).toHaveTextContent("Image missing");
+    expect(within(missing).queryByTestId("image-preview-thumbnail-image")).toBeNull();
+  });
+
   it("shows a speculative image this browser already loaded at once when its group remounts", () => {
     // Opening a thread remounts its preview groups. Hiding an image that loaded
     // before until it reloads made the strip appear about a second late and

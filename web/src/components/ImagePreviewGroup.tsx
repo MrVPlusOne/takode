@@ -215,8 +215,10 @@ export function ImagePreviewGroup({
     onImageError?.(originalImage);
   };
 
+  // An image the author asked to show stays visible as missing; any other failure leaves.
   const renderedImages = activeImages.filter(
-    (image) => !isFailed(image) && (isLoaded(image) || image.expectedAttachment === true),
+    (image) =>
+      (!isFailed(image) || image.showWhenMissing === true) && (isLoaded(image) || image.expectedAttachment === true),
   );
   const selectedImage = selectedId
     ? (activeImages.find((image) => image.id === selectedId && !isFailed(image)) ?? null)
@@ -271,21 +273,27 @@ export function ImagePreviewGroup({
           data-testid={testId}
         >
           {renderedImages.map((image) => {
-            const loaded = isLoaded(image);
+            const missing = isFailed(image);
+            const loaded = !missing && isLoaded(image);
             const originalImage = images.find((candidate) => candidate.id === image.id) ?? image;
+            const label = missing
+              ? `Missing image ${image.filename}`
+              : loaded
+                ? `Open image ${image.filename}`
+                : `Loading image ${image.filename}`;
             return (
               <button
                 key={image.id}
                 type="button"
                 className={`group relative ${slotSizeClassName} shrink-0 overflow-hidden rounded-md border border-cc-border bg-cc-code-bg/50 transition-colors enabled:hover:border-cc-primary/60 enabled:hover:bg-cc-hover enabled:focus:outline-none enabled:focus:ring-2 enabled:focus:ring-cc-primary/40 disabled:cursor-default`}
                 onClick={() => openImage(image)}
-                title={image.title ?? image.filename}
-                aria-label={loaded ? `Open image ${image.filename}` : `Loading image ${image.filename}`}
-                aria-busy={loaded ? undefined : true}
+                title={missing ? `Image not found: ${image.title ?? image.filename}` : (image.title ?? image.filename)}
+                aria-label={label}
+                aria-busy={loaded || missing ? undefined : true}
                 disabled={!loaded}
                 data-image-preview-id={image.id}
               >
-                {image.thumbnailUrl ? (
+                {image.thumbnailUrl && !missing ? (
                   <img
                     src={image.thumbnailUrl}
                     alt=""
@@ -300,7 +308,11 @@ export function ImagePreviewGroup({
                     data-testid="image-preview-thumbnail-image"
                   />
                 ) : null}
-                {!loaded && <ImageLoadingPlaceholder compact={size === "small"} />}
+                {missing ? (
+                  <ImageMissingPlaceholder compact={size === "small"} />
+                ) : (
+                  !loaded && <ImageLoadingPlaceholder compact={size === "small"} />
+                )}
               </button>
             );
           })}
@@ -339,6 +351,32 @@ function ImageLoadingPlaceholder({ compact }: { compact: boolean }) {
         <path d="M3.75 11l2.75-2.75 2 2 1.5-1.5 2.25 2.25" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span>{compact ? "Loading" : "Loading image"}</span>
+    </span>
+  );
+}
+
+function ImageMissingPlaceholder({ compact }: { compact: boolean }) {
+  return (
+    <span
+      className={`absolute inset-0 flex flex-col items-center justify-center bg-cc-code-bg/80 px-1 text-center leading-tight text-cc-muted ${
+        compact ? "gap-0.5 text-[8px]" : "gap-1 text-[10px]"
+      }`}
+      data-testid="image-preview-missing-placeholder"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        className={compact ? "h-3 w-3" : "h-4 w-4"}
+        aria-hidden="true"
+      >
+        <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.75" />
+        <circle cx="5.25" cy="6" r="1" />
+        <path d="M3.75 11l2.75-2.75 2 2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2 14L14 2" strokeLinecap="round" />
+      </svg>
+      <span>{compact ? "Missing" : "Image missing"}</span>
     </span>
   );
 }

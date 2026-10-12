@@ -59,12 +59,16 @@ describe("QuestPhaseNoteImages", () => {
         sourcePath: "artifacts/preview.png",
       },
       {
+        // Markdown image syntax is a deliberate image: it reserves a slot, stays visible
+        // when missing and resolves through the session.
         id: "path:/tmp/shot.png",
         filename: "shot.png",
-        thumbnailUrl: "/api/fs/image?path=%2Ftmp%2Fshot.png&variant=thumbnail",
-        fullUrl: "/api/fs/image?path=%2Ftmp%2Fshot.png&variant=full",
+        thumbnailUrl: "/api/fs/file-link/image?path=%2Ftmp%2Fshot.png&isRelative=0&variant=thumbnail&sessionId=s1",
+        fullUrl: "/api/fs/file-link/image?path=%2Ftmp%2Fshot.png&isRelative=0&variant=full&sessionId=s1",
         title: "/tmp/shot.png",
         sourcePath: "/tmp/shot.png",
+        expectedAttachment: true,
+        showWhenMissing: true,
       },
     ]);
   });
