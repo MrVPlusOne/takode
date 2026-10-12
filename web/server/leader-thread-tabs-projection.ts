@@ -55,6 +55,7 @@ const EMPTY_ATTENTION: LeaderThreadTabsProjectionAttention = {
   mutedNeedsInput: false,
   reviewUnread: false,
   updatedAt: 0,
+  changedAt: 0,
 };
 
 type LeaderMessageVisualInputs = {
@@ -438,6 +439,10 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
     };
     const active = isAttentionActive(record);
     const updatedAt = nonNegativeNumber(record.updatedAt);
+    const isPrompt = record.type === "needs_input" && record.priority === "needs_input";
+    const isResult =
+      record.source?.kind === "notification" &&
+      (record.type === "review_ready" || record.priority === "review" || record.priority === "completed");
     const attention = {
       needsInput:
         current.attention.needsInput ||
@@ -451,6 +456,16 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
           record.source?.kind === "notification" &&
           (record.type === "review_ready" || record.priority === "review" || record.priority === "completed")),
       updatedAt: Math.max(current.attention.updatedAt, updatedAt),
+      // Prompts and results move a tab between status groups when they arrive and when they
+      // are answered or read, so either moment counts as a group change.
+      changedAt:
+        isPrompt || isResult
+          ? Math.max(
+              current.attention.changedAt,
+              nonNegativeNumber(record.createdAt),
+              nonNegativeNumber(record.resolvedAt),
+            )
+          : current.attention.changedAt,
     };
 
     let { candidate, title, titleRank, titleUpdatedAt } = current;
@@ -825,6 +840,11 @@ export function buildLeaderThreadTabsProjectionValue(
         nonNegativeNumber(row?.completedAt),
         nonNegativeNumber(row?.updatedAt),
         tabAttention.updatedAt,
+      ),
+      groupChangedAt: Math.max(
+        tabAttention.changedAt,
+        nonNegativeNumber(row?.createdAt),
+        completed ? nonNegativeNumber(row?.completedAt) : 0,
       ),
     };
   });

@@ -959,8 +959,9 @@ function projectedLeaderTab(
     neverStartedScheduled: false,
     completed,
     canClose: completed,
-    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     updatedAt: 100 + index,
+    groupChangedAt: 100 + index,
   };
 }
 
@@ -974,7 +975,7 @@ function leaderProjectionValue(status: "WORKING" | "MEMORY" | "DONE" = "WORKING"
       updatedAt: status === "WORKING" ? 100 : status === "MEMORY" ? 110 : 120,
     },
     tabs,
-    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     threadStatuses: {},
     activePhaseSummary:
       status === "DONE"

@@ -18,13 +18,9 @@ import { SessionChangesChip } from "./DiffChip.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
-import {
-  activeBoardSummarySegments,
-  boardSummary,
-  boardSummarySegmentsFromActivePhaseSummary,
-  type BoardSummarySegment,
-} from "./leader-board-summary.js";
-import { LeaderWorkboardControlButton, SummarySegments, WorkBoardIcon } from "./leader-workboard-controls.js";
+import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
+import { LeaderWorkboardControlButton, WorkBoardIcon } from "./leader-workboard-controls.js";
+import { MainStripSummary } from "./WorkBoardMainStrip.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
@@ -169,6 +165,7 @@ function buildProjectedThreadTabs(
       accentColor: finished ? DONE_THREAD_TITLE_COLOR : projectedThreadTabAccent(tab, ownershipNote),
       stateLabel: ownershipNote ?? (finished ? "Done" : projectedThreadTabDetail(tab)),
       completed: finished,
+      groupChangedAt: tab.groupChangedAt,
       projectedCurrentState: true,
       canClose: tab.canClose,
       updatedAt: tab.updatedAt,
@@ -576,13 +573,10 @@ function WorkBoardBarComponent({
       blueNudge: attention.reviewUnread,
       canClose: false,
       updatedAt: attention.updatedAt,
+      groupChangedAt: attention.changedAt,
     } satisfies PrimaryThreadChip;
   }, [projection]);
   const threadStatuses = projection?.threadStatuses ?? {};
-  const activeSummarySegments = useMemo(
-    () => boardSummarySegmentsFromActivePhaseSummary(projection?.activePhaseSummary ?? []),
-    [projection],
-  );
   const showMainBanner =
     isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) || isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
   // An empty active board still opens, so the top-bar Board button always shows something.
@@ -601,7 +595,6 @@ function WorkBoardBarComponent({
   const handleSelectView = (view: LeaderWorkboardView) => {
     setLeaderWorkboardView(sessionId, activeView === view ? null : view);
   };
-
   if (!isOrchestrator) return null;
 
   return (
@@ -621,56 +614,19 @@ function WorkBoardBarComponent({
 
       {showMainBanner && (
         <div
-          className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:flex-nowrap sm:px-4"
+          className="flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
           <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
           <WorkBoardIcon className="h-4 w-4 text-cc-info" />
-
-          {activeSummarySegments.length > 0 && (
-            <LeaderWorkboardControlButton
-              view="active"
-              activeView={panelView}
-              onSelectView={handleSelectView}
-              testId="workboard-active-button"
-              ariaLabel="Open active workboard"
-            >
-              <span className="min-w-0 truncate" data-testid="workboard-phase-summary">
-                <SummarySegments segments={activeSummarySegments} />
-              </span>
-            </LeaderWorkboardControlButton>
-          )}
-          {completedCount > 0 && (
-            <LeaderWorkboardControlButton
-              view="completed"
-              activeView={panelView}
-              onSelectView={handleSelectView}
-              testId="workboard-completed-button"
-              ariaLabel="Open completed quests"
-            >
-              <span className="tabular-nums">{completedCount}</span>
-              <span>Completed</span>
-            </LeaderWorkboardControlButton>
-          )}
-          {otherThreadCount > 0 && (
-            <LeaderWorkboardControlButton
-              view="other"
-              activeView={panelView}
-              onSelectView={handleSelectView}
-              testId="workboard-other-button"
-              ariaLabel="Open other threads"
-            >
-              <span className="tabular-nums">{otherThreadCount}</span>
-              <span>Other</span>
-            </LeaderWorkboardControlButton>
-          )}
-          {activeSummarySegments.length === 0 && completedCount === 0 && otherThreadCount === 0 && (
-            <span className="min-w-0 flex-1 truncate text-[11px] text-cc-muted" data-testid="workboard-empty-summary">
-              Empty
-            </span>
-          )}
-
+          <MainStripSummary
+            summary={projection?.activePhaseSummary ?? []}
+            completedCount={completedCount}
+            otherThreadCount={otherThreadCount}
+            activeView={panelView}
+            onSelectView={handleSelectView}
+          />
           <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
             {/* The leader's own changes; nothing shows while its checkout is clean. */}
             <SessionChangesChip
@@ -679,9 +635,6 @@ function WorkBoardBarComponent({
               title="Show leader changes"
               testId="workboard-main-diff-chip"
             />
-          </span>
-          <span className="text-[11px] text-cc-muted shrink-0 tabular-nums">
-            {activeCount} {activeCount === 1 ? "item" : "items"}
           </span>
         </div>
       )}

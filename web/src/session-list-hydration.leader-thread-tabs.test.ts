@@ -74,7 +74,7 @@ describe("session-list leader thread tabs projection hydration", () => {
     const cleared = createLeaderThreadTabsProjectionValue({
       tabState: null,
       tabs: [],
-      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
       threadStatuses: {},
       activePhaseSummary: [],
     });

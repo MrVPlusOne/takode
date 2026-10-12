@@ -146,7 +146,7 @@ function installMainReady(messageId: string, timestamp: number) {
       key: SESSION_ID,
       value: createLeaderThreadTabsProjectionValue({
         tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
         threadStatuses: {
           main: {

@@ -1145,6 +1145,8 @@ function updateResolutionNoticeForDoneChange(
   done: boolean,
   options: NotificationDoneOptions,
 ): void {
+  if (done) notification.doneAt = Date.now();
+  else delete notification.doneAt;
   if (notification.category !== "needs-input") return;
   if (!done) {
     delete notification.resolutionNotice;

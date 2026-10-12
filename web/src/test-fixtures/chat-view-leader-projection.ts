@@ -109,7 +109,7 @@ export function installChatViewLeaderProjection(
   const value = createLeaderThreadTabsProjectionValue({
     tabState: options.tabState === undefined ? { version: 1 } : options.tabState,
     tabs,
-    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     threadStatuses: {},
     activePhaseSummary: [],
   });

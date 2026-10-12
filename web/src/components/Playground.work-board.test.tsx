@@ -233,7 +233,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     fireEvent.click(workBoardBar.getByText("Main banner"));
     expect(workBoardBar.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
     expect(workBoardBar.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
-    expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("3Other");
+    expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("3 other");
     expect(workBoardBar.queryByTestId("workboard-off-board-threads")).toBeNull();
     fireEvent.click(workBoardBar.getByTestId("workboard-other-button"));
     expect(workBoardBar.getByTestId("workboard-other-threads-content")).toHaveTextContent(

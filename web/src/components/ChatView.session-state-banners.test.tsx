@@ -68,7 +68,7 @@ function leaderTabsProjectionState(
   const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
   const value = createLeaderThreadTabsProjectionValue({
     tabState: { version: 1 },
-    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     threadStatuses: {},
     activePhaseSummary: [],
     ...overrides,

@@ -110,8 +110,9 @@ function projectedTab(title: string, updatedAt: number): LeaderThreadTabsProject
     neverStartedScheduled: false,
     completed: false,
     canClose: false,
-    attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt },
+    attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt, changedAt: updatedAt },
     updatedAt,
+    groupChangedAt: updatedAt,
   };
 }
 
@@ -125,7 +126,7 @@ function projectionValue(title: string, updatedAt: number, orderedOpenThreadKeys
     active: false,
     boardStatus: "DONE",
     canClose: true,
-    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
   };
   const tabsByKey = new Map([
     ["q-1", q1],
@@ -139,7 +140,7 @@ function projectionValue(title: string, updatedAt: number, orderedOpenThreadKeys
       updatedAt,
     },
     tabs: orderedOpenThreadKeys.map((threadKey) => tabsByKey.get(threadKey)!),
-    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     threadStatuses: {},
     activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
   });
@@ -236,7 +237,7 @@ describe("ChatView leader thread tabs projection", () => {
         revision: 2,
         value: createLeaderThreadTabsProjectionValue({
           tabs: [timedTab],
-          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
           threadStatuses: {},
           activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
         }),
@@ -363,7 +364,7 @@ describe("ChatView leader thread tabs projection", () => {
             updatedAt: 30,
           },
           tabs: [activeTab],
-          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
           threadStatuses: {},
           activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
         }),
@@ -435,7 +436,7 @@ describe("ChatView leader thread tabs projection", () => {
         value: createLeaderThreadTabsProjectionValue({
           tabState: null,
           tabs: [active, queued],
-          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
           threadStatuses: {},
           activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
         }),
@@ -841,8 +842,10 @@ describe("ChatView leader thread tabs projection", () => {
         mutedNeedsInput: false,
         reviewUnread: false,
         updatedAt: 0,
+        changedAt: 0,
       },
       updatedAt: 200,
+      groupChangedAt: 200,
     };
     useStore.getState().applySyncedProjectionSnapshot(
       createLeaderThreadTabsProjectionEnvelope({
@@ -860,6 +863,7 @@ describe("ChatView leader thread tabs projection", () => {
             mutedNeedsInput: false,
             reviewUnread: false,
             updatedAt: 0,
+            changedAt: 0,
           },
           threadStatuses: {},
           activePhaseSummary: [],

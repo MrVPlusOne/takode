@@ -68,6 +68,20 @@ describe("groupThreadTabs", () => {
   });
 });
 
+describe("groupThreadTabs order", () => {
+  it("lists the tab that entered a group most recently first, keeping tab order for ties", () => {
+    // q-21 was read a moment ago (moving it from New results into Done), so it leads Done
+    // although it is last in the leader's tab order; q-22 and q-23 tie and keep their order.
+    const done = groupThreadTabs([
+      tab("q-22", { completed: true, groupChangedAt: 100 }),
+      tab("q-23", { completed: true, groupChangedAt: 100 }),
+      tab("q-20", { completed: true, groupChangedAt: 50 }),
+      tab("q-21", { completed: true, groupChangedAt: 900 }),
+    ]).done;
+    expect(done.map((item) => item.threadKey)).toEqual(["q-21", "q-22", "q-23", "q-20"]);
+  });
+});
+
 describe("ThreadTabGroupBar", () => {
   it("shows Main, one item per non-empty group and search, marking the current tab's group", () => {
     renderBar({ tabs: TABS.filter((item) => !item.needsInput) });
@@ -77,13 +91,14 @@ describe("ThreadTabGroupBar", () => {
     expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
     expect(screen.getByTestId("thread-tab-group-search")).toBeTruthy();
     const chips = screen.getAllByTestId("thread-tab-group-chip");
-    // No prompt is waiting, so the Needs you chip is hidden rather than showing 0.
+    // No prompt is waiting, so the Needs you chip is hidden rather than showing 0. The
+    // groups read left to right as stages of the work: ongoing, then unread results, then done.
     expect(chips.map((chip) => [chip.dataset.group, chip.textContent])).toEqual([
-      ["new-results", "2"],
       ["in-progress", "1"],
+      ["new-results", "2"],
       ["done", "3"],
     ]);
-    expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
+    expect(chips.map((chip) => chip.dataset.selected)).toEqual(["true", "false", "false"]);
   });
 
   it("opens a group's list and switches tabs from it", () => {

@@ -105,8 +105,9 @@ function playgroundFallbackTab(threadKey: string): LeaderThreadTabsProjectionTab
     neverStartedScheduled: false,
     completed: false,
     canClose: true,
-    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     updatedAt: 0,
+    groupChangedAt: 0,
   };
 }
 
@@ -1489,6 +1490,7 @@ export function PlaygroundInteractiveSections() {
                     mutedNeedsInput: false,
                     reviewUnread,
                     updatedAt,
+                    changedAt: updatedAt,
                   });
                   const projectedTabs = boardOpenThreadKeys.map((threadKey) => {
                     const row = visualRows.get(threadKey);
@@ -1514,6 +1516,7 @@ export function PlaygroundInteractiveSections() {
                       canClose: row?.status !== "WORKING",
                       attention: projectedAttention(needsInput, reviewUnread, row?.updatedAt ?? now),
                       updatedAt: row?.updatedAt ?? now,
+                      groupChangedAt: row?.updatedAt ?? now,
                     } satisfies LeaderThreadTabsProjectionTab;
                   });
                   applyPlaygroundBoardProjection({

@@ -236,7 +236,7 @@ describe("leader thread tabs projection WebSocket carrier", () => {
             updatedAt: 10,
           },
           tabs: [],
-          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
           threadStatuses: {},
           activePhaseSummary: [],
         }),

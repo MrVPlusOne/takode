@@ -1701,6 +1701,8 @@ export interface SessionNotification {
   questId?: string;
   threadRefs?: ThreadRef[];
   done: boolean;
+  /** When the notification was last marked done (answered, read or dismissed); absent while open. */
+  doneAt?: number;
   /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */
   muted?: boolean;
   mutedAt?: number;

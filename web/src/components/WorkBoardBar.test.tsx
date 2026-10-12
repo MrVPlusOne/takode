@@ -261,7 +261,7 @@ describe("WorkBoardBar", () => {
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { getByText, getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    const { getByText, getByTestId, queryByTestId, queryByText } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
     expect(queryByTestId("workboard-current-thread")).not.toBeInTheDocument();
     expect(getByTestId("workboard-active-button")).toBeInTheDocument();
@@ -272,8 +272,8 @@ describe("WorkBoardBar", () => {
     // Each status segment renders separately with its color class
     expect(getByText("1 Work")).toBeInTheDocument();
     expect(getByText("1 Queued")).toBeInTheDocument();
-    // Item count should show total
-    expect(getByText("2 items")).toBeInTheDocument();
+    // The strip no longer ends with an "N items" count; the phase words say it all.
+    expect(queryByText(/^\d+ items?$/)).toBeNull();
     expect(
       getByTestId("thread-tab-rail").compareDocumentPosition(getByTestId("workboard-main-banner")) &
         Node.DOCUMENT_POSITION_FOLLOWING,

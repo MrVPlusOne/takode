@@ -62,6 +62,7 @@ const EMPTY_ATTENTION: LeaderThreadTabsProjectionAttention = {
   mutedNeedsInput: false,
   reviewUnread: false,
   updatedAt: 0,
+  changedAt: 0,
 };
 
 const ACTIVE_ATTENTION_STATES = new Set<SessionAttentionRecord["state"]>(["unresolved", "seen", "reopened"]);
@@ -159,6 +160,7 @@ function attentionByThread(
       mutedNeedsInput: rowMutedNeedsInput || records.some(isMutedNeedsInput),
       reviewUnread: records.some(isReviewUnread),
       updatedAt: Math.max(row?.updatedAt ?? 0, ...records.map((record) => record.updatedAt ?? 0), 0),
+      changedAt: Math.max(...records.map((record) => Math.max(record.createdAt ?? 0, record.resolvedAt ?? 0)), 0),
     });
   }
   return result;
@@ -388,6 +390,11 @@ export function installWorkBoardProjectionFixture(
       canClose: !active,
       attention: { ...tabAttention },
       updatedAt: Math.max(boardRow?.completedAt ?? 0, boardRow?.updatedAt ?? 0, tabAttention.updatedAt),
+      groupChangedAt: Math.max(
+        tabAttention.changedAt,
+        boardRow?.createdAt ?? 0,
+        completed ? (boardRow?.completedAt ?? 0) : 0,
+      ),
     };
   });
 

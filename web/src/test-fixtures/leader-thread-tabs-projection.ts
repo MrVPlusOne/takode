@@ -13,6 +13,7 @@ function attention(overrides: Partial<LeaderThreadTabsProjectionAttention> = {})
     mutedNeedsInput: false,
     reviewUnread: false,
     updatedAt: 0,
+    changedAt: 0,
     ...overrides,
   };
 }
@@ -42,6 +43,7 @@ export function createLeaderThreadTabsProjectionTab(
     completed: false,
     canClose: true,
     updatedAt: 0,
+    groupChangedAt: 0,
     ...rest,
     attention: attention(attentionOverrides),
   };

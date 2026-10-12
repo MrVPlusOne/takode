@@ -529,7 +529,9 @@ function attentionRecordFromNotification(
     state,
     createdAt: notification.timestamp,
     updatedAt: notification.timestamp,
-    ...(state === "resolved" ? { resolvedAt: notification.timestamp } : {}),
+    ...(state === "resolved"
+      ? { resolvedAt: notification.doneAt ?? notification.resolutionNotice?.resolvedAt ?? notification.timestamp }
+      : {}),
     route,
     chipEligible: !isJourneyFinished,
     ledgerEligible: !hasExplicitFinishedRecords && state !== "muted",

@@ -186,8 +186,15 @@ function projectedTab(row: BoardRowData, completed: boolean): LeaderThreadTabsPr
     neverStartedScheduled: queued,
     completed,
     canClose: completed,
-    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: row.updatedAt },
+    attention: {
+      needsInput: false,
+      mutedNeedsInput: false,
+      reviewUnread: false,
+      updatedAt: row.updatedAt,
+      changedAt: row.updatedAt,
+    },
     updatedAt: row.updatedAt,
+    groupChangedAt: row.updatedAt,
   };
 }
 
@@ -215,7 +222,13 @@ function useAccessLeaderSeed(): boolean {
         currentQuestStateVersion: 1,
         tabState: { version: 1 },
         tabs: [...ACTIVE_ROWS.map((row) => projectedTab(row, false)), projectedTab(COMPLETED_ROWS[0]!, true)],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: NOW },
+        mainAttention: {
+          needsInput: false,
+          mutedNeedsInput: false,
+          reviewUnread: false,
+          updatedAt: NOW,
+          changedAt: NOW,
+        },
         threadStatuses: {},
         activePhaseSummary: buildLeaderActivePhaseSummary(ACTIVE_ROWS),
       },

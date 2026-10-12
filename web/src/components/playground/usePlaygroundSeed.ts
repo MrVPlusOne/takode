@@ -58,7 +58,13 @@ import {
   buildPlaygroundProjectedJourney,
 } from "./leader-thread-tabs-projection-fixtures.js";
 
-const EMPTY_PROJECTED_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
+const EMPTY_PROJECTED_ATTENTION = {
+  needsInput: false,
+  mutedNeedsInput: false,
+  reviewUnread: false,
+  updatedAt: 0,
+  changedAt: 0,
+};
 
 function projectedAttention(overrides: Partial<typeof EMPTY_PROJECTED_ATTENTION> = {}) {
   return { ...EMPTY_PROJECTED_ATTENTION, ...overrides };
@@ -683,6 +689,7 @@ export function usePlaygroundSeed() {
           canClose: true,
           attention: projectedAttention(),
           updatedAt: leaderReturnCompletedAt,
+          groupChangedAt: leaderReturnCompletedAt,
         })),
         mainAttention: projectedAttention(),
         threadStatuses: {},
@@ -1251,6 +1258,7 @@ export function usePlaygroundSeed() {
               canClose: completed || queued || proposed,
               attention,
               updatedAt: boardRow.updatedAt,
+              groupChangedAt: boardRow.updatedAt,
             };
           }),
           ...buildPlaygroundHandoffTabs(Date.now() - 20_000),

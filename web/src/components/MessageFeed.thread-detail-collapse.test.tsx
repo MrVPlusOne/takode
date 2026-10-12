@@ -353,7 +353,7 @@ function setStoreLeaderProjection(
       entryId,
       createLeaderThreadTabsProjectionValue({
         tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         threadStatuses,
         activePhaseSummary: [],
       }),

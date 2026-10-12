@@ -38,6 +38,8 @@ export interface LeaderThreadTabsProjectionAttention {
   mutedNeedsInput: boolean;
   reviewUnread: boolean;
   updatedAt: number;
+  /** Latest time a prompt or result for this thread appeared or was answered, read or dismissed. */
+  changedAt: number;
 }
 
 export interface LeaderThreadTabsProjectionJourney {
@@ -84,6 +86,11 @@ export interface LeaderThreadTabsProjectionTab {
   canClose: boolean;
   attention: LeaderThreadTabsProjectionAttention;
   updatedAt: number;
+  /**
+   * When the tab last changed status group (prompt, unread result, in progress, finished): the
+   * latest of its attention change, its board row's creation and its completion.
+   */
+  groupChangedAt: number;
 }
 
 export interface LeaderThreadTabsProjectionValue {
@@ -113,7 +120,8 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
     typeof candidate.needsInput === "boolean" &&
     typeof candidate.mutedNeedsInput === "boolean" &&
     typeof candidate.reviewUnread === "boolean" &&
-    isNonNegativeNumber(candidate.updatedAt)
+    isNonNegativeNumber(candidate.updatedAt) &&
+    isNonNegativeNumber(candidate.changedAt)
   );
 }
 
@@ -203,7 +211,8 @@ function isTab(value: unknown): value is LeaderThreadTabsProjectionTab {
       1 &&
     typeof candidate.canClose === "boolean" &&
     isAttention(candidate.attention) &&
-    isNonNegativeNumber(candidate.updatedAt)
+    isNonNegativeNumber(candidate.updatedAt) &&
+    isNonNegativeNumber(candidate.groupChangedAt)
   );
 }
 

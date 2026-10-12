@@ -206,14 +206,17 @@ describe("WorkBoardBar panel views", () => {
     expect(view.queryByTestId("board-table")).not.toBeInTheDocument();
   });
 
-  it("shows singular 'item' for a single board row", () => {
+  it("summarizes a single board row by phase without an item count", () => {
+    // The Main strip used to end with "N items"; the user found it meaningless, so the
+    // phase summary alone describes the board.
     const singleRow: BoardRowData[] = [{ questId: "q-1", status: "QUEUED", updatedAt: 1 }];
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", singleRow]]),
     });
-    const { getByText } = render(<WorkBoardBar sessionId="s1" />);
-    expect(getByText("1 item")).toBeInTheDocument();
+    const { getByTestId, queryByText } = render(<WorkBoardBar sessionId="s1" />);
+    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Queued");
+    expect(queryByText(/^\d+ items?$/)).toBeNull();
   });
 
   it("keeps selected workboard view visible in place while visiting a quest thread", () => {
@@ -327,8 +330,8 @@ describe("WorkBoardBar panel views", () => {
     );
     const { getByTestId } = view;
 
-    expect(getByTestId("workboard-other-button")).toHaveTextContent("1Other");
-    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Work, 1 Queued");
+    expect(getByTestId("workboard-other-button")).toHaveTextContent("1 other");
+    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Work · 1 Queued");
     expect(view.queryByTestId("workboard-off-board-threads")).not.toBeInTheDocument();
     fireEvent.click(getByTestId("workboard-other-button"));
     view.rerender(
@@ -393,7 +396,7 @@ describe("WorkBoardBar panel views", () => {
     });
     const { queryByTestId, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(queryByTestId("workboard-active-button")).not.toBeInTheDocument();
-    expect(getByTestId("workboard-completed-button")).toHaveTextContent("1Completed");
+    expect(getByTestId("workboard-completed-button")).toHaveTextContent("1 done");
   });
 
   it("does not render the removed workboard search control", () => {

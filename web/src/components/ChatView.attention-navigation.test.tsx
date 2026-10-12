@@ -46,7 +46,7 @@ import { threadRouteFromHash } from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import { ChatView } from "./ChatView.js";
 
-const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
+const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 };
 
 function questTab(threadKey: string): LeaderThreadTabsProjectionTab {
   return {
@@ -68,6 +68,7 @@ function questTab(threadKey: string): LeaderThreadTabsProjectionTab {
     canClose: false,
     attention: NO_ATTENTION,
     updatedAt: 10,
+    groupChangedAt: 10,
   } as LeaderThreadTabsProjectionTab;
 }
 

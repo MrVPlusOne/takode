@@ -45,8 +45,10 @@ function value(): LeaderThreadTabsProjectionValue {
           mutedNeedsInput: false,
           reviewUnread: true,
           updatedAt: 9,
+          changedAt: 9,
         },
         updatedAt: 10,
+        groupChangedAt: 9,
       },
       {
         threadKey: "q-2",
@@ -77,8 +79,10 @@ function value(): LeaderThreadTabsProjectionValue {
           mutedNeedsInput: false,
           reviewUnread: false,
           updatedAt: 0,
+          changedAt: 0,
         },
         updatedAt: 7,
+        groupChangedAt: 7,
       },
     ],
     mainAttention: {
@@ -86,6 +90,7 @@ function value(): LeaderThreadTabsProjectionValue {
       mutedNeedsInput: true,
       reviewUnread: false,
       updatedAt: 6,
+      changedAt: 6,
     },
     threadStatuses: {
       "q-2": {

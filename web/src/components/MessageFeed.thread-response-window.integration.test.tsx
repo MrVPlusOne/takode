@@ -1237,7 +1237,7 @@ function installAssociatedReadyStatuses() {
       key: SESSION_ID,
       value: createLeaderThreadTabsProjectionValue({
         tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
         threadStatuses: {
           main: {
@@ -1271,7 +1271,7 @@ function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response
       key: SESSION_ID,
       value: createLeaderThreadTabsProjectionValue({
         tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
         threadStatuses: {
           [QUEST_ID]: {

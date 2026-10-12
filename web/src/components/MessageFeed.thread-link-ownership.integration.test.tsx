@@ -204,7 +204,7 @@ function installReadyStatuses() {
       key: SESSION_ID,
       value: createLeaderThreadTabsProjectionValue({
         tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
         threadStatuses: { main: ready("main"), [QUEST_ID]: ready(QUEST_ID) },
       }),

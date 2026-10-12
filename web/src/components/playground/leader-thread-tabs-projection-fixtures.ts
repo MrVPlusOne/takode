@@ -59,8 +59,10 @@ export function buildPlaygroundHandoffTabs(updatedAt: number): LeaderThreadTabsP
       mutedNeedsInput: false,
       reviewUnread: false,
       updatedAt: 0,
+      changedAt: 0,
     },
     updatedAt,
+    groupChangedAt: updatedAt,
   });
   return [
     {

@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { BellIcon } from "./GlobalNeedsInputMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
@@ -17,10 +17,11 @@ import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
+/** Left to right as stages of the work: waiting on the user, ongoing, finished but unread, done. */
 export const THREAD_TAB_GROUP_ORDER: readonly ThreadTabGroupId[] = [
   "needs-input",
-  "new-results",
   "in-progress",
+  "new-results",
   "done",
 ];
 
@@ -32,9 +33,10 @@ const GROUP_LABEL: Record<ThreadTabGroupId, string> = {
 };
 
 /**
- * Splits tabs by what the user looks for, keeping the leader's tab order within each
- * group. A prompt outranks an unread result; without either, a tab is in progress until
- * its quest is finished. Main joins a group only when it has a prompt or a result.
+ * Splits tabs by what the user looks for. A prompt outranks an unread result; without
+ * either, a tab is in progress until its quest is finished. Main joins a group only when
+ * it has a prompt or a result. Within a group, the tab that entered it most recently
+ * (the server's `groupChangedAt`) comes first, and ties keep the leader's tab order.
  */
 export function groupThreadTabs(
   tabs: readonly PrimaryThreadChip[],
@@ -53,6 +55,9 @@ export function groupThreadTabs(
     else if (tab.blueNudge) groups["new-results"].push(tab);
     else if (tab.completed) groups.done.push(tab);
     else groups["in-progress"].push(tab);
+  }
+  for (const group of Object.values(groups)) {
+    group.sort((left, right) => (right.groupChangedAt ?? 0) - (left.groupChangedAt ?? 0));
   }
   return groups;
 }
@@ -101,7 +106,8 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
   };
   const groups = groupThreadTabs(tabs, mainTab);
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
-  const onMain = currentKey === MAIN_THREAD_KEY;
+  // The All view sits under the Main strip too, so Main is the selected tab there.
+  const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
   const currentGroup = onMain
     ? null
     : (THREAD_TAB_GROUP_ORDER.find((id) =>
@@ -123,13 +129,16 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [openGroup]);
 
-  const item = (key: string, props: Omit<BarItemProps, "placement">) => (
-    <BarItem key={key} placement={placement} {...props} />
+  // The selected tab takes the color of the strip it labels: Main's strip is a card,
+  // a quest's strip sits on the page background.
+  const selectedSurface = onMain ? "bg-cc-card" : "bg-cc-bg";
+  const item = (key: string, props: Omit<BarItemProps, "placement" | "selectedSurface">) => (
+    <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
   return (
     <div className="relative" data-testid="thread-tab-group-bar" data-placement={placement}>
       <div
-        className={`flex gap-1 ${placement === "bottom" ? "items-start pb-1.5" : "items-end pt-1.5"}`}
+        className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
         role="tablist"
       >
         {item("main", {
@@ -249,6 +258,7 @@ function ActiveOutputDot() {
 
 interface BarItemProps {
   placement: "top" | "bottom";
+  selectedSurface: string;
   label: string;
   selected: boolean;
   open?: boolean;
@@ -270,6 +280,7 @@ interface BarItemProps {
  */
 function BarItem({
   placement,
+  selectedSurface,
   label,
   selected,
   open = false,
@@ -286,7 +297,7 @@ function BarItem({
   const size = compact ? "w-10 shrink-0" : "min-w-0 flex-1";
   const edge = placement === "bottom" ? "rounded-b-md border-t-0" : "rounded-t-md border-b-0";
   const tone = selected
-    ? `relative z-10 ${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 bg-cc-card text-cc-fg`
+    ? `relative z-10 ${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 ${selectedSurface} text-cc-fg`
     : open
       ? "border-cc-border bg-cc-hover/70 text-cc-fg"
       : "border-cc-border/70 bg-cc-hover/30 text-cc-muted";

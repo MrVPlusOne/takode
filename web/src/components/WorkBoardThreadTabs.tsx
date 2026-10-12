@@ -185,6 +185,8 @@ export interface PrimaryThreadChip {
   accentColor?: string;
   /** The tab's phase or state ("Work", "Done", "Led by #12"), even while it needs input. */
   stateLabel?: string;
+  /** Server time the tab last changed status group; the phone groups list the newest first. */
+  groupChangedAt?: number;
 }
 
 export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<PrimaryThreadChip>): string {

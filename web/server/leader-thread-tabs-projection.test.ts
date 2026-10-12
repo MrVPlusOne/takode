@@ -1478,3 +1478,40 @@ describe("needs-input leader tab authority", () => {
     expect(persistSession).toHaveBeenCalled();
   });
 });
+
+describe("leader thread tab status-group times", () => {
+  it("dates each tab's group change by when its prompt or result arrived, was answered or read", () => {
+    // The phone tab groups list the tab that entered a group most recently first. q-read
+    // finished at 300 but its result was read at 500, so it entered Done when read; q-old
+    // finished at 400 with nothing to read; q-new has had an unread result since 450.
+    // Main's prompt was answered at 600.
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-read", "q-old", "q-new"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+      } as unknown as Session["state"],
+      completedBoard: new Map([
+        ["q-read", boardRow("q-read", "DONE", { createdAt: 10, updatedAt: 300, completedAt: 300 })],
+        ["q-old", boardRow("q-old", "DONE", { createdAt: 10, updatedAt: 400, completedAt: 400 })],
+      ]),
+      notifications: [
+        notification("n-1", "review", "q-read", { timestamp: 250, done: true, doneAt: 500 }),
+        notification("n-2", "review", "q-new", { timestamp: 450 }),
+        notification("n-3", "needs-input", "main", { timestamp: 100, questId: undefined, done: true, doneAt: 600 }),
+      ],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+    const groupChangedAt = (threadKey: string) => value.tabs.find((tab) => tab.threadKey === threadKey)?.groupChangedAt;
+
+    expect(groupChangedAt("q-read")).toBe(500);
+    expect(groupChangedAt("q-old")).toBe(400);
+    expect(groupChangedAt("q-new")).toBe(450);
+    expect(value.mainAttention.changedAt).toBe(600);
+  });
+});

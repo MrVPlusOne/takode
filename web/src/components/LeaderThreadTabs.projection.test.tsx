@@ -119,12 +119,14 @@ function projectedTab(
     completed: false,
     canClose: true,
     updatedAt: 10,
+    groupChangedAt: 10,
     ...rest,
     attention: {
       needsInput: false,
       mutedNeedsInput: false,
       reviewUnread: false,
       updatedAt: 0,
+      changedAt: 0,
       ...attention,
     },
   };
@@ -146,7 +148,7 @@ describe("leader thread tabs projected component behavior", () => {
     const value = createLeaderThreadTabsProjectionValue();
     value.tabs[1] = {
       ...value.tabs[1]!,
-      attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+      attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
     };
     installLeaderProjection(value);
 
@@ -242,7 +244,7 @@ describe("leader thread tabs projected component behavior", () => {
           updatedAt: 100,
         },
         tabs,
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         threadStatuses: {
           "q-3": {
             kind: "waiting",
@@ -371,7 +373,7 @@ describe("leader thread tabs projected component behavior", () => {
         },
         active: true,
         canClose: false,
-        attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt: 30 },
+        attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt: 30, changedAt: 30 },
       }),
       projectedTab("q-104", {
         title: "Memory work",
@@ -418,7 +420,7 @@ describe("leader thread tabs projected component behavior", () => {
           updatedAt: 100,
         },
         tabs,
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         threadStatuses: {},
         activePhaseSummary: [],
       }),
@@ -500,6 +502,7 @@ describe("leader thread tabs projected component behavior", () => {
           mutedNeedsInput: false,
           reviewUnread: false,
           updatedAt: 0,
+          changedAt: 0,
         },
         threadStatuses: {
           "q-700": {
@@ -592,6 +595,7 @@ describe("leader thread tabs projected component behavior", () => {
               mutedNeedsInput: false,
               reviewUnread: false,
               updatedAt: 0,
+              changedAt: 0,
             },
             threadStatuses: {
               "q-700": {
@@ -640,16 +644,16 @@ describe("leader thread tabs projected component behavior", () => {
 
   it("combines restored local tabs with derived projection tabs while tab state is absent", () => {
     const shared = projectedTab("q-702", {
-      attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: true, updatedAt: 30 },
+      attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: true, updatedAt: 30, changedAt: 30 },
     });
     const derived = projectedTab("q-703", {
-      attention: { needsInput: false, mutedNeedsInput: true, reviewUnread: false, updatedAt: 20 },
+      attention: { needsInput: false, mutedNeedsInput: true, reviewUnread: false, updatedAt: 20, changedAt: 20 },
     });
     installLeaderProjection(
       createLeaderThreadTabsProjectionValue({
         tabState: null,
         tabs: [shared, derived],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         threadStatuses: {},
         activePhaseSummary: [],
       }),
