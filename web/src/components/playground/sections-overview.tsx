@@ -15,6 +15,7 @@ import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionSt
 import { PlaygroundWaitingWorkers } from "./PlaygroundWaitingWorkers.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
+import { PlaygroundImagePathLinks } from "./PlaygroundImagePathLinks.js";
 import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
 import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
@@ -760,6 +761,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Assistant message (image preview group)">
             <MessageBubble message={MSG_ASSISTANT_IMAGE_PREVIEW} sessionId="playground" />
+          </Card>
+          <Card label="Assistant message (image paths as file-name links)">
+            <PlaygroundImagePathLinks />
           </Card>
           <Card label="Assistant message (legacy leader-visible row)">
             <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />

@@ -8,6 +8,8 @@ export interface ImagePreviewItem {
   thumbnailUrl: string;
   fullUrl: string;
   title?: string;
+  /** Local file path the image was mentioned by; the viewer shows it for copying. */
+  sourcePath?: string;
   /** Explicit attachment refs reserve a visible slot while their preview loads. */
   expectedAttachment?: boolean;
   /** Browser-local bytes/URL are already available; do not flash a loading placeholder. */
@@ -87,14 +89,28 @@ export function extractMentionedLocalImagePreviewItems(
     addFileHref(match[0], matchStart);
   }
 
-  for (const match of text.matchAll(/\/[^\s`"'<>]+/g)) {
-    const matchStart = match.index ?? 0;
-    if (codeRanges.some((range) => matchStart >= range.start && matchStart < range.end)) continue;
-    if (localLinkRanges.some((range) => matchStart >= range.start && matchStart < range.end)) continue;
-    addAbsolutePath(match[0], matchStart);
+  for (const { index, path } of matchAbsoluteImagePaths(text)) {
+    if (codeRanges.some((range) => index >= range.start && index < range.end)) continue;
+    if (localLinkRanges.some((range) => index >= range.start && index < range.end)) continue;
+    addAbsolutePath(path, index);
   }
 
   return references.sort((left, right) => left.index - right.index).map(({ item }) => item);
+}
+
+/** Absolute image paths in plain text, with the offset where each starts. */
+export function matchAbsoluteImagePaths(text: string): Array<{ index: number; path: string }> {
+  const matches: Array<{ index: number; path: string }> = [];
+  for (const match of text.matchAll(/\/[^\s`"'<>]+/g)) {
+    const path = cleanCandidatePath(match[0]);
+    if (isSupportedLocalImagePath(path)) matches.push({ index: match.index ?? 0, path });
+  }
+  return matches;
+}
+
+/** Preview item ID of an image mentioned by local path, so links in the text can find its preview. */
+export function imagePreviewIdForLocalPath(path: string, isRelative: boolean): string {
+  return isRelative ? `file:${path}` : `path:${path}`;
 }
 
 export function buildAssistantImagePreviewItems(message: ChatMessage, sessionId?: string): ImagePreviewItem[] {
@@ -218,11 +234,12 @@ function assistantVisibleText(message: ChatMessage): string {
 function previewItemForAbsolutePath(path: string): ImagePreviewItem {
   const filename = filenameForPath(path);
   return {
-    id: `path:${path}`,
+    id: imagePreviewIdForLocalPath(path, false),
     filename,
     thumbnailUrl: api.getFsImageUrl(path, "thumbnail"),
     fullUrl: api.getFsImageUrl(path, "full"),
     title: path,
+    sourcePath: path,
   };
 }
 
@@ -230,11 +247,12 @@ function previewItemForRelativeFileLink(path: string, sessionId: string | undefi
   const filename = filenameForPath(path);
   const target = { path, isRelative: true, ...(sessionId ? { sessionId } : {}) };
   return {
-    id: `file:${path}`,
+    id: imagePreviewIdForLocalPath(path, true),
     filename,
     thumbnailUrl: buildFileLinkImageVariantUrl(target, "thumbnail"),
     fullUrl: buildFileLinkImageVariantUrl(target, "full"),
     title: path,
+    sourcePath: path,
   };
 }
 

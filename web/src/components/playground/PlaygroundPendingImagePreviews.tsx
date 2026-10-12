@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { ImagePreviewGroup } from "../ImagePreviewGroup.js";
 import type { ImagePreviewItem } from "../image-preview-utils.js";
 
-const READY_IMAGE =
+export const READY_IMAGE =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxOTIiIGhlaWdodD0iMTI4IiB2aWV3Qm94PSIwIDAgMTkyIDEyOCI+PHJlY3Qgd2lkdGg9IjE5MiIgaGVpZ2h0PSIxMjgiIHJ4PSIxMiIgZmlsbD0iIzFiMjMzMCIvPjxwYXRoIGQ9Ik0yNCA5Nmw0MC00MCAyOCAyOCAyMC0yMCA1NiA1NnYxNkg0OHoiIGZpbGw9IiM2YWE4ZmYiLz48Y2lyY2xlIGN4PSIxMzYiIGN5PSI0MCIgcj0iMTQiIGZpbGw9IiNmMmM1NzQiLz48L3N2Zz4=";
-const MIXED_READY_IMAGE =
+export const MIXED_READY_IMAGE =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxOTIiIGhlaWdodD0iMTI4IiB2aWV3Qm94PSIwIDAgMTkyIDEyOCI+PHJlY3Qgd2lkdGg9IjE5MiIgaGVpZ2h0PSIxMjgiIHJ4PSIxMiIgZmlsbD0iIzJkMjMzOCIvPjxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjE0NCIgaGVpZ2h0PSI4MCIgcng9IjgiIGZpbGw9IiM0NDRjNWMiLz48cGF0aCBkPSJNNDQgODhsMjgtMjggMjQgMjQgMTYtMTYgMzYgMzZINDR6IiBmaWxsPSIjODVjYTdjIi8+PC9zdmc+";
 
 type PendingState = "pending" | "ready" | "failed";

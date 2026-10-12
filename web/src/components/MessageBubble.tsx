@@ -45,6 +45,7 @@ import { SessionHoverCard } from "./SessionHoverCard.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
+import { ImagePathLinkContext, useImagePathLinks } from "./image-path-links.js";
 import {
   buildAssistantImagePreviewItems,
   buildUserImagePreviewItems,
@@ -1133,6 +1134,7 @@ function AssistantMessage({
     () => (readOnly ? [] : buildAssistantImagePreviewItems(message, sessionId)),
     [message, readOnly, sessionId],
   );
+  const imagePathLinks = useImagePathLinks(assistantImagePreviewItems);
   const projection = useMemo(
     () =>
       projectAssistantMessageForRendering(message, {
@@ -1184,44 +1186,50 @@ function AssistantMessage({
             <PawTrailAvatar messageId={message.id} />
           ))}
         <div ref={contentRef} className="relative flex-1 min-w-0">
-          {!readOnly && (
-            <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
-          )}
-          <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
-          {rejectedRouteHeader && (
-            <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
-          )}
-          {!collapseRejectedText && (
-            <>
-              {!readOnly && hasTextContent && (
-                <AssistantMessageMenu
-                  message={message}
-                  contentRef={contentRef}
-                  sessionId={sessionId}
-                  currentThreadKey={currentThreadKey}
-                  showSideChatActions={showSideChatActions}
-                />
-              )}
-              {readOnly ? (
-                <MarkdownContent
-                  text={projection.fallbackText}
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  fileLinkMode="text-only"
-                  questLinkSurface={questLinkSurface}
-                />
-              ) : (
-                <AssistantQuestQuizContent
-                  text={projection.fallbackText}
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  enableChatSelectionMenu
-                  questLinkSurface={questLinkSurface}
-                />
-              )}
-            </>
-          )}
-          <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
+          <ImagePathLinkContext.Provider value={imagePathLinks.links}>
+            {!readOnly && (
+              <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
+            )}
+            <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+            {rejectedRouteHeader && (
+              <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
+            )}
+            {!collapseRejectedText && (
+              <>
+                {!readOnly && hasTextContent && (
+                  <AssistantMessageMenu
+                    message={message}
+                    contentRef={contentRef}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    showSideChatActions={showSideChatActions}
+                  />
+                )}
+                {readOnly ? (
+                  <MarkdownContent
+                    text={projection.fallbackText}
+                    sessionId={sessionId}
+                    searchHighlight={searchHighlight}
+                    fileLinkMode="text-only"
+                    questLinkSurface={questLinkSurface}
+                  />
+                ) : (
+                  <AssistantQuestQuizContent
+                    text={projection.fallbackText}
+                    sessionId={sessionId}
+                    searchHighlight={searchHighlight}
+                    enableChatSelectionMenu
+                    questLinkSurface={questLinkSurface}
+                  />
+                )}
+              </>
+            )}
+            <ImagePreviewGroup
+              ref={imagePathLinks.groupRef}
+              images={assistantImagePreviewItems}
+              testId="assistant-image-preview-group"
+            />
+          </ImagePathLinkContext.Provider>
           {!readOnly && resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
@@ -1251,49 +1259,112 @@ function AssistantMessage({
           <PawTrailAvatar messageId={message.id} />
         ))}
       <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
-        {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />}
-        <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
-        {rejectedRouteHeader}
-        {projection.shouldRenderContentFallback && !collapseRejectedText && (
-          <div className="flow-root">
-            {!readOnly && hasTextContent && (
-              <AssistantMessageMenu
-                message={message}
-                contentRef={contentRef}
-                sessionId={sessionId}
-                currentThreadKey={currentThreadKey}
-                showSideChatActions={showSideChatActions}
-              />
-            )}
-            {readOnly ? (
-              <MarkdownContent
-                text={projection.fallbackText}
-                sessionId={sessionId}
-                searchHighlight={searchHighlight}
-                fileLinkMode="text-only"
-                questLinkSurface={questLinkSurface}
-              />
-            ) : (
-              <AssistantQuestQuizContent
-                text={projection.fallbackText}
-                sessionId={sessionId}
-                searchHighlight={searchHighlight}
-                enableChatSelectionMenu
-                questLinkSurface={questLinkSurface}
-              />
-            )}
-          </div>
-        )}
-        {renderedGroups.map((group, i) => {
-          if (group.kind === "content") {
-            if (collapseRejectedText) return null;
-            const renderedBlock = (
-              <ContentBlockRenderer
+        <ImagePathLinkContext.Provider value={imagePathLinks.links}>
+          {!readOnly && (
+            <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
+          )}
+          <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+          {rejectedRouteHeader}
+          {projection.shouldRenderContentFallback && !collapseRejectedText && (
+            <div className="flow-root">
+              {!readOnly && hasTextContent && (
+                <AssistantMessageMenu
+                  message={message}
+                  contentRef={contentRef}
+                  sessionId={sessionId}
+                  currentThreadKey={currentThreadKey}
+                  showSideChatActions={showSideChatActions}
+                />
+              )}
+              {readOnly ? (
+                <MarkdownContent
+                  text={projection.fallbackText}
+                  sessionId={sessionId}
+                  searchHighlight={searchHighlight}
+                  fileLinkMode="text-only"
+                  questLinkSurface={questLinkSurface}
+                />
+              ) : (
+                <AssistantQuestQuizContent
+                  text={projection.fallbackText}
+                  sessionId={sessionId}
+                  searchHighlight={searchHighlight}
+                  enableChatSelectionMenu
+                  questLinkSurface={questLinkSurface}
+                />
+              )}
+            </div>
+          )}
+          {renderedGroups.map((group, i) => {
+            if (group.kind === "content") {
+              if (collapseRejectedText) return null;
+              const renderedBlock = (
+                <ContentBlockRenderer
+                  key={i}
+                  block={group.block}
+                  sessionId={sessionId}
+                  parentMessageId={message.id}
+                  searchHighlight={searchHighlight}
+                  suppressNotificationMarker={suppressToolNotificationMarker}
+                  currentThreadKey={currentThreadKey}
+                  onSelectThread={onSelectThread}
+                  readOnly={readOnly}
+                  toolResultOverrides={toolResultOverrides}
+                  toolResultScope={toolResultScope}
+                  questLinkSurface={questLinkSurface}
+                />
+              );
+              if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
+                return (
+                  <div key={i} className="flow-root">
+                    {!readOnly && (
+                      <AssistantMessageMenu
+                        message={message}
+                        contentRef={contentRef}
+                        sessionId={sessionId}
+                        currentThreadKey={currentThreadKey}
+                        showSideChatActions={showSideChatActions}
+                      />
+                    )}
+                    {renderedBlock}
+                  </div>
+                );
+              }
+              return renderedBlock;
+            }
+            if (group.kind === "tool_activity") {
+              return (
+                <CompactToolActivity
+                  key={i}
+                  items={group.items as CompactToolActivityItem[]}
+                  sessionId={sessionId}
+                  containedMessageIds={[message.id]}
+                  // Text later in the message makes the group inactive; trailing passive tools are
+                  // split out into feed-level groups, so an in-message group is usually followed by text.
+                  active={i === renderedGroups.length - 1}
+                  renderDetails={(item) => (
+                    <InlineToolBlock
+                      item={item}
+                      sessionId={sessionId}
+                      parentMessageId={message.id}
+                      suppressNotificationMarker={suppressToolNotificationMarker}
+                      currentThreadKey={currentThreadKey}
+                      onSelectThread={onSelectThread}
+                      readOnly={readOnly}
+                      toolResultOverrides={toolResultOverrides}
+                      toolResultScope={toolResultScope}
+                      questLinkSurface={questLinkSurface}
+                    />
+                  )}
+                />
+              );
+            }
+            return (
+              <DetailedToolGroup
                 key={i}
-                block={group.block}
+                group={group}
                 sessionId={sessionId}
                 parentMessageId={message.id}
-                searchHighlight={searchHighlight}
                 suppressNotificationMarker={suppressToolNotificationMarker}
                 currentThreadKey={currentThreadKey}
                 onSelectThread={onSelectThread}
@@ -1303,68 +1374,13 @@ function AssistantMessage({
                 questLinkSurface={questLinkSurface}
               />
             );
-            if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
-              return (
-                <div key={i} className="flow-root">
-                  {!readOnly && (
-                    <AssistantMessageMenu
-                      message={message}
-                      contentRef={contentRef}
-                      sessionId={sessionId}
-                      currentThreadKey={currentThreadKey}
-                      showSideChatActions={showSideChatActions}
-                    />
-                  )}
-                  {renderedBlock}
-                </div>
-              );
-            }
-            return renderedBlock;
-          }
-          if (group.kind === "tool_activity") {
-            return (
-              <CompactToolActivity
-                key={i}
-                items={group.items as CompactToolActivityItem[]}
-                sessionId={sessionId}
-                containedMessageIds={[message.id]}
-                // Text later in the message makes the group inactive; trailing passive tools are
-                // split out into feed-level groups, so an in-message group is usually followed by text.
-                active={i === renderedGroups.length - 1}
-                renderDetails={(item) => (
-                  <InlineToolBlock
-                    item={item}
-                    sessionId={sessionId}
-                    parentMessageId={message.id}
-                    suppressNotificationMarker={suppressToolNotificationMarker}
-                    currentThreadKey={currentThreadKey}
-                    onSelectThread={onSelectThread}
-                    readOnly={readOnly}
-                    toolResultOverrides={toolResultOverrides}
-                    toolResultScope={toolResultScope}
-                    questLinkSurface={questLinkSurface}
-                  />
-                )}
-              />
-            );
-          }
-          return (
-            <DetailedToolGroup
-              key={i}
-              group={group}
-              sessionId={sessionId}
-              parentMessageId={message.id}
-              suppressNotificationMarker={suppressToolNotificationMarker}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-              readOnly={readOnly}
-              toolResultOverrides={toolResultOverrides}
-              toolResultScope={toolResultScope}
-              questLinkSurface={questLinkSurface}
-            />
-          );
-        })}
-        <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
+          })}
+          <ImagePreviewGroup
+            ref={imagePathLinks.groupRef}
+            images={assistantImagePreviewItems}
+            testId="assistant-image-preview-group"
+          />
+        </ImagePathLinkContext.Provider>
         {!readOnly && resolvedNotification && (
           <NotificationMarker
             category={resolvedNotification.category}

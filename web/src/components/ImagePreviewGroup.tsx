@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
 import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
+
+export interface ImagePreviewGroupHandle {
+  /** Opens the image with this preview ID; false when the group cannot show it (absent or failed). */
+  openImage: (id: string) => boolean;
+}
 
 interface ImagePreviewGroupProps {
+  ref?: Ref<ImagePreviewGroupHandle>;
   images: ImagePreviewItem[];
   className?: string;
   testId?: string;
@@ -18,6 +25,7 @@ interface ImagePreviewGroupProps {
 }
 
 export function ImagePreviewGroup({
+  ref,
   images,
   className = "",
   testId = "image-preview-group",
@@ -211,12 +219,21 @@ export function ImagePreviewGroup({
     if (selectedId && !selectedImage) setSelectedId(null);
   }, [selectedId, selectedImage]);
 
-  if (images.length === 0) return null;
-
   const openImage = (image: ImagePreviewItem) => {
     if (onOpenImage) onOpenImage(image);
     else setSelectedId(image.id);
   };
+
+  useImperativeHandle(ref, () => ({
+    openImage: (id) => {
+      const image = activeImages.find((candidate) => candidate.id === id);
+      if (!image || isFailed(image)) return false;
+      openImage(image);
+      return true;
+    },
+  }));
+
+  if (images.length === 0) return null;
   const slotSizeClassName =
     size === "small" ? "h-12 w-12" : size === "message" ? "h-24 w-24 sm:h-28 sm:w-28" : "h-16 w-24";
   const imageFitClassName = size === "message" ? "object-contain" : "object-cover";
@@ -415,6 +432,7 @@ function ImagePreviewModal({
             </IconButton>
           </div>
         </div>
+        {image.sourcePath && <ModalSourcePath key={image.sourcePath} path={image.sourcePath} />}
         <ZoomableImage
           src={image.fullUrl}
           alt={image.filename}
@@ -425,6 +443,37 @@ function ImagePreviewModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function ModalSourcePath({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+      data-testid="image-preview-modal-path"
+    >
+      <span className="min-w-0 flex-1 select-text break-all font-mono-code text-xs text-cc-muted">{path}</span>
+      <button
+        type="button"
+        className="shrink-0 rounded-md border border-cc-border px-2 py-1 text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
+        onClick={(event) => {
+          event.stopPropagation();
+          writeClipboardText(path)
+            .then(() => setCopied(true))
+            .catch(console.error);
+        }}
+        aria-label="Copy image path"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 

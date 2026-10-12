@@ -29,6 +29,7 @@ describe("QuestPhaseNoteImages", () => {
         thumbnailUrl: "/api/fs/image?path=%2Ftmp%2Frun%2Fdesktop.png&variant=thumbnail",
         fullUrl: "/api/fs/image?path=%2Ftmp%2Frun%2Fdesktop.png&variant=full",
         title: "/tmp/run/desktop.png",
+        sourcePath: "/tmp/run/desktop.png",
       },
       {
         id: "path:/Users/me/shot two.jpeg",
@@ -36,6 +37,7 @@ describe("QuestPhaseNoteImages", () => {
         thumbnailUrl: "/api/fs/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&variant=thumbnail",
         fullUrl: "/api/fs/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&variant=full",
         title: "/Users/me/shot two.jpeg",
+        sourcePath: "/Users/me/shot two.jpeg",
       },
     ]);
   });
@@ -54,6 +56,7 @@ describe("QuestPhaseNoteImages", () => {
           "/api/fs/file-link/image?path=artifacts%2Fpreview.png&isRelative=1&variant=thumbnail&sessionId=s1",
         fullUrl: "/api/fs/file-link/image?path=artifacts%2Fpreview.png&isRelative=1&variant=full&sessionId=s1",
         title: "artifacts/preview.png",
+        sourcePath: "artifacts/preview.png",
       },
       {
         id: "path:/tmp/shot.png",
@@ -61,6 +64,7 @@ describe("QuestPhaseNoteImages", () => {
         thumbnailUrl: "/api/fs/image?path=%2Ftmp%2Fshot.png&variant=thumbnail",
         fullUrl: "/api/fs/image?path=%2Ftmp%2Fshot.png&variant=full",
         title: "/tmp/shot.png",
+        sourcePath: "/tmp/shot.png",
       },
     ]);
   });

@@ -5,13 +5,14 @@ import {
   memo,
   useState,
   useEffect,
+  useContext,
   Children,
   type ComponentProps,
   type MouseEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import Markdown from "react-markdown";
+import Markdown, { type Options as MarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -45,6 +46,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
+import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.js";
 import {
   buildFileLinkBrowserUrl,
   buildFileLinkPreviewUrl,
@@ -679,6 +681,14 @@ export const MarkdownContent = memo(function MarkdownContent({
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
   const preparedMath = useMemo(() => prepareMarkdownMathSource(text), [text]);
+  const imagePathLinks = useContext(ImagePathLinkContext);
+  const imagePathLinksPlugin = useMemo<NonNullable<MarkdownOptions["remarkPlugins"]>>(
+    () =>
+      imagePathLinks
+        ? [[remarkImagePathLinks, { isLinkable: (path: string) => imagePathLinks.has({ path, isRelative: false }) }]]
+        : [],
+    [imagePathLinks],
+  );
 
   // Helper: replaces string children with HighlightedText when search is active
   const hl = searchHighlight;
@@ -759,6 +769,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           remarkBreaks,
           remarkNormalizeOrderedListContinuations,
           remarkPlainTakodeReferences,
+          ...imagePathLinksPlugin,
           [remarkMathSourceCompatibility, preparedMath],
         ]}
         rehypePlugins={[
@@ -1047,6 +1058,7 @@ function FileMarkdownLink({
     useShallow((s) => getFileLinkBasePath(sessionId, s.currentSessionId, s.sessions, s.sdkSessions)),
   );
   const activeSessionId = sessionId ?? currentSessionId ?? undefined;
+  const imagePathLinks = useContext(ImagePathLinkContext);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [fileInfo, setFileInfo] = useState<FileLinkResolveResponse | null>(null);
   const [fileInfoError, setFileInfoError] = useState<string | null>(null);
@@ -1132,9 +1144,11 @@ function FileMarkdownLink({
       if (stopPropagation) e.stopPropagation();
       if (opensInBrowser) return;
       e.preventDefault();
+      // An image the message already previews opens in that preview's viewer.
+      if (imagePathLinks?.open({ path: target.path, isRelative: target.isRelative })) return;
       void openDefaultTarget();
     },
-    [openDefaultTarget, opensInBrowser, stopPropagation],
+    [imagePathLinks, openDefaultTarget, opensInBrowser, stopPropagation, target.isRelative, target.path],
   );
 
   const locationSuffix = formatFileLinkLocation(target);
