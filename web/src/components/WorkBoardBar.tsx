@@ -47,13 +47,6 @@ import {
   type PrimaryThreadChip,
 } from "./WorkBoardThreadTabs.js";
 
-export {
-  buildCompactThreadTabPartition,
-  constrainThreadTabTransformToHorizontal,
-  reorderThreadTabsAfterDrag,
-} from "./WorkBoardThreadTabs.js";
-export type { CompactThreadTabPartition } from "./WorkBoardThreadTabs.js";
-
 export { activeBoardSummarySegments, boardSummary };
 export type { BoardSummarySegment };
 
@@ -454,7 +447,6 @@ function WorkBoardBarComponent({
   onSelectThread,
   openThreadKeys = [],
   onCloseThreadTab,
-  onReorderThreadTabs,
   threadRows = [],
 }: {
   sessionId: string;
@@ -462,7 +454,6 @@ function WorkBoardBarComponent({
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
   onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
-  onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
@@ -523,44 +514,6 @@ function WorkBoardBarComponent({
       threadRows,
     });
   }, [openThreadKeys, projectedTabs, projection, questTitleById, threadRows]);
-  const reorderableThreadKeys = useMemo(
-    () => displayedThreadTabs.map((tab) => normalizeThreadKey(tab.threadKey)),
-    [displayedThreadTabs],
-  );
-  const previousOpenThreadTabKeysRef = useRef<string[] | null>(null);
-  const newThreadTabTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const [newThreadTabKeys, setNewThreadTabKeys] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    const currentKeys = displayedThreadTabs.map((tab) => tab.threadKey);
-    const previousKeys = previousOpenThreadTabKeysRef.current;
-    previousOpenThreadTabKeysRef.current = currentKeys;
-    if (previousKeys === null) return;
-    const previous = new Set(previousKeys);
-    const addedKeys = currentKeys.filter((key) => !previous.has(key));
-    if (addedKeys.length === 0) return;
-
-    setNewThreadTabKeys((existing) => new Set([...existing, ...addedKeys]));
-    for (const key of addedKeys) {
-      const existingTimeout = newThreadTabTimeoutsRef.current.get(key);
-      if (existingTimeout) clearTimeout(existingTimeout);
-      const timeout = setTimeout(() => {
-        newThreadTabTimeoutsRef.current.delete(key);
-        setNewThreadTabKeys((existing) => {
-          const next = new Set(existing);
-          next.delete(key);
-          return next;
-        });
-      }, 900);
-      newThreadTabTimeoutsRef.current.set(key, timeout);
-    }
-  }, [displayedThreadTabs]);
-  useEffect(
-    () => () => {
-      for (const timeout of newThreadTabTimeoutsRef.current.values()) clearTimeout(timeout);
-      newThreadTabTimeoutsRef.current.clear();
-    },
-    [],
-  );
 
   const mainThreadState = useMemo(() => {
     const attention = projection?.mainAttention;
@@ -602,13 +555,10 @@ function WorkBoardBarComponent({
       <ThreadTabRail
         mainState={mainThreadState}
         tabs={displayedThreadTabs}
-        reorderableThreadKeys={reorderableThreadKeys}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
         onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
-        onReorderThreadTabs={onReorderThreadTabs}
-        newTabKeys={newThreadTabKeys}
         threadStatuses={threadStatuses}
       />
 

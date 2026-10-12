@@ -124,6 +124,8 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
+import { listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
 
@@ -159,36 +161,6 @@ function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): Sessi
     dedupeKey: "attention:q-1",
     ...overrides,
   };
-}
-
-function expectStripeOriginActiveOutputMarker(container: HTMLElement) {
-  const marker = within(container).getByTestId("thread-tab-active-output-indicator");
-  expect(marker).toHaveAttribute("data-reduced-motion-static", "true");
-  expect(marker).toHaveAttribute("data-dot-position", "stripe-origin");
-  expect(marker).toHaveAttribute("data-stripe-origin", "top-left");
-  expect(marker).not.toHaveAttribute("data-dot-lane");
-  expect(marker).not.toHaveAttribute("data-overlaps-needs-input");
-  expect(marker).not.toHaveAttribute("data-bell-center-offset");
-  expect(marker).not.toHaveAttribute("data-halo-center-offset");
-  expect(marker).toHaveClass("inset-0");
-  expect(marker).not.toHaveClass("inset-x-1");
-
-  const glintTrack = within(marker).getByTestId("thread-tab-active-output-glint-track");
-  expect(glintTrack).toHaveClass("inset-x-1", "top-0", "h-px");
-  const glint = within(marker).getByTestId("thread-tab-active-output-glint");
-  expect(glint).toHaveClass("thread-tab-output-glint");
-  const dot = within(marker).getByTestId("thread-tab-active-output-dot");
-  expect(dot).toHaveClass("left-1", "top-0", "h-2", "w-2", "-translate-x-1/2", "-translate-y-1/2", "bg-sky-50/95");
-  return { marker, glintTrack, glint, dot };
-}
-
-function expectNoNotificationSurfaceTone(element: HTMLElement) {
-  expect(element.className).not.toContain("border-amber-400/35");
-  expect(element.className).not.toContain("bg-amber-400/10");
-  expect(element.className).not.toContain("text-amber-100");
-  expect(element.className).not.toContain("border-blue-400/35");
-  expect(element.className).not.toContain("bg-blue-400/10");
-  expect(element.className).not.toContain("text-blue-100");
 }
 
 function getPhaseColor(status: string): string | undefined {
@@ -243,8 +215,10 @@ describe("WorkBoardBar", () => {
     expect(queryByTestId("workboard-completed-button")).not.toBeInTheDocument();
     expect(queryByTestId("workboard-other-button")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
-    expect(getByTestId("thread-main-tab")).toHaveAttribute("data-thread-key", "main");
-    expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
+    // Only Main and search remain when no quest tab is open.
+    expect(getByTestId("thread-tab-group-main")).toHaveAttribute("aria-label", "Main Thread");
+    expect(getByTestId("thread-tab-group-main")).toHaveTextContent("Main");
+    expect(queryByTestId("thread-tab-group-chip")).toBeNull();
   });
 
   it("keeps the primary workboard navigator visible when no board data exists for session", () => {
@@ -345,10 +319,10 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tabs = getAllByTestId("thread-tab");
-    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-unified-tab-track", "true");
+    const tabs = listedThreadTabs();
     expect(queryByText("Active")).not.toBeInTheDocument();
-    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-5", "q-1", "q-4", "q-2"]);
+    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-5", "q-2", "q-4"]);
     expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")).toHaveAttribute(
       "data-needs-input",
       "true",
@@ -393,9 +367,9 @@ describe("WorkBoardBar", () => {
         />,
       );
 
-      const tab = view.getAllByTestId("thread-tab").find((node) => node.getAttribute("data-thread-key") === "q-977");
+      const tab = listedThreadTabs().find((node) => node.getAttribute("data-thread-key") === "q-977");
       expect(tab).toBeTruthy();
-      fireEvent.click(within(tab!).getByTestId("thread-tab-select"));
+      fireEvent.click(within(tab!).getByTestId("thread-tab-list-row-select"));
       vi.runOnlyPendingTimers();
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -420,7 +394,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tabs = getAllByTestId("thread-tab");
+    const tabs = listedThreadTabs();
     expect(tabs).toHaveLength(2);
     expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
     expect(tabs[0]).toHaveAttribute("data-needs-input", "true");
@@ -457,7 +431,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
       "q-open-a",
       "q-open-b",
       "q-open-c",
@@ -476,7 +450,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const initialOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
+    const initialOrder = listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"));
     expect(initialOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
 
     view.rerender(
@@ -488,7 +462,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const reconciledOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
+    const reconciledOrder = listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"));
     expect(reconciledOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
   });
 
@@ -512,7 +486,7 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
     );
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
       "q-open-a",
       "q-open-b",
       "q-old",
@@ -526,167 +500,11 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
     );
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
       "q-open-a",
       "q-open-b",
       "q-old",
     ]);
-  });
-
-  it("uses the shared quest hover card for quest thread tabs", async () => {
-    resetStore({
-      sdkSessions: [
-        { sessionId: "s1", isOrchestrator: true },
-        { sessionId: "worker-1", sessionNum: 11, state: "connected", cwd: "/repo", createdAt: 1, name: "Worker One" },
-        {
-          sessionId: "reviewer-1",
-          sessionNum: 12,
-          state: "connected",
-          cwd: "/repo",
-          createdAt: 1,
-          name: "Reviewer One",
-        },
-      ],
-      quests: [
-        {
-          id: "q-1-v1",
-          questId: "q-1",
-          version: 1,
-          title: "Fix tab hover preview",
-          status: "in_progress",
-          description: "Use one quest hover card.",
-          createdAt: 1,
-          sessionId: "worker-1",
-          claimedAt: 1,
-        },
-      ],
-      sessionBoards: new Map([
-        [
-          "s1",
-          [
-            {
-              questId: "q-1",
-              title: "Fix tab hover preview",
-              status: "WORKING",
-              worker: "worker-1",
-              workerNum: 11,
-              updatedAt: 2,
-              journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
-            },
-          ],
-        ],
-      ]),
-      sessionBoardRowStatuses: new Map([
-        [
-          "s1",
-          {
-            "q-1": {
-              worker: { sessionId: "worker-1", sessionNum: 11, name: "Worker One", status: "running" },
-              reviewer: { sessionId: "reviewer-1", sessionNum: 12, name: "Reviewer One", status: "idle" },
-            },
-          },
-        ],
-      ]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" />);
-    const tab = view
-      .getAllByTestId("thread-tab")
-      .find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
-
-    expect(tab).toHaveAttribute("data-has-quest-hover", "true");
-    expect(tab).not.toHaveAttribute("title");
-    fireEvent.mouseEnter(tab);
-
-    const card = await view.findByTestId("quest-hover-card");
-    expect(within(card).getByText("Fix tab hover preview")).toBeInTheDocument();
-    expect(within(card).getByTestId("quest-journey-preview-card")).toBeInTheDocument();
-    expect(within(card).getByTestId("quest-journey-timeline")).toHaveAttribute("data-journey-mode", "active");
-    // The worker is named once, by the Open Worker button; the reviewer keeps its chip.
-    expect(within(card).queryByTestId("quest-hover-worker-session")).toBeNull();
-    expect(within(card).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
-    expect(within(card).getAllByText("#11")).toHaveLength(1);
-    expect(within(card).getByRole("link", { name: "Open Worker #11" })).toBeInTheDocument();
-    expect(within(card).getByText("#12")).toBeInTheDocument();
-  });
-
-  it("clamps repeated-phase Journey previews in quest thread-tab hovers", async () => {
-    const phaseIds: QuestJourneyPhaseId[] = [
-      "alignment",
-      "work",
-      "user-checkpoint",
-      "work",
-      "user-checkpoint",
-      "work",
-      "user-checkpoint",
-      "work",
-      "user-checkpoint",
-      "work",
-      "user-checkpoint",
-      "work",
-      "memory",
-    ];
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      quests: [
-        {
-          id: "q-1134-v1",
-          questId: "q-1134",
-          version: 1,
-          title: "Try repeated Journey preview",
-          status: "in_progress",
-          description: "Repeated phases near the end should still clamp in tab hover previews.",
-          createdAt: 1,
-          sessionId: "worker-1134",
-          claimedAt: 1,
-        },
-      ],
-      sessionBoards: new Map([
-        [
-          "s1",
-          [
-            {
-              questId: "q-1134",
-              title: "Try repeated Journey preview",
-              status: "WORKING",
-              updatedAt: 2,
-              journey: {
-                mode: "active",
-                phaseIds,
-                currentPhaseId: "work",
-                activePhaseIndex: 11,
-                phaseNotes: {
-                  "5": "Sixth previous phase hidden by default.",
-                  "6": "First visible previous phase.",
-                  "11": "Current repeated Work phase.",
-                },
-              },
-            },
-          ],
-        ],
-      ]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1134"]} />);
-    const tab = view
-      .getAllByTestId("thread-tab")
-      .find((candidate) => candidate.getAttribute("data-thread-key") === "q-1134")!;
-
-    fireEvent.mouseEnter(tab);
-
-    const card = await view.findByTestId("quest-hover-card");
-    const journey = within(card).getByTestId("quest-hover-journey");
-    const visibleIndexes = Array.from(journey.querySelectorAll("li[data-phase-index]")).map((row) =>
-      Number(row.getAttribute("data-phase-index")),
-    );
-    expect(visibleIndexes).toEqual([6, 7, 8, 9, 10, 11, 12]);
-    expect(journey.querySelector('li[data-phase-index="11"]')).toHaveAttribute("data-phase-current", "true");
-    expect(within(journey).queryByText("Sixth previous phase hidden by default.")).not.toBeInTheDocument();
-    expect(within(journey).getByText("First visible previous phase.")).toBeInTheDocument();
-    expect(within(journey).getByRole("button", { name: "Show 6 earlier phases" })).toBeInTheDocument();
-
-    fireEvent.click(within(journey).getByRole("button", { name: "Show 6 earlier phases" }));
-    expect(within(journey).getByText("Sixth previous phase hidden by default.")).toBeInTheDocument();
   });
 
   it("hands off an off-board attention-tab close and removes it only after projected authority updates", () => {
@@ -720,19 +538,19 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tabs = view.getAllByTestId("thread-tab");
+    const tabs = listedThreadTabs();
     const offBoardTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-5")!;
     const expectedNextThread = tabs[tabs.indexOf(offBoardTab) + 1]?.getAttribute("data-thread-key") ?? "main";
     const boardActiveTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(offBoardTab).toHaveAttribute("data-closable", "true");
     expect(boardActiveTab).toHaveAttribute("data-closable", "false");
-    expect(within(boardActiveTab).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    expect(within(boardActiveTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
 
     fireEvent.click(view.getByLabelText("Close q-5"));
 
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-5", expectedNextThread);
     expect(onSelectThread).not.toHaveBeenCalled();
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toContain("q-5");
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toContain("q-5");
 
     view.rerender(
       <WorkBoardBar
@@ -746,10 +564,10 @@ describe("WorkBoardBar", () => {
     );
 
     expect(view.queryByText("q-5 rework requested")).not.toBeInTheDocument();
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(
       expect.arrayContaining(["q-1", "q-2"]),
     );
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).not.toContain("q-5");
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).not.toContain("q-5");
   });
 
   it("uses canonical quest titles for open tabs and keeps closed attention tabs from reappearing", () => {
@@ -795,7 +613,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const q1066Tab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1066")!;
+    const q1066Tab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1066")!;
     expect(q1066Tab).toHaveTextContent("q-1066");
     expect(q1066Tab).toHaveTextContent("Keep Codex tool-router errors from stranding sessions");
     expect(q1066Tab).not.toHaveTextContent("rework requested");
@@ -813,7 +631,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119"]);
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119"]);
     expect(view.queryByText("q-1066: rework requested")).not.toBeInTheDocument();
   });
 
@@ -858,10 +676,8 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-1066",
-      "q-1119",
-    ]);
+    // q-1066 is finished in Questmaster, so it lists under Done after the in-progress q-1119.
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119", "q-1066"]);
 
     view.rerender(
       <WorkBoardBar
@@ -874,110 +690,33 @@ describe("WorkBoardBar", () => {
     );
 
     await waitFor(() => {
-      expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119"]);
+      expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119"]);
     });
     expect(view.queryByText("q-1066: rework requested")).not.toBeInTheDocument();
   });
 
-  it("colors unified board-active tab titles without rendering a separate phase label", () => {
+  it("colors listed board-active tabs by phase, with the phase named on the meta line", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    render(<WorkBoardBar sessionId="s1" />);
 
-    const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
-    expect(implementingTitle).toHaveTextContent("q-1");
-    expect(implementingTitle).toHaveTextContent("Fix bug");
-    expect(within(implementingTab).queryByText("Work")).not.toBeInTheDocument();
+    const implementingTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(implementingTab).toHaveTextContent("Fix bug");
+    const implementingMeta = within(implementingTab).getByTestId("thread-tab-list-row-meta");
+    expect(implementingMeta).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
+    expect(implementingMeta).toHaveTextContent("q-1 · Work");
 
-    const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    expect(within(queuedTab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(within(queuedTab).getByTestId("thread-tab-title")).not.toHaveAttribute(
-      "data-title-color",
-      "var(--color-cc-muted)",
-    );
-    expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
+    // A queued tab reads in the normal foreground, not the done gray.
+    const queuedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const queuedMeta = within(queuedTab).getByTestId("thread-tab-list-row-meta");
+    expect(queuedMeta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(queuedMeta).toHaveTextContent("q-2 · Queued");
   });
 
-  it("keeps non-overflow tabs visible without horizontal scrolling", () => {
-    const onCloseThreadTab = vi.fn();
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-    });
-
-    const { getByTestId, getAllByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-1"
-        openThreadKeys={["q-1", "q-2"]}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={[
-          { threadKey: "q-1", questId: "q-1", title: "Open discussion", messageCount: 2 },
-          { threadKey: "q-2", questId: "q-2", title: "Older discussion", messageCount: 1 },
-        ]}
-      />,
-    );
-
-    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "none");
-    expect(within(getByTestId("thread-tab-rail")).queryByText("Tabs")).not.toBeInTheDocument();
-    expect(within(getByTestId("thread-tab-rail")).queryByTestId("thread-tabs-more-button")).not.toBeInTheDocument();
-    const tabStrip = getByTestId("thread-tab-strip");
-    expect(tabStrip).toHaveAttribute("aria-label", "Thread tabs");
-    expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
-    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 76px");
-    expect(tabStrip).toHaveClass("overflow-visible");
-    expect(tabStrip).not.toHaveClass("overflow-x-auto", "thread-tab-scroll");
-    expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
-    expect(getByTestId("thread-main-tab")).toHaveClass(
-      "min-w-[var(--thread-tab-width)]",
-      "max-w-[14rem]",
-      "flex-[1_1_var(--thread-tab-width)]",
-    );
-    expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-violet-100/70", "focus-visible:ring-inset");
-
-    const tabs = getAllByTestId("thread-tab");
-    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1", "q-2"]);
-    for (const tab of tabs) {
-      // The fixed minimum protects the quest id; the More list owns real overflow.
-      expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "max-w-[14rem]", "flex-[1_1_var(--thread-tab-width)]");
-    }
-    expect(tabs[0]).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
-    expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(
-      "focus-visible:ring-violet-100/70",
-      "focus-visible:ring-inset",
-    );
-
-    const selectedClose = within(tabs[0]).getByTestId("thread-tab-close");
-    expect(selectedClose).toHaveAttribute("data-compact-close", "true");
-    expect(selectedClose).toHaveAttribute("data-selected", "true");
-    expect(selectedClose).toHaveClass("w-5", "opacity-100");
-    expect(selectedClose).not.toHaveClass("sm:w-0");
-
-    const inactiveClose = within(tabs[1]).getByTestId("thread-tab-close");
-    expect(inactiveClose).toHaveAttribute("data-compact-close", "true");
-    expect(inactiveClose).toHaveAttribute("data-selected", "false");
-    // The close affordance reserves a constant slot, so hover/focus can reveal it
-    // without changing the tab's measured width or shifting neighboring tabs.
-    expect(inactiveClose).toHaveClass(
-      "w-5",
-      "sm:pointer-events-none",
-      "sm:border-transparent",
-      "sm:opacity-0",
-      "sm:group-hover:pointer-events-auto",
-      "sm:group-hover:border-current/10",
-      "sm:group-hover:opacity-100",
-      "focus-visible:border-current/10",
-      "focus-visible:opacity-100",
-    );
-    expect(inactiveClose).not.toHaveClass("sm:w-0", "sm:group-hover:w-5", "focus-visible:w-5");
-  });
-
-  it("keeps selected Main as one connected surface while active output uses a separate marker", () => {
+  it("keeps selected Main joined to its strip while marking the thread being written in", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", []]]),
@@ -1013,24 +752,14 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const mainTab = getByTestId("thread-main-tab");
-    expect(mainTab).toHaveAttribute("aria-pressed", "true");
+    // Main is the selected tab, joined to the Main strip by its card color, and marks the
+    // thread the leader is writing in. A prompt outranks the unread result on its bell.
+    const mainTab = getByTestId("thread-tab-group-main");
+    expect(mainTab).toHaveAttribute("aria-selected", "true");
     expect(mainTab).toHaveAttribute("data-active-output", "true");
-    expect(mainTab).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
-    expect(mainTab).toHaveClass("bg-cc-card");
-    expect(mainTab.className).not.toContain("rgba(139,92,246");
-    expect(mainTab).toHaveClass("focus-visible:ring-violet-100/70");
-    expect(mainTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70", "border-b-cc-bg");
-    expectStripeOriginActiveOutputMarker(mainTab);
-    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("relative", "z-10");
-    expect(within(mainTab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
-    const mainTitle = within(mainTab).getByTestId("thread-tab-title");
-    expect(mainTitle).toHaveAttribute("data-active-output", "true");
-    expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
-    expect(mainTitle).not.toHaveClass("border");
-    expect(mainTitle).not.toHaveClass("bg-sky-400/10");
-    expect(mainTitle).not.toHaveClass("text-sky-100");
-    expect(mainTitle).not.toHaveClass("rounded");
+    expect(mainTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
+    expect(within(mainTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
   });
 
   it("does not render an active output marker on selected Main without explicit active output in Main", () => {
@@ -1043,12 +772,10 @@ describe("WorkBoardBar", () => {
 
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="main" />);
 
-    const mainTab = getByTestId("thread-main-tab");
+    const mainTab = getByTestId("thread-tab-group-main");
+    expect(mainTab).toHaveAttribute("aria-selected", "true");
     expect(mainTab).toHaveAttribute("data-active-output", "false");
-    expect(within(mainTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
-    const mainTitle = within(mainTab).getByTestId("thread-tab-title");
-    expect(mainTitle).toHaveAttribute("data-active-output", "false");
-    expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
+    expect(within(mainTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
   });
 
   it("composes selected and active-output states when they are on different tabs", () => {
@@ -1063,68 +790,44 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-2" openThreadKeys={["q-1", "q-2"]} />,
     );
 
-    const activeTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    expect(within(activeTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "false");
+    // The leader writes in q-1 while the user reads q-2: both are in progress, so that
+    // group is the selected tab and carries the writing marker.
+    const progress = getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "in-progress")!;
+    expect(progress).toHaveAttribute("data-selected", "true");
+    expect(progress).toHaveAttribute("data-active-output", "true");
+
+    const activeTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(activeTab).toHaveAttribute("data-selected", "false");
     expect(activeTab).toHaveAttribute("data-active-output", "true");
-    expect(within(activeTab).getByTestId("thread-tab-active-output-indicator")).toBeInTheDocument();
-    expect(within(activeTab).getByTestId("thread-tab-title")).toHaveAttribute(
+    expect(within(activeTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(activeTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
       getPhaseThreadTabTitleColor("WORKING"),
     );
-    expect(within(activeTab).getByTestId("thread-tab-title").getAttribute("style") ?? "").not.toContain("animation");
 
-    const selectedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    expect(within(selectedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
+    const selectedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(selectedTab).toHaveAttribute("data-selected", "true");
     expect(selectedTab).toHaveAttribute("data-active-output", "false");
-    expect(selectedTab).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
-    expect(selectedTab).toHaveClass("bg-cc-card");
-    expect(selectedTab.className).not.toContain("rgba(139,92,246");
-    expect(selectedTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
-    expect(within(selectedTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
+    expect(within(selectedTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
   });
 
-  it("marks newly projected open tabs with the transient pop animation state", async () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", [BOARD_DATA[0]!]]]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1"]} />);
-    expect(
-      view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1"),
-    ).toHaveAttribute("data-new-tab", "false");
-
-    mockState.sessionBoards = new Map([["s1", BOARD_DATA]]);
-    view.rerender(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-2"]} />);
-
-    await waitFor(() => {
-      const newTab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-      expect(newTab).toHaveAttribute("data-new-tab", "true");
-      expect(newTab).toHaveClass("thread-tab-pop");
-    });
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
-  });
-
-  it("colors the whole visible quest tab title by phase without rendering a separate phase label", () => {
+  it("colors explicitly opened quest tabs by phase on their listed meta line", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-2"]} />);
+    render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-2"]} />);
 
-    const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
-    expect(implementingTitle).toHaveTextContent("q-1");
-    expect(implementingTitle).toHaveTextContent("Fix bug");
-    expect(within(implementingTab).queryByText("Work")).not.toBeInTheDocument();
+    const implementingTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const implementingMeta = within(implementingTab).getByTestId("thread-tab-list-row-meta");
+    expect(implementingMeta).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
+    expect(implementingTab).toHaveTextContent("Fix bug");
 
-    const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    const queuedTitle = within(queuedTab).getByTestId("thread-tab-title");
-    expect(queuedTitle).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(queuedTitle).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
-    expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
+    const queuedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const queuedMeta = within(queuedTab).getByTestId("thread-tab-list-row-meta");
+    expect(queuedMeta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(queuedMeta).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
   });
 
   it("uses done gray for completed board-backed tabs instead of their final phase color", () => {
@@ -1150,9 +853,9 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
 
-    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
-    expect(within(completedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
-    const completedTitle = within(completedTab).getByTestId("thread-tab-title");
+    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    expect(completedTab).toHaveAttribute("data-selected", "true");
+    const completedTitle = within(completedTab).getByTestId("thread-tab-list-row-meta");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
       color: getPhaseColor("MEMORY"),
@@ -1179,8 +882,8 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-3"]} />);
 
-    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
-    const completedTitle = within(completedTab).getByTestId("thread-tab-title");
+    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const completedTitle = within(completedTab).getByTestId("thread-tab-list-row-meta");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
       color: getPhaseColor("MEMORY"),
@@ -1222,9 +925,9 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
 
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-3")!;
+    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-3")!;
     expect(tab).toHaveAttribute("data-closable", "false");
-    const title = within(tab).getByTestId("thread-tab-title");
+    const title = within(tab).getByTestId("thread-tab-list-row-meta");
     expect(title).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("USER_CHECKPOINTING"));
     expect(title).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
   });
@@ -1245,8 +948,8 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const doneTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-99")!;
-    expect(within(doneTab).getByTestId("thread-tab-title")).toHaveAttribute(
+    const doneTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-99")!;
+    expect(within(doneTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-muted)",
     );
@@ -1268,7 +971,7 @@ describe("WorkBoardBar", () => {
     });
   });
 
-  it("renders the active output marker while preserving needs-input bells and title phase color", () => {
+  it("marks the thread being written in while keeping its needs-input bell and phase color", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -1285,35 +988,18 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const needsInputTab = withBellView
-      .getAllByTestId("thread-tab")
-      .find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const needsInputTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(needsInputTab).toHaveAttribute("data-active-output", "true");
-    const { dot: needsInputDot } = expectStripeOriginActiveOutputMarker(needsInputTab);
-    expect(within(needsInputTab).queryByTestId("thread-tab-status-dot")).not.toBeInTheDocument();
-    const bell = within(needsInputTab).getByTestId("thread-tab-needs-input-bell");
-    expect(bell).toHaveAttribute("data-active-output", "true");
-    expect(bell).toHaveClass("relative", "z-10");
-    expect(bell).not.toHaveClass("animate-pulse");
-    const activeTitle = within(needsInputTab).getByTestId("thread-tab-title");
-    expect(activeTitle).toHaveAttribute("data-active-output", "true");
-    expect(activeTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
-    expect(activeTitle.getAttribute("style") ?? "").not.toContain("animation");
-    expect(activeTitle).not.toHaveClass("border");
-    expect(activeTitle).not.toHaveClass("bg-sky-400/10");
-    expect(activeTitle).not.toHaveClass("text-sky-100");
+    expect(within(needsInputTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(needsInputTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
+    expect(within(needsInputTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
+      "data-title-color",
+      getPhaseThreadTabTitleColor("WORKING"),
+    );
 
-    const inactiveTitle = withBellView
-      .getAllByTestId("thread-tab-title")
-      .find((title) => title.closest("[data-thread-key]")?.getAttribute("data-thread-key") === "q-2")!;
-    expect(inactiveTitle).toBeTruthy();
-    expect(inactiveTitle).toHaveAttribute("data-active-output", "false");
-    expect(inactiveTitle.getAttribute("style") ?? "").not.toContain("animation");
-    const inactiveTab = withBellView
-      .getAllByTestId("thread-tab")
-      .find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const inactiveTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(inactiveTab).toHaveAttribute("data-active-output", "false");
-    expect(within(inactiveTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
+    expect(within(inactiveTab).queryByTestId("thread-tab-active-output-dot")).not.toBeInTheDocument();
     withBellView.unmount();
 
     resetStore({
@@ -1323,13 +1009,10 @@ describe("WorkBoardBar", () => {
       activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
     });
 
-    const noBellView = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
-    const noBellTab = noBellView
-      .getAllByTestId("thread-tab")
-      .find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const { dot: noBellDot } = expectStripeOriginActiveOutputMarker(noBellTab);
-    expect(noBellDot.className).toBe(needsInputDot.className);
-    expect(within(noBellTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
+    render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
+    const noBellTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(within(noBellTab).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
+    expect(within(noBellTab).queryByTestId("thread-tab-bell")).not.toBeInTheDocument();
   });
 
   it("prioritizes a needs-input bell when a visible tab has needs-input and review attention", () => {
@@ -1358,15 +1041,15 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const reviewTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const reviewTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
     expect(reviewTab).toHaveAttribute("data-needs-input", "true");
-    expectNoNotificationSurfaceTone(reviewTab);
-    expect(within(reviewTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
-    expect(within(reviewTab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
+    // One bell per tab: the prompt's amber outranks the unread result's blue.
+    expect(within(reviewTab).getAllByTestId("thread-tab-bell")).toHaveLength(1);
+    expect(within(reviewTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
 
-    const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    expect(currentTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
+    const currentTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(currentTab).toHaveAttribute("data-selected", "true");
   });
 
   it("renders muted-only needs-input tabs with a gray muted bell", () => {
@@ -1391,11 +1074,11 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
     expect(tab).toHaveAttribute("data-needs-input", "false");
     expect(tab).toHaveAttribute("data-muted-needs-input", "true");
-    expect(within(tab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
-    expect(within(tab).getByTestId("thread-tab-muted-needs-input-bell")).toHaveClass("text-cc-muted");
+    expect(within(tab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "muted");
+    expect(within(tab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-muted");
   });
 
   it("keeps active needs-input amber ahead of muted needs-input on the same tab", () => {
@@ -1426,52 +1109,12 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
     expect(tab).toHaveAttribute("data-needs-input", "true");
     expect(tab).toHaveAttribute("data-muted-needs-input", "true");
-    expect(within(tab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
-    expect(within(tab).queryByTestId("thread-tab-muted-needs-input-bell")).not.toBeInTheDocument();
-  });
-
-  it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-      sessionStatus: new Map([["s1", "running"]]),
-      activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
-    });
-
-    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
-
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
-    const { glint } = expectStripeOriginActiveOutputMarker(tab);
-    expect(glint).toHaveAttribute("data-reduced-motion", "animation-disabled");
-  });
-
-  it("keeps the active output glint mounted across rail rerenders while active state continues", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-      sessionStatus: new Map([["s1", "running"]]),
-      activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
-    const tabBefore = view
-      .getAllByTestId("thread-tab")
-      .find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
-    const markerBefore = within(tabBefore).getByTestId("thread-tab-active-output-indicator");
-    const glintBefore = within(markerBefore).getByTestId("thread-tab-active-output-glint");
-
-    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
-
-    const tabAfter = view
-      .getAllByTestId("thread-tab")
-      .find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
-    const markerAfter = within(tabAfter).getByTestId("thread-tab-active-output-indicator");
-    const glintAfter = within(markerAfter).getByTestId("thread-tab-active-output-glint");
-    expect(markerAfter).toBe(markerBefore);
-    expect(glintAfter).toBe(glintBefore);
+    expect(within(tab).getAllByTestId("thread-tab-bell")).toHaveLength(1);
+    expect(within(tab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
+    expect(within(tab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
   it("embeds Main-owned needs-input state into the pinned Main tab without a duplicate chip", () => {
@@ -1496,14 +1139,16 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const mainTab = getByTestId("thread-main-tab");
-    expect(mainTab).toHaveAttribute("data-needs-input", "true");
-    expect(mainTab).toHaveTextContent("Main Thread");
+    // Main carries its own bell, and Needs you lists Main rather than a separate chip.
+    const mainTab = getByTestId("thread-tab-group-main");
+    expect(mainTab).toHaveTextContent("Main");
     expect(mainTab).not.toHaveTextContent("Answer");
-    expectNoNotificationSurfaceTone(mainTab);
-    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
+    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
+    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
-    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-closed-chip-count", "0");
+    const needsYou = getByTestId("thread-tab-group-chip");
+    expect(needsYou).toHaveAttribute("data-group", "needs-input");
+    expect(needsYou).toHaveAttribute("data-count", "1");
   });
 
   it("renders Main needs-input as an attention bell without tinting Main while a quest tab is current", () => {
@@ -1530,16 +1175,15 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const mainTab = getByTestId("thread-main-tab");
-    expect(mainTab).toHaveAttribute("aria-pressed", "false");
-    expect(mainTab).toHaveAttribute("data-needs-input", "true");
-    expect(mainTab).toHaveTextContent("Main Thread");
+    // Main's bell shows while a quest is current, without making Main the selected tab.
+    const mainTab = getByTestId("thread-tab-group-main");
+    expect(mainTab).toHaveAttribute("aria-selected", "false");
+    expect(mainTab).not.toHaveClass("bg-cc-card");
     expect(mainTab).not.toHaveTextContent("Answer");
-    expectNoNotificationSurfaceTone(mainTab);
-    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
+    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
 
-    const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    expect(currentTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
+    const currentTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(currentTab).toHaveAttribute("data-selected", "true");
   });
 
   it("keeps closed inactive history hidden unless the user has opened it as a tab", () => {
@@ -1567,7 +1211,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")).toHaveTextContent(
+    expect(listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")).toHaveTextContent(
       "Finished work",
     );
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
@@ -1586,18 +1230,18 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-3"]} onCloseThreadTab={onCloseThreadTab} />,
     );
 
-    expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
+    expect(getByTestId("thread-tab-group-main")).toHaveTextContent("Main");
     expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
-    const activeTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const activeTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
     expect(activeTab).toHaveAttribute("data-closable", "false");
     expect(completedTab).toHaveAttribute("data-closable", "true");
-    expect(within(activeTab).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    expect(within(activeTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
     fireEvent.click(getByLabelText("Close q-3"));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-3", "q-2");
   });
 
-  it("uses sibling select and close buttons for open tabs", () => {
+  it("uses sibling select and close buttons for listed tabs", () => {
     const onSelectThread = vi.fn();
     const onCloseThreadTab = vi.fn();
     resetStore({
@@ -1615,86 +1259,16 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
+    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
     expect(tab.tagName).toBe("DIV");
     expect(tab.querySelector("button button")).toBeNull();
 
-    fireEvent.click(within(tab).getByTestId("thread-tab-select"));
-    expect(onSelectThread).toHaveBeenCalledWith("q-99");
-
     fireEvent.click(getByLabelText("Close q-99"));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
-  });
+    expect(onSelectThread).not.toHaveBeenCalled();
 
-  it("keeps select and close buttons usable when the tab surface is sortable", () => {
-    const onSelectThread = vi.fn();
-    const onCloseThreadTab = vi.fn();
-    const onReorderThreadTabs = vi.fn();
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-    });
-
-    const { getAllByTestId, getByLabelText } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        openThreadKeys={["q-99"]}
-        onSelectThread={onSelectThread}
-        onCloseThreadTab={onCloseThreadTab}
-        onReorderThreadTabs={onReorderThreadTabs}
-        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
-      />,
-    );
-
-    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
-    const selectButton = within(tab).getByTestId("thread-tab-select");
-    const closeButton = getByLabelText("Close q-99");
-
-    expect(within(tab).queryByTestId("thread-tab-drag-handle")).toBeNull();
-    expect(selectButton).toHaveAttribute("aria-roledescription", "sortable");
-    expect(closeButton).not.toHaveAttribute("aria-roledescription", "sortable");
-
-    fireEvent.click(selectButton);
+    fireEvent.click(within(tab).getByTestId("thread-tab-list-row-select"));
     expect(onSelectThread).toHaveBeenCalledWith("q-99");
-    expect(onReorderThreadTabs).not.toHaveBeenCalled();
-
-    fireEvent.click(closeButton);
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
-    expect(onSelectThread).toHaveBeenCalledTimes(1);
-    expect(onReorderThreadTabs).not.toHaveBeenCalled();
-  });
-
-  it("makes every server-projected quest/thread tab surface reorderable", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", [{ questId: "q-2", status: "WORKING", title: "Auto surfaced", updatedAt: 2 }]]]),
-      quests: [
-        { questId: "q-1", title: "Open tab", status: "in_progress" } as QuestmasterTask,
-        { questId: "q-2", title: "Auto surfaced", status: "in_progress" } as QuestmasterTask,
-      ],
-    });
-
-    const { getByTestId, getAllByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        openThreadKeys={["q-1"]}
-        onReorderThreadTabs={vi.fn()}
-        threadRows={[
-          { threadKey: "q-1", questId: "q-1", title: "Open tab" },
-          { threadKey: "q-2", questId: "q-2", title: "Auto surfaced" },
-        ]}
-      />,
-    );
-
-    expect(getByTestId("thread-main-tab")).not.toHaveAttribute("data-reorderable", "true");
-    const openTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const surfacedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    expect(openTab).toHaveAttribute("data-reorderable", "true");
-    expect(within(openTab).queryByTestId("thread-tab-drag-handle")).toBeNull();
-    expect(within(openTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-roledescription", "sortable");
-    expect(surfacedTab).toHaveAttribute("data-reorderable", "true");
-    expect(within(surfacedTab).queryByTestId("thread-tab-drag-handle")).toBeNull();
-    expect(within(surfacedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-roledescription", "sortable");
   });
 
   it("passes the right-hand visible tab as the active close fallback for persisted tabs", () => {
@@ -1721,7 +1295,7 @@ describe("WorkBoardBar", () => {
     );
 
     // Preserve the current rendered tab order: the fallback should be the visible neighbor to the right.
-    expect(getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
       "q-left",
       "q-middle",
       "q-right",
@@ -1749,8 +1323,8 @@ describe("WorkBoardBar", () => {
     );
 
     fireEvent.click(
-      within(getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!).getByTestId(
-        "thread-tab-select",
+      within(listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!).getByTestId(
+        "thread-tab-list-row-select",
       ),
     );
     expect(onSelectThread).toHaveBeenCalledWith("q-2");

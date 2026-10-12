@@ -28,34 +28,6 @@ export function installPlaygroundTestEnvironment() {
   });
 }
 
-export function setMeasuredRailWidth(width: number) {
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
-    () =>
-      ({
-        x: 0,
-        y: 0,
-        top: 0,
-        left: 0,
-        right: width,
-        bottom: 24,
-        width,
-        height: 24,
-        toJSON: () => ({}),
-      }) as DOMRect,
-  );
-  vi.stubGlobal(
-    "ResizeObserver",
-    class ResizeObserver {
-      constructor(private readonly callback: ResizeObserverCallback) {}
-      observe(target: Element) {
-        this.callback([{ target, contentRect: { width } } as ResizeObserverEntry], this);
-      }
-      disconnect() {}
-      unobserve() {}
-    },
-  );
-}
-
 export function getPlaygroundSectionByTitle(title: string) {
   const heading = [...document.querySelectorAll<HTMLElement>("section h2")].find((h) => h.textContent === title);
   const section = heading?.closest<HTMLElement>("section");

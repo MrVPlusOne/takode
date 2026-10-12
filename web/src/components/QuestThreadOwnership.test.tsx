@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../store.js";
 import {
@@ -142,27 +142,32 @@ describe("quest tabs led by another leader", () => {
     installLeader(ownershipProjection());
     render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
 
+    // Every tab is listed in the all-tabs sheet, under its status group.
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
     const tab = (threadKey: string) =>
-      screen.getAllByTestId("thread-tab").find((candidate) => candidate.dataset.threadKey === threadKey)!;
+      screen.getAllByTestId("thread-tab-list-row").find((candidate) => candidate.dataset.threadKey === threadKey)!;
 
     // Own active work keeps its phase color, no ownership note and no close button.
     const own = tab("q-1");
     expect(own).toHaveAttribute("data-ownership-note", "");
-    expect(within(own).getByTestId("thread-tab-title").dataset.titleColor).not.toBe("var(--color-cc-muted)");
+    expect(within(own).getByTestId("thread-tab-list-row-meta").dataset.titleColor).not.toBe("var(--color-cc-muted)");
     expect(within(own).queryByTestId("thread-tab-led-elsewhere-icon")).toBeNull();
     expect(own).toHaveAttribute("data-closable", "false");
 
     // A handed-off quest is muted, names the leader that runs it and can be closed.
     const handed = tab("q-2");
     expect(handed).toHaveAttribute("data-ownership-note", "Led by #2851");
-    expect(within(handed).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(within(handed).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-muted)",
+    );
     expect(within(handed).getByTestId("thread-tab-led-elsewhere-icon")).toBeInTheDocument();
     expect(handed).toHaveAttribute("data-closable", "true");
 
     // An unfinished quest no board holds is muted and says so; a finished one only reads as done.
     const removed = tab("q-3");
     expect(removed).toHaveAttribute("data-ownership-note", "Not on board");
-    expect(within(removed).getByTestId("thread-tab-title")).toHaveAttribute(
+    expect(within(removed).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-muted)",
     );
@@ -171,15 +176,10 @@ describe("quest tabs led by another leader", () => {
     expect(tab("q-5")).toHaveAttribute("data-ownership-note", "");
   });
 
-  it("files off-board tabs under Done in the phone tab groups once Questmaster says they finished", () => {
-    // Phone layout: the rail shows status groups. q-4 finished on its board row and q-5
+  it("files off-board tabs under Done in the tab groups once Questmaster says they finished", () => {
+    // q-4 finished on its board row and q-5
     // only in its loaded Questmaster record; both belong under Done, while the unfinished
     // off-board q-3 and the handed-off q-2 stay in progress.
-    const desktopWidth = window.innerWidth;
-    window.innerWidth = 430;
-    onTestFinished(() => {
-      window.innerWidth = desktopWidth;
-    });
     installLeader(ownershipProjection());
     render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
 

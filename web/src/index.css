@@ -276,8 +276,7 @@ html, body {
 }
 
 @media (hover: none) and (pointer: coarse) {
-  .mobile-scroll-stable-surface .animate-\[fadeSlideIn_0\.2s_ease-out\],
-  .mobile-scroll-stable-surface .thread-tab-pop {
+  .mobile-scroll-stable-surface .animate-\[fadeSlideIn_0\.2s_ease-out\] {
     animation: none !important;
   }
 }
@@ -490,46 +489,6 @@ html, body {
   50% { box-shadow: 0 0 6px 0 var(--glow-color, transparent); }
 }
 
-@keyframes thread-tab-output-glint {
-  0% {
-    opacity: 0.42;
-    transform: translateX(-120%);
-  }
-  45% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.42;
-    transform: translateX(220%);
-  }
-}
-
-.thread-tab-output-glint {
-  animation: thread-tab-output-glint 1.8s ease-in-out infinite;
-}
-
-@keyframes thread-tab-pop {
-  0% {
-    opacity: 0;
-    transform: translateY(4px) scale(0.96);
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
-  }
-  55% {
-    opacity: 1;
-    transform: translateY(-1px) scale(1.015);
-    box-shadow: 0 0 12px 0 rgba(56, 189, 248, 0.24);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
-  }
-}
-
-.thread-tab-pop {
-  animation: thread-tab-pop 520ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 /* Transform-only so the long-press menu never paints transparent. */
 @keyframes context-menu-pop {
   0% {
@@ -563,16 +522,6 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thread-tab-pop {
-    animation: none;
-  }
-
-  .thread-tab-output-glint {
-    animation: none;
-    opacity: 0.82;
-    transform: translateX(0);
-  }
-
   .attention-paw-stamp {
     animation: none;
   }

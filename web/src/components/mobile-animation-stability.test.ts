@@ -8,7 +8,8 @@ describe("mobile animation stability", () => {
 
     expect(css).toContain("@media (hover: none) and (pointer: coarse)");
     expect(css).toContain(".mobile-scroll-stable-surface .animate-\\[fadeSlideIn_0\\.2s_ease-out\\]");
-    expect(css).toContain(".mobile-scroll-stable-surface .thread-tab-pop");
+    // The thread tab pop animation went with the per-tab strip, so nothing else is listed.
+    expect(css).not.toContain("thread-tab-pop");
     expect(css).toContain("animation: none !important;");
   });
 

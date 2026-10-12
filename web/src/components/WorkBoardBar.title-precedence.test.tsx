@@ -14,6 +14,7 @@ import {
   resetWorkBoardProjectionFixture,
   type WorkBoardProjectionPropsFixture,
 } from "../test-fixtures/work-board-projection-adapter.js";
+import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -155,12 +156,11 @@ function reviewAttention(questId: string, title: string): SessionAttentionRecord
   };
 }
 
-function getTabTitle(container: HTMLElement, threadKey: string): HTMLElement {
-  const tab = within(container)
-    .getAllByTestId("thread-tab")
-    .find((candidate) => candidate.getAttribute("data-thread-key") === threadKey);
+/** The listed tab (its title text and its title color) in the all-tabs sheet. */
+function getTabTitle(_container: HTMLElement, threadKey: string): HTMLElement {
+  const tab = listedThreadTab(threadKey);
   if (!tab) throw new Error(`Missing tab ${threadKey}`);
-  return within(tab).getByTestId("thread-tab-title");
+  return tab;
 }
 
 function threadStatus(threadKey: string, kind: LeaderThreadStatus["kind"]): LeaderThreadStatus {
@@ -202,13 +202,10 @@ describe("WorkBoardBar tab title source precedence", () => {
     });
 
     const view = render(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);
-    const waitingTitle = getTabTitle(view.container, "q-1972");
-    const waitingTab = view.getByTestId("thread-tab");
-    expect(waitingTitle).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(within(waitingTab).queryByTestId("thread-tab-needs-input-bell")).toBeNull();
-    expect(within(waitingTab).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
-    expect(within(waitingTab).queryByTestId("thread-tab-active-output-indicator")).toBeNull();
-    expect(waitingTitle.getAttribute("style") ?? "").not.toContain("animation");
+    const waitingTab = getTabTitle(view.container, "q-1972");
+    expect(waitingTab).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(within(waitingTab).queryByTestId("thread-tab-bell")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-active-output-dot")).toBeNull();
 
     mockState.sessions = new Map([["s1", { leaderThreadStatuses: { "q-1972": threadStatus("q-1972", "ready") } }]]);
     view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);
@@ -319,98 +316,10 @@ describe("WorkBoardBar tab title source precedence", () => {
     );
 
     expect(getTabTitle(container, "q-1932")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
-    expect(within(container).getByTestId("thread-tab")).toHaveAttribute("data-thread-key", "q-1932");
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1932"]);
   });
 
-  it("loads the rich tab hover by id when only the title projection is cached", async () => {
-    const fetched = quest("q-1932", "Resolve VSCode QA Stack Conflicts");
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "fresh", data: fetched, etag: '"detail-v3"' });
-    resetStore({
-      questTitlePreviews: new Map([["q-1932", { questId: "q-1932", title: fetched.title, version: 3, updatedAt: 30 }]]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
-    const tab = view.getByTestId("thread-tab");
-    fireEvent.mouseEnter(tab);
-
-    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-1932", null);
-    const card = await view.findByTestId("quest-hover-card");
-    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
-  });
-
-  it("clears the previous tab hover while a different uncached tab hydrates", async () => {
-    const cached = quest("q-1931", "First cached quest");
-    const hydrated = quest("q-1932", "Second hydrated quest");
-    let resolveSecond: ((value: { status: "fresh"; data: QuestmasterTask; etag: string }) => void) | undefined;
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"detail-a"' }).mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveSecond = resolve;
-      }),
-    );
-    resetStore({
-      questDetails: new Map([["q-1931", cached]]),
-      questDetailEtags: new Map([["q-1931", '"detail-a"']]),
-      questTitlePreviews: new Map([
-        ["q-1931", { questId: "q-1931", title: cached.title, version: 1, updatedAt: 10 }],
-        ["q-1932", { questId: "q-1932", title: hydrated.title, version: 1, updatedAt: 10 }],
-      ]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1931", "q-1932"]} />);
-    const [firstTab, secondTab] = view.getAllByTestId("thread-tab");
-    fireEvent.mouseEnter(firstTab);
-    expect(await view.findByTestId("quest-hover-card")).toHaveTextContent("First cached quest");
-
-    fireEvent.mouseLeave(firstTab);
-    fireEvent.mouseEnter(secondTab);
-    expect(view.queryByTestId("quest-hover-card")).toBeNull();
-
-    resolveSecond?.({ status: "fresh", data: hydrated, etag: '"detail-b"' });
-    expect(await view.findByTestId("quest-hover-card")).toHaveTextContent("Second hydrated quest");
-  });
-
-  it("updates an open cached hover after pointer handoff while revalidation is pending", async () => {
-    const cached = {
-      ...quest("q-1932", "Cached title"),
-      id: "q-1932-v2",
-      version: 2,
-      updatedAt: 20,
-    } as QuestmasterTask;
-    const fresh = {
-      ...quest("q-1932", "Fresh canonical title"),
-      id: "q-1932-v3",
-      version: 3,
-      updatedAt: 30,
-    } as QuestmasterTask;
-    let resolveFresh: ((value: { status: "fresh"; data: QuestmasterTask; etag: string }) => void) | undefined;
-    mockGetQuestValidated.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveFresh = resolve;
-      }),
-    );
-    resetStore({
-      questDetails: new Map([["q-1932", cached]]),
-      questDetailEtags: new Map([["q-1932", '"detail-v2"']]),
-      questTitlePreviews: new Map([["q-1932", { questId: "q-1932", title: cached.title, version: 2, updatedAt: 20 }]]),
-    });
-
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
-    const tab = view.getByTestId("thread-tab");
-    fireEvent.mouseEnter(tab);
-    const card = await view.findByTestId("quest-hover-card");
-    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Cached title");
-
-    fireEvent.mouseLeave(tab);
-    fireEvent.mouseEnter(card);
-    resolveFresh?.({ status: "fresh", data: fresh, etag: '"detail-v3"' });
-
-    expect(await view.findByText("Fresh canonical title")).toBeInTheDocument();
-    expect(within(view.getByTestId("quest-hover-card")).getByTestId("quest-hover-title")).toHaveTextContent(
-      "Fresh canonical title",
-    );
-  });
-
-  it("keeps a newer title projection over stale cached detail and revalidates hover metadata", async () => {
+  it("keeps a newer title projection over stale cached detail", () => {
     const staleDetail = {
       ...quest("q-1932", "Old cached title"),
       id: "q-1932-v2",
@@ -432,15 +341,10 @@ describe("WorkBoardBar tab title source precedence", () => {
       ]),
     });
 
-    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
-    const tab = view.getByTestId("thread-tab");
-    expect(within(tab).getByTestId("thread-tab-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+    render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
+    const tab = listedThreadTab("q-1932")!;
+    expect(tab).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
     expect(tab).not.toHaveTextContent("Old cached title");
-
-    fireEvent.mouseEnter(tab);
-    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-1932", '"detail-v2"');
-    const card = await view.findByTestId("quest-hover-card");
-    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
   });
 
   it("uses targeted Quest Detail cache titles without polluting the paged quest list", () => {

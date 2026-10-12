@@ -55,7 +55,6 @@ import {
 import { readOpenThreadTabKeys } from "../utils/leader-open-thread-tabs.js";
 import {
   placeLeaderOpenThreadTabKey,
-  reorderLeaderOpenThreadKeys,
   shouldPersistLeaderThreadTab,
   type LeaderOpenThreadTabsState,
   type LeaderThreadTabUpdate,
@@ -793,16 +792,6 @@ export function ChatView({
     window.addEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
     return () => window.removeEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
   }, [handleCloseThreadTab, isLeaderSession, preview, sessionId]);
-  const handleReorderThreadTabs = useCallback(
-    (orderedThreadKeys: string[]) => {
-      const nextOpenThreadTabKeys = reorderLeaderOpenThreadKeys(openThreadTabKeysRef.current, orderedThreadKeys);
-      if (stringArraysEqual(openThreadTabKeysRef.current, nextOpenThreadTabKeys)) return;
-      openThreadTabKeysRef.current = nextOpenThreadTabKeys;
-      setOpenThreadTabKeys(nextOpenThreadTabKeys);
-      sendLeaderThreadTabUpdate({ type: "reorder", orderedOpenThreadKeys: nextOpenThreadTabKeys });
-    },
-    [sendLeaderThreadTabUpdate],
-  );
 
   useEffect(() => {
     locallySelectedRouteThreadKeyRef.current = null;
@@ -1036,7 +1025,6 @@ export function ChatView({
           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
           openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
-          onReorderThreadTabs={isLeaderSession ? handleReorderThreadTabs : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
         />
       )}

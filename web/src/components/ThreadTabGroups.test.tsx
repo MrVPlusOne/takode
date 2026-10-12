@@ -93,7 +93,7 @@ describe("ThreadTabGroupBar", () => {
     const chips = screen.getAllByTestId("thread-tab-group-chip");
     // No prompt is waiting, so the Needs you chip is hidden rather than showing 0. The
     // groups read left to right as stages of the work: ongoing, then unread results, then done.
-    expect(chips.map((chip) => [chip.dataset.group, chip.textContent])).toEqual([
+    expect(chips.map((chip) => [chip.dataset.group, chip.dataset.count])).toEqual([
       ["in-progress", "1"],
       ["new-results", "2"],
       ["done", "3"],
@@ -189,10 +189,10 @@ describe("ThreadTabGroupBar active output", () => {
   });
 });
 
-describe("ThreadTabRail on phones", () => {
-  const desktopWidth = window.innerWidth;
+describe("ThreadTabRail", () => {
+  const defaultWidth = window.innerWidth;
   afterEach(() => {
-    window.innerWidth = desktopWidth;
+    window.innerWidth = defaultWidth;
   });
 
   function renderRail(onCloseThreadTab = vi.fn()) {
@@ -200,8 +200,7 @@ describe("ThreadTabRail on phones", () => {
       <ThreadTabRail
         mainState={MAIN}
         tabs={TABS}
-        reorderableThreadKeys={[]}
-        sessionId="phone-session"
+        sessionId="rail-session"
         currentThreadKey="q-10"
         onSelectThread={vi.fn()}
         onCloseThreadTab={onCloseThreadTab}
@@ -210,22 +209,19 @@ describe("ThreadTabRail on phones", () => {
     return onCloseThreadTab;
   }
 
-  it("shows status groups at phone width and the tab strip on desktop", () => {
-    // Phones follow the app's phone-shell rule; jsdom's default width is a desktop one.
+  it("shows status groups on phones and desktops alike", () => {
+    // The per-tab strip is retired: jsdom's default desktop width gets the groups too.
     renderRail();
-    expect(screen.getByTestId("thread-tab-rail").dataset.layout).toBeUndefined();
-    expect(screen.getByTestId("thread-tab-strip")).toBeTruthy();
+    expect(screen.getByTestId("thread-tab-group-bar")).toBeTruthy();
+    expect(screen.queryByTestId("thread-tab")).toBeNull();
     cleanup();
 
     window.innerWidth = 430;
     renderRail();
-    expect(screen.getByTestId("thread-tab-rail").dataset.layout).toBe("groups");
-    expect(screen.queryByTestId("thread-tab-strip")).toBeNull();
     expect(screen.getByTestId("thread-tab-group-bar")).toBeTruthy();
   });
 
   it("offers the tab menu on a listed tab and closes it through the rail", () => {
-    window.innerWidth = 430;
     const onCloseThreadTab = renderRail();
     const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
     fireEvent.click(done);
@@ -234,5 +230,27 @@ describe("ThreadTabRail on phones", () => {
     fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
     fireEvent.click(screen.getByText("Close tab"));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-13");
+  });
+
+  it("anchors a group's list under its tab on wide screens", () => {
+    // Wide screens size tabs to their labels, so a full-width list would float far from
+    // the tab that opened it; the list opens at that tab instead.
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(min-width: 768px)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    renderRail();
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done);
+    const list = screen.getByTestId("thread-tab-group-list");
+    expect(list.style.left).toBe("120px");
+    expect(list.style.width).toBe("448px");
   });
 });

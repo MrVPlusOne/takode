@@ -4,7 +4,7 @@
  * progress, finished). A chip lists its tabs; the current tab opens a switcher sheet with
  * every tab, search by title or quest number, and closing.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
@@ -13,11 +13,16 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/t
 import { timeAgo } from "../utils/quest-helpers.js";
 import { BellIcon } from "./GlobalNeedsInputMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
+import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
 /** Left to right as stages of the work: waiting on the user, ongoing, finished but unread, done. */
+/** Wide screens (the desktop shell) label each group and anchor its list under its tab. */
+const WIDE_LAYOUT_QUERY = "(min-width: 768px)";
+const WIDE_LIST_WIDTH_PX = 448;
+
 export const THREAD_TAB_GROUP_ORDER: readonly ThreadTabGroupId[] = [
   "needs-input",
   "in-progress",
@@ -119,6 +124,19 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     rows.onSelect(threadKey);
   };
   const rowContext = { ...rows, onSelect: select };
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const [listLeft, setListLeft] = useState<number | null>(null);
+
+  // On wide screens a group's list opens under its own tab instead of spanning the bar.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!openGroup || !bar || !window.matchMedia(WIDE_LAYOUT_QUERY).matches) {
+      setListLeft(null);
+      return;
+    }
+    const tab = bar.querySelector<HTMLElement>(`[data-testid="thread-tab-group-chip"][data-group="${openGroup}"]`);
+    setListLeft(Math.max(0, Math.min(tab?.offsetLeft ?? 0, bar.clientWidth - WIDE_LIST_WIDTH_PX)));
+  }, [openGroup]);
 
   useEffect(() => {
     if (!openGroup) return;
@@ -136,7 +154,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
   return (
-    <div className="relative" data-testid="thread-tab-group-bar" data-placement={placement}>
+    <div ref={barRef} className="relative" data-testid="thread-tab-group-bar" data-placement={placement}>
       <div
         className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
         role="tablist"
@@ -161,6 +179,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
                 selected: currentGroup === id,
                 open: openGroup === id,
                 group: id,
+                count: groups[id].length,
                 activeOutput: groups[id].some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
                 testId: "thread-tab-group-chip",
                 // A group of one opens its tab directly; its list (with the tab's latest
@@ -185,7 +204,12 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
             setOpenGroup(null);
             setSheetOpen(true);
           },
-          children: <SearchGlyph />,
+          children: (
+            <>
+              <SearchGlyph />
+              <span className="hidden md:inline">Find</span>
+            </>
+          ),
         })}
       </div>
       {openGroup && (
@@ -199,6 +223,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
             className={`absolute inset-x-0 z-50 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl ${
               placement === "bottom" ? "bottom-full mb-1" : "top-full mt-1"
             }`}
+            style={listLeft === null ? undefined : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }}
             role="menu"
             data-testid="thread-tab-group-list"
             data-group={openGroup}
@@ -264,6 +289,8 @@ interface BarItemProps {
   open?: boolean;
   compact?: boolean;
   group?: ThreadTabGroupId;
+  /** How many tabs the group holds. */
+  count?: number;
   activeOutput?: boolean;
   testId: string;
   onClick: () => void;
@@ -286,6 +313,7 @@ function BarItem({
   open = false,
   compact = false,
   group,
+  count,
   activeOutput,
   testId,
   onClick,
@@ -294,7 +322,8 @@ function BarItem({
   children,
 }: BarItemProps) {
   const longPress = useLongPress(onOpenList ? () => onOpenList() : undefined);
-  const size = compact ? "w-10 shrink-0" : "min-w-0 flex-1";
+  // Phones share the width evenly; wide screens size each tab to its label.
+  const size = compact ? "w-10 shrink-0 md:w-auto md:px-3" : "min-w-0 flex-1 md:min-w-[7.5rem] md:flex-none md:px-3";
   const edge = placement === "bottom" ? "rounded-b-md border-t-0" : "rounded-t-md border-b-0";
   const tone = selected
     ? `relative z-10 ${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 ${selectedSurface} text-cc-fg`
@@ -315,7 +344,9 @@ function BarItem({
       aria-haspopup={group && !single ? "menu" : compact ? "dialog" : undefined}
       data-testid={testId}
       data-group={group}
+      data-count={count}
       data-selected={selected ? "true" : "false"}
+      data-active-output={activeOutput ? "true" : "false"}
     >
       {activeOutput && <ActiveOutputDot />}
       {children}
@@ -339,12 +370,20 @@ function SearchGlyph() {
   );
 }
 
+/** The group's name, shown before its count where the bar has room. */
+function WideLabel({ id }: { id: ThreadTabGroupId }) {
+  return <span className="hidden md:inline">{GROUP_LABEL[id]} </span>;
+}
+
 function GroupContent({ id, tabs }: { id: ThreadTabGroupId; tabs: readonly PrimaryThreadChip[] }) {
   if (id === "needs-input" || id === "new-results") {
     return (
       <>
         <BellIcon className={`h-3 w-3 shrink-0 ${id === "needs-input" ? "text-cc-attention" : "text-cc-info"}`} />
-        <span className={id === "needs-input" ? "text-cc-attention" : "text-cc-info"}>{tabs.length}</span>
+        <span className={id === "needs-input" ? "text-cc-attention" : "text-cc-info"}>
+          <WideLabel id={id} />
+          {tabs.length}
+        </span>
       </>
     );
   }
@@ -361,7 +400,10 @@ function GroupContent({ id, tabs }: { id: ThreadTabGroupId; tabs: readonly Prima
         >
           <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span>{tabs.length}</span>
+        <span>
+          <WideLabel id={id} />
+          {tabs.length}
+        </span>
       </>
     );
   }
@@ -378,7 +420,10 @@ function GroupContent({ id, tabs }: { id: ThreadTabGroupId; tabs: readonly Prima
           />
         ))}
       </span>
-      <span>{tabs.length}</span>
+      <span>
+        <WideLabel id={id} />
+        {tabs.length}
+      </span>
     </>
   );
 }
@@ -421,12 +466,19 @@ function ThreadTabListRow({
   const style: CSSProperties = { ...longPress.pressStyle };
   return (
     <div
-      className={`flex min-h-[3.25rem] items-center gap-3 px-4 py-1.5 ${selected ? "bg-cc-active" : ""} ${openMenu ? LONG_PRESS_TARGET_CLASS : ""}`}
+      className={`flex min-h-[3.25rem] items-center gap-3 px-4 py-1.5 ${selected ? "bg-cc-active" : "hover:bg-cc-hover/40"} ${openMenu ? LONG_PRESS_TARGET_CLASS : ""}`}
       style={style}
       {...longPress.handlers}
       data-testid="thread-tab-list-row"
       data-thread-key={threadKey}
       data-selected={selected ? "true" : "false"}
+      data-title-color={main ? "" : (tab.titleColor ?? "")}
+      data-ownership-note={tab.ownershipNote ?? ""}
+      data-closable={tab.canClose ? "true" : "false"}
+      data-needs-input={tab.needsInput ? "true" : "false"}
+      data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
+      data-blue-notification={tab.blueNudge ? "true" : "false"}
+      data-active-output={isActiveOutput(tab, context.activeOutputThreadKey) ? "true" : "false"}
     >
       <button
         type="button"
@@ -441,12 +493,22 @@ function ThreadTabListRow({
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className={`flex min-w-0 items-center gap-1.5 text-[14px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
             {isActiveOutput(tab, context.activeOutputThreadKey) && <ActiveOutputDot />}
+            {tab.ledElsewhere && (
+              // Another leader runs this quest now; the meta line names it ("Led by #N").
+              <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-led-elsewhere-icon">
+                <SessionRoleIcon role="Leader" />
+              </span>
+            )}
             <span className="truncate">
               <Highlight text={tab.title} query={query} />
             </span>
           </span>
           <span className="mt-0.5 truncate text-[11.5px]">
-            <span style={{ color: main ? "var(--color-cc-muted)" : tab.titleColor }}>
+            <span
+              style={{ color: main ? "var(--color-cc-muted)" : tab.titleColor }}
+              data-testid="thread-tab-list-row-meta"
+              data-title-color={main ? "" : (tab.titleColor ?? "")}
+            >
               <Highlight text={meta} query={query} />
             </span>
             {summary && <span className="text-cc-muted"> — {summary}</span>}
@@ -538,18 +600,18 @@ function ThreadTabSwitcherSheet({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40"
+      className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 md:items-center md:justify-start md:pt-[10vh]"
       onClick={onClose}
       data-testid="thread-tab-switcher-backdrop"
     >
       <div
-        className="flex h-[88dvh] flex-col rounded-t-2xl border-t border-cc-border bg-cc-card shadow-2xl"
+        className="flex h-[88dvh] flex-col rounded-t-2xl border-t border-cc-border bg-cc-card shadow-2xl md:h-[75vh] md:w-[36rem] md:rounded-2xl md:border"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-label="All tabs"
         data-testid="thread-tab-switcher"
       >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-cc-border" />
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-cc-border md:hidden" />
         <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-2">
           <span className="text-[15px] font-medium text-cc-fg">{total} tabs</span>
           <button type="button" onClick={onClose} className="ml-auto text-[14px] text-cc-primary">

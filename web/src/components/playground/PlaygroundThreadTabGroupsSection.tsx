@@ -94,8 +94,8 @@ export function PlaygroundThreadTabGroupsSection() {
   return (
     <PlaygroundSectionGroup groupId="interactive">
       <Section
-        title="Phone Thread Tab Groups"
-        description="On phone-width screens the thread tab strip gives way to status groups: Main, one item per kind of tab (prompts waiting, unread results, in progress with phase-color dots, done) and search. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); search opens every tab with search by title or quest number, and closing."
+        title="Thread Tab Groups"
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); search opens every tab with search by title or quest number, and closing."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">

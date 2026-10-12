@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { closeAllThreadTabs, listedThreadTab } from "../test-fixtures/thread-tab-rows.js";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
@@ -20,11 +21,7 @@ vi.mock("remark-gfm", () => ({
 import { Playground } from "./Playground.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import { useStore } from "../store.js";
-import {
-  installPlaygroundTestEnvironment,
-  PlaygroundOverviewOnly,
-  setMeasuredRailWidth,
-} from "./Playground.test-helpers.js";
+import { installPlaygroundTestEnvironment, PlaygroundOverviewOnly } from "./Playground.test-helpers.js";
 
 // Playground tests are split across Playground*.test.tsx files so the heavy full-catalog
 // renders run in parallel workers. This file: overview-section Playground fixtures.
@@ -118,49 +115,51 @@ describe("Playground", { timeout: 30_000 }, () => {
   });
 
   it("documents projected scheduled priority and dismissal parity on desktop and mobile", () => {
-    setMeasuredRailWidth(430);
     render(<PlaygroundOverviewOnly />);
 
-    const desktop = within(screen.getByTestId("playground-projected-thread-tabs-desktop"));
-    const mobile = within(screen.getByTestId("playground-projected-thread-tabs-mobile"));
-    for (const scope of [desktop, mobile]) {
-      const rail = scope.getByTestId("thread-tab-rail");
-      expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
-      // Five hidden tabs: three scheduled/muted specimens plus two tabs for quests this leader handed away.
-      expect(rail).toHaveAttribute("data-hidden-tab-count", "5");
-      const visibleTabs = scope.getAllByTestId("thread-tab");
-      expect(visibleTabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-9001", "q-9004", "q-9003"]);
-      const needsInput = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9001")!;
-      const completedWaiting = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9004")!;
-      const reviewUnread = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9003")!;
+    // Desktop and mobile widths show the same status groups; every tab is listed, under
+    // its group, in the all-tabs sheet.
+    for (const testId of ["playground-projected-thread-tabs-desktop", "playground-projected-thread-tabs-mobile"]) {
+      const container = screen.getByTestId(testId);
+      const tab = (threadKey: string) => listedThreadTab(threadKey, container)!;
+
+      const needsInput = tab("q-9001");
       expect(needsInput).toHaveAttribute("data-needs-input", "true");
       expect(needsInput).toHaveAttribute("data-blue-notification", "true");
-      expect(within(needsInput).getByTestId("thread-tab-needs-input-bell")).toBeTruthy();
-      expect(within(needsInput).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+      expect(within(needsInput).getAllByTestId("thread-tab-bell")).toHaveLength(1);
+      expect(within(needsInput).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
       expect(needsInput).toHaveAttribute("data-closable", "false");
-      expect(within(needsInput).queryByTestId("thread-tab-close")).toBeNull();
-      expect(within(needsInput).getByTestId("thread-tab-title")).toHaveAttribute(
-        "data-title-color",
-        "var(--color-cc-phase-thread-tab-title-work, #166534)",
-      );
-      fireEvent.mouseEnter(needsInput);
-      expect(within(needsInput).getByTestId("thread-tab-title")).toHaveAttribute(
-        "data-title-color",
-        "var(--color-cc-phase-thread-tab-title-work, #166534)",
-      );
-      expect(completedWaiting).toHaveAttribute("data-closable", "true");
-      expect(within(completedWaiting).getByTestId("thread-tab-title")).toHaveAttribute(
-        "data-title-color",
-        "var(--color-cc-fg)",
-      );
-      expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
-      expect(reviewUnread).toHaveAttribute("data-closable", "true");
-      expect(within(reviewUnread).getByTestId("thread-tab-blue-notification-bell")).toBeTruthy();
-      expect(within(reviewUnread).getByRole("button", { name: "Close q-9003" })).toBeTruthy();
-      expect(scope.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-has-muted-needs-input", "true");
+      expect(within(needsInput).queryByTestId("thread-tab-list-row-close")).toBeNull();
+      expect(needsInput).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
 
-      fireEvent.click(within(needsInput).getByTestId("thread-tab-select"));
-      fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
+      const completedWaiting = tab("q-9004");
+      expect(completedWaiting).toHaveAttribute("data-closable", "true");
+      expect(completedWaiting).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+
+      const reviewUnread = tab("q-9003");
+      expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
+      expect(within(reviewUnread).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "review");
+      expect(within(reviewUnread).getByRole("button", { name: "Close q-9003" })).toBeTruthy();
+
+      const muted = tab("q-9005");
+      expect(muted).toHaveAttribute("data-muted-needs-input", "true");
+      expect(within(muted).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "muted");
+      expect(within(muted).getByRole("button", { name: "Close q-9005" })).toBeTruthy();
+      expect(within(tab("q-9002")).getByRole("button", { name: "Close q-9002" })).toBeTruthy();
+      expect(within(tab("q-9006")).getByRole("button", { name: "Close q-9006" })).toBeTruthy();
+
+      // Quests another leader runs, or no board holds, say so and stay closable.
+      const handed = tab("q-9010");
+      expect(handed).toHaveTextContent("Led by #2851");
+      expect(within(handed).getByTestId("thread-tab-led-elsewhere-icon")).toBeTruthy();
+      expect(within(handed).getByRole("button", { name: "Close q-9010" })).toBeTruthy();
+      const offBoard = tab("q-9011");
+      expect(offBoard).toHaveTextContent("Not on board");
+      expect(within(offBoard).getByRole("button", { name: "Close q-9011" })).toBeTruthy();
+
+      // Opening the prompt's tab shows its quest strip with the timed Journey preview.
+      fireEvent.click(within(needsInput).getByTestId("thread-tab-list-row-select"));
+      fireEvent.click(within(container).getByTestId("quest-thread-journey-hover-target"));
       const preview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
         "quest-journey-preview-card",
       );
@@ -171,33 +170,8 @@ describe("Playground", { timeout: 30_000 }, () => {
           .map((node) => node.textContent),
       ).toEqual(["1m", "3m"]);
       expect(preview).not.toHaveTextContent("Duration unavailable");
+      closeAllThreadTabs();
     }
-
-    fireEvent.click(mobile.getByTestId("thread-tabs-more-button"));
-    const moreRows = mobile.getAllByTestId("thread-tabs-more-row");
-    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual([
-      "q-9005",
-      "q-9002",
-      "q-9006",
-      "q-9010",
-      "q-9011",
-    ]);
-    const mutedRow = moreRows[0]!;
-    const queuedRow = moreRows[1]!;
-    const proposedRow = moreRows[2]!;
-    expect(mutedRow).toHaveAttribute("data-muted-needs-input", "true");
-    expect(within(mutedRow).getByTestId("thread-tab-muted-needs-input-bell")).toBeTruthy();
-    expect(within(mutedRow).getByRole("button", { name: "Close q-9005" })).toBeTruthy();
-    expect(within(queuedRow).getByRole("button", { name: "Close q-9002" })).toBeTruthy();
-    expect(within(proposedRow).getByRole("button", { name: "Close q-9006" })).toBeTruthy();
-    // Quests another leader runs, or no board holds, say so and stay closable.
-    const handedRow = moreRows[3]!;
-    const offBoardRow = moreRows[4]!;
-    expect(handedRow).toHaveTextContent("Led by #2851");
-    expect(within(handedRow).getByTestId("thread-tab-led-elsewhere-icon")).toBeTruthy();
-    expect(within(handedRow).getByRole("button", { name: "Close q-9010" })).toBeTruthy();
-    expect(offBoardRow).toHaveTextContent("Not on board");
-    expect(within(offBoardRow).getByRole("button", { name: "Close q-9011" })).toBeTruthy();
   });
 
   it("documents additive source projection without source attachment markers", () => {

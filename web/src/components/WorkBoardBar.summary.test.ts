@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
-import { boardSummary, constrainThreadTabTransformToHorizontal, reorderThreadTabsAfterDrag } from "./WorkBoardBar.js";
+import { boardSummary } from "./WorkBoardBar.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
@@ -118,32 +118,3 @@ function getPhaseColor(status: string): string | undefined {
   const phase = getQuestJourneyPhaseForState(status);
   return phase ? getQuestPhaseColorValue(phase.color) : undefined;
 }
-
-describe("reorderThreadTabsAfterDrag", () => {
-  it("reorders sortable thread keys and ignores Main or unknown drag targets", () => {
-    expect(reorderThreadTabsAfterDrag(["q-1", "q-2", "q-3"], "q-3", "q-1")).toEqual(["q-3", "q-1", "q-2"]);
-    expect(reorderThreadTabsAfterDrag(["q-1", "q-2"], "main", "q-2")).toEqual(["q-1", "q-2"]);
-    expect(reorderThreadTabsAfterDrag(["q-1", "q-2"], "q-1", "q-missing")).toEqual(["q-1", "q-2"]);
-  });
-});
-
-describe("constrainThreadTabTransformToHorizontal", () => {
-  it("keeps sortable thread tab movement on the horizontal rail", () => {
-    const transform = { x: 42, y: 18, scaleX: 1, scaleY: 0.96 };
-
-    expect(constrainThreadTabTransformToHorizontal(transform)).toEqual({
-      x: 42,
-      y: 0,
-      scaleX: 1,
-      scaleY: 0.96,
-    });
-    expect(transform.y).toBe(18);
-  });
-
-  it("preserves empty and already-horizontal transforms", () => {
-    const transform = { x: -24, y: 0, scaleX: 1, scaleY: 1 };
-
-    expect(constrainThreadTabTransformToHorizontal(null)).toBeNull();
-    expect(constrainThreadTabTransformToHorizontal(transform)).toBe(transform);
-  });
-});

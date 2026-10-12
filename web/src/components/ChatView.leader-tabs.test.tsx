@@ -224,14 +224,12 @@ vi.mock("./WorkBoardBar.js", () => ({
     onSelectThread,
     openThreadKeys = [],
     onCloseThreadTab,
-    onReorderThreadTabs,
     threadRows = [],
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
     onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
-    onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
     threadRows?: Array<{ threadKey: string; questId?: string; title: string }>;
   }) => (
     <div
@@ -281,15 +279,6 @@ vi.mock("./WorkBoardBar.js", () => ({
             Close {threadKey}
           </button>
         ))}
-      {onReorderThreadTabs && (
-        <button
-          type="button"
-          data-testid="mock-workboard-reorder-tabs"
-          onClick={() => onReorderThreadTabs([...openThreadKeys].reverse())}
-        >
-          Reorder tabs
-        </button>
-      )}
     </div>
   ),
 }));
@@ -750,37 +739,6 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
   });
 
-  it("sends manual reorder operations without changing selected tab or viewport ownership", () => {
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777", "q-555"]),
-      messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3), threadMessage("q-555", 4)]]]),
-      quests: [
-        { questId: "q-941", title: "First tab", status: "in_progress" },
-        { questId: "q-777", title: "Second tab", status: "in_progress" },
-        { questId: "q-555", title: "Third tab", status: "in_progress" },
-      ],
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    fireEvent.click(scope.getByRole("button", { name: /q-777 second tab/i }));
-    mockSendToSession.mockClear();
-
-    fireEvent.click(scope.getByTestId("mock-workboard-reorder-tabs"));
-
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-555,q-777,q-941");
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-777");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: { type: "reorder", orderedOpenThreadKeys: ["q-555", "q-777", "q-941"] },
-    });
-
-    setLeaderProjection(["q-555", "q-777", "q-941"]);
-    view.rerender(<ChatView sessionId="s1" />);
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-555,q-777,q-941");
-  });
-
   it("preserves manual order when a route-aware local tab click selects an already-open tab", async () => {
     window.location.hash = "#/session/s1?thread=q-1376";
     resetStore({
@@ -820,10 +778,11 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
-  it("keeps newly opened tabs immediately after Main without reordering existing manual order", () => {
+  it("keeps newly opened tabs immediately after Main without reordering the existing order", () => {
+    // The server-owned order starts as q-777, q-941 (no longer reorderable by hand).
     resetStore({
       sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
+      projectedLeaderTabKeys: projectionTabKeys(["q-777", "q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3), threadMessage("q-555", 4)]]]),
       quests: [
         { questId: "q-941", title: "First tab", status: "in_progress" },
@@ -834,7 +793,6 @@ describe("ChatView leader open thread tabs", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
-    fireEvent.click(scope.getByTestId("mock-workboard-reorder-tabs"));
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777,q-941");
     mockSendToSession.mockClear();
 

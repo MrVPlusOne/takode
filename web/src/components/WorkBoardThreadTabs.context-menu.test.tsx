@@ -6,8 +6,9 @@ import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js"
 import { useStore } from "../store.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 
-// Tab menu tests: long-press on touch and right-click on desktop open one menu
-// whose actions (Close tab, Notify Me) depend on what applies to the tab.
+// Tab menu tests: on a tab listed under its status group, long-press on touch and
+// right-click on desktop open one menu whose actions (Close tab, Notify Me) depend on
+// what applies to the tab.
 
 let sessionCounter = 0;
 
@@ -64,15 +65,21 @@ function renderRail({
   render(
     <ThreadTabRail
       tabs={tabs}
-      reorderableThreadKeys={[]}
       sessionId={sessionId}
       currentThreadKey="main"
       onSelectThread={onSelectThread}
       onCloseThreadTab={onCloseThreadTab}
     />,
   );
-  const tab = (threadKey: string) =>
-    screen.getAllByTestId("thread-tab").find((element) => element.dataset.threadKey === threadKey)!;
+  // The test tabs are all in progress; a right-click on that group shows its list.
+  const tab = (threadKey: string) => {
+    if (!screen.queryByTestId("thread-tab-group-list")) {
+      fireEvent.contextMenu(
+        screen.getAllByTestId("thread-tab-group-chip").find((group) => group.dataset.group === "in-progress")!,
+      );
+    }
+    return screen.getAllByTestId("thread-tab-list-row").find((element) => element.dataset.threadKey === threadKey)!;
+  };
   return { sessionId, onSelectThread, onCloseThreadTab, tab };
 }
 
@@ -141,18 +148,18 @@ describe("thread tab context menu", () => {
       tabs: [chip("q-7")],
       monitoring: {},
     });
-    const closeButton = within(tab("q-7")).getByTestId("thread-tab-close");
+    const closeButton = within(tab("q-7")).getByTestId("thread-tab-list-row-close");
 
-    // The tab presses in while the long-press is pending.
+    // The row presses in while the long-press is pending.
     fireEvent.touchStart(closeButton, {
       touches: [{ clientX: 10, clientY: 10 }],
     });
-    expect(tab("q-7").dataset.pressing).toBe("true");
+    expect(tab("q-7").style.scale).toBe("0.94");
     act(() => vi.advanceTimersByTime(499));
     expect(menuLabels()).toEqual([]);
     act(() => vi.advanceTimersByTime(1));
     expect(menuLabels()).toEqual(["Close tab", "Notify Me"]);
-    expect(tab("q-7").dataset.pressing).toBe("false");
+    expect(tab("q-7").style.scale).toBe("");
     // Haptic tick where the platform supports it (Android); iOS has no API.
     expect(vibrate).toHaveBeenCalledWith(10);
 
@@ -177,7 +184,7 @@ describe("thread tab context menu", () => {
       touches: [{ clientX: 300, clientY: 300 }],
     });
     expect(menuLabels()).toEqual([]);
-    const select = within(tab("q-7")).getByTestId("thread-tab-select");
+    const select = within(tab("q-7")).getByTestId("thread-tab-list-row-select");
     fireEvent.touchStart(select, { touches: [{ clientX: 10, clientY: 10 }] });
     fireEvent.touchEnd(select);
     fireEvent.mouseDown(select);
@@ -217,8 +224,8 @@ describe("thread tab context menu", () => {
     expect(menuLabels()).toEqual(["Notify Me"]);
     fireEvent.mouseDown(document.body);
 
-    const mainContextMenu = createEvent.contextMenu(screen.getByTestId("thread-main-tab"));
-    fireEvent(screen.getByTestId("thread-main-tab"), mainContextMenu);
+    const mainContextMenu = createEvent.contextMenu(screen.getByTestId("thread-tab-group-main"));
+    fireEvent(screen.getByTestId("thread-tab-group-main"), mainContextMenu);
     expect(mainContextMenu.defaultPrevented).toBe(false);
     expect(menuLabels()).toEqual([]);
   });
