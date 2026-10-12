@@ -6,6 +6,8 @@
  */
 import type { ResourceLeaseWait } from "../resource-lease-types.js";
 import type { BackgroundTaskInfo, BackgroundTaskSnapshot } from "./adapter-interface.js";
+import type { BoardRow } from "../session-types.js";
+import { findUserCheckpointQuestsForWorker } from "./board-user-checkpoint.js";
 
 type SessionLike = any;
 
@@ -148,16 +150,23 @@ export function formatBoardSessionRef(sessionId: string, deps: BoardParticipantD
 
 /**
  * Describe what an otherwise idle session is waiting on, apart from timers, for
- * status displays: its background jobs, an active landing run, and its place in
- * resource-lease queues. It reads the same signals as the stall check, so a
+ * status displays: the user's answer on a quest in User Checkpoint, its background
+ * jobs, an active landing run, and its place in resource-lease queues. It reads the same signals as the stall check, so a
  * worker the board treats as waiting never looks plainly idle. Returns null when
  * the session waits on none of these.
  */
 export function describeSessionWaits(
   sessionId: string,
-  deps: Pick<BoardParticipantDeps, "getLeaseWaits" | "getBackgroundTasks" | "isLandingActive">,
+  deps: Pick<BoardParticipantDeps, "getLeaseWaits" | "getBackgroundTasks" | "isLandingActive"> & {
+    /** Leader sessions whose boards may hold this worker's quest in a User Checkpoint. */
+    listBoardSessions?: () => Iterable<{ board?: Map<string, BoardRow> }>;
+  },
 ): string | null {
   const parts: string[] = [];
+  const checkpointQuests = deps.listBoardSessions
+    ? findUserCheckpointQuestsForWorker(deps.listBoardSessions(), sessionId)
+    : [];
+  if (checkpointQuests.length > 0) parts.push(`user's answer on ${checkpointQuests.join(", ")}`);
   const jobs = deps.getBackgroundTasks?.(sessionId)?.tasks ?? [];
   if (jobs.length > 0) {
     const quoted = jobs

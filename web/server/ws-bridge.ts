@@ -364,6 +364,7 @@ export class WsBridge {
         getLeaseWaits: (id) => this.resourceLeaseManager?.getLeaseWaits(id) ?? [],
         getBackgroundTasks: (id) => this.sessions.get(id)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
         isLandingActive: (id) => this.landingQueue?.isLandingActive(id) ?? false,
+        listBoardSessions: () => this.sessions.values(),
       }),
     getBackendConnected: (sessionId) => this.isBackendConnected(sessionId),
     getSessionStatus: (sessionId) => {
@@ -420,6 +421,7 @@ export class WsBridge {
   herdEventDispatcher: Pick<
     HerdEventDispatcher,
     | "emitTakodeEvent"
+    | "emitTakodeEventForOrchestrator"
     | "subscribeTakodeEvents"
     | "onSessionActivityStateChanged"
     | "onOrchestratorTurnEnd"

@@ -189,6 +189,34 @@ describe("QuestStatusPanel", () => {
     expect(feedbackMetric?.className).not.toContain("amber");
   });
 
+  it("names open questions that do not pause Work", () => {
+    // A leader question marked non-blocking keeps the quest in Work but still asks for the user's attention.
+    useStore.setState({
+      sessionBoards: new Map([
+        [
+          "leader-1",
+          [
+            {
+              questId: "q-90",
+              title: "Open question",
+              status: "WORKING",
+              updatedAt: 10,
+              openQuestions: ["n-4", "n-6"],
+              journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, mode: "active" },
+            } as any,
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-90", title: "Open question", status: "in_progress", sessionId: "worker-1", createdAt: 1 } as any,
+      ],
+    });
+
+    render(<QuestStatusPanel sessionId="leader-1" />);
+
+    expect(screen.getByText("2 open questions for you")).toBeInTheDocument();
+  });
+
   it("does not surface deleted human feedback as status attention", () => {
     useStore.setState({
       sessions: new Map([

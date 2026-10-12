@@ -34,6 +34,7 @@ import {
   getBoard as getBoardController,
   getCompletedBoard as getCompletedBoardController,
 } from "../bridge/board-watchdog-controller.js";
+import { addLeaderQuestionToBoardRow } from "../bridge/board-user-checkpoint.js";
 import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
@@ -206,6 +207,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
     cancelScheduledNotification: (sessionId: string, notificationId: string) =>
       pushoverNotifier?.cancelNotification(sessionId, notificationId),
+    invalidateLeaderThreadTabsForQuestIds: (questIds: readonly string[]) =>
+      void wsBridge.invalidateLeaderThreadTabsForQuestIds?.(questIds),
   };
   const boardWatchdogDeps = {
     getLauncherSessionInfo: (sessionId: string) => launcher.getSession(sessionId),
@@ -502,6 +505,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
         getBoardStatusSessions(),
       ),
     } as any);
+
+  // A leader's question in a quest's thread is recorded on that quest's row of its own board:
+  // blocking questions put Work into User Checkpoint (board-user-checkpoint.ts).
+  const applyLeaderQuestionToBoard = (session: BridgeSession, notificationId: string, blocking: boolean) => {
+    const questId = session.notifications.find((entry) => entry.id === notificationId)?.questId;
+    const row = questId ? session.board.get(questId) : undefined;
+    if (!row || !addLeaderQuestionToBoardRow(row, notificationId, { blocking, now: Date.now() })) return;
+    row.updatedAt = Date.now();
+    broadcastBoardUpdate(session, getBoardController(session), getCompletedBoardController(session));
+    wsBridge.persistSessionById(session.id);
+    wsBridge.invalidateLeaderThreadTabsForQuestIds?.([row.questId]);
+    if (row.worker) wsBridge.invalidateSessionNavigation?.(row.worker);
+  };
 
   registerTakodeReconnectRoute(api, ctx);
   registerTakodeActivityRoute(api, ctx);
@@ -1822,6 +1838,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
       questions: questionsResult.questions,
       ...(threadRouteResult.route ? { threadRoute: threadRouteResult.route } : {}),
     });
+    if (category === "needs-input" && !result.reused && launcher.getSession(id)?.isOrchestrator === true) {
+      applyLeaderQuestionToBoard(session, result.notificationId, body.noCheckpoint !== true);
+    }
     return c.json({
       ok: true,
       category,

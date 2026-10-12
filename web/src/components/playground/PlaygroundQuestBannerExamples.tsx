@@ -149,6 +149,27 @@ export function PlaygroundQuestBannerExamples() {
       },
     },
     {
+      label: "Work with an open question that does not pause it",
+      threadKey: "q-9009",
+      row: {
+        threadKey: "q-9009",
+        questId: "q-9009",
+        title: "Tighten relay reconnect backoff",
+        boardStatus: "WORKING",
+        section: "active",
+        journey: { mode: "active", phaseIds: ["work", "memory"], currentPhaseId: "work", activePhaseIndex: 0 },
+        boardRow: {
+          questId: "q-9009",
+          title: "Tighten relay reconnect backoff",
+          status: "WORKING",
+          openQuestions: ["n-431", "n-432"],
+          worker: "playground-thread-worker",
+          workerNum: 1321,
+          updatedAt: 1,
+        },
+      },
+    },
+    {
       label: "Quest another leader now runs",
       threadKey: "q-9006",
       row: {

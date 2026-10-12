@@ -178,6 +178,7 @@ interface BoardRow {
   status?: string;
   waitFor?: string[];
   waitForInput?: string[];
+  openQuestions?: string[];
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -455,6 +456,9 @@ function formatBoardRowWaitForState(row: BoardRow, context: BoardRowDecisionCont
   const blockedDeps = getBoardRowBlockedDeps(row, context);
   if (!isQueuedRow && linkedInputWaits.length > 0) {
     return `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
+  }
+  if (!isQueuedRow && (row.openQuestions?.length ?? 0) > 0) {
+    return `open questions ${formatBoardWaitForInputNotificationList(row.openQuestions!)}`;
   }
   if (isQueuedRow && context.dispatchableQuestIds.has(row.questId)) return "ready";
   if (isQueuedRow && blockedDeps.length > 0) {

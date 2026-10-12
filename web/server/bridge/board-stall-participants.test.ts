@@ -28,6 +28,14 @@ describe("describeSessionWaits", () => {
     expect(waitText({ jobs: [] })).toBeNull();
   });
 
+  it("names the quest whose User Checkpoint holds the worker for the user's answer", () => {
+    const row = { questId: "q-7", worker: "worker", status: "USER_CHECKPOINTING", waitForInput: ["n-2"] };
+    const text = describeSessionWaits("worker", {
+      listBoardSessions: () => [{ board: new Map([["q-7", { ...row, createdAt: 1, updatedAt: 1 }]]) }],
+    });
+    expect(text).toBe("user's answer on q-7");
+  });
+
   it("names background jobs by their descriptions", () => {
     expect(waitText({ jobs: [job("gate", "Run full gate")] })).toBe('background job "Run full gate"');
     expect(waitText({ jobs: [job("gate", "Run full gate"), job("dev", " Dev server ")] })).toBe(

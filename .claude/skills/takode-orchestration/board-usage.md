@@ -73,18 +73,19 @@ Queue pre-active work on dependencies:
 takode board set q-12 --status QUEUED --wait-for q-9,#14,free-worker
 ```
 
-Pause active Work on a same-session user decision:
+A question you post in a quest's thread pauses its Work by itself (see Automatic User Checkpoints in `quest-journey.md`). By hand:
 
 ```bash
-takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 7
-takode board set q-12 --status WORKING --clear-wait-for-input
+takode board set q-12 --wait-for-input 7     # make an open question blocking
+takode board set q-12 --status WORKING       # end a checkpoint; its questions stay open, not blocking
+takode board set q-12 --status WORKING --clear-wait-for-input   # end it and resolve its questions
 ```
 
 ## Rules
 
 - New plans use `work`, `user-checkpoint`, and `memory`. Existing Alignment occurrences are retained; they cannot be added to new plans.
 - The default phase plan is `work,memory`.
-- User Checkpoint is a pause/resume state inside Work. Link it with `--wait-for-input`; do not turn it into `QUEUED`.
+- User Checkpoint is a pause/resume state inside Work, linked to its open questions (Takode links your quest-thread questions); do not turn it into `QUEUED`.
 - User Checkpoints are required by default. An approved phase note may mark one optional only with a concrete skip condition. A direct `[work,user-checkpoint,memory]` skip uses guarded `work-to-memory ... --skip-optional-checkpoint <reason>`; required or taken checkpoints need a later Work occurrence before Memory, so revise the suffix before entering when necessary.
 - Generic `board advance` cannot skip directly from Work into Memory. It may advance or resume repeated plans into a later Work occurrence, including an approved optional skip whose destination is later Work.
 - Work owns investigation, implementation, self-review, approved execution, validation, sync/push duties, iterative fixes, and structured target code evidence inside the approved envelope.

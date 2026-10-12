@@ -246,6 +246,7 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "board_stalled",
   "board_dispatchable",
   "notification_needs_input",
+  "notification_dismissed",
   "message_delivery",
 ]);
 
@@ -1591,6 +1592,13 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       }
       return `${header}\n${actions.map((line) => `  ${line}`).join("\n")}`;
     }
+    case "notification_dismissed": {
+      const asker = evt.data.askedBy === "leader" ? "your question" : "this worker's question";
+      const quest = evt.data.questId ? ` | ${evt.data.questId}` : "";
+      const summary = evt.data.summary ? ` "${truncate(evt.data.summary, 80)}"` : "";
+      const outcome = evt.data.checkpointEnded ? "; its User Checkpoint ended and the quest is back in Work" : "";
+      return `${label} | notification_dismissed${quest} | the user dismissed ${asker}${summary} (${evt.data.notificationId}) without answering${outcome}${ageSuffix}`;
+    }
     case "board_stalled": {
       const quest = evt.data.title ? `${evt.data.questId} ${truncate(evt.data.title, 40)}` : evt.data.questId;
       const stage = evt.data.stage ? ` | ${evt.data.stage}` : "";
@@ -1681,6 +1689,7 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
       return event.data.questId;
     case "permission_request":
     case "notification_needs_input":
+    case "notification_dismissed":
     case "user_message":
     case "message_delivery":
       return event.data.questId;

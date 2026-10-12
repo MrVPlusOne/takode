@@ -46,6 +46,8 @@ export interface BoardRowData {
   status?: string;
   waitFor?: string[];
   waitForInput?: string[];
+  /** Leader questions to the user that stay open without pausing Work. */
+  openQuestions?: string[];
   createdAt?: number;
   threadTabActivatedAt?: number;
   updatedAt: number;
@@ -300,9 +302,14 @@ function WaitForRef({ depRef }: { depRef: string }) {
   return <span className="text-cc-muted">{formatWaitForRefLabel(depRef)}</span>;
 }
 
-function WaitForInputRef({ notificationId }: { notificationId: string }) {
+function WaitForInputRef({ notificationId, open = false }: { notificationId: string; open?: boolean }) {
   const match = /^n-(\d+)$/i.exec(notificationId.trim());
-  return <span className="text-cc-attention">{`input ${match ? match[1] : notificationId}`}</span>;
+  const label = match ? match[1] : notificationId;
+  if (open)
+    return (
+      <span className="text-cc-muted" title="Open question that does not pause Work">{`open question ${label}`}</span>
+    );
+  return <span className="text-cc-attention">{`input ${label}`}</span>;
 }
 
 function JourneyHoverCard({
@@ -543,13 +550,21 @@ export const BoardTable = memo(function BoardTable({
                   ) : (
                     <>
                       {(isQueuedRowStatus(row.status) && row.waitFor && row.waitFor.length > 0) ||
-                      (!isQueuedRowStatus(row.status) && row.waitForInput && row.waitForInput.length > 0) ? (
+                      (!isQueuedRowStatus(row.status) &&
+                        ((row.waitForInput?.length ?? 0) > 0 || (row.openQuestions?.length ?? 0) > 0)) ? (
                         <span className="flex gap-1.5 flex-wrap">
-                          {isQueuedRowStatus(row.status)
-                            ? row.waitFor?.map((dep) => <WaitForRef key={dep} depRef={dep} />)
-                            : row.waitForInput?.map((notificationId) => (
+                          {isQueuedRowStatus(row.status) ? (
+                            row.waitFor?.map((dep) => <WaitForRef key={dep} depRef={dep} />)
+                          ) : (
+                            <>
+                              {row.waitForInput?.map((notificationId) => (
                                 <WaitForInputRef key={notificationId} notificationId={notificationId} />
                               ))}
+                              {row.openQuestions?.map((notificationId) => (
+                                <WaitForInputRef key={notificationId} notificationId={notificationId} open />
+                              ))}
+                            </>
+                          )}
                         </span>
                       ) : (
                         <span className="text-cc-muted">{"\u2014"}</span>

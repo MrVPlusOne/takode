@@ -323,6 +323,39 @@ describe("takode notify self-resolution workflow", () => {
     });
   });
 
+  it("marks a quest question as non-blocking with --no-checkpoint", async () => {
+    // The server keeps such a question open without moving the quest's Work into User Checkpoint.
+    const result = await runTakode(
+      [
+        "notify",
+        "needs-input",
+        "FYI",
+        "choice",
+        "--thread",
+        "q-983",
+        "--no-checkpoint",
+        "--suggest",
+        "ok",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "worker-7",
+        COMPANION_AUTH_TOKEN: "auth-7",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(requestBodies[0]).toEqual({
+      category: "needs-input",
+      summary: "FYI choice",
+      noCheckpoint: true,
+      threadKey: "q-983",
+      suggestedAnswers: ["ok"],
+    });
+  });
+
   it("passes per-question suggested answers for needs-input notifications", async () => {
     const result = await runTakode(
       [

@@ -234,6 +234,24 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("Read: takode read 5 18");
   });
 
+  it("tells the leader which question the user dismissed and whether it ended a User Checkpoint", () => {
+    const result = formatHerdEventBatch([
+      makeEvent({
+        event: "notification_dismissed",
+        data: {
+          notificationId: "n-4",
+          summary: "Which layout?",
+          questId: "q-42",
+          askedBy: "leader",
+          checkpointEnded: true,
+        },
+      }),
+    ]);
+    expect(result).toContain(
+      'notification_dismissed | q-42 | the user dismissed your question "Which layout?" (n-4) without answering; its User Checkpoint ended',
+    );
+  });
+
   it("shows needs-input context as bounded decision context for the leader", () => {
     // The context explains the worker's question; the leader must see it without
     // reading worker history, but oversized context must not flood the leader.

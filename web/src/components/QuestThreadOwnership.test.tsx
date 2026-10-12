@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom";
+import type { ComponentProps } from "react";
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
@@ -194,5 +195,18 @@ describe("quest tabs led by another leader", () => {
 
     rerender(<QuestThreadBanner row={bannerRow("q-1")} threadKey="q-1" />);
     expect(screen.queryByTestId("quest-thread-ownership-chip")).toBeNull();
+  });
+});
+
+describe("quest header open questions", () => {
+  it("shows how many leader questions stay open while Work continues", () => {
+    // Questions marked non-blocking (or left open when a checkpoint was ended by hand) keep the
+    // quest in Work, so the header names them instead of a waiting state.
+    installLeader(ownershipProjection());
+    const row = bannerRow("q-1") as ComponentProps<typeof QuestThreadBanner>["row"] & object;
+    const withOpenQuestion = { ...row, boardRow: { ...row.boardRow!, openQuestions: ["n-2"] } };
+    render(<QuestThreadBanner row={withOpenQuestion} threadKey="q-1" />);
+
+    expect(screen.getByTestId("quest-thread-open-questions-pill")).toHaveTextContent("1 open question for you");
   });
 });

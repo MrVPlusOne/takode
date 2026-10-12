@@ -36,6 +36,11 @@ import type {
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
 import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recovery-summary.js";
 import {
+  endAutomaticUserCheckpointByHand,
+  isWorkAfterAutomaticCheckpoint,
+  syncAutomaticUserCheckpoint,
+} from "./board-user-checkpoint.js";
+import {
   assessLeaseWait,
   backgroundWaitEndsAt,
   formatBoardSessionRef,
@@ -852,6 +857,19 @@ export function commitBoard(
   return board;
 }
 
+function getPlannedCheckpointEntryIndex(
+  existing: BoardRow | undefined,
+  row: Pick<BoardRow, "status" | "journey">,
+): number | undefined {
+  if ((row.status ?? "").trim().toUpperCase() !== "USER_CHECKPOINTING" || row.journey?.activePhaseIndex !== undefined)
+    return undefined;
+  if ((existing?.status ?? "").trim().toUpperCase() !== "WORKING") return undefined;
+  const index = existing?.journey?.activePhaseIndex;
+  const phaseIds = existing?.journey?.phaseIds ?? [];
+  if (typeof index !== "number" || phaseIds[index] !== "work") return undefined;
+  return phaseIds[index + 1] === "user-checkpoint" && phaseIds[index + 2] === "work" ? index + 1 : undefined;
+}
+
 export function upsertBoardRow(
   session: SessionLike,
   row: Omit<BoardRow, "updatedAt" | "createdAt"> & { updatedAt?: number },
@@ -890,6 +908,32 @@ export function upsertBoardRow(
       }),
     };
   }
+  // A leader ending a checkpoint Takode added keeps its questions open without blocking Work.
+  const handEndCandidate =
+    existing && (row.status ?? "").trim().toUpperCase() === "WORKING" ? { ...existing } : undefined;
+  const handEndResumeIndex = handEndCandidate ? endAutomaticUserCheckpointByHand(handEndCandidate) : undefined;
+  // An explicit link list (or clear) still applies; otherwise the links stay open as non-blocking questions.
+  const handEnded = handEndResumeIndex !== undefined && row.waitForInput === undefined ? handEndCandidate : undefined;
+  if (handEndResumeIndex !== undefined && baseJourney) {
+    baseJourney = { ...baseJourney, activePhaseIndex: handEndResumeIndex, currentPhaseId: "work" };
+  }
+  // Entering a planned checkpoint from Work makes it the current phase, so it gets its own timing.
+  const plannedCheckpointIndex = getPlannedCheckpointEntryIndex(existing, row);
+  if (plannedCheckpointIndex !== undefined && baseJourney) {
+    baseJourney = { ...baseJourney, activePhaseIndex: plannedCheckpointIndex, currentPhaseId: "user-checkpoint" };
+  }
+  const mergedWaitForInput = handEnded
+    ? undefined
+    : row.waitForInput !== undefined
+      ? normalizeBoardWaitForInput(row.waitForInput)
+      : existing?.waitForInput;
+  const mergedOpenQuestions = (handEnded?.openQuestions ?? row.openQuestions ?? existing?.openQuestions)?.filter(
+    (id: string) => !mergedWaitForInput?.includes(id),
+  );
+  const mergedAutoCheckpoint =
+    handEndResumeIndex !== undefined
+      ? handEndCandidate!.autoCheckpoint
+      : (row.autoCheckpoint ?? existing?.autoCheckpoint);
   const merged: BoardRow = {
     questId: row.questId,
     title: mergeStr(row.title, existing?.title),
@@ -900,8 +944,9 @@ export function upsertBoardRow(
     journey: normalizeBoardRowJourneyPlan({ journey: baseJourney, noCode }, status),
     status,
     waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
-    waitForInput:
-      row.waitForInput !== undefined ? normalizeBoardWaitForInput(row.waitForInput) : existing?.waitForInput,
+    waitForInput: mergedWaitForInput,
+    ...(mergedOpenQuestions?.length ? { openQuestions: mergedOpenQuestions } : {}),
+    ...(mergedAutoCheckpoint ? { autoCheckpoint: mergedAutoCheckpoint } : {}),
     createdAt: existing?.createdAt ?? now,
     threadTabActivatedAt: existing?.threadTabActivatedAt,
     updatedAt: row.updatedAt ?? now,
@@ -912,6 +957,7 @@ export function upsertBoardRow(
     !isNeverStartedScheduledLeaderThreadTabRow(existing) && isNeverStartedScheduledLeaderThreadTabRow(merged);
   applyBoardWaitStateInvariant(merged);
   applyQuestJourneyPhaseTiming(merged, existing, now);
+  syncAutomaticUserCheckpoint(merged, now);
   session.board.set(row.questId, merged);
   if (becameNeverStartedScheduled) repairThreadTabPriorityForNewSchedule(session, merged.updatedAt);
   applyBoardRowActivationEvent(session, merged, activationAt, deps);
@@ -922,7 +968,7 @@ export function upsertBoardRow(
   resolveRemovedBoardWaitForInputIds(
     session,
     getBoardRowWaitForInputIds(existing),
-    getBoardRowWaitForInputIds(merged),
+    [...getBoardRowWaitForInputIds(merged), ...(merged.openQuestions ?? [])],
     deps,
   );
   return commitBoard(session, deps, [row.questId]);
@@ -1042,6 +1088,12 @@ export function advanceBoardRow(
   if (isProposedBoardRowStatus(row.status)) {
     return {
       error: `Cannot advance ${questId}: proposed Journey rows must be promoted before execution. Use takode board promote ${questId}.`,
+      previousState: row.status,
+    };
+  }
+  if (isWorkAfterAutomaticCheckpoint(row)) {
+    return {
+      error: `Cannot advance ${questId}: Takode already returned it to Work when the questions of its User Checkpoint were resolved. Pass the answer on to the worker; Work -> Memory uses takode board work-to-memory.`,
       previousState: row.status,
     };
   }

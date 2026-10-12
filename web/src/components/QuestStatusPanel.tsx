@@ -166,6 +166,10 @@ function attentionLine(context: QuestStatusContext, counts: QuestCounts): string
   if ((row?.waitFor?.length ?? 0) > 0) {
     return `Waiting for: ${row!.waitFor!.map(formatWaitForRefLabel).join(", ")}`;
   }
+  const openQuestions = row?.completedAt === undefined ? (row?.openQuestions?.length ?? 0) : 0;
+  if (openQuestions > 0) {
+    return `${openQuestions} open question${openQuestions === 1 ? "" : "s"} for you`;
+  }
   if (counts.unaddressedFeedback > 0) {
     return `${counts.unaddressedFeedback} unaddressed human feedback`;
   }

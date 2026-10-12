@@ -277,6 +277,13 @@ function validateExplicitUserCheckpointSkips(
   return undefined;
 }
 
+function workToMemoryStateError(status: string | undefined): string {
+  if ((status ?? "").trim().toUpperCase() === "USER_CHECKPOINTING") {
+    return "Work -> Memory waits while the quest is in User Checkpoint: the leader's questions to the user are still open. Tell your leader the Work is ready; the quest returns to Work once they are resolved or the leader ends the checkpoint.";
+  }
+  return `Work -> Memory requires board state WORKING; current state is ${status ?? "unknown"}.`;
+}
+
 function parseNotificationNumericId(notificationId: string): number | null {
   const match = /^n-(\d+)$/.exec(notificationId);
   return match ? Number.parseInt(match[1], 10) : null;
@@ -474,7 +481,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       if (normalizedStatus !== "WORKING") {
         return c.json(
           {
-            error: `Work -> Memory requires board state WORKING; current state is ${initialMatch.row.status ?? "unknown"}.`,
+            error: workToMemoryStateError(initialMatch.row.status),
           },
           409,
         );
@@ -644,10 +651,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       const [{ leaderSessionId, row }] = refreshedMatches;
       const refreshedStatus = (row.status ?? "").trim().toUpperCase();
       if (refreshedStatus !== "WORKING") {
-        return c.json(
-          { error: `Work -> Memory requires board state WORKING; current state is ${row.status ?? "unknown"}.` },
-          409,
-        );
+        return c.json({ error: workToMemoryStateError(row.status) }, 409);
       }
       if ((row.waitForInput ?? []).length > 0) {
         return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);

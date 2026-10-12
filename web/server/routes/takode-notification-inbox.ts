@@ -6,6 +6,7 @@ import {
   snoozeNotification as snoozeNotificationController,
 } from "../bridge/session-registry-controller.js";
 import type { RouteContext } from "./context.js";
+import { reportNeedsInputDismissals, snapshotNeedsInputForDismissal } from "./notification-dismissal-events.js";
 
 type NotificationPersistDeps = Parameters<typeof markNotificationDoneController>[3];
 
@@ -137,10 +138,12 @@ export function registerTakodeNotificationInboxRoutes(
     const done = body.done !== false;
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    const before = snapshotNeedsInputForDismissal(session);
     const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps, {
       ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
     });
     if (!ok) return c.json({ error: "Notification not found" }, 404);
+    if (done) reportNeedsInputDismissals(ctx, session, before);
     return c.json({ ok: true });
   });
 
@@ -151,9 +154,11 @@ export function registerTakodeNotificationInboxRoutes(
     const done = body.done !== false;
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    const before = snapshotNeedsInputForDismissal(session);
     const count = markAllNotificationsDoneController(session, done, notificationPersistDeps, {
       ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
     });
+    if (done) reportNeedsInputDismissals(ctx, session, before);
     return c.json({ ok: true, count });
   });
 

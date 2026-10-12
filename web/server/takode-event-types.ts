@@ -19,6 +19,7 @@ export type TakodeEventType =
   | "board_stalled"
   | "board_dispatchable"
   | "notification_needs_input"
+  | "notification_dismissed"
   | "message_delivery";
 
 export interface TakodeTurnEndMsgRange {
@@ -175,6 +176,17 @@ export interface TakodeNotificationNeedsInputEventData {
   questId?: string;
 }
 
+/** The user dismissed a needs-input question in the UI without answering it. */
+export interface TakodeNotificationDismissedEventData {
+  notificationId: string;
+  summary?: string;
+  questId?: string;
+  /** "leader": the leader's own question to the user; "worker": a herded worker's question. */
+  askedBy: "leader" | "worker";
+  /** The dismissal resolved the last question of the quest's User Checkpoint, so it returned to Work. */
+  checkpointEnded?: boolean;
+}
+
 export interface TakodeBoardStalledEventData {
   questId: string;
   title?: string;
@@ -243,6 +255,7 @@ export interface TakodeEventDataByType {
   board_stalled: TakodeBoardStalledEventData;
   board_dispatchable: TakodeBoardDispatchableEventData;
   notification_needs_input: TakodeNotificationNeedsInputEventData;
+  notification_dismissed: TakodeNotificationDismissedEventData;
   message_delivery: TakodeMessageDeliveryEventData;
 }
 

@@ -324,7 +324,7 @@ Refresh git branch info for a session after checkout, rebase, or other branch ch
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
 
@@ -338,6 +338,7 @@ Options:
   --context <markdown> Decision context, shown in the chat as a normal message before the question card
   --context-file <path|-> Read the decision context from a file, or '-' for stdin
   --answers <u1,u2>   Leaders only: earlier user messages the context answers
+  --no-checkpoint     Leaders only: a quest question the work does not wait on (no User Checkpoint)
   --suggest <answer>  Suggested answer for needs-input notifications (repeat for each quick reply)
   --question <prompt> Add a separate needs-input question; following --suggest flags apply to that question
 
@@ -354,6 +355,12 @@ Leaders only: when the context responds to earlier user messages, name them with
 --answers u12[,u13] so the context counts as your explicit answer to them. Use
 it only when the context is the substantive response to that request, not when
 requested delivered work is still owed.
+
+Leaders only: a question in a quest's thread, while your board has that quest in
+Work, puts the quest into User Checkpoint until all such questions are resolved;
+Takode links the question to the board row and returns the quest to Work after
+the last one is resolved. Add --no-checkpoint when the work does not wait on the
+question: it then shows as an open question without pausing Work.
 
 Whenever you ask the user a question, include concise suggested replies with
 --suggest so the UI can render convenient response buttons. When the question

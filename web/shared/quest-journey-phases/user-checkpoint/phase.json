@@ -5,6 +5,6 @@
   "boardState": "USER_CHECKPOINTING",
   "assigneeRole": "worker",
   "contract": "Present findings, options, tradeoffs, and a recommendation for a taken mid-Journey user decision, then continue into a later Work occurrence before Memory; approved optional checkpoints may instead be skipped from preceding Work only through the guarded transition with a recorded reason.",
-  "nextLeaderAction": "before checkpoint entry verify or revise the remaining suffix to include later Work, publish and notify the decision, wait, record the approved continuation, reconcile stale quest metadata when needed, clear the wait, and advance or resume the assigned worker into that later Work; never route a taken checkpoint directly to Memory",
+  "nextLeaderAction": "before checkpoint entry verify or revise the remaining suffix to include later Work, publish and notify the decision, wait, record the approved continuation, reconcile stale quest metadata when needed, then pass it on to the assigned worker in that later Work (Takode returns a checkpoint it added to Work once its questions are resolved; advance a planned one); never route a taken checkpoint directly to Memory",
   "aliases": ["user-decision", "decision-checkpoint", "user-approval"]
 }

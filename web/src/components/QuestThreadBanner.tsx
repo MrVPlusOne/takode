@@ -311,6 +311,20 @@ function waitConditionForBoardRow(row?: BoardRowData): QuestBannerWaitCondition 
   return refs.length > 0 ? { kind: "user-input", refs } : null;
 }
 
+/** Open leader questions to the user that do not pause Work (shown while the quest is not waiting). */
+function QuestBannerOpenQuestionsPill({ count }: { count: number }) {
+  const label = `${count} open question${count === 1 ? "" : "s"} for you`;
+  return (
+    <span
+      className="inline-flex min-h-5 shrink-0 items-center rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 text-[10px] leading-none text-cc-muted"
+      data-testid="quest-thread-open-questions-pill"
+      title={`${label}; Work continues while they are open`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function waitForInputLabel(notificationId: string): string {
   const match = /^n-(\d+)$/i.exec(notificationId);
   return `user input ${match ? match[1] : notificationId}`;
@@ -431,6 +445,8 @@ export function QuestThreadBanner({
   const waitCondition = row && isDoneThreadRow(row) ? null : waitConditionForBoardRow(row?.boardRow);
   const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
   const inputWaitCondition = waitCondition?.kind === "user-input" ? waitCondition : null;
+  const openQuestionCount =
+    waitCondition || (row && isDoneThreadRow(row)) ? 0 : compactStringList(row?.boardRow?.openQuestions).length;
   const hasParticipantContext = isSessionBanner
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
@@ -439,10 +455,17 @@ export function QuestThreadBanner({
     isSessionBanner || (row?.ownership === "off-board" && isDoneThreadRow(row)) ? undefined : row?.ownership;
   const ledElsewhere = ownership === "other-leader";
   const hasMeta =
-    !!waitCondition || !!row?.journey || !!row?.status || !!ownership || hasParticipantContext || showCommitAffordance;
+    !!waitCondition ||
+    openQuestionCount > 0 ||
+    !!row?.journey ||
+    !!row?.status ||
+    !!ownership ||
+    hasParticipantContext ||
+    showCommitAffordance;
   const hasMobileDetails =
     showCommitAffordance ||
     !!queuedWaitCondition ||
+    openQuestionCount > 0 ||
     (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
   return (
     <div
@@ -535,6 +558,7 @@ export function QuestThreadBanner({
                   <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
                 ))}
               {isSessionBanner && inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
+              {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
               {hasParticipantContext && (
                 <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                   {isSessionBanner ? (

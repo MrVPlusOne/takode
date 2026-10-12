@@ -644,6 +644,20 @@ describe("BoardTable", () => {
     expect(screen.queryByText("q-2")).not.toBeInTheDocument();
   });
 
+  it("lists open questions that do not pause Work after the blocking ones", () => {
+    // Blocking questions read as input waits; open questions stay visible in a quieter style.
+    const board: BoardRowData[] = [
+      { questId: "q-1", status: "USER_CHECKPOINTING", waitForInput: ["n-3"], openQuestions: ["n-5"], updatedAt: 1 },
+      { questId: "q-2", status: "WORKING", openQuestions: ["n-9"], updatedAt: 2 },
+    ];
+
+    render(<BoardTable board={board} />);
+
+    expect(screen.getByText("input 3")).toBeInTheDocument();
+    expect(screen.getByText("open question 5")).toBeInTheDocument();
+    expect(screen.getByText("open question 9")).toBeInTheDocument();
+  });
+
   it("orders active rows by journey status priority first", () => {
     const ordered = orderBoardRows([
       { questId: "q-1", status: "MEMORY", updatedAt: 1 },

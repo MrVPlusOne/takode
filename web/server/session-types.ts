@@ -852,6 +852,10 @@ export interface BoardRow {
   waitFor?: string[];
   /** Linked same-session needs-input notification IDs that intentionally pause active work. */
   waitForInput?: string[];
+  /** The leader's open questions to the user about this quest that do not pause Work. */
+  openQuestions?: string[];
+  /** The User Checkpoint Takode added for the leader's open questions (see board-user-checkpoint.ts). */
+  autoCheckpoint?: BoardRowAutoCheckpoint;
   /** Epoch ms when this row was first added to the board. Used for stable sort. */
   createdAt: number;
   /**
@@ -866,6 +870,13 @@ export interface BoardRow {
   completedAt?: number;
   /** The landing-queue change the quest waits for, from Work -> Memory until it lands. */
   landing?: BoardRowLanding;
+}
+
+export interface BoardRowAutoCheckpoint {
+  /** Journey position of the checkpoint Takode added. */
+  checkpointIndex: number;
+  /** When Takode resumed the Work after it because every question was resolved; a new question soon after reopens it. */
+  resumedAt?: number;
 }
 
 /**

@@ -31,6 +31,7 @@ const ACTIVE_ROWS: BoardRowData[] = [
     worker: "access-worker-1",
     workerNum: 2919,
     status: "WORKING",
+    openQuestions: ["n-9"],
     updatedAt: NOW - 4 * MINUTE,
     journey: {
       mode: "active",

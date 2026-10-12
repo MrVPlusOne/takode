@@ -53,7 +53,7 @@ Answer a pending needs-input question or approve/reject an ExitPlanMode prompt f
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--muted] [--json]
        takode notify mute <notification-id> [--json]
        takode notify unmute <notification-id> [--json]
@@ -77,6 +77,12 @@ Leaders only: when the context responds to earlier user messages, name them with
 --answers u12[,u13] so the context counts as your explicit answer to them. Use
 it only when the context is the substantive response to that request, not when
 requested delivered work is still owed.
+
+Leaders only: a question in a quest's thread, while your board has that quest in
+Work, puts the quest into User Checkpoint until all such questions are resolved;
+Takode links the question to the board row and returns the quest to Work after
+the last one is resolved. Add --no-checkpoint when the work does not wait on the
+question: it then shows as an open question without pausing Work.
 
 Whenever you ask the user a question, include concise suggested replies with
 --suggest so the UI can render convenient response buttons. When the question
@@ -1481,8 +1487,10 @@ function parseNotifyCreateArgs(args: string[]): {
   questions: Array<{ prompt: string; suggestedAnswers: string[] }>;
   threadKey?: string;
   questId?: string;
+  noCheckpoint: boolean;
 } {
   let jsonMode = false;
+  let noCheckpoint = false;
   let threadKey: string | undefined;
   let questId: string | undefined;
   let context: { inline: string } | { file: string } | undefined;
@@ -1496,6 +1504,10 @@ function parseNotifyCreateArgs(args: string[]): {
     const arg = args[i];
     if (arg === "--json") {
       jsonMode = true;
+      continue;
+    }
+    if (arg === "--no-checkpoint") {
+      noCheckpoint = true;
       continue;
     }
     if (arg === "--thread") {
@@ -1578,6 +1590,7 @@ function parseNotifyCreateArgs(args: string[]): {
     questions,
     ...(threadKey ? { threadKey } : {}),
     ...(questId ? { questId } : {}),
+    noCheckpoint,
   };
 }
 
@@ -1758,6 +1771,10 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   if (parsed.answers) {
     if (!parsed.context) err("--answers requires --context: the context is the answer.");
     payload.answers = parsed.answers;
+  }
+  if (parsed.noCheckpoint) {
+    if (category !== "needs-input") err("--no-checkpoint is only supported for needs-input notifications.");
+    payload.noCheckpoint = true;
   }
   if (parsed.threadKey) payload.threadKey = parsed.threadKey;
   if (parsed.questId) payload.questId = parsed.questId;

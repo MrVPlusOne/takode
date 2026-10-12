@@ -32,6 +32,7 @@ import {
 } from "../../shared/leader-thread-response-routing.js";
 import { randomUUID } from "node:crypto";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
+import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 
 type SessionLike = any;
 
@@ -95,6 +96,7 @@ type NotifyUserResult = {
 
 type NotificationDoneDeps = PersistNotificationDeps & {
   broadcastBoard?: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
+  invalidateLeaderThreadTabsForQuestIds?: (questIds: readonly string[]) => void;
   cancelScheduledNotification?: (sessionId: string, notificationId: string) => void;
 };
 
@@ -691,29 +693,26 @@ function getSortedCompletedBoardRows(session: SessionLike): BoardRow[] {
   );
 }
 
-function removeNotificationLinksFromBoardRows(session: SessionLike, notifId: string): boolean {
+/** Removes a resolved question from board rows; returns the quest IDs whose rows changed. */
+function removeNotificationLinksFromBoardRows(session: SessionLike, notifId: string): string[] {
   const normalizedNotificationId = notifId.trim().toLowerCase();
-  if (!/^n-\d+$/.test(normalizedNotificationId)) return false;
+  if (!/^n-\d+$/.test(normalizedNotificationId)) return [];
 
-  let changed = false;
-  const boardMaps = [session.board, session.completedBoard].filter(
-    (boardMap): boardMap is Map<string, BoardRow> => !!boardMap?.values,
-  );
-  for (const boardMap of boardMaps) {
-    for (const row of boardMap.values()) {
-      if (!Array.isArray(row.waitForInput) || row.waitForInput.length === 0) continue;
-      const currentIds = [
-        ...new Set(row.waitForInput.map((notificationId: string) => notificationId.trim().toLowerCase())),
-      ]
-        .filter((notificationId) => /^n-\d+$/.test(notificationId))
-        .sort((a, b) => Number.parseInt(a.slice(2), 10) - Number.parseInt(b.slice(2), 10));
-      if (!currentIds.includes(normalizedNotificationId)) continue;
-
-      const nextIds = currentIds.filter((notificationId) => notificationId !== normalizedNotificationId);
-      row.waitForInput = nextIds.length > 0 ? nextIds : undefined;
-      boardMap.set(row.questId, row);
-      changed = true;
-    }
+  const changed: string[] = [];
+  const now = Date.now();
+  // Active rows may leave a User Checkpoint Takode added once its last question is resolved.
+  for (const row of (session.board as Map<string, BoardRow> | undefined)?.values() ?? []) {
+    if (removeResolvedQuestionFromBoardRow(row, normalizedNotificationId, now)) changed.push(row.questId);
+  }
+  for (const row of (session.completedBoard as Map<string, BoardRow> | undefined)?.values() ?? []) {
+    const links = row.waitForInput ?? [];
+    const open = row.openQuestions ?? [];
+    if (!links.includes(normalizedNotificationId) && !open.includes(normalizedNotificationId)) continue;
+    const nextLinks = links.filter((id) => id !== normalizedNotificationId);
+    const nextOpen = open.filter((id) => id !== normalizedNotificationId);
+    row.waitForInput = nextLinks.length > 0 ? nextLinks : undefined;
+    row.openQuestions = nextOpen.length > 0 ? nextOpen : undefined;
+    changed.push(row.questId);
   }
 
   return changed;
@@ -738,14 +737,16 @@ export function markNotificationDone(
   notif.done = done;
   updateResolutionNoticeForDoneChange(notif, done, options);
   touchNotificationStatus(session);
-  const clearedBoardWaits =
-    done && notif.category === "needs-input" ? removeNotificationLinksFromBoardRows(session, notifId) : false;
+  const changedQuestIds =
+    done && notif.category === "needs-input" ? removeNotificationLinksFromBoardRows(session, notifId) : [];
+  const clearedBoardWaits = changedQuestIds.length > 0;
   if (done && notif.category === "needs-input" && !options.suppressScheduledNotificationCancel) {
     deps.cancelScheduledNotification?.(session.id, notifId);
   }
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   if (clearedBoardWaits) {
     deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
+    deps.invalidateLeaderThreadTabsForQuestIds?.(changedQuestIds);
   }
   if (done) clearActionAttentionIfNoNotifications(session, deps);
   deps.persistSession(session);
@@ -893,13 +894,13 @@ export function markAllNotificationsDone(
   options: NotificationDoneOptions = {},
 ): number {
   let count = 0;
-  let clearedBoardWaits = false;
+  const changedQuestIds: string[] = [];
   for (const notif of session.notifications) {
     if (notif.done === done) continue;
     notif.done = done;
     updateResolutionNoticeForDoneChange(notif, done, options);
     if (done && notif.category === "needs-input") {
-      clearedBoardWaits = removeNotificationLinksFromBoardRows(session, notif.id) || clearedBoardWaits;
+      changedQuestIds.push(...removeNotificationLinksFromBoardRows(session, notif.id));
       if (!options.suppressScheduledNotificationCancel) {
         deps.cancelScheduledNotification?.(session.id, notif.id);
       }
@@ -909,8 +910,9 @@ export function markAllNotificationsDone(
   if (count > 0) {
     touchNotificationStatus(session);
     deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
-    if (clearedBoardWaits) {
+    if (changedQuestIds.length > 0) {
       deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
+      deps.invalidateLeaderThreadTabsForQuestIds?.([...new Set(changedQuestIds)]);
     }
     if (done) clearActionAttentionIfNoNotifications(session, deps);
     deps.persistSession(session);

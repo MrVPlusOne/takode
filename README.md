@@ -82,7 +82,7 @@ A quest is a durable task: who owns it, which phase it is in, what was decided, 
   <img src="docs/screenshots/readme-questmaster.jpg" alt="Questmaster list with quest titles, tags, owners, leaders, status, and feedback" width="90%" />
 </p>
 
-Each quest follows a Journey of phases. Most work goes straight from **Work** (investigate, implement, verify, and publish) to **Memory** (wrap up and record what future sessions should know), with **User Checkpoints** added when your decision is needed. Every phase leaves a short summary for you and fuller notes for future agents.
+Each quest follows a Journey of phases. Most work goes straight from **Work** (investigate, implement, verify, and publish) to **Memory** (wrap up and record what future sessions should know), with a **User Checkpoint** whenever the quest waits for your answer: planned ones, and ones Takode adds while the leader's question about the quest is open. Every phase leaves a short summary for you and fuller notes for future agents.
 
 <p align="center">
   <img src="docs/screenshots/readme-quest-journey.jpg" alt="Quest detail showing the Work and Memory phases with summary notes and a user review check" width="90%" />

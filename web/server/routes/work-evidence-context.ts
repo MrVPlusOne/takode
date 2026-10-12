@@ -118,7 +118,7 @@ export function resolveCurrentWorkFeedback(args: {
   }
   return {
     error:
-      "A Work phase note for the active Journey run and phase occurrence is required before Work can transition to Memory.",
+      "A Work phase note for the active Journey run and phase occurrence is required before Work can transition to Memory. After a User Checkpoint the quest is in a new Work occurrence, so a note written before or during the checkpoint does not count: add the current Work note with quest feedback add --kind phase-summary.",
   };
 }
 

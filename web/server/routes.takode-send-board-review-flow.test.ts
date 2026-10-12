@@ -952,11 +952,12 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
+    // A Work row with blocking questions linked is in User Checkpoint (automatic User Checkpoints).
     expect(await res.json()).toMatchObject({
       board: [
         {
           questId: "q-9",
-          status: "WORKING",
+          status: "USER_CHECKPOINTING",
           waitForInput: ["n-2", "n-7"],
         },
       ],
@@ -1195,11 +1196,12 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
+    // Linking a blocking question to a Work row moves it into User Checkpoint.
     expect(await res.json()).toMatchObject({
       board: [
         {
           questId: "q-9",
-          status: "WORKING",
+          status: "USER_CHECKPOINTING",
           waitForInput: ["n-2"],
         },
       ],
