@@ -554,8 +554,8 @@ describe("SessionItem leader profiles", () => {
   });
 
   it("draws a waiting leader's timer icon on the portrait corner instead of before the title", () => {
-    // Matches the session top bar: the clock badge sits on the bottom-right of
-    // the portrait, and the title row carries no separate status marker.
+    // Like the session top bar, the clock badge sits on the bottom-right of the
+    // portrait, and the title row carries no separate status marker.
     renderSessionItem({
       session: makeSession({
         isOrchestrator: true,
@@ -570,7 +570,11 @@ describe("SessionItem leader profiles", () => {
     const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
     const timerIcon = within(portraitButton).getByTestId("session-status-timer-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
-    expect(timerIcon.parentElement).toHaveClass("absolute", "-bottom-0.5", "-right-0.5");
+    expect(timerIcon.parentElement).toHaveClass("absolute", "-bottom-px", "-right-px");
+    // No round card-colored disc behind the clock: on the tinted sidebar rows it showed as a large
+    // white circle. The icon draws a white face and a thin outline hugging the clock instead.
+    expect(timerIcon.parentElement).not.toHaveClass("bg-cc-card");
+    expect(timerIcon.querySelector("circle")).toHaveClass("fill-cc-card");
     expect(screen.getAllByTestId("session-status-timer-icon")).toHaveLength(1);
     expect(within(screen.getByTestId("session-title-row")).queryByTestId("session-status-timer-icon")).toBeNull();
     expect(screen.queryByTestId("session-waiting-for")).toBeNull();

@@ -22,7 +22,7 @@ interface LeaderProfilePortraitButtonProps {
     status: string;
     style?: CSSProperties;
   };
-  /** Small status marker drawn on the portrait's bottom-right corner, like the session top bar. */
+  /** Small status marker drawn on the portrait's bottom-right corner; it brings its own outline. */
   cornerBadge?: ReactNode;
 }
 
@@ -137,9 +137,7 @@ export function LeaderProfilePortraitButton({
           className="h-full w-full rounded-full object-cover"
           draggable={false}
         />
-        {cornerBadge && (
-          <span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-cc-card p-px">{cornerBadge}</span>
-        )}
+        {cornerBadge && <span className="absolute -bottom-px -right-px flex">{cornerBadge}</span>}
       </span>
       {open && panelStyle
         ? createPortal(

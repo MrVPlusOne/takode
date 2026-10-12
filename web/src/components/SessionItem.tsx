@@ -647,7 +647,7 @@ function SessionItemComponent({
                 statusRing={leaderPortraitStatusRing}
                 cornerBadge={
                   showWaitingIcon ? (
-                    <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} className="mt-0" />
+                    <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} className="mt-0" onPortrait />
                   ) : undefined
                 }
               />

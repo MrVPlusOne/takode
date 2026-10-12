@@ -90,6 +90,9 @@ export function waitingStatusLabel(timerCount: number, waitingFor?: string | nul
   return parts.join("; ");
 }
 
+const CLOCK_PATH =
+  "M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z";
+
 /** Timer icon shown in place of the idle dot while a session waits on timers or what `waitingFor` names. */
 export function WaitingStatusIcon({
   timerCount,
@@ -98,6 +101,7 @@ export function WaitingStatusIcon({
   title,
   ariaLabel,
   decorative = false,
+  onPortrait = false,
 }: {
   timerCount: number;
   waitingFor?: string | null;
@@ -105,8 +109,15 @@ export function WaitingStatusIcon({
   title?: string;
   ariaLabel?: string;
   decorative?: boolean;
+  /**
+   * Drawn on a portrait's corner: slightly smaller, with a white face and a thin outline in the
+   * card color hugging the clock, instead of sitting on a round card-colored disc that shows as a
+   * large white circle on the sessions panel's tinted rows.
+   */
+  onPortrait?: boolean;
 }) {
   const defaultLabel = waitingStatusLabel(timerCount, waitingFor);
+  const size = onPortrait ? "h-[11px] w-[11px]" : "h-3 w-3";
   return (
     <span
       data-testid="session-status-timer-icon"
@@ -115,12 +126,18 @@ export function WaitingStatusIcon({
       title={decorative ? undefined : (title ?? defaultLabel)}
       aria-label={decorative ? undefined : (ariaLabel ?? defaultLabel)}
       aria-hidden={decorative ? "true" : undefined}
-      className={`inline-flex h-3 w-3 shrink-0 self-center items-center justify-center leading-none text-emerald-500 ${
+      className={`inline-flex ${size} shrink-0 self-center items-center justify-center leading-none text-emerald-500 ${
         className ?? ""
       }`}
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="block h-3 w-3 shrink-0 -translate-y-px">
-        <path d="M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z" />
+      <svg viewBox="0 0 16 16" fill="currentColor" className={`block ${size} shrink-0 -translate-y-px`}>
+        {onPortrait && (
+          <>
+            <circle cx="8" cy="8.07" r="4.75" className="fill-cc-card" />
+            <path d={CLOCK_PATH} className="fill-none stroke-cc-card" strokeWidth="2.5" strokeLinejoin="round" />
+          </>
+        )}
+        <path d={CLOCK_PATH} />
       </svg>
     </span>
   );
