@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { api, type CronJobInfo } from "../api.js";
 import {
@@ -610,20 +611,9 @@ function JobForm({ form, onChange }: { form: JobFormData; onChange: (form: JobFo
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close model dropdown on outside click
-  useEffect(() => {
-    if (!showModelDropdown && !showReasoningDropdown) return;
-    function handleClick(e: PointerEvent) {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false);
-      }
-      if (reasoningDropdownRef.current && !reasoningDropdownRef.current.contains(e.target as Node)) {
-        setShowReasoningDropdown(false);
-      }
-    }
-    document.addEventListener("pointerdown", handleClick);
-    return () => document.removeEventListener("pointerdown", handleClick);
-  }, [showModelDropdown, showReasoningDropdown]);
+  // Each dropdown's wrapper holds both its trigger and its menu.
+  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), showModelDropdown);
+  useOutsidePress([reasoningDropdownRef], () => setShowReasoningDropdown(false), showReasoningDropdown);
 
   // Folder display label
   const dirLabel = form.cwd ? form.cwd.split("/").pop() || form.cwd : "Select folder";

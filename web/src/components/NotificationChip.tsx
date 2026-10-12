@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -744,26 +745,9 @@ function NotificationPopover({
     return () => document.removeEventListener("keydown", handler, { capture: true });
   }, [onClose, questOverlayId]);
 
-  // Click-outside to close (mousedown for early dismissal)
-  useEffect(() => {
-    const handler = (e: globalThis.MouseEvent) => {
-      if (questOverlayId) return;
-      // A row's context menu lives in a portal; using it must not close the inbox.
-      if (e.target instanceof Element && e.target.closest("[data-context-menu]")) return;
-      // A press on the chip is left to its own toggle; closing here would let
-      // the click that follows reopen the list.
-      if (anchor?.contains(e.target as Node)) return;
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    // Defer to avoid closing immediately from the chip click that opened this
-    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [onClose, questOverlayId, anchor]);
+  // A row's context menu is portaled elsewhere; using it must not close the
+  // inbox. An open quest overlay keeps the inbox open beneath it.
+  useOutsidePress([popoverRef, anchor, "[data-context-menu]"], onClose, !questOverlayId);
 
   return createPortal(
     <div

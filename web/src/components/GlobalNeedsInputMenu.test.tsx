@@ -78,6 +78,7 @@ vi.mock("../api.js", () => ({
   },
 }));
 
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 
 function installChatFeedWidth(width: number): () => void {
@@ -668,8 +669,7 @@ describe("GlobalNeedsInputMenu", () => {
     expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    fireEvent.mouseDown(trigger);
-    fireEvent.click(trigger);
+    fingerTap(trigger);
 
     expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).not.toBeInTheDocument();
   });

@@ -445,7 +445,7 @@ describe("TopBar session menu", () => {
     expect(api.deleteSession).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Delete Session" })).toBeInTheDocument();
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("button", { name: "Delete Session" })).not.toBeInTheDocument();
   });
 
@@ -1488,7 +1488,7 @@ describe("TopBar phone layout and Next", () => {
     const mute = screen.getByRole("button", { name: "Mute" });
     expect(screen.getByRole("button", { name: "Remind me later" })).toBeInTheDocument();
     // The menu is portaled outside the list; pressing it must not count as clicking outside the list.
-    fireEvent.mouseDown(mute);
+    fireEvent.pointerDown(mute);
     expect(screen.getByRole("dialog", { name: "Everything that needs attention" })).toBeInTheDocument();
   });
 

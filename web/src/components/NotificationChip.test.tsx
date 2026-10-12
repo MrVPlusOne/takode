@@ -703,7 +703,7 @@ describe("NotificationChip", () => {
     fireEvent.contextMenu(within(mutedRow).getByTestId("notification-row-header"));
     expect(screen.getByRole("button", { name: "Unmute" })).toBeInTheDocument();
     // Using the menu must not close the inbox it was opened from.
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Unmute" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Unmute" }));
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     expect(
       within(mutedRow).getByRole("button", { name: "Go to source for Choose deferred rollout" }),
@@ -1434,7 +1434,7 @@ describe("NotificationChip", () => {
         ).toEqual(["Go to"]);
 
         fireEvent.contextMenu(notifyRow!);
-        fireEvent.mouseDown(screen.getByRole("button", { name: "Acknowledge" }));
+        fireEvent.pointerDown(screen.getByRole("button", { name: "Acknowledge" }));
         fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
         expect(fetchMock.mock.calls[0]![0]).toContain("/thread-monitoring/q-5");
         expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();

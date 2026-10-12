@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { TaskRow } from "./TaskPanel.js";
 
 export function TodoStatusLine({ sessionId }: { sessionId: string }) {
@@ -7,17 +8,8 @@ export function TodoStatusLine({ sessionId }: { sessionId: string }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close popover on outside click
-  useEffect(() => {
-    if (!popoverOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setPopoverOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [popoverOpen]);
+  // The container holds both the toggle and the popover.
+  useOutsidePress([containerRef], () => setPopoverOpen(false), popoverOpen);
 
   // Close popover on Escape
   useEffect(() => {

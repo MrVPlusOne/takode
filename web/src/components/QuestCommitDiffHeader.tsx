@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { commitComparisonLabel } from "../../shared/quest-delivery.js";
 import type { QuestCommitLookup } from "../api.js";
 import { commitLookupKey, commitTitle, shortCommitSha } from "./QuestCommitEvidence.js";
@@ -126,11 +127,9 @@ function CommitDetails({ title, sha, details }: { title: string; sha: string; de
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
+  useOutsidePress([root], () => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
-    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       // Dismiss the disclosure before the enclosing native dialog handles Escape.
@@ -139,12 +138,8 @@ function CommitDetails({ title, sha, details }: { title: string; sha: string; de
       setOpen(false);
       trigger.current?.focus();
     };
-    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown, true);
-    };
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [open]);
   return (
     <div ref={root} className="quest-commit-details">

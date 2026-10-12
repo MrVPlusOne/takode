@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { useNextAttention } from "../hooks/useNextAttention.js";
@@ -158,25 +159,16 @@ export function GlobalAttentionPanel({
     return info;
   }, [sdkSessions, sessionsOverride]);
 
+  // A row's context menu lives in a portal; using it must not close the list.
+  useOutsidePress([panelRef, trigger, "[data-context-menu]"], onClose, !inline);
   useEffect(() => {
     if (inline) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target) || trigger?.contains(target)) return;
-      // A row's context menu lives in a portal; using it must not close the list.
-      if (target instanceof Element && target.closest("[data-context-menu]")) return;
-      onClose();
-    };
     document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onPointer);
-    };
-  }, [inline, onClose, trigger]);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [inline, onClose]);
 
   const panel = (
     <div

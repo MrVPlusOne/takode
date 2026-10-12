@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { ReplyChip } from "./ReplyChip.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
@@ -75,14 +76,9 @@ export function ComposerStatusBlocks({
     if (alternateVoiceRerun) setDismissedAlternateVoiceResultId(alternateVoiceRerun.resultId);
   };
 
+  useOutsidePress([vscodeSelectionPathRef], () => setVscodeSelectionPathOpen(false), vscodeSelectionPathOpen);
   useEffect(() => {
     if (!vscodeSelectionPathOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!vscodeSelectionPathRef.current?.contains(event.target as Node)) {
-        setVscodeSelectionPathOpen(false);
-      }
-    }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -90,12 +86,8 @@ export function ComposerStatusBlocks({
       }
     }
 
-    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [vscodeSelectionPathOpen]);
 
   return (

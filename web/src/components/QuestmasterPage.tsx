@@ -10,6 +10,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { useStore } from "../store.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { api } from "../api.js";
 import { questOverlayTargetFromHash, withoutQuestIdInHash } from "../utils/routing.js";
 import { SessionNumChip } from "./SessionNumChip.js";
@@ -867,23 +868,15 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     }
   }, [allTags, selectedTags]);
 
-  // Close status dropdown on click-outside or Escape
+  // Close status dropdown on an outside press or Escape
+  useOutsidePress([statusDropdownRef], () => setStatusDropdownOpen(false), statusDropdownOpen);
   useEffect(() => {
     if (!statusDropdownOpen) return;
-    const handleMouseDown = (e: MouseEvent) => {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setStatusDropdownOpen(false);
     };
-    document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [statusDropdownOpen]);
 
   // Compute autocomplete matches for hashtag query

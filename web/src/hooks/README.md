@@ -30,6 +30,11 @@ focused, typed interfaces for specific behaviors.
   - Handles iOS quirks: no touch `contextmenu`, and emulated mouse events after
     a long press that would otherwise dismiss the new menu or activate the target.
 
+- `useOutsidePress.ts`
+  - Closes every popover, panel, menu and dropdown on a press outside it.
+  - Counts the surface's trigger as inside, so a second tap closes the surface
+    instead of the press closing it and the click reopening it.
+
 - `useVoiceInput.ts`
   - Microphone capture, transcription input handling, and level meter logic.
 

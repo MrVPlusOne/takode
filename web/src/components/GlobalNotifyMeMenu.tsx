@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -175,24 +176,17 @@ export function GlobalNotifyMeMenu({
     return () => controller.abort();
   }, [open, filter, offset, refresh, summary.signature]);
 
+  useOutsidePress([panelRef, triggerRef], () => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
-    const click = (event: MouseEvent) => {
-      if (!panelRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node))
-        setOpen(false);
-    };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
         triggerRef.current?.focus();
       }
     };
-    document.addEventListener("mousedown", click);
     document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", click);
-      document.removeEventListener("keydown", key);
-    };
+    return () => document.removeEventListener("keydown", key);
   }, [open]);
 
   async function act(entry: ThreadMonitoringEntry, action: "acknowledge" | "untrack") {

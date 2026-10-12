@@ -180,6 +180,7 @@ describe("thread tab context menu", () => {
 
     // A real tap elsewhere still dismisses the menu, and the next ordinary
     // tap on the tab works.
+    fireEvent.pointerDown(document.body, { pointerType: "touch" });
     fireEvent.touchStart(document.body, {
       touches: [{ clientX: 300, clientY: 300 }],
     });
@@ -222,7 +223,7 @@ describe("thread tab context menu", () => {
 
     fireEvent.contextMenu(tab("q-7"));
     expect(menuLabels()).toEqual(["Notify Me"]);
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
 
     const mainContextMenu = createEvent.contextMenu(screen.getByTestId("thread-tab-group-main"));
     fireEvent(screen.getByTestId("thread-tab-group-main"), mainContextMenu);
@@ -237,7 +238,7 @@ describe("thread tab context menu", () => {
 
     fireEvent.contextMenu(tab("q-7"));
     expect(menuLabels()).toEqual(["Close tab"]);
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
 
     // A tab with no applicable action gets no custom menu at all.
     const contextMenu = createEvent.contextMenu(tab("q-8"));

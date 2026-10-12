@@ -9,6 +9,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { api } from "../api.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../../shared/codex-slash-commands.js";
 import type {
@@ -80,10 +81,6 @@ const NOOP_REFRESH_QUEST_AUTOCOMPLETE = async () => {};
 
 function nowMs(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-}
-
-function closeMenuRef(ref: RefObject<HTMLDivElement | null>, target: EventTarget | null): boolean {
-  return !!ref.current && !ref.current.contains(target as Node);
 }
 
 function sortAutocompleteCommands(
@@ -460,19 +457,16 @@ export function useComposerAutocomplete({
       [dollarMenuIndex]?.scrollIntoView({ block: "nearest" });
   }, [dollarMenuIndex, dollarMenuOpen]);
 
-  useEffect(() => {
-    if (!dollarMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (closeMenuRef(dollarMenuRef, e.target)) {
-        setDollarMenuOpen(false);
-        setDollarQuery("");
-        dollarAnchorRef.current = -1;
-        dollarRangeRef.current = null;
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [dollarMenuOpen]);
+  useOutsidePress(
+    [dollarMenuRef],
+    () => {
+      setDollarMenuOpen(false);
+      setDollarQuery("");
+      dollarAnchorRef.current = -1;
+      dollarRangeRef.current = null;
+    },
+    dollarMenuOpen,
+  );
 
   const filteredReferenceSuggestions = useMemo<ReferenceSuggestion[]>(() => {
     if (!referenceMenuOpen || referenceKind == null) return [];
@@ -640,20 +634,17 @@ export function useComposerAutocomplete({
       [referenceMenuIndex]?.scrollIntoView({ block: "nearest" });
   }, [referenceMenuIndex, referenceMenuOpen]);
 
-  useEffect(() => {
-    if (!referenceMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (closeMenuRef(referenceMenuRef, e.target)) {
-        setReferenceMenuOpen(false);
-        setReferenceKind(null);
-        setReferenceQuery("");
-        referenceAnchorRef.current = -1;
-        referenceRangeRef.current = null;
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [referenceMenuOpen]);
+  useOutsidePress(
+    [referenceMenuRef],
+    () => {
+      setReferenceMenuOpen(false);
+      setReferenceKind(null);
+      setReferenceQuery("");
+      referenceAnchorRef.current = -1;
+      referenceRangeRef.current = null;
+    },
+    referenceMenuOpen,
+  );
 
   const mentionSearchRoot = useMemo(() => {
     const cwd = sessionView.cwd;
@@ -730,14 +721,7 @@ export function useComposerAutocomplete({
     [mentionMenuOpen, mentionSearchRoot],
   );
 
-  useEffect(() => {
-    if (!mentionMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (closeMenuRef(mentionMenuRef, e.target)) setMentionMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [mentionMenuOpen]);
+  useOutsidePress([mentionMenuRef], () => setMentionMenuOpen(false), mentionMenuOpen);
 
   useEffect(() => {
     if (mentionIndex >= mentionResults.length) {

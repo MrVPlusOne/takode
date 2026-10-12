@@ -305,6 +305,7 @@ describe("TreeViewGroup overflow", () => {
       expect(onToggleGroupCollapse).not.toHaveBeenCalled();
 
       // A touch outside the menu dismisses it.
+      fireEvent.pointerDown(document.body, { pointerType: "touch" });
       fireEvent.touchStart(document.body, { touches: [{ clientX: 300, clientY: 300 }] });
       expect(screen.queryByRole("menuitem", { name: "Show 20" })).not.toBeInTheDocument();
     } finally {

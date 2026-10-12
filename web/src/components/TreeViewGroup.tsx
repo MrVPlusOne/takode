@@ -8,6 +8,7 @@ import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-ses
 import { SessionItem, StatusCountDots, type ArchiveConfirmationState, type StatusCounts } from "./SessionItem.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { api } from "../api.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
@@ -220,25 +221,15 @@ export function TreeViewGroup({
     }
   }, [editingGroupName]);
 
-  // Dismiss context menu on click outside or ESC key
+  // Dismiss context menu on an outside press or ESC key
+  useOutsidePress([contextMenuRef], () => setContextMenu(null), !!contextMenu);
   useEffect(() => {
     if (!contextMenu) return;
-    function handleClick(e: Event) {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setContextMenu(null);
     }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("touchstart", handleClick);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("touchstart", handleClick);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [contextMenu]);
 
   const handleDeleteGroup = useCallback(() => {

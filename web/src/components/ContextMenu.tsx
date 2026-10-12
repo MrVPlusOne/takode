@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 
 /**
  * On touch screens menus behave like native iOS menus: they pop in and have
@@ -78,13 +79,9 @@ export function ContextMenu({
   const [confirmingItem, setConfirmingItem] = useState<ContextMenuItem | null>(null);
   const [expandedSubmenu, setExpandedSubmenu] = useState<number | null>(null);
 
+  useOutsidePress([menuRef, anchor], onClose);
+
   useEffect(() => {
-    function handleDismiss(e: Event) {
-      if (anchor?.contains(e.target as Node)) return;
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (confirmingItem) {
@@ -96,15 +93,9 @@ export function ContextMenu({
         }
       }
     }
-    document.addEventListener("mousedown", handleDismiss);
-    document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDismiss);
-      document.removeEventListener("touchstart", handleDismiss);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose, confirmingItem, expandedSubmenu, anchor]);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, confirmingItem, expandedSubmenu]);
 
   // Clamp to viewport bounds
   useEffect(() => {

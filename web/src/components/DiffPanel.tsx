@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
@@ -185,17 +186,8 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const filePickerRef = useRef<HTMLDivElement>(null);
 
-  // Close file picker on outside click
-  useEffect(() => {
-    if (!filePickerOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (filePickerRef.current && !filePickerRef.current.contains(e.target as Node)) {
-        setFilePickerOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [filePickerOpen]);
+  // The picker's wrapper holds both its toggle and its list.
+  useOutsidePress([filePickerRef], () => setFilePickerOpen(false), filePickerOpen);
 
   // Line numbers toggle
   const [showLineNumbers, setShowLineNumbers] = useState(() => {

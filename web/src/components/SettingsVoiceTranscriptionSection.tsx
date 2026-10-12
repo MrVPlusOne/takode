@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { api, type TranscriptionConfig } from "../api.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
 import { SettingsToggle } from "./settings-controls.js";
@@ -113,13 +114,10 @@ export function SettingsVoiceTranscriptionSection({
     setSttLanguageHints((current) => current.filter((hint) => hint !== code));
   }
 
+  useOutsidePress([languagePickerRef], () => closeLanguagePicker(false), languagePickerOpen);
   useEffect(() => {
     if (!languagePickerOpen) return;
     languageSearchRef.current?.focus();
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!languagePickerRef.current?.contains(event.target as Node)) closeLanguagePicker(false);
-    }
 
     function handleEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -128,12 +126,8 @@ export function SettingsVoiceTranscriptionSection({
       closeLanguagePicker(true);
     }
 
-    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-    };
+    return () => document.removeEventListener("keydown", handleEscape);
   }, [languagePickerOpen]);
 
   useEffect(() => {

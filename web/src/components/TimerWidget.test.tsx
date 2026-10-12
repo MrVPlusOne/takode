@@ -264,8 +264,7 @@ describe("TimerModal", () => {
     });
     const onClose = vi.fn();
     render(<TimerModal sessionId="s1" onClose={onClose} />);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -275,8 +274,8 @@ describe("TimerModal", () => {
     });
     const onClose = vi.fn();
     render(<TimerModal sessionId="s1" onClose={onClose} />);
-    // Clicking the timer title inside the popover should not trigger close.
-    fireEvent.click(screen.getByText("Check the build status"));
+    // Tapping the timer title inside the popover should not trigger close.
+    fingerTap(screen.getByText("Check the build status"));
     expect(onClose).not.toHaveBeenCalled();
   });
 

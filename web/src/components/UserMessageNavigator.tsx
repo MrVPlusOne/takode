@@ -9,6 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { api } from "../api.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
@@ -150,22 +151,14 @@ export function UserMessageNavigator({
     };
   }, [currentThreadKey, isLeaderSession, sessionId, trimmedQuery, useServerSearch]);
 
+  useOutsidePress([rootRef, selectorDialogRef], () => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
-      if (selectorDialogRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
-    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open]);
 
   const updateMobileSelectorStyle = useCallback(() => {

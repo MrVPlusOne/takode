@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../store.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import {
   GitHubPRSection,
   McpCollapsible,
@@ -96,32 +97,18 @@ export function SessionInfoPopover({
   const linesRemoved = sessionVm?.totalLinesRemoved ?? 0;
   const diffStatsSkippedReason = sessionVm?.diffStatsSkippedReason ?? null;
 
-  // Close on click outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const targetEl = e.target instanceof Element ? e.target : null;
-      if (
-        targetEl?.closest("[data-claude-md-editor-root='true']") ||
-        targetEl?.closest("[data-session-info-modal='true']") ||
-        targetEl?.closest("[data-leader-profile-portrait-picker='true']")
-      ) {
-        return;
-      }
-      // A press on the trigger is left to its own toggle; closing here would let
-      // the click that follows reopen the panel.
-      if (anchorElement?.contains(e.target as Node)) return;
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const timer = setTimeout(() => {
-      document.addEventListener("mousedown", handler);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [onClose, anchorElement]);
+  // Editors, modals and the portrait picker it opens are portaled elsewhere
+  // but still belong to the panel.
+  useOutsidePress(
+    [
+      popoverRef,
+      anchorElement,
+      "[data-claude-md-editor-root='true']",
+      "[data-session-info-modal='true']",
+      "[data-leader-profile-portrait-picker='true']",
+    ],
+    onClose,
+  );
 
   // Close on Escape
   useEffect(() => {
@@ -218,18 +205,8 @@ export function SessionInfoPopover({
     };
   }, [backendType]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false);
-      }
-      if (reasoningDropdownRef.current && !reasoningDropdownRef.current.contains(e.target as Node)) {
-        setShowReasoningDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), showModelDropdown);
+  useOutsidePress([reasoningDropdownRef], () => setShowReasoningDropdown(false), showReasoningDropdown);
 
   useEffect(() => {
     let cancelled = false;

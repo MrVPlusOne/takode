@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
@@ -408,18 +409,7 @@ function GlobalNeedsInputPopover({
     return () => document.removeEventListener("keydown", handler, { capture: true });
   }, [onClose]);
 
-  useEffect(() => {
-    const handler = (e: globalThis.MouseEvent) => {
-      const target = e.target as Node;
-      if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
-      onClose();
-    };
-    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [onClose, triggerRef]);
+  useOutsidePress([popoverRef, triggerRef], onClose);
 
   return createPortal(
     <div

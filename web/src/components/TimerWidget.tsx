@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import type { SessionTimer } from "../types.js";
@@ -141,20 +142,7 @@ export function TimerModal({
     return () => document.removeEventListener("keydown", handler, { capture: true });
   }, [onClose]);
 
-  // Click-outside to close (mousedown for early dismissal)
-  useEffect(() => {
-    const handler = (e: globalThis.MouseEvent) => {
-      if (anchor?.contains(e.target as Node)) return;
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [onClose, anchor]);
+  useOutsidePress([popoverRef, anchor], onClose);
 
   return createPortal(
     <div

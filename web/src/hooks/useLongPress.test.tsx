@@ -111,6 +111,7 @@ describe("useLongPress", () => {
     fireEvent.touchStart(target, { touches: [{ clientX: 10, clientY: 10 }] });
     act(() => vi.advanceTimersByTime(500));
     fireEvent.touchEnd(target);
+    fireEvent.pointerDown(document.body, { pointerType: "touch" });
     fireEvent.touchStart(document.body, { touches: [{ clientX: 300, clientY: 300 }] });
     expect(menuOpen()).toBe(false);
 
@@ -163,7 +164,7 @@ describe("useLongPress", () => {
     fireEvent(target, contextMenu);
     expect(contextMenu.defaultPrevented).toBe(true);
     expect(menuOpen()).toBe(true);
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(menuOpen()).toBe(false);
 
     // Android: the timer opens the menu, then the platform's own contextmenu

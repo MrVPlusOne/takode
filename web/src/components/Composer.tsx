@@ -1,4 +1,5 @@
 import { ComposerMinimizer, ComposerMinimizeButton } from "./ComposerMinimizer.js";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { useReportCommentSend } from "./use-report-comment-send.js";
@@ -902,19 +903,9 @@ export function Composer({
     };
   }, [isCodex, loadPersistedSettings]);
 
-  // Close mode dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false);
-      }
-      if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
-        setShowPermissionDropdown(false);
-      }
-    }
-    document.addEventListener("pointerdown", handleClick);
-    return () => document.removeEventListener("pointerdown", handleClick);
-  }, []);
+  // Each dropdown's wrapper holds both its trigger and its menu.
+  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), showModelDropdown);
+  useOutsidePress([permissionDropdownRef], () => setShowPermissionDropdown(false), showPermissionDropdown);
 
   const acceptVoiceEdit = useCallback(() => {
     if (!voiceEditProposal) return;

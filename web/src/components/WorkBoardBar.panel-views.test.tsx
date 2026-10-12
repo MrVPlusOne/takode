@@ -258,7 +258,7 @@ describe("WorkBoardBar panel views", () => {
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByTestId("board-table")).toBeInTheDocument();
 
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(getByTestId("board-table")).toBeInTheDocument();
   });
 

@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -1007,25 +1008,16 @@ export function QuestFeedInlineLink({
     richRef.current?.focus({ preventScroll: true });
   }, [phase, richOpenMode, richPlacement]);
 
-  useEffect(() => {
-    if (!phase.startsWith("rich") || !richPlacement || richPlacement.kind === "bottom-sheet") return;
-    const handleDocumentClick = (event: globalThis.MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (
-        richRef.current?.contains(target) ||
-        previewRef.current?.contains(target) ||
-        hoverActivationProxyRef.current?.contains(target) ||
-        (target instanceof Element &&
-          target.closest<HTMLElement>("[data-quest-feed-preview-hit-proxy]")?.dataset.previewOwner === dialogId)
-      ) {
-        return;
-      }
-      closeAllRef.current(false);
-    };
-    document.addEventListener("click", handleDocumentClick);
-    return () => document.removeEventListener("click", handleDocumentClick);
-  }, [phase, richPlacement]);
+  useOutsidePress(
+    [
+      richRef,
+      previewRef,
+      hoverActivationProxyRef,
+      `[data-quest-feed-preview-hit-proxy][data-preview-owner="${dialogId}"]`,
+    ],
+    () => closeAllRef.current(false),
+    phase.startsWith("rich") && !!richPlacement && richPlacement.kind !== "bottom-sheet",
+  );
 
   useLayoutEffect(() => {
     if (!phase.startsWith("rich") || richPlacement?.kind !== "bottom-sheet") return;

@@ -617,7 +617,7 @@ describe("SessionInfoPopover", () => {
       const pickerNode = document.createElement("div");
       pickerNode.setAttribute("data-leader-profile-portrait-picker", "true");
       document.body.appendChild(pickerNode);
-      fireEvent.mouseDown(pickerNode);
+      fireEvent.pointerDown(pickerNode);
 
       expect(onClose).not.toHaveBeenCalled();
       pickerNode.remove();
@@ -706,7 +706,7 @@ describe("SessionInfoPopover", () => {
       fingerTap(trigger);
       act(() => vi.runAllTimers());
       expect(screen.getByText("Session Info")).toBeInTheDocument();
-      fireEvent.mouseDown(screen.getByRole("button", { name: "Elsewhere" }));
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }));
       expect(screen.queryByText("Session Info")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -724,7 +724,7 @@ describe("SessionInfoPopover", () => {
       const modalNode = document.createElement("div");
       modalNode.setAttribute("data-claude-md-editor-root", "true");
       document.body.appendChild(modalNode);
-      fireEvent.mouseDown(modalNode);
+      fireEvent.pointerDown(modalNode);
 
       expect(onClose).not.toHaveBeenCalled();
       modalNode.remove();
@@ -747,7 +747,7 @@ describe("SessionInfoPopover", () => {
       const modalNode = document.createElement("div");
       modalNode.setAttribute("data-session-info-modal", "true");
       document.body.appendChild(modalNode);
-      fireEvent.mouseDown(modalNode);
+      fireEvent.pointerDown(modalNode);
 
       expect(onClose).not.toHaveBeenCalled();
       modalNode.remove();

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { useStore } from "../store.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
 import type { ChatMessage } from "../types.js";
@@ -227,6 +228,7 @@ export function ThreadResponseCoverageBadge({
     previewRef.current?.focus({ preventScroll: true });
   }, [openMode, position]);
 
+  useOutsidePress([buttonRef, previewRef], close, !!openMode);
   useEffect(() => {
     if (!openMode) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -244,11 +246,6 @@ export function ThreadResponseCoverageBadge({
       close();
       if (focusWasWithin) buttonRef.current?.focus({ preventScroll: true });
     };
-    const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (buttonRef.current?.contains(target) || previewRef.current?.contains(target))) return;
-      close();
-    };
     let frame: number | null = null;
     const scheduleGeometry = () => {
       if (frame != null) return;
@@ -261,7 +258,6 @@ export function ThreadResponseCoverageBadge({
     if (buttonRef.current) observer?.observe(buttonRef.current);
     if (previewRef.current) observer?.observe(previewRef.current);
     document.addEventListener("keydown", closeOnEscape, { capture: true });
-    document.addEventListener("pointerdown", closeOnOutsidePointer, { capture: true });
     window.addEventListener("resize", scheduleGeometry);
     window.addEventListener("scroll", scheduleGeometry, true);
     window.visualViewport?.addEventListener("resize", scheduleGeometry);
@@ -270,7 +266,6 @@ export function ThreadResponseCoverageBadge({
       if (frame != null) cancelAnimationFrame(frame);
       observer?.disconnect();
       document.removeEventListener("keydown", closeOnEscape, { capture: true });
-      document.removeEventListener("pointerdown", closeOnOutsidePointer, { capture: true });
       window.removeEventListener("resize", scheduleGeometry);
       window.removeEventListener("scroll", scheduleGeometry, true);
       window.visualViewport?.removeEventListener("resize", scheduleGeometry);

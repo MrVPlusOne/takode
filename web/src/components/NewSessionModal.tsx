@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import {
   api,
   type CompanionEnv,
@@ -461,29 +462,16 @@ export function NewSessionModal({
     persistGlobalDefault("cc-codex-permission-mode", migratedPermissionMode);
   }, [backend, mode]);
 
-  // Close dropdowns on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false);
-      }
-      if (reasoningDropdownRef.current && !reasoningDropdownRef.current.contains(e.target as Node)) {
-        setShowReasoningDropdown(false);
-      }
-      if (codexPermissionDropdownRef.current && !codexPermissionDropdownRef.current.contains(e.target as Node)) {
-        setShowCodexPermissionDropdown(false);
-      }
-      if (envDropdownRef.current && !envDropdownRef.current.contains(e.target as Node)) {
-        setShowEnvDropdown(false);
-      }
-      if (branchDropdownRef.current && !branchDropdownRef.current.contains(e.target as Node)) {
-        setShowBranchDropdown(false);
-      }
-    }
-    document.addEventListener("pointerdown", handleClick);
-    return () => document.removeEventListener("pointerdown", handleClick);
-  }, [open]);
+  // Each dropdown's wrapper holds both its trigger and its menu.
+  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), open && showModelDropdown);
+  useOutsidePress([reasoningDropdownRef], () => setShowReasoningDropdown(false), open && showReasoningDropdown);
+  useOutsidePress(
+    [codexPermissionDropdownRef],
+    () => setShowCodexPermissionDropdown(false),
+    open && showCodexPermissionDropdown,
+  );
+  useOutsidePress([envDropdownRef], () => setShowEnvDropdown(false), open && showEnvDropdown);
+  useOutsidePress([branchDropdownRef], () => setShowBranchDropdown(false), open && showBranchDropdown);
 
   // Detect git repo when cwd or machine changes; restore saved branch if valid
   useEffect(() => {
