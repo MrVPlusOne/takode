@@ -56,6 +56,27 @@ const ACTIVE_ROWS: BoardRowData[] = [
     },
   },
   {
+    questId: "q-2415",
+    title: "Record host link reconnect reasons",
+    worker: "access-worker-5",
+    workerNum: 2911,
+    status: "MEMORY",
+    updatedAt: NOW - 10 * MINUTE,
+    journey: { mode: "active", phaseIds: ["work", "memory"], currentPhaseId: "memory", activePhaseIndex: 1 },
+  },
+  {
+    questId: "q-2414",
+    title: "Show the landing queue position in Questmaster",
+    status: "LANDING",
+    updatedAt: NOW - 11 * MINUTE,
+    journey: {
+      mode: "active",
+      phaseIds: ["work", "memory", "landing"],
+      currentPhaseId: "landing",
+      activePhaseIndex: 2,
+    },
+  },
+  {
     questId: "q-2421",
     title: "Relay proxy: forward host link compression",
     status: "QUEUED",

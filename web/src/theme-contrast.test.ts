@@ -258,12 +258,16 @@ describe("theme contrast tokens", () => {
     expect(cssVariable("--color-cc-phase-accent-alignment")).toBe("#0ea5e9");
     expect(cssVariable("--color-cc-phase-accent-work")).toBe("#15803d");
     expect(cssVariable("--color-cc-phase-amber")).toBe("#8a4b00");
+    // User Checkpoint dots need their own amber; falling back to the dark text amber made them read as red-brown.
+    expect(cssVariable("--color-cc-phase-accent-amber")).toBe("#f59e0b");
     expect(cssVariable("--color-cc-phase-accent-memory")).toBe("#8b5cf6");
 
     for (const selector of [".dark", ".dark.theme-vscode-dark"]) {
       expect(cssVariableForSelector(selector, "--color-cc-phase-accent-alignment")).toBe("#38bdf8");
       expect(cssVariableForSelector(selector, "--color-cc-phase-accent-work")).toBe("#4ade80");
       expect(cssVariableForSelector(selector, "--color-cc-phase-amber")).toBe("#fbbf24");
+      // Dark themes must override the light dot amber, which the root rule would otherwise leak into them.
+      expect(cssVariableForSelector(selector, "--color-cc-phase-accent-amber")).toBe("#fbbf24");
       expect(cssVariableForSelector(selector, "--color-cc-phase-accent-memory")).toBe("#a78bfa");
     }
   });
