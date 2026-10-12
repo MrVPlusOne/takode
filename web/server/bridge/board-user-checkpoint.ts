@@ -9,6 +9,7 @@
  * same checkpoint, so a back-and-forth with the user stays one checkpoint. Planned checkpoints keep
  * leader-driven resumption. Each checkpoint has its own phase timing, so Work time excludes the wait.
  * A leader can end any checkpoint by hand; its questions stay open for the user without blocking.
+ * A planned checkpoint left that way is not used up: Takode puts it back after the resumed Work.
  */
 import { normalizeKnownQuestJourneyPhaseIds, normalizeQuestJourneyPlan } from "../../shared/quest-journey.js";
 import type { QuestJourneyPhaseId, QuestJourneyPhaseTiming } from "../../shared/quest-journey.js";
@@ -19,6 +20,8 @@ export const AUTO_CHECKPOINT_REOPEN_WINDOW_MS = 10 * 60_000;
 
 const AUTO_CHECKPOINT_NOTE = "Added by Takode while the leader's questions to the user were open.";
 const AUTO_CHECKPOINT_REVISION_REASON = "Takode added a User Checkpoint for the leader's open question to the user.";
+const RESTORED_CHECKPOINT_REVISION_REASON =
+  "Takode put the planned User Checkpoint back: the leader ended it by hand while its questions were open.";
 
 type Journey = NonNullable<BoardRow["journey"]>;
 
@@ -99,6 +102,39 @@ export function endUserCheckpointByHand(row: BoardRow): number | undefined {
   if (isAutomaticCheckpointCurrent(row)) row.autoCheckpoint = { checkpointIndex: index };
   const phaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey!.phaseIds);
   return phaseIds[index] === "user-checkpoint" && phaseIds[index + 1] === "work" ? index + 1 : undefined;
+}
+
+/**
+ * A planned User Checkpoint is used up only when it ends with its questions resolved. When a leader's
+ * board change leaves one while its questions are still open (`--status WORKING`, or dropping its last
+ * links), the pause becomes a checkpoint Takode added, the row resumes the Work after it, and the
+ * planned checkpoint, with its phase note, goes back after that Work. This keeps a side question
+ * from consuming a planned approval step. `existing` is the row before the change, `row` the row
+ * after it. Returns whether the row changed.
+ */
+export function restorePlannedCheckpointLeftOpen(existing: BoardRow | undefined, row: BoardRow, now: number): boolean {
+  const index = existing?.journey?.activePhaseIndex;
+  if (!existing || typeof index !== "number" || normalizedStatus(existing) !== "USER_CHECKPOINTING") return false;
+  if (isAutomaticCheckpointCurrent(existing) || (existing.waitForInput ?? []).length === 0) return false;
+  if (!row.journey || (row.waitForInput ?? []).length > 0) return false;
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey.phaseIds);
+  if (phaseIds[index] !== "user-checkpoint" || phaseIds[index + 1] !== "work") return false;
+  const status = normalizedStatus(row);
+  const endedByHand = status === "WORKING" && row.journey.activePhaseIndex === index + 1;
+  const linksDropped = status === "USER_CHECKPOINTING" && row.journey.activePhaseIndex === index;
+  if (!endedByHand && !linksDropped) return false;
+
+  const plannedNote = row.journey.phaseNotes?.[String(index)];
+  insertPhases(row, phaseIds, index + 2, ["user-checkpoint", "work"], now, RESTORED_CHECKPOINT_REVISION_REASON);
+  const phaseNotes = { ...(row.journey.phaseNotes ?? {}), [String(index)]: AUTO_CHECKPOINT_NOTE };
+  if (plannedNote) phaseNotes[String(index + 2)] = plannedNote;
+  row.journey = { ...row.journey, phaseNotes };
+  const restoredPhaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey.phaseIds);
+  if (linksDropped) moveToPhase(row, restoredPhaseIds, index, index + 1, "WORKING", now);
+  else setJourney(row, row.journey, restoredPhaseIds, index + 1, "WORKING");
+  // Like any manual end, the checkpoint does not reopen for the next question.
+  row.autoCheckpoint = { checkpointIndex: index };
+  return true;
 }
 
 /** Keeps questions open as non-blocking: dropping a question's link never resolves it. */
@@ -195,6 +231,7 @@ function insertPhases(
   at: number,
   inserted: QuestJourneyPhaseId[],
   now: number,
+  revisionReason = AUTO_CHECKPOINT_REVISION_REASON,
 ): void {
   const journey = row.journey!;
   const shift = <T>(record: Record<string, T> | undefined): Record<string, T> | undefined => {
@@ -212,7 +249,7 @@ function insertPhases(
     phaseNotes: shift(journey.phaseNotes),
     phaseSkipReasons: shift(journey.phaseSkipReasons),
     phaseTimings: shift(journey.phaseTimings),
-    revisionReason: AUTO_CHECKPOINT_REVISION_REASON,
+    revisionReason,
     revisedAt: now,
     revisionCount: (journey.revisionCount ?? 0) + 1,
   };

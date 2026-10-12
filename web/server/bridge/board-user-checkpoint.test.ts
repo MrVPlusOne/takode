@@ -7,6 +7,7 @@ import {
   findUserCheckpointQuestsForWorker,
   isWorkAfterAutomaticCheckpoint,
   removeResolvedQuestionFromBoardRow,
+  restorePlannedCheckpointLeftOpen,
 } from "./board-user-checkpoint.js";
 
 // Automatic User Checkpoints: a quest in Work enters User Checkpoint while its leader has a blocking
@@ -167,6 +168,84 @@ describe("automatic User Checkpoint", () => {
     expect(row.waitForInput).toBeUndefined();
     expect(row.openQuestions).toEqual(["n-2"]);
     expect(row.autoCheckpoint).toBeUndefined();
+  });
+
+  // A planned checkpoint left while its questions are still open is not used up: the pause is
+  // relabeled as one Takode added and the planned checkpoint goes back after the resumed Work.
+  describe("restoring a planned checkpoint left with open questions", () => {
+    function plannedCheckpointWithQuestion(): BoardRow {
+      const row = workingRow(["work", "user-checkpoint", "work", "memory"]);
+      row.journey!.phaseNotes = { "1": "Final approval of the redesign", "3": "Memory note" };
+      addLeaderQuestionToBoardRow(row, "n-2", { blocking: true, now: T0 });
+      return row;
+    }
+
+    it("puts the planned checkpoint and its note back after the Work a hand end resumes", () => {
+      const before = plannedCheckpointWithQuestion();
+      // The board's hand end: questions kept open, the row resumes the Work after the checkpoint.
+      const after = structuredClone(before);
+      endUserCheckpointByHand(after);
+      after.status = "WORKING";
+      after.journey = { ...after.journey!, activePhaseIndex: 2, currentPhaseId: "work" };
+
+      expect(restorePlannedCheckpointLeftOpen(before, after, T0 + 1000)).toBe(true);
+
+      expect(after.status).toBe("WORKING");
+      expect(after.openQuestions).toEqual(["n-2"]);
+      expect(after.journey).toMatchObject({
+        phaseIds: ["work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "work",
+        revisionReason: expect.stringContaining("put the planned User Checkpoint back"),
+      });
+      expect(after.journey!.phaseNotes).toEqual({
+        "1": expect.stringContaining("Added by Takode"),
+        "3": "Final approval of the redesign",
+        "5": "Memory note",
+      });
+      // The pause now counts as a checkpoint Takode added, ended by hand, so it does not reopen.
+      expect(after.autoCheckpoint).toEqual({ checkpointIndex: 1 });
+    });
+
+    it("resumes Work and restores the planned checkpoint when its last links are dropped", () => {
+      const before = plannedCheckpointWithQuestion();
+      const after = structuredClone(before);
+      after.waitForInput = undefined;
+      after.openQuestions = ["n-2"];
+
+      expect(restorePlannedCheckpointLeftOpen(before, after, T0 + 1000)).toBe(true);
+
+      expect(after.status).toBe("WORKING");
+      expect(after.journey).toMatchObject({
+        phaseIds: ["work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 2,
+        phaseTimings: { "1": { startedAt: T0, endedAt: T0 + 1000 }, "2": { startedAt: T0 + 1000 } },
+      });
+      expect(isWorkAfterAutomaticCheckpoint(after)).toBe(true);
+    });
+
+    it("leaves the planned checkpoint used up when its questions were resolved", () => {
+      const before = plannedCheckpointWithQuestion();
+      removeResolvedQuestionFromBoardRow(before, "n-2", T0 + 1000);
+      const after = structuredClone(before);
+      after.status = "WORKING";
+      after.journey = { ...after.journey!, activePhaseIndex: 2, currentPhaseId: "work" };
+
+      expect(restorePlannedCheckpointLeftOpen(before, after, T0 + 2000)).toBe(false);
+      expect(after.journey!.phaseIds).toEqual(["work", "user-checkpoint", "work", "memory"]);
+    });
+
+    it("leaves a checkpoint Takode added alone", () => {
+      const before = workingRow(["work", "memory"]);
+      addLeaderQuestionToBoardRow(before, "n-3", { blocking: true, now: T0 });
+      const after = structuredClone(before);
+      endUserCheckpointByHand(after);
+      after.status = "WORKING";
+      after.journey = { ...after.journey!, activePhaseIndex: 2, currentPhaseId: "work" };
+
+      expect(restorePlannedCheckpointLeftOpen(before, after, T0 + 1000)).toBe(false);
+      expect(after.journey!.phaseIds).toEqual(["work", "user-checkpoint", "work", "memory"]);
+    });
   });
 
   it("names the quests that hold a worker in a User Checkpoint", () => {

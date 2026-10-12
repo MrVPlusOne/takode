@@ -85,6 +85,9 @@ the last one is resolved. Add --no-checkpoint when the work does not wait on the
 question: it then shows as an open question without pausing Work. To stop an
 already-posted question blocking, run takode board set q-N --clear-wait-for-input
 (or --wait-for-input with the questions that should still block); it stays open.
+A planned User Checkpoint left that way, or with board set --status WORKING,
+while its questions are open is not used up: Takode resumes the Work after it
+and puts the planned checkpoint back after that Work.
 
 Whenever you ask the user a question, include concise suggested replies with
 --suggest so the UI can render convenient response buttons. When the question

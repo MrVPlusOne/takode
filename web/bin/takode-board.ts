@@ -109,6 +109,7 @@ Quest Journey phases:
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3) as blocking questions; it replaces the list
   --clear-wait-for-input stops the linked questions blocking; they stay open for the user (resolve one with takode notify resolve)
   --status WORKING on a User Checkpoint ends it by hand and resumes the Work after it; its questions stay open, not blocking
+  A planned checkpoint left by hand while its questions are open is not used up: Takode puts it back after the resumed Work
 
 Quest Journey v2 has one active workflow: Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
 

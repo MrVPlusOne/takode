@@ -81,7 +81,7 @@ takode board set q-12 --clear-wait-for-input # stop its questions blocking; they
 takode board set q-12 --status WORKING       # end a checkpoint, planned or added, and resume the Work after it
 ```
 
-Dropping a link never resolves its question: it stays open for the user, no longer blocking (only promoting a proposal consumes the approval questions it was held on). Resolve one with `takode notify resolve <id>`.
+Dropping a link never resolves its question: it stays open for the user, no longer blocking (only promoting a proposal consumes the approval questions it was held on). Resolve one with `takode notify resolve <id>`. A planned checkpoint left while its questions are still open, by `--status WORKING` or by clearing its last links, is not used up: Takode resumes the Work after it and puts the planned checkpoint back after that Work.
 
 ## Rules
 

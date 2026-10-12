@@ -39,6 +39,7 @@ import {
   endUserCheckpointByHand,
   keepQuestionsOpen,
   isWorkAfterAutomaticCheckpoint,
+  restorePlannedCheckpointLeftOpen,
   syncAutomaticUserCheckpoint,
 } from "./board-user-checkpoint.js";
 import {
@@ -951,6 +952,7 @@ export function upsertBoardRow(
   const promoted = !!existing && isProposedBoardRowStatus(existing.status) && !isProposedBoardRowStatus(merged.status);
   if (!promoted) keepQuestionsOpen(merged, droppedLinks);
   applyQuestJourneyPhaseTiming(merged, existing, now);
+  restorePlannedCheckpointLeftOpen(existing, merged, now);
   syncAutomaticUserCheckpoint(merged, now);
   session.board.set(row.questId, merged);
   if (becameNeverStartedScheduled) repairThreadTabPriorityForNewSchedule(session, merged.updatedAt);
@@ -1082,9 +1084,10 @@ export function advanceBoardRow(
       previousState: row.status,
     };
   }
-  if (isWorkAfterAutomaticCheckpoint(row)) {
+  // A deliberate optional skip is not a stale resume, so it may advance from that Work.
+  if (isWorkAfterAutomaticCheckpoint(row) && !options.skipOptionalUserCheckpointReason?.trim()) {
     return {
-      error: `Cannot advance ${questId}: Takode already returned it to Work when the questions of its User Checkpoint were resolved. Pass the answer on to the worker; Work -> Memory uses takode board work-to-memory.`,
+      error: `Cannot advance ${questId}: Takode already returned it to Work after its User Checkpoint. Pass any answer on to the worker. A question in the quest's thread enters the next User Checkpoint; Work -> Memory uses takode board work-to-memory.`,
       previousState: row.status,
     };
   }

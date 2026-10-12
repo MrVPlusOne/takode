@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_QUEST_JOURNEY_PHASE_IDS, QUEST_JOURNEY_STATES } from "../../shared/quest-journey.js";
 import type { BoardRow } from "../session-types.js";
 import { advanceBoardRow, upsertBoardRow } from "./board-watchdog-controller.js";
+import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 
 const workBoardStateDeps = {
   getBoardDispatchableSignature: () => null,
@@ -173,7 +174,9 @@ describe("board watchdog v2 Journey progression", () => {
       previousState: "USER_CHECKPOINTING",
     });
 
-    upsert(session, { questId: "q-1", waitForInput: [] });
+    // The user answers (as the notification controller applies it). Dropping the link instead
+    // would leave the question open and put the planned checkpoint back after the resumed Work.
+    removeResolvedQuestionFromBoardRow(session.board.get("q-1")!, "n-1", Date.now());
     expect(advance(session, "q-1")).toMatchObject({
       removed: false,
       previousState: "USER_CHECKPOINTING",

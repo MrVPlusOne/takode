@@ -205,7 +205,20 @@ describe("Takode board automatic User Checkpoint routes", () => {
       expect(session.board.get("q-9")?.waitForInput).toEqual(["n-193"]);
     });
 
-    it("ends by hand into the later Work with the question still open", async () => {
+    // With the question still open, the planned checkpoint was not used up: the pause becomes a
+    // checkpoint Takode added, and the planned checkpoint goes back after the resumed Work.
+    const restoredJourney = [
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "memory",
+    ];
+
+    it("ends by hand into the later Work with the question still open and the planned checkpoint put back", async () => {
       await askBlockingQuestion();
 
       const res = await postBoard({ questId: "q-9", status: "WORKING" });
@@ -214,29 +227,70 @@ describe("Takode board automatic User Checkpoint routes", () => {
       const row = session.board.get("q-9")!;
       // It resumes the Work after the checkpoint instead of pausing again in a new checkpoint.
       expect(row).toMatchObject({ status: "WORKING", journey: { activePhaseIndex: 4, currentPhaseId: "work" } });
-      expect(row.journey?.phaseIds).toEqual(plannedJourney);
+      expect(row.journey?.phaseIds).toEqual(restoredJourney);
+      expect(row.journey?.phaseNotes?.["3"]).toContain("Added by Takode");
       expect(row.waitForInput).toBeUndefined();
       expect(row.openQuestions).toEqual(["n-193"]);
       expect(markNotificationDone).not.toHaveBeenCalled();
     });
 
-    it("keeps the question open when its link is cleared, and the planned checkpoint then resumes", async () => {
+    it("keeps the question open when its link is cleared, resumes Work and puts the planned checkpoint back", async () => {
       await askBlockingQuestion();
 
       const cleared = await postBoard({ questId: "q-9", clearWaitForInput: true });
 
       expect(cleared.status).toBe(200);
-      expect(session.board.get("q-9")).toMatchObject({ status: "USER_CHECKPOINTING", openQuestions: ["n-193"] });
-      expect(session.board.get("q-9")?.waitForInput).toBeUndefined();
-      expect(markNotificationDone).not.toHaveBeenCalled();
-
-      const advanced = await postAdvance("q-9");
-      expect(advanced.status).toBe(200);
-      expect(session.board.get("q-9")).toMatchObject({
+      const row = session.board.get("q-9")!;
+      expect(row).toMatchObject({
         status: "WORKING",
         openQuestions: ["n-193"],
         journey: { activePhaseIndex: 4, currentPhaseId: "work" },
       });
+      expect(row.journey?.phaseIds).toEqual(restoredJourney);
+      expect(row.waitForInput).toBeUndefined();
+      expect(markNotificationDone).not.toHaveBeenCalled();
+
+      // A leader's habitual advance after clearing would skip into the restored checkpoint, so it is refused.
+      const advanced = await postAdvance("q-9");
+      expect(advanced.status).toBeGreaterThanOrEqual(400);
+      expect(session.board.get("q-9")?.journey?.activePhaseIndex).toBe(4);
+    });
+
+    it("uses up the planned checkpoint when its question was answered", async () => {
+      await askBlockingQuestion();
+      // The answer resolves the link (as the notification controller does); the leader then resumes.
+      const row = session.board.get("q-9")!;
+      session.board.set("q-9", { ...row, waitForInput: undefined });
+
+      const advanced = await postAdvance("q-9");
+
+      expect(advanced.status).toBe(200);
+      expect(session.board.get("q-9")).toMatchObject({
+        status: "WORKING",
+        journey: { activePhaseIndex: 4, currentPhaseId: "work", phaseIds: plannedJourney },
+      });
+    });
+
+    it("lets an optional restored checkpoint be skipped from the resumed Work", async () => {
+      session.board.set("q-9", {
+        ...workingRow(["work", "user-checkpoint", "work", "memory"]),
+        journey: {
+          ...workingRow(["work", "user-checkpoint", "work", "memory"]).journey!,
+          phaseNotes: { "1": "Optional: skip if Work finds no user-visible tradeoff." },
+        },
+      });
+      addOpenNotification("n-193");
+      await postBoard({ questId: "q-9", waitForInput: ["193"] });
+      await postBoard({ questId: "q-9", status: "WORKING" });
+      expect(session.board.get("q-9")?.journey?.phaseNotes?.["3"]).toContain("Optional");
+
+      const res = await app.request("/sessions/leader-1/board/q-9/advance", {
+        method: "POST",
+        body: JSON.stringify({ skipOptionalUserCheckpointReason: "Work found no user-visible tradeoff." }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(session.board.get("q-9")).toMatchObject({ status: "WORKING", journey: { activePhaseIndex: 4 } });
     });
   });
 
