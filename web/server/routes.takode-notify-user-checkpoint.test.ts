@@ -698,7 +698,8 @@ describe("Takode leader questions and automatic User Checkpoints", () => {
 
     expect(res.status).toBe(200);
     expect(bridge._sessions["orch-1"].board.get("q-42").status).toBe("WORKING");
-    expect(emitForOrchestrator).toHaveBeenCalledWith("orch-1", "worker-1", "notification_dismissed", {
+    // The event comes from the leader itself, not the quest's worker: the question was the leader's own.
+    expect(emitForOrchestrator).toHaveBeenCalledWith("orch-1", "orch-1", "notification_dismissed", {
       notificationId: "n-1",
       summary: "Which layout?",
       questId: "q-42",

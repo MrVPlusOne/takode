@@ -1126,3 +1126,41 @@ describe("message_delivery events", () => {
     dispatcher.destroy();
   });
 });
+
+describe("notification_dismissed events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("delivers a leader's own dismissed question to that leader, labeled as its own, on the quest thread", () => {
+    // The leader is both the recipient and the source: the question was its own, not its worker's.
+    const { bridge, launcher } = createMocks();
+    vi.mocked(launcher.getHerdedSessions).mockReturnValue([]);
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    const dispatcher = new HerdEventDispatcher(bridge, launcher, {
+      getSessionNum: (sessionId) => (sessionId === "leader-a" ? 2851 : 2963),
+    });
+
+    dispatcher.emitTakodeEventForOrchestrator("leader-a", "leader-a", "notification_dismissed", {
+      notificationId: "n-4",
+      summary: "Which layout?",
+      questId: "q-42",
+      askedBy: "leader",
+      checkpointEnded: true,
+    });
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const [target, content, , , route] = vi.mocked(bridge.injectUserMessage).mock.calls[0]!;
+    expect(target).toBe("leader-a");
+    expect(content).toContain("#2851 | notification_dismissed | q-42 | the user dismissed your question");
+    expect(content).not.toContain("#2963");
+    expect(route).toMatchObject({ threadKey: "q-42" });
+
+    dispatcher.destroy();
+  });
+});

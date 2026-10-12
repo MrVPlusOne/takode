@@ -5,7 +5,6 @@ type BridgeSession = NonNullable<ReturnType<RouteContext["wsBridge"]["getSession
 
 interface RowSnapshot {
   questId: string;
-  worker?: string;
   status?: string;
   links: string[];
   open: string[];
@@ -30,7 +29,6 @@ export function snapshotNeedsInputForDismissal(session: BridgeSession): Dismissa
   }
   const rows = [...session.board.values()].map((row: BoardRow) => ({
     questId: row.questId,
-    worker: row.worker,
     status: row.status,
     links: row.waitForInput ?? [],
     open: row.openQuestions ?? [],
@@ -65,19 +63,13 @@ export function reportNeedsInputDismissals(
     );
     if (!rowBefore) continue;
     const rowAfter = session.board.get(rowBefore.questId) as BoardRow | undefined;
-    ctx.wsBridge.herdEventDispatcher?.emitTakodeEventForOrchestrator(
-      session.id,
-      rowBefore.worker ?? session.id,
-      "notification_dismissed",
-      {
-        notificationId,
-        ...summary,
-        questId: rowBefore.questId,
-        askedBy: "leader",
-        ...(rowBefore.status === "USER_CHECKPOINTING" && rowAfter?.status === "WORKING"
-          ? { checkpointEnded: true }
-          : {}),
-      },
-    );
+    // Sourced from the leader itself: the question was its own, and the quest ID routes the event.
+    ctx.wsBridge.herdEventDispatcher?.emitTakodeEventForOrchestrator(session.id, session.id, "notification_dismissed", {
+      notificationId,
+      ...summary,
+      questId: rowBefore.questId,
+      askedBy: "leader",
+      ...(rowBefore.status === "USER_CHECKPOINTING" && rowAfter?.status === "WORKING" ? { checkpointEnded: true } : {}),
+    });
   }
 }
