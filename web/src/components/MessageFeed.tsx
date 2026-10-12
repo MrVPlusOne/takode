@@ -49,7 +49,7 @@ import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { useMessageFeedPending } from "./use-message-feed-pending.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
-import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
+import { PawTrailAvatar, PawCounterContext, PawTrailProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { sendToSession } from "../ws.js";
 import { canAutoCollapseReadyThread, useCollapsePolicy } from "../hooks/use-collapse-policy.js";
@@ -1835,7 +1835,7 @@ export function MessageFeed({
           style={{ overscrollBehavior: "contain" }}
         >
           <FeedNotificationProvider sessionId={sessionId} notifications={feedMessageModel.displayNotifications}>
-            <PawScrollProvider scrollRef={containerRef}>
+            <PawTrailProvider scopeKey={`${sessionId}:${normalizedThreadKey}`} showNewestPaw={!hasNewerSections}>
               <PawCounterContext.Provider value={pawCounter}>
                 <div
                   ref={contentRootRef}
@@ -1918,7 +1918,7 @@ export function MessageFeed({
                   <MessageFeedEndSlack {...feedEndSlackProps} />
                 </div>
               </PawCounterContext.Provider>
-            </PawScrollProvider>
+            </PawTrailProvider>
           </FeedNotificationProvider>
         </div>
 

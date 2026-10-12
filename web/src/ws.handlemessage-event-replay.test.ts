@@ -249,6 +249,40 @@ describe("handleMessage: event_replay", () => {
     expect(useStore.getState().messages.get("s1")?.[0]?.metadata?.codexMessagePhase).toBe("commentary");
   });
 
+  it("records live answers for the feed paw landing but not replayed ones", async () => {
+    // The feed's paw lands only for answers that arrived live while the feed was
+    // open; reconnect replay restores history and must never animate it.
+    const { claimPawLanding, liveAnswerArrivalMark } = await import("./utils/live-answer-arrivals.js");
+    const answer = (id: string) => ({
+      type: "assistant",
+      message: {
+        id,
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: `Answer ${id}` }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const viewOpenedMark = liveAnswerArrivalMark();
+
+    fireMessage({ type: "event_replay", events: [{ seq: 1, message: answer("replayed-answer") }] });
+    fireMessage(answer("live-answer"));
+
+    expect(
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((message) => message.id),
+    ).toEqual(["replayed-answer", "live-answer"]);
+    expect(claimPawLanding("replayed-answer", viewOpenedMark)).toBe(false);
+    expect(claimPawLanding("live-answer", viewOpenedMark)).toBe(true);
+  });
+
   it("batches replay ack and storage writes using the latest replayed seq", async () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

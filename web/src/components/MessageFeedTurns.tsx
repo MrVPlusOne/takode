@@ -62,6 +62,22 @@ function latestStatusHostTurnId(sections: FeedSection[]): string | null {
   return latestTurnId;
 }
 
+/**
+ * The newest assistant message a collapsed turn card shows, so an answer that
+ * arrives live in a collapsed turn moves the feed's paw onto that card.
+ */
+function collapsedPawMessageId(turn: Turn, unansweredMessageEntry: FeedEntry | null): string | undefined {
+  if (unansweredMessageEntry?.kind === "message") return unansweredMessageEntry.msg.id;
+  const rows = turn.collapsedEntries ?? [];
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index];
+    if (row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant") {
+      return row.entry.msg.id;
+    }
+  }
+  return turn.responseEntry?.kind === "message" ? turn.responseEntry.msg.id : undefined;
+}
+
 function turnQuestQuizIds(turn: Turn): string[] {
   return turnPresentationEntries(turn).flatMap((entry) =>
     entry.kind === "message" && entry.msg.role === "assistant"
@@ -531,7 +547,9 @@ export const TurnEntries = memo(function TurnEntries({
                         }
                         data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
                       >
-                        {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
+                        {!hasCollapsedCurrentAnswer && (
+                          <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
+                        )}
                         <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
                           {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
                             <div className="px-3 pt-2 space-y-1.5">

@@ -1,4 +1,5 @@
-import { createContext, useContext, useRef, useEffect, useState, useCallback, useMemo, useId } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { claimPawLanding, liveAnswerArrivalMark } from "../utils/live-answer-arrivals.js";
 import { CatPawLeft } from "./CatIcons.js";
 
 /**
@@ -16,119 +17,108 @@ export const PawCounterContext = createContext<React.MutableRefObject<PawCounter
   current: { next: 0, cache: new Map() },
 } as React.MutableRefObject<PawCounterState>);
 
-// ─── Shared scroll manager ──────────────────────────────────────────────────
-//
-// Instead of N scroll listeners (one per PawTrailAvatar), a single listener
-// on the feed container calls all registered update callbacks in one rAF.
-// Each callback writes directly to its own DOM refs — no React re-renders.
-
-/** Callback signature: receives the cached parent rect and current direction. */
-type PawUpdateFn = (parentRect: DOMRect, dirDown: boolean) => void;
-
 /**
  * When true, child components should not render their own PawTrailAvatar.
  * Used in collapsed turns where a single paw is placed outside the card.
  */
 export const HidePawContext = createContext(false);
 
-export const PawScrollContext = createContext<{
-  register: (fn: PawUpdateFn) => () => void;
-} | null>(null);
-
 /**
- * Wraps the message feed and attaches a single scroll listener that drives
- * all PawTrailAvatar animations via direct DOM writes.
+ * How one paw marker looks, written to its `data-paw-state` attribute and drawn
+ * by the `.paw-trail` rules in index.css. Without the attribute a paw is a dot.
  */
-export function PawScrollProvider({
-  scrollRef,
-  children,
-}: {
-  scrollRef: React.RefObject<HTMLElement | null>;
-  children: React.ReactNode;
-}) {
-  const callbacks = useRef(new Set<PawUpdateFn>());
-  const lastScrollTop = useRef(0);
-  const dirDown = useRef(true);
+type PawState = "paw" | "landing" | "settling" | "dot";
 
-  const register = useCallback(
-    (fn: PawUpdateFn) => {
-      callbacks.current.add(fn);
-      // Give the newly registered paw an immediate position update
-      const el = scrollRef.current;
-      if (el) {
-        requestAnimationFrame(() => fn(el.getBoundingClientRect(), dirDown.current));
-      }
-      return () => {
-        callbacks.current.delete(fn);
-      };
-    },
-    [scrollRef],
-  );
-
-  useEffect(() => {
-    const scrollEl = scrollRef.current;
-    if (!scrollEl) return;
-
-    let rafId: number;
-    const onScroll = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const currentScrollTop = scrollEl.scrollTop;
-        // Dead zone of 2px to avoid jitter on sub-pixel scrolls
-        if (currentScrollTop > lastScrollTop.current + 2) {
-          dirDown.current = true;
-        } else if (currentScrollTop < lastScrollTop.current - 2) {
-          dirDown.current = false;
-        }
-        lastScrollTop.current = currentScrollTop;
-
-        // Read parentRect ONCE per frame — avoid N redundant reads
-        const parentRect = scrollEl.getBoundingClientRect();
-        for (const cb of callbacks.current) {
-          cb(parentRect, dirDown.current);
-        }
-      });
-    };
-
-    scrollEl.addEventListener("scroll", onScroll, { passive: true });
-
-    // Initial position for all paws already registered
-    requestAnimationFrame(() => {
-      const parentRect = scrollEl.getBoundingClientRect();
-      for (const cb of callbacks.current) {
-        cb(parentRect, dirDown.current);
-      }
-    });
-
-    return () => {
-      scrollEl.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(rafId);
-    };
-  }, [scrollRef]);
-
-  const value = useMemo(() => ({ register }), [register]);
-  return <PawScrollContext.Provider value={value}>{children}</PawScrollContext.Provider>;
+interface PawRegistration {
+  el: HTMLElement;
+  /** The answer this paw marks; only answers that arrived live can land. */
+  messageId?: string;
 }
 
-// ─── PawTrailAvatar ─────────────────────────────────────────────────────────
+const PawTrailContext = createContext<{ register: (paw: PawRegistration) => () => void } | null>(null);
 
 /**
- * PawTrailAvatar — scroll-driven paw-to-dot morph.
+ * Coordinates the feed's paw markers: every answer rests as a dot and the
+ * newest one keeps a paw. When a new answer arrives while the feed is open,
+ * its paw lands and the previous newest paw settles into a dot, so the paw
+ * walks down the feed. Nothing runs while scrolling; states change only when
+ * paws mount or unmount, and CSS plays the animations.
  *
- * When a message scrolls into view from an edge, it briefly appears
- * as a paw print pressing in, then morphs into a dot as it moves
- * further into the viewport. The paw orientation follows the scroll
- * direction: toes point down when scrolling down (cat walking down),
- * toes point up when scrolling up (cat walking up).
- *
- * Animation speed is entirely driven by scroll position, not time.
- *
- * Performance: instead of each avatar attaching its own scroll listener
- * (N listeners for N messages), all avatars register with a shared
- * PawScrollProvider that drives updates via a single listener + rAF.
- * Style updates are written directly to DOM refs — no React re-renders.
+ * `scopeKey` identifies the view (session and thread): changing it counts as
+ * opening a new view, so answers that arrived before it never land.
+ * `showNewestPaw` is false while the newest part of the history is not loaded.
  */
-export function PawTrailAvatar() {
+export function PawTrailProvider({
+  scopeKey,
+  showNewestPaw,
+  children,
+}: {
+  scopeKey: string;
+  showNewestPaw: boolean;
+  children: React.ReactNode;
+}) {
+  const paws = useRef(new Set<PawRegistration>());
+  const newest = useRef<PawRegistration | null>(null);
+  const view = useRef<{ scopeKey: string | null; openedMark: number }>({ scopeKey: null, openedMark: 0 });
+  const latest = useRef({ scopeKey, showNewestPaw });
+  latest.current = { scopeKey, showNewestPaw };
+  const scheduled = useRef(false);
+
+  const update = useCallback(() => {
+    scheduled.current = false;
+    if (view.current.scopeKey !== latest.current.scopeKey) {
+      view.current = { scopeKey: latest.current.scopeKey, openedMark: liveAnswerArrivalMark() };
+    }
+    let next: PawRegistration | null = null;
+    if (latest.current.showNewestPaw) {
+      for (const paw of paws.current) {
+        if (!next || next.el.compareDocumentPosition(paw.el) & Node.DOCUMENT_POSITION_FOLLOWING) next = paw;
+      }
+    }
+    const previous = newest.current;
+    if (next === previous) return;
+    newest.current = next;
+    const landing = !!next?.messageId && claimPawLanding(next.messageId, view.current.openedMark);
+    if (previous && paws.current.has(previous)) setPawState(previous.el, landing ? "settling" : "dot");
+    if (next) setPawState(next.el, landing ? "landing" : "paw");
+  }, []);
+
+  // Mounts arrive in bursts (a new turn, a window slide); settle them in one pass
+  // after the commit so DOM order is final.
+  const schedule = useCallback(() => {
+    if (scheduled.current) return;
+    scheduled.current = true;
+    queueMicrotask(update);
+  }, [update]);
+
+  const register = useCallback(
+    (paw: PawRegistration) => {
+      paws.current.add(paw);
+      schedule();
+      return () => {
+        paws.current.delete(paw);
+        schedule();
+      };
+    },
+    [schedule],
+  );
+
+  useEffect(schedule, [schedule, scopeKey, showNewestPaw]);
+
+  const value = useMemo(() => ({ register }), [register]);
+  return <PawTrailContext.Provider value={value}>{children}</PawTrailContext.Provider>;
+}
+
+function setPawState(el: HTMLElement, state: PawState) {
+  el.dataset.pawState = state;
+}
+
+/**
+ * The rail marker beside an answer: a dot, or a paw while it marks the newest
+ * answer (see PawTrailProvider). Paws alternate left and right like a walk.
+ * Outside a PawTrailProvider (previews, tests) it always shows the dot.
+ */
+export function PawTrailAvatar({ messageId }: { messageId?: string }) {
   const componentId = useId();
   const counter = useContext(PawCounterContext);
   const [index] = useState(() => {
@@ -139,85 +129,22 @@ export function PawTrailAvatar() {
     cache.set(componentId, idx);
     return idx;
   });
-
-  const outerRef = useRef<HTMLDivElement>(null);
-  const pawRef = useRef<SVGSVGElement>(null);
-  const dotRef = useRef<HTMLDivElement>(null);
-  const isLeft = index % 2 === 0;
-
-  const scrollCtx = useContext(PawScrollContext);
+  const ref = useRef<HTMLDivElement>(null);
+  const trail = useContext(PawTrailContext);
 
   useEffect(() => {
-    // If no scroll context (tests, playground), fall back to dot state
-    if (!scrollCtx) return;
-
-    const updateFn: PawUpdateFn = (parentRect, dirDown) => {
-      const el = outerRef.current;
-      const pawEl = pawRef.current;
-      const dotEl = dotRef.current;
-      if (!el || !pawEl || !dotEl) return;
-
-      const elRect = el.getBoundingClientRect();
-      const elCenter = elRect.top + elRect.height / 2;
-
-      const morphRange = 400;
-      let raw: number;
-
-      if (dirDown) {
-        // Scrolling down — morph zone at bottom edge
-        const distFromBottom = parentRect.bottom - elCenter;
-        raw = Math.min(1, Math.max(0, distFromBottom / morphRange));
-      } else {
-        // Scrolling up — morph zone at top edge
-        const distFromTop = elCenter - parentRect.top;
-        raw = Math.min(1, Math.max(0, distFromTop / morphRange));
-      }
-
-      // Quantize to ~5% steps to reduce DOM writes
-      const progress = Math.round(raw * 20) / 20;
-
-      // Derive visual properties (same math as before)
-      const pawOpacity = 1 - progress;
-      const pawScale = 0.6 + 0.9 * (1 - progress);
-      const dotOpacity = progress;
-      const dotScale = 0.3 + 0.7 * progress;
-      const pawRotation = dirDown ? 180 : 0;
-
-      const splayAmount = 1 - progress;
-      const dir = dirDown ? -1 : 1;
-      const splayRotate = (isLeft ? -12 : 12) * splayAmount * dir;
-      const splayOffsetX = (isLeft ? -5 : 5) * splayAmount * dir;
-
-      // Write directly to DOM — no React state, no re-renders.
-      // Use only transform/opacity/visibility (composite-friendly properties).
-      // NEVER toggle `display` here — it invalidates layout and forces
-      // synchronous relayout on every subsequent getBoundingClientRect() call,
-      // causing N forced relayouts per frame with N paws (layout thrashing).
-      el.style.transform = `translateX(${splayOffsetX}px) rotate(${splayRotate}deg)`;
-
-      pawEl.style.opacity = String(pawOpacity);
-      pawEl.style.transform = `scale(${pawScale}) ${isLeft ? "" : "scaleX(-1) "}rotate(${pawRotation}deg)`;
-      pawEl.style.visibility = pawOpacity > 0.02 ? "" : "hidden";
-
-      dotEl.style.opacity = String(dotOpacity);
-      dotEl.style.transform = `scale(${dotScale})`;
-    };
-
-    return scrollCtx.register(updateFn);
-  }, [scrollCtx, isLeft]);
+    if (!trail || !ref.current) return;
+    return trail.register({ el: ref.current, messageId });
+  }, [trail, messageId]);
 
   return (
     <div
-      ref={outerRef}
-      className="relative w-3.5 h-3.5 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-1.5"
-      style={{ transition: "transform 0.1s ease-out" }}
+      ref={ref}
+      data-paw-side={index % 2 === 0 ? "left" : "right"}
+      className="paw-trail relative w-3.5 h-3.5 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-1.5"
     >
-      {/* Paw print — alternates left/right, visible near edge of feed.
-          Always mounted (display toggled by scroll manager) to avoid
-          mount/unmount churn during scroll. */}
-      <CatPawLeft ref={pawRef} className="absolute w-3 h-3 text-cc-primary pointer-events-none" />
-      {/* Dot — grows in as paw fades out */}
-      <div ref={dotRef} className="w-1.5 h-1.5 rounded-full bg-cc-primary/50 pointer-events-none" />
+      <CatPawLeft className="paw-trail-paw absolute w-3 h-3 text-cc-primary pointer-events-none" />
+      <div className="paw-trail-dot w-1.5 h-1.5 rounded-full bg-cc-primary/50 pointer-events-none" />
     </div>
   );
 }

@@ -414,12 +414,58 @@ html, body {
   100% { transform: scale(1) rotate(0deg); }
 }
 
-/* Paw trail: land-from-above stamp when scrolling into view */
-@keyframes paw-place {
-  0%   { transform: translateY(-8px) scale(0.7) rotate(-10deg); opacity: 0; }
-  50%  { transform: translateY(2px) scaleX(1.08) scaleY(0.92) rotate(2deg); opacity: 1; }
-  75%  { transform: translateY(-1px) scale(1) rotate(-1deg); opacity: 1; }
-  100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+/*
+ * Feed paw trail (PawTrailProvider writes data-paw-state). Answers rest as a
+ * dot; the newest keeps a paw with its toes pointing down the feed. A newly
+ * arrived answer's paw lands while the previous one settles into its dot.
+ */
+.paw-trail {
+  --paw-flip: scaleX(1);
+  --paw-turn: 192deg;
+}
+.paw-trail[data-paw-side="right"] {
+  --paw-flip: scaleX(-1);
+  --paw-turn: 168deg;
+}
+.paw-trail-paw {
+  opacity: 0;
+  transform: var(--paw-flip) rotate(var(--paw-turn)) scale(0.6);
+}
+.paw-trail:is([data-paw-state="paw"], [data-paw-state="landing"]) .paw-trail-paw {
+  opacity: 1;
+  transform: var(--paw-flip) rotate(var(--paw-turn)) scale(1);
+}
+.paw-trail:is([data-paw-state="paw"], [data-paw-state="landing"]) .paw-trail-dot {
+  opacity: 0;
+}
+.paw-trail[data-paw-state="landing"] .paw-trail-paw {
+  animation: paw-land 650ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.paw-trail[data-paw-state="settling"] .paw-trail-paw {
+  animation: paw-settle 500ms ease-in both;
+}
+.paw-trail[data-paw-state="settling"] .paw-trail-dot {
+  animation: paw-settle-dot 650ms ease-out both;
+}
+@keyframes paw-land {
+  0%   { opacity: 0; transform: var(--paw-flip) rotate(var(--paw-turn)) translateY(-7px) scale(1.7); }
+  55%  { opacity: 1; transform: var(--paw-flip) rotate(var(--paw-turn)) translateY(0) scale(0.85); }
+  78%  { opacity: 1; transform: var(--paw-flip) rotate(var(--paw-turn)) scale(1.12); }
+  100% { opacity: 1; transform: var(--paw-flip) rotate(var(--paw-turn)) scale(1); }
+}
+@keyframes paw-settle {
+  from { opacity: 1; transform: var(--paw-flip) rotate(var(--paw-turn)) scale(1); }
+  to   { opacity: 0; transform: var(--paw-flip) rotate(var(--paw-turn)) scale(0.6); }
+}
+@keyframes paw-settle-dot {
+  0%, 30% { opacity: 0; transform: scale(0.3); }
+  100%    { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paw-trail .paw-trail-paw,
+  .paw-trail .paw-trail-dot {
+    animation: none !important;
+  }
 }
 
 /* Paw trail: walking rhythm during active streaming */

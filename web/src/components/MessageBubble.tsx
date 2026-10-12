@@ -1181,7 +1181,7 @@ function AssistantMessage({
           (!readOnly && starred ? (
             <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} />
           ) : (
-            <PawTrailAvatar />
+            <PawTrailAvatar messageId={message.id} />
           ))}
         <div ref={contentRef} className="relative flex-1 min-w-0">
           {!readOnly && (
@@ -1248,7 +1248,7 @@ function AssistantMessage({
         (!readOnly && starred ? (
           <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} />
         ) : (
-          <PawTrailAvatar />
+          <PawTrailAvatar messageId={message.id} />
         ))}
       <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
         {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />}

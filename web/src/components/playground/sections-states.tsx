@@ -4,17 +4,8 @@ import { DiffViewer } from "../DiffViewer.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
 import { CodexInstructionsCollapsible } from "../TaskPanel.js";
-import {
-  CatPawAvatar,
-  CatPawLeft,
-  CatPawRight,
-  YarnBallDot,
-  YarnBallSpinner,
-  SleepingCat,
-  PowerPlugDot,
-} from "../CatIcons.js";
+import { CatPawAvatar, CatPawLeft, YarnBallDot, YarnBallSpinner, SleepingCat, PowerPlugDot } from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
-import { PawTrailAvatar } from "../PawTrail.js";
 import { VoiceLevelWaveform } from "../VoiceRecordingStatus.js";
 import { AlternateVoiceRerunOffer } from "../AlternateVoiceRerunOffer.js";
 import type { CreationProgressEvent, SideChatRecord } from "../../types.js";
@@ -37,6 +28,7 @@ import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygr
 import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
 import { PlaygroundCodexSubagentStates } from "./CodexSubagentPlaygroundStates.js";
 import { PlaygroundDiffViewerSection } from "./DiffViewerPlaygroundSection.js";
+import { PlaygroundPawTrailDemo } from "./PlaygroundPawTrailDemo.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
@@ -1579,27 +1571,8 @@ export function PlaygroundStateSections() {
       {/* ─── Cat Theme Elements ──────────────────────────────── */}
       <Section title="Cat Theme Elements" description="Cat-themed UI icons and animations used throughout Takode">
         <div className="space-y-4 max-w-3xl">
-          <Card label="Paw Trail (down-facing, land-from-above stamp)">
-            <div className="flex flex-col items-start gap-1 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center -translate-x-1 rotate-[160deg]">
-                  <CatPawLeft className="w-3 h-3 text-cc-primary" />
-                </div>
-                <span className="text-xs text-cc-muted">Left paw — toes down-left (160deg)</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center translate-x-1 rotate-[200deg]">
-                  <CatPawRight className="w-3 h-3 text-cc-primary" />
-                </div>
-                <span className="text-xs text-cc-muted">Right paw — toes down-right (200deg)</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center -translate-x-1 rotate-[160deg]">
-                  <CatPawLeft className="w-3 h-3 text-cc-primary animate-[paw-walk_0.8s_ease-in-out_infinite]" />
-                </div>
-                <span className="text-xs text-cc-muted">Walking (streaming)</span>
-              </div>
-            </div>
+          <Card label="Paw Trail (newest answer keeps its paw; new answers land)">
+            <PlaygroundPawTrailDemo />
           </Card>
           <Card label="Yarn Ball Status Dot (sidebar sessions)">
             <div className="flex items-center gap-6 px-4 py-3">

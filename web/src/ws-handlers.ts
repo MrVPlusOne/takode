@@ -54,6 +54,7 @@ import {
 import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoning-detail.js";
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
+import { recordLiveAnswerArrival } from "./utils/live-answer-arrivals.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 import {
   handleSyncedProjectionMessage,
@@ -841,6 +842,7 @@ function handleParsedMessage(
 
     case "leader_user_message": {
       const normalized = normalizeLiveLeaderUserThreadMetadata(data);
+      if (context.source === "live") recordLiveAnswerArrival(data.id);
       store.appendMessage(sessionId, {
         id: data.id,
         role: "assistant",
@@ -960,6 +962,7 @@ function handleParsedMessage(
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
       } else if (contentBlocks.length > 0 || data.notification || normalized.metadata?.threadStatusMarkers?.length) {
+        if (context.source === "live") recordLiveAnswerArrival(chatMsg.id);
         store.appendMessage(sessionId, chatMsg);
       }
       // Native child rows are audit content only. They must not mutate the
