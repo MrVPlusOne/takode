@@ -4,6 +4,7 @@ import "@testing-library/jest-dom";
 import type { BrowserIncomingMessage } from "../types.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
 const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
@@ -422,6 +423,32 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
 
     expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeInTheDocument();
+  });
+
+  it("closes the inbox when the chip is tapped again", () => {
+    // With nothing to step to, a tap toggles the inbox. The inbox closes on
+    // presses outside it and a tap sends the press before the click, so the
+    // chip must count as inside or its click would reopen the inbox.
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 8,
+      notificationStatusUpdatedAt: 8000,
+    });
+    vi.useFakeTimers();
+    try {
+      render(<NotificationChip sessionId="s1" />);
+      const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
+
+      fingerTap(chip);
+      act(() => vi.runAllTimers());
+      expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+
+      fingerTap(chip);
+      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves popover behavior while using urgency color", () => {

@@ -116,7 +116,16 @@ function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: s
   );
 }
 
-export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+export function TimerModal({
+  sessionId,
+  onClose,
+  anchor,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  /** The chip that opens and closes this popover. Presses on it are left to its own toggle. */
+  anchor?: HTMLElement | null;
+}) {
   const { sorted } = useTimers(sessionId);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -135,6 +144,7 @@ export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose:
   // Click-outside to close (mousedown for early dismissal)
   useEffect(() => {
     const handler = (e: globalThis.MouseEvent) => {
+      if (anchor?.contains(e.target as Node)) return;
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -144,7 +154,7 @@ export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose:
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   return createPortal(
     <div
@@ -196,8 +206,9 @@ export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose:
 export function TimerChip({ sessionId }: { sessionId: string }) {
   const { timers, sorted } = useTimers(sessionId);
   const [modalOpen, setModalOpen] = useState(false);
+  const chipRef = useRef<HTMLButtonElement>(null);
 
-  const openModal = useCallback(() => setModalOpen(true), []);
+  const toggleModal = useCallback(() => setModalOpen((open) => !open), []);
   const closeModal = useCallback(() => setModalOpen(false), []);
 
   if (timers.length === 0) return null;
@@ -206,14 +217,15 @@ export function TimerChip({ sessionId }: { sessionId: string }) {
   return (
     <>
       <button
-        onClick={openModal}
+        ref={chipRef}
+        onClick={toggleModal}
         className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md cursor-pointer hover:border-white/15 transition-colors"
       >
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
         <span className="relative truncate text-cc-fg/90">{primaryLabel}</span>
       </button>
 
-      {modalOpen && <TimerModal sessionId={sessionId} onClose={closeModal} />}
+      {modalOpen && <TimerModal sessionId={sessionId} onClose={closeModal} anchor={chipRef.current} />}
     </>
   );
 }

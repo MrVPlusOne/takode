@@ -6,6 +6,7 @@ import { buildLeaderThreadRowsFromSummaries } from "../../shared/leader-projecti
 import { buildThreadMonitoringProjection } from "../../server/thread-monitoring-projection.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { useStore } from "../store.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { QuestThreadBanner } from "./QuestThreadBanner.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 
@@ -154,5 +155,27 @@ describe("mobile quest banner disclosure", () => {
     );
     expect(screen.queryByRole("button", { name: /quest information/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show Quest Journey preview" })).toBeInTheDocument();
+  });
+
+  it("toggles the Journey card with taps while a mouse still hovers it open", () => {
+    // A tap emulates mouseover before its click. If that hover opened the card,
+    // the click would close it again; and a second tap must close it, so an
+    // accidental tap is undone on the same spot.
+    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" diffSessionId="leader" />);
+    const target = screen.getByRole("button", { name: "Show Quest Journey preview" });
+    const card = () => document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]');
+
+    fingerTap(target);
+    expect(card()).toBeInTheDocument();
+    fingerTap(target);
+    expect(card()).not.toBeInTheDocument();
+
+    fireEvent.pointerOver(target, { pointerType: "mouse" });
+    fireEvent.mouseOver(target);
+    expect(card()).toBeInTheDocument();
+    // A mouse click keeps the hovered card open rather than toggling it shut.
+    fireEvent.pointerDown(target, { pointerType: "mouse" });
+    fireEvent.click(target);
+    expect(card()).toBeInTheDocument();
   });
 });

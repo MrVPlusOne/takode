@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -56,6 +57,13 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  // The input of the latest press or hover. A tap toggles the card; a mouse
+  // hovers it open. A tap also emulates mouseenter before its click, which
+  // must not count as a hover or the click would close what it just opened.
+  const pointerTypeRef = useRef("mouse");
+  const notePointerType = (event: PointerEvent<HTMLDivElement>) => {
+    pointerTypeRef.current = event.pointerType || "mouse";
+  };
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
   const cardWidth = Math.min(380, (window.innerWidth - 16) / zoomLevel);
   const gap = 6;
@@ -89,6 +97,15 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
   }
 
   function showPreview(event: MouseEvent<HTMLDivElement>) {
+    if (pointerTypeRef.current !== "mouse") return;
+    showPreviewForTarget(event.currentTarget);
+  }
+
+  function handleClick(event: MouseEvent<HTMLDivElement>) {
+    if (pointerTypeRef.current !== "mouse" && hoverRect) {
+      setHoverRect(null);
+      return;
+    }
     showPreviewForTarget(event.currentTarget);
   }
 
@@ -107,9 +124,11 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
     <>
       <div
         className="inline-flex max-w-full min-w-0"
+        onPointerEnter={notePointerType}
+        onPointerDown={notePointerType}
         onMouseEnter={showPreview}
         onMouseLeave={scheduleHidePreview}
-        onClick={(event) => showPreviewForTarget(event.currentTarget)}
+        onClick={handleClick}
         onKeyDown={handlePreviewKeyDown}
         role={row.journey?.phaseIds?.length ? "button" : undefined}
         tabIndex={row.journey?.phaseIds?.length ? 0 : undefined}

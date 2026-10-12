@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionTimer } from "../types.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 // ─── Mock store ──────────────────────────────────────────────────────────────
 
@@ -164,6 +165,28 @@ describe("TimerChip", () => {
     fireEvent.click(screen.getByRole("button"));
     // Modal should now be visible with the "Session Timers" heading.
     expect(screen.getByText("Session Timers")).toBeInTheDocument();
+  });
+
+  it("closes the timer list when the chip is tapped again", () => {
+    // The list closes on presses outside it and a tap sends the press before
+    // the click, so the chip must count as inside: its tap closes the list
+    // instead of closing and reopening it.
+    resetStore({ sessionTimers: new Map([["s1", [makeTimer()]]]) });
+    vi.useFakeTimers();
+    try {
+      render(<TimerChip sessionId="s1" />);
+      const chip = screen.getByRole("button", { name: /1 ⏰ in/ });
+
+      fingerTap(chip);
+      // Lets the list attach its deferred outside-press listener.
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("dialog", { name: "Session timers" })).toBeInTheDocument();
+
+      fingerTap(chip);
+      expect(screen.queryByRole("dialog", { name: "Session timers" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

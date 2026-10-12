@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -42,6 +42,26 @@ interface ContextMenuProps {
   footer?: ReactNode;
   widthClassName?: string;
   itemClassName?: string;
+  /** The button that opens and closes this menu. Presses on it are left to its own toggle. */
+  anchor?: HTMLElement | null;
+}
+
+/**
+ * State for a menu that a button opens and closes: pass `toggle` as the
+ * button's onClick and spread `menu` into ContextMenu. The menu closes on any
+ * press outside it, and a tap sends the press before the click, so the button
+ * must count as inside; otherwise its click would reopen the menu the press
+ * just closed. `menu` carries the button as the anchor for that.
+ */
+export function useMenuButton() {
+  const [menu, setMenu] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null);
+  const toggle = useCallback((event: { currentTarget: HTMLElement }) => {
+    const anchor = event.currentTarget;
+    const rect = anchor.getBoundingClientRect();
+    setMenu((open) => (open ? null : { x: rect.left, y: rect.bottom + 4, anchor }));
+  }, []);
+  const close = useCallback(() => setMenu(null), []);
+  return { menu, toggle, close };
 }
 
 export function ContextMenu({
@@ -52,6 +72,7 @@ export function ContextMenu({
   footer,
   widthClassName = "w-fit min-w-[120px]",
   itemClassName = "",
+  anchor,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [confirmingItem, setConfirmingItem] = useState<ContextMenuItem | null>(null);
@@ -59,6 +80,7 @@ export function ContextMenu({
 
   useEffect(() => {
     function handleDismiss(e: Event) {
+      if (anchor?.contains(e.target as Node)) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -82,7 +104,7 @@ export function ContextMenu({
       document.removeEventListener("touchstart", handleDismiss);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, confirmingItem, expandedSubmenu]);
+  }, [onClose, confirmingItem, expandedSubmenu, anchor]);
 
   // Clamp to viewport bounds
   useEffect(() => {

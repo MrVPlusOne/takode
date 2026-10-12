@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useState } from "react";
 import "@testing-library/jest-dom";
 import { api } from "../api.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { sessionNavigationProjectionToSessionFields } from "../../shared/session-navigation-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
@@ -674,9 +675,9 @@ describe("SessionInfoPopover", () => {
 
   it("closes when its trigger is tapped again instead of reopening", () => {
     // The top bar's session title toggles the panel on click. A tap delivers
-    // mousedown before click (iOS emulates both after touchend), so if the
-    // outside-press handler closed the panel on mousedown, the click would
-    // reopen it. Presses on the anchor must be left to the trigger's toggle.
+    // its press before its click, so if the outside-press handler closed the
+    // panel on the press, the click would reopen it. Presses on the anchor
+    // must be left to the trigger's toggle.
     resetStore([]);
     vi.useFakeTimers();
     function Harness() {
@@ -698,13 +699,11 @@ describe("SessionInfoPopover", () => {
       expect(screen.getByText("Session Info")).toBeInTheDocument();
 
       const trigger = screen.getByRole("button", { name: "Session title" });
-      fireEvent.mouseDown(trigger);
-      fireEvent.click(trigger);
+      fingerTap(trigger);
       expect(screen.queryByText("Session Info")).not.toBeInTheDocument();
 
       // Tapping the trigger again reopens it, and a press elsewhere still closes it.
-      fireEvent.mouseDown(trigger);
-      fireEvent.click(trigger);
+      fingerTap(trigger);
       act(() => vi.runAllTimers());
       expect(screen.getByText("Session Info")).toBeInTheDocument();
       fireEvent.mouseDown(screen.getByRole("button", { name: "Elsewhere" }));

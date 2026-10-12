@@ -750,6 +750,9 @@ function NotificationPopover({
       if (questOverlayId) return;
       // A row's context menu lives in a portal; using it must not close the inbox.
       if (e.target instanceof Element && e.target.closest("[data-context-menu]")) return;
+      // A press on the chip is left to its own toggle; closing here would let
+      // the click that follows reopen the list.
+      if (anchor?.contains(e.target as Node)) return;
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -760,7 +763,7 @@ function NotificationPopover({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [onClose, questOverlayId]);
+  }, [onClose, questOverlayId, anchor]);
 
   return createPortal(
     <div

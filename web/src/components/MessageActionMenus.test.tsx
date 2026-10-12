@@ -4,6 +4,7 @@ import "@testing-library/jest-dom";
 import type { RefObject } from "react";
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { AssistantMessageMenu } from "./MessageActionMenus.js";
 
 function message(threadKey = "q-42"): ChatMessage {
@@ -71,5 +72,25 @@ describe("AssistantMessageMenu", () => {
 
     expect(screen.getByRole("button", { name: "Reply to this message" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Copy message link" })).toBeVisible();
+  });
+
+  it("closes when the options button is tapped again", () => {
+    // The menu dismisses on presses outside it; a second tap on its own button
+    // must close it rather than close-then-reopen (press before click).
+    render(
+      <AssistantMessageMenu
+        message={message()}
+        contentRef={{ current: null } as RefObject<HTMLDivElement | null>}
+        sessionId="leader"
+        currentThreadKey="q-42"
+        showSideChatActions={false}
+      />,
+    );
+    const options = screen.getByRole("button", { name: "Message options" });
+
+    fingerTap(options);
+    expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeVisible();
+    fingerTap(options);
+    expect(screen.queryByRole("button", { name: "Copy as Markdown" })).not.toBeInTheDocument();
   });
 });

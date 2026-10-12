@@ -1,5 +1,5 @@
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
-import { useCallback, useMemo, useState, type MouseEvent, type RefObject } from "react";
+import { useCallback, useMemo, useState, type RefObject } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, ComposerDraftImage, SdkSessionInfo } from "../types.js";
@@ -7,7 +7,7 @@ import { copyRichText, getMessageMarkdown, getMessagePlainText, writeClipboardTe
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { absoluteUrlForHash, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.js";
 import { MessageTimeMenuMetadata, MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
@@ -68,7 +68,7 @@ export function UserMessageMenu({
   sessionId?: string;
   canRevert: boolean;
 }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState(false);
   const starAction = useMessageStarActions(sessionId, message);
 
@@ -116,18 +116,6 @@ export function UserMessageMenu({
     }
   }, [sessionId, message.id, message.content, message.images, message.metadata?.annotations]);
 
-  const toggle = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      if (menuPos) {
-        setMenuPos(null);
-      } else {
-        const rect = event.currentTarget.getBoundingClientRect();
-        setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-      }
-    },
-    [menuPos],
-  );
-
   const items = useMemo(() => {
     const list: ContextMenuItem[] = [{ label: "Copy message", onClick: handleCopy }];
     if (sessionId) list.push({ label: "Copy message link", onClick: handleCopyLink });
@@ -156,7 +144,7 @@ export function UserMessageMenu({
         title="Message options"
         onClick={toggle}
         className={`rounded p-1 transition-all cursor-pointer hover:bg-cc-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40 ${
-          menuPos || copied
+          menu || copied
             ? "opacity-100"
             : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
         }`}
@@ -179,12 +167,11 @@ export function UserMessageMenu({
           </svg>
         )}
       </MessageTimestampMenuTrigger>
-      {menuPos && (
+      {menu && (
         <ContextMenu
-          x={menuPos.x}
-          y={menuPos.y}
+          {...menu}
           items={items}
-          onClose={() => setMenuPos(null)}
+          onClose={close}
           footer={<MessageTimeMenuMetadata timestamp={message.timestamp} testId="message-time-user-menu-metadata" />}
           widthClassName="w-[248px] max-w-[calc(100vw-1rem)]"
         />
@@ -206,7 +193,7 @@ export function AssistantMessageMenu({
   currentThreadKey?: string;
   showSideChatActions: boolean;
 }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState<string | null>(null);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChatAction = useSideChatActionState({
@@ -256,18 +243,6 @@ export function AssistantMessageMenu({
     const previewText = generateReplyPreview(message.content, otherContents);
     store.setReplyContext(sessionId, { messageId: message.id, previewText });
   }, [message, sessionId]);
-
-  const toggle = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      if (menuPos) {
-        setMenuPos(null);
-      } else {
-        const rect = event.currentTarget.getBoundingClientRect();
-        setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-      }
-    },
-    [menuPos],
-  );
 
   const items = useMemo<ContextMenuItem[]>(() => {
     const list: ContextMenuItem[] = [];
@@ -353,12 +328,11 @@ export function AssistantMessageMenu({
           )}
         </MessageTimestampMenuTrigger>
       </span>
-      {menuPos && (
+      {menu && (
         <ContextMenu
-          x={menuPos.x}
-          y={menuPos.y}
+          {...menu}
           items={items}
-          onClose={() => setMenuPos(null)}
+          onClose={close}
           footer={
             <MessageTimeMenuMetadata timestamp={message.timestamp} testId="message-time-assistant-menu-metadata" />
           }

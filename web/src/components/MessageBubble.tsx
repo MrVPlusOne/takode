@@ -18,7 +18,7 @@ import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.js";
 import { StarredMessageRailMarker } from "./StarredMessageIndicator.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
@@ -402,23 +402,13 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
 /** Badge shown on user messages injected by an agent (via takode CLI or cron).
  *  Displays a bolt icon + sender label. Click to see details / navigate to source session. */
 function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabel?: string } }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
+  const { menu, toggle, close } = useMenuButton();
 
   const label = source.sessionLabel || source.sessionId.slice(0, 8);
   const isCron = source.sessionId.startsWith("cron:");
   const isSystem = source.sessionId === "system" || source.sessionId.startsWith("system:");
   const isTimer = source.sessionId.startsWith("timer:");
   const hasOpenableSession = !isCron && !isSystem && !isTimer;
-
-  const toggle = useCallback(() => {
-    if (menuPos) {
-      setMenuPos(null);
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-    }
-  }, [menuPos]);
 
   const items = useMemo(() => {
     const list: ContextMenuItem[] = [];
@@ -442,7 +432,6 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
   return (
     <div className="mb-1.5">
       <button
-        ref={btnRef}
         onClick={toggle}
         className="flex items-center gap-1 text-[10px] text-cc-muted/70 hover:text-cc-muted transition-colors cursor-pointer"
         title="Sent by an agent"
@@ -453,7 +442,7 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
         </svg>
         <span className="font-mono-code">via {label}</span>
       </button>
-      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
+      {menu && <ContextMenu {...menu} items={items} onClose={close} />}
     </div>
   );
 }

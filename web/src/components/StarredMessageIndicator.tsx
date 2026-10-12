@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { useMemo } from "react";
+import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.js";
 
 export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -10,7 +10,7 @@ export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) 
 }
 
 export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant" | "user"; onUnstar?: () => void }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const { menu, toggle, close } = useMenuButton();
   const items = useMemo<ContextMenuItem[]>(
     () => [
       {
@@ -49,13 +49,12 @@ export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant"
         title="Starred message options"
         onClick={(event) => {
           event.stopPropagation();
-          const rect = event.currentTarget.getBoundingClientRect();
-          setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+          toggle(event);
         }}
       >
         <StarIcon className="h-3 w-3" />
       </button>
-      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
+      {menu && <ContextMenu {...menu} items={items} onClose={close} />}
     </span>
   );
 }

@@ -70,6 +70,15 @@ The user runs Takode on a large iPhone (about 430 pt wide), mostly as the Home S
 - Do not put a tappable strip directly against the composer, where a slightly-off tap hits the wrong one.
 - iOS also fires a click where the finger lifts after a long-press, so a menu that opens under the finger can choose an item by itself. This was found only on a real iPhone; see the long-press memory note.
 
+**One tap, one outcome.**
+- A tap is not just a click. The browser sends the press first (pointerdown, touchstart, then an emulated mouseover and mousedown) and the click last. Whatever reacts to the press or the hover acts on the tap before the control's own click does, and the two can undo each other.
+- A tap that opened something must close it when repeated: the user undoes an accidental tap on the same spot. The most common way this breaks is outside-press dismissal: the open surface closes on the press because its trigger lies outside it, then the trigger's click opens it again. Every popover, panel and menu must treat its trigger as inside. Menus opened by a button use `useMenuButton` in `ContextMenu.tsx`; popovers take their trigger as an anchor.
+- Triggers toggle. A trigger that can only open leaves the user no way to close the surface from where they tapped.
+- Hover cards that also open on tap decide by the input of the press: a tap toggles, a mouse hovers. Ignore the emulated hover a tap sends, or the click closes what the hover just opened.
+- A long-press must not also count as a tap; the shared long-press hook already swallows the emulated click.
+- Test with the full tap sequence (the `fingerTap` test fixture), not a bare click, which skips the press and hides these bugs. In the browser, drive real CDP touch input, and say that Chromium is not an iPhone.
+- Details: `mobile/ios-long-press-menus-and-web-haptics.md` in Takode memory.
+
 **Motion: small, meaningful, once.**
 - Delight is welcome when tied to real events and played once. The paw that walks down the feed as answers arrive is the model.
 - Never drive animation from scrolling, and never replay it for history.

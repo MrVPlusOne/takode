@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { useCallback, useMemo, useState } from "react";
+import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.js";
 import { copyRichText, markdownToPlainText, writeClipboardText } from "../utils/copy-utils.js";
 
 export function CopyFormatButton({
@@ -11,9 +11,8 @@ export function CopyFormatButton({
   getHtml?: () => string;
   title?: string;
 }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState<string | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
 
   const plainText = useMemo(() => markdownToPlainText(markdownText), [markdownText]);
 
@@ -41,15 +40,6 @@ export function CopyFormatButton({
       .catch(console.error);
   }, [getHtml, plainText, showFeedback]);
 
-  const toggle = useCallback(() => {
-    if (menuPos) {
-      setMenuPos(null);
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-    }
-  }, [menuPos]);
-
   const items = useMemo<ContextMenuItem[]>(
     () => [
       { label: "Copy as Markdown", onClick: handleCopyMarkdown },
@@ -62,7 +52,6 @@ export function CopyFormatButton({
   return (
     <>
       <button
-        ref={btnRef}
         onClick={toggle}
         className="p-1 rounded hover:bg-cc-hover transition-all cursor-pointer opacity-100"
         title={title}
@@ -90,7 +79,7 @@ export function CopyFormatButton({
           </svg>
         )}
       </button>
-      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
+      {menu && <ContextMenu {...menu} items={items} onClose={close} />}
     </>
   );
 }
