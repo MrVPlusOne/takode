@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { useStore, type ColorTheme } from "../store.js";
 import { api } from "../api.js";
 import { connectTerminal, sendTerminalInput, sendTerminalResize, disconnectTerminal } from "../terminal-ws.js";
+import { useLongPress } from "../hooks/useLongPress.js";
+import { isTouchDevice } from "../utils/mobile.js";
+import { ContextMenu } from "./ContextMenu.js";
 
 interface TerminalViewProps {
   cwd: string;
@@ -38,6 +41,13 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const colorTheme = useStore((s) => s.colorTheme);
+  const [pasteMenu, setPasteMenu] = useState<{ x: number; y: number } | null>(null);
+  // Touch screens get no paste menu of their own: xterm types through a tiny
+  // hidden textarea that a long-press never lands on. Desktop keeps the
+  // browser's right-click menu, which xterm already wires to that textarea.
+  const longPress = useLongPress(isTouchDevice() ? (x, y) => setPasteMenu({ x, y }) : undefined, {
+    anchor: "press",
+  });
 
   // Main effect: create xterm + connect to PTY — only depends on cwd
   useEffect(() => {
@@ -130,11 +140,33 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
     }
   }, [colorTheme]);
 
+  const pasteFromClipboard = () => {
+    // Must start inside the menu tap: iOS only reads the clipboard during a
+    // user gesture, and asks the user to confirm with its own Paste bubble.
+    navigator.clipboard
+      .readText()
+      .then((text) => xtermRef.current?.paste(text))
+      .catch((err) => console.warn("Terminal paste failed:", err));
+  };
+
   const background = getTerminalTheme(colorTheme).background;
+  const terminalSurface = (
+    <>
+      <div ref={terminalRef} data-testid="terminal-surface" className="flex-1 min-h-0 p-1" {...longPress.handlers} />
+      {pasteMenu && (
+        <ContextMenu
+          x={pasteMenu.x}
+          y={pasteMenu.y}
+          items={[{ label: "Paste", onClick: pasteFromClipboard }]}
+          onClose={() => setPasteMenu(null)}
+        />
+      )}
+    </>
+  );
   if (embedded) {
     return (
       <div className="h-full flex flex-col" style={{ background }}>
-        <div ref={terminalRef} className="flex-1 min-h-0 p-1" />
+        {terminalSurface}
       </div>
     );
   }
@@ -166,7 +198,7 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
       </div>
 
       {/* Terminal container */}
-      <div ref={terminalRef} className="flex-1 min-h-0 p-1" />
+      {terminalSurface}
     </div>
   );
 

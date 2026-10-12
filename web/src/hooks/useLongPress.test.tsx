@@ -17,10 +17,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function Target({ enabled = true }: { enabled?: boolean }) {
+function Target({ enabled = true, anchor }: { enabled?: boolean; anchor?: "target" | "press" }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const longPress = useLongPress(enabled ? (x, y) => setMenu({ x, y }) : undefined);
+  const longPress = useLongPress(enabled ? (x, y) => setMenu({ x, y }) : undefined, { anchor });
   return (
     <>
       <button
@@ -144,6 +144,28 @@ describe("useLongPress", () => {
     const top = menu.style.top;
     fireEvent.contextMenu(target, { clientX: 200, clientY: 200 });
     expect(menu.style.top).toBe(top);
+  });
+
+  it("opens below the target by default, or at the press point for large surfaces", () => {
+    vi.useFakeTimers();
+    const menuPosition = () => {
+      const menu = screen.getByRole("button", { name: "Action" }).closest(".fixed") as HTMLElement;
+      return { left: menu.style.left, top: menu.style.top };
+    };
+    const { unmount } = render(<Target />);
+    const target = screen.getByTestId("target");
+    // jsdom gives the target an all-zero rect, so "below the target" is (0, 4).
+    fireEvent.touchStart(target, { touches: [{ clientX: 30, clientY: 40 }] });
+    act(() => vi.advanceTimersByTime(500));
+    expect(menuPosition()).toEqual({ left: "0px", top: "4px" });
+    unmount();
+
+    // A full-screen surface like the terminal: below it would be off screen,
+    // so the menu opens just under the finger.
+    render(<Target anchor="press" />);
+    fireEvent.touchStart(screen.getByTestId("target"), { touches: [{ clientX: 30, clientY: 40 }] });
+    act(() => vi.advanceTimersByTime(500));
+    expect(menuPosition()).toEqual({ left: "30px", top: "44px" });
   });
 
   it("leaves the browser's own menu alone when disabled", () => {

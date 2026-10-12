@@ -19,8 +19,13 @@ export type OpenContextMenu = (x: number, y: number) => void;
  * Spread `handlers` on the target, merge `pressStyle` into its style, and
  * skip hover cards while `isSuppressingMouse()` is true. Pass `undefined` to
  * disable the menu; the browser's own context menu then stays available.
+ * Large surfaces, where "below the target" is off screen, pass
+ * `anchor: "press"` to open the menu where the finger went down instead.
  */
-export function useLongPress(onOpen: OpenContextMenu | undefined) {
+export function useLongPress(
+  onOpen: OpenContextMenu | undefined,
+  { anchor = "target" }: { anchor?: "target" | "press" } = {},
+) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   // Set when a long-press opens the menu and kept until the next touchstart.
@@ -67,12 +72,17 @@ export function useLongPress(onOpen: OpenContextMenu | undefined) {
         startRef.current = { x: touch.clientX, y: touch.clientY };
         setPressing(true);
         const element = event.currentTarget;
+        const press = { x: touch.clientX, y: touch.clientY };
         timerRef.current = setTimeout(() => {
           timerRef.current = null;
           firedRef.current = true;
           setPressing(false);
           // Android haptics. iOS has no web API that can tick mid-press.
           navigator.vibrate?.(10);
+          if (anchor === "press") {
+            onOpen(press.x, press.y + 4);
+            return;
+          }
           const rect = element.getBoundingClientRect();
           onOpen(rect.left, rect.bottom + 4);
         }, LONG_PRESS_MS);
