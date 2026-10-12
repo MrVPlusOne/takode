@@ -14,8 +14,9 @@ import { api } from "../api.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
 import { MessageFeed } from "./MessageFeed.js";
 
-// Completed quest threads end with a "Quest complete" card built from the quest's
-// final debrief, so a wrap-up turn holding only a Quiz still explains the outcome.
+// Completed quest threads show a "Quest complete" card built from the quest's final
+// debrief, so a wrap-up turn holding only a Quiz still explains the outcome. Without a
+// Quiz the card stays where the quest completed instead of following the thread's end.
 
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../ws.js", () => ({ sendToSession }));
@@ -33,6 +34,7 @@ const QUEST_ID = "q-4200";
 const QUIZ_DIRECTIVE = `{[(Quest Quiz: ${QUEST_ID})]}`;
 const TLDR = "Quest writes now take about 100 ms.";
 const DEBRIEF = "Quest writes were slow because every write re-read the whole store. It is now cached in memory.";
+const COMPLETED_AT = 1_700_000_000_005;
 const handleMessage = createWsMessageHandler({ disconnectSession: vi.fn(), sendToSession });
 const route = {
   threadKey: QUEST_ID,
@@ -95,7 +97,9 @@ function doneQuest(overrides: Partial<Extract<QuestmasterTask, { status: "done" 
     description: "Make quest writes fast.",
     status: "done",
     createdAt: 1,
-    completedAt: 2,
+    // The worker completes the quest after the leader's answer and before the
+    // herd turn_end that starts the leader's wrap-up turn.
+    completedAt: COMPLETED_AT,
     verificationItems: [],
     debrief: DEBRIEF,
     debriefTldr: TLDR,
@@ -151,6 +155,22 @@ function wrapUpHistory(wrapUpText: string): BrowserIncomingMessage[] {
   });
   history.push(assistant("wrap-up", wrapUpText, history.length));
   return history;
+}
+
+/** A later human message in the quest thread and the leader's reply to it. */
+function laterExchange(history: BrowserIncomingMessage[]): BrowserIncomingMessage[] {
+  const later: BrowserIncomingMessage[] = [
+    ...history,
+    {
+      type: "user_message",
+      id: "later-request",
+      content: "One more question about the writes.",
+      timestamp: 1_700_000_000_020,
+      ...route,
+    },
+  ];
+  later.push(assistant("later-reply", "Here is the answer to the later question.", 21));
+  return later;
 }
 
 function installHistory(history: BrowserIncomingMessage[], quest: QuestmasterTask | null): void {
@@ -218,6 +238,19 @@ describe("MessageFeed quest completion summary", () => {
     expect(cards[0]).toHaveTextContent(TLDR);
     fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(turn).getByTestId("quest-completion-summary")).toHaveTextContent(TLDR);
+  });
+
+  it("keeps the card in the turn where the quest completed when later messages follow", () => {
+    // The reported case: a later user message and the leader's reply must render
+    // below the card instead of pushing it to the bottom of the thread. Leader turns
+    // start at human messages, so the wrap-up herd event stays in the first turn.
+    installHistory(laterExchange(wrapUpHistory("Quest closed.")), doneQuest({ quizItems: undefined }));
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const card = screen.getByTestId("quest-completion-summary");
+    const turns = Array.from(document.querySelectorAll<HTMLElement>(".turn-container[data-turn-id]"));
+    expect(turns.map((turn) => turn.dataset.turnId)).toEqual(["request-1", "later-request"]);
+    expect(turns[0]).toContainElement(card);
+    expect(turns[1]).not.toContainElement(card);
   });
 
   it("loads a missing quest record once and then shows the card", async () => {

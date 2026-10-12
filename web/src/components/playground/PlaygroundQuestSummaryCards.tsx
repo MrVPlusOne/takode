@@ -17,26 +17,30 @@ const EXCERPT_QUEST_ID = "q-9022";
 const EMPTY_IDS = new Set<string>();
 const NOOP = () => {};
 
+function messageTimestamp(index: number): number {
+  return 1_700_000_000_000 + index * 60_000;
+}
+
 function message(
   questId: string,
-  type: "user" | "assistant",
+  type: "herd" | "human" | "assistant",
   id: string,
   text: string,
   index: number,
 ): BrowserIncomingMessage {
-  const timestamp = 1_700_000_000_000 + index * 60_000;
+  const timestamp = messageTimestamp(index);
   const route = {
     threadKey: questId,
     questId,
     threadRefs: [{ threadKey: questId, questId, source: "explicit" as const }],
   };
-  if (type === "user") {
+  if (type !== "assistant") {
     return {
       type: "user_message",
       id,
       content: text,
       timestamp,
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      ...(type === "herd" ? { agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } } : {}),
       ...route,
     };
   }
@@ -61,17 +65,26 @@ function message(
 /** The Memory wrap-up turn a leader runs when the worker finishes the quest. */
 function wrapUpHistory(wrapUpText: string): BrowserIncomingMessage[] {
   return [
-    message(QUEST_ID, "user", "herd-work", "1 event from 1 session\n\n#12 | turn_end | Work handed off to Memory", 0),
+    message(QUEST_ID, "herd", "herd-work", "1 event from 1 session\n\n#12 | turn_end | Work handed off to Memory", 0),
     message(QUEST_ID, "assistant", "work-note", "Work is synced; the worker is running Memory.", 1),
-    message(QUEST_ID, "user", "herd-memory", "1 event from 1 session\n\n#12 | turn_end | quest completed", 2),
+    message(QUEST_ID, "herd", "herd-memory", "1 event from 1 session\n\n#12 | turn_end | quest completed", 2),
     message(QUEST_ID, "assistant", "wrap-up", wrapUpText, 3),
+  ];
+}
+
+/** The wrap-up followed by a later question from the user and the leader's reply. */
+function laterExchangeHistory(): BrowserIncomingMessage[] {
+  return [
+    ...wrapUpHistory("Quest closed."),
+    message(QUEST_ID, "human", "later-request", "Do the faster reads need a server restart?", 4),
+    message(QUEST_ID, "assistant", "later-reply", "Yes, the live server shows them after it restarts.", 5),
   ];
 }
 
 /** A just-dispatched quest thread: only worker events and leader board updates, no prose. */
 function dispatchHistory(questId: string): BrowserIncomingMessage[] {
   return [
-    message(questId, "user", `${questId}-dispatch`, "1 event from 1 session\n\n#12 | quest_claimed | Work started", 0),
+    message(questId, "herd", `${questId}-dispatch`, "1 event from 1 session\n\n#12 | quest_claimed | Work started", 0),
     message(questId, "assistant", `${questId}-board`, "Recorded the quest on the board.", 1),
   ];
 }
@@ -153,7 +166,8 @@ export function PlaygroundQuestCompletionSummary() {
         description: "Make quest writes and reads fast.",
         status: "done",
         createdAt: 1,
-        completedAt: 2,
+        // Between the work note and the herd event reporting the completion.
+        completedAt: messageTimestamp(1) + 30_000,
         verificationItems: [],
         debriefTldr:
           "- Quest reads now come from an in-memory store, so `takode board show` dropped from ~300 ms to ~20 ms.\n- Writes still re-serialize the store and take about 100 ms.",
@@ -173,7 +187,7 @@ export function PlaygroundQuestCompletionSummary() {
   return (
     <Section
       title="Quest Complete Summary"
-      description="A completed quest's leader thread shows its final debrief TLDR, expandable to the full debrief, above the Quiz, or at the end of the thread when no Quiz was posted. Both stay visible when the wrap-up turn is collapsed."
+      description="A completed quest's leader thread shows its final debrief TLDR, expandable to the full debrief, above the Quiz, or at the end of the turn where the quest completed when no Quiz was posted, so later messages stay below it. Both stay visible when the wrap-up turn is collapsed."
     >
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <Card label="Quiz-only wrap-up turn · summary above Quiz">
@@ -183,11 +197,18 @@ export function PlaygroundQuestCompletionSummary() {
             testId="playground-completion-summary-quiz"
           />
         </Card>
-        <Card label="Wrap-up without a Quiz · summary ends the thread">
+        <Card label="Wrap-up without a Quiz · summary ends the wrap-up turn">
           <QuestThread
             questId={QUEST_ID}
             history={wrapUpHistory("Quest closed.")}
             testId="playground-completion-summary-no-quiz"
+          />
+        </Card>
+        <Card label="Later messages · summary stays where the quest completed">
+          <QuestThread
+            questId={QUEST_ID}
+            history={laterExchangeHistory()}
+            testId="playground-completion-summary-later"
           />
         </Card>
       </div>

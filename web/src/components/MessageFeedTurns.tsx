@@ -34,6 +34,7 @@ import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestCompletionSummaryCard, QuestCompletionSummaryContext } from "./QuestCompletionSummaryCard.js";
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
+import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -86,21 +87,34 @@ function turnQuestQuizIds(turn: Turn): string[] {
   );
 }
 
+/** When a turn began: its boundary message, or its first message when it has none. */
+function turnStartTimestamp(turn: Turn): number | null {
+  const first = [turn.userEntry, ...turn.allEntries].find((entry) => entry?.kind === "message");
+  return first?.kind === "message" ? first.msg.timestamp : null;
+}
+
 /**
  * Where a completed quest's summary card belongs in its leader quest thread: above the
- * latest Quiz for that quest, or at the end of the thread when no Quiz was posted. The
- * end-of-thread fallback waits until the newest section is loaded.
+ * latest Quiz for that quest, otherwise at the end of the turn that was running or
+ * latest when the quest completed, so later messages never push it down. Leader turns
+ * start only at human messages, so that turn also holds the herd events reporting the
+ * completion. A host that may sit in an unloaded section gives no card.
  */
 function questCompletionSummaryHost(
   turns: readonly Turn[],
   questId: string,
+  completedAt: number | null,
+  hasOlderSections: boolean,
   hasNewerSections: boolean,
 ): { turnId: string; withQuiz: boolean } | null {
   for (let index = turns.length - 1; index >= 0; index--) {
     if (turnQuestQuizIds(turns[index]).includes(questId)) return { turnId: turns[index].id, withQuiz: true };
   }
-  const latest = turns.at(-1);
-  return latest && !hasNewerSections ? { turnId: latest.id, withQuiz: false } : null;
+  if (completedAt === null || turns.length === 0) return null;
+  const nextIndex = turns.findIndex((turn) => (turnStartTimestamp(turn) ?? -Infinity) > completedAt);
+  if (nextIndex === -1) return hasNewerSections ? null : { turnId: turns[turns.length - 1].id, withQuiz: false };
+  if (nextIndex === 0) return hasOlderSections ? null : { turnId: turns[0].id, withQuiz: false };
+  return { turnId: turns[nextIndex - 1].id, withQuiz: false };
 }
 
 function CollapsedTurnRows({
@@ -340,9 +354,14 @@ export const TurnEntries = memo(function TurnEntries({
   );
   const threadQuestId =
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
+  const threadQuest = useQuestRecord(threadQuestId);
+  const completedAt = threadQuest?.status === "done" ? threadQuest.completedAt : null;
   const completionSummaryHost = useMemo(
-    () => (threadQuestId ? questCompletionSummaryHost(turns, threadQuestId, hasNewerSections) : null),
-    [threadQuestId, hasNewerSections, turns],
+    () =>
+      threadQuestId
+        ? questCompletionSummaryHost(turns, threadQuestId, completedAt, hasOlderSections, hasNewerSections)
+        : null,
+    [threadQuestId, completedAt, hasOlderSections, hasNewerSections, turns],
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,

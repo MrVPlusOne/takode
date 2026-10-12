@@ -19,11 +19,14 @@ export const QuestRecordFetchContext = createContext(true);
  * title preview is newer than it, so reopening a thread whose record is current
  * makes no request while edits, reopening and recompletion still show up. Without
  * fetching (see QuestRecordFetchContext) it shows only what the store already holds.
+ * A null quest ID gives null and loads nothing.
  */
-export function useQuestRecord(questId: string): QuestmasterTask | null {
-  const key = questId.toLowerCase();
-  const quest = useStore((s) => s.questDetails?.get(key) ?? s.quests?.find((q) => q.questId === key) ?? null);
-  const preview = useStore((s) => s.questTitlePreviews?.get(key) ?? null);
+export function useQuestRecord(questId: string | null): QuestmasterTask | null {
+  const key = questId?.toLowerCase() ?? null;
+  const quest = useStore((s) =>
+    key === null ? null : (s.questDetails?.get(key) ?? s.quests?.find((q) => q.questId === key) ?? null),
+  );
+  const preview = useStore((s) => (key === null ? null : (s.questTitlePreviews?.get(key) ?? null)));
   const fetchEnabled = useContext(QuestRecordFetchContext);
   const stale =
     !quest ||
@@ -31,7 +34,7 @@ export function useQuestRecord(questId: string): QuestmasterTask | null {
       (preview.version > quest.version ||
         (preview.version === quest.version && (preview.updatedAt ?? 0) > getQuestRecencyTs(quest))));
   useEffect(() => {
-    if (!stale || !fetchEnabled) return;
+    if (key === null || !stale || !fetchEnabled) return;
     // A failed load keeps the cached record; the next live quest update retries.
     hydrateQuestDetail(key).catch((error: unknown) => console.warn(`[quest-summary] ${key} refresh failed`, error));
   }, [key, stale, preview, fetchEnabled]);
