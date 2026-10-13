@@ -173,6 +173,40 @@ describe("ThreadTabGroupBar", () => {
     expect(screen.getByTestId("thread-tab-group-list").dataset.group).toBe("done");
   });
 
+  it("opens the newest unread on a New results tap, with no list", () => {
+    // Reading the opened tab moves it to Done, so a list of the other results would be left
+    // hanging off a Done tab. Each tap opens the next unread instead, newest first.
+    const unread = [
+      tab("q-20", { completed: true, blueNudge: true, groupChangedAt: 100 }),
+      tab("q-21", { completed: true, blueNudge: true, groupChangedAt: 300 }),
+      tab("q-22", { blueNudge: true, groupChangedAt: 200 }),
+    ];
+    const { onSelect } = renderBar({ tabs: [...TABS.filter((item) => !item.blueNudge), ...unread] });
+    const results = () =>
+      screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "new-results")!;
+    fireEvent.click(results());
+    expect(onSelect).toHaveBeenCalledWith("q-21");
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+    expect(results().getAttribute("aria-haspopup")).toBeNull();
+
+    // The full list stays one step away: right-click (a long-press on the phone) or the
+    // list arrow that wide screens show on the tab's right edge.
+    fireEvent.contextMenu(results(), { clientX: 10, clientY: 10 });
+    expect(screen.getByTestId("thread-tab-group-list").dataset.group).toBe("new-results");
+    fireEvent.click(screen.getByTestId("thread-tab-group-backdrop"));
+    const arrow = screen.getByTestId("thread-tab-group-list-toggle");
+    expect(arrow.getAttribute("aria-label")).toBe("Show the New results list");
+    fireEvent.click(arrow);
+    expect(
+      within(screen.getByTestId("thread-tab-group-list"))
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey),
+    ).toEqual(["q-21", "q-22", "q-20"]);
+    fireEvent.click(arrow);
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
   it("only toggles the list when the tab on screen is already in that group", () => {
     // On q-14, a Done tab, tapping Done must not move the user to the group's first tab.
     const { onSelect } = renderBar({ currentThreadKey: "q-14" });
