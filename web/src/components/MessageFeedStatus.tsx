@@ -1,3 +1,4 @@
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
@@ -45,6 +46,7 @@ export function ElapsedTimer({
   onVisibleHeightChange?: (height: number) => void;
   preserveFloatingRowWhenHidden?: boolean;
 }) {
+  const relaunch = usePendingAction("Relaunch failed.");
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
   const streamingOutputTokens = useStore((s) => s.streamingOutputTokens.get(sessionId));
   const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
@@ -126,9 +128,7 @@ export function ElapsedTimer({
     ) : null;
   }
 
-  const handleRelaunch = () => {
-    api.relaunchSession(sessionId).catch(() => {});
-  };
+  const handleRelaunch = () => void relaunch.run(() => api.relaunchSession(sessionId));
   const activeTurnNavigationTarget = leaderActiveTurnNavigationTarget(activeTurnRoute, currentThreadKey, {
     isLeaderSession,
   });
@@ -180,6 +180,7 @@ export function ElapsedTimer({
       {isStuck && (
         <button
           onClick={handleRelaunch}
+          aria-busy={relaunch.pending || undefined}
           className="relative ml-1 text-cc-attention hover:text-cc-attention-strong underline cursor-pointer"
         >
           Relaunch
@@ -235,6 +236,7 @@ export function ElapsedTimer({
       {isStuck && (
         <button
           onClick={handleRelaunch}
+          aria-busy={relaunch.pending || undefined}
           className="ml-1 text-cc-attention hover:text-cc-attention-strong underline cursor-pointer"
         >
           Relaunch
@@ -502,6 +504,7 @@ export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
 }
 
 export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) {
+  const resume = usePendingAction("Resume failed.");
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
@@ -526,7 +529,7 @@ export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) 
   const dotClassName = presentation.kind === "reconnecting" ? "bg-cc-primary animate-pulse" : "bg-cc-muted";
 
   function handleResume() {
-    api.relaunchSession(sessionId).catch(() => {});
+    void resume.run(() => api.relaunchSession(sessionId));
   }
 
   return (
@@ -562,6 +565,7 @@ export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) 
             type="button"
             className="mt-2 inline-flex items-center rounded-md border border-cc-border px-2 py-1 text-[11px] font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
             onClick={handleResume}
+            aria-busy={resume.pending || undefined}
           >
             {presentation.actionLabel}
           </button>

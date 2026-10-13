@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { ensureSessionDraftsLoaded } from "../draft-sync.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
@@ -22,7 +23,7 @@ import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
-  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputSendButton,
   NeedsInputAnswerField,
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
@@ -168,15 +169,13 @@ function GlobalNeedsInputRow({
   } = useNeedsInputDraft(entry.sessionId, entry.notification.id);
   // This row can show sessions this browser is not subscribed to; load their saved drafts once.
   useEffect(() => ensureSessionDraftsLoaded(entry.sessionId), [entry.sessionId]);
-  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const response = usePendingAction("Response could not be delivered.");
   const [muteError, setMuteError] = useState<string | null>(null);
   const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);
-  const [sending, setSending] = useState(false);
   const [togglingMute, setTogglingMute] = useState(false);
   const messages = useStore((s) => s.messages?.get(entry.sessionId) ?? EMPTY_MESSAGES);
   const questionViews = useMemo(() => getNeedsInputQuestionViews(entry.notification), [entry.notification]);
   const canSendResponse = questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
-  const canSubmitResponse = canSendResponse && !sending;
   const sessionLabel = entry.sessionNum == null ? entry.sessionName : `#${entry.sessionNum} ${entry.sessionName}`;
   const summary = getNotificationTitle(entry.notification);
   const snoozed = entry.notification.snoozedUntil !== undefined;
@@ -193,10 +192,10 @@ function GlobalNeedsInputRow({
 
   const setQuestionAnswer = useCallback(
     (key: string, value: string) => {
-      setDeliveryError(null);
+      response.clearError();
       setAnswer(key, value);
     },
-    [setAnswer],
+    [response.clearError, setAnswer],
   );
 
   const jump = useCallback(() => {
@@ -220,27 +219,21 @@ function GlobalNeedsInputRow({
   }, [entry.notification, entry.sessionId, localSourceContext, remoteContextKey]);
 
   const sendResponse = useCallback(async () => {
-    if (!canSubmitResponse) return;
+    if (!canSendResponse) return;
     const threadKey = ownerThreadKey;
     const content = formatNeedsInputResponse(entry.notification.summary, questionViews, answersByQuestion);
-    setSending(true);
-    setDeliveryError(null);
-    try {
-      await api.sendNeedsInputResponse(entry.sessionId, entry.notification.id, {
+    const sent = await response.run(() =>
+      api.sendNeedsInputResponse(entry.sessionId, entry.notification.id, {
         content,
         threadKey,
         ...(threadKey !== MAIN_THREAD_KEY ? { questId: entry.notification.questId ?? threadKey } : {}),
-      });
-      markLocalNotificationDone(entry.sessionId, entry.notification.id);
-      useStore.getState().requestBottomAlignOnNextUserMessage?.(entry.sessionId);
-      clearAnswers();
-    } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : "Please retry.";
-      setDeliveryError(`Response could not be delivered. ${message}`);
-    } finally {
-      setSending(false);
-    }
-  }, [answersByQuestion, canSubmitResponse, clearAnswers, entry, ownerThreadKey, questionViews]);
+      }),
+    );
+    if (!sent) return;
+    markLocalNotificationDone(entry.sessionId, entry.notification.id);
+    useStore.getState().requestBottomAlignOnNextUserMessage?.(entry.sessionId);
+    clearAnswers();
+  }, [answersByQuestion, canSendResponse, clearAnswers, entry, ownerThreadKey, questionViews, response.run]);
 
   const toggleMuted = useCallback(async () => {
     setTogglingMute(true);
@@ -355,16 +348,14 @@ function GlobalNeedsInputRow({
           ))}
           <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
             <NeedsInputSnoozeControl sessionId={entry.sessionId} notification={entry.notification} />
-            <button
-              type="button"
-              onClick={sendResponse}
-              disabled={!canSubmitResponse}
-              className={NEEDS_INPUT_SEND_BUTTON_CLASS}
-            >
-              {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
-            </button>
+            <NeedsInputSendButton
+              label={response.error ? "Retry" : "Send Response"}
+              pending={response.pending}
+              disabled={!canSendResponse}
+              onClick={() => void sendResponse()}
+            />
           </div>
-          {deliveryError && <p className="text-[10px] leading-snug text-cc-attention">{deliveryError}</p>}
+          {response.error && <p className="text-[10px] leading-snug text-cc-attention">{response.error}</p>}
           {muteError && <p className="text-[10px] leading-snug text-cc-error">{muteError}</p>}
         </div>
       )}

@@ -1173,8 +1173,10 @@ it.each([false, true])("returns to an unfocused input-only composer after sendin
     screen.getByTitle(touch ? "Send: tap button; New line: Enter" : "Send: Enter; New line: Shift+Enter"),
   );
   expect(textarea.value).toBe("");
-  expect(textarea.getAttribute("aria-expanded")).toBe("false");
   expect(document.activeElement).not.toBe(textarea);
+  // The composer stays open while the send button plays its squish, so the press is seen, then collapses.
+  expect(screen.getByRole("button", { name: "Send message" }).getAttribute("data-sent")).toBe("true");
+  await waitFor(() => expect(textarea.getAttribute("aria-expanded")).toBe("false"), { timeout: 2000 });
   expect(screen.queryAllByRole("button")).toHaveLength(0);
   expect(mockSendToSession).toHaveBeenCalledWith(
     "s1",

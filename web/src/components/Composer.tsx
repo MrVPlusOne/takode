@@ -75,6 +75,8 @@ import {
 export { ReplyChip } from "./ReplyChip.js";
 
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
+// How long the send button plays its "sent" squish (cc-squish in index.css).
+const SEND_ANIMATION_MS = 560;
 const VOICE_SHORTCUT_ACTIONS: readonly ShortcutActionId[] = ["voice_start", "voice_stop"];
 
 function eventKeyIsOnlyPressedModifier(
@@ -933,7 +935,7 @@ export function Composer({
       sendPressingTimerRef.current = setTimeout(() => {
         sendPressingTimerRef.current = null;
         setSendPressing(false);
-      }, 500);
+      }, SEND_ANIMATION_MS);
     };
 
     const finalizeReplyNotification = () => {
@@ -1435,7 +1437,8 @@ export function Composer({
   });
 
   // Active voice/comment editors remain usable even after the textarea loses focus.
-  const keepComposerOpen = isVoiceInteractionActive || annotationEditorOpen || !!lightboxSrc;
+  // The send squish plays on the expanded composer's button, so the composer stays open until it ends.
+  const keepComposerOpen = isVoiceInteractionActive || annotationEditorOpen || !!lightboxSrc || sendPressing;
   const isCollapsed = !composerExpanded && !keepComposerOpen;
 
   useEffect(() => {

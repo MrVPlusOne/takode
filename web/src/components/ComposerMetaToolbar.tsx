@@ -1,6 +1,5 @@
 import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import type { ReactNode } from "react";
-import { CatPawAvatar } from "./CatIcons.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -125,18 +124,17 @@ export function ComposerMetaToolbar({
             onClick={handleSend}
             disabled={!canSend}
             aria-label="Send message"
+            data-sent={sendPressing || undefined}
             className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
-              canSend
+              canSend || sendPressing
                 ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
                 : "bg-cc-hover text-cc-muted cursor-not-allowed"
-            } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
+            } cc-squish`}
             title={sendButtonTitle}
           >
-            {sendPressing ? (
-              <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
-            ) : (
+            <span className="cc-send-icon">
               <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
-            )}
+            </span>
           </button>
           {!canSend && sendButtonTitle !== "Send message" && (
             <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block">

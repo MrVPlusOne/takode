@@ -3,6 +3,7 @@ import {
   NEEDS_INPUT_CARD_CLASS,
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputRecordingStatus,
+  NeedsInputSendButton,
   NeedsInputTranscriptionFailureStatus,
 } from "../NeedsInputAnswerField.js";
 
@@ -96,6 +97,28 @@ export function PlaygroundNeedsInputTranscriptionFailurePreview() {
         <button type="button" className={NEEDS_INPUT_SEND_BUTTON_CLASS}>
           Reply
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Reply while the answer is on its way: the button shows it is waiting and ignores more presses. */
+export function PlaygroundNeedsInputReplyPendingPreview() {
+  return (
+    <div className={`rounded-lg p-3 ${NEEDS_INPUT_CARD_CLASS}`}>
+      <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-cc-attention">
+        <span className="h-2 w-2 rounded-full border border-current" />
+        <span className="min-w-0 truncate">Approve the rollout?</span>
+      </div>
+      <textarea
+        readOnly
+        value="Ship it"
+        rows={1}
+        aria-label="Answer for Approve the rollout?"
+        className={`w-full ${NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}`}
+      />
+      <div className="mt-2 flex justify-end">
+        <NeedsInputSendButton label="Reply" pending disabled={false} onClick={() => undefined} />
       </div>
     </div>
   );

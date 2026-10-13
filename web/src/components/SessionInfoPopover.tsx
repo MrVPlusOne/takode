@@ -1,3 +1,4 @@
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { SessionSettingsMenu, useSessionSettings } from "./SessionSettingsMenu.js";
 import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../store.js";
@@ -47,6 +48,7 @@ export function SessionInfoPopover({
   anchorElement?: HTMLElement | null;
   onConfigure?: (sessionId: string) => void;
 }) {
+  const relaunch = usePendingAction("Relaunch failed.");
   const sessions = useStore((s) => s.sessions);
   const session = sessions.get(sessionId);
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
@@ -305,7 +307,8 @@ export function SessionInfoPopover({
               <button
                 type="button"
                 className="mt-2 inline-flex items-center rounded-md border border-cc-border px-2 py-1 text-[11px] font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
-                onClick={() => api.relaunchSession(sessionId).catch(console.error)}
+                onClick={() => void relaunch.run(() => api.relaunchSession(sessionId))}
+                aria-busy={relaunch.pending || undefined}
               >
                 {recoverableConnectionPresentation.actionLabel}
               </button>

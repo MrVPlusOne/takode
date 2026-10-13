@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import { api } from "../api.js";
 import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
@@ -19,8 +20,8 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
   NEEDS_INPUT_CARD_CLASS,
-  NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
+  NeedsInputSendButton,
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
@@ -88,6 +89,10 @@ export function NotificationMarker({
     clear: clearAnswers,
   } = useNeedsInputDraft(isAction ? sessionId : undefined, notif?.id);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const reply = usePendingAction("Reply failed.");
+  const toggle = usePendingAction(isReview ? "Review update failed." : "Update failed.");
+  const answeredKey = sessionId && notif ? `${sessionId}:${notif.id}` : null;
+  const answeredHere = answeredKey !== null && answeredInThisBrowser.has(answeredKey);
   const canSendQuickReply =
     !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
 
@@ -126,9 +131,9 @@ export function NotificationMarker({
           ) ??
         null;
       if (!liveNotif) return;
-      api.markNotificationDone(sessionId, liveNotif.id, !liveNotif.done).catch(() => {});
+      void toggle.run(() => api.markNotificationDone(sessionId, liveNotif.id, !liveNotif.done));
     },
-    [sessionId, messageId, notificationId, category, onToggleDone, notif],
+    [sessionId, messageId, notificationId, category, onToggleDone, notif, toggle.run],
   );
 
   const handleReply = useCallback(
@@ -164,7 +169,7 @@ export function NotificationMarker({
   const sendQuickReply = useCallback(
     (e: SyntheticEvent) => {
       e.stopPropagation();
-      if (!sessionId || !notif || !canSendQuickReply) return;
+      if (!sessionId || !notif || !canSendQuickReply || reply.pending) return;
       runAfterNotificationOwnerThreadSelected({
         notification: notif,
         currentThreadKey,
@@ -172,17 +177,24 @@ export function NotificationMarker({
         action: () => {
           const threadKey = resolveNotificationOwnerThreadKey(notif);
           const content = formatNeedsInputResponse(notif.summary ?? summary, questionViews, answersByQuestion);
-          api
-            .sendNeedsInputResponse(sessionId, notif.id, {
-              content,
-              threadKey,
-              ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
-            })
-            .then(() => {
+          const key = `${sessionId}:${notif.id}`;
+          answeredInThisBrowser.add(key);
+          void reply
+            .run(() =>
+              api.sendNeedsInputResponse(sessionId, notif.id, {
+                content,
+                threadKey,
+                ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+              }),
+            )
+            .then((sent) => {
+              if (!sent) {
+                answeredInThisBrowser.delete(key);
+                return;
+              }
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               clearAnswers();
-            })
-            .catch(() => {});
+            });
         },
       });
     },
@@ -191,10 +203,11 @@ export function NotificationMarker({
       canSendQuickReply,
       clearAnswers,
       currentThreadKey,
-      messageId,
       notif,
       onSelectThread,
       questionViews,
+      reply.pending,
+      reply.run,
       sessionId,
       summary,
     ],
@@ -252,6 +265,7 @@ export function NotificationMarker({
             className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
             title={isToggleReady ? toggleLabel : "Waiting for notification sync"}
             aria-label={toggleLabel}
+            aria-busy={toggle.pending || undefined}
             disabled={!isToggleReady}
           >
             <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
@@ -278,7 +292,8 @@ export function NotificationMarker({
             className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary [@media(pointer:coarse)]:min-h-11"
           >
             <span className="min-w-0 flex-1 break-words">{label}</span>{" "}
-            <span className="shrink-0 text-[10px]">
+            <span className="inline-flex shrink-0 items-center gap-1 text-[10px]">
+              {answeredHere && answeredKey && <AnsweredMark answeredKey={answeredKey} />}
               {notif?.resolutionNotice?.source === "response" ? "Answered" : "Handled"}
             </span>
             <svg
@@ -376,14 +391,12 @@ export function NotificationMarker({
                 <div className={`${NEEDS_INPUT_ACTION_ROW_CLASS} pt-0.5`} data-testid="notification-answer-footer">
                   {snoozeControl}
                   {replyButton}
-                  <button
-                    type="button"
-                    onClick={sendQuickReply}
+                  <NeedsInputSendButton
+                    label="Reply"
+                    pending={reply.pending}
                     disabled={!canSendQuickReply}
-                    className={NEEDS_INPUT_SEND_BUTTON_CLASS}
-                  >
-                    Reply
-                  </button>
+                    onClick={sendQuickReply}
+                  />
                 </div>
               )}
             </div>
@@ -392,19 +405,43 @@ export function NotificationMarker({
             <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
               {snoozeControl}
               {replyButton}
-              <button
-                type="button"
-                onClick={sendQuickReply}
+              <NeedsInputSendButton
+                label="Reply"
+                pending={reply.pending}
                 disabled={!canSendQuickReply}
-                className={NEEDS_INPUT_SEND_BUTTON_CLASS}
-              >
-                Reply
-              </button>
+                onClick={sendQuickReply}
+              />
             </div>
           )}
         </div>
       )}
+      {(reply.error || toggle.error) && (
+        <p className="self-end pb-1 text-[10px] leading-snug text-cc-error" role="alert">
+          {reply.error ?? toggle.error}
+        </p>
+      )}
     </div>
+  );
+}
+
+/**
+ * Answers sent from this page, by `${sessionId}:${notificationId}`. The feed remounts the card when it
+ * turns Answered, so component state would not survive to show the check.
+ */
+const answeredInThisBrowser = new Set<string>();
+/** Checks that already popped in, so a card remounting later while scrolling shows its check still. */
+const poppedAnsweredMarks = new Set<string>();
+
+/** Acknowledges that the answer this browser sent arrived: a check beside "Answered" that pops in once. */
+function AnsweredMark({ answeredKey }: { answeredKey: string }) {
+  const [fresh] = useState(() => !poppedAnsweredMarks.has(answeredKey));
+  useEffect(() => {
+    poppedAnsweredMarks.add(answeredKey);
+  }, [answeredKey]);
+  return (
+    <span className={fresh ? "cc-answered-mark" : "inline-flex"} aria-hidden="true">
+      ✓
+    </span>
   );
 }
 

@@ -1,3 +1,4 @@
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -171,6 +172,7 @@ export function TopBar({
   const renameInputRef = useRef<HTMLInputElement>(null);
   const sessionMenuPosition = useRef({ x: 0, y: 0 });
   const sessionActions = useSessionActions();
+  const reconnect = usePendingAction("Reconnect failed.");
   const { cancelArchive } = sessionActions;
   // Long-press on touch, right-click on desktop.
   const sessionTitleLongPress = useLongPress(
@@ -528,7 +530,8 @@ export function TopBar({
             )}
             {!isConnected && !isPaused && !isArchived && (
               <button
-                onClick={() => currentSessionId && api.relaunchSession(currentSessionId).catch(console.error)}
+                onClick={() => currentSessionId && void reconnect.run(() => api.relaunchSession(currentSessionId))}
+                aria-busy={reconnect.pending || undefined}
                 className="text-[11px] text-cc-warning hover:text-cc-warning/80 font-medium cursor-pointer hidden sm:inline"
               >
                 Reconnect

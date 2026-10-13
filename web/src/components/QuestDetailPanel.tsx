@@ -1,3 +1,4 @@
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
@@ -103,6 +104,10 @@ export function QuestDetailPanel() {
   const [feedbackDraft, setFeedbackDraft] = useState("");
   const feedbackSaveKey = useSendKey("Save");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  // The handlers report their own errors; these only show that the press is waiting on the server.
+  const savePending = usePendingAction("Save failed.");
+  const finishPending = usePendingAction("Finish failed.");
+  const deletePending = usePendingAction("Delete failed.");
   const [feedbackImages, setFeedbackImages] = useState<QuestImage[]>([]);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
   const feedbackTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1030,7 +1035,8 @@ export function QuestDetailPanel() {
               {/* Save / Cancel */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handlePatch(quest)}
+                  onClick={() => void savePending.run(() => handlePatch(quest))}
+                  aria-busy={savePending.pending || undefined}
                   className="px-3 py-1.5 text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
                 >
                   Save
@@ -1529,7 +1535,8 @@ export function QuestDetailPanel() {
                   {quest.status !== "done" && (
                     <>
                       <button
-                        onClick={() => handleTransition(quest, "done")}
+                        onClick={() => void finishPending.run(() => handleTransition(quest, "done"))}
+                        aria-busy={finishPending.pending || undefined}
                         className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
                       >
                         Finish Quest
@@ -1564,7 +1571,8 @@ export function QuestDetailPanel() {
                   {confirmDeleteId === quest.questId ? (
                     <>
                       <button
-                        onClick={() => handleDelete(quest.questId)}
+                        onClick={() => void deletePending.run(() => handleDelete(quest.questId))}
+                        aria-busy={deletePending.pending || undefined}
                         className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
                       >
                         Confirm Delete

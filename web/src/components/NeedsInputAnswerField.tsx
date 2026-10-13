@@ -26,6 +26,44 @@ export const NEEDS_INPUT_ACTION_ROW_CLASS = "flex flex-wrap items-center justify
 export const NEEDS_INPUT_ANSWER_TEXTAREA_CLASS =
   "min-h-[30px] min-w-0 flex-1 resize-none overflow-y-hidden rounded border border-cc-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention";
 
+/**
+ * The primary send button of every needs-input surface (Reply, Send Response). While the answer is on its
+ * way it shows a waiting state in place of its label, keeping its width so nothing moves under the finger,
+ * and the caller ignores further presses.
+ */
+export function NeedsInputSendButton({
+  label,
+  pending,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  pending: boolean;
+  disabled: boolean;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled && !pending}
+      aria-busy={pending || undefined}
+      className={`${NEEDS_INPUT_SEND_BUTTON_CLASS} cc-squish`}
+    >
+      <span className="cc-send-stack">
+        <span className="cc-send-label">{label}</span>
+        {pending && (
+          <span className="cc-send-pending" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 /** Suggested answers as full-width option rows, one per line so each stays an easy tap target on phones. */
 export function NeedsInputSuggestedAnswers({
   answers,

@@ -415,24 +415,6 @@ html, body {
   100% { transform: scale(1.15) rotate(0deg); opacity: 0; }
 }
 
-/* Send button — satisfying press-down-and-bounce on send */
-@keyframes paw-press {
-  0%   { transform: scale(1); }
-  20%  { transform: scale(0.8) rotate(-4deg); }
-  50%  { transform: scale(1.25) rotate(3deg); }
-  75%  { transform: scale(1.05) rotate(-1deg); }
-  100% { transform: scale(1) rotate(0deg); }
-}
-
-/* Send button — paper plane morphs to paw stamp */
-@keyframes send-morph {
-  0%   { transform: scale(0.6) rotate(-12deg); opacity: 0.5; }
-  30%  { transform: scale(1.3) rotate(4deg); opacity: 1; }
-  60%  { transform: scale(1.1) rotate(-2deg); }
-  80%  { transform: scale(1.05) rotate(1deg); }
-  100% { transform: scale(1) rotate(0deg); }
-}
-
 /*
  * Feed paw trail (PawTrailProvider writes data-paw-state). Answers rest as a
  * dot; the newest keeps a paw with its toes pointing down the feed. A newly
@@ -807,6 +789,177 @@ input,
 textarea,
 select {
   touch-action: manipulation;
+}
+
+/*
+ * Press feedback for every control (installPressFeedback marks data-pressed): an
+ * immediate shrink while pressed and a small spring back on release. The `scale`
+ * property composes with any transform the control already has. Kept in the base
+ * layer so a control's own animate-* utility wins while it plays.
+ */
+@layer base {
+  [data-pressed="down"] {
+    animation: cc-press-down 70ms ease-out forwards;
+  }
+  [data-pressed="up"] {
+    animation: cc-press-release 260ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  /*
+   * A control waiting on the server keeps its look and pulses until the action settles. Disabled busy
+   * controls (such as a loading image slot) keep their own look.
+   */
+  :is(button, [role="button"])[aria-busy="true"]:not(:disabled) {
+    cursor: progress;
+    animation: cc-pending-pulse 1.1s ease-in-out infinite;
+  }
+  /* A list row whose action (such as archive) is waiting on the server. */
+  .cc-row-pending {
+    animation: cc-pending-pulse 1.1s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-pressed="down"] {
+      animation: none;
+      opacity: 0.7;
+    }
+    [data-pressed="up"] {
+      animation: none;
+    }
+    :is(button, [role="button"])[aria-busy="true"]:not(:disabled),
+    .cc-row-pending {
+      animation: none;
+      opacity: 0.6;
+    }
+  }
+}
+
+/* A control may set --cc-press-depth to press deeper than its size-based default. */
+@keyframes cc-press-down {
+  to {
+    scale: var(--cc-press-depth, var(--cc-press-scale, 0.94));
+  }
+}
+
+@keyframes cc-press-release {
+  from {
+    scale: var(--cc-press-depth, var(--cc-press-scale, 0.94));
+  }
+  to {
+    scale: 1;
+  }
+}
+
+@keyframes cc-pending-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * The squish of the main send buttons (composer Send, needs-input Reply and Send Response, class
+ * cc-squish): a deeper press with a springy rebound. Send also ripples a ring and nudges its plane when
+ * a message goes (data-sent); Reply shows bouncing dots instead of its label while the answer is on its
+ * way; the feed card's "Answered" pops in a check when this browser sent the answer.
+ */
+.cc-squish {
+  --cc-press-depth: 0.84;
+  position: relative;
+}
+.cc-squish[data-pressed="up"] {
+  animation: cc-press-release 560ms linear(0, 0.185, 0.579, 0.971, 1.226, 1.309, 1.255, 1.134, 1.012, 0.932, 0.904, 0.92, 0.957, 0.995, 1.021, 1.03, 1.025, 1.014, 1.002, 0.994, 0.991, 0.992, 0.996, 0.999, 1);
+}
+.cc-squish[aria-busy="true"] {
+  /* The dots show the wait instead of the shared pulse. */
+  animation: none;
+}
+.cc-squish[data-sent]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: cc-squish-ring 560ms ease-out forwards;
+}
+.cc-squish[data-sent] .cc-send-icon {
+  animation: cc-plane-nudge 420ms ease-out;
+}
+.cc-send-icon {
+  display: inline-flex;
+}
+.cc-send-stack {
+  display: inline-grid;
+}
+.cc-send-stack > * {
+  grid-area: 1 / 1;
+}
+.cc-squish[aria-busy="true"] .cc-send-label {
+  visibility: hidden;
+}
+.cc-send-pending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.cc-send-pending > i {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: cc-dot-bounce 900ms ease-in-out infinite;
+}
+.cc-send-pending > i:nth-child(2) {
+  animation-delay: 120ms;
+}
+.cc-send-pending > i:nth-child(3) {
+  animation-delay: 240ms;
+}
+.cc-answered-mark {
+  display: inline-flex;
+  animation: cc-answered-pop 560ms linear(0, 0.185, 0.579, 0.971, 1.226, 1.309, 1.255, 1.134, 1.012, 0.932, 0.904, 0.92, 0.957, 0.995, 1.021, 1.03, 1.025, 1.014, 1.002, 0.994, 0.991, 0.992, 0.996, 0.999, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-squish[data-pressed="up"],
+  .cc-squish[data-sent]::after,
+  .cc-squish[data-sent] .cc-send-icon,
+  .cc-send-pending > i,
+  .cc-answered-mark {
+    animation: none;
+  }
+}
+
+@keyframes cc-squish-ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-cc-primary) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--color-cc-primary) 0%, transparent);
+  }
+}
+
+@keyframes cc-plane-nudge {
+  40% {
+    transform: translate(3px, -3px) rotate(-14deg);
+  }
+}
+
+@keyframes cc-dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes cc-answered-pop {
+  from {
+    scale: 0.4;
+  }
+  to {
+    scale: 1;
+  }
 }
 
 .takode-native-select {

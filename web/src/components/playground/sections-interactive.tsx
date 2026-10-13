@@ -5,7 +5,6 @@ import { PlaygroundVisualDecisionNotification } from "./PlaygroundVisualDecision
 import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
-import { CatPawAvatar } from "../CatIcons.js";
 import { ReplyChip } from "../Composer.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
@@ -24,6 +23,7 @@ import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerA
 import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
 import {
   PlaygroundNeedsInputRecordingPreview,
+  PlaygroundNeedsInputReplyPendingPreview,
   PlaygroundNeedsInputTranscriptionFailurePreview,
 } from "./NeedsInputAnswerPreviews.js";
 import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalSection.js";
@@ -502,7 +502,7 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <PlaygroundContextCommands />
           <div className="mt-4" />
-          <Card label="Send pressed — paw morph">
+          <Card label="Send pressed — squish ring">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 <textarea
@@ -543,11 +543,16 @@ export function PlaygroundInteractiveSections() {
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
+                    {/* A still of the ring rippling out as the message goes. */}
                     <div
-                      className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white animate-[send-morph_500ms_ease-out]"
-                      style={{ animationPlayState: "paused", animationDelay: "-150ms" }}
+                      className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white"
+                      style={{ boxShadow: "0 0 0 6px color-mix(in srgb, var(--color-cc-primary) 30%, transparent)" }}
                     >
-                      <CatPawAvatar className="w-4 h-4" />
+                      <span className="cc-send-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                          <path d="M2 2.5L14 8 2 13.5 2 9.5 9 8 2 6.5Z" />
+                        </svg>
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -854,6 +859,13 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">A recorded answer failed to transcribe.</p>
               <p className="text-cc-muted">The field keeps the answer in place and offers a compact retry path.</p>
               <PlaygroundNeedsInputTranscriptionFailurePreview />
+            </div>
+          </Card>
+          <Card label="needs-input reply on its way">
+            <div className="text-cc-fg text-sm">
+              <p className="mb-1">Reply was pressed on a slow connection.</p>
+              <p className="text-cc-muted">The button shows it is waiting until the server answers.</p>
+              <PlaygroundNeedsInputReplyPendingPreview />
             </div>
           </Card>
           <Card label="needs-input with structured questions">

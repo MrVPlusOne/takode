@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import type { SessionTimer } from "../types.js";
@@ -67,6 +68,7 @@ function useTimers(sessionId: string) {
 
 function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: string }) {
   const [expanded, setExpanded] = useState(false);
+  const cancel = usePendingAction("Cancel failed.");
   const typeLabel =
     timer.type === "recurring"
       ? `every ${timer.originalSpec}`
@@ -107,9 +109,10 @@ function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: s
         </div>
       </div>
       <button
-        onClick={() => void api.cancelTimer(sessionId, timer.id)}
-        className="text-cc-muted hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0 text-xs pt-0.5 cursor-pointer"
-        title="Cancel timer"
+        onClick={() => void cancel.run(() => api.cancelTimer(sessionId, timer.id))}
+        aria-busy={cancel.pending || undefined}
+        className="text-cc-muted hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100 aria-busy:opacity-100 transition-opacity shrink-0 text-xs pt-0.5 cursor-pointer"
+        title={cancel.error ?? "Cancel timer"}
       >
         ✕
       </button>

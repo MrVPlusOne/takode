@@ -1,3 +1,4 @@
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createPortal } from "react-dom";
@@ -776,6 +777,9 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     [sdkSessions, sessionId],
   );
 
+  const unherd = usePendingAction("Unherd failed.");
+  const [unherdingId, setUnherdingId] = useState<string | null>(null);
+  const restart = usePendingAction("Restart failed.");
   const handleUnherd = useCallback(
     async (workerId: string) => {
       try {
@@ -890,9 +894,13 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
                       </select>
                     )}
                     <button
-                      className="cursor-pointer p-0.5 text-cc-muted opacity-0 transition-all hover:text-cc-error group-hover/herd:opacity-100"
+                      className="cursor-pointer p-0.5 text-cc-muted opacity-0 transition-all hover:text-cc-error group-hover/herd:opacity-100 aria-busy:opacity-100"
                       title="Unherd this session"
-                      onClick={() => handleUnherd(s.id)}
+                      aria-busy={(unherd.pending && unherdingId === s.id) || undefined}
+                      onClick={() => {
+                        setUnherdingId(s.id);
+                        void unherd.run(() => handleUnherd(s.id));
+                      }}
                     >
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
                         <path d="M4 4l8 8M12 4l-8 8" />
@@ -916,7 +924,8 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
                         </button>
                         <button
                           className="cursor-pointer rounded bg-cc-primary/15 px-2 py-0.5 text-[10px] font-medium text-cc-primary hover:bg-cc-primary/25"
-                          onClick={handlePermissionModeChange}
+                          onClick={() => void restart.run(handlePermissionModeChange)}
+                          aria-busy={restart.pending || undefined}
                         >
                           Restart
                         </button>

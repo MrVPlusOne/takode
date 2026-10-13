@@ -40,10 +40,11 @@ import {
   formatRelativeTime,
 } from "./AttentionKind.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
-  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputSendButton,
   NeedsInputAnswerField,
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
@@ -347,9 +348,11 @@ function NotificationItem({
   /** Thread tab lookups for the second line of prompts. */
   threads?: AttentionThreadTitles;
 }) {
+  const toggle = usePendingAction("Update failed.");
+  const response = usePendingAction("Response could not be delivered.");
   const toggleDone = useCallback(() => {
-    api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
-  }, [sessionId, notif.id, notif.done]);
+    void toggle.run(() => api.markNotificationDone(sessionId, notif.id, !notif.done));
+  }, [sessionId, notif.id, notif.done, toggle.run]);
 
   const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
   // Prompts name the thread tab they belong to on the second line, as the attention lists do.
@@ -457,7 +460,7 @@ function NotificationItem({
   const sendResponse = useCallback(
     (e: React.SyntheticEvent) => {
       e.stopPropagation();
-      if (!canSendResponse) return;
+      if (!canSendResponse || response.pending) return;
       runAfterNotificationOwnerThreadSelected({
         notification: notif,
         currentThreadKey,
@@ -466,21 +469,33 @@ function NotificationItem({
           const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
           const threadKey = ownerThreadKey || MAIN_THREAD_KEY;
           const content = formatNeedsInputResponse(notif.summary, questionViews, answersByQuestion);
-          api
-            .sendNeedsInputResponse(sessionId, notif.id, {
-              content,
-              threadKey,
-              ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
-            })
-            .then(() => {
+          void response
+            .run(() =>
+              api.sendNeedsInputResponse(sessionId, notif.id, {
+                content,
+                threadKey,
+                ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+              }),
+            )
+            .then((sent) => {
+              if (!sent) return;
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               setAnswersByQuestion({});
-            })
-            .catch(() => {});
+            });
         },
       });
     },
-    [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
+    [
+      answersByQuestion,
+      canSendResponse,
+      currentThreadKey,
+      notif,
+      onSelectThread,
+      questionViews,
+      response.pending,
+      response.run,
+      sessionId,
+    ],
   );
   const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || getNotificationTitle(notif);
@@ -531,6 +546,7 @@ function NotificationItem({
         onClick={toggleDone}
         className="mt-0.5 shrink-0 w-4 h-4 rounded border border-cc-border/60 flex items-center justify-center cursor-pointer hover:border-cc-primary/50 transition-colors"
         aria-label={notif.done ? "Mark as active" : "Mark as done"}
+        aria-busy={toggle.pending || undefined}
       >
         {notif.done && (
           <svg
@@ -678,16 +694,19 @@ function NotificationItem({
               >
                 Use composer
               </button>
-              <button
-                type="button"
-                onClick={sendResponse}
+              <NeedsInputSendButton
+                label="Send Response"
+                pending={response.pending}
                 disabled={!canSendResponse}
-                className={NEEDS_INPUT_SEND_BUTTON_CLASS}
-              >
-                Send Response
-              </button>
+                onClick={sendResponse}
+              />
             </div>
           </div>
+        )}
+        {(response.error || toggle.error) && (
+          <p className="mt-1 text-right text-[10px] leading-snug text-cc-error" role="alert">
+            {response.error ?? toggle.error}
+          </p>
         )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
@@ -725,11 +744,12 @@ function NotificationPopover({
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const popoverLayoutStyle = useNotificationPopoverLayout(anchor);
+  const readAll = usePendingAction("Read All failed.");
   const markAllRead = useCallback(() => {
-    for (const notification of active) {
-      api.markNotificationDone(sessionId, notification.id, true).catch(() => {});
-    }
-  }, [active, sessionId]);
+    void readAll.run(() =>
+      Promise.all(active.map((notification) => api.markNotificationDone(sessionId, notification.id, true))),
+    );
+  }, [active, readAll.run, sessionId]);
 
   // Escape to close
   useEffect(() => {
@@ -770,6 +790,8 @@ function NotificationPopover({
           {active.length > 0 && (
             <button
               onClick={markAllRead}
+              aria-busy={readAll.pending || undefined}
+              title={readAll.error ?? undefined}
               className="text-[11px] text-cc-primary hover:text-cc-primary-hover transition-colors px-1.5 py-0.5 cursor-pointer"
             >
               Read All

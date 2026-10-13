@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { disconnectSession } from "../ws.js";
+import { trackSessionRowAction } from "../utils/pending-session-rows.js";
 import { navigateToMostRecentSession } from "../utils/routing.js";
 import { applyAuthoritativeSessionArchive, refreshActiveSessionMetadata } from "../session-list-hydration.js";
 import { archiveGroupNavigationExcludedIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
@@ -19,8 +20,9 @@ export function useSessionActions(
   const handlePauseToggle = useCallback(
     async (sessionId: string, paused: boolean) => {
       try {
-        if (paused) await api.unpauseSession(sessionId);
-        else await api.pauseSession(sessionId);
+        await trackSessionRowAction<unknown>(sessionId, () =>
+          paused ? api.unpauseSession(sessionId) : api.pauseSession(sessionId),
+        );
         await refreshSessionListNow();
       } catch (err) {
         console.warn("[sidebar] failed to toggle session pause:", err);
@@ -34,9 +36,9 @@ export function useSessionActions(
       e.stopPropagation();
       try {
         disconnectSession(sessionId);
-        await api.deleteSession(sessionId);
-      } catch {
-        // best-effort
+        await trackSessionRowAction(sessionId, () => api.deleteSession(sessionId));
+      } catch (err) {
+        console.warn("[sidebar] failed to delete session:", err);
       }
       if (useStore.getState().currentSessionId === sessionId) {
         navigateToMostRecentSession({ excludeId: sessionId });
@@ -77,10 +79,12 @@ export function useSessionActions(
   async function doArchive(sessionId: string, force?: boolean) {
     try {
       disconnectSession(sessionId);
-      const result = await api.archiveSession(sessionId, force ? { force: true } : undefined);
+      const result = await trackSessionRowAction(sessionId, () =>
+        api.archiveSession(sessionId, force ? { force: true } : undefined),
+      );
       applyAuthoritativeSessionArchive(result.sessionId ?? sessionId, result.archivedAt);
-    } catch {
-      // best-effort
+    } catch (err) {
+      console.warn("[sidebar] failed to archive session:", err);
     }
     if (useStore.getState().currentSessionId === sessionId) {
       navigateToMostRecentSession({ excludeId: sessionId });
@@ -113,14 +117,14 @@ export function useSessionActions(
         }
         disconnectSession(leaderId);
 
-        const result = await api.archiveGroup(leaderId);
+        const result = await trackSessionRowAction(leaderId, () => api.archiveGroup(leaderId));
         archivedIds = archiveGroupSuccessfulIds(leaderId, workers, result);
         const archivedAt = Date.now();
         for (const archivedId of archivedIds) {
           applyAuthoritativeSessionArchive(archivedId, archivedAt);
         }
-      } catch {
-        // best-effort
+      } catch (err) {
+        console.warn("[sidebar] failed to archive session group:", err);
       }
       // Navigate away if the current session is part of the archived group
       const currentId = useStore.getState().currentSessionId;
@@ -158,9 +162,9 @@ export function useSessionActions(
   async function handleUnarchiveSession(e: React.MouseEvent, sessionId: string) {
     e.stopPropagation();
     try {
-      await api.unarchiveSession(sessionId);
-    } catch {
-      // best-effort
+      await trackSessionRowAction(sessionId, () => api.unarchiveSession(sessionId));
+    } catch (err) {
+      console.warn("[sidebar] failed to unarchive session:", err);
     }
     void refreshSessionListNow(true);
   }

@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -149,7 +150,7 @@ type LiveConnectionStatusBannerProps = {
   hasEverConnected?: boolean;
   idlePaused?: boolean;
   isResumeMissingRolloutError?: boolean;
-  onRelaunch?: () => void;
+  onRelaunch?: () => Promise<unknown>;
 };
 
 function LiveConnectionStatusBanner({
@@ -162,6 +163,7 @@ function LiveConnectionStatusBanner({
   isResumeMissingRolloutError = false,
   onRelaunch,
 }: LiveConnectionStatusBannerProps) {
+  const relaunch = usePendingAction("Relaunch failed.");
   const isWarning = status === "server-unreachable" || status === "broken" || status === "recovery-suppressed";
   const message =
     status === "server-unreachable"
@@ -217,7 +219,8 @@ function LiveConnectionStatusBanner({
         {(status === "broken" || status === "recovery-suppressed" || status === "cli-disconnected") && onRelaunch && (
           <button
             type="button"
-            onClick={onRelaunch}
+            onClick={() => void relaunch.run(onRelaunch)}
+            aria-busy={relaunch.pending || undefined}
             className={`shrink-0 rounded-md px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
               isWarning
                 ? "bg-cc-warning/20 text-cc-warning hover:bg-cc-warning/30"
@@ -404,6 +407,7 @@ export function ChatView({
   hasThreadRoute?: boolean;
   viewportHandoffThreadEntryScopeId?: string;
 }) {
+  const unarchive = usePendingAction("Unarchive failed.");
   const {
     sessionPerms,
     connStatus,
@@ -1021,7 +1025,9 @@ export function ChatView({
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
           <span className="text-xs text-amber-300 font-medium">This session is archived. History is read-only.</span>
           <button
-            onClick={() => api.unarchiveSession(sessionId).catch(console.error)}
+            onClick={() => void unarchive.run(() => api.unarchiveSession(sessionId))}
+            aria-busy={unarchive.pending || undefined}
+            title={unarchive.error ?? undefined}
             className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
           >
             Unarchive
@@ -1180,7 +1186,7 @@ export function ChatView({
             liveConnectionStatus === "broken" ||
             liveConnectionStatus === "cli-disconnected" ||
             liveConnectionStatus === "recovery-suppressed"
-              ? () => api.relaunchSession(sessionId).catch(console.error)
+              ? () => api.relaunchSession(sessionId)
               : undefined
           }
         />

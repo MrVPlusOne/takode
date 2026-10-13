@@ -7,11 +7,13 @@ import { LoginGate } from "./components/LoginPage.js";
 import { checkLogin, installLoginRequiredWatcher } from "./browser-login.js";
 import { installBrowserPerfDebugHooks } from "./utils/browser-perf-debug.js";
 import { installUiCrashDebugHooks } from "./utils/ui-crash-debug.js";
+import { installPressFeedback } from "./utils/press-feedback.js";
 import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
 import "./index.css";
 
 installUiCrashDebugHooks();
 installLoginRequiredWatcher();
+installPressFeedback();
 if (import.meta.env.DEV) {
   installBrowserPerfDebugHooks();
 }

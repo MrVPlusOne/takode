@@ -1,3 +1,4 @@
+import { useSessionRowPending } from "../utils/pending-session-rows.js";
 import { SessionArchiveConfirmation, type ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 export type { ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 import { memo, useRef, useCallback, useState, type RefObject } from "react";
@@ -334,6 +335,7 @@ function SessionItemComponent({
   );
   const inboxUrgency = useNotificationUrgency(s.id);
   const canSwipeToArchive = !archived && !reorderMode;
+  const rowPending = useSessionRowPending(s.id);
   const effectiveAttention = attention ?? null;
   const effectiveHasUnread = !!hasUnread;
 
@@ -964,7 +966,8 @@ function SessionItemComponent({
 
   return (
     <div
-      className={`relative group ${archived ? "opacity-50" : ""}`}
+      className={`relative group ${archived ? "opacity-50" : ""} ${rowPending ? "cc-row-pending" : ""}`}
+      aria-busy={rowPending || undefined}
       style={indentLevel > 0 ? { paddingLeft: `${indentLevel * 16}px` } : undefined}
     >
       {canSwipeToArchive && (
