@@ -59,6 +59,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   lastUserMessageAt?: number;
   /** The CLI's internal session ID (from system.init), used for --resume */
   cliSessionId?: string;
+  /** What Takode rebuilt for this session that its agent has not been told yet (see `session-recovery-notice.ts`). */
+  pendingRecovery?: import("./session-recovery-notice.js").SessionRecoveryFacts;
   /** Codex leader recycle lineage across fresh-thread swaps within one Takode session. */
   codexLeaderRecycleLineage?: CodexLeaderRecycleLineage;
   /** Resolved Codex leader recycle threshold derived at launch from source model effective context. */

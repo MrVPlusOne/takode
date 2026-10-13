@@ -55,8 +55,9 @@ function sanitizeBranch(branch: string): string {
   return branch.replace(/\//g, "--");
 }
 
-export function worktreeDir(repoName: string, branch: string): string {
-  return join(WORKTREES_BASE, repoName, sanitizeBranch(branch));
+/** Where a session worktree goes: under `root` (a machine's configured worktree folder) or the default. */
+export function worktreeDir(repoName: string, branch: string, root = WORKTREES_BASE): string {
+  return join(root, repoName, sanitizeBranch(branch));
 }
 
 /** Find a unique directory path by appending a random suffix if needed. */
@@ -575,9 +576,16 @@ export function ensureWorktree(
 export async function ensureWorktreeAsync(
   repoRoot: string,
   branchName: string,
-  options?: { baseBranch?: string; createBranch?: boolean; forceNew?: boolean },
+  options?: {
+    baseBranch?: string;
+    createBranch?: boolean;
+    forceNew?: boolean;
+    /** The machine's folder for session worktrees, instead of `~/.companion/worktrees`. */
+    worktreeRoot?: string;
+  },
 ): Promise<WorktreeCreateResult> {
   const repoName = basename(repoRoot);
+  const root = options?.worktreeRoot || WORKTREES_BASE;
 
   const existing = await listWorktreesAsync(repoRoot);
   const found = existing.find((wt) => wt.branch === branchName);
@@ -586,11 +594,11 @@ export async function ensureWorktreeAsync(
     return { worktreePath: found.path, branch: branchName, actualBranch: branchName, isNew: false };
   }
 
-  await mkdir(join(WORKTREES_BASE, repoName), { recursive: true });
+  await mkdir(join(root, repoName), { recursive: true });
 
   const createWithUniqueBranch = async (commitish: string, isNew = false): Promise<WorktreeCreateResult> => {
     const uniqueBranch = await generateUniqueWorktreeBranchAsync(repoRoot, branchName);
-    const targetPath = worktreeDir(repoName, uniqueBranch);
+    const targetPath = worktreeDir(repoName, uniqueBranch, root);
     await gitAsync(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitish}`, repoRoot);
     const createdBranch = await captureCreatedWorktreeBranch(targetPath, uniqueBranch);
     return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew, createdBranch };

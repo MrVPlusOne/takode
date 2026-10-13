@@ -167,6 +167,22 @@ describe("SettingsHostsSection", () => {
     expect(screen.queryByTestId("host-codex-override")).toBeNull();
   });
 
+  // A host can keep session worktrees in a folder on storage that outlives the
+  // machine, so uncommitted work survives the host moving to another machine.
+  it("edits a machine's worktree folder", async () => {
+    const requests = serveHostRoutes([hostRow({ id: "h1", name: "slurm-node" })]);
+    render(<SettingsHostsSection />);
+    const folder = await screen.findByLabelText("Worktree folder", { selector: "#h1-worktree-root" });
+    expect((folder as HTMLInputElement).placeholder).toBe("~/.companion/worktrees");
+
+    fireEvent.focus(folder);
+    fireEvent.change(folder, { target: { value: " /shared/takode-worktrees " } });
+    await act(async () => fireEvent.blur(folder));
+    await waitFor(() => expect(requests).toContain("PUT /api/hosts/h1/settings"));
+    // The value shown is the one the server saved.
+    await waitFor(() => expect((folder as HTMLInputElement).value).toBe("/shared/takode-worktrees"));
+  });
+
   // This machine's sessions always run under its node, so its card shows how
   // the node is doing and offers no switch to turn it off.
   it("shows this machine's node status without a switch", async () => {

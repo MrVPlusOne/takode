@@ -24,6 +24,11 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   /** Republish the session's status row, e.g. when its background jobs change. */
   invalidateSessionNavigation?: (sessionId: string) => void;
+  /**
+   * Tell the new backend what Takode rebuilt for the session before any other
+   * input, then run `then`; false when there is nothing to tell.
+   */
+  deliverSessionRecoveryNotice?: (session: any, then: () => void) => boolean;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -93,9 +98,7 @@ export function attachClaudeSdkAdapterLifecycle(
       if (compactPending) {
         deps.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
       }
-      if (session.pendingMessages.length > 0) {
-        flushQueuedSdkMessages(session, adapter, `after SDK replay done for session ${sessionTag(session.id)}`);
-      }
+      releaseQueuedSdkInput(session, adapter, deps, `after SDK replay done for session ${sessionTag(session.id)}`);
       const launcherInfoAfterReplay = deps.getLauncherSessionInfo(session.id);
       if (launcherInfoAfterReplay?.isOrchestrator) {
         deps.onOrchestratorTurnEnd(session.id);
@@ -121,8 +124,8 @@ export function attachClaudeSdkAdapterLifecycle(
     deps.broadcastToBrowsers(session, { type: "status_change", status: "running" });
   }
 
-  if (!session.cliResuming && session.pendingMessages.length > 0) {
-    flushQueuedSdkMessages(session, adapter, `on SDK adapter attach for session ${sessionTag(sessionId)}`);
+  if (!session.cliResuming) {
+    releaseQueuedSdkInput(session, adapter, deps, `on SDK adapter attach for session ${sessionTag(sessionId)}`);
   }
 
   if (!session.cliResuming) {
@@ -303,8 +306,21 @@ export function attachClaudeSdkAdapterLifecycle(
  */
 export function flushHeldSdkMessages(session: any): void {
   const adapter = session.claudeSdkAdapter;
-  if (!adapter || session.cliResuming || session.pendingMessages.length === 0) return;
+  // Messages behind an undelivered recovery notice go after it, when the backend is ready.
+  if (!adapter || session.cliResuming || session.recoveryNoticeInFlight || session.pendingMessages.length === 0) return;
   flushQueuedSdkMessages(session, adapter, `for session ${sessionTag(session.id)} now that its host is back`);
+}
+
+/**
+ * The backend can take input now: first the recovery notice, when Takode
+ * rebuilt something for the session, then the messages queued for it.
+ */
+function releaseQueuedSdkInput(session: any, adapter: any, deps: ClaudeSdkAdapterLifecycleDeps, reason: string): void {
+  const flush = () => {
+    if (session.claudeSdkAdapter !== adapter || session.pendingMessages.length === 0) return;
+    flushQueuedSdkMessages(session, adapter, reason);
+  };
+  if (!deps.deliverSessionRecoveryNotice?.(session, flush)) flush();
 }
 
 function flushQueuedSdkMessages(session: any, adapter: any, reason: string): void {

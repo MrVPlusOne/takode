@@ -496,8 +496,8 @@ describe("relaunch", () => {
   it("continues a Claude session in a fresh conversation when its saved one is gone from the machine", async () => {
     // A host moved to a new machine loses Claude's transcripts, and resuming
     // then fails the same way every time. The session drops the conversation ID
-    // so the next launch starts fresh, and the server is told so it can explain
-    // that to the agent and relaunch.
+    // so the next launch starts fresh, notes the loss for its agent's recovery
+    // notice, and the server is told so it can relaunch.
     await launcher.launch({ cwd: "/tmp/project" });
     launcher.setCLISessionId("test-session-id", "cli-gone");
     const lost = vi.fn();
@@ -506,7 +506,11 @@ describe("relaunch", () => {
     sdkAdapterLaunches
       .at(-1)!
       .options.onBackendExit("Claude Code returned an error result: No conversation found with session ID: cli-gone");
-    expect(launcher.getSession("test-session-id")).toMatchObject({ state: "exited", cliSessionId: undefined });
+    expect(launcher.getSession("test-session-id")).toMatchObject({
+      state: "exited",
+      cliSessionId: undefined,
+      pendingRecovery: { conversationLost: true },
+    });
     // Told only after the bridge has handled the disconnect.
     expect(lost).not.toHaveBeenCalled();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -514,6 +518,19 @@ describe("relaunch", () => {
 
     expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
     expect(sdkAdapterLaunches.at(-1)!.options.cliSessionId).toBeUndefined();
+    // The facts wait for the bridge to tell the new process, which takes them once.
+    expect(launcher.takeRecovery("test-session-id")).toEqual({ conversationLost: true });
+    expect(launcher.takeRecovery("test-session-id")).toBeUndefined();
+  });
+
+  it("keeps everything Takode rebuilt for a session together until its agent is told", async () => {
+    // A recreated worktree is noted before the launch; a lost conversation is only
+    // found when that launch fails. The agent hears both in one notice.
+    await launcher.launch({ cwd: "/tmp/project" });
+    const checkout = { oldCwd: "/gone", cwd: "/new", branch: "main-wt-1", ownBranchKept: true };
+    launcher.noteRecovery("test-session-id", { checkout });
+    launcher.noteRecovery("test-session-id", { conversationLost: true });
+    expect(launcher.takeRecovery("test-session-id")).toEqual({ checkout, conversationLost: true });
   });
 
   it("fails a relaunch whose working directory cannot be restored, without starting a process", async () => {

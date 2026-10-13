@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import * as gitUtils from "./git-utils.js";
 import { onMachine } from "./remote-host/host-operations.js";
 import { machineFor } from "./remote-host/session-machine.js";
+import { worktreeRootOption } from "./remote-host/machine-settings.js";
 import type { SdkSessionInfo } from "./cli-launcher.js";
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
@@ -468,16 +469,15 @@ export function rewritePathsInFile(filePath: string, oldHome: string, newHome: s
 
 // ─── On-Demand Worktree Recreation ──────────────────────────────────────────
 
+/**
+ * Recreate a session's worktree when its folder is gone, and note for its
+ * agent what the new checkout kept and lost (`launcher.noteRecovery`).
+ */
 export async function recreateWorktreeIfMissing(
   sessionId: string,
   info: SdkSessionInfo,
   deps: { launcher: CliLauncher; worktreeTracker: WorktreeTracker; wsBridge: WsBridge },
-): Promise<{
-  recreated: boolean;
-  error?: string;
-  /** What the session's agent should be told: set when the checkout could not keep the session's own branch. */
-  notice?: string;
-}> {
+): Promise<{ recreated: boolean; error?: string }> {
   if ((await machineFor(info.hostId).stat(info.cwd)) !== null) return { recreated: false };
 
   if (!info.isWorktree || !info.repoRoot || !info.branch) {
@@ -489,6 +489,7 @@ export async function recreateWorktreeIfMissing(
     repoRoot: info.repoRoot,
     branch: info.branch,
     ...(info.actualBranch ? { actualBranch: info.actualBranch } : {}),
+    ...worktreeRootOption(info.hostId),
   });
   if ("error" in checkout) return { recreated: false, error: checkout.error };
 
@@ -528,19 +529,23 @@ export async function recreateWorktreeIfMissing(
     `[migration] ${checkout.restored ? "Restored" : "Recreated"} worktree for session ${sessionId}: ${checkout.worktreePath}` +
       (baseBranch !== info.branch ? ` (from ${baseBranch}; ${info.branch} does not exist in ${info.repoRoot})` : ""),
   );
-  if (checkout.restored) return { recreated: true };
-  // The session's own branch is gone, so its agent starts over from a fresh branch and should know.
-  const lostBranch =
-    info.actualBranch && info.actualBranch !== info.branch ? ` or its branch ${info.actualBranch}` : "";
-  const fallback =
-    baseBranch !== info.branch ? ` (${info.branch} does not exist in ${info.repoRoot} on this machine)` : "";
-  return {
-    recreated: true,
-    notice:
-      `Your worktree ${info.cwd} no longer existed, so Takode created a new one at ${checkout.worktreePath} ` +
-      `on branch ${checkout.actualBranch}, starting from ${baseBranch}${fallback}. ` +
-      `Changes that were only in the old checkout${lostBranch} are not in it.`,
-  };
+  const ownBranch = info.actualBranch && info.actualBranch !== info.branch ? info.actualBranch : undefined;
+  deps.launcher.noteRecovery(sessionId, {
+    checkout: {
+      oldCwd: info.cwd,
+      cwd: checkout.worktreePath,
+      branch: checkout.actualBranch,
+      ownBranchKept: checkout.restored,
+      ...(checkout.restored
+        ? {}
+        : {
+            baseBranch,
+            ...(ownBranch ? { previousBranch: ownBranch } : {}),
+            ...(baseBranch !== info.branch ? { missingBase: { branch: info.branch, repoRoot: info.repoRoot } } : {}),
+          }),
+    },
+  });
+  return { recreated: true };
 }
 
 /**
@@ -556,6 +561,8 @@ export async function recreateSessionCheckout(input: {
   repoRoot: string;
   branch: string;
   actualBranch?: string;
+  /** The machine's folder for session worktrees, when not the default. */
+  worktreeRoot?: string;
 }): Promise<
   | {
       worktreePath: string;
@@ -586,7 +593,7 @@ export async function recreateSessionCheckout(input: {
       (await gitUtils.branchExistsAsync(repoRoot, actualBranch)) ||
       (await gitUtils.restoreArchivedBranchAsync(repoRoot, actualBranch)) !== null;
     if (ownBranch) {
-      const targetPath = gitUtils.worktreeDir(basename(repoRoot), actualBranch);
+      const targetPath = gitUtils.worktreeDir(basename(repoRoot), actualBranch, input.worktreeRoot);
       try {
         await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoRoot);
         migrateClaudeProjectDir(input.oldCwd, targetPath);
@@ -617,6 +624,7 @@ export async function recreateSessionCheckout(input: {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,
     forceNew: true,
+    ...(input.worktreeRoot ? { worktreeRoot: input.worktreeRoot } : {}),
   });
   // Claude Code derives the project directory from the cwd, so the transcript
   // would otherwise be stranded at the old project dir path.

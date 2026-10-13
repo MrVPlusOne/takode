@@ -115,6 +115,8 @@ export interface AdapterBrowserRoutingSessionLike {
 export interface AdapterBrowserRoutingDeps {
   /** Whether a registered remote host is offline, so a backend running there cannot take input now. */
   isHostOffline?: (hostId: string) => boolean;
+  /** Whether the session's new backend has not yet been told what Takode rebuilt, so other input must wait. */
+  isSessionRecoveryNoticePending?: (session: AdapterBrowserRoutingSessionLike) => boolean;
   flushHerdEventsBeforePromptInput?: (sessionId: string, before: number) => void;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;

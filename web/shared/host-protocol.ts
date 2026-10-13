@@ -63,10 +63,18 @@ export type ProcessData = { data: string; text?: never } | { text: string; data?
 /** Programs the coordinator names by role; each host resolves them to its own installation. */
 export type HostProgramRole = "claude" | "codex";
 
-/** Settings of one machine, stored on the coordinator. Empty values mean the role's own name on the host's PATH. */
+/** Settings of one machine, stored on the coordinator. Empty values mean the defaults. */
 export interface HostMachineSettings {
+  /** Claude Code program; empty means `claude` on the machine's PATH. */
   claudeBinary: string;
+  /** Codex program; empty means `codex` on the machine's PATH. */
   codexBinary: string;
+  /**
+   * Absolute folder for session worktrees on the machine; empty means
+   * `~/.companion/worktrees`. A folder on storage that outlives the machine
+   * keeps uncommitted work when the host moves to another machine.
+   */
+  worktreeRoot?: string;
 }
 
 export type HostCommand =

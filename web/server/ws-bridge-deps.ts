@@ -112,6 +112,11 @@ import {
 } from "./bridge/ws-bridge-codex-pending-input-deps.js";
 import { attachClaudeSdkAdapterLifecycle } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
 import {
+  deliverSessionRecoveryNotice,
+  isSessionRecoveryNoticePending,
+  sessionRecoveryDeliveryDeps,
+} from "./bridge/session-recovery-delivery.js";
+import {
   flushQueuedMessagesToCodexAdapter as flushQueuedMessagesToCodexAdapterController,
   handleCodexAdapterBrowserMessage as handleCodexAdapterBrowserMessageController,
 } from "./bridge/codex-adapter-browser-message-controller.js";
@@ -1100,6 +1105,8 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
     setCliSessionId: (sessionId: string, cliSessionId: string) =>
       host.launcher?.setCLISessionId?.(sessionId, cliSessionId),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
+    deliverSessionRecoveryNotice: (targetSession: unknown, then: () => void) =>
+      deliverSessionRecoveryNotice(targetSession as Session, sessionRecoveryDeliveryDeps(host, "claude"), then),
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,
@@ -1404,6 +1411,8 @@ export function getBrowserRoutingDeps(host: any) {
         : host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>, actorSessionId),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
     isHostOffline: (hostId: string) => !hostIsOnline(hostId),
+    isSessionRecoveryNoticePending: (targetSession: unknown) =>
+      isSessionRecoveryNoticePending(host, targetSession as Session),
     persistHistoryMetadataRepair: async (targetSession: unknown, expectedFrozenCount: number) => {
       if (!host.store) return;
       await host.store.rewriteFrozenHistoryMetadata(
@@ -1688,6 +1697,9 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
     beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) =>
       beforeCodexWorkerV2SessionMetaDispatch(sessionId, cliSessionId),
     completeCodexLeaderRecycle: (sessionId: string) => host.launcher?.completeCodexLeaderRecycle(sessionId),
+    noteConversationLost: (sessionId: string) => host.launcher?.noteRecovery(sessionId, { conversationLost: true }),
+    deliverSessionRecoveryNotice: (targetSession: unknown, then: () => void) =>
+      deliverSessionRecoveryNotice(targetSession as Session, sessionRecoveryDeliveryDeps(host, "codex"), then),
     hydrateCodexResumedHistory: (targetSession: unknown, snapshot: unknown) =>
       hydrateCodexResumedHistoryController(
         targetSession as Session,

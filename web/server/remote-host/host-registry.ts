@@ -35,7 +35,7 @@ export function processHostOf(session: { hostId?: string; hostProcId?: string })
   return session.hostId ?? (session.hostProcId ? LOCAL_HOST_ID : undefined);
 }
 
-const DEFAULT_MACHINE_SETTINGS: MachineSettings = { claudeBinary: "", codexBinary: "" };
+const DEFAULT_MACHINE_SETTINGS: MachineSettings = { claudeBinary: "", codexBinary: "", worktreeRoot: "" };
 
 interface StoredHost extends RegisteredHost {
   /** SHA-256 of the host token; the token itself is shown once at registration. */
@@ -270,6 +270,7 @@ function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettin
   const defined: Partial<MachineSettings> = {};
   if (typeof patch.claudeBinary === "string") defined.claudeBinary = patch.claudeBinary.trim();
   if (typeof patch.codexBinary === "string") defined.codexBinary = patch.codexBinary.trim();
+  if (typeof patch.worktreeRoot === "string") defined.worktreeRoot = patch.worktreeRoot.trim();
   return defined;
 }
 

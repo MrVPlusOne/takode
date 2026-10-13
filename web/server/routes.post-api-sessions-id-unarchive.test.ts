@@ -196,6 +196,7 @@ function createMockLauncher() {
     setArchived: vi.fn(),
     setWorktreeCleanupState: vi.fn(),
     updateWorktree: vi.fn(),
+    noteRecovery: vi.fn(),
     removeSession: vi.fn(),
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
     getPort: vi.fn(() => 3456),
@@ -542,9 +543,10 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 
-  it("tells the agent after relaunch when its worktree starts over on a fresh branch", async () => {
+  it("notes for the relaunched agent that its worktree starts over on a fresh branch", async () => {
     // The session's branch and its recorded base are both gone from this repository,
     // so the new checkout starts from the default branch, and the agent must know.
+    // The relaunch's new process is told first thing (see session-recovery-notice.bridge.test.ts).
     launcher.getSession.mockReturnValue({
       sessionId: "s1",
       state: "exited",
@@ -576,15 +578,19 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect((await res.json()).worktreeRecreated).toBe(true);
     expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "main", expect.anything());
     expect(launcher.updateWorktree).toHaveBeenCalledWith("s1", expect.objectContaining({ branch: "main" }));
-    // Injected after the relaunch, so it goes to the new process instead of requesting another relaunch.
-    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
-      "s1",
-      expect.stringContaining("feature does not exist in /repo"),
-      { sessionId: "system:session-recovery", sessionLabel: "System" },
+    // Noted before the relaunch, whose new process hears it before any other input.
+    expect(launcher.noteRecovery).toHaveBeenCalledWith("s1", {
+      checkout: expect.objectContaining({
+        oldCwd: "/nonexistent/worktrees/repo/feature-wt-1111",
+        branch: "main-wt-2222",
+        ownBranchKept: false,
+        missingBase: { branch: "feature", repoRoot: "/repo" },
+      }),
+    });
+    expect(launcher.noteRecovery.mock.invocationCallOrder[0]).toBeLessThan(
+      launcher.relaunch.mock.invocationCallOrder[0],
     );
-    expect(launcher.relaunch.mock.invocationCallOrder[0]).toBeLessThan(
-      bridge.injectUserMessage.mock.invocationCallOrder[0],
-    );
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
   });
 
   it("rejects unarchive while archived worktree cleanup is still pending", async () => {

@@ -32,6 +32,7 @@ import { blocksAutomaticCodexResumeTurnRecovery } from "./codex-provider-result-
 import { summarizeLocalCodexDeliveryActivityFrom } from "./codex-delivery-ownership.js";
 import { buildCodexBatchMessageInputs, buildCodexPendingBatchRecoveryText } from "./codex-pending-start-batch.js";
 import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
+import { SESSION_RECOVERY_SOURCE } from "../session-recovery-notice.js";
 import type {
   CodexRecoveryOrchestratorDeps,
   CodexRecoveryOrchestratorSessionLike,
@@ -117,7 +118,9 @@ export function addPendingCodexInput(
   const beforeIndex = input.queueBeforeOwnerId
     ? session.pendingCodexInputs.findIndex((candidate) => candidate.id === input.queueBeforeOwnerId)
     : -1;
-  if (beforeIndex >= 0) session.pendingCodexInputs.splice(beforeIndex, 0, input);
+  // A relaunched backend hears what Takode rebuilt for the session before anything else.
+  if (input.agentSource?.sessionId === SESSION_RECOVERY_SOURCE.sessionId) session.pendingCodexInputs.unshift(input);
+  else if (beforeIndex >= 0) session.pendingCodexInputs.splice(beforeIndex, 0, input);
   else session.pendingCodexInputs.push(input);
   session.lastUserMessage = formatReplyContentForPreview(
     formatAnnotatedMessage(input.content || "", input.annotations),

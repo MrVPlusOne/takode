@@ -11,6 +11,7 @@ import {
   migrateClaudeProjectDir,
 } from "./migration.js";
 import * as gitUtils from "./git-utils.js";
+import { configureMachineSettings } from "./remote-host/machine-settings.js";
 
 // A registered host whose only folder is one that does not exist on this machine.
 const remoteHost = vi.hoisted(() => ({ id: "remote-host", dir: "/home/someone-else/checkout-only-on-the-host" }));
@@ -337,8 +338,9 @@ describe("recreateWorktreeIfMissing", () => {
     const updateWorktree = vi.fn();
     const addMapping = vi.fn();
     const markWorktree = vi.fn();
+    const noteRecovery = vi.fn();
     const mockDeps = {
-      launcher: { updateWorktree } as any,
+      launcher: { updateWorktree, noteRecovery } as any,
       worktreeTracker: { addMapping } as any,
       wsBridge: { markWorktree } as any,
     };
@@ -376,6 +378,10 @@ describe("recreateWorktreeIfMissing", () => {
         actualBranch: "jiayi-wt-8153",
         disposableBranch: info.disposableBranch,
       });
+      // The agent still learns that uncommitted work in the old folder is gone.
+      expect(noteRecovery).toHaveBeenCalledWith("test-session", {
+        checkout: expect.objectContaining({ oldCwd: info.cwd, branch: "jiayi-wt-8153", ownBranchKept: true }),
+      });
     } finally {
       getRepoInfoSpy.mockRestore();
       restoreRefSpy.mockRestore();
@@ -398,7 +404,7 @@ describe("recreateWorktreeIfMissing", () => {
     };
 
     const mockDeps = {
-      launcher: { updateWorktree: vi.fn() } as any,
+      launcher: { updateWorktree: vi.fn(), noteRecovery: vi.fn() } as any,
       worktreeTracker: { addMapping: vi.fn() } as any,
       wsBridge: { markWorktree: vi.fn() } as any,
     };
@@ -475,7 +481,7 @@ describe("recreateWorktreeIfMissing", () => {
 
     function deps() {
       return {
-        launcher: { updateWorktree: vi.fn() } as any,
+        launcher: { updateWorktree: vi.fn(), noteRecovery: vi.fn() } as any,
         worktreeTracker: { addMapping: vi.fn() } as any,
         wsBridge: { markWorktree: vi.fn() } as any,
       };
@@ -501,12 +507,41 @@ describe("recreateWorktreeIfMissing", () => {
       };
       const result = await recreateWorktreeIfMissing("s", info, d);
 
-      // Same branch, nothing lost, so the agent needs no notice.
       expect(result).toEqual({ recreated: true });
       const [, update] = d.launcher.updateWorktree.mock.calls[0];
       expect(update.actualBranch).toBe("main-wt-1111");
       expect(git("rev-parse HEAD", update.cwd)).toBe(sessionTip);
       expect(git("worktree list")).not.toContain(oldCwd);
+      // Commits are kept, but the agent is told uncommitted work in the old folder is not.
+      expect(d.launcher.noteRecovery).toHaveBeenCalledWith("s", {
+        checkout: { oldCwd, cwd: update.cwd, branch: "main-wt-1111", ownBranchKept: true },
+      });
+    });
+
+    it("creates the new checkout in the machine's configured worktree folder", async () => {
+      // A host whose worktree folder is on storage that outlives the machine keeps
+      // later checkouts there too, so the next move does not lose them.
+      const worktreeRoot = join(root, "persistent-worktrees");
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "", worktreeRoot }) });
+      try {
+        const d = deps();
+        const info = {
+          sessionId: "s",
+          cwd: join(root, "node-local", "main-wt-3333"),
+          state: "exited" as const,
+          createdAt: 0,
+          isWorktree: true,
+          repoRoot,
+          branch: "main",
+        };
+        await recreateWorktreeIfMissing("s", info, d);
+
+        const [, update] = d.launcher.updateWorktree.mock.calls[0];
+        expect(update.cwd.startsWith(join(worktreeRoot, "repo") + "/")).toBe(true);
+        expect(git("rev-parse HEAD", update.cwd)).toBe(git("rev-parse main"));
+      } finally {
+        configureMachineSettings(null);
+      }
     });
 
     it("starts from the default branch when the recorded base branch is not in this repository", async () => {
@@ -530,8 +565,17 @@ describe("recreateWorktreeIfMissing", () => {
       expect(git("rev-parse HEAD", update.cwd)).toBe(git("rev-parse main"));
       expect(d.worktreeTracker.addMapping).toHaveBeenCalledWith(expect.objectContaining({ branch: "main" }));
       // The agent is told where it now is and why.
-      expect(result.notice).toContain(update.actualBranch);
-      expect(result.notice).toContain("elsewhere does not exist");
+      expect(d.launcher.noteRecovery).toHaveBeenCalledWith("s", {
+        checkout: {
+          oldCwd: info.cwd,
+          cwd: update.cwd,
+          branch: update.actualBranch,
+          ownBranchKept: false,
+          baseBranch: "main",
+          previousBranch: "elsewhere-wt-2222",
+          missingBase: { branch: "elsewhere", repoRoot },
+        },
+      });
     });
   });
 });

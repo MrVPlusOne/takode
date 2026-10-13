@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { isAbsolute } from "node:path";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
 import { machineNameError, type ThisMachine } from "../machine-identity.js";
@@ -42,14 +43,19 @@ export function createHostRoutes(
   api.put("/hosts/:id/settings", async (c) => {
     const id = c.req.param("id");
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    for (const field of ["claudeBinary", "codexBinary"]) {
+    for (const field of ["claudeBinary", "codexBinary", "worktreeRoot"]) {
       if (body[field] !== undefined && typeof body[field] !== "string") {
         return c.json({ error: `${field} must be a string` }, 400);
       }
     }
+    // The folder is on the machine, which may be another one, so only its form can be checked here.
+    if (typeof body.worktreeRoot === "string" && body.worktreeRoot.trim() && !isAbsolute(body.worktreeRoot.trim())) {
+      return c.json({ error: "The worktree folder must be an absolute path" }, 400);
+    }
     const settings = await registry.updateMachineSettings(id, {
       ...(typeof body.claudeBinary === "string" ? { claudeBinary: body.claudeBinary } : {}),
       ...(typeof body.codexBinary === "string" ? { codexBinary: body.codexBinary } : {}),
+      ...(typeof body.worktreeRoot === "string" ? { worktreeRoot: body.worktreeRoot } : {}),
     });
     if (!settings) return c.json({ error: "Host not found" }, 404);
     links.pushSettings(id);

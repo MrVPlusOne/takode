@@ -961,6 +961,7 @@ export class CodexAdapter
       let runtimeReasoningEffort = UNREPORTED_CODEX_REASONING_EFFORT;
       let threadLifecycle: CodexInstructionSnapshot["lifecycle"] = "thread_start";
       let threadInstructionResult: { thread: { id: string; path?: unknown }; instructionSources?: unknown } | undefined;
+      let resumedThreadMissing = false;
       await initializeCodexConnection(this.transport, !!this.options.reattach);
 
       this.options.instructions = await buildCodexRecoveryInstructions(
@@ -1013,6 +1014,7 @@ export class CodexAdapter
             threadLifecycle = "thread_start";
             threadInstructionResult = threadResult;
             runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
+            resumedThreadMissing = true;
           }
         }
       } else {
@@ -1048,6 +1050,7 @@ export class CodexAdapter
         cwd: this.options.cwd,
         resumeSnapshot,
         instructionSnapshot,
+        ...(resumedThreadMissing ? { resumedThreadMissing } : {}),
       });
 
       this.emit({

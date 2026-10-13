@@ -270,6 +270,8 @@ export interface Session {
   /** Set while an intentional relaunch is in flight, so the backend reattach is not
    *  mistaken for a recovered connection. */
   relaunchPending: boolean;
+  /** The recovery notice is on its way to the new backend; other input waits behind it (not persisted). */
+  recoveryNoticeInFlight?: boolean;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */

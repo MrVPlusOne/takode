@@ -131,7 +131,6 @@ import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
 import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
-import { getLostConversationRecoveryPrompt, SESSION_RECOVERY_SOURCE } from "./compaction-recovery-prompts.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { CodexWorkerV2RolloutService } from "./codex-worker-v2-rollout-service.js";
 import {
@@ -803,26 +802,18 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
 });
 
 // Every launch first recreates a worktree that vanished on the session's machine
-// (after a migration, or a host moved to a new machine).
-launcher.restoreCheckout = async (sessionId, info) => {
-  const result = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
-  if (result.error) return result.error;
-  // The session is starting, so this waits for the new process as its first input.
-  if (result.notice) wsBridge.injectUserMessage(sessionId, result.notice, SESSION_RECOVERY_SOURCE);
-  return undefined;
-};
+// (after a migration, or a host moved to a new machine). The new process is told
+// what was kept and lost before any other input (`deliverSessionRecoveryNotice`).
+launcher.restoreCheckout = async (sessionId, info) =>
+  (await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge })).error;
 
 // A Claude conversation whose transcript is gone from its machine continues as a
-// fresh one; its agent is told how to recover context from the session history.
+// fresh one, which is told how to recover context from the session history.
 launcher.onConversationLost = (sessionId) => {
   const info = launcher.getSession(sessionId);
   if (!info || info.archived) return;
-  const notice = getLostConversationRecoveryPrompt(
-    info.isOrchestrator ? "leader" : "standard",
-    String(launcher.getSessionNum(sessionId) ?? sessionId),
-  );
-  wsBridge.injectUserMessage(sessionId, notice, SESSION_RECOVERY_SOURCE);
-  // Queued behind the relaunch that just failed, so it runs even within that relaunch's cooldown.
+  // Queued behind the relaunch that just failed, so it runs even within that relaunch's
+  // cooldown and without a browser: the notice it delivers starts the agent's turn.
   relaunchQueue.request(sessionId);
 };
 

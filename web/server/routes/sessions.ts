@@ -6,6 +6,7 @@ import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { resolveRemoteHostForCreate } from "./session-remote-host.js";
 import { onMachine } from "../remote-host/host-operations.js";
+import { worktreeRootOption } from "../remote-host/machine-settings.js";
 import { machineFor } from "../remote-host/session-machine.js";
 import { homedir } from "node:os";
 import { type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
@@ -1591,16 +1592,20 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     await backfillSessionProjectMeta(info, wsBridge.getSession(id));
 
-    // Worktree sessions: validate the worktree still exists and isn't used by another session
+    // Worktree sessions: give the session its own worktree when another session uses it.
+    // A missing one is recreated by the relaunch itself (`launcher.restoreCheckout`).
     if (info.isWorktree && info.repoRoot && info.branch) {
       const cwdExists = info.hostId
         ? (await machineFor(info.hostId).stat(info.cwd)) !== null
         : await pathExists(info.cwd);
       const usedByOther = worktreeTracker.isWorktreeInUse(info.cwd, id, info.hostId);
 
-      if (!cwdExists || usedByOther) {
+      if (cwdExists && usedByOther) {
         // Recreate the worktree at a new unique path
-        const wt = await onMachine(info.hostId, "ensureWorktree", info.repoRoot, info.branch, { forceNew: true });
+        const wt = await onMachine(info.hostId, "ensureWorktree", info.repoRoot, info.branch, {
+          forceNew: true,
+          ...worktreeRootOption(info.hostId),
+        });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
         info.disposableBranch = info.isOrchestrator ? undefined : wt.createdBranch;

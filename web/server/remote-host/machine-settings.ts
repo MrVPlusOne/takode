@@ -19,5 +19,11 @@ export function configureMachineSettings(hosts: MachineSettingsSource | null): v
  * tools), every machine uses the defaults.
  */
 export function machineSettingsFor(hostId?: string | null): MachineSettings {
-  return registry?.machineSettings(hostId || LOCAL_HOST_ID) ?? { claudeBinary: "", codexBinary: "" };
+  return registry?.machineSettings(hostId || LOCAL_HOST_ID) ?? { claudeBinary: "", codexBinary: "", worktreeRoot: "" };
+}
+
+/** The `worktreeRoot` option for creating a session worktree on a machine: set only when it has its own folder. */
+export function worktreeRootOption(hostId?: string | null): { worktreeRoot?: string } {
+  const { worktreeRoot } = machineSettingsFor(hostId);
+  return worktreeRoot ? { worktreeRoot } : {};
 }

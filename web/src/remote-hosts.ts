@@ -1,9 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-/** Which agent CLIs a machine runs; empty values mean `claude` / `codex` on that machine's PATH. */
+/** Per-machine settings; empty values mean the defaults. */
 export interface MachineSettings {
+  /** Claude Code program; empty means `claude` on that machine's PATH. */
   claudeBinary: string;
+  /** Codex program; empty means `codex` on that machine's PATH. */
   codexBinary: string;
+  /** Absolute folder for session worktrees on that machine; empty or missing means `~/.companion/worktrees`. */
+  worktreeRoot?: string;
 }
 
 /** A registered remote host and its link status, as `GET /api/hosts` reports it. */

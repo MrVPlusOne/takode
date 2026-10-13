@@ -196,6 +196,20 @@ For example, to run a host's Claude sessions through GitHub Copilot, run
 [Using Takode with GitHub Copilot](github-copilot.md)) and set that host's
 **Claude Code** to the launcher it prints.
 
+## Keeping worktrees across machine moves
+
+Session worktrees go in `~/.companion/worktrees` on the machine that runs the
+session. When a host can be moved to another machine, as a cluster job that
+is requeued onto another node is, set that host's **Worktree folder** in
+**Settings → Hosts** to an absolute folder on storage that outlives the
+machine, such as a shared file system. Worktrees created from then on go
+there, so after a move the session resumes in the same folder with its
+uncommitted files. The repository the worktrees belong to must be on such
+storage too, since a worktree only works with its repository. The
+conversation itself is kept by Claude Code or Codex under the machine's home
+folder; when that is lost, the session continues in a fresh conversation as
+described in [Keeping it running](#keeping-it-running).
+
 ## Keeping it running
 
 Neither the tunnel nor `takode node` restarts by itself after a reboot. Run each
@@ -229,10 +243,14 @@ What survives what:
   worktree when it next launches, on its own branch when the repository still
   has it, otherwise on a fresh branch from its base branch, or from the
   repository's default branch when that base exists only in another machine's
-  copy. A Claude session whose saved conversation is gone continues in a fresh
-  one. When a session loses its branch or its conversation this way, Takode
-  tells its agent what happened and how to recover context from the session
-  history. Reinstall anything a host's
+  copy. Uncommitted changes in the old folder are gone; to keep them, give the
+  host a [worktree folder](#keeping-worktrees-across-machine-moves) on storage
+  that outlives the machine. A Claude or Codex session whose saved conversation
+  is gone continues in a fresh one. Whenever a session comes back in a
+  recreated worktree or a fresh conversation, its agent's first message is
+  one notice saying what was kept and what was lost; for a lost conversation it
+  also explains how to recover context from the session history, as after a
+  leader recycle. Reinstall anything a host's
   **Claude Code** or **Codex** setting points to on the new machine (such as
   the Copilot launcher); until then a launch fails with the missing path.
 

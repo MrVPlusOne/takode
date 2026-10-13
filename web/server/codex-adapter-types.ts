@@ -81,4 +81,6 @@ export interface CodexSessionMeta {
   cwd?: string;
   resumeSnapshot?: CodexResumeSnapshot | null;
   instructionSnapshot?: CodexInstructionSnapshot;
+  /** The thread to resume was not saved on this machine, so a fresh thread started instead. */
+  resumedThreadMissing?: boolean;
 }

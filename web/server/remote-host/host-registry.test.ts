@@ -71,25 +71,34 @@ describe("HostRegistry", () => {
     expect((await reloaded.get(host.id))?.name).toBe("old-laptop");
   });
 
-  // Each machine, including this one, has its own Claude/Codex settings; they
-  // persist, are trimmed, and go away with a removed host.
+  // Each machine, including this one, has its own Claude/Codex programs and
+  // worktree folder; they persist, are trimmed, and go away with a removed host.
   it("stores machine settings per host and for this machine", async () => {
     const path = join(dir, "hosts.json");
     const registry = new HostRegistry(path);
     const { host } = await registry.register("gpu-box");
-    expect(registry.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "" });
+    expect(registry.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "", worktreeRoot: "" });
 
     await registry.updateMachineSettings(host.id, { claudeBinary: " /opt/claude " });
     await registry.updateMachineSettings(LOCAL_HOST_ID, { codexBinary: "/usr/local/bin/codex" });
+    await registry.updateMachineSettings(host.id, { worktreeRoot: " /shared/worktrees " });
     expect(await registry.updateMachineSettings("missing", { claudeBinary: "x" })).toBeNull();
 
     const reloaded = new HostRegistry(path);
     await reloaded.load();
-    expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "/opt/claude", codexBinary: "" });
-    expect(reloaded.machineSettings(LOCAL_HOST_ID)).toEqual({ claudeBinary: "", codexBinary: "/usr/local/bin/codex" });
+    expect(reloaded.machineSettings(host.id)).toEqual({
+      claudeBinary: "/opt/claude",
+      codexBinary: "",
+      worktreeRoot: "/shared/worktrees",
+    });
+    expect(reloaded.machineSettings(LOCAL_HOST_ID)).toEqual({
+      claudeBinary: "",
+      codexBinary: "/usr/local/bin/codex",
+      worktreeRoot: "",
+    });
 
     await reloaded.remove(host.id);
-    expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "" });
+    expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "", worktreeRoot: "" });
   });
 
   // The old global binaries become this machine's settings once; a later start
@@ -131,6 +140,7 @@ describe("HostRegistry", () => {
     expect(secondServer.machineSettings(LOCAL_HOST_ID)).toEqual({
       claudeBinary: "/port-a/claude",
       codexBinary: "/port-a/codex",
+      worktreeRoot: "",
     });
   });
 
@@ -176,7 +186,11 @@ describe("HostRegistry", () => {
       await registry.updateMachineSettings(LOCAL_HOST_ID, { codexBinary: "/opt/codex" });
       const rewritten = JSON.parse(await readFile(path, "utf-8"));
       expect(rewritten.local).not.toHaveProperty("nodeEnabled");
-      expect(rewritten.local.settings).toEqual({ claudeBinary: "/opt/claude", codexBinary: "/opt/codex" });
+      expect(rewritten.local.settings).toEqual({
+        claudeBinary: "/opt/claude",
+        codexBinary: "/opt/codex",
+        worktreeRoot: "",
+      });
       expect(await new HostRegistry(path).authenticate(token)).toMatchObject({ id: LOCAL_HOST_ID });
     }
   });

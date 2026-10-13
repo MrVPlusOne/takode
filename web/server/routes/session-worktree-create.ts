@@ -1,5 +1,6 @@
 import type { CreatedWorktreeBranch } from "../worktree-branch-retirement.js";
 import { onMachine } from "../remote-host/host-operations.js";
+import { worktreeRootOption } from "../remote-host/machine-settings.js";
 import type { CreationStepId } from "../session-types.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import type { SessionPreparationStatus } from "./sessions-helpers.js";
@@ -114,6 +115,7 @@ export async function prepareWorktreeForSessionCreate(options: {
         baseBranch: repoInfo.defaultBranch,
         createBranch: body.createBranch,
         forceNew: true,
+        ...worktreeRootOption(hostId),
       }),
   );
 

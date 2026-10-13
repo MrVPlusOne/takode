@@ -42,7 +42,7 @@ describe("host routes", () => {
     expect((await put("local", { claudeBinary: "/opt/claude" })).status).toBe(200);
     const pushed = vi.spyOn(links, "pushSettings");
     const res = await put(host.id, { codexBinary: "/opt/codex" });
-    expect(await res.json()).toEqual({ settings: { claudeBinary: "", codexBinary: "/opt/codex" } });
+    expect(await res.json()).toEqual({ settings: { claudeBinary: "", codexBinary: "/opt/codex", worktreeRoot: "" } });
     expect(pushed).toHaveBeenCalledWith(host.id);
 
     const listed = (await (await app.request("/api/hosts")).json()) as {
@@ -56,6 +56,24 @@ describe("host routes", () => {
       node: { online: false, processes: 0 },
     });
     expect(listed.hosts[0]).toMatchObject({ id: host.id, settings: { claudeBinary: "", codexBinary: "/opt/codex" } });
+  });
+
+  // A host's worktree folder can be on storage that outlives the machine, so
+  // uncommitted work survives a move. The folder is on the host, so only its
+  // form is checked here.
+  it("stores a host's worktree folder, which must be an absolute path", async () => {
+    const { host } = await registry.register("slurm-node");
+    const pushed = vi.spyOn(links, "pushSettings");
+    const res = await put(host.id, { worktreeRoot: " /shared/takode-worktrees " });
+    expect((await res.json()).settings).toMatchObject({ worktreeRoot: "/shared/takode-worktrees" });
+    expect(pushed).toHaveBeenCalledWith(host.id);
+    expect(registry.machineSettings(host.id).worktreeRoot).toBe("/shared/takode-worktrees");
+
+    expect(await (await put(host.id, { worktreeRoot: "takode-worktrees" })).json()).toEqual({
+      error: "The worktree folder must be an absolute path",
+    });
+    // Clearing it returns to the default folder.
+    expect((await (await put(host.id, { worktreeRoot: "" })).json()).settings.worktreeRoot).toBe("");
   });
 
   it("rejects non-string settings and unknown hosts", async () => {

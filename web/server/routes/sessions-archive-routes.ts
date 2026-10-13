@@ -1,6 +1,5 @@
 import type { Hono } from "hono";
 import { recreateWorktreeIfMissing } from "../migration.js";
-import { SESSION_RECOVERY_SOURCE } from "../compaction-recovery-prompts.js";
 import { containerManager } from "../container-manager.js";
 import { getActorSessionId, getArchiveSource } from "./sessions-helpers.js";
 import { broadcastSessionArchived } from "./session-lifecycle-broadcast.js";
@@ -244,7 +243,6 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
 
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
-    let worktreeNotice: string | undefined;
     if (info.isWorktree && info.repoRoot && info.branch) {
       const checkoutExists = info.hostId
         ? (await machineFor(info.hostId).stat(info.cwd)) !== null
@@ -256,7 +254,6 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
             return c.json({ ok: false, error: `Failed to recreate worktree: ${result.error}` }, 500);
           }
           worktreeRecreated = result.recreated;
-          worktreeNotice = result.notice;
         } catch (e) {
           console.error(`[routes] Failed to recreate worktree for session ${id}:`, e);
           return c.json(
@@ -286,10 +283,9 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
       }
     }
 
-    // Auto-relaunch the CLI so the session is immediately usable
+    // Auto-relaunch the CLI so the session is immediately usable; it tells the
+    // agent about a recreated worktree before any other input.
     const relaunchResult = await launcher.relaunch(id);
-    // After the relaunch, so the notice goes to the new process rather than asking for another one.
-    if (worktreeNotice) wsBridge.injectUserMessage(id, worktreeNotice, SESSION_RECOVERY_SOURCE);
     return c.json({ ok: true, worktreeRecreated, relaunch: relaunchResult });
   });
 }

@@ -624,6 +624,31 @@ describe("POST /api/sessions/:id/relaunch", () => {
     expect(remote.repoRoot).toBeUndefined();
   });
 
+  it("leaves a missing worktree to the relaunch itself", async () => {
+    // The relaunch recreates it (`launcher.restoreCheckout`) on the session's own
+    // branch when the repository still has it, and tells the agent what was lost.
+    // Creating a fresh branch here first would throw that branch and notice away.
+    const info = {
+      sessionId: "s1",
+      state: "exited",
+      cwd: "/gone/worktrees/repo/main-wt-1111",
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "main",
+      actualBranch: "main-wt-1111",
+    };
+    launcher.getSession.mockReturnValue(info);
+    launcher.relaunch.mockResolvedValue({ ok: true });
+    vi.mocked(access).mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+
+    const res = await app.request("/api/sessions/s1/relaunch", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(gitUtils.ensureWorktreeAsync).not.toHaveBeenCalled();
+    expect(info.cwd).toBe("/gone/worktrees/repo/main-wt-1111");
+    expect(launcher.relaunch).toHaveBeenCalledWith("s1");
+  });
+
   it("returns 503 with error when container is missing", async () => {
     launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test", containerId: "abc" });
     launcher.relaunch.mockResolvedValue({

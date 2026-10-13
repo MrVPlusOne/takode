@@ -146,7 +146,7 @@ export class HostAgent {
   private stopped = false;
   private updating = false;
   /** This machine's settings as the coordinator last sent them. */
-  private machineSettings: HostMachineSettings = { claudeBinary: "", codexBinary: "" };
+  private machineSettings: HostMachineSettings = { claudeBinary: "", codexBinary: "", worktreeRoot: "" };
   private machineName: string | null;
   /** The coordinator's last reason for refusing the link, logged once until the link opens. */
   private lastRefusal: string | null = null;

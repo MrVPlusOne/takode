@@ -50,8 +50,12 @@ export function getLeaderContextRecoveryInstructions(sessionRef: string): string
    - Never implement non-trivial changes yourself -- delegate to workers`;
 }
 
-export function getLeaderRecycleRecoveryInstructions(sessionRef: string): string {
-  return `You are a replacement leader continuing the same Takode session after an intentional Codex leader recycle. Recover context with tools before acting; do not rely on any embedded transcript excerpt.
+/** `cause` completes "continuing the same Takode session after ...". */
+export function getLeaderRecycleRecoveryInstructions(
+  sessionRef: string,
+  cause = "an intentional Codex leader recycle",
+): string {
+  return `You are a replacement leader continuing the same Takode session after ${cause}. Recover context with tools before acting; do not rely on any embedded transcript excerpt.
 
 Start from the preloaded core orchestration context:
 - The required leader skills are already loaded with your session context. Use that context as your source of truth.
@@ -91,22 +95,6 @@ ${getLeaderContextRecoveryInstructions(sessionRef)}`
     : `${STANDARD_COMPACTION_RECOVERY_PREFIX}
 
 ${getStandardContextRecoveryInstructions(sessionRef)}`;
-}
-
-/** Sender of messages that tell a session's agent how Takode recovered its launch. */
-export const SESSION_RECOVERY_SOURCE = { sessionId: "system:session-recovery", sessionLabel: "System" };
-
-/** Told to an agent whose saved conversation could not be resumed, so it starts without its earlier context. */
-export function getLostConversationRecoveryPrompt(role: "leader" | "standard", sessionRef: string): string {
-  const recovery =
-    role === "leader"
-      ? `1. Run \`takode leader-context-resume ${sessionRef}\` for the recovery summary, then \`takode scan ${sessionRef}\` for recent turns.
-2. Use \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for turns that need detail.
-3. Check \`takode board show\`, \`takode list\` and the relevant quests before acting, and keep unresolved user decisions scoped to their owner.`
-      : getStandardContextRecoveryInstructions(sessionRef);
-  return `Takode could not resume your previous conversation: it is no longer saved on this session's machine (for example, the session's host moved to a new machine). You are the same Takode session continuing in a fresh conversation, without your earlier context. Recover it from your session history before acting:
-
-${recovery}`;
 }
 
 export function isCompactionRecoveryPrompt(content: string): boolean {

@@ -1,4 +1,5 @@
 import { serverWorkAdmission } from "../server-work-admission.js";
+import { startCodexSessionRecoveryNotice } from "./session-recovery-delivery.js";
 import { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 export { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
@@ -323,6 +324,13 @@ export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestr
   ) => void;
   beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) => boolean | Promise<boolean>;
   completeCodexLeaderRecycle: (sessionId: string) => void;
+  /** Note for the session's agent that its conversation is gone and it continues in a fresh one. */
+  noteConversationLost?: (sessionId: string) => void;
+  /**
+   * Tell the new backend what Takode rebuilt for the session before any other
+   * input, then run `then`; false when there is nothing to tell.
+   */
+  deliverSessionRecoveryNotice?: (session: CodexRecoveryOrchestratorSessionLike, then: () => void) => boolean;
   hydrateCodexResumedHistory: (session: CodexRecoveryOrchestratorSessionLike, snapshot: unknown) => number;
   setBackendState: (session: CodexRecoveryOrchestratorSessionLike, state: string, error: string | null) => void;
   refreshGitInfoThenRecomputeDiff: (
@@ -1175,6 +1183,9 @@ export function registerCodexAdapterRecoveryLifecycle(
         });
       }
       deps.setBackendState(session, "connected", null);
+      const noticeOnItsWay = startCodexSessionRecoveryNotice(session, meta, deps, () => {
+        if (session.codexAdapter === adapter) deps.queueCodexPendingStartBatch(session, "session_recovery_notice");
+      });
       const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
       const pendingRollback = (session as any).pendingCodexRollback;
       if (meta.resumeSnapshot) {
@@ -1237,14 +1248,15 @@ export function registerCodexAdapterRecoveryLifecycle(
         deps.persistSession(session);
         return;
       }
-      const steeredPending = trySteerPendingCodexInputs(session, "session_meta", deps);
+      const steeredPending = !noticeOnItsWay && trySteerPendingCodexInputs(session, "session_meta", deps);
       if (!steeredPending) {
         const headWasBlockedRecovery = deps.getCodexHeadTurn(session)?.status === "blocked_broken_session";
         deps.dispatchQueuedCodexTurns(session, "session_meta");
         reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_dispatch", deps);
         const currentTurnId = adapter.getCurrentTurnId?.() ?? null;
         const hasPendingLocalInputs = deps.getCancelablePendingCodexInputs(session).length > 0;
-        if (!headWasBlockedRecovery && (!session.isGenerating || (!currentTurnId && hasPendingLocalInputs))) {
+        const idleForInput = !session.isGenerating || (!currentTurnId && hasPendingLocalInputs);
+        if (!noticeOnItsWay && !headWasBlockedRecovery && idleForInput) {
           deps.queueCodexPendingStartBatch(session, "session_meta");
           reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_pending_batch", deps);
         }

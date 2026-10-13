@@ -86,6 +86,7 @@ import {
   type MemoryCatalogAttachment,
 } from "./memory-catalog-prelude.js";
 import { buildUserMessageDeliveryPrefix } from "./adapter-browser-routing-source-prefix.js";
+import { SESSION_RECOVERY_SOURCE } from "../session-recovery-notice.js";
 import {
   refreshLeaderThreadOutcomeReminder,
   THREAD_RESPONSE_REMINDER_SOURCE_ID,
@@ -1396,6 +1397,18 @@ export function routeAdapterBrowserMessage(
       deps.isHostOffline?.(hostId)
     ) {
       console.log(`[ws-bridge] Host of session ${sessionTag(session.id)} is offline, holding user_message`);
+      queueAdapterMessage(session, raw);
+      deps.persistSession(session);
+      return true;
+    }
+    // A relaunched backend hears what Takode rebuilt for the session before anything else.
+    if (
+      adapter &&
+      adapter === session.claudeSdkAdapter &&
+      msg.type === "user_message" &&
+      msg.agentSource?.sessionId !== SESSION_RECOVERY_SOURCE.sessionId &&
+      deps.isSessionRecoveryNoticePending?.(session)
+    ) {
       queueAdapterMessage(session, raw);
       deps.persistSession(session);
       return true;

@@ -50,6 +50,7 @@ import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import type { SdkSessionInfo } from "./session-info.js";
+import { mergeSessionRecoveryFacts, type SessionRecoveryFacts } from "./session-recovery-notice.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import type { LaunchOptions, WorktreeSessionUpdate } from "./cli-launcher-options.js";
 import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/session-defaults.js";
@@ -135,8 +136,8 @@ export class CliLauncher {
 
   /**
    * Called when a Claude session's saved conversation no longer exists on its
-   * machine. The session has been switched to a fresh conversation; the
-   * callback tells its agent and relaunches it (set by server bootstrap).
+   * machine. The session has been switched to a fresh conversation and the loss
+   * noted for its agent; the callback relaunches it (set by server bootstrap).
    */
   onConversationLost: ((sessionId: string) => void) | null = null;
 
@@ -1178,14 +1179,17 @@ export class CliLauncher {
     info.exitCode = 1;
     this.launchFailures.set(sessionId, error);
     const conversationLost = !!info.cliSessionId && isMissingClaudeConversationError(error);
-    if (conversationLost) info.cliSessionId = undefined;
+    if (conversationLost) {
+      info.cliSessionId = undefined;
+      this.noteRecovery(sessionId, { conversationLost: true });
+    }
     this.persistState();
     console.error(`[cli-launcher] Claude SDK session ${sessionTag(sessionId)} exited: ${error}`);
     if (!conversationLost) return;
     console.warn(
       `[cli-launcher] Claude conversation of session ${sessionTag(sessionId)} is gone; continuing in a fresh conversation`,
     );
-    // After the bridge has handled this disconnect, so the notice queues for the next process.
+    // After the bridge has handled this disconnect.
     setTimeout(() => this.onConversationLost?.(sessionId), 0);
   }
 
@@ -1612,6 +1616,24 @@ export class CliLauncher {
       Object.assign(info, updates);
       this.persistState();
     }
+  }
+
+  /** Remember something Takode rebuilt for a session, until its agent is told (`takeRecovery`). */
+  noteRecovery(sessionId: string, facts: SessionRecoveryFacts): void {
+    const info = this.sessions.get(sessionId);
+    if (!info) return;
+    info.pendingRecovery = mergeSessionRecoveryFacts(info.pendingRecovery, facts);
+    this.persistState();
+  }
+
+  /** What the session's agent still has to be told, cleared because the caller tells it now. */
+  takeRecovery(sessionId: string): SessionRecoveryFacts | undefined {
+    const info = this.sessions.get(sessionId);
+    const facts = info?.pendingRecovery;
+    if (!info || !facts) return undefined;
+    delete info.pendingRecovery;
+    this.persistState();
+    return facts;
   }
 
   setLeaderProfilePortraitId(sessionId: string, portraitId: string): boolean {

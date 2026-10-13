@@ -362,6 +362,8 @@ describe("CodexAdapter", () => {
     });
     adapter.onBrowserMessage((msg) => messages.push(msg));
     adapter.onInitError((err) => errors.push(err));
+    const metas: Array<{ cliSessionId?: string; resumedThreadMissing?: boolean }> = [];
+    adapter.onSessionMeta((meta) => metas.push(meta));
 
     await tick();
 
@@ -388,6 +390,8 @@ describe("CodexAdapter", () => {
     expect(allWritten).toContain('"method":"thread/start"');
     expect(errors).toHaveLength(0);
     expect(messages.some((m) => m.type === "session_init")).toBe(true);
+    // The bridge decides from this whether the agent lost a conversation it had.
+    expect(metas).toEqual([expect.objectContaining({ cliSessionId: "thr_new_789", resumedThreadMissing: true })]);
   });
 
   it("does not fall back to thread/start when an exact native fork resume is required", async () => {
