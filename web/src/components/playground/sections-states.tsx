@@ -6,7 +6,7 @@ import { StepList } from "../SessionCreationView.js";
 import { CodexInstructionsCollapsible } from "../TaskPanel.js";
 import { CatPawAvatar, CatPawLeft, YarnBallDot, YarnBallSpinner, SleepingCat, PowerPlugDot } from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
-import { VoiceLevelWaveform } from "../VoiceRecordingStatus.js";
+import { VoiceLevelWaveform, VoiceRecordingStatus } from "../VoiceRecordingStatus.js";
 import { AlternateVoiceRerunOffer } from "../AlternateVoiceRerunOffer.js";
 import type { CreationProgressEvent, SideChatRecord } from "../../types.js";
 import {
@@ -178,6 +178,12 @@ export function PlaygroundStateSections() {
         description="Microphone button records audio, server transcribes via Gemini or OpenAI Whisper"
       >
         <div className="max-w-3xl">
+          <Card label="Preferred external microphone connected">
+            <VoiceRecordingStatus currentLevel={0.4} samples={[]} inputDeviceLabel="USB Microphone" />
+          </Card>
+          <Card label="Preferred microphone unavailable: recording from system input">
+            <VoiceRecordingStatus currentLevel={0.4} samples={[]} inputDeviceLabel="Built-in Microphone" />
+          </Card>
           <Card label="Mobile — voice unavailable (idle)">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">

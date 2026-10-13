@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import type { VoiceRecordingTiming } from "../transcription-progress.js";
 import { holdScreenWakeLock } from "../utils/screen-wake-lock.js";
+import { getVoiceCaptureDeviceId, watchVoiceMicrophones } from "../utils/voice-microphone.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
@@ -192,7 +193,7 @@ export function formatInputDeviceLabel(label: string | null | undefined): string
 const mediaDevicesWithoutDefaultDevice = new WeakSet<MediaDevices>();
 
 /**
- * Opens the microphone selected in the operating system's sound settings.
+ * Opens this browser's preferred microphone when available, otherwise the system microphone.
  *
  * Without a device constraint Chrome picks the top mic in its own remembered preference
  * ranking, which can keep recording the built-in mic while the system input is AirPods, and
@@ -207,6 +208,18 @@ const mediaDevicesWithoutDefaultDevice = new WeakSet<MediaDevices>();
  */
 export async function requestVoiceCaptureStream(): Promise<MediaStream> {
   const mediaDevices = navigator.mediaDevices;
+  const deviceId = getVoiceCaptureDeviceId();
+  if (deviceId !== "default") {
+    try {
+      return await mediaDevices.getUserMedia({
+        audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: deviceId } },
+      });
+    } catch (error) {
+      // A stale browser ID or a device unplugged since enumeration should fall back normally.
+      const name = (error as { name?: unknown } | null)?.name;
+      if (name !== "OverconstrainedError" && name !== "NotFoundError") throw error;
+    }
+  }
   if (!mediaDevicesWithoutDefaultDevice.has(mediaDevices)) {
     try {
       return await mediaDevices.getUserMedia({
@@ -319,6 +332,16 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   // Tracks an in-flight getUserMedia call from warmMicrophone so startRecording can
   // await it instead of firing a duplicate request (prevents orphaned stream leaks).
   const warmingPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
+  const cachedDeviceIdRef = useRef<string | null>(null);
+
+  useEffect(
+    () =>
+      watchVoiceMicrophones(
+        () => {},
+        (error) => console.warn("Could not refresh microphones", error),
+      ),
+    [],
+  );
 
   // Web Audio API refs for volume metering
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -472,7 +495,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   /** Check if the cached pre-warmed stream is still usable (has live tracks). */
   function isCachedStreamLive(): boolean {
     const stream = cachedStreamRef.current;
-    if (!stream) return false;
+    if (!stream || cachedDeviceIdRef.current !== getVoiceCaptureDeviceId()) return false;
     const tracks = stream.getTracks();
     return tracks.length > 0 && tracks.every((t) => t.readyState === "live");
   }
@@ -482,12 +505,17 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const warmMicrophone = useCallback(() => {
     if (!support.isSupported) return;
     // Already have a live cached stream or an in-flight warming request
-    if (isCachedStreamLive() || warmingPromiseRef.current) return;
-    // Clear stale stream ref if tracks ended
-    cachedStreamRef.current = null;
+    const deviceId = getVoiceCaptureDeviceId();
+    if (isCachedStreamLive() || (warmingPromiseRef.current && cachedDeviceIdRef.current === deviceId)) return;
+    releaseCachedStream();
+    cachedDeviceIdRef.current = deviceId;
 
     const promise = requestVoiceCaptureStream()
       .then((stream) => {
+        if (warmingPromiseRef.current !== promise || getVoiceCaptureDeviceId() !== deviceId) {
+          stream.getTracks().forEach((track) => track.stop());
+          return null;
+        }
         cachedStreamRef.current = stream;
         resetIdleTimeout();
         return stream;
@@ -497,10 +525,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         return null;
       })
       .finally(() => {
-        warmingPromiseRef.current = null;
+        if (warmingPromiseRef.current === promise) warmingPromiseRef.current = null;
       });
     warmingPromiseRef.current = promise;
-  }, [support.isSupported, resetIdleTimeout]);
+  }, [support.isSupported, resetIdleTimeout, releaseCachedStream]);
 
   const stopRecording = useCallback(() => {
     stopRecorder("manual", true);
@@ -530,12 +558,16 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
     try {
       // If warmMicrophone has an in-flight getUserMedia, await it instead of duplicating
-      if (warmingPromiseRef.current) {
+      if (warmingPromiseRef.current && cachedDeviceIdRef.current === getVoiceCaptureDeviceId()) {
         await warmingPromiseRef.current;
+      } else {
+        // A superseded request must release its eventual stream, even if the preference changes back.
+        warmingPromiseRef.current = null;
       }
 
       // Attempt to reuse cached pre-warmed stream, else fall back to fresh getUserMedia
       const cachedStream = isCachedStreamLive() ? cachedStreamRef.current : null;
+      if (!cachedStream) releaseCachedStream();
       const streamRequest = cachedStream ? Promise.resolve(cachedStream) : requestVoiceCaptureStream();
       // Keep the screen on until recording ends, so a phone's auto-lock can't cut it off. Asked
       // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
@@ -725,6 +757,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     attachTrackListeners,
     detachTrackListeners,
     releaseScreenWakeLock,
+    releaseCachedStream,
     startVolumeMonitor,
     stopVolumeMonitor,
     support.isSupported,
@@ -747,6 +780,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       // Release cached pre-warmed stream
+      warmingPromiseRef.current = null;
       cachedStreamRef.current?.getTracks().forEach((t) => t.stop());
       cachedStreamRef.current = null;
       if (idleTimeoutRef.current) {

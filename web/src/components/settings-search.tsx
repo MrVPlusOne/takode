@@ -106,6 +106,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Speech-to-text for dictating messages, with optional cleanup by an LLM.",
     aliases: ["dictation", "microphone", "speech"],
     items: [
+      { id: "voice-microphone", text: "Preferred microphone input device system default external USB headset" },
       {
         id: "voice-credentials",
         text: "Voice Transcription API Key Base URL OpenAI Whisper stt speech transcribe audio",

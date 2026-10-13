@@ -15,6 +15,7 @@ import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../..
 import { SettingsToggle } from "./settings-controls.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
+import { SettingsMicrophone } from "./SettingsMicrophone.js";
 
 export const DEFAULT_STT_MODEL = DEFAULT_TRANSCRIPTION_STT_MODEL;
 export const CUSTOM_STT_MODEL_VALUE = "__custom__";
@@ -186,6 +187,7 @@ export function SettingsVoiceTranscriptionSection({
 
   return (
     <>
+      <SettingsMicrophone />
       <div className="space-y-3 pl-3 border-l-2 border-cc-border">
         <div>
           <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-api-key">

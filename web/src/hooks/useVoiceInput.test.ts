@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
+import { listVoiceMicrophones, setPreferredMicrophone } from "../utils/voice-microphone.js";
 import {
   appendVoiceLevelHistorySample,
   getVoiceInputSupport,
@@ -142,6 +143,7 @@ if (typeof globalThis.cancelAnimationFrame === "undefined") {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
 
   getUserMediaMock = vi.fn().mockResolvedValue(makeMockStream());
   MockAudioContext.sampleAmplitude = 0;
@@ -370,6 +372,66 @@ describe("useVoiceInput — isPreparing", () => {
 });
 
 describe("requestVoiceCaptureStream", () => {
+  it("requests the saved microphone synchronously without a permission probe", async () => {
+    // A real request in the tap preserves Safari gesture privilege and bypasses Chrome's mic ranking.
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    const request = requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenCalledExactlyOnceWith({
+      audio: expect.objectContaining({ deviceId: { exact: "usb" } }),
+    });
+    await request;
+  });
+
+  it.each(["OverconstrainedError", "NotFoundError"])("falls back when a saved device disappears (%s)", async (name) => {
+    // Handles unplugging between enumeration and capture, as well as IDs invalidated by the browser.
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    getUserMediaMock.mockRejectedValueOnce(new DOMException("Device unavailable", name));
+    await expect(requestVoiceCaptureStream()).resolves.toBeDefined();
+    expect(getUserMediaMock).toHaveBeenNthCalledWith(2, {
+      audio: expect.objectContaining({ deviceId: { exact: "default" } }),
+    });
+  });
+
+  it("uses a single request when the device list already shows the preferred microphone missing", async () => {
+    // Background enumeration must prevent repeating the failed preference request on every tap.
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    navigator.mediaDevices.enumerateDevices = vi
+      .fn()
+      .mockResolvedValue([{ kind: "audioinput", deviceId: "built-in", label: "Built-in" }]);
+    await listVoiceMicrophones();
+    await requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenCalledExactlyOnceWith({
+      audio: expect.objectContaining({ deviceId: { exact: "default" } }),
+    });
+  });
+
+  it("does not retry a denied or unreadable preferred microphone", async () => {
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    for (const name of ["NotAllowedError", "NotReadableError"]) {
+      // Denial and hardware errors are not evidence of a missing device.
+      getUserMediaMock.mockReset().mockRejectedValue(new DOMException("Cannot open mic", name));
+      await expect(requestVoiceCaptureStream()).rejects.toMatchObject({ name });
+      expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("keeps Safari's single-request path when the preferred device is missing", async () => {
+    // Once Safari has rejected the Chrome-only default ID, an absent preferred device must
+    // not reintroduce repeated requests after every idle permission grant expires.
+    getUserMediaMock.mockRejectedValueOnce(new DOMException("No default device", "OverconstrainedError"));
+    await requestVoiceCaptureStream();
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    navigator.mediaDevices.enumerateDevices = vi
+      .fn()
+      .mockResolvedValue([{ kind: "audioinput", deviceId: "phone", label: "Phone microphone" }]);
+    await listVoiceMicrophones();
+    getUserMediaMock.mockClear();
+    const request = requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    expect(getUserMediaMock.mock.calls[0][0].audio).not.toHaveProperty("deviceId");
+    await request;
+  });
+
   it("falls back to the browser's own choice when it has no system-default device", async () => {
     // Safari and Firefox have no "default" deviceId and reject the exact constraint; they
     // already follow the system input, so the plain request is the right fallback.
@@ -412,6 +474,84 @@ describe("requestVoiceCaptureStream", () => {
 // ── Hook tests: warmMicrophone ─────────────────────────────────────────────
 
 describe("useVoiceInput — warmMicrophone", () => {
+  it("discards a warmed stream after the preference changes", async () => {
+    const oldStream = makeMockStream("live", "Built-in");
+    const preferredStream = makeMockStream("live", "External microphone");
+    getUserMediaMock.mockResolvedValueOnce(oldStream).mockResolvedValueOnce(preferredStream);
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => result.current.warmMicrophone());
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    await act(async () => result.current.startRecording());
+    // Preference changes must take effect even inside the five-second pre-warm window.
+    expect(oldStream.getTracks()[0].stop).toHaveBeenCalled();
+    expect(result.current.inputDeviceLabel).toBe("External microphone");
+    expect(getUserMediaMock).toHaveBeenLastCalledWith({
+      audio: expect.objectContaining({ deviceId: { exact: "usb" } }),
+    });
+  });
+
+  it("does not await a pre-warm for an old preference before the new recording request", async () => {
+    let finishWarm!: (stream: MediaStream) => void;
+    getUserMediaMock.mockImplementationOnce(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          finishWarm = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useVoiceInput());
+    act(() => result.current.warmMicrophone());
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    act(() => {
+      result.current.startRecording();
+    });
+    // A changed preference must issue its capture while the new click still owns gesture privilege.
+    expect(getUserMediaMock).toHaveBeenCalledTimes(2);
+    const oldStream = makeMockStream();
+    await act(async () => finishWarm(oldStream));
+    expect(oldStream.getTracks()[0].stop).toHaveBeenCalled();
+  });
+
+  it("releases a preferred microphone whose pre-warm completes after unmount", async () => {
+    // A device-selection change can leave the old hardware request in flight; it must not leak a mic.
+    let finishWarm!: (stream: MediaStream) => void;
+    getUserMediaMock.mockImplementationOnce(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          finishWarm = resolve;
+        }),
+    );
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    const { result, unmount } = renderHook(() => useVoiceInput());
+    act(() => result.current.warmMicrophone());
+    unmount();
+    const stream = makeMockStream();
+    await act(async () => finishWarm(stream));
+    expect(stream.getTracks()[0].stop).toHaveBeenCalled();
+  });
+
+  it("discards a warmed fallback after the preferred microphone reconnects", async () => {
+    const fallback = makeMockStream("live", "Built-in");
+    const usb = makeMockStream("live", "External microphone");
+    const enumerateDevices = vi
+      .fn()
+      .mockResolvedValue([{ kind: "audioinput", deviceId: "built-in", label: "Built-in" }]);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: Object.assign(new EventTarget(), { enumerateDevices, getUserMedia: getUserMediaMock }),
+    });
+    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    getUserMediaMock.mockResolvedValueOnce(fallback).mockResolvedValueOnce(usb);
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {});
+    await act(async () => result.current.warmMicrophone());
+    enumerateDevices.mockResolvedValue([{ kind: "audioinput", deviceId: "usb", label: "External microphone" }]);
+    await act(async () => navigator.mediaDevices.dispatchEvent(new Event("devicechange")));
+    await act(async () => result.current.startRecording());
+    // Availability changes invalidate the warm stream just like a changed preference does.
+    expect(fallback.getTracks()[0].stop).toHaveBeenCalled();
+    expect(result.current.inputDeviceLabel).toBe("External microphone");
+  });
+
   it("calls getUserMedia once on first warmMicrophone call", async () => {
     const { result } = renderHook(() => useVoiceInput());
 
