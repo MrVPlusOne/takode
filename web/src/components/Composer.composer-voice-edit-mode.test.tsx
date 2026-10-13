@@ -982,7 +982,8 @@ describe("Composer voice edit mode", () => {
 
     const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.value).toBe("Please rewrite this update into two short bullets.");
-    expect(screen.getByRole("button", { name: "Send message" }).hasAttribute("disabled")).toBe(true);
+    // Sending is blocked until the edit is accepted or undone; a press explains why instead of sending.
+    expect(screen.getByRole("button", { name: "Send message" }).getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 

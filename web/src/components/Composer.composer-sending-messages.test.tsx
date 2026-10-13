@@ -613,6 +613,10 @@ describe("Composer sending messages", () => {
     expect((mockStoreState.composerDrafts as Map<string, any>).get("s1")?.text).toBe("Keep this Claude draft");
     expect((mockStoreState.pendingUserUploads as Map<string, any[]>).get("s1")).toBeUndefined();
     expect(mockRequestBottomAlignOnNextUserMessage).not.toHaveBeenCalled();
+    // A send that never left the browser must say so instead of looking like nothing happened.
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Not connected to the Takode server, so nothing was sent. Your draft is kept.",
+    );
   });
 
   it("pressing Enter sends while the backend transport is disconnected", () => {
@@ -821,7 +825,7 @@ describe("Composer sending messages", () => {
       expect(screen.getByAltText("screenshot.png")).toBeTruthy();
     });
     expect(screen.getByText("Uploading...")).toBeTruthy();
-    expect(screen.getByTitle("1 image still uploading.").closest("button")!.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTitle("1 image still uploading.").closest("button")!.getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     expect(mockSendToSession).not.toHaveBeenCalledWith(
@@ -830,6 +834,8 @@ describe("Composer sending messages", () => {
         type: "user_message",
       }),
     );
+    // The blocked press must be visible: the reason appears next to Send.
+    expect(screen.getByRole("alert").textContent).toBe("1 image still uploading.");
 
     await act(async () => {
       prepared.resolve({

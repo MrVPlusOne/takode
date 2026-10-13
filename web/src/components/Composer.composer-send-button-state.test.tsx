@@ -566,8 +566,13 @@ describe("Composer send button state", () => {
 
     fireEvent.change(textarea, { target: { value: "manual recovery needed" } });
 
-    const sendBtn = screen.getByTitle("Send message");
-    expect(sendBtn.hasAttribute("disabled")).toBe(true);
+    // Blocked, not inert: the button looks disabled and a press says why rather than sending.
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
+    expect(sendBtn.getAttribute("aria-disabled")).toBe("true");
+    expect(sendBtn.getAttribute("title")).toBe("Resume session to send");
+    fireEvent.click(sendBtn);
+    expect(screen.getByRole("alert").textContent).toBe("Resume session to send");
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
   });
 
   it("queues text send when the CLI is disconnected but the browser is connected", () => {

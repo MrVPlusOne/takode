@@ -14,17 +14,30 @@ export function PlaygroundStreamingComposerStates() {
       <Card label="Running with a sendable follow-up">
         <PlaygroundStreamingComposer initialDraft="Can you refactor the auth module to use JWT?" />
       </Card>
+      <div className="mt-4" />
+      <Card label="Send pressed while blocked: the reason shows instead of nothing happening">
+        <PlaygroundStreamingComposer
+          initialDraft="See the attached screenshot"
+          blockedNotice="1 image still uploading."
+        />
+      </Card>
     </>
   );
 }
 
-function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string }) {
+function PlaygroundStreamingComposer({
+  initialDraft,
+  blockedNotice,
+}: {
+  initialDraft: string;
+  blockedNotice?: string;
+}) {
   const [draft, setDraft] = useState(initialDraft);
-  const canSend = draft.trim().length > 0;
+  const canSend = !blockedNotice && draft.trim().length > 0;
   const sendKey = useSendKey();
 
   return (
-    <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+    <div className={`border-t border-cc-border bg-cc-card px-4 py-3 ${blockedNotice ? "pt-14" : ""}`}>
       <div className="rounded-[14px] border border-cc-border bg-cc-input-bg">
         <textarea
           value={draft}
@@ -48,10 +61,12 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
           isRecording={false}
           voiceButtonTitle="Voice input"
           canSend={canSend}
+          sendBlocked={!!blockedNotice}
+          sendNotice={blockedNotice ?? null}
           isRunning={true}
           handleInterrupt={() => {}}
           handleSend={() => {}}
-          sendButtonTitle={canSend ? sendKey.hint : "Send message"}
+          sendButtonTitle={blockedNotice ?? (canSend ? sendKey.hint : "Send message")}
           sendPressing={false}
         />
       </div>

@@ -22,6 +22,8 @@ function ToolbarHarness({ warmMicrophone = () => {} }: { warmMicrophone?: () => 
         isRecording={false}
         voiceButtonTitle="Voice input"
         canSend={true}
+        sendBlocked={false}
+        sendNotice={null}
         isRunning={false}
         handleInterrupt={() => {}}
         handleSend={() => {}}

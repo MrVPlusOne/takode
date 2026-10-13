@@ -23,6 +23,8 @@ export function ComposerMetaToolbar({
   isRecording,
   voiceButtonTitle,
   canSend,
+  sendBlocked,
+  sendNotice,
   isRunning,
   handleInterrupt,
   handleSend,
@@ -42,6 +44,10 @@ export function ComposerMetaToolbar({
   isRecording: boolean;
   voiceButtonTitle: string;
   canSend: boolean;
+  /** There is something to send, but sending is blocked; a press shows why instead of doing nothing. */
+  sendBlocked: boolean;
+  /** Why the last press did not send, shown until the draft or its blocker changes. */
+  sendNotice: string | null;
   isRunning: boolean;
   handleInterrupt: () => void;
   handleSend: () => void;
@@ -122,7 +128,8 @@ export function ComposerMetaToolbar({
         <div className="relative group">
           <button
             onClick={handleSend}
-            disabled={!canSend}
+            disabled={!canSend && !sendBlocked}
+            aria-disabled={!canSend || undefined}
             aria-label="Send message"
             data-sent={sendPressing || undefined}
             className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
@@ -136,10 +143,13 @@ export function ComposerMetaToolbar({
               <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
             </span>
           </button>
-          {!canSend && sendButtonTitle !== "Send message" && (
-            <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block">
-              <div className="whitespace-nowrap rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted shadow-lg">
-                {sendButtonTitle}
+          {(sendNotice || sendBlocked) && (
+            <div
+              role={sendNotice ? "alert" : undefined}
+              className={`pointer-events-none absolute bottom-full right-0 mb-2 ${sendNotice ? "block" : "hidden group-hover:block"}`}
+            >
+              <div className="w-max max-w-[16rem] rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-fg shadow-lg">
+                {sendNotice ?? sendButtonTitle}
               </div>
             </div>
           )}

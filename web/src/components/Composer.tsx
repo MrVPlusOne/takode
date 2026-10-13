@@ -139,6 +139,7 @@ export function Composer({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [isImageDragOver, setIsImageDragOver] = useState(false);
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [alternateVoiceRerun, setAlternateVoiceRerun] = useState<AlternateVoiceRerun | null>(null);
   const zoomLevel = useStore((s) => s.zoomLevel);
 
@@ -843,14 +844,12 @@ export function Composer({
   async function handleSend() {
     const store = useStore.getState();
     const msg = text.trim();
-    if (
-      (!msg && images.length === 0 && !annotations?.length) ||
-      !canUseInput ||
-      voiceEditProposal ||
-      annotationEditorOpen ||
-      !allImagesReady
-    )
+    if (!hasDraftContent) return;
+    // A press that cannot send must say why; a silent no-op reads as a broken button.
+    if (sendBlockReason) {
+      setSendNotice(sendBlockReason);
       return;
+    }
 
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
@@ -952,7 +951,10 @@ export function Composer({
       },
       isCodex,
     );
-    if (result === "failed") return;
+    if (result === "failed") {
+      setSendNotice("Not connected to the Takode server, so nothing was sent. Your draft is kept.");
+      return;
+    }
     setAlternateVoiceRerun(null);
     if (result === "sent") finalizeReplyNotification();
     clearComposerUi();
@@ -1411,12 +1413,21 @@ export function Composer({
         : failedImageCount > 0
           ? `Remove or retry ${failedImageCount} failed image${failedImageCount === 1 ? "" : "s"} before sending.`
           : null;
-  const canSend =
-    (text.trim().length > 0 || images.length > 0 || !!annotations?.length) &&
-    canUseInput &&
-    !voiceEditProposal &&
-    !annotationEditorOpen &&
-    allImagesReady;
+  const hasDraftContent = text.trim().length > 0 || images.length > 0 || !!annotations?.length;
+  const sendBlockReason = !hasDraftContent
+    ? null
+    : !canUseInput
+      ? "Resume session to send"
+      : voiceEditProposal
+        ? "Accept or undo the voice edit first"
+        : annotationEditorOpen
+          ? "Save or cancel the open comment first"
+          : !allImagesReady
+            ? (attachmentBlockReason ?? "Images are still being prepared.")
+            : null;
+  const canSend = hasDraftContent && !sendBlockReason;
+  // The notice explains one press; any change to the draft or to what blocks it retires the notice.
+  useEffect(() => setSendNotice(null), [text, images, annotations, sendBlockReason]);
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
   const placeholder = buildComposerPlaceholder({
@@ -1499,7 +1510,7 @@ export function Composer({
     : !canUseInput
       ? "Resume session to upload images"
       : "Upload image";
-  const sendButtonTitle = attachmentBlockReason ?? (canSend ? sendKey.hint : "Send message");
+  const sendButtonTitle = sendBlockReason ?? (canSend ? sendKey.hint : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);
@@ -1683,6 +1694,8 @@ export function Composer({
                 isRecording={isRecording}
                 voiceButtonTitle={voiceButtonTitle}
                 canSend={canSend}
+                sendBlocked={!!sendBlockReason}
+                sendNotice={sendNotice}
                 isRunning={isRunning}
                 handleInterrupt={handleInterrupt}
                 handleSend={handleSend}
