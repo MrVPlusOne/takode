@@ -104,6 +104,32 @@ describe("telling a relaunched session what Takode rebuilt", () => {
     expect(noticeIndex).toBeGreaterThan(markerIndex);
   });
 
+  it("Claude: a fresh process after a resume that found no conversation gets the notice and queued input", async () => {
+    // The seen failure: the resumed process opens the resume window, then fails
+    // inside it ("No conversation found") before anything closes it. The fresh
+    // process that follows sends nothing until it gets input, so a window left
+    // open by its predecessor held the notice and every queued message forever.
+    const session = bridge.getOrCreateSession("s5", "claude-sdk");
+    session.messageHistory.push({ type: "assistant", message: { id: "earlier", content: [] } } as any);
+    const record = useLauncher({ sessionId: "s5", cliSessionId: "gone" });
+    bridge.injectUserMessage("s5", "waiting through both launches", LEADER);
+
+    const resumed = createClaudeSdkTestBackend("s5").attach(bridge);
+    expect(session.cliResuming).toBe(true);
+    resumed.disconnect();
+    expect(resumed.promptTexts()).toEqual([]);
+
+    // The launcher drops the lost conversation and notes it for the agent.
+    delete record.cliSessionId;
+    record.pendingRecovery = { conversationLost: true };
+    const fresh = createClaudeSdkTestBackend("s5").attach(bridge);
+
+    await vi.waitFor(() => expect(fresh.promptTexts()).toHaveLength(2));
+    const [notice, queued] = fresh.promptTexts();
+    expect(notice).toContain("takode scan s5");
+    expect(queued).toContain("waiting through both launches");
+  });
+
   it("Claude: nothing is injected when nothing was rebuilt", () => {
     bridge.getOrCreateSession("s3", "claude-sdk");
     useLauncher({ sessionId: "s3" });

@@ -637,13 +637,19 @@ describe("cliResuming prevents false compaction events on --resume replay", () =
 
     const session = bridge.getOrCreateSession("s1");
     session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
-    session.cliResuming = true;
     session.awaitingCompactSummary = true;
+    // A saved conversation to resume is what opens the resume window on attach.
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
 
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     cli.attach(bridge);
+    expect(session.cliResuming).toBe(true);
     browser.send.mockClear();
 
     cli.message(

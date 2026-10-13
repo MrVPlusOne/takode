@@ -106,6 +106,13 @@ export function attachClaudeSdkAdapterLifecycle(
     }, 2000);
   };
 
+  // The resume window belongs to the process that opened it. One that failed
+  // inside it (a resume that found no conversation) leaves it open, and a fresh
+  // process sends nothing that would close it, so its input would wait forever.
+  if (session.cliResumingClearTimer) clearTimeout(session.cliResumingClearTimer);
+  session.cliResumingClearTimer = null;
+  session.cliResuming = false;
+
   // A reattached process replays nothing: everything it sends is new output.
   if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0 && !adapter.reattached) {
     session.cliResuming = true;
