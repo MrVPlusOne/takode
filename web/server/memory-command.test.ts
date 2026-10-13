@@ -169,4 +169,65 @@ describe("runMemoryCommand", () => {
       /^committed [0-9a-f]+/,
     );
   });
+
+  // Two sessions read a note; one saves an update; the other's later save from its stale
+  // draft must be refused rather than silently undo that update. Reading again makes the
+  // save go through, and a session's own commit (which re-stamps `updated:`) never counts
+  // as someone else's change.
+  it("refuses to replace a note that changed since the saving session read it", async () => {
+    const draft = (body: string) => `---\ndescription: "Read when d."\ntype: decision\nsource: [q-1]\n---\n\n${body}\n`;
+    const as =
+      (session: string) =>
+      (args: string[], body = "") =>
+        runMemoryCommand(args, { defaults: { root }, session, readTextFile: async () => draft(body) });
+    const a = as("session-a");
+    const b = as("session-b");
+    const write = (run: ReturnType<typeof as>, body: string) => run(["write", "voice/d.md", "--file", "-"], body);
+    const commit = (run: ReturnType<typeof as>) =>
+      run(["commit", "--message", "x", "--source", "q-1", "--memory-id", "voice/d.md"]);
+    const current = async () => (await a(["read", "voice/d.md"])).stdout;
+
+    // Session A creates the note and commits; its next save from a draft still works.
+    await a(["lock", "acquire"]);
+    expect((await write(a, "One.")).exitCode).toBe(0);
+    expect((await commit(a)).exitCode).toBe(0);
+    expect((await write(a, "One, edited.")).exitCode).toBe(0);
+    expect((await commit(a)).exitCode).toBe(0);
+    await a(["lock", "release"]);
+
+    // Session B reads it and saves an update.
+    await b(["read", "voice/d.md"]);
+    await b(["lock", "acquire"]);
+    expect((await write(b, "Two.")).exitCode).toBe(0);
+    expect((await commit(b)).exitCode).toBe(0);
+    await b(["lock", "release"]);
+
+    // Session A's save from its older version is refused and leaves B's update in place.
+    await a(["lock", "acquire"]);
+    const stale = await write(a, "Three.");
+    expect(stale.exitCode).toBe(1);
+    expect(stale.stderr).toContain("voice/d.md changed since this session last read it");
+    expect(stale.stderr).toContain("memory read voice/d.md");
+    expect(await current()).toContain("Two.");
+    // That read refreshed A's view, so the merged save now goes through.
+    expect((await write(a, "Two, then three.")).exitCode).toBe(0);
+
+    // A session that never read an existing note cannot replace it blindly.
+    await a(["lock", "release"]);
+    const c = as("session-c");
+    await c(["lock", "acquire"]);
+    const blind = await write(c, "Four.");
+    expect(blind.stderr).toContain("voice/d.md exists and this session has not read it");
+    expect(await current()).toContain("Two, then three.");
+
+    // A note removed since it was read is not silently recreated; a second write confirms it.
+    await c(["read", "voice/d.md"]);
+    await c(["lock", "release"]);
+    await a(["lock", "acquire"]);
+    expect((await a(["rm", "voice/d.md"])).exitCode).toBe(0);
+    await a(["lock", "release"]);
+    await c(["lock", "acquire"]);
+    expect((await write(c, "Five.")).stderr).toContain("voice/d.md was removed or moved since this session read it");
+    expect((await write(c, "Five.")).exitCode).toBe(0);
+  });
 });

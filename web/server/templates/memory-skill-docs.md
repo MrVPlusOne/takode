@@ -68,6 +68,8 @@ Good folder names are short subject nouns a reader would look for (`codex-recove
 
 The lock belongs to the session that acquired it: only that session can write, remove, move or commit. If `memory lock acquire` reports the repo locked by another session, wait and retry. A lock whose holder session has ended, or that expired (10 minutes), is taken over by the next `memory lock acquire`.
 
+`memory write` replaces a note only when your session has seen its current version, by reading it with `memory read` or by writing it. When another session changed the note after you read it, or you never read it, the write refuses and saves nothing, so you cannot silently undo someone else's update: run `memory read <path>`, merge your edits into that current text, and write again. (A note removed since you read it is refused once; write again only if it should still exist.) The server keeps what each session has read in memory, so after a server restart, read a note again before replacing it.
+
 `memory commit` refuses a commit when a note it changes breaks a per-note rule: a description over 250 characters, a missing or unknown `type:`, a note at the repo root, or a file name used twice. Fix the note and commit again. Notes you did not change never block your commit.
 
 ## Keeping the repo healthy

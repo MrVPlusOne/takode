@@ -96,6 +96,7 @@ describe("memory write and commit stamp the session's machine", () => {
 
     // A session on another machine rewrites the note from a draft without the field.
     await holdLock("remote");
+    await run(["read", "topic/a.md"], "remote");
     await run(["write", "topic/a.md", "--file", "-"], "remote", note(["type: knowledge"], "Edited."));
     expect(noteMachines(await read("topic/a.md"))).toEqual(["laptop", "devbox"]);
 

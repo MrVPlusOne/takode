@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, rmdir, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { stampNoteMachine } from "./memory-note-machines.js";
+import { setFrontmatterField } from "./memory-repo-layout.js";
 import { assertMemoryLockHolder, ensureMemoryRepo, resolveMemoryRepo } from "./workstream-memory-store.js";
 import type { MemoryRepoOptions } from "./workstream-memory-types.js";
 
@@ -23,13 +25,15 @@ export interface MemoryGrepResult {
   omitted: number;
 }
 
-/** The full text of each note, in the order asked. */
+/** The full text of each note, in the order asked. The reading session may then replace them. */
 export async function readMemoryNotes(paths: string[], options: MemoryRepoOptions): Promise<MemoryNoteText[]> {
   const root = await realpath(resolveMemoryRepo(options).root);
   const notes: MemoryNoteText[] = [];
   for (const path of paths) {
     const absolute = await existingNotePath(root, path);
-    notes.push({ path: cleanNotePath(path), content: await readFile(absolute, "utf-8") });
+    const content = await readFile(absolute, "utf-8");
+    rememberSeenVersion(seenKey(root, options, syntacticRelativePath(root, path)), content);
+    notes.push({ path: cleanNotePath(path), content });
   }
   return notes;
 }
@@ -71,6 +75,8 @@ export async function grepMemoryNotes(
 /**
  * Create or replace one note (or folder README) with `content`. Requires the repo lock.
  * A note gets `machine` (the writing session's) added to its `machines:` list.
+ * Replacing a note needs the session to have read (or written) its current version, so a
+ * save never silently undoes another session's newer edit.
  */
 export async function writeMemoryNote(
   path: string,
@@ -86,15 +92,18 @@ export async function writeMemoryNote(
   await mkdir(dirname(absolute), { recursive: true });
   // A symlinked folder or file must not lead the write outside the repo.
   assertInside(root, await realpath(dirname(absolute)));
-  const existing = await realpath(absolute).then(
-    (target) => (assertInside(root, target), true),
-    () => false,
+  const previous = await realpath(absolute).then(
+    (target) => (assertInside(root, target), readFile(target, "utf-8")),
+    () => undefined,
   );
+  const key = seenKey(root, options, relativePath);
+  assertSeenCurrentVersion(key, relativePath, previous);
   let text = content.endsWith("\n") ? content : `${content}\n`;
   if (machine && basename(relativePath) !== "README.md") {
-    text = stampNoteMachine(text, machine, existing ? await readFile(absolute, "utf-8") : undefined);
+    text = stampNoteMachine(text, machine, previous);
   }
   await writeFile(absolute, text, "utf-8");
+  rememberSeenVersion(key, text);
   return relativePath;
 }
 
@@ -105,9 +114,55 @@ export async function removeMemoryNote(path: string, options: MemoryRepoOptions)
   const root = await realpath(repo.root);
   const absolute = await existingNotePath(root, path);
   await unlink(absolute);
+  seenVersions.delete(seenKey(root, options, syntacticRelativePath(root, path)));
   const folder = dirname(absolute);
   if (folder !== root && (await readdir(folder)).length === 0) await rmdir(folder);
   return relative(root, absolute).split(sep).join("/");
+}
+
+/**
+ * The version of each note that each session last read or wrote, by repo, session and path.
+ * Kept in the server's memory only: after a restart, replacing a note asks for a fresh read.
+ */
+const seenVersions = new Map<string, string>();
+const SEEN_VERSIONS_LIMIT = 20_000;
+
+function seenKey(root: string, options: MemoryRepoOptions, relativePath: string): string {
+  return JSON.stringify([root, options.lockHolder ?? "", relativePath]);
+}
+
+function rememberSeenVersion(key: string, content: string): void {
+  seenVersions.delete(key); // Re-insert so the oldest entries are dropped first.
+  seenVersions.set(key, noteVersion(content));
+  if (seenVersions.size > SEEN_VERSIONS_LIMIT) seenVersions.delete(seenVersions.keys().next().value!);
+}
+
+/** `previous` is the note's current text, undefined when there is no note at the path. */
+function assertSeenCurrentVersion(key: string, path: string, previous: string | undefined): void {
+  const seen = seenVersions.get(key);
+  const retry = `Run \`memory read ${path}\`, merge your edits into its current text, and write again.`;
+  if (previous === undefined) {
+    if (seen === undefined) return;
+    // Forget it, so a deliberate second write can recreate the note.
+    seenVersions.delete(key);
+    throw new Error(
+      `Not saved: ${path} was removed or moved since this session read it. ` +
+        "Check `memory catalog diff`; write again only if the note should still exist here.",
+    );
+  }
+  if (seen === undefined) throw new Error(`Not saved: ${path} exists and this session has not read it. ${retry}`);
+  if (seen !== noteVersion(previous)) {
+    throw new Error(`Not saved: ${path} changed since this session last read it, and saving would undo that. ${retry}`);
+  }
+}
+
+/**
+ * Content hash ignoring `updated:` and `machines:`, which commits re-stamp on the notes they
+ * change: a session's own commit must not make its next write of the same note look stale.
+ */
+function noteVersion(content: string): string {
+  const authored = setFrontmatterField(setFrontmatterField(content, "updated", ""), "machines", "");
+  return createHash("sha256").update(authored).digest("hex");
 }
 
 async function existingNotePath(root: string, path: string): Promise<string> {

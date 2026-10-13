@@ -212,6 +212,7 @@ Writing (hold the lock):
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
   write <path> --file <draft>|-
       Create or replace a note or folder README with the draft's full text (- reads stdin).
+      Replacing needs your session to have read the note's current version with memory read.
   rm <path>
       Delete a note.
   mv <old-path> <new-path> | mv --plan <file>
