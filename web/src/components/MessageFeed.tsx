@@ -92,6 +92,7 @@ import {
   scrollMessageFeedTargetIntoView,
 } from "./message-feed-target-scroll.js";
 import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll.js";
+import { useJumpTargetPin } from "./message-feed-jump-target-pin.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
@@ -303,8 +304,19 @@ export function MessageFeed({
     containerRef,
     readCurrentRestoreKey,
   );
+  const { pinJumpTarget, releaseJumpTarget } = useJumpTargetPin({
+    containerRef,
+    contentRootRef,
+    lastScrollTopRef,
+    programmaticScrollTargetRef,
+    scopeKey: `${sessionId}:${normalizedThreadKey}`,
+  });
+  const cancelRestoreAndJumpPin = useCallback(() => {
+    cancelExactRestore();
+    releaseJumpTarget();
+  }, [cancelExactRestore, releaseJumpTarget]);
   const handleUserNavigationIntent = useUserViewportNavigationIntent(
-    cancelExactRestore,
+    cancelRestoreAndJumpPin,
     sessionId,
     normalizedThreadKey,
   );
@@ -1621,6 +1633,7 @@ export function MessageFeed({
             reserveTargetScrollSpace,
             refs: { lastScrollTop: lastScrollTopRef, isNearBottom },
           });
+          pinJumpTarget(targetElement);
           clearScrollToMessage(sessionId);
           clearPendingScrollToMessageId(sessionId);
           clearExpandAllInTurn(sessionId);
@@ -1649,6 +1662,7 @@ export function MessageFeed({
     isLeaderSession,
     markProgrammaticScroll,
     normalizedThreadKey,
+    pinJumpTarget,
     requestThreadWindow,
     reserveTargetScrollSpace,
     requestHistoryWindow,

@@ -108,7 +108,18 @@ restored content bottom for the new viewing pass.
 
 There is no special anchor-restore path tied to the latest user turn.
 
-### 6. Cold session hydration
+### 6. Jumping to a message
+
+A jump to a message (the attention chip's Next, notification and message
+links, search results) centers the target and then keeps it where it landed
+while the feed finishes rendering around it: content that mounts late, such as
+a quest thread's description and completion cards or images, must not push the
+target away. Browsers with CSS scroll anchoring often do this themselves, but
+iOS Safari has none, so the feed corrects the scroll position after each size
+change of its content. The target lets go as soon as the user touches or
+scrolls the feed, navigates elsewhere, switches thread, or after a few seconds.
+
+### 7. Cold session hydration
 
 When switching to a session whose full history is not yet loaded in the browser:
 
