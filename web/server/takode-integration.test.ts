@@ -60,6 +60,12 @@ describe("ensureTakodeIntegration", () => {
     expect(String(sidecarMcpWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/takode-sidecar-mcp.ts" "$@"');
     expect(String(sidecarMcpWrite?.[1] ?? "")).not.toContain("/repo/worktrees/wt-1");
 
+    // Claude sessions on GitHub Copilot start this MCP server by name from PATH.
+    const webSearchMcpWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/takode-web-search-mcp",
+    );
+    expect(String(webSearchMcpWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/takode-web-search-mcp.ts" "$@"');
+
     const agentBrowserWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/agent-browser",
     );

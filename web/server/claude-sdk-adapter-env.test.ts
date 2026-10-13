@@ -7,10 +7,15 @@ vi.mock("./path-resolver.js", () => ({
 
 const sdkMocks = vi.hoisted(() => ({
   applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
+  // Claude's effective settings; none by default, as for a session on the Anthropic API.
+  getSettings: vi.fn(async (): Promise<unknown> => ({ effective: {} })),
+  setMcpServers: vi.fn(async (_servers: unknown) => ({ added: [], removed: [], errors: {} })),
   // Records each query the adapter starts: its prompt input and options.
   query: vi.fn((_params: { prompt: AsyncIterable<unknown>; options: Record<string, any> }) => ({
     close: vi.fn(),
     applyFlagSettings: sdkMocks.applyFlagSettings,
+    getSettings: sdkMocks.getSettings,
+    setMcpServers: sdkMocks.setMcpServers,
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
   })),
 }));
@@ -34,6 +39,7 @@ describe("ClaudeSdkAdapter launch env", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     delete process.env.CLAUDECODE;
     if (originalGitEditor === undefined) {
       delete process.env.GIT_EDITOR;
@@ -201,5 +207,30 @@ describe("ClaudeSdkAdapter launch env", () => {
     const { options: fresh } = await launchOptions({ resumeSessionAt: "assistant-uuid-7" });
     expect(fresh).not.toHaveProperty("resume");
     expect(fresh).not.toHaveProperty("resumeSessionAt");
+  });
+
+  it("gives a Claude on GitHub Copilot the web search tool and nothing to others", async () => {
+    // Copilot rejects Claude's own WebSearch; the adapter learns the provider from Claude's settings.
+    const copilotSettings = { effective: { env: { ANTHROPIC_BASE_URL: "https://api.githubcopilot.com" } } };
+    // The server's own environment also counts, so keep the test runner's out of it.
+    vi.stubEnv("ANTHROPIC_BASE_URL", "");
+    sdkMocks.getSettings.mockResolvedValue(copilotSettings);
+    try {
+      const { options } = await launchOptions();
+      expect(options.hooks.PreToolUse[0].matcher).toBe("WebSearch");
+      await vi.waitFor(() =>
+        expect(sdkMocks.setMcpServers).toHaveBeenCalledWith({
+          "takode-web": expect.objectContaining({ type: "stdio" }),
+        }),
+      );
+    } finally {
+      sdkMocks.getSettings.mockResolvedValue({ effective: {} });
+    }
+
+    sdkMocks.setMcpServers.mockClear();
+    const settingsReads = sdkMocks.getSettings.mock.calls.length;
+    await launchOptions();
+    await vi.waitFor(() => expect(sdkMocks.getSettings.mock.calls.length).toBeGreaterThan(settingsReads));
+    expect(sdkMocks.setMcpServers).not.toHaveBeenCalled();
   });
 });

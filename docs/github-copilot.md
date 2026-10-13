@@ -94,6 +94,30 @@ for streaming output, the launcher adds `--include-partial-messages` so Claude
 Code reports progress while it writes a reply. Takode shows each reply once it
 is complete, but uses this progress to tell a long reply from a stuck turn.
 
+## Web search and WebFetch
+
+Copilot doesn't support Claude's built-in WebSearch tool: every call fails
+with `400 The use of the web search tool is not supported`. Takode fixes this
+for any Claude session whose `ANTHROPIC_BASE_URL` points at a
+`githubcopilot.com` host, whichever settings file or environment sets it.
+Sessions on other providers keep their built-in tools.
+
+- **A `web_search` tool** (`mcp__takode-web__web_search`) searches through
+  Copilot's own web search, run by a Copilot GPT model (`gpt-6-luna`), and
+  answers with the URLs of its sources. Claude starts it on its own machine
+  with the same Copilot address and sign-in it uses itself (its
+  `apiKeyHelper`, or `ANTHROPIC_AUTH_TOKEN`), so it needs no extra key. A
+  search takes about 10 seconds. To use a different Copilot model, set
+  `TAKODE_COPILOT_WEB_SEARCH_MODEL` in the environment Claude runs with.
+- **WebSearch calls are turned away** with a message pointing Claude at
+  `web_search`.
+- **WebFetch** summarizes each page with Claude Code's small helper model.
+  Without a Haiku model set, Claude Code uses the main model instead, and Opus
+  5.5 rejects that request (`"thinking.type.disabled" is not supported`).
+  Takode sets `ANTHROPIC_DEFAULT_HAIKU_MODEL` to `claude-haiku-4-5` for the
+  session, unless `ANTHROPIC_DEFAULT_HAIKU_MODEL` or
+  `ANTHROPIC_SMALL_FAST_MODEL` is already set.
+
 ## Checking which models Copilot serves
 
 Copilot's model list changes over time. To see the Claude models your account

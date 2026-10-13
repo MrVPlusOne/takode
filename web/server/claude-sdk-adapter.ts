@@ -21,6 +21,7 @@ import type {
 import { inheritedLaunchEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
 import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
+import { CopilotWebTools } from "./claude-copilot-web-tools.js";
 import {
   formatVsCodeSelectionPrompt,
   type BrowserIncomingMessage,
@@ -338,6 +339,8 @@ export class ClaudeSdkAdapter
     // Build the plugins list from pluginDirs
     const plugins = (this.options.pluginDirs ?? []).map((path) => ({ type: "local" as const, path }));
     const resuming = !!this.options.cliSessionId;
+    // Claude on GitHub Copilot gets a working web search; others are unaffected.
+    const copilotWebTools = new CopilotWebTools(mergedEnv);
 
     // NOTE: Always provide canUseTool, even in bypassPermissions mode.
     // The ws-bridge permission pipeline handles mode-based auto-approval
@@ -351,6 +354,7 @@ export class ClaudeSdkAdapter
       permissionMode: this.mapPermissionMode(this.options.permissionMode) as SdkQueryOptions["permissionMode"],
       env: mergedEnv,
       canUseTool: this.handleCanUseTool.bind(this) as unknown as SdkQueryOptions["canUseTool"],
+      hooks: copilotWebTools.hooks,
       settingSources: ["user", "project", "local"],
       // query() starts from an empty system prompt unless told otherwise; keep
       // Claude Code's own prompt, with Takode's instructions appended.
@@ -407,6 +411,15 @@ export class ClaudeSdkAdapter
     sdkQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }).catch((err: Error) => {
       console.error(`[claude-sdk-adapter] Turning off commit attribution failed for session ${this.sessionId}:`, err);
     });
+    copilotWebTools.attach(sdkQuery).then(
+      (copilot) => {
+        if (copilot)
+          console.log(`[claude-sdk-adapter] Session ${this.sessionId} runs on GitHub Copilot: web search added`);
+      },
+      (err: Error) => {
+        console.error(`[claude-sdk-adapter] Copilot web tools setup failed for session ${this.sessionId}:`, err);
+      },
+    );
 
     this.connected = true;
     this.watchProcessStart();
