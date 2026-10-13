@@ -674,6 +674,10 @@ const herdEventDispatcher = new HerdEventDispatcher(herdBridge, launcher, {
   getSessionName: (sessionId) => sessionNames.getName(sessionId),
   getSessions: () => bridgeAny.sessions,
   getLeaderIdleDeps: () => bridgeAny.getSessionRegistryDeps(),
+  isHostOffline: (sessionId) => {
+    const hostId = launcher.getSession(sessionId)?.hostId;
+    return !!hostId && !hostIsOnline(hostId);
+  },
 });
 wsBridge.herdEventDispatcher = herdEventDispatcher;
 const messageDeliveries = new MessageDeliveryTracker({
@@ -713,14 +717,15 @@ const hostOutageAlerts = new HostOutageAlerts({
 });
 hostOutageAlerts.start();
 hostLinks.onStatusChange(() => hostOutageAlerts.check());
-// Messages held while a host was offline go to the sessions whose processes it still runs.
+// Messages held while a host was offline go to the sessions whose processes it
+// still runs, and leaders there get the herd events that waited for the host.
 hostLinks.onStatusChange((status) => {
   if (!status.online) return;
   for (const info of launcher.listSessions()) {
-    if (info.hostId !== status.hostId || !info.hostProcId || !hostLinks.hasProcess(info.hostId, info.hostProcId))
-      continue;
+    if (info.hostId !== status.hostId) continue;
     const session = wsBridge.getSession(info.sessionId);
-    if (session) flushHeldSdkMessages(session);
+    if (session && info.hostProcId && hostLinks.hasProcess(info.hostId, info.hostProcId)) flushHeldSdkMessages(session);
+    herdEventDispatcher.onHostOnline(info.sessionId);
   }
 });
 launcher.onHerdChange = createLauncherHerdChangeHandler({

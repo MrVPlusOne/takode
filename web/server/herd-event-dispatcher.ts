@@ -343,6 +343,8 @@ export class HerdEventDispatcher {
       getSessionName?: (sessionId: string) => string | undefined;
       getSessions?: () => LeaderIdleStateLike["sessions"];
       getLeaderIdleDeps?: () => Parameters<typeof updateLeaderGroupIdleStateController>[3];
+      /** Whether the remote host a session runs on is offline. */
+      isHostOffline?: (sessionId: string) => boolean;
     },
   ) {}
 
@@ -655,7 +657,7 @@ export class HerdEventDispatcher {
       this.recomputeInboxWatermarks(inbox);
     }
 
-    if (policy.kind === "hold" || serverWorkAdmission.isStopping()) return;
+    if (policy.kind === "hold" || serverWorkAdmission.isStopping() || this.isHostOffline(orchId)) return;
 
     // If orchestrator is idle, schedule delivery
     if (this.isSessionIdle(orchId)) {
@@ -777,7 +779,7 @@ export class HerdEventDispatcher {
    *  the stuck-session watchdog may flush the complete eligible backlog.
    *  Returns the number of events delivered (0 if nothing was pending). */
   forceFlushPendingEvents(orchId: string, before = Infinity): number {
-    if (serverWorkAdmission.isStopping()) return 0;
+    if (serverWorkAdmission.isStopping() || this.isHostOffline(orchId)) return 0;
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
     this.pruneStaleBoardStallEntries(orchId, inbox);
@@ -792,6 +794,11 @@ export class HerdEventDispatcher {
     }
     if (result.status === "retry") this.scheduleRetry(orchId);
     return result.status === "sent" ? result.deliveredCount : 0;
+  }
+
+  /** Called when the remote host a session runs on is back, so a leader there gets the events that waited for it. */
+  onHostOnline(sessionId: string): void {
+    this.scheduleDelivery(sessionId);
   }
 
   /** Schedule a debounced flush. Multiple calls within DEBOUNCE_MS batch together. */
@@ -829,6 +836,10 @@ export class HerdEventDispatcher {
       this.maybeRetireInbox(orchId, inbox);
       return;
     }
+    // A leader whose host is offline cannot take the events, and the bridge
+    // would hold each one only for this dispatcher to inject it again, so
+    // they wait here until onHostOnline.
+    if (this.isHostOffline(orchId)) return;
 
     // Re-check idle — orchestrator may have started generating during debounce
     if (!this.isSessionIdle(orchId)) {
@@ -1168,6 +1179,10 @@ export class HerdEventDispatcher {
 
   private wakeUnavailableOrchestratorForPendingEvents(sessionId: string, reason: string): boolean {
     return this.wsBridge.wakeUnavailableOrchestratorForPendingEvents?.(sessionId, reason) ?? false;
+  }
+
+  private isHostOffline(sessionId: string): boolean {
+    return this.runtime?.isHostOffline?.(sessionId) ?? false;
   }
 
   private isCodexLeader(sessionId: string): boolean {

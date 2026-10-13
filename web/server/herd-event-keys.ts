@@ -93,15 +93,6 @@ export function getStableHerdEventKey(event: TakodeEvent): string | null {
       .map(stableKeyPart)
       .join("|");
   }
-  // A leader on the offline host itself gets these held by the bridge while
-  // the dispatcher keeps them pending, so the key is what tells it the held
-  // copy is already in the leader's history.
-  if (event.event === "host_offline") {
-    return ["host_offline", event.sessionId, event.data.hostId, event.data.offlineSince].map(stableKeyPart).join("|");
-  }
-  if (event.event === "host_online") {
-    return ["host_online", event.sessionId, event.data.hostId, event.data.offlineForMs].map(stableKeyPart).join("|");
-  }
   return null;
 }
 
