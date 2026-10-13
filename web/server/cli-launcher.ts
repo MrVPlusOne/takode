@@ -120,9 +120,25 @@ export class CliLauncher {
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
   private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
+  /** Why each session's latest launch failed, so a failed relaunch can say. */
+  private launchFailures = new Map<string, string>();
   private settingsGetter: (() => LauncherSettingsSnapshot) | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
   private envResolver: ((slug: string) => Promise<Record<string, string> | null>) | null = null;
+
+  /**
+   * Makes sure a session's working directory exists on its machine before it
+   * launches, recreating a vanished worktree; returns why it could not (set by
+   * server bootstrap).
+   */
+  restoreCheckout: ((sessionId: string, info: SdkSessionInfo) => Promise<string | undefined>) | null = null;
+
+  /**
+   * Called when a Claude session's saved conversation no longer exists on its
+   * machine. The session has been switched to a fresh conversation; the
+   * callback tells its agent and relaunches it (set by server bootstrap).
+   */
+  onConversationLost: ((sessionId: string) => void) | null = null;
 
   /** Callback for herd relationship changes (set by server bootstrap). */
   onHerdChange: ((event: HerdChangeEvent) => void) | null = null;
@@ -910,7 +926,23 @@ export class CliLauncher {
 
     info.state = "starting";
     info.killedByIdleManager = false;
+    this.launchFailures.delete(sessionId);
 
+    // A process being taken over is running, so its directory is there.
+    if (!reattachHostProcess && this.restoreCheckout) {
+      let checkoutError: string | undefined;
+      try {
+        checkoutError = await this.restoreCheckout(sessionId, info);
+      } catch (err) {
+        checkoutError = `Could not prepare the working directory: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      if (checkoutError) {
+        info.state = "exited";
+        info.exitCode = 1;
+        this.persistState();
+        return { ok: false, error: checkoutError };
+      }
+    }
     console.log(
       `[cli-launcher] ${reattachHostProcess ? "Taking over the host process of" : "Relaunching"} session ${sessionTag(sessionId)} (cliSessionId: ${info.cliSessionId || "none"}, state: ${info.state}, backendType: ${info.backendType})`,
     );
@@ -1021,10 +1053,10 @@ export class CliLauncher {
       return { ok: false, error: `Failed to spawn process: ${msg}` };
     }
 
-    // Spawns may fail without throwing (marking state="exited" when the binary
-    // is missing). Re-read state since the spawn mutates info as a side effect.
+    // Spawns may fail without throwing, marking state="exited". Re-read state
+    // since the spawn mutates info as a side effect.
     if ((info.state as string) === "exited") {
-      return { ok: false, error: "Failed to spawn process (binary not found)" };
+      return { ok: false, error: `Failed to start: ${this.launchFailures.get(sessionId) ?? "the process exited"}` };
     }
     return { ok: true };
   }
@@ -1124,7 +1156,7 @@ export class CliLauncher {
     const started = await adapter.started;
     if (this.claudeSdkAdapters.get(sessionId) !== adapter || info.state !== "starting") return;
     if (!started) {
-      this.markClaudeSdkExited(sessionId, adapter, "Claude did not start");
+      this.markClaudeSdkExited(sessionId, adapter, adapter.startError ?? "Claude did not start");
       return;
     }
     info.state = "connected";
@@ -1135,15 +1167,26 @@ export class CliLauncher {
   /**
    * Record that the current Claude process failed to start or ended unexpectedly.
    * The saved conversation ID is kept so a relaunch resumes the same conversation;
-   * relaunch policy (and its failure cap) stays with the bridge.
+   * relaunch policy (and its failure cap) stays with the bridge. A conversation
+   * Claude cannot find on the session's machine (its host was replaced, say) is
+   * never coming back, so the session moves on to a fresh one.
    */
   private markClaudeSdkExited(sessionId: string, adapter: ClaudeSdkAdapter, error: string): void {
     const info = this.sessions.get(sessionId);
     if (!info || this.claudeSdkAdapters.get(sessionId) !== adapter || info.state === "exited") return;
     info.state = "exited";
     info.exitCode = 1;
+    this.launchFailures.set(sessionId, error);
+    const conversationLost = !!info.cliSessionId && isMissingClaudeConversationError(error);
+    if (conversationLost) info.cliSessionId = undefined;
     this.persistState();
     console.error(`[cli-launcher] Claude SDK session ${sessionTag(sessionId)} exited: ${error}`);
+    if (!conversationLost) return;
+    console.warn(
+      `[cli-launcher] Claude conversation of session ${sessionTag(sessionId)} is gone; continuing in a fresh conversation`,
+    );
+    // After the bridge has handled this disconnect, so the notice queues for the next process.
+    setTimeout(() => this.onConversationLost?.(sessionId), 0);
   }
 
   private async spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
@@ -1206,6 +1249,7 @@ export class CliLauncher {
     } catch (err) {
       if (err instanceof MissingCodexBinaryError) {
         console.error(`[cli-launcher] ${err.message}`);
+        this.launchFailures.set(sessionId, err.message);
         info.state = "exited";
         info.exitCode = 127;
         this.persistState();
@@ -1215,9 +1259,11 @@ export class CliLauncher {
         // The host is away or could not prepare Codex; the next message relaunches the session,
         // and a process to take over waits for the host to connect again.
         if (options.reattachHostProcess) this.hostReattach.set(sessionId, options.reattachHostProcess);
+        const message = err instanceof Error ? err.message : String(err);
         console.error(
-          `[cli-launcher] Could not prepare Codex on host for session ${sessionTag(sessionId)}: ${err instanceof Error ? err.message : err}`,
+          `[cli-launcher] Could not prepare Codex on host for session ${sessionTag(sessionId)}: ${message}`,
         );
+        this.launchFailures.set(sessionId, `Could not prepare Codex on the host: ${message}`);
         info.state = "exited";
         info.exitCode = 1;
         this.persistState();
@@ -1846,4 +1892,9 @@ async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boo
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Claude Code's error when the conversation to resume is not saved on its machine. */
+export function isMissingClaudeConversationError(error: string): boolean {
+  return /No conversation found with session ID/i.test(error);
 }

@@ -121,4 +121,6 @@ export interface WorktreeSessionUpdate {
   cwd: string;
   actualBranch: string;
   disposableBranch?: CreatedWorktreeBranch;
+  /** A new base branch, when the recorded one was missing and the checkout started elsewhere. */
+  branch?: string;
 }

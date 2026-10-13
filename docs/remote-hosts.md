@@ -224,6 +224,17 @@ What survives what:
   next start takes them over, as after a restart.
 - **Restarting `takode node`:** ends the sessions it was running. They relaunch
   and resume their conversation the next time they are used.
+- **Replacing the host machine** (a new machine under the same host, or a home
+  or worktree folder that was wiped): each session recreates its missing
+  worktree when it next launches, on its own branch when the repository still
+  has it, otherwise on a fresh branch from its base branch, or from the
+  repository's default branch when that base exists only in another machine's
+  copy. A Claude session whose saved conversation is gone continues in a fresh
+  one. When a session loses its branch or its conversation this way, Takode
+  tells its agent what happened and how to recover context from the session
+  history. Reinstall anything a host's
+  **Claude Code** or **Codex** setting points to on the new machine (such as
+  the Copilot launcher); until then a launch fails with the missing path.
 
 ## Keeping this machine's sessions across restarts
 

@@ -5,15 +5,18 @@ import { vi } from "vitest";
 const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
 const sdkAdapterStartFailure = vi.hoisted(() => ({ next: null as Error | null }));
 // Whether the next adapter's Claude process spawns (the adapter's `started` result).
-const sdkAdapterSpawns = vi.hoisted(() => ({ next: true }));
+// `true` spawns; `false` or a spawn error message fails to start.
+const sdkAdapterSpawns = vi.hoisted(() => ({ next: true as boolean | string }));
 vi.mock("./claude-sdk-adapter.js", () => ({
   ClaudeSdkAdapter: class {
     started: Promise<boolean>;
+    startError?: string;
     constructor(sessionId: string, options: any) {
       const failure = sdkAdapterStartFailure.next;
       sdkAdapterStartFailure.next = null;
       if (failure) throw failure;
-      this.started = Promise.resolve(sdkAdapterSpawns.next);
+      this.started = Promise.resolve(sdkAdapterSpawns.next === true);
+      if (typeof sdkAdapterSpawns.next === "string") this.startError = sdkAdapterSpawns.next;
       sdkAdapterSpawns.next = true;
       sdkAdapterLaunches.push({ sessionId, options });
     }
@@ -457,10 +460,10 @@ describe("relaunch", () => {
     // ID survives so the bridge's bounded relaunch resumes the same conversation.
     await launcher.launch({ cwd: "/tmp/project" });
     launcher.setCLISessionId("test-session-id", "cli-kept");
-    sdkAdapterSpawns.next = false;
+    // The spawn's own error is the reason reported, e.g. a configured Claude binary missing on the machine.
+    sdkAdapterSpawns.next = "spawn /missing/claude ENOENT";
     const failed = await launcher.relaunch("test-session-id");
-    expect(failed.ok).toBe(false);
-    expect(failed.error).toContain("Failed to spawn process");
+    expect(failed).toEqual({ ok: false, error: "Failed to start: spawn /missing/claude ENOENT" });
 
     const info = launcher.getSession("test-session-id")!;
     expect(info).toMatchObject({ state: "exited", exitCode: 1, cliSessionId: "cli-kept" });
@@ -488,6 +491,51 @@ describe("relaunch", () => {
       exitCode: 1,
       cliSessionId: "cli-kept",
     });
+  });
+
+  it("continues a Claude session in a fresh conversation when its saved one is gone from the machine", async () => {
+    // A host moved to a new machine loses Claude's transcripts, and resuming
+    // then fails the same way every time. The session drops the conversation ID
+    // so the next launch starts fresh, and the server is told so it can explain
+    // that to the agent and relaunch.
+    await launcher.launch({ cwd: "/tmp/project" });
+    launcher.setCLISessionId("test-session-id", "cli-gone");
+    const lost = vi.fn();
+    launcher.onConversationLost = lost;
+
+    sdkAdapterLaunches
+      .at(-1)!
+      .options.onBackendExit("Claude Code returned an error result: No conversation found with session ID: cli-gone");
+    expect(launcher.getSession("test-session-id")).toMatchObject({ state: "exited", cliSessionId: undefined });
+    // Told only after the bridge has handled the disconnect.
+    expect(lost).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(lost).toHaveBeenCalledWith("test-session-id");
+
+    expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
+    expect(sdkAdapterLaunches.at(-1)!.options.cliSessionId).toBeUndefined();
+  });
+
+  it("fails a relaunch whose working directory cannot be restored, without starting a process", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
+    const launches = sdkAdapterLaunches.length;
+    const restore = vi.fn(
+      async (): Promise<string | undefined> => "Repository not found at /repo. Please clone it first, then try again.",
+    );
+    launcher.restoreCheckout = restore;
+
+    const result = await launcher.relaunch("test-session-id");
+    expect(result).toEqual({
+      ok: false,
+      error: "Repository not found at /repo. Please clone it first, then try again.",
+    });
+    expect(restore).toHaveBeenCalledWith("test-session-id", expect.objectContaining({ sessionId: "test-session-id" }));
+    expect(sdkAdapterLaunches).toHaveLength(launches);
+    expect(launcher.getSession("test-session-id")?.state).toBe("exited");
+
+    // Restored: the relaunch goes ahead.
+    restore.mockResolvedValue(undefined);
+    expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
   });
 
   it("refuses to resume a saved Claude container session without running it on the host", async () => {

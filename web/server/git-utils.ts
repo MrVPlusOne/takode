@@ -622,6 +622,18 @@ export async function ensureWorktreeAsync(
   throw new Error(`Branch "${branchName}" does not exist and createBranch is false`);
 }
 
+/** Whether `branchName` is a local branch, or with `remote`, a local or `origin` branch. */
+export async function branchExistsAsync(
+  repoRoot: string,
+  branchName: string,
+  options?: { remote?: boolean },
+): Promise<boolean> {
+  if ((await gitSafeAsync(`rev-parse --verify refs/heads/${branchName}`, repoRoot)) !== null) return true;
+  return (
+    !!options?.remote && (await gitSafeAsync(`rev-parse --verify refs/remotes/origin/${branchName}`, repoRoot)) !== null
+  );
+}
+
 /**
  * Generate a unique branch name for a companion-managed worktree.
  * Pattern: `{branch}-wt-{random4digit}` (e.g. `main-wt-8374`).

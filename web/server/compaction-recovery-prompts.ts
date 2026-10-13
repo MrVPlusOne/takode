@@ -93,6 +93,22 @@ ${getLeaderContextRecoveryInstructions(sessionRef)}`
 ${getStandardContextRecoveryInstructions(sessionRef)}`;
 }
 
+/** Sender of messages that tell a session's agent how Takode recovered its launch. */
+export const SESSION_RECOVERY_SOURCE = { sessionId: "system:session-recovery", sessionLabel: "System" };
+
+/** Told to an agent whose saved conversation could not be resumed, so it starts without its earlier context. */
+export function getLostConversationRecoveryPrompt(role: "leader" | "standard", sessionRef: string): string {
+  const recovery =
+    role === "leader"
+      ? `1. Run \`takode leader-context-resume ${sessionRef}\` for the recovery summary, then \`takode scan ${sessionRef}\` for recent turns.
+2. Use \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for turns that need detail.
+3. Check \`takode board show\`, \`takode list\` and the relevant quests before acting, and keep unresolved user decisions scoped to their owner.`
+      : getStandardContextRecoveryInstructions(sessionRef);
+  return `Takode could not resume your previous conversation: it is no longer saved on this session's machine (for example, the session's host moved to a new machine). You are the same Takode session continuing in a fresh conversation, without your earlier context. Recover it from your session history before acting:
+
+${recovery}`;
+}
+
 export function isCompactionRecoveryPrompt(content: string): boolean {
   return (
     content === LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT ||

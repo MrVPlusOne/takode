@@ -22,6 +22,8 @@ describe("ClaudeSdkAdapter launch failure", () => {
 
     // The launcher waits on `started` before reporting the session connected.
     await expect(adapter.started).resolves.toBe(false);
+    // The spawn's own reason, naming the missing path, is what a failed relaunch reports.
+    expect(adapter.startError).toContain("/nonexistent/takode-test/claude");
     await vi.waitFor(() => expect(onBackendExit).toHaveBeenCalledTimes(1), { timeout: 5000 });
     expect(onDisconnect.mock.calls.length + onInitError.mock.calls.length).toBe(1);
     expect(adapter.isConnected()).toBe(false);

@@ -82,6 +82,9 @@ vi.mock("./git-utils.js", () => ({
   resolveDefaultBranch: vi.fn(() => "main"),
   getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
   deleteArchivedRefAsync: vi.fn(async () => {}),
+  gitSafeAsync: vi.fn(async () => null),
+  branchExistsAsync: vi.fn(async () => false),
+  restoreArchivedBranchAsync: vi.fn(async () => null),
 }));
 
 vi.mock("./session-names.js", () => ({
@@ -537,6 +540,51 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", false);
     expect(bridge.invalidateLeaderThreadTabsForSessionQuestState).toHaveBeenCalledWith("s1");
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
+  });
+
+  it("tells the agent after relaunch when its worktree starts over on a fresh branch", async () => {
+    // The session's branch and its recorded base are both gone from this repository,
+    // so the new checkout starts from the default branch, and the agent must know.
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "exited",
+      cwd: "/nonexistent/worktrees/repo/feature-wt-1111",
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "feature",
+      actualBranch: "feature-wt-1111",
+    });
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    // The archived checkout's folder is gone.
+    vi.mocked(access).mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValue({
+      worktreePath: "/nonexistent/worktrees/repo/main-wt-2222",
+      branch: "main",
+      actualBranch: "main-wt-2222",
+      isNew: false,
+    });
+
+    const res = await app.request("/api/sessions/s1/unarchive", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).worktreeRecreated).toBe(true);
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "main", expect.anything());
+    expect(launcher.updateWorktree).toHaveBeenCalledWith("s1", expect.objectContaining({ branch: "main" }));
+    // Injected after the relaunch, so it goes to the new process instead of requesting another relaunch.
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "s1",
+      expect.stringContaining("feature does not exist in /repo"),
+      { sessionId: "system:session-recovery", sessionLabel: "System" },
+    );
+    expect(launcher.relaunch.mock.invocationCallOrder[0]).toBeLessThan(
+      bridge.injectUserMessage.mock.invocationCallOrder[0],
+    );
   });
 
   it("rejects unarchive while archived worktree cleanup is still pending", async () => {

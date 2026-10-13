@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 import {
   rewritePathsInFile,
   rewritePathsInDir,
@@ -411,6 +412,10 @@ describe("recreateWorktreeIfMissing", () => {
       isWorktree: false,
     });
     const restoreRefSpy = vi.spyOn(gitUtils, "restoreArchivedBranchAsync").mockResolvedValue(null);
+    // The session's own branch is gone; its base branch exists.
+    const branchExistsSpy = vi
+      .spyOn(gitUtils, "branchExistsAsync")
+      .mockImplementation(async (_repo, branch) => branch === "jiayi");
     const ensureWtSpy = vi.spyOn(gitUtils, "ensureWorktreeAsync").mockResolvedValue({
       worktreePath: "/tmp/worktrees/repo/jiayi-wt-1234",
       branch: "jiayi",
@@ -443,8 +448,91 @@ describe("recreateWorktreeIfMissing", () => {
     } finally {
       getRepoInfoSpy.mockRestore();
       restoreRefSpy.mockRestore();
+      branchExistsSpy.mockRestore();
       ensureWtSpy.mockRestore();
     }
+  });
+
+  // A host moved to a new machine keeps its repository (on shared storage) but
+  // loses the node-local worktree folders. Git still lists those worktrees, and
+  // the base branch a session recorded may exist only in another machine's copy.
+  describe("after the session's machine was replaced (real git)", () => {
+    let root: string;
+    let repoRoot: string;
+    const git = (args: string, cwd = repoRoot) =>
+      execSync(`git ${args}`, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+    beforeEach(() => {
+      root = makeTempDir();
+      repoRoot = join(root, "repo");
+      mkdirSync(repoRoot);
+      git("init -q -b main");
+      git("-c user.name=t -c user.email=t@t commit -q --allow-empty -m init");
+    });
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    function deps() {
+      return {
+        launcher: { updateWorktree: vi.fn() } as any,
+        worktreeTracker: { addMapping: vi.fn() } as any,
+        wsBridge: { markWorktree: vi.fn() } as any,
+      };
+    }
+
+    it("checks the session's own branch out again, with its commits, despite the vanished checkout", async () => {
+      const oldCwd = join(root, "node-local", "main-wt-1111");
+      git(`worktree add -q -b main-wt-1111 "${oldCwd}"`);
+      git("-c user.name=t -c user.email=t@t commit -q --allow-empty -m session-work", oldCwd);
+      const sessionTip = git("rev-parse main-wt-1111");
+      rmSync(join(root, "node-local"), { recursive: true });
+
+      const d = deps();
+      const info = {
+        sessionId: "s",
+        cwd: oldCwd,
+        state: "exited" as const,
+        createdAt: 0,
+        isWorktree: true,
+        repoRoot,
+        branch: "main",
+        actualBranch: "main-wt-1111",
+      };
+      const result = await recreateWorktreeIfMissing("s", info, d);
+
+      // Same branch, nothing lost, so the agent needs no notice.
+      expect(result).toEqual({ recreated: true });
+      const [, update] = d.launcher.updateWorktree.mock.calls[0];
+      expect(update.actualBranch).toBe("main-wt-1111");
+      expect(git("rev-parse HEAD", update.cwd)).toBe(sessionTip);
+      expect(git("worktree list")).not.toContain(oldCwd);
+    });
+
+    it("starts from the default branch when the recorded base branch is not in this repository", async () => {
+      const d = deps();
+      const info = {
+        sessionId: "s",
+        cwd: join(root, "node-local", "elsewhere-wt-2222"),
+        state: "exited" as const,
+        createdAt: 0,
+        isWorktree: true,
+        repoRoot,
+        branch: "elsewhere",
+        actualBranch: "elsewhere-wt-2222",
+      };
+      const result = await recreateWorktreeIfMissing("s", info, d);
+
+      expect(result.recreated).toBe(true);
+      const [, update] = d.launcher.updateWorktree.mock.calls[0];
+      expect(update.branch).toBe("main");
+      expect(update.actualBranch).toMatch(/^main-wt-\d+$/);
+      expect(git("rev-parse HEAD", update.cwd)).toBe(git("rev-parse main"));
+      expect(d.worktreeTracker.addMapping).toHaveBeenCalledWith(expect.objectContaining({ branch: "main" }));
+      // The agent is told where it now is and why.
+      expect(result.notice).toContain(update.actualBranch);
+      expect(result.notice).toContain("elsewhere does not exist");
+    });
   });
 });
 

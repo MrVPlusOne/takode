@@ -472,7 +472,12 @@ export async function recreateWorktreeIfMissing(
   sessionId: string,
   info: SdkSessionInfo,
   deps: { launcher: CliLauncher; worktreeTracker: WorktreeTracker; wsBridge: WsBridge },
-): Promise<{ recreated: boolean; error?: string }> {
+): Promise<{
+  recreated: boolean;
+  error?: string;
+  /** What the session's agent should be told: set when the checkout could not keep the session's own branch. */
+  notice?: string;
+}> {
   if ((await machineFor(info.hostId).stat(info.cwd)) !== null) return { recreated: false };
 
   if (!info.isWorktree || !info.repoRoot || !info.branch) {
@@ -493,15 +498,18 @@ export async function recreateWorktreeIfMissing(
     : info.isOrchestrator
       ? undefined
       : checkout.createdBranch;
+  // Hosts without the base-branch fallback report no base; they always used the recorded one.
+  const baseBranch = checkout.baseBranch ?? info.branch;
   deps.launcher.updateWorktree(sessionId, {
     cwd: checkout.worktreePath,
     actualBranch: checkout.actualBranch,
     disposableBranch,
+    ...(baseBranch !== info.branch ? { branch: baseBranch } : {}),
   });
   deps.worktreeTracker.addMapping({
     sessionId,
     repoRoot: info.repoRoot,
-    branch: info.branch,
+    branch: baseBranch,
     actualBranch: checkout.actualBranch,
     disposableBranch,
     worktreePath: checkout.worktreePath,
@@ -514,19 +522,34 @@ export async function recreateWorktreeIfMissing(
     info.repoRoot,
     checkout.worktreePath,
     checkout.defaultBranch,
-    info.branch,
+    baseBranch,
   );
   console.log(
-    `[migration] ${checkout.restored ? "Restored" : "Recreated"} worktree for session ${sessionId}: ${checkout.worktreePath}`,
+    `[migration] ${checkout.restored ? "Restored" : "Recreated"} worktree for session ${sessionId}: ${checkout.worktreePath}` +
+      (baseBranch !== info.branch ? ` (from ${baseBranch}; ${info.branch} does not exist in ${info.repoRoot})` : ""),
   );
-  return { recreated: true };
+  if (checkout.restored) return { recreated: true };
+  // The session's own branch is gone, so its agent starts over from a fresh branch and should know.
+  const lostBranch =
+    info.actualBranch && info.actualBranch !== info.branch ? ` or its branch ${info.actualBranch}` : "";
+  const fallback =
+    baseBranch !== info.branch ? ` (${info.branch} does not exist in ${info.repoRoot} on this machine)` : "";
+  return {
+    recreated: true,
+    notice:
+      `Your worktree ${info.cwd} no longer existed, so Takode created a new one at ${checkout.worktreePath} ` +
+      `on branch ${checkout.actualBranch}, starting from ${baseBranch}${fallback}. ` +
+      `Changes that were only in the old checkout${lostBranch} are not in it.`,
+  };
 }
 
 /**
  * Recreate a session's missing checkout on the machine it lives on. The
- * session's own `-wt-` branch is restored from its archived ref when possible
- * (`restored`); otherwise a fresh worktree branches from `branch`. Claude Code
- * transcripts move with the checkout so `--resume` still finds them.
+ * session's own `-wt-` branch is reused when it still exists, or restored
+ * from its archived ref (`restored`); otherwise a fresh worktree branches from
+ * `branch`, or from the repository's default branch when this repository has
+ * no such branch (`baseBranch` says which). Claude Code transcripts move with
+ * the checkout so `--resume` still finds them.
  */
 export async function recreateSessionCheckout(input: {
   oldCwd: string;
@@ -539,6 +562,8 @@ export async function recreateSessionCheckout(input: {
       actualBranch: string;
       createdBranch?: gitUtils.WorktreeCreateResult["createdBranch"];
       defaultBranch: string;
+      /** The branch the checkout started from: `branch`, or the default branch when `branch` is missing here. */
+      baseBranch: string;
       restored: boolean;
     }
   | { error: string }
@@ -547,21 +572,34 @@ export async function recreateSessionCheckout(input: {
   if (!repoInfo) {
     return { error: `Repository not found at ${input.repoRoot}. Please clone it first, then try again.` };
   }
+  const repoRoot = repoInfo.repoRoot;
+
+  // Git still lists a checkout that vanished without it (its machine was replaced,
+  // say), and refuses to check its branch out anywhere else until it is forgotten.
+  await gitUtils.gitSafeAsync(`worktree remove --force "${input.oldCwd}"`, repoRoot);
 
   // Archive saves branch tips as refs/companion/archived/<branch> so they
   // don't pollute `git branch` output but can be restored here.
   const { actualBranch } = input;
   if (actualBranch && actualBranch !== input.branch) {
-    const restoredCommit = await gitUtils.restoreArchivedBranchAsync(repoInfo.repoRoot, actualBranch);
-    if (restoredCommit) {
-      const targetPath = gitUtils.worktreeDir(basename(repoInfo.repoRoot), actualBranch);
+    const ownBranch =
+      (await gitUtils.branchExistsAsync(repoRoot, actualBranch)) ||
+      (await gitUtils.restoreArchivedBranchAsync(repoRoot, actualBranch)) !== null;
+    if (ownBranch) {
+      const targetPath = gitUtils.worktreeDir(basename(repoRoot), actualBranch);
       try {
-        await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoInfo.repoRoot);
+        await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoRoot);
         migrateClaudeProjectDir(input.oldCwd, targetPath);
-        return { worktreePath: targetPath, actualBranch, defaultBranch: repoInfo.defaultBranch, restored: true };
+        return {
+          worktreePath: targetPath,
+          actualBranch,
+          defaultBranch: repoInfo.defaultBranch,
+          baseBranch: input.branch,
+          restored: true,
+        };
       } catch (err) {
-        // Branch restored from ref but worktree creation failed (e.g., branch
-        // already checked out elsewhere). Fall through to the fresh-branch fallback.
+        // The branch exists but worktree creation failed (e.g., branch already
+        // checked out elsewhere). Fall through to the fresh-branch fallback.
         console.warn(
           `[migration] Failed to create worktree on restored branch ${actualBranch}, falling back to fresh branch:`,
           err,
@@ -570,8 +608,12 @@ export async function recreateSessionCheckout(input: {
     }
   }
 
-  // Fallback: no archived ref exists -- create a fresh worktree from the base branch.
-  const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, input.branch, {
+  // Fallback: create a fresh worktree from the base branch. That branch may exist
+  // only in another machine's copy of the repository, so use the default branch then.
+  const baseBranch = (await gitUtils.branchExistsAsync(repoRoot, input.branch, { remote: true }))
+    ? input.branch
+    : repoInfo.defaultBranch;
+  const result = await gitUtils.ensureWorktreeAsync(repoRoot, baseBranch, {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,
     forceNew: true,
@@ -584,6 +626,7 @@ export async function recreateSessionCheckout(input: {
     actualBranch: result.actualBranch,
     ...(result.createdBranch ? { createdBranch: result.createdBranch } : {}),
     defaultBranch: repoInfo.defaultBranch,
+    baseBranch,
     restored: false,
   };
 }

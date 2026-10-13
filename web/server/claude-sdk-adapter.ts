@@ -192,6 +192,8 @@ export class ClaudeSdkAdapter
   private prompts: Pick<PromptStream, "push" | "end"> | null = null;
   /** Settles true once the Claude process has spawned, false if startup failed. */
   readonly started: Promise<boolean>;
+  /** Why the Claude process could not start, when the spawn reported it. */
+  startError?: string;
   private settleStarted: (started: boolean) => void = () => {};
   private connected = false;
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
@@ -787,7 +789,10 @@ export class ClaudeSdkAdapter
       return;
     }
     proc.once("spawn", () => this.settleStarted(true));
-    proc.once("error", () => this.settleStarted(false));
+    proc.once("error", (err: unknown) => {
+      this.startError = err instanceof Error ? err.message : String(err);
+      this.settleStarted(false);
+    });
   }
 
   /** Record the CLI's model catalog once initialization completes, so model menus list what this CLI offers. */
