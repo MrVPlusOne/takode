@@ -148,7 +148,7 @@ function PhoneTopBar() {
         </span>
         <span className="text-[11px] leading-tight text-cc-muted">#2851</span>
       </span>
-      <AttentionListPill count={QUEUE.length} topKind="needs-input" compact />
+      <AttentionListPill count={2} topKind="needs-input" compact />
     </div>
   );
 }
@@ -158,14 +158,14 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List and Phone Top Bar"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the thread's Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the thread's Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
-          <Card label="Attention list pill (desktop and phone; amber for prompts, blue for results)">
+          <Card label="Attention list pill (desktop and phone; amber counts only open questions, blue counts everything waiting)">
             <div className="flex items-center gap-3">
-              <AttentionListPill count={6} topKind="needs-input" />
+              <AttentionListPill count={1} topKind="needs-input" />
               <AttentionListPill count={2} topKind="unread" />
-              <AttentionListPill count={6} topKind="needs-input" compact open />
+              <AttentionListPill count={2} topKind="needs-input" compact open />
               <AttentionListPill count={1} topKind="notify-me" compact />
             </div>
           </Card>

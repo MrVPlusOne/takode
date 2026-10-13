@@ -1575,6 +1575,42 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("#101 Pick deployment window");
   });
 
+  it("counts only the open questions while one waits, and everything once none do", () => {
+    // Amber with the total of prompts and unreads looked like many questions when
+    // only one needed an answer. The list it opens still holds every item.
+    const withUnread: Partial<MockStoreState> = {
+      ...twoPromptsState(),
+      sdkSessions: [
+        ...twoPromptsState().sdkSessions!,
+        { sessionId: "s3", createdAt: 30, sessionNum: 103, name: "Done One" },
+        { sessionId: "s4", createdAt: 40, sessionNum: 104, name: "Done Two" },
+      ],
+      sessionAttention: new Map([
+        ["s3", "review"],
+        ["s4", "review"],
+      ]),
+    };
+    resetStore(withUnread);
+    const { unmount } = render(<TopBar />);
+
+    const pill = screen.getByTestId("attention-list-button");
+    expect(pill).toHaveTextContent(/^2$/);
+    expect(pill).toHaveAccessibleName("Everything that needs attention (2 questions open)");
+    fireEvent.click(pill);
+    expect(
+      within(screen.getByRole("dialog", { name: "Everything that needs attention" })).getAllByTestId(
+        "attention-item-row",
+      ),
+    ).toHaveLength(4);
+    unmount();
+
+    // With the prompts answered, the pill counts the unread results as before.
+    resetStore({ ...withUnread, sessionNotifications: new Map() });
+    render(<TopBar />);
+    expect(screen.getByTestId("attention-list-button")).toHaveTextContent(/^2$/);
+    expect(screen.getByTestId("attention-list-button")).toHaveAccessibleName("Everything that needs attention (2)");
+  });
+
   it("hides Next while nothing needs attention", () => {
     render(<TopBar />);
     expect(screen.queryByTestId("attention-list-button")).not.toBeInTheDocument();

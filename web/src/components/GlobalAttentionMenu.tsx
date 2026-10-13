@@ -44,13 +44,18 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
     if (queue.length === 0) setOpen(false);
   }, [queue.length]);
 
+  // While a question is open the pill counts only questions, so amber with a
+  // large number never hides that just one needs an answer. The list still has everything.
+  const topKind = queue[0]?.kind;
+  const count = topKind === "needs-input" ? queue.filter((item) => item.kind === "needs-input").length : queue.length;
+
   return (
     <>
-      {queue.length > 0 && (
+      {topKind && (
         <AttentionListPill
           ref={triggerRef}
-          count={queue.length}
-          topKind={queue[0]!.kind}
+          count={count}
+          topKind={topKind}
           compact={compact}
           open={open}
           onClick={() => setOpen((value) => !value)}
@@ -75,7 +80,11 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
   );
 }
 
-/** The count button, tinted by the most urgent kind waiting. Separate so the Playground can show its states. */
+/**
+ * The count button, tinted by the most urgent kind waiting. `count` is the open
+ * questions when `topKind` is needs-input, else everything waiting. Separate so
+ * the Playground can show its states.
+ */
 export function AttentionListPill({
   ref,
   count,
@@ -92,13 +101,14 @@ export function AttentionListPill({
   onClick?: () => void;
 }) {
   const tone = attentionTone(topKind);
+  const countLabel = topKind === "needs-input" ? `${count} ${count === 1 ? "question" : "questions"} open` : `${count}`;
   return (
     <button
       ref={ref}
       type="button"
       onClick={onClick}
       data-testid="attention-list-button"
-      aria-label={`Everything that needs attention (${count})`}
+      aria-label={`Everything that needs attention (${countLabel})`}
       aria-expanded={open}
       title="Everything that needs attention"
       className={`inline-flex shrink-0 items-center gap-1 rounded-full border font-semibold transition-colors hover:opacity-90 cursor-pointer ${tone.border} ${tone.bg} ${tone.text} ${
