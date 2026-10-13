@@ -285,7 +285,10 @@ describe("Playground", { timeout: 30_000 }, () => {
       ),
     ).toHaveTextContent("Also is this something we can properly fix?");
     fireEvent.click(commentBadge);
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(12);
+    // A report published before the answer stays visible in the collapsed turn.
+    const reportAnswer = within(routedFinalStates.getByTestId("playground-report-answer"));
+    expect(reportAnswer.getByTestId("thread-response-report")).toHaveTextContent("Daily briefing: Tuesday");
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(13);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

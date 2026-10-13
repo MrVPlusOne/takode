@@ -125,6 +125,31 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
   });
 
+  it("keeps a published report visible beside the answer in history order", () => {
+    // A leader often publishes a report and then answers "see the report above".
+    // The collapsed answer set must keep the report on screen, above the answer.
+    const current = presentation(["u2"]);
+    const report = entry("report-1", "# Daily briefing", 3);
+    report.msg.metadata = {
+      markdownReport: { sessionId: "leader", reportId: "report-1", sourcePath: "/tmp/briefing.md", sha256: "abc" },
+    };
+    const hidden = entry("intermediate", "Hidden intermediate prose", 2);
+    const view = render(
+      <ReadyThreadResponseRows
+        turn={turn([hidden, report, current.currentResponses[0]!.messageEntry])}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
+      />,
+    );
+
+    expect(screen.queryByText("Hidden intermediate prose")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-response-report")).toHaveTextContent("# Daily briefing");
+    const text = view.container.textContent ?? "";
+    expect(text.indexOf("# Daily briefing")).toBeLessThan(text.indexOf("Current polished response"));
+  });
+
   it("leaves collapsed system activity hidden without creating a competing control", () => {
     const current = presentation();
     const system = entry("system", "Hidden system detail");

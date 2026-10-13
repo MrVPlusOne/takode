@@ -310,4 +310,43 @@ describe("MessageFeed Ready auto-collapse", () => {
     openMessage("main-ready");
     expectCollapsed(view.container);
   });
+
+  it("keeps a report published before the answer visible in the collapsed Ready turn", () => {
+    // Producer-shaped `takode report` message, as the report route stores it,
+    // published just before the leader's answer that points at it.
+    const history: BrowserIncomingMessage[] = [];
+    history.push({
+      type: "user_message",
+      id: "request-1",
+      content: "Brief me.",
+      timestamp: timestampAt(0),
+      leaderUserMessageId: "u1",
+      leaderResponseCoverageVersion: 1,
+      ...questRoute,
+    });
+    assistant(history, "dispatch", DISPATCH_TEXT);
+    history.push({
+      type: "markdown_report",
+      id: "report-1",
+      timestamp: timestampAt(history.length),
+      content: "# Daily briefing\n\nThree new emails overnight.",
+      threadKey: QUEST_ID,
+      questId: QUEST_ID,
+      source: { sessionId: SESSION_ID, reportId: "report-1", sourcePath: "/tmp/briefing.md", sha256: "abc" },
+    });
+    const answer = assistant(history, "answer-1", "The briefing is the report just above.", { marker: "ready" });
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = ["u1"];
+    answer.leaderAnswerObservedHistoryLength = history.length - 1;
+    expect(finalizeRoutedLeaderResponseMessage({ id: SESSION_ID, messageHistory: history }, answer).finalized).toBe(
+      true,
+    );
+
+    deliver(history, latestStatus(history));
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    expectCollapsed(view.container);
+    const turn = latestTurn(view.container);
+    expect(within(turn).getByText("Three new emails overnight.")).toBeInTheDocument();
+    expect(within(turn).getByText("The briefing is the report just above.")).toBeInTheDocument();
+  });
 });

@@ -5,6 +5,7 @@ import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HidePawContext } from "./PawTrail.js";
 import { collapsedResponseEntry, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { AnsweredMessage } from "./ThreadResponsePresentationChrome.js";
+import { CollapsedReportPreview } from "./CollapsedReportPreview.js";
 import { isBoardProposalMessage, isNeedsInputNotifyMessage } from "../utils/takode-tool-command.js";
 
 function presentationEntries(turn: Turn): readonly FeedEntry[] {
@@ -37,7 +38,16 @@ function sourceDecisionEntries(
   });
 }
 
-/** Whether the collapsed turn shows an answer or decision message of its own. */
+/** Published Markdown reports stay visible, clipped, in a collapsed turn, so an
+ *  answer that points at "the report above" still has it on screen. */
+function sourceReportEntries(turn: Turn): Array<Extract<FeedEntry, { kind: "message" }>> {
+  return presentationEntries(turn).filter(
+    (entry): entry is Extract<FeedEntry, { kind: "message" }> =>
+      entry.kind === "message" && entry.msg.metadata?.markdownReport != null,
+  );
+}
+
+/** Whether the collapsed turn shows an answer, decision or report message of its own. */
 export function readyThreadResponseTurnHasMessage(
   turn: Turn,
   presentation: ThreadResponsePresentation,
@@ -45,6 +55,7 @@ export function readyThreadResponseTurnHasMessage(
 ): boolean {
   return (
     presentation.currentResponses.some((item) => item.sourceTurnId === turn.id) ||
+    sourceReportEntries(turn).length > 0 ||
     sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
   );
 }
@@ -106,6 +117,13 @@ export function ReadyThreadResponseRows({
       order: Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : Number.MAX_SAFE_INTEGER,
       fallbackOrder: order,
     })),
+    ...sourceReportEntries(turn).map((entry, order) => ({
+      kind: "report" as const,
+      entry,
+      // A report that arrived live has no history index until the next window sync.
+      order: (entry.msg.historyIndex ?? -1) >= 0 ? entry.msg.historyIndex! : Number.MAX_SAFE_INTEGER,
+      fallbackOrder: order,
+    })),
   ].sort((left, right) => left.order - right.order || left.fallbackOrder - right.fallbackOrder);
 
   return (
@@ -128,6 +146,16 @@ export function ReadyThreadResponseRows({
                 {renderEntry(row.item.collapsedMessageEntry)}
               </HidePawContext.Provider>
             </AnsweredMessage>
+          </div>
+        ) : row.kind === "report" ? (
+          <div
+            key={`report:${row.entry.msg.id}`}
+            className="min-w-0 px-2.5 py-2 sm:px-3"
+            data-testid="thread-response-report"
+          >
+            <HidePawContext.Provider value={true}>
+              <CollapsedReportPreview>{renderEntry(row.entry)}</CollapsedReportPreview>
+            </HidePawContext.Provider>
           </div>
         ) : (
           <div

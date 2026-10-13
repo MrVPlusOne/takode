@@ -502,6 +502,58 @@ const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
   layoutSignature: "playground-timer-reports",
 };
 
+// A leader publishes a report with `takode report`, then answers pointing at it.
+// The collapsed turn keeps the report on screen above the answer, clipped with a toggle.
+const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
+  kind: "message",
+  msg: {
+    id: "playground-published-report",
+    role: "assistant",
+    content:
+      "# Daily briefing: Tuesday\n\n## Needs you today\n\n- **Card payment:** statement balance due Monday.\n- **Two pipeline decisions** from the data leader.\n\n## Your to-dos\n\nNo changes.\n\n## What you got done\n\n- Reviewed the weights pull request.\n- Closed two stale quests.\n\n## Still waiting on you\n\n- **Benchmark checkpoint** (since last week): close or reassign.\n- **Slack reminder:** feedback submissions due Friday.",
+    timestamp: 1,
+    historyIndex: 1,
+    metadata: {
+      threadKey: "q-2042",
+      markdownReport: {
+        sessionId: SESSION_ID,
+        reportId: "playground-published-report",
+        sourcePath: "/home/user/.companion/artifacts/daily-briefing/briefing.md",
+        sha256: "0f3a",
+      },
+    },
+  },
+};
+const REPORT_ANSWER = {
+  ...TIMER_REPORT_ENTRIES[0]!,
+  msg: {
+    ...TIMER_REPORT_ENTRIES[0]!.msg,
+    id: "playground-report-answer",
+    content: "Today's briefing is the report just above. One email made it in: the card payment due Monday.",
+  },
+};
+const REPORT_ANSWER_TURN: Turn = {
+  ...TIMER_REPORT_TURN,
+  id: "playground-report-answer-turn",
+  allEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
+  presentationEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
+  notificationEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
+};
+const REPORT_ANSWER_PRESENTATION: ThreadResponsePresentation = {
+  ...TIMER_REPORT_PRESENTATION,
+  currentResponses: [
+    {
+      ...TIMER_REPORT_PRESENTATION.currentResponses[0]!,
+      response: { ...TIMER_REPORT_PRESENTATION.currentResponses[0]!.response, currentMessageId: REPORT_ANSWER.msg.id },
+      sourceTurnId: REPORT_ANSWER_TURN.id,
+      messageEntry: REPORT_ANSWER,
+      collapsedMessageEntry: REPORT_ANSWER,
+    },
+  ],
+  currentResponseMessageIds: new Set([REPORT_ANSWER.msg.id]),
+  layoutSignature: "playground-report-answer",
+};
+
 const EXPANDED_ENTRIES: FeedEntry[] = [
   assistantEntry("playground-response-old", "Earlier answer wording for the same requests.", "answer"),
   INTERMEDIATE,
@@ -731,6 +783,28 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={TIMER_REPORT_TURN}
                 presentation={TIMER_REPORT_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed answer · published report above it">
+            <div
+              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-report-answer"
+            >
+              <TurnActivityDisclosure
+                stats={REPORT_ANSWER_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
+              <ReadyThreadResponseRows
+                turn={REPORT_ANSWER_TURN}
+                presentation={REPORT_ANSWER_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"
