@@ -31,6 +31,7 @@ interface MockStoreState {
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   pendingPermissions: Map<string, Map<string, { tool_name?: string; request_id?: string }>>;
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
+  askPermission: Map<string, boolean>;
   sessions: Map<
     string,
     {
@@ -99,6 +100,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     diffFileStats: new Map(),
     pendingPermissions: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
+    askPermission: new Map(),
     sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
     cliConnected: new Map([["s1", true]]),
     cliEverConnected: new Map([["s1", true]]),
@@ -175,6 +177,9 @@ vi.mock("../api.js", () => ({
     relaunchSession: vi.fn(),
     unarchiveSession: vi.fn(),
     acknowledgeModelProvenanceMigration: mockAcknowledgeModelProvenanceMigration,
+    // The title's settings line loads the model catalogs.
+    getBackendModels: vi.fn().mockResolvedValue([]),
+    getSettings: vi.fn().mockResolvedValue({}),
   },
 }));
 vi.mock("../ws.js", () => ({ sendToSession: (sessionId: string, msg: unknown) => mockSendToSession(sessionId, msg) }));

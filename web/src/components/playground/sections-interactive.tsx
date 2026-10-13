@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { PlaygroundSessionSettingsCards } from "./PlaygroundSessionSettingsSection.js";
+import { useEffect, useState } from "react";
 import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
 import { PlaygroundVisualDecisionNotification } from "./PlaygroundVisualDecisionNotification.js";
 import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
@@ -6,17 +7,9 @@ import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
 import { ReplyChip } from "../Composer.js";
-import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { useStore } from "../../store.js";
-import { useSendKey } from "../../hooks/useSendKey.js";
-import {
-  CLAUDE_MODELS,
-  CODEX_MODELS,
-  CODEX_PERMISSION_MODES,
-  getClaudePermissionMenuOptions,
-} from "../../utils/backends.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import {
   LEADER_THREAD_TABS_PROJECTION,
@@ -65,7 +58,6 @@ import {
   Section,
 } from "./shared.js";
 
-const PLAYGROUND_FAST_SERVICE_TIER = { id: "priority", name: "Fast", description: "1.5x speed, increased usage" };
 const PLAYGROUND_BOARD_SESSION_ID = "playground-board-bar";
 let playgroundBoardProjectionRevision = 0;
 
@@ -125,229 +117,6 @@ function applyPlaygroundBoardTabKeys(threadKeys: string[]): void {
   });
 }
 
-const PLAYGROUND_CODEX_MODEL_OPTIONS = [
-  {
-    value: "gpt-5.6-sol",
-    label: "GPT-5.6-Sol",
-    icon: "●",
-    serviceTiers: [PLAYGROUND_FAST_SERVICE_TIER],
-    supportedReasoningLevels: [
-      { effort: "medium", description: "Balanced reasoning for everyday work." },
-      { effort: "ultra", description: "Maximum reasoning that may proactively use multiple agents." },
-    ],
-    defaultReasoningLevel: "medium",
-  },
-  {
-    value: "gpt-5.4-mini",
-    label: "GPT-5.4-Mini",
-    icon: "⚡",
-    supportedReasoningLevels: [
-      { effort: "low", description: "Fast, lightweight reasoning." },
-      { effort: "medium", description: "Balanced reasoning." },
-    ],
-    defaultReasoningLevel: "low",
-  },
-];
-
-const PLAYGROUND_CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort }));
-
-// Shaped like the Claude CLI catalog: Haiku reports no effort levels, so its menu has no Effort row.
-const PLAYGROUND_CLAUDE_MODEL_OPTIONS = [
-  {
-    value: "claude-opus-5.5",
-    label: "Opus 5.5 (default)",
-    icon: "◆",
-    supportedReasoningLevels: PLAYGROUND_CLAUDE_EFFORT_LEVELS,
-  },
-  {
-    value: "claude-sonnet-5.5",
-    label: "Sonnet 5.5",
-    icon: "●",
-    supportedReasoningLevels: PLAYGROUND_CLAUDE_EFFORT_LEVELS,
-  },
-  { value: "claude-haiku-4.5", label: "Haiku 4.5", icon: "◕", supportedReasoningLevels: [] },
-];
-
-function PlaygroundComposerPermissionToolbar({
-  backend,
-  state,
-  claudePermissionMode = "acceptEdits",
-}: {
-  backend: "claude" | "codex";
-  state: "menu" | "popover";
-  claudePermissionMode?: string;
-}) {
-  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
-  const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
-  const sendKey = useSendKey();
-  const isCodex = backend === "codex";
-  const codexModelOptions = isCodex
-    ? CODEX_MODELS.map((model) =>
-        model.value === "gpt-5.4" ? { ...model, serviceTiers: [PLAYGROUND_FAST_SERVICE_TIER] } : model,
-      )
-    : CODEX_MODELS;
-
-  return (
-    <div className="border-t border-cc-border bg-cc-card px-4 py-3">
-      <div className="rounded-[14px] border border-cc-border bg-cc-input-bg pt-28">
-        <div className="px-4 pb-1 text-sm text-cc-muted">
-          {isCodex ? "Codex profile selector with pending restart confirmation." : "Claude permission selector menu."}
-        </div>
-        <ComposerMetaToolbar
-          sessionId={`playground-permission-${backend}-${state}-${claudePermissionMode}`}
-          sessionView={{
-            gitBranch: isCodex ? "feature/codex-profile" : "feature/claude-mode",
-            model: isCodex ? "gpt-5.4" : "claude-sonnet-4-5-20250929",
-            isContainerized: false,
-            gitAhead: isCodex ? 1 : 0,
-            gitBehind: 0,
-          }}
-          isCodex={isCodex}
-          isConnected={true}
-          canEditLaunchSettings={true}
-          imageUploadDisabled={false}
-          imageUploadTitle="Upload image"
-          showModelDropdown={false}
-          setShowModelDropdown={() => {}}
-          modelDropdownRef={modelDropdownRef}
-          claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
-          codexModelOptions={codexModelOptions}
-          onSelectModel={() => {}}
-          claudeReasoningEffort=""
-          onSelectClaudeReasoning={() => {}}
-          codexReasoningEffort={isCodex ? "high" : ""}
-          codexEffectiveReasoningEffort={isCodex ? "high" : null}
-          codexEffectiveReasoningEffortReported={isCodex}
-          onSelectCodexReasoning={() => {}}
-          codexServiceTier={isCodex ? "priority" : null}
-          codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
-          onSelectCodexServiceTier={() => {}}
-          onResetCodexSettings={async () => {}}
-          permissionOptions={isCodex ? CODEX_PERMISSION_MODES : getClaudePermissionMenuOptions(claudePermissionMode)}
-          permissionMode={isCodex ? "auto-review" : claudePermissionMode}
-          showPermissionDropdown={state === "menu"}
-          setShowPermissionDropdown={() => {}}
-          permissionDropdownRef={permissionDropdownRef}
-          pendingPermissionMode={state === "popover" ? (isCodex ? "full-access" : "bypassPermissions") : null}
-          onRequestPermissionMode={() => {}}
-          onCancelPermissionMode={() => {}}
-          onConfirmPermissionMode={() => {}}
-          pauseControl={
-            <PauseOtherSourcesButton
-              isPaused={isCodex}
-              heldCount={2}
-              busy={false}
-              directComposerMessagesSend={true}
-              onToggle={() => {}}
-            />
-          }
-          onOpenFilePicker={() => {}}
-          warmMicrophone={() => {}}
-          voiceSupported={true}
-          toggleVoiceUnsupportedInfo={() => {}}
-          handleMicClick={() => {}}
-          voiceButtonDisabled={false}
-          isPreparing={false}
-          isRecording={false}
-          voiceButtonTitle="Voice input"
-          canSend={false}
-          isRunning={false}
-          handleInterrupt={() => {}}
-          handleSend={() => {}}
-          sendButtonTitle={sendKey.hint}
-          sendPressing={false}
-        />
-      </div>
-    </div>
-  );
-}
-
-function PlaygroundModelToolbar({
-  backend = "codex",
-  narrow = false,
-}: {
-  backend?: "claude" | "codex";
-  narrow?: boolean;
-}) {
-  const isCodex = backend === "codex";
-  const [model, setModel] = useState(isCodex ? "gpt-5.6-sol" : "claude-opus-5.5");
-  const [effort, setEffort] = useState(isCodex ? "ultra" : "xhigh");
-  const [serviceTier, setServiceTier] = useState<string | null>("priority");
-  const [showModelDropdown, setShowModelDropdown] = useState(!narrow);
-  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
-  const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
-  const selectedModel = PLAYGROUND_CODEX_MODEL_OPTIONS.find((option) => option.value === model);
-  const fastTier = selectedModel?.serviceTiers?.[0] ?? null;
-
-  return (
-    <div className={`border-t border-cc-border bg-cc-card px-3 py-3 ${narrow ? "max-w-[330px]" : ""}`}>
-      <div className={`rounded-[14px] border border-cc-border bg-cc-input-bg ${showModelDropdown ? "pt-56" : "pt-10"}`}>
-        <ComposerMetaToolbar
-          sessionId={`playground-${backend}-model-${narrow ? "narrow" : "menu"}`}
-          sessionView={{ model, gitAhead: 0, gitBehind: 0 }}
-          isCodex={isCodex}
-          isConnected={true}
-          canEditLaunchSettings={true}
-          imageUploadDisabled={false}
-          imageUploadTitle="Upload image"
-          showModelDropdown={showModelDropdown}
-          setShowModelDropdown={setShowModelDropdown}
-          modelDropdownRef={modelDropdownRef}
-          claudeModelOptions={isCodex ? [] : PLAYGROUND_CLAUDE_MODEL_OPTIONS}
-          codexModelOptions={isCodex ? PLAYGROUND_CODEX_MODEL_OPTIONS : []}
-          onSelectModel={setModel}
-          claudeReasoningEffort={effort}
-          onSelectClaudeReasoning={setEffort}
-          codexReasoningEffort={effort}
-          codexEffectiveReasoningEffort={narrow ? effort : "high"}
-          codexEffectiveReasoningEffortReported={true}
-          onSelectCodexReasoning={setEffort}
-          codexServiceTier={serviceTier}
-          codexFastServiceTier={fastTier}
-          onSelectCodexServiceTier={setServiceTier}
-          onResetCodexSettings={async () => {
-            setModel("gpt-5.6-sol");
-            setEffort("medium");
-            setServiceTier(null);
-          }}
-          permissionOptions={CODEX_PERMISSION_MODES}
-          permissionMode="default"
-          showPermissionDropdown={false}
-          setShowPermissionDropdown={() => {}}
-          permissionDropdownRef={permissionDropdownRef}
-          pendingPermissionMode={null}
-          onRequestPermissionMode={() => {}}
-          onCancelPermissionMode={() => {}}
-          onConfirmPermissionMode={() => {}}
-          pauseControl={null}
-          onOpenFilePicker={() => {}}
-          warmMicrophone={() => {}}
-          voiceSupported={true}
-          toggleVoiceUnsupportedInfo={() => {}}
-          handleMicClick={() => {}}
-          voiceButtonDisabled={false}
-          isPreparing={false}
-          isRecording={false}
-          voiceButtonTitle="Voice input"
-          canSend={false}
-          isRunning={false}
-          handleInterrupt={() => {}}
-          handleSend={() => {}}
-          sendButtonTitle="Send"
-          sendPressing={false}
-        />
-      </div>
-      <p className="mt-2 text-[11px] leading-snug text-cc-muted">
-        {!isCodex
-          ? "Claude applies Model and Effort to the running session without a restart. Haiku has no effort control, so choosing it hides the Effort row."
-          : narrow
-            ? "Narrow-width state: the friendly model and effort label truncates before essential composer actions."
-            : "Choose Model, Effort, and Speed independently. A runtime mismatch stays a compact warning instead of becoming a second selector; Reset restores the playground defaults."}
-      </p>
-    </div>
-  );
-}
-
 export function PlaygroundInteractiveSections() {
   const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-1932", "q-42", "q-55", "q-61", "q-77", "q-88"]);
   const [boardPreviewThreadKey, setBoardPreviewThreadKey] = useState("main");
@@ -358,34 +127,12 @@ export function PlaygroundInteractiveSections() {
       {/* ─── Composer ──────────────────────────────── */}
       <Section
         title="Composer"
-        description="Message input bar with backend-native permission selector, image upload, and a far-left Stop control during generation that never moves the mic or Send"
+        description="Message input bar with image upload, voice, Send and a far-left Stop control during generation that never moves the mic or Send. Model, effort and access live in the session title (settings menu below)."
       >
         <div className="max-w-3xl">
           <PlaygroundStreamingComposerStates />
           <div className="mt-4" />
-          <Card label="Claude permission selector menu">
-            <PlaygroundComposerPermissionToolbar backend="claude" state="menu" />
-          </Card>
-          <div className="mt-4" />
-          <Card label="Claude permission menu with a retired saved mode">
-            <PlaygroundComposerPermissionToolbar backend="claude" state="menu" claudePermissionMode="dontAsk" />
-          </Card>
-          <div className="mt-4" />
-          <Card label="Codex permission change confirmation">
-            <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
-          </Card>
-          <div className="mt-4" />
-          <Card label="Claude model and effort selector">
-            <PlaygroundModelToolbar backend="claude" />
-          </Card>
-          <div className="mt-4" />
-          <Card label="Codex model and effort selector">
-            <PlaygroundModelToolbar />
-          </Card>
-          <div className="mt-4" />
-          <Card label="Codex model selector — narrow layout">
-            <PlaygroundModelToolbar narrow />
-          </Card>
+          <PlaygroundSessionSettingsCards />
           <div className="mt-4" />
           <PlaygroundAutoPauseBannerStates />
           <div className="mt-4" />

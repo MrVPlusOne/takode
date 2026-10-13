@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
-import { CLAUDE_MODELS, getClaudePermissionMenuOptions } from "../../utils/backends.js";
 import { Card } from "./shared.js";
 import { useSendKey } from "../../hooks/useSendKey.js";
 
@@ -21,8 +20,6 @@ export function PlaygroundStreamingComposerStates() {
 
 function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string }) {
   const [draft, setDraft] = useState(initialDraft);
-  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
-  const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
   const canSend = draft.trim().length > 0;
   const sendKey = useSendKey();
 
@@ -38,38 +35,8 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
           style={{ minHeight: "36px" }}
         />
         <ComposerMetaToolbar
-          sessionId={`playground-streaming-composer-${initialDraft ? "draft" : "empty"}`}
-          sessionView={{ model: "claude-sonnet-4-5-20250929", gitAhead: 0, gitBehind: 0 }}
-          isCodex={false}
-          isConnected={true}
-          canEditLaunchSettings={true}
           imageUploadDisabled={false}
           imageUploadTitle="Upload image"
-          showModelDropdown={false}
-          setShowModelDropdown={() => {}}
-          modelDropdownRef={modelDropdownRef}
-          claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
-          codexModelOptions={[]}
-          onSelectModel={() => {}}
-          claudeReasoningEffort=""
-          onSelectClaudeReasoning={() => {}}
-          codexReasoningEffort=""
-          codexEffectiveReasoningEffort={null}
-          codexEffectiveReasoningEffortReported={false}
-          onSelectCodexReasoning={() => {}}
-          codexServiceTier={null}
-          codexFastServiceTier={null}
-          onSelectCodexServiceTier={() => {}}
-          onResetCodexSettings={async () => {}}
-          permissionOptions={getClaudePermissionMenuOptions("acceptEdits")}
-          permissionMode="acceptEdits"
-          showPermissionDropdown={false}
-          setShowPermissionDropdown={() => {}}
-          permissionDropdownRef={permissionDropdownRef}
-          pendingPermissionMode={null}
-          onRequestPermissionMode={() => {}}
-          onCancelPermissionMode={() => {}}
-          onConfirmPermissionMode={() => {}}
           pauseControl={null}
           onOpenFilePicker={() => {}}
           warmMicrophone={() => {}}

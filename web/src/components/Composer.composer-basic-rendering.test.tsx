@@ -8,7 +8,6 @@ import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
-import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 // Polyfill scrollIntoView for jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -442,15 +441,6 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
-function expectNoOverflowHiddenAncestorWithin(node: HTMLElement, stopAt: HTMLElement) {
-  let current: HTMLElement | null = node.parentElement;
-  while (current && current !== stopAt) {
-    expect(current.className).not.toContain("overflow-hidden");
-    current = current.parentElement;
-  }
-  expect(current).toBe(stopAt);
-}
-
 function makeImageFile(name: string, type = "image/png") {
   return new File(["fake-image-bytes"], name, { type });
 }
@@ -745,7 +735,6 @@ describe("Composer basic rendering", () => {
     // commit the active Composer subtree at all.
     const baselineCommits = composerCommits;
     expect(baselineCommits).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("sonnet-4.5")).toBeTruthy();
 
     // Regression coverage for q-352: unrelated session-list polling churn
     // should not commit the active Composer subtree anymore.
@@ -767,7 +756,6 @@ describe("Composer basic rendering", () => {
     });
 
     expect(composerCommits).toBe(baselineCommits);
-    expect(screen.getByText("sonnet-4.5")).toBeTruthy();
     expect(screen.queryByText("+99")).toBeNull();
   });
 
@@ -782,7 +770,9 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("-8")).toBeNull();
   });
 
-  it("renders the composer footer after the textarea with a friendly model-and-effort chip", () => {
+  it("renders the composer footer after the textarea without session setting controls", () => {
+    // Model, effort and access moved to the session title's label, so the footer keeps only
+    // the composer's own actions.
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -796,16 +786,14 @@ describe("Composer basic rendering", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea");
     const footer = screen.getByTestId("composer-footer-toolbar");
-    const meta = screen.getByTestId("composer-footer-meta");
     const sendButton = screen.getByRole("button", { name: "Send message" });
-    const permissionSelector = screen.getByTitle(/Default:/);
 
     expect(textarea).toBeTruthy();
     expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(permissionSelector.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(within(meta).getByText("5.4 High")).toBeTruthy();
-    expect(within(meta).queryByText("feature/composer-footer")).toBeNull();
+    expect(within(footer).queryByText("5.4 High")).toBeNull();
+    expect(within(footer).queryByTitle(/Default:/)).toBeNull();
+    expect(within(footer).queryByText("feature/composer-footer")).toBeNull();
   });
 
   it("places pause controls in the composer footer and exposes held input state", async () => {
@@ -836,209 +824,6 @@ describe("Composer basic rendering", () => {
 
     await userEvent.click(pauseButton);
     await waitFor(() => expect(mockUnpauseSession).toHaveBeenCalledWith("s1"));
-  });
-
-  it("keeps the moved footer popovers outside overflow-hidden ancestors", async () => {
-    setupMockStore({
-      session: {
-        git_branch: "main",
-        model: "claude-sonnet-4-5-20250929",
-        permissionMode: "acceptEdits",
-      },
-    });
-
-    render(<Composer sessionId="s1" />);
-
-    const footer = screen.getByTestId("composer-footer-toolbar");
-    await userEvent.click(screen.getByTitle(/Accept edits:/));
-    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-permission-mode-menu"), footer);
-
-    await userEvent.click(screen.getByTitle("Model: claude-sonnet-4-5-20250929 (click to change)"));
-    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-model-menu"), footer);
-  });
-
-  it("lists the Claude CLI's catalog without a conflicting settings-file default", async () => {
-    // Regression: a Copilot-routed session running claude-opus-5.5 listed
-    // "Default (claude-opus-4-6[1m])" from ~/.claude/settings.json plus stale
-    // 4.6-era entries. The CLI-reported catalog already carries the default its
-    // own launcher settings resolve to, so the settings-file guess must not appear.
-    mockGetBackendModels.mockResolvedValue([
-      { value: "claude-opus-5.5", label: "Opus 5.5 (default)", description: "", isDefault: true },
-      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "" },
-    ]);
-    mockGetSettings.mockResolvedValue({ claudeDefaultModel: "claude-opus-4-6[1m]" });
-    setupMockStore({ session: { model: "claude-opus-5.5", permissionMode: "acceptEdits" } });
-
-    render(<Composer sessionId="s1" />);
-
-    await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("claude"));
-    await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
-    const menu = screen.getByTestId("composer-model-menu");
-    await waitFor(() => expect(within(menu).getByText("Opus 5.5 (default)")).toBeTruthy());
-    await userEvent.click(within(menu).getByRole("menuitem", { name: /Model/ }));
-    expect(within(menu).queryByText(/4-6|4\.6/)).toBeNull();
-
-    await userEvent.click(within(menu).getByText("Haiku 4.5"));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_model", model: "claude-haiku-4.5" });
-  });
-
-  it("shows the session's Claude effort and sends effort changes to the server", async () => {
-    // The server owns Claude effort state; the composer only displays it and
-    // requests changes, which the server applies to the running process.
-    setupMockStore({
-      session: { model: "claude-opus-5.5", permissionMode: "acceptEdits", claude_reasoning_effort: "high" },
-    });
-
-    render(<Composer sessionId="s1" />);
-
-    await userEvent.click(screen.getByRole("button", { name: "Model and effort: opus-5.5 High" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Max" }));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_claude_reasoning_effort", effort: "max" });
-  });
-
-  it("keeps the running Claude model in the menu when the model list omits it", async () => {
-    // Without a CLI catalog the static fallback cannot know every model, but
-    // the session's own model must still be shown and marked current.
-    setupMockStore({ session: { model: "claude-opus-5.5", permissionMode: "acceptEdits" } });
-
-    render(<Composer sessionId="s1" />);
-
-    await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
-    await userEvent.click(screen.getByRole("menuitem", { name: /Model/ }));
-    const current = within(screen.getByTestId("composer-model-menu")).getByText("claude-opus-5.5");
-    expect(current.closest("button")?.getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("keeps the moved codex reasoning menu outside overflow-hidden ancestors", async () => {
-    setupMockStore({
-      session: {
-        backend_type: "codex",
-        git_branch: "feature/reasoning-menu",
-        model: "gpt-5.4",
-        permissionMode: "plan",
-      },
-    });
-
-    render(<Composer sessionId="s1" />);
-
-    const footer = screen.getByTestId("composer-footer-toolbar");
-    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
-    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
-    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
-  });
-
-  it("renders a Codex speed menu gated by model service tiers", async () => {
-    mockGetBackendModels.mockResolvedValue([
-      {
-        value: "gpt-5.4",
-        label: "GPT-5.4",
-        description: "Frontier model",
-        serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
-      },
-    ]);
-    setupMockStore({
-      session: {
-        backend_type: "codex",
-        git_branch: "feature/speed-menu",
-        model: "gpt-5.4",
-        permissionMode: "plan",
-      },
-    });
-
-    render(<Composer sessionId="s1" />);
-
-    await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("codex"));
-    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
-    await userEvent.click(screen.getByRole("menuitem", { name: /Speed/ }));
-    const menu = screen.getByTestId("composer-speed-menu");
-    expect(within(menu).getByText("Standard")).toBeTruthy();
-    expect(within(menu).getByText("Fast")).toBeTruthy();
-
-    await userEvent.click(within(menu).getByText("Fast"));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_codex_service_tier",
-      serviceTier: "priority",
-    });
-  });
-
-  it("resets Codex model settings from fresh role-aware server defaults", async () => {
-    // Reset must not hardcode frontend values: it reloads the server-owned
-    // defaults, resolves the current session role, and uses existing setting messages.
-    mockGetSettings.mockResolvedValue({
-      claudeDefaultModel: "",
-      sessionDefaults: {
-        ...DEFAULT_SESSION_DEFAULTS,
-        codex: {
-          ...DEFAULT_SESSION_DEFAULTS.codex,
-          model: "gpt-worker",
-          reasoningEffort: "low",
-          serviceTier: null,
-        },
-        leaderUsesWorkerDefaults: false,
-        leader: {
-          ...DEFAULT_SESSION_DEFAULTS.leader,
-          codex: {
-            ...DEFAULT_SESSION_DEFAULTS.leader.codex,
-            model: "gpt-leader",
-            reasoningEffort: "ultra",
-            serviceTier: "priority",
-          },
-        },
-      },
-    } as any);
-    setupMockStore({
-      session: {
-        backend_type: "codex",
-        isOrchestrator: true,
-        model: "gpt-5.4",
-        codex_reasoning_effort: "high",
-        codex_service_tier: null,
-        permissionMode: "plan",
-      },
-    });
-
-    render(<Composer sessionId="s1" />);
-    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Reset to default" }));
-
-    await waitFor(() => expect(mockGetSettings).toHaveBeenCalled());
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_model", model: "gpt-leader" });
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_codex_reasoning_effort",
-      effort: "ultra",
-    });
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_codex_service_tier",
-      serviceTier: "priority",
-    });
-  });
-
-  it("clears an unsupported Codex service tier after model metadata loads", async () => {
-    mockGetBackendModels.mockResolvedValue([
-      {
-        value: "gpt-5.3-codex",
-        label: "GPT-5.3 Codex",
-        description: "No speed tier",
-      },
-    ]);
-    setupMockStore({
-      session: {
-        backend_type: "codex",
-        model: "gpt-5.3-codex",
-        permissionMode: "plan",
-        codex_service_tier: "priority",
-      },
-    });
-
-    render(<Composer sessionId="s1" />);
-
-    await waitFor(() =>
-      expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-        type: "set_codex_service_tier",
-        serviceTier: null,
-      }),
-    );
   });
 
   it("starts compact on narrow desktop layouts too", () => {

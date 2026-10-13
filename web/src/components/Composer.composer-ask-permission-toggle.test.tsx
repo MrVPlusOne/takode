@@ -3,7 +3,6 @@ import { renderExpandedComposer as render } from "./composer-test-utils.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Profiler } from "react";
 import { screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
@@ -531,40 +530,21 @@ beforeEach(() => {
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
 describe("Composer permission picker", () => {
-  it("uses a confirmed Claude permission picker instead of the ask shield", async () => {
+  // Access is changed from the session title's label now (see SessionSettingsMenu tests), so
+  // the composer shows neither the old ask shield nor an access picker, for either backend.
+  it("shows no ask shield or access picker for Claude sessions", () => {
     setupMockStore({ session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
     expect(screen.queryByTitle(/Permissions:/)).toBeNull();
-    await userEvent.click(screen.getByTitle(/Accept edits:/));
-    await userEvent.click(screen.getByText("Full access"));
-
-    expect(screen.getByText("Change permissions to Full access?")).toBeTruthy();
-
-    await userEvent.click(screen.getByText("Restart"));
-
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "bypassPermissions",
-    });
+    expect(screen.queryByTitle(/Accept edits:/)).toBeNull();
   });
 
-  it("uses a confirmed Codex permission profile picker instead of the ask shield", async () => {
+  it("shows no ask shield or access picker for Codex sessions", () => {
     setupMockStore({ session: { backend_type: "codex", permissionMode: "codex-default" } });
     render(<Composer sessionId="s1" />);
 
     expect(screen.queryByTitle(/Permissions:/)).toBeNull();
-    await userEvent.click(screen.getByTitle(/Default:/));
-    await userEvent.click(screen.getByText("Auto-review"));
-
-    expect(screen.getByText("Change permissions to Auto-review?")).toBeTruthy();
-    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
-
-    await userEvent.click(screen.getByText("Restart"));
-
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "codex-auto-review",
-    });
+    expect(screen.queryByTitle(/Default:/)).toBeNull();
   });
 });

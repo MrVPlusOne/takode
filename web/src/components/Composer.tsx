@@ -1,5 +1,4 @@
 import { ComposerMinimizer } from "./ComposerMinimizer.js";
-import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { useReportCommentSend } from "./use-report-comment-send.js";
@@ -9,21 +8,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
-import {
-  getClaudePermissionMenuOptions,
-  CODEX_PERMISSION_MODES,
-  deriveUiMode,
-  deriveCodexPermissionMode,
-  formatModel,
-  getModelsForBackend,
-  normalizeClaudePermission,
-  resolveClaudePermissionCliMode,
-  resolveCodexPermissionCliMode,
-  toModelOptions,
-  type ClaudePermissionMode,
-  type CodexPermissionMode,
-  type ModelOption,
-} from "../utils/backends.js";
+import { deriveUiMode, resolveCodexPermissionCliMode } from "../utils/backends.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { ComposerMenus } from "./ComposerMenus.js";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
@@ -32,9 +17,7 @@ import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { ComposerInputSurface } from "./ComposerSurface.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
-import { useCodexModelOptions } from "./use-codex-model-options.js";
 import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
-import { useResetCodexModelSettings } from "./use-reset-codex-model-settings.js";
 import {
   createComposerDraftImage,
   ensureSupportedFormat,
@@ -51,7 +34,6 @@ import { useSendKey } from "../hooks/useSendKey.js";
 import { useComposerSessionView } from "./use-composer-session-view.js";
 import {
   api,
-  type BackendModelInfo,
   type VoiceRecordingTiming,
   type VoiceTranscriptionClientTiming,
   type VoiceTranscriptionFrontendTimingEvent,
@@ -153,10 +135,6 @@ export function Composer({
     [sessionId],
   );
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showPermissionDropdown, setShowPermissionDropdown] = useState(false);
-  const [pendingPermissionMode, setPendingPermissionMode] = useState<string | null>(null);
-  const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [isImageDragOver, setIsImageDragOver] = useState(false);
@@ -169,8 +147,6 @@ export function Composer({
   const imageDragDepthRef = useRef(0);
   const startedImageUploadsRef = useRef(new Set<string>());
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
   const activeVoiceTranscriptionThreadKeyRef = useRef<string | undefined>(transcriptionThreadKey);
@@ -776,47 +752,12 @@ export function Composer({
   // is the authoritative virtual mode for the composer toggle.
   const uiMode = isCodex ? "agent" : (sessionView.serverUiMode ?? deriveUiMode(currentMode));
   const isPlan = uiMode === "plan";
-  const codexPermissionMode = deriveCodexPermissionMode(currentMode);
-  const claudePermissionMode = normalizeClaudePermission(currentMode);
-  const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : getClaudePermissionMenuOptions(claudePermissionMode);
-  const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
-  const codexReasoningEffort = sessionView.codexReasoningEffort;
-  const codexEffectiveReasoningEffort = sessionView.codexEffectiveReasoningEffort;
-  const codexEffectiveReasoningEffortReported = sessionView.codexEffectiveReasoningEffortReported;
-  const codexServiceTier = sessionView.codexServiceTier;
   const pauseState = sessionView.pause as SessionPauseState | null;
   const isPaused = !!pauseState?.pausedAt;
   const pausedInputQueueCount = sessionView.pausedInputQueueCount;
   const codexResultErrorAutoPause = sessionView.codexResultErrorAutoPause;
   const codexAutoPauseRecoveryProgress = sessionView.codexAutoPauseRecoveryProgress;
   const codexAutoPausedInputCount = sessionView.codexAutoPausedInputCount;
-  const { codexModelOptions, codexFastServiceTier } = useCodexModelOptions({
-    isCodex,
-    model: sessionView.model,
-    codexServiceTier,
-    sessionId,
-    loadPersistedSettings,
-  });
-  // Resolve the "Default" option: replace the empty-value placeholder with
-  // the user's actual configured model from ~/.claude/settings.json so we
-  // never send an empty string to set_model (which would make the model
-  // selector disappear since sessionData.model becomes falsy).
-  const claudeModelOptions = useMemo(() => {
-    const options = (dynamicClaudeModels || getModelsForBackend("claude")).filter((m) => m.value !== "");
-    const current = sessionView.model;
-    // Keep the running model visible and selectable even when the catalog does not list it.
-    if (current && !options.some((m) => m.value === current)) {
-      return [{ value: current, label: current, icon: "" }, ...options];
-    }
-    return options;
-  }, [dynamicClaudeModels, sessionView.model]);
-  const resetCodexModelSettings = useResetCodexModelSettings({
-    sessionId,
-    isLeaderSession: sessionView.isLeaderSession,
-    model: sessionView.model,
-    reasoningEffort: codexReasoningEffort,
-    serviceTier: codexServiceTier,
-  });
   const sessionSelectionRoot = getVsCodeSelectionSessionRoot(sessionView.repoRoot, sessionView.cwd);
   const dismissedVsCodeSelectionKey = useStore((s) => s.dismissedVsCodeSelectionKey);
   const currentVsCodeSelectionKey = useMemo(
@@ -866,45 +807,6 @@ export function Composer({
     handleAutocompleteKeyDown,
     closeAutocompleteMenus,
   } = autocomplete;
-
-  useEffect(() => {
-    if (isCodex) return;
-    let cancelled = false;
-    // Fetch dynamic models and the user's configured default in parallel
-    const loadModels = api.getBackendModels("claude").catch(() => [] as BackendModelInfo[]);
-    Promise.all([loadModels, loadPersistedSettings()]).then(([models, settings]) => {
-      if (cancelled) return;
-      const options = models.length > 0 ? toModelOptions(models) : [];
-      // If the user has a default model configured in ~/.claude/settings.json,
-      // prepend a "Default (model)" option that sends the actual model ID
-      // instead of an empty string (which would hide the model selector).
-      // A catalog reported by the Claude CLI already carries its own resolved
-      // default, which also honors launcher-specific settings files.
-      const defaultModel = models.some((m) => m.isDefault) ? undefined : settings?.claudeDefaultModel;
-      if (defaultModel) {
-        const defaultOption: ModelOption = {
-          value: defaultModel,
-          label: `Default (${defaultModel})`,
-          icon: "\u25C6",
-        };
-        // Use dynamic models if available, otherwise fall back to static list
-        // (filtered to remove the empty-value "Default" placeholder).
-        const baseOptions = options.length > 0 ? options : getModelsForBackend("claude").filter((m) => m.value !== "");
-        setDynamicClaudeModels([defaultOption, ...baseOptions]);
-      } else if (options.length > 0) {
-        setDynamicClaudeModels(options);
-      }
-      // If neither dynamic models nor default model are available,
-      // dynamicClaudeModels stays null and the static fallback is used.
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isCodex, loadPersistedSettings]);
-
-  // Each dropdown's wrapper holds both its trigger and its menu.
-  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), showModelDropdown);
-  useOutsidePress([permissionDropdownRef], () => setShowPermissionDropdown(false), showPermissionDropdown);
 
   const acceptVoiceEdit = useCallback(() => {
     if (!voiceEditProposal) return;
@@ -1480,19 +1382,6 @@ export function Composer({
     });
   }, [images, startImagePreparation]);
 
-  function confirmPermissionChange() {
-    if (!pendingPermissionMode) return;
-    const mode = isCodex
-      ? resolveCodexPermissionCliMode(pendingPermissionMode as CodexPermissionMode)
-      : resolveClaudePermissionCliMode(pendingPermissionMode as ClaudePermissionMode);
-    sendToSession(sessionId, {
-      type: "set_permission_mode",
-      mode,
-    });
-    setPendingPermissionMode(null);
-    setShowPermissionDropdown(false);
-  }
-
   // Detect pending ExitPlanMode permission for auto-reject and ghost text
   const pendingPlanPerm = useStore((s) => {
     const permsMap = s.pendingPermissions.get(sessionId);
@@ -1782,51 +1671,8 @@ export function Composer({
           bottomChildren={
             <>
               <ComposerMetaToolbar
-                sessionId={sessionId}
-                sessionView={sessionView}
-                isCodex={isCodex}
-                isConnected={isConnected}
-                canEditLaunchSettings={isBrowserServerConnected}
                 imageUploadDisabled={imageUploadDisabled}
                 imageUploadTitle={imageUploadTitle}
-                showModelDropdown={showModelDropdown}
-                setShowModelDropdown={setShowModelDropdown}
-                modelDropdownRef={modelDropdownRef}
-                claudeModelOptions={claudeModelOptions}
-                codexModelOptions={codexModelOptions}
-                onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
-                claudeReasoningEffort={sessionView.claudeReasoningEffort}
-                onSelectClaudeReasoning={(effort) =>
-                  sendToSession(sessionId, { type: "set_claude_reasoning_effort", effort })
-                }
-                codexReasoningEffort={codexReasoningEffort}
-                codexEffectiveReasoningEffort={codexEffectiveReasoningEffort}
-                codexEffectiveReasoningEffortReported={codexEffectiveReasoningEffortReported}
-                onSelectCodexReasoning={(effort) =>
-                  sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
-                }
-                codexServiceTier={codexServiceTier}
-                codexFastServiceTier={codexFastServiceTier}
-                onSelectCodexServiceTier={(serviceTier) =>
-                  sendToSession(sessionId, { type: "set_codex_service_tier", serviceTier })
-                }
-                onResetCodexSettings={resetCodexModelSettings}
-                permissionOptions={permissionOptions}
-                permissionMode={permissionMode}
-                showPermissionDropdown={showPermissionDropdown}
-                setShowPermissionDropdown={setShowPermissionDropdown}
-                permissionDropdownRef={permissionDropdownRef}
-                pendingPermissionMode={pendingPermissionMode}
-                onRequestPermissionMode={(mode) => {
-                  if (mode === permissionMode) {
-                    setShowPermissionDropdown(false);
-                    return;
-                  }
-                  setPendingPermissionMode(mode);
-                  setShowPermissionDropdown(false);
-                }}
-                onCancelPermissionMode={() => setPendingPermissionMode(null)}
-                onConfirmPermissionMode={confirmPermissionChange}
                 pauseControl={
                   <PauseOtherSourcesButton
                     isPaused={isPaused}

@@ -435,44 +435,35 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(composer.getAllByTestId("alternate-voice-rerun-offer")).toHaveLength(2);
   });
 
-  it("documents Composer backend-native permission selector states", () => {
-    // Keep accessible-name assertions within their actual Composer fixtures.
+  it("documents the session settings summary and menu states", () => {
     render(<Playground />);
     const composer = getPlaygroundSection("interactive-composer");
 
-    expect(composer.getByText("Claude permission selector menu")).toBeTruthy();
-    expect(composer.getByText("Codex permission change confirmation")).toBeTruthy();
-    // The normal Claude menu offers only the current modes; a retired saved mode
-    // (Don't ask) appears only in the fixture where it is the session's value.
-    expect(composer.getByText("Claude permission menu with a retired saved mode")).toBeTruthy();
-    const [claudeMenu, retiredModeMenu] = composer.getAllByTestId("composer-permission-mode-menu");
-    expect(claudeMenu).toHaveTextContent("Auto");
-    expect(claudeMenu).toHaveTextContent("Full access");
-    expect(claudeMenu).not.toHaveTextContent("Delegate");
-    expect(claudeMenu).not.toHaveTextContent("Don't ask");
-    expect(retiredModeMenu).toHaveTextContent("Don't ask");
-    expect(composer.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
-      "Change permissions to Full access?",
-    );
-    expect(composer.getByText("Claude model and effort selector")).toBeTruthy();
-    expect(composer.getByText("Codex model and effort selector")).toBeTruthy();
-    expect(composer.getByText("Codex model selector — narrow layout")).toBeTruthy();
-    expect(composer.getByRole("button", { name: "Model and effort: opus-5.5 Extra high" })).toBeTruthy();
-    expect(composer.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
-    // Claude's open menu has Model and Effort only; Speed and Reset are Codex-only rows.
-    const [claudeSummary, codexSummary] = composer.getAllByTestId("composer-model-summary-menu");
-    expect(claudeSummary).toHaveTextContent("Effort");
-    expect(claudeSummary).toHaveTextContent("Extra high");
-    expect(claudeSummary).not.toHaveTextContent("Speed");
-    expect(claudeSummary).not.toHaveTextContent("Reset to default");
-    expect(codexSummary).toHaveTextContent("Model");
-    expect(codexSummary).toHaveTextContent("Effort");
-    expect(codexSummary).not.toHaveTextContent("Effective");
-    expect(codexSummary).toHaveTextContent("Speed");
-    expect(codexSummary).toHaveTextContent("Reset to default");
-    expect(composer.getByTestId("composer-reasoning-warning")).toHaveTextContent(
+    // Each card shows the title's one-line summary beside the menu.
+    const summaries = composer.getAllByTestId("session-settings-summary").map((item) => item.textContent);
+    expect(summaries).toContain("opus-5.5 Extra high · Full access");
+    expect(summaries).toContain("5.6 Sol Ultra · Full access");
+    const [claudeMenu, codexMenu, accessList, retiredAccessList] = composer.getAllByTestId("session-settings-menu");
+    // Claude's menu has Model, Effort and Access only; Speed and Reset are Codex-only rows.
+    expect(claudeMenu).toHaveTextContent("Extra high");
+    expect(claudeMenu).not.toHaveTextContent("Speed");
+    expect(claudeMenu).not.toHaveTextContent("Reset to default");
+    expect(codexMenu).toHaveTextContent("Speed");
+    expect(codexMenu).toHaveTextContent("Reset to default");
+    expect(codexMenu).not.toHaveTextContent("Effective");
+    expect(within(codexMenu).getByTestId("session-settings-effort-warning")).toHaveTextContent(
       "Runtime is using High instead of Ultra.",
     );
+    // The normal Claude access list offers only the current modes; a retired saved mode
+    // (Don't ask) appears only in the fixture where it is the session's value.
+    expect(accessList).toHaveTextContent("Auto");
+    expect(accessList).toHaveTextContent("Full access");
+    expect(accessList).not.toHaveTextContent("Delegate");
+    expect(accessList).not.toHaveTextContent("Don't ask");
+    expect(retiredAccessList).toHaveTextContent("Don't ask");
+    // Choosing another access level asks before restarting the backend.
+    fireEvent.click(within(accessList).getByRole("menuitemradio", { name: /^Full access/ }));
+    expect(composer.getByTestId("session-settings-access-confirm")).toHaveTextContent("Change access to Full access?");
   });
 
   it("documents the quest commit diff slot with a flush sticky file header", () => {

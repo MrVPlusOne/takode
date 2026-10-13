@@ -110,6 +110,9 @@ interface MockStoreState {
     model?: string;
     permissionMode?: string;
     backendType?: "claude" | "codex" | "claude-sdk";
+    claimedQuestId?: string;
+    claimedQuestTitle?: string;
+    claimedQuestStatus?: string;
     cliConnected?: boolean;
     gitBranch?: string;
     gitDefaultBranch?: string;
@@ -174,6 +177,7 @@ interface MockStoreState {
     };
   }>;
   sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
+  sessionAttention: Map<string, unknown>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
   connectionStatus: Map<string, string>;
@@ -236,6 +240,8 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
       },
     ],
     sessionTaskHistory: new Map([["s1", taskHistory]]),
+    // Participant chips read unread attention for their status dot.
+    sessionAttention: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
@@ -318,6 +324,12 @@ vi.mock("./TaskPanel.js", async () => {
   };
 });
 
+const mockOpenQuestOverlay = vi.fn();
+vi.mock("../utils/routing.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/routing.js")>()),
+  openQuestOverlayRouteAware: (questId: string) => mockOpenQuestOverlay(questId),
+}));
+
 vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(),
 }));
@@ -325,6 +337,7 @@ vi.mock("../ws.js", () => ({
 vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
+    getBackendModels: vi.fn(),
     listSessions: vi.fn(),
     getSessionInfo: vi.fn(),
     openSessionDirectory: vi.fn(),
@@ -350,6 +363,9 @@ const TAKO_PORTRAIT = {
 describe("SessionInfoPopover", () => {
   beforeEach(() => {
     window.location.hash = "#/session/s1";
+    // The settings menu at the top of the panel loads the model catalogs.
+    vi.mocked(api.getSettings).mockResolvedValue({} as Awaited<ReturnType<typeof api.getSettings>>);
+    vi.mocked(api.getBackendModels).mockResolvedValue([]);
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
     vi.mocked(api.getSessionInfo).mockReset();
@@ -515,7 +531,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.queryByText("Codex Goal")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Codex Goal objective")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Codex Goal token budget")).not.toBeInTheDocument();
-    expect(screen.getByText("Reasoning")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-info-settings")).getByRole("menuitem", { name: /Effort/ })).toBeTruthy();
     expect(screen.getByText("Working Directory")).toBeInTheDocument();
     expect(screen.getByTestId("session-info-configure-session")).toBeInTheDocument();
   });
@@ -523,6 +539,8 @@ describe("SessionInfoPopover", () => {
   it("keeps one reasoning selector and warns compactly about a runtime mismatch", () => {
     // The editable Ultra setting remains the only ordinary value while the
     // Codex-reported High runtime state still produces a truthful diagnostic.
+    // The panel's settings menu reads launch-config effort from the session list
+    // until live session state reports a change.
     resetStore([]);
     updateCurrentSdkSession({
       codexReasoningEffort: "ultra",
@@ -532,12 +550,12 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    const reasoning = screen.getByText("ultra").closest("button");
-    expect(reasoning).toBeInTheDocument();
-    expect(reasoning).toHaveAttribute("title", "Reasoning effort (relaunch required). Selected: Ultra; runtime: High");
+    const settings = screen.getByTestId("session-info-settings");
+    expect(within(settings).getAllByRole("menuitem", { name: /Effort/ })).toHaveLength(1);
+    expect(within(settings).getByRole("menuitem", { name: /Effort/ })).toHaveTextContent("Ultra");
     expect(screen.queryByText("Requested")).not.toBeInTheDocument();
     expect(screen.queryByText("Effective")).not.toBeInTheDocument();
-    expect(screen.getByTestId("session-info-reasoning-warning")).toHaveTextContent(
+    expect(screen.getByTestId("session-settings-effort-warning")).toHaveTextContent(
       "Runtime is using High instead of Ultra.",
     );
   });
@@ -545,14 +563,15 @@ describe("SessionInfoPopover", () => {
   it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {
     resetStore([]);
     updateCurrentSdkSession({ cliConnected: false });
+    storeState.cliConnected.set("s1", false);
     storeState.connectionStatus.set("s1", "connected");
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.getAllByTitle("Applies on resume")[0]).toBeEnabled();
-    const reasoning = screen.getByText("default").closest("button");
-    expect(reasoning).toHaveAttribute("title", "Applies on resume. Selected: Default; runtime effort: not reported");
-    expect(reasoning).toBeEnabled();
+    const settings = screen.getByTestId("session-info-settings");
+    expect(settings).toHaveTextContent("Changes apply when the session resumes.");
+    expect(within(settings).getByRole("menuitem", { name: /Effort/ })).toBeEnabled();
+    expect(within(settings).getByRole("menuitem", { name: /Model/ })).toBeEnabled();
   });
 
   it("keeps the list portrait after session detail loads and opens profile editing from it", async () => {
@@ -626,7 +645,7 @@ describe("SessionInfoPopover", () => {
     }
   });
 
-  it("navigates to questmaster focused quest when clicking a quest history row", () => {
+  it("opens a quest from its row and closes the panel", () => {
     resetStore([
       { title: "Install ripgrep in agent environment", source: "quest", questId: "q-67" },
       { title: "Fix codex usage bars stuck at zero" },
@@ -634,43 +653,59 @@ describe("SessionInfoPopover", () => {
     const onClose = vi.fn();
     render(<SessionInfoPopover sessionId="s1" onClose={onClose} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Install ripgrep in agent environment" }));
+    fireEvent.click(screen.getByRole("link", { name: /Install ripgrep in agent environment/ }));
 
-    expect(window.location.hash).toBe("#/questmaster?quest=q-67");
+    expect(mockOpenQuestOverlay).toHaveBeenCalledWith("q-67");
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("does not render quest history row as a link when questId is missing", () => {
-    resetStore([{ title: "Quest without id", source: "quest" }]);
+  it("lists only quests, not auto-named tasks or quest entries without an ID", () => {
+    // Takode work runs in quests; the session name already shows the latest auto-named task.
+    resetStore([{ title: "Quest without id", source: "quest" }, { title: "Fix codex usage bars stuck at zero" }]);
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.queryByRole("button", { name: "Quest without id" })).toBeNull();
-    expect(screen.getByText("Quest without id")).toBeInTheDocument();
+    expect(screen.queryByText("Quest without id")).toBeNull();
+    expect(screen.queryByText("Fix codex usage bars stuck at zero")).toBeNull();
+    expect(screen.queryByTestId("session-info-quests")).toBeNull();
   });
 
-  it("renders quest task rows without native hover tooltips", () => {
-    resetStore([{ title: "Open q-42", source: "quest", questId: "q-42" }]);
+  it("puts the claimed quest first with its status, then earlier quests newest first", () => {
+    resetStore([
+      { title: "First quest", source: "quest", questId: "q-1" },
+      { title: "Second quest", source: "quest", questId: "q-2" },
+      { title: "Current quest", source: "quest", questId: "q-3" },
+    ]);
+    updateCurrentSdkSession({
+      claimedQuestId: "q-3",
+      claimedQuestTitle: "Current quest",
+      claimedQuestStatus: "in_progress",
+    });
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    const questButton = screen.getByRole("button", { name: "Open q-42" });
-    expect(questButton).not.toHaveAttribute("title");
+    const rows = within(screen.getByTestId("session-info-quests")).getAllByRole("link");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "q-3Current questIn Progress",
+      "q-2Second quest",
+      "q-1First quest",
+    ]);
   });
 
-  it("keeps task history compact and auto-scrolls to newest task", async () => {
-    const scrollHeightSpy = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(420);
-    try {
-      resetStore(Array.from({ length: 20 }, (_, i) => ({ title: `Task ${i + 1}` })));
-      render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+  it("keeps a long quest list compact", () => {
+    resetStore(
+      Array.from({ length: 20 }, (_, i) => ({
+        title: `Quest ${i + 1}`,
+        source: "quest" as const,
+        questId: `q-${i + 1}`,
+      })),
+    );
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-      const scroller = screen.getByTestId("task-history-scroll");
-      expect(scroller).toHaveClass("max-h-40");
-      expect(scroller).toHaveClass("overflow-y-auto");
-      await waitFor(() => {
-        expect(scroller.scrollTop).toBe(420);
-      });
-    } finally {
-      scrollHeightSpy.mockRestore();
-    }
+    const rows = within(screen.getByTestId("session-info-quests")).getAllByRole("link");
+    expect(rows).toHaveLength(20);
+    expect(rows[0]).toHaveTextContent("Quest 20");
+    const scroller = rows[0]!.parentElement!;
+    expect(scroller).toHaveClass("max-h-48");
+    expect(scroller).toHaveClass("overflow-y-auto");
   });
 
   it("closes when its trigger is tapped again instead of reopening", () => {
@@ -769,7 +804,11 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.getByText("gpt-5.6")).toBeInTheDocument();
+    // The model is a setting now: the settings menu reads it from live session state,
+    // the same source as the top bar's label, so the two always agree.
+    expect(
+      within(screen.getByTestId("session-info-settings")).getByRole("menuitem", { name: /Model/ }),
+    ).toHaveTextContent("5.3 Codex");
     expect(screen.getByText("projected-branch")).toBeInTheDocument();
     expect(screen.getByText("8 turns")).toBeInTheDocument();
     expect(screen.getByText("37% context")).toBeInTheDocument();
@@ -778,7 +817,7 @@ describe("SessionInfoPopover", () => {
   });
 
   it("renders git branch and diff stats near the top below the path", () => {
-    resetStore([{ title: "Task one" }]);
+    resetStore([{ title: "Quest one", source: "quest", questId: "q-1" }]);
     updateCurrentSdkSession({
       gitBranch: "jiayi-wt-5788",
       isWorktree: true,
@@ -791,7 +830,7 @@ describe("SessionInfoPopover", () => {
 
     const pathLine = screen.getByTitle("/repo");
     const branch = screen.getByText("jiayi-wt-5788");
-    const tasksLabel = screen.getByText("Tasks");
+    const questsLabel = screen.getByText("Quests");
 
     expect(branch.textContent).toContain("jiayi-wt-5788");
     expect(screen.getByText("1↑")).toBeInTheDocument();
@@ -799,7 +838,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("+69")).toBeInTheDocument();
     expect(screen.getByText("-13")).toBeInTheDocument();
     expect(pathLine.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(branch.compareDocumentPosition(tasksLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(branch.compareDocumentPosition(questsLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows worktree and base repo paths separately with the trailing worktree segment emphasized", () => {
@@ -904,9 +943,10 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.getByText("Herded by")).toBeInTheDocument();
-    expect(screen.getByTestId("session-info-herded-by")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "#7" })).toBeInTheDocument();
+    // The leader shows as the same participant chip the quest strip uses.
+    const section = screen.getByTestId("session-info-herded-by");
+    expect(within(section).getByRole("link", { name: /^Leader #7\b/ })).toBeInTheDocument();
+    expect(screen.queryByText("Herded by")).toBeNull();
   });
 
   it("shows concise herding chips for leader sessions in the info panel", () => {
@@ -953,12 +993,36 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.getByText("Herding")).toBeInTheDocument();
     const section = screen.getByTestId("session-info-herding");
-    expect(within(section).getByRole("link", { name: "#21" })).toBeInTheDocument();
-    expect(within(section).getByRole("link", { name: "#22" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: /^Worker #21\b/ })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: /^Worker #22\b/ })).toBeInTheDocument();
     expect(within(section).queryByText("Fix notification links")).toBeNull();
     expect(within(section).queryByText("Improve hover chips")).toBeNull();
+  });
+
+  it("labels a herded reviewer as Reviewer", () => {
+    resetStore([]);
+    storeState.sdkSessions = [
+      { sessionId: "s1", cwd: "/repo", backendType: "codex", sessionNum: 11 },
+      { sessionId: "reviewer-1", cwd: "/repo", backendType: "claude", sessionNum: 31 },
+    ];
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({ identity: { sessionNum: 11 }, topology: { isOrchestrator: true } }),
+    );
+    setNavigationProjection(
+      "reviewer-1",
+      createSessionNavigationProjectionValue({
+        identity: { sessionNum: 31 },
+        topology: { herdedBy: "s1", reviewerOf: 21 },
+      }),
+    );
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(
+      within(screen.getByTestId("session-info-herding")).getByRole("link", { name: /^Reviewer #31\b/ }),
+    ).toBeInTheDocument();
   });
 
   it("closes when herd relationship chips navigate", () => {
@@ -983,7 +1047,7 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={onClose} />);
 
-    fireEvent.click(screen.getByRole("link", { name: "#7" }));
+    fireEvent.click(screen.getByRole("link", { name: /^Leader #7\b/ }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe("#/session/leader-1");

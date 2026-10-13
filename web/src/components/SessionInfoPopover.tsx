@@ -1,3 +1,4 @@
+import { SessionSettingsMenu, useSessionSettings } from "./SessionSettingsMenu.js";
 import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../store.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
@@ -11,19 +12,9 @@ import {
   SystemPromptCollapsible,
   usePersistedCollapse,
 } from "./TaskPanel.js";
-import {
-  formatModel,
-  getCodexReasoningEffortOptions,
-  getModelsForBackend,
-  toModelOptions,
-  type ModelOption,
-} from "../utils/backends.js";
-import { buildCodexReasoningAuthorityDisplay } from "../utils/codex-reasoning-display.js";
 import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
-import { navigateTo } from "../utils/navigation.js";
-import { sendToSession } from "../ws.js";
-import { CompactSessionLink } from "./CompactSessionLink.js";
+import { SessionInfoQuests, sessionInfoQuests } from "./SessionInfoQuests.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionMachineRow } from "./HostBadge.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
@@ -43,19 +34,6 @@ interface SessionDetailState {
   key: string;
   status: "loading" | "loaded" | "failed";
   detail: SdkSessionInfo | null;
-}
-
-function mergeModelOptions(backendType: "claude" | "codex", dynamicModels: ModelOption[], currentModel: string) {
-  const merged = [...dynamicModels, ...getModelsForBackend(backendType)].filter((option) => option.value);
-  if (currentModel && !merged.some((option) => option.value === currentModel)) {
-    merged.unshift({ value: currentModel, label: currentModel, icon: "" });
-  }
-  const seen = new Set<string>();
-  return merged.filter((option) => {
-    if (seen.has(option.value)) return false;
-    seen.add(option.value);
-    return true;
-  });
 }
 
 export function SessionInfoPopover({
@@ -80,13 +58,13 @@ export function SessionInfoPopover({
   const model = sessionVm?.model ?? "";
   const backendType = sessionVm?.backendType ?? "claude-sdk";
   const popoverRef = useRef<HTMLDivElement>(null);
-  const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
 
   // Stats
   const turns = sessionVm?.numTurns ?? 0;
   const historyBytes = sessionVm?.messageHistoryBytes ?? 0;
   const codexRetainedPayloadBytes = sessionVm?.codexRetainedPayloadBytes ?? 0;
   const isCodexSession = backendType === "codex";
+  const settings = useSessionSettings(sessionId);
 
   // Git
   const gitBranch = sessionVm?.gitBranch ?? null;
@@ -119,37 +97,12 @@ export function SessionInfoPopover({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Keep task history anchored to newest entry so long histories open at the latest item.
-  useEffect(() => {
-    const container = taskHistoryScrollRef.current;
-    if (!container || !taskHistory || taskHistory.length === 0) return;
-    container.scrollTop = container.scrollHeight;
-  }, [sessionId, taskHistory]);
-
   const browserConnectionStatus = useStore((s) => s.connectionStatus.get(sessionId) ?? "disconnected");
   const isConnected = browserConnectionStatus === "connected";
   const cliConnected = resolvedNavigation?.sidebarItem.isConnected ?? sdkSession?.cliConnected ?? false;
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const serverReachable = useStore((s) => s.serverReachable);
-  const codexReasoningEffort = sessionVm?.codexReasoningEffort || "";
-  const codexEffectiveReasoningEffort = sessionVm?.codexEffectiveReasoningEffort ?? null;
-  const codexEffectiveReasoningEffortReported = sessionVm?.codexEffectiveReasoningEffortReported === true;
-  const modelTitle = !isConnected
-    ? "Reconnect to Takode to change model"
-    : cliConnected
-      ? backendType === "codex"
-        ? `Model: ${model} (relaunch required)`
-        : `Model: ${model} (click to change)`
-      : "Applies on resume";
-  const modelBackend = backendType === "codex" ? "codex" : "claude";
-  const reasoningTitle = !isConnected
-    ? "Reconnect to Takode to change reasoning"
-    : cliConnected
-      ? "Reasoning effort (relaunch required)"
-      : "Applies on resume";
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [openDirectoryError, setOpenDirectoryError] = useState("");
   const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
   const sessionDetailKey = `${sessionId}:${sessionVm?.pid ?? ""}:${sessionVm?.cliSessionId ?? ""}:${cliConnected ? "connected" : "disconnected"}`;
@@ -158,56 +111,6 @@ export function SessionInfoPopover({
     status: "loading",
     detail: null,
   }));
-  const [dynamicModelOptions, setDynamicModelOptions] = useState<ModelOption[]>([]);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const reasoningDropdownRef = useRef<HTMLDivElement>(null);
-  const modelOptions = useMemo(
-    () => mergeModelOptions(modelBackend, dynamicModelOptions, model),
-    [modelBackend, dynamicModelOptions, model],
-  );
-  const codexReasoningOptions = getCodexReasoningEffortOptions({
-    modelOptions,
-    model,
-    currentEffort: codexReasoningEffort,
-  });
-  const selectedCodexModel = modelOptions.find((option) => option.value === model);
-  const defaultReasoningValue = selectedCodexModel?.defaultReasoningLevel?.trim().toLowerCase() || "";
-  const labelForReasoningEffort = (effort: string) =>
-    getCodexReasoningEffortOptions({ modelOptions, model, currentEffort: effort, includeDefault: false }).find(
-      (option) => option.value === effort,
-    )?.label || effort;
-  const reasoningAuthority = buildCodexReasoningAuthorityDisplay({
-    requested: codexReasoningEffort,
-    effective: codexEffectiveReasoningEffort,
-    effectiveReported: codexEffectiveReasoningEffortReported,
-    runtimeConnected: cliConnected,
-    defaultRequested: defaultReasoningValue,
-    defaultRequestedLabel: defaultReasoningValue ? labelForReasoningEffort(defaultReasoningValue) : undefined,
-    labelForEffort: labelForReasoningEffort,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    const getBackendModels = (api as { getBackendModels?: typeof api.getBackendModels }).getBackendModels;
-    if (!getBackendModels) {
-      setDynamicModelOptions([]);
-      return;
-    }
-    getBackendModels(backendType)
-      .then((models) => {
-        if (!cancelled) setDynamicModelOptions(toModelOptions(models));
-      })
-      .catch(() => {
-        if (!cancelled) setDynamicModelOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [backendType]);
-
-  useOutsidePress([modelDropdownRef], () => setShowModelDropdown(false), showModelDropdown);
-  useOutsidePress([reasoningDropdownRef], () => setShowReasoningDropdown(false), showReasoningDropdown);
-
   useEffect(() => {
     let cancelled = false;
     setSdkSessionDetailState({ key: sessionDetailKey, status: "loading", detail: null });
@@ -257,19 +160,29 @@ export function SessionInfoPopover({
     "cc-collapse-session-lifecycle-debug",
     true,
   );
-  const taskEntries = (taskHistory ?? []).map((task) => ({
-    ...task,
-    title: task.title.trim(),
-  }));
   const isOrchestrator = resolvedNavigation?.sidebarItem.isOrchestrator ?? effectiveSdkSession?.isOrchestrator ?? false;
   const herdedBy = resolvedNavigation?.sidebarItem.herdedBy ?? effectiveSdkSession?.herdedBy;
   const herdedSessions = useMemo(() => {
     if (!isOrchestrator) return [];
     return sdkSessions.flatMap((sdk) => {
       const resolved = resolveSessionNavigation({ sdkSessions }, sdk.sessionId);
-      return resolved?.sidebarItem.herdedBy === sessionId && !resolved.sidebarItem.archived ? [sdk.sessionId] : [];
+      if (resolved?.sidebarItem.herdedBy !== sessionId || resolved.sidebarItem.archived) return [];
+      return [{ sessionId: sdk.sessionId, role: resolved.sidebarItem.reviewerOf ? "Reviewer" : "Worker" } as const];
     });
   }, [isOrchestrator, sdkSessions, sessionId]);
+  const claimedQuestId = resolvedNavigation?.sidebarItem.claimedQuestId ?? null;
+  const claimedQuestTitle = resolvedNavigation?.sidebarItem.claimedQuestTitle;
+  const claimedQuestStatus = resolvedNavigation?.sidebarItem.claimedQuestStatus;
+  const quests = useMemo(
+    () =>
+      sessionInfoQuests(
+        claimedQuestId
+          ? { questId: claimedQuestId, title: claimedQuestTitle ?? claimedQuestId, status: claimedQuestStatus }
+          : null,
+        taskHistory,
+      ),
+    [claimedQuestId, claimedQuestTitle, claimedQuestStatus, taskHistory],
+  );
   const leaderSession = useMemo(() => {
     if (isOrchestrator || !herdedBy) return null;
     const leader = sdkSessions.find((sdk) => sdk.sessionId === herdedBy && !sdk.archived);
@@ -345,68 +258,19 @@ export function SessionInfoPopover({
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* Backend + model + cwd */}
+        {/* Settings, actions, then where the session runs */}
         <div className="px-4 py-2.5 space-y-1.5">
-          {leaderProfilePortrait && (
-            <div className="flex items-center gap-3 rounded-lg border border-cc-border/60 bg-cc-hover/20 px-2.5 py-2">
-              <LeaderProfilePortraitButton
-                sessionId={sessionId}
-                portrait={leaderProfilePortrait}
-                size="lg"
-                ariaLabel="Edit leader profile picture"
-                title="Edit profile picture"
-              />
-              <div className="min-w-0">
-                <div className="truncate text-[12px] font-semibold text-cc-fg">{leaderProfilePortrait.label}</div>
-                <div className="text-[11px] text-cc-muted">Leader profile</div>
-              </div>
+          {/* Most used first: model, effort and access, changed in place. */}
+          <div data-testid="session-info-settings">
+            <div className="mb-0.5 flex items-center gap-1.5 px-1">
+              <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Settings</span>
+              <span
+                className={`text-[10px] font-medium ${backendType === "codex" ? "text-blue-500" : "text-[#D97757]"}`}
+              >
+                {backendLabel}
+              </span>
             </div>
-          )}
-          <div className="flex items-center gap-1.5">
-            <span className={`text-[11px] font-medium ${backendType === "codex" ? "text-blue-500" : "text-[#D97757]"}`}>
-              {backendLabel}
-            </span>
-            {model && (
-              <>
-                <span className="text-cc-muted/40 text-[10px]">&middot;</span>
-                <div className="relative" ref={modelDropdownRef}>
-                  <button
-                    onClick={() => setShowModelDropdown(!showModelDropdown)}
-                    disabled={!isConnected}
-                    className={`flex items-center gap-0.5 text-[11px] transition-colors select-none ${
-                      !isConnected
-                        ? "cursor-not-allowed opacity-30 text-cc-muted"
-                        : "cursor-pointer text-cc-muted hover:text-cc-fg"
-                    }`}
-                    title={modelTitle}
-                  >
-                    <span>{formatModel(model)}</span>
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </button>
-                  {showModelDropdown && (
-                    <div className="absolute left-0 top-full z-10 mt-1 max-h-64 w-52 overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
-                      {modelOptions.map((m) => (
-                        <button
-                          key={m.value}
-                          onClick={() => {
-                            sendToSession(sessionId, { type: "set_model", model: m.value });
-                            setShowModelDropdown(false);
-                          }}
-                          className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                            m.value === model ? "font-medium text-cc-primary" : "text-cc-fg"
-                          }`}
-                        >
-                          <span className="mr-1.5">{m.icon}</span>
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+            <SessionSettingsMenu settings={settings} />
           </div>
           <SessionMachineRow sessionId={sessionId} />
           {onConfigure && (
@@ -445,64 +309,6 @@ export function SessionInfoPopover({
               >
                 {recoverableConnectionPresentation.actionLabel}
               </button>
-            </div>
-          )}
-          {isCodexSession && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-cc-muted/60">Reasoning</span>
-                <div className="relative" ref={reasoningDropdownRef}>
-                  <button
-                    onClick={() => setShowReasoningDropdown(!showReasoningDropdown)}
-                    disabled={!isConnected}
-                    className={`flex items-center gap-0.5 text-[11px] transition-colors select-none ${
-                      !isConnected
-                        ? "cursor-not-allowed opacity-30 text-cc-muted"
-                        : "cursor-pointer text-cc-muted hover:text-cc-fg"
-                    }`}
-                    title={`${reasoningTitle}. ${reasoningAuthority.title}`}
-                  >
-                    <span>
-                      {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
-                        "default"}
-                    </span>
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </button>
-                  {showReasoningDropdown && (
-                    <div className="absolute left-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
-                      {codexReasoningOptions.map((effort) => (
-                        <button
-                          key={effort.value || "default"}
-                          onClick={() => {
-                            sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort: effort.value });
-                            setShowReasoningDropdown(false);
-                          }}
-                          className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                            effort.value === codexReasoningEffort ? "font-medium text-cc-primary" : "text-cc-fg"
-                          }`}
-                        >
-                          {effort.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {reasoningAuthority.warningLabel && (
-                <div
-                  data-testid="session-info-reasoning-warning"
-                  role="status"
-                  className="flex items-start gap-1.5 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2 py-1.5 text-[10px] leading-snug text-cc-warning"
-                  title={reasoningAuthority.title}
-                >
-                  <span aria-hidden="true" className="shrink-0 font-semibold">
-                    !
-                  </span>
-                  <span>{reasoningAuthority.warningLabel}</span>
-                </div>
-              )}
             </div>
           )}
           {cwd && (
@@ -593,71 +399,30 @@ export function SessionInfoPopover({
               )}
             </div>
           )}
+          {leaderProfilePortrait && (
+            <div className="flex items-center gap-3 rounded-lg border border-cc-border/60 bg-cc-hover/20 px-2.5 py-2">
+              <LeaderProfilePortraitButton
+                sessionId={sessionId}
+                portrait={leaderProfilePortrait}
+                size="lg"
+                ariaLabel="Edit leader profile picture"
+                title="Edit profile picture"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-[12px] font-semibold text-cc-fg">{leaderProfilePortrait.label}</div>
+                <div className="text-[11px] text-cc-muted">Leader profile</div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Task history */}
-        {(herdedSessions.length > 0 || leaderSession) && (
-          <div className="px-4 py-2 border-t border-cc-border/50 space-y-2">
-            {herdedSessions.length > 0 && (
-              <div data-testid="session-info-herding">
-                <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herding</span>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {herdedSessions.map((hs) => (
-                    <CompactSessionLink
-                      key={hs}
-                      sessionId={hs}
-                      className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
-                      onNavigate={onClose}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            {leaderSession && (
-              <div data-testid="session-info-herded-by">
-                <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herded by</span>
-                <div className="mt-1">
-                  <CompactSessionLink
-                    sessionId={leaderSession}
-                    className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
-                    onNavigate={onClose}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Task history */}
-        {taskEntries.length > 0 && (
-          <div className="px-4 py-2 border-t border-cc-border/50 space-y-1">
-            <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Tasks</span>
-            <div
-              ref={taskHistoryScrollRef}
-              data-testid="task-history-scroll"
-              className="max-h-40 overflow-y-auto pr-2 pb-1 space-y-1.5"
-              style={{ scrollbarGutter: "stable both-edges" }}
-            >
-              {taskEntries.map((task, i) => {
-                const questId = task.questId;
-                return (
-                  <div key={i} className="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-1.5">
-                    <span className="text-[10px] tabular-nums text-right text-cc-muted/60 mt-px">{i + 1}.</span>
-                    {task.source === "quest" && questId ? (
-                      <QuestTaskChip questId={questId} title={task.title} onNavigate={onClose} />
-                    ) : (
-                      <span
-                        className={`text-left text-[11px] leading-snug line-clamp-1 ${task.source === "quest" ? "text-amber-400" : "text-cc-fg"}`}
-                      >
-                        {task.title}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <SessionInfoQuests
+          leaderSessionId={leaderSession}
+          herded={herdedSessions}
+          quests={quests}
+          currentQuestId={claimedQuestId}
+          onNavigate={onClose}
+        />
 
         {/* Stats */}
         {hasStats && (
@@ -1048,17 +813,3 @@ function formatLifecycleBackend(backendType: SessionLifecycleEvent["backendType"
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */
-function QuestTaskChip({ questId, title, onNavigate }: { questId: string; title: string; onNavigate: () => void }) {
-  return (
-    <button
-      type="button"
-      className="text-left text-[11px] leading-snug line-clamp-1 text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2 cursor-pointer"
-      onClick={() => {
-        navigateTo(`/questmaster?quest=${encodeURIComponent(questId)}`);
-        onNavigate();
-      }}
-    >
-      {title}
-    </button>
-  );
-}

@@ -562,6 +562,32 @@ describe("TopBar", () => {
     expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
   });
 
+  // Model, effort and access show as one line of text in the title, on desktop and on the
+  // phone's second row. It is part of the title, so a tap on it opens Session Info, which
+  // starts with the settings; there is no separate, small menu target.
+  it.each([
+    ["desktop", 1280],
+    ["phone", 430],
+  ])("shows the session settings in the title and opens Session Info from them on %s", (_layout, width) => {
+    window.innerWidth = width;
+    resetStore({
+      currentSessionId: "s1",
+      sessions: new Map([["s1", { cwd: "/repo", model: "claude-opus-5.5", permissionMode: "acceptEdits" }]]),
+      sdkSessions: [
+        { sessionId: "s1", sessionNum: 7, createdAt: 1, cliConnected: true, state: "idle", name: "Active" },
+      ],
+    });
+
+    render(<TopBar />);
+    const settings = screen.getByTestId("session-settings-summary");
+    expect(settings).toHaveTextContent("opus-5.5 · Accept edits");
+    expect(settings.closest("button")).not.toBeNull();
+
+    fireEvent.click(settings);
+    expect(screen.getByTestId("session-info-popover")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-settings-menu")).toBeNull();
+  });
+
   // The title names a remote session's host next to the session name, inside the
   // button that opens session info; local sessions keep the title unchanged.
   it("shows a remote session's host chip in the title", async () => {

@@ -6,6 +6,7 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
+import { useSessionSettings } from "./SessionSettingsMenu.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
@@ -351,6 +352,26 @@ export function TopBar({
     );
   }
 
+  // Every part of the session identity, settings line included, opens Session Info on a tap and
+  // the session menu on a long-press.
+  const titleButtonProps = {
+    ...sessionTitleLongPress.handlers,
+    onClick: () => {
+      const nextOpen = !infoOpen;
+      setInfoOpen(nextOpen);
+      if (nextOpen) closeCodexSubagentInspector();
+    },
+    style: sessionTitleLongPress.pressStyle,
+    className: `cursor-pointer hover:opacity-80 transition-opacity ${LONG_PRESS_TARGET_CLASS}`,
+  };
+  const titleAriaLabel = [
+    isCurrentLeaderSession ? "Leader" : null,
+    typeof sessionNum === "number" ? `#${sessionNum}` : null,
+    sessionName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <header
       className={`shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
@@ -399,95 +420,111 @@ export function TopBar({
                 className="min-w-0 w-56 rounded border border-cc-border bg-cc-input-bg px-1 text-[11px] text-cc-fg"
               />
             ) : (
-              <button
-                {...sessionTitleLongPress.handlers}
-                onClick={() => {
-                  const nextOpen = !infoOpen;
-                  setInfoOpen(nextOpen);
-                  if (nextOpen) closeCodexSubagentInspector();
-                }}
-                style={sessionTitleLongPress.pressStyle}
-                className={`flex items-center min-w-0 cursor-pointer hover:opacity-80 transition-opacity ${
-                  compact ? "flex-1 gap-2 text-left" : "gap-1.5"
-                } ${LONG_PRESS_TARGET_CLASS}`}
-                aria-label={[
-                  isCurrentLeaderSession ? "Leader" : null,
-                  typeof sessionNum === "number" ? `#${sessionNum}` : null,
-                  sessionName,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
+              <>
                 {compact ? (
-                  <>
-                    {/* Phone: status dot on the portrait, title on its own line, #N and host below. */}
-                    <span className="relative shrink-0">
-                      {leaderProfilePortrait ? (
-                        <>
-                          <img
-                            src={leaderProfilePortrait.smallUrl}
-                            alt=""
-                            width={leaderProfilePortrait.smallSize}
-                            height={leaderProfilePortrait.smallSize}
-                            loading="eager"
-                            decoding="async"
-                            data-testid="topbar-leader-profile-portrait"
-                            className="h-8 w-8 rounded-full object-cover ring-1 ring-cc-border/70"
-                            draggable={false}
-                          />
-                          <span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-cc-card p-px">
-                            {statusDot("mt-0")}
+                  // Phone: status dot on the portrait, title on its own line, then #N, host and the
+                  // settings line. Every part opens Session Info, which starts with the settings.
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      {...titleButtonProps}
+                      className={`shrink-0 ${titleButtonProps.className}`}
+                    >
+                      <span className="relative shrink-0">
+                        {leaderProfilePortrait ? (
+                          <>
+                            <img
+                              src={leaderProfilePortrait.smallUrl}
+                              alt=""
+                              width={leaderProfilePortrait.smallSize}
+                              height={leaderProfilePortrait.smallSize}
+                              loading="eager"
+                              decoding="async"
+                              data-testid="topbar-leader-profile-portrait"
+                              className="h-8 w-8 rounded-full object-cover ring-1 ring-cc-border/70"
+                              draggable={false}
+                            />
+                            <span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-cc-card p-px">
+                              {statusDot("mt-0")}
+                            </span>
+                          </>
+                        ) : (
+                          statusDot("mt-0")
+                        )}
+                      </span>
+                    </button>
+                    <span className="flex min-w-0 flex-1 flex-col items-start">
+                      <button
+                        type="button"
+                        {...titleButtonProps}
+                        aria-label={titleAriaLabel}
+                        className={`flex min-w-0 max-w-full text-left ${titleButtonProps.className}`}
+                      >
+                        {sessionName && (
+                          <span
+                            className="min-w-0 truncate text-[13px] font-semibold leading-tight text-cc-fg"
+                            title={sessionName}
+                          >
+                            {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
                           </span>
-                        </>
-                      ) : (
-                        statusDot("mt-0")
-                      )}
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        {...titleButtonProps}
+                        className={`flex min-w-0 max-w-full items-center gap-1 text-[11px] leading-tight text-cc-muted ${titleButtonProps.className}`}
+                      >
+                        {typeof sessionNum === "number" && <span className="shrink-0">#{sessionNum}</span>}
+                        <SessionHostBadge sessionId={currentSessionId} />
+                        <TopBarSettingsSummary sessionId={currentSessionId} />
+                      </button>
                     </span>
-                    <span className="flex min-w-0 flex-col">
-                      {sessionName && (
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      {...titleButtonProps}
+                      aria-label={titleAriaLabel}
+                      className={`flex min-w-0 items-center gap-1.5 ${titleButtonProps.className}`}
+                    >
+                      <div className="[&>div]:mt-0 shrink-0">{statusDot()}</div>
+                      {typeof sessionNum === "number" && (
                         <span
-                          className="min-w-0 truncate text-[13px] font-semibold leading-tight text-cc-fg"
-                          title={sessionName}
+                          className="text-[11px] font-medium text-cc-muted shrink-0"
+                          title={`Session #${sessionNum}`}
                         >
+                          #{sessionNum}
+                        </span>
+                      )}
+                      {leaderProfilePortrait && (
+                        <img
+                          src={leaderProfilePortrait.smallUrl}
+                          alt=""
+                          width={leaderProfilePortrait.smallSize}
+                          height={leaderProfilePortrait.smallSize}
+                          loading="eager"
+                          decoding="async"
+                          data-testid="topbar-leader-profile-portrait"
+                          className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
+                          draggable={false}
+                        />
+                      )}
+                      {sessionName && (
+                        <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
                           {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
                         </span>
                       )}
-                      <span className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-cc-muted">
-                        {typeof sessionNum === "number" && <span className="shrink-0">#{sessionNum}</span>}
-                        <SessionHostBadge sessionId={currentSessionId} />
-                      </span>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <div className="[&>div]:mt-0 shrink-0">{statusDot()}</div>
-                    {typeof sessionNum === "number" && (
-                      <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
-                        #{sessionNum}
-                      </span>
-                    )}
-                    {leaderProfilePortrait && (
-                      <img
-                        src={leaderProfilePortrait.smallUrl}
-                        alt=""
-                        width={leaderProfilePortrait.smallSize}
-                        height={leaderProfilePortrait.smallSize}
-                        loading="eager"
-                        decoding="async"
-                        data-testid="topbar-leader-profile-portrait"
-                        className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
-                        draggable={false}
-                      />
-                    )}
-                    {sessionName && (
-                      <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
-                        {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                      </span>
-                    )}
-                    <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
+                      <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
+                      <TopBarSettingsSummary sessionId={currentSessionId} />
+                    </button>
                   </>
                 )}
-              </button>
+              </>
             )}
             {!isConnected && !isPaused && !isArchived && (
               <button
@@ -594,5 +631,21 @@ function SessionsPanelWaitingDot() {
       data-testid="topbar-sessions-panel-waiting-dot"
       className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-cc-attention ring-2 ring-cc-card"
     />
+  );
+}
+
+/** The session's model, effort and access as one label that opens the settings menu. */
+/** Model, effort and access as plain text in the title; Session Info changes them. */
+function TopBarSettingsSummary({ sessionId }: { sessionId: string }) {
+  const settings = useSessionSettings(sessionId);
+  if (!settings.summary) return null;
+  return (
+    <span
+      data-testid="session-settings-summary"
+      title={settings.title}
+      className="min-w-0 truncate text-[11px] font-normal text-cc-muted"
+    >
+      {settings.summary}
+    </span>
   );
 }

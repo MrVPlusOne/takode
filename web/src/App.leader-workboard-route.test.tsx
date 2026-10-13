@@ -26,6 +26,9 @@ vi.mock("./api.js", () => ({
     fetchNotificationContext: vi.fn().mockResolvedValue(null),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
     updateLeaderProfilePortrait: vi.fn(),
+    // The title's settings line loads the model catalogs.
+    getBackendModels: vi.fn().mockResolvedValue([]),
+    getSettings: vi.fn().mockResolvedValue({}),
   },
   checkHealthStatus: vi
     .fn()
@@ -207,6 +210,7 @@ function seedLeaderRouteFixture() {
     cliConnected: new Map([[SESSION_ID, true]]),
     cliEverConnected: new Map([[SESSION_ID, true]]),
     connectionStatus: new Map([[SESSION_ID, "connected"]]),
+    askPermission: new Map(),
     sessionStatus: new Map([[SESSION_ID, "idle"]]),
     sessionBoards: new Map([
       [

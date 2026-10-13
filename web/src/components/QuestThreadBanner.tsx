@@ -180,13 +180,14 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
 
 type QuestBannerVariant = "thread" | "session";
 
-type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
+export type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
 
 type QuestBannerWaitCondition = { kind: "queued"; refs: string[] } | { kind: "user-input"; refs: string[] };
 
 type QuestBannerQueuedWaitCondition = Extract<QuestBannerWaitCondition, { kind: "queued" }>;
 
-function QuestBannerParticipantChip({
+/** A leader, worker or reviewer chip: status dot, role, #N and host; opens that session. */
+export function QuestBannerParticipantChip({
   role,
   participant,
   sessionId: explicitSessionId,
@@ -196,6 +197,7 @@ function QuestBannerParticipantChip({
   threadKey,
   showDisplayName = true,
   variant = "session",
+  onNavigate,
 }: {
   role: QuestBannerParticipantRole;
   participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"] | null;
@@ -206,6 +208,7 @@ function QuestBannerParticipantChip({
   threadKey?: string | null;
   showDisplayName?: boolean;
   variant?: QuestBannerVariant;
+  onNavigate?: () => void;
 }) {
   const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
   const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
@@ -253,6 +256,7 @@ function QuestBannerParticipantChip({
       ariaLabel={label}
       title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}${displayName ? ` ${displayName}` : ""}`}
       threadKey={threadKey}
+      onNavigate={onNavigate}
     >
       {content}
     </SessionInlineLink>
