@@ -42,8 +42,8 @@ const GROUP_LABEL: Record<ThreadTabGroupId, string> = {
  * Splits quest tabs by what the user looks for. A prompt outranks an unread result; without
  * either, a tab is in progress until its quest is finished. Main is never a member: it is
  * always its own tab with its own bell, so counting it again in a group duplicated it.
- * Within a group, the tab that entered it most recently (the server's `groupChangedAt`)
- * comes first, and ties keep the leader's tab order.
+ * Within a group, the tab that entered it or was chatted in most recently (the server's
+ * `groupChangedAt`) comes first, and ties keep the leader's tab order.
  */
 export function groupThreadTabs(tabs: readonly PrimaryThreadChip[]): Record<ThreadTabGroupId, PrimaryThreadChip[]> {
   const groups: Record<ThreadTabGroupId, PrimaryThreadChip[]> = {

@@ -787,6 +787,56 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     expect(leader.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-42", "q-1", "q-2"]);
   });
 
+  it("moves a leader's tab up within its group when the user writes in it", async () => {
+    // Inside a status group, tabs are ordered by groupChangedAt. A message the user types
+    // in a quest tab must reach subscribers as a newer groupChangedAt for that tab, even
+    // though nothing else about the tab (board row, attention) changed. Saving the session
+    // after the message is what recomputes the tabs today.
+    const bridge = new WsBridge();
+    const leader = bridge.getOrCreateSession("leader-chat");
+    leader.state.isOrchestrator = true;
+    leader.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-41", "q-42"],
+      closedThreadTombstones: [],
+      updatedAt: 100,
+    };
+    for (const questId of ["q-41", "q-42"]) {
+      leader.completedBoard.set(questId, {
+        questId,
+        title: `Finished ${questId}`,
+        status: "DONE",
+        createdAt: 50,
+        updatedAt: 100,
+        completedAt: 100,
+      });
+    }
+    const socket = browserSocket(leader.id);
+    leader.browserSockets.add(socket);
+    await subscribe(bridge, socket, leader.id);
+    await bridge.getSyncedProjectionController().flushForTest();
+    const initial = projectionMessages(socket, "synced_projection_snapshot").at(-1)?.value;
+    expect(initial.tabs.map((tab: { groupChangedAt: number }) => tab.groupChangedAt)).toEqual([100, 100]);
+    socket.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      socket,
+      JSON.stringify({
+        type: "user_message",
+        content: "How did the finished quest go?",
+        threadKey: "q-42",
+        questId: "q-42",
+        client_msg_id: "chat-q-42",
+      }),
+    );
+    await bridge.getSyncedProjectionController().flushForTest();
+
+    const sent = leader.messageHistory.find((entry) => entry.type === "user_message");
+    const value = applyProjectionMessages(initial, projectionMessages(socket));
+    const groupChangedAt = Object.fromEntries(value.tabs.map((tab) => [tab.threadKey, tab.groupChangedAt]));
+    expect(groupChangedAt).toEqual({ "q-41": 100, "q-42": sent?.timestamp });
+  });
+
   it("keeps a buried active tab in place when completion emits its review notification", async () => {
     const bridge = new WsBridge();
     const leader = bridge.getOrCreateSession("leader-completion-review");

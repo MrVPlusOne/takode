@@ -87,8 +87,9 @@ export interface LeaderThreadTabsProjectionTab {
   attention: LeaderThreadTabsProjectionAttention;
   updatedAt: number;
   /**
-   * When the tab last changed status group (prompt, unread result, in progress, finished): the
-   * latest of its attention change, its board row's creation and its completion.
+   * Orders the tab inside its status group (prompt, unread result, in progress, finished): the
+   * latest of its attention change, its board row's creation, its completion, the user's last
+   * message in the tab and the leader's last answer to the user shown in it.
    */
   groupChangedAt: number;
 }

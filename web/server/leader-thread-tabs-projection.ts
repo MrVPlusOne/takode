@@ -40,7 +40,14 @@ import {
 } from "../shared/leader-projection.js";
 import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
-import type { BoardRow, SessionAttentionRecord } from "./session-types.js";
+import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from "./session-types.js";
+import {
+  leaderMessageThreadKey,
+  leaderResponseAssociatedThreadKeys,
+} from "../shared/leader-thread-response-routing.js";
+import { isCanonicalLeaderUserMessageId } from "../shared/leader-user-message-id.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
 import { jsonUtf8ByteLength } from "../shared/synced-projection-codec.js";
 import {
@@ -755,6 +762,33 @@ function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): Leader
   };
 }
 
+/**
+ * When the user last chatted in each quest tab: the latest message they typed there
+ * and the latest settled leader answer to their messages shown there. Inside a status
+ * group these move a tab up; background activity (herd events, timers, commentary,
+ * status lines) does not. Not cached by history shape like the visual inputs above,
+ * because answers settle in place at turn end.
+ */
+function collectThreadChatTimes(history: ReadonlyArray<BrowserIncomingMessage>): Map<string, number> {
+  const chatAt = new Map<string, number>();
+  const record = (threadKey: string, timestamp: unknown) => {
+    const at = nonNegativeNumber(timestamp);
+    if (threadKey !== "main" && at > (chatAt.get(threadKey) ?? 0)) chatAt.set(threadKey, at);
+  };
+  for (const message of history) {
+    if (!isRootAgentHistoryMessage(message)) continue;
+    if (isActualHumanUserMessage(message)) {
+      record(leaderMessageThreadKey(message), message.timestamp);
+    } else if (
+      message.type === "assistant" &&
+      message.threadAnswer?.answerUserMessageIds.some(isCanonicalLeaderUserMessageId)
+    ) {
+      for (const threadKey of leaderResponseAssociatedThreadKeys(message)) record(threadKey, message.timestamp);
+    }
+  }
+  return chatAt;
+}
+
 export function buildLeaderThreadTabsProjectionValue(
   session: Session,
   options: CurrentQuestStateOptions = {},
@@ -791,6 +825,7 @@ export function buildLeaderThreadTabsProjectionValue(
   const orderingRows = sortedBoardRows(orderingRowsByKey.values());
   const orderedOpenThreadKeys = buildEffectiveOpenKeys(existingState, orderingRows, attentionVisualInputs);
   const threadStatuses = relevantThreadStatuses(session.state.leaderThreadStatuses ?? {}, orderedOpenThreadKeys);
+  const chatAtByThread = collectThreadChatTimes(session.messageHistory);
   const tabState: LeaderThreadTabsProjectionTabState | null = existingState
     ? { version: LEADER_OPEN_THREAD_TABS_VERSION }
     : null;
@@ -845,6 +880,7 @@ export function buildLeaderThreadTabsProjectionValue(
         tabAttention.changedAt,
         nonNegativeNumber(row?.createdAt),
         completed ? nonNegativeNumber(row?.completedAt) : 0,
+        chatAtByThread.get(threadKey) ?? 0,
       ),
     };
   });

@@ -1515,3 +1515,80 @@ describe("leader thread tab status-group times", () => {
     expect(value.mainAttention.changedAt).toBe(600);
   });
 });
+
+describe("leader thread tab chat times", () => {
+  function userMessage(threadKey: string, timestamp: number, extra: Record<string, unknown> = {}) {
+    const route = threadKey === "main" ? {} : { threadKey, questId: threadKey };
+    return {
+      type: "user_message",
+      content: `message in ${threadKey}`,
+      timestamp,
+      id: `user-${threadKey}-${timestamp}`,
+      ...route,
+      ...extra,
+    };
+  }
+
+  function assistantMessage(
+    route: { threadKey: string; questId?: string; threadRefs?: unknown[] },
+    timestamp: number,
+    threadAnswer?: Record<string, unknown>,
+  ) {
+    return {
+      type: "assistant",
+      message: { id: `assistant-${timestamp}`, content: [{ type: "text", text: "Reply text" }] },
+      parent_tool_use_id: null,
+      timestamp,
+      ...route,
+      ...(threadAnswer ? { leaderThreadRole: "answer", threadAnswer } : {}),
+    };
+  }
+
+  it("moves a tab up within its group for the user's messages and the leader's answers there, not background activity", () => {
+    // Every tab finished at 100, so all sit in Done. Within Done the order should follow the
+    // latest of entering the group, the user's last message in the tab and the leader's
+    // last answer shown in the tab:
+    // - q-1: the user typed there at 500.
+    // - q-2: the leader answered the user there at 600.
+    // - q-3: an answer written in Main to a request asked in q-3 also shows in q-3 (backfill ref).
+    // - q-4: only background activity at 800 (herd event, commentary, a timer-only answer),
+    //   which must not move the tab.
+    const openKeys = ["q-1", "q-2", "q-3", "q-4"];
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: { version: 1, orderedOpenThreadKeys: openKeys, closedThreadTombstones: [], updatedAt: 1 },
+      } as unknown as Session["state"],
+      completedBoard: new Map(
+        openKeys.map((key) => [key, boardRow(key, "DONE", { createdAt: 10, updatedAt: 100, completedAt: 100 })]),
+      ),
+      messageHistory: [
+        userMessage("q-1", 500),
+        userMessage("q-2", 550, { leaderUserMessageId: "u1" }),
+        assistantMessage(
+          { threadKey: "q-2", questId: "q-2", threadRefs: [{ threadKey: "q-2", questId: "q-2", source: "explicit" }] },
+          600,
+          { version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 2, authoredThreadKey: "q-2" },
+        ),
+        assistantMessage(
+          { threadKey: "main", threadRefs: [{ threadKey: "q-3", questId: "q-3", source: "backfill" }] },
+          700,
+          { version: 2, answerUserMessageIds: ["u2"], observedHistoryLength: 3, authoredThreadKey: "main" },
+        ),
+        userMessage("q-4", 800, { agentSource: { sessionId: "herd-events", sessionLabel: "Herd" } }),
+        assistantMessage({ threadKey: "q-4", questId: "q-4" }, 800),
+        assistantMessage({ threadKey: "q-4", questId: "q-4" }, 800, {
+          version: 2,
+          answerUserMessageIds: ["timer-m1"],
+          observedHistoryLength: 6,
+          authoredThreadKey: "q-4",
+        }),
+      ] as unknown as Session["messageHistory"],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+    const groupChangedAt = Object.fromEntries(value.tabs.map((tab) => [tab.threadKey, tab.groupChangedAt]));
+
+    expect(groupChangedAt).toEqual({ "q-1": 500, "q-2": 600, "q-3": 700, "q-4": 100 });
+  });
+});
