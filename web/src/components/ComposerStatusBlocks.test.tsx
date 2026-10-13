@@ -351,3 +351,20 @@ describe("ComposerStatusBlocks VS Code selection chip", () => {
     expect(props.onDismissVsCodeSelection).toHaveBeenCalledTimes(1);
   });
 });
+
+it("lets the active composer recording choose a microphone through its status row", async () => {
+  // Exercise the actual wrapper wiring, not just the standalone picker.
+  const select = vi.fn().mockResolvedValue("switched");
+  renderStatusBlocks({
+    isRecording: true,
+    inputDeviceLabel: "Built-in microphone",
+    microphoneSelection: {
+      inputs: [{ deviceId: "usb", label: "External microphone" }],
+      refresh: vi.fn().mockResolvedValue(undefined),
+      select,
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Choose microphone: Built-in microphone" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "External microphone" }));
+  expect(select).toHaveBeenCalledWith({ deviceId: "usb", label: "External microphone" });
+});

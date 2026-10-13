@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { VoiceLevelSample } from "./composer-voice-types.js";
+import type { VoiceMicrophoneSelection } from "../utils/voice-microphone.js";
+import { RecordingMicrophonePicker } from "./RecordingMicrophonePicker.js";
 
 const VOICE_HISTORY_BAR_COUNT = 40;
 const VOICE_LEVEL_CLIPPING_THRESHOLD = 0.95;
@@ -8,6 +10,7 @@ export function VoiceRecordingStatus({
   currentLevel,
   samples,
   inputDeviceLabel,
+  microphoneSelection,
   prefix,
   className = "",
   waveformClassName = "",
@@ -17,6 +20,7 @@ export function VoiceRecordingStatus({
   samples: VoiceLevelSample[];
   /** Name of the microphone being recorded, shown so a wrong input device is obvious */
   inputDeviceLabel?: string | null;
+  microphoneSelection?: VoiceMicrophoneSelection;
   prefix?: ReactNode;
   className?: string;
   waveformClassName?: string;
@@ -28,14 +32,18 @@ export function VoiceRecordingStatus({
       <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" />
       <span className="shrink-0 font-medium">Recording</span>
       <VoiceLevelWaveform currentLevel={currentLevel} samples={samples} className={waveformClassName} />
-      {inputDeviceLabel && (
-        <span
-          data-testid="voice-input-device-label"
-          className="min-w-0 truncate text-cc-muted"
-          title={`Microphone: ${inputDeviceLabel}`}
-        >
-          {inputDeviceLabel}
-        </span>
+      {microphoneSelection ? (
+        <RecordingMicrophonePicker label={inputDeviceLabel} selection={microphoneSelection} />
+      ) : (
+        inputDeviceLabel && (
+          <span
+            data-testid="voice-input-device-label"
+            className="min-w-0 truncate text-cc-muted"
+            title={`Microphone: ${inputDeviceLabel}`}
+          >
+            {inputDeviceLabel}
+          </span>
+        )
       )}
     </div>
   );

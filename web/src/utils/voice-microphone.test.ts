@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  getPreferredMicrophone,
+  getMicrophoneOrder,
   getVoiceCaptureDeviceId,
   listVoiceMicrophones,
-  setPreferredMicrophone,
+  rememberMicrophone,
+  resetMicrophoneOrder,
   watchVoiceMicrophones,
 } from "./voice-microphone.js";
 
@@ -23,27 +24,27 @@ beforeEach(() => {
 describe("browser microphone preference", () => {
   it("defaults to system-follow and retains a saved preference across reads", () => {
     expect(getVoiceCaptureDeviceId()).toBe("default");
-    setPreferredMicrophone(usb);
-    expect(getPreferredMicrophone()).toMatchObject(usb);
+    rememberMicrophone(usb);
+    expect(getMicrophoneOrder()).toEqual([{ deviceId: usb.deviceId, label: usb.label }]);
     expect(getVoiceCaptureDeviceId()).toBe("usb");
-    setPreferredMicrophone(null);
-    expect(getPreferredMicrophone()).toBeNull();
+    resetMicrophoneOrder();
+    expect(getMicrophoneOrder()).toEqual([]);
     expect(getVoiceCaptureDeviceId()).toBe("default");
   });
 
   it("falls back while unplugged and selects the same device after reconnecting", async () => {
-    setPreferredMicrophone(usb);
+    rememberMicrophone(usb);
     enumerateDevices.mockResolvedValueOnce([builtIn]);
     await listVoiceMicrophones();
     expect(getVoiceCaptureDeviceId()).toBe("default");
     // Falling back must never overwrite the preference: reconnecting restores it automatically.
-    expect(getPreferredMicrophone()?.deviceId).toBe("usb");
+    expect(getMicrophoneOrder()[0]?.deviceId).toBe("usb");
     await listVoiceMicrophones();
     expect(getVoiceCaptureDeviceId()).toBe("usb");
   });
 
   it("does not mistake a permission-hidden list for a disconnected preferred device", async () => {
-    setPreferredMicrophone(usb);
+    rememberMicrophone(usb);
     enumerateDevices.mockResolvedValue([{ kind: "audioinput", deviceId: "", label: "" }]);
     expect(await listVoiceMicrophones()).toEqual([]);
     expect(getVoiceCaptureDeviceId()).toBe("usb");
@@ -71,4 +72,26 @@ describe("browser microphone preference", () => {
     navigator.mediaDevices.dispatchEvent(new Event("devicechange"));
     expect(enumerateDevices).toHaveBeenCalledTimes(3);
   });
+});
+
+it("moves explicit picks to the front without duplicating or forgetting disconnected microphones", async () => {
+  rememberMicrophone(usb);
+  rememberMicrophone(builtIn);
+  rememberMicrophone(usb);
+  expect(getMicrophoneOrder().map((entry) => entry.deviceId)).toEqual(["usb", "built-in"]);
+  enumerateDevices.mockResolvedValue([builtIn]);
+  await listVoiceMicrophones();
+  expect(getVoiceCaptureDeviceId()).toBe("built-in");
+  expect(getMicrophoneOrder().map((entry) => entry.deviceId)).toEqual(["usb", "built-in"]);
+});
+
+it("preserves the previous single preference until a pick or reset migrates it", () => {
+  // Existing users keep their chosen mic, but the old Settings chooser has no continuing writer.
+  localStorage.setItem("cc-preferred-microphone", JSON.stringify(usb));
+  expect(getVoiceCaptureDeviceId()).toBe("usb");
+  rememberMicrophone(builtIn);
+  expect(getMicrophoneOrder().map((entry) => entry.deviceId)).toEqual(["built-in", "usb"]);
+  expect(localStorage.getItem("cc-preferred-microphone")).toBeNull();
+  resetMicrophoneOrder();
+  expect(getVoiceCaptureDeviceId()).toBe("default");
 });

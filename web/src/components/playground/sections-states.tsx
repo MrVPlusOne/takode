@@ -7,6 +7,7 @@ import { CodexInstructionsCollapsible } from "../TaskPanel.js";
 import { CatPawAvatar, CatPawLeft, YarnBallDot, YarnBallSpinner, SleepingCat, PowerPlugDot } from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
 import { VoiceLevelWaveform, VoiceRecordingStatus } from "../VoiceRecordingStatus.js";
+import { PlaygroundMicrophonePicker } from "./PlaygroundMicrophonePicker.js";
 import { AlternateVoiceRerunOffer } from "../AlternateVoiceRerunOffer.js";
 import type { CreationProgressEvent, SideChatRecord } from "../../types.js";
 import {
@@ -178,6 +179,7 @@ export function PlaygroundStateSections() {
         description="Microphone button records audio, server transcribes via Gemini or OpenAI Whisper"
       >
         <div className="max-w-3xl">
+          <PlaygroundMicrophonePicker />
           <Card label="Preferred external microphone connected">
             <VoiceRecordingStatus currentLevel={0.4} samples={[]} inputDeviceLabel="USB Microphone" />
           </Card>

@@ -2,7 +2,16 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import type { VoiceRecordingTiming } from "../transcription-progress.js";
 import { holdScreenWakeLock } from "../utils/screen-wake-lock.js";
-import { getVoiceCaptureDeviceId, watchVoiceMicrophones } from "../utils/voice-microphone.js";
+import {
+  getVoiceCaptureDeviceId,
+  getVoiceCaptureDeviceIds,
+  listVoiceMicrophones,
+  rememberMicrophone,
+  watchVoiceMicrophones,
+  type VoiceMicrophone,
+  type VoiceMicrophoneSelection,
+} from "../utils/voice-microphone.js";
+import { createVoiceAudioBridge, type VoiceAudioBridge } from "../utils/voice-audio-bridge.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
@@ -40,6 +49,7 @@ export interface UseVoiceInputReturn {
   volumeHistory: VoiceLevelSample[];
   /** Display name of the microphone being recorded, or null when unknown or not recording */
   inputDeviceLabel: string | null;
+  microphoneSelection: VoiceMicrophoneSelection;
   setIsTranscribing: (v: boolean) => void;
   setTranscriptionPhase: (phase: TranscriptionPhase) => void;
   setError: (e: string | null) => void;
@@ -208,8 +218,7 @@ const mediaDevicesWithoutDefaultDevice = new WeakSet<MediaDevices>();
  */
 export async function requestVoiceCaptureStream(): Promise<MediaStream> {
   const mediaDevices = navigator.mediaDevices;
-  const deviceId = getVoiceCaptureDeviceId();
-  if (deviceId !== "default") {
+  for (const deviceId of getVoiceCaptureDeviceIds()) {
     try {
       return await mediaDevices.getUserMedia({
         audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: deviceId } },
@@ -294,6 +303,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [volumeHistory, setVolumeHistory] = useState<VoiceLevelSample[]>([]);
   const [inputDeviceLabel, setInputDeviceLabel] = useState<string | null>(null);
+  const [microphoneInputs, setMicrophoneInputs] = useState<VoiceMicrophone[]>([]);
+  const captureGenerationRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -335,16 +346,12 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const cachedDeviceIdRef = useRef<string | null>(null);
 
   useEffect(
-    () =>
-      watchVoiceMicrophones(
-        () => {},
-        (error) => console.warn("Could not refresh microphones", error),
-      ),
+    () => watchVoiceMicrophones(setMicrophoneInputs, (error) => console.warn("Could not refresh microphones", error)),
     [],
   );
 
   // Web Audio API refs for volume metering
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioBridgeRef = useRef<VoiceAudioBridge | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const previousLevelRef = useRef(0);
@@ -355,44 +362,30 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     setVolumeHistory([]);
   }, []);
 
-  /** Start polling AnalyserNode for volume level */
-  const startVolumeMonitor = useCallback((stream: MediaStream) => {
-    try {
-      const ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.8;
-      source.connect(analyser);
-      if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
+  /** Poll the same audio graph that feeds the recorder, so switching keeps the meter current. */
+  const startVolumeMonitor = useCallback((analyser: AnalyserNode | undefined) => {
+    if (!analyser) return;
+    analyserRef.current = analyser;
+    previousLevelRef.current = 0;
+    const dataArray = new Uint8Array(analyser.fftSize);
+    const poll = (timestamp: number = performance.now()) => {
+      analyser.getByteTimeDomainData(dataArray);
+      let sumSquares = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const centered = (dataArray[i] - 128) / 128;
+        sumSquares += centered * centered;
       }
-      audioCtxRef.current = ctx;
-      analyserRef.current = analyser;
-      previousLevelRef.current = 0;
-
-      const dataArray = new Uint8Array(analyser.fftSize);
-      const poll = (timestamp: number = performance.now()) => {
-        analyser.getByteTimeDomainData(dataArray);
-        let sumSquares = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          const centered = (dataArray[i] - 128) / 128;
-          sumSquares += centered * centered;
-        }
-        const rms = Math.sqrt(sumSquares / dataArray.length);
-        const level = normalizeMeterLevel(rms, previousLevelRef.current);
-        previousLevelRef.current = level;
-        setVolumeLevel(level);
-        if (shouldStoreVoiceLevelHistorySample(timestamp, lastHistorySampleTimeRef.current)) {
-          lastHistorySampleTimeRef.current = timestamp;
-          setVolumeHistory((history) => appendVoiceLevelHistorySample(history, { time: timestamp, level }));
-        }
-        animFrameRef.current = requestAnimationFrame(poll);
-      };
+      const rms = Math.sqrt(sumSquares / dataArray.length);
+      const level = normalizeMeterLevel(rms, previousLevelRef.current);
+      previousLevelRef.current = level;
+      setVolumeLevel(level);
+      if (shouldStoreVoiceLevelHistorySample(timestamp, lastHistorySampleTimeRef.current)) {
+        lastHistorySampleTimeRef.current = timestamp;
+        setVolumeHistory((history) => appendVoiceLevelHistorySample(history, { time: timestamp, level }));
+      }
       animFrameRef.current = requestAnimationFrame(poll);
-    } catch {
-      // Web Audio API not available — volume will stay at 0
-    }
+    };
+    animFrameRef.current = requestAnimationFrame(poll);
   }, []);
 
   /** Stop volume monitoring and clean up Web Audio resources */
@@ -401,10 +394,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = 0;
     }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
-    }
+    audioBridgeRef.current?.close();
+    audioBridgeRef.current = null;
     analyserRef.current = null;
     previousLevelRef.current = 0;
     setVolumeLevel(0);
@@ -430,8 +421,12 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         const timing = recordingTimingRef.current;
         if (!timing) return;
         timing.firstTrackEventAt ??= Date.now();
-        if (type === "ended") timing.trackEndedEventCount += 1;
-        else if (type === "mute") timing.trackMuteEventCount += 1;
+        if (type === "ended") {
+          timing.trackEndedEventCount += 1;
+          // The bridge track stays live after its hardware source ends. Preserve the old
+          // direct-recorder behavior: finish the audio already captured instead of recording silence.
+          if (stream === streamRef.current && recorderRef.current?.state === "recording") recorderRef.current.stop();
+        } else if (type === "mute") timing.trackMuteEventCount += 1;
         else timing.trackUnmuteEventCount += 1;
       };
       for (const track of stream.getAudioTracks()) {
@@ -535,12 +530,17 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, [stopRecorder]);
 
   const cancelRecording = useCallback(() => {
+    captureGenerationRef.current += 1;
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       cancelledRef.current = true;
       stopRecorder("cancelled", false);
     }
     // Also clear preparing state in case cancel happens during getUserMedia
     setIsPreparing(false);
+    if (!recorderRef.current) {
+      audioBridgeRef.current?.close();
+      audioBridgeRef.current = null;
+    }
     releaseScreenWakeLock();
   }, [releaseScreenWakeLock, stopRecorder]);
 
@@ -550,6 +550,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       return;
     }
 
+    const generation = ++captureGenerationRef.current;
     setError(null);
     chunksRef.current = [];
     cancelledRef.current = false;
@@ -558,9 +559,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
     try {
       // If warmMicrophone has an in-flight getUserMedia, await it instead of duplicating
-      if (warmingPromiseRef.current && cachedDeviceIdRef.current === getVoiceCaptureDeviceId()) {
-        await warmingPromiseRef.current;
-      } else {
+      const warming = cachedDeviceIdRef.current === getVoiceCaptureDeviceId() ? warmingPromiseRef.current : null;
+      if (!warming) {
         // A superseded request must release its eventual stream, even if the preference changes back.
         warmingPromiseRef.current = null;
       }
@@ -568,12 +568,40 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       // Attempt to reuse cached pre-warmed stream, else fall back to fresh getUserMedia
       const cachedStream = isCachedStreamLive() ? cachedStreamRef.current : null;
       if (!cachedStream) releaseCachedStream();
-      const streamRequest = cachedStream ? Promise.resolve(cachedStream) : requestVoiceCaptureStream();
+      const streamRequest = warming
+        ? warming.then(() => (isCachedStreamLive() ? cachedStreamRef.current! : requestVoiceCaptureStream()))
+        : cachedStream
+          ? Promise.resolve(cachedStream)
+          : requestVoiceCaptureStream();
       // Keep the screen on until recording ends, so a phone's auto-lock can't cut it off. Asked
       // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
       // but before awaiting it: WebKit grants the first wake lock only while the tap is recent.
       releaseScreenWakeLockRef.current ??= holdScreenWakeLock();
+      const bridge = createVoiceAudioBridge();
+      audioBridgeRef.current = bridge;
       const stream = await streamRequest;
+      const bridgeReady = bridge ? await bridge.ready : false;
+      if (generation !== captureGenerationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        bridge?.close();
+        return;
+      }
+      let routed = false;
+      if (bridge && bridgeReady) {
+        try {
+          await bridge.setInput(stream);
+          routed = true;
+        } catch (error) {
+          console.warn("Live microphone switching is unavailable; using direct capture", error);
+        }
+      }
+      if (!routed) {
+        bridge?.close();
+        audioBridgeRef.current = null;
+      }
+      void listVoiceMicrophones().then(setMicrophoneInputs, (error) =>
+        console.warn("Could not refresh microphones", error),
+      );
 
       // Clear idle timeout -- we're using the stream now
       if (idleTimeoutRef.current) {
@@ -588,10 +616,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       attachTrackListeners(stream);
 
       // Start volume metering
-      startVolumeMonitor(stream);
+      startVolumeMonitor(audioBridgeRef.current?.analyser);
 
       const recorderOptions = resolveVoiceRecorderOptions();
-      const recorder = new MediaRecorder(stream, recorderOptions);
+      const recorder = new MediaRecorder(audioBridgeRef.current?.stream ?? stream, recorderOptions);
       recorderRef.current = recorder;
       const audioInputLabel = stream.getAudioTracks()[0]?.label || undefined;
       setInputDeviceLabel(formatInputDeviceLabel(audioInputLabel));
@@ -744,7 +772,11 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       setIsPreparing(false);
       setIsRecording(true);
     } catch (err) {
+      if (generation !== captureGenerationRef.current) return;
       setIsPreparing(false);
+      stopVolumeMonitor();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       releaseScreenWakeLock();
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone access denied");
@@ -764,6 +796,56 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     support.unsupportedMessage,
   ]);
 
+  const refreshMicrophones = useCallback(async () => {
+    setMicrophoneInputs(await listVoiceMicrophones());
+  }, []);
+
+  const selectMicrophone = useCallback(
+    async (microphone: VoiceMicrophone): Promise<"switched" | "next-recording"> => {
+      rememberMicrophone(microphone);
+      const recorder = recorderRef.current;
+      const bridge = audioBridgeRef.current;
+      if (!recorder || recorder.state !== "recording" || !bridge) return "next-recording";
+      let next: MediaStream;
+      try {
+        // This real request is made directly in the pick's click, while the old mic keeps recording.
+        next = await navigator.mediaDevices.getUserMedia({
+          audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: microphone.deviceId } },
+        });
+      } catch (error) {
+        console.warn("Could not switch microphone", error);
+        throw new Error(
+          "Could not open that microphone. Still recording on the current mic; the choice is saved for next time.",
+        );
+      }
+      if (recorderRef.current !== recorder || recorder.state !== "recording" || audioBridgeRef.current !== bridge) {
+        next.getTracks().forEach((track) => track.stop());
+        return "next-recording";
+      }
+      try {
+        await bridge.setInput(next);
+      } catch (error) {
+        next.getTracks().forEach((track) => track.stop());
+        console.warn("Could not switch the recording input", error);
+        return "next-recording";
+      }
+      if (recorderRef.current !== recorder || recorder.state !== "recording") {
+        next.getTracks().forEach((track) => track.stop());
+        return "next-recording";
+      }
+      const previous = streamRef.current;
+      streamRef.current = next;
+      attachTrackListeners(next);
+      previous?.getTracks().forEach((track) => track.stop());
+      const label = next.getAudioTracks()[0]?.label;
+      setInputDeviceLabel(formatInputDeviceLabel(label));
+      const timing = recordingTimingRef.current;
+      if (timing && label) timing.audioInputLabel = [timing.audioInputLabel, label].filter(Boolean).join(" → ");
+      return "switched";
+    },
+    [attachTrackListeners],
+  );
+
   const toggleRecording = useCallback(() => {
     if (isRecording) {
       stopRecording();
@@ -775,6 +857,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      captureGenerationRef.current += 1;
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         stopRecorder("unmount", false);
       }
@@ -805,6 +888,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     volumeLevel,
     volumeHistory,
     inputDeviceLabel,
+    microphoneSelection: { inputs: microphoneInputs, refresh: refreshMicrophones, select: selectMicrophone },
     setIsTranscribing,
     setTranscriptionPhase,
     setError,

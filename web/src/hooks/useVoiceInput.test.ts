@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
-import { listVoiceMicrophones, setPreferredMicrophone } from "../utils/voice-microphone.js";
+import { listVoiceMicrophones, rememberMicrophone } from "../utils/voice-microphone.js";
 import {
   appendVoiceLevelHistorySample,
   getVoiceInputSupport,
@@ -108,7 +108,13 @@ class MockAudioContext {
 
   state = "running";
   createMediaStreamSource() {
-    return { connect: vi.fn() };
+    return { connect: vi.fn(), disconnect: vi.fn() };
+  }
+  createMediaStreamDestination() {
+    return { stream: makeMockStream("live", "Recording bridge"), channelCount: 2 };
+  }
+  createGain() {
+    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
   }
   createAnalyser() {
     return {
@@ -163,6 +169,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       getUserMedia: getUserMediaMock,
+      enumerateDevices: vi.fn().mockResolvedValue([]),
     },
   });
   vi.stubGlobal("MediaRecorder", MockMediaRecorder);
@@ -374,7 +381,7 @@ describe("useVoiceInput — isPreparing", () => {
 describe("requestVoiceCaptureStream", () => {
   it("requests the saved microphone synchronously without a permission probe", async () => {
     // A real request in the tap preserves Safari gesture privilege and bypasses Chrome's mic ranking.
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     const request = requestVoiceCaptureStream();
     expect(getUserMediaMock).toHaveBeenCalledExactlyOnceWith({
       audio: expect.objectContaining({ deviceId: { exact: "usb" } }),
@@ -384,7 +391,7 @@ describe("requestVoiceCaptureStream", () => {
 
   it.each(["OverconstrainedError", "NotFoundError"])("falls back when a saved device disappears (%s)", async (name) => {
     // Handles unplugging between enumeration and capture, as well as IDs invalidated by the browser.
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     getUserMediaMock.mockRejectedValueOnce(new DOMException("Device unavailable", name));
     await expect(requestVoiceCaptureStream()).resolves.toBeDefined();
     expect(getUserMediaMock).toHaveBeenNthCalledWith(2, {
@@ -394,7 +401,7 @@ describe("requestVoiceCaptureStream", () => {
 
   it("uses a single request when the device list already shows the preferred microphone missing", async () => {
     // Background enumeration must prevent repeating the failed preference request on every tap.
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     navigator.mediaDevices.enumerateDevices = vi
       .fn()
       .mockResolvedValue([{ kind: "audioinput", deviceId: "built-in", label: "Built-in" }]);
@@ -406,7 +413,7 @@ describe("requestVoiceCaptureStream", () => {
   });
 
   it("does not retry a denied or unreadable preferred microphone", async () => {
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     for (const name of ["NotAllowedError", "NotReadableError"]) {
       // Denial and hardware errors are not evidence of a missing device.
       getUserMediaMock.mockReset().mockRejectedValue(new DOMException("Cannot open mic", name));
@@ -420,7 +427,7 @@ describe("requestVoiceCaptureStream", () => {
     // not reintroduce repeated requests after every idle permission grant expires.
     getUserMediaMock.mockRejectedValueOnce(new DOMException("No default device", "OverconstrainedError"));
     await requestVoiceCaptureStream();
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     navigator.mediaDevices.enumerateDevices = vi
       .fn()
       .mockResolvedValue([{ kind: "audioinput", deviceId: "phone", label: "Phone microphone" }]);
@@ -480,7 +487,7 @@ describe("useVoiceInput — warmMicrophone", () => {
     getUserMediaMock.mockResolvedValueOnce(oldStream).mockResolvedValueOnce(preferredStream);
     const { result } = renderHook(() => useVoiceInput());
     await act(async () => result.current.warmMicrophone());
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     await act(async () => result.current.startRecording());
     // Preference changes must take effect even inside the five-second pre-warm window.
     expect(oldStream.getTracks()[0].stop).toHaveBeenCalled();
@@ -500,7 +507,7 @@ describe("useVoiceInput — warmMicrophone", () => {
     );
     const { result } = renderHook(() => useVoiceInput());
     act(() => result.current.warmMicrophone());
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     act(() => {
       result.current.startRecording();
     });
@@ -520,7 +527,7 @@ describe("useVoiceInput — warmMicrophone", () => {
           finishWarm = resolve;
         }),
     );
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     const { result, unmount } = renderHook(() => useVoiceInput());
     act(() => result.current.warmMicrophone());
     unmount();
@@ -539,7 +546,7 @@ describe("useVoiceInput — warmMicrophone", () => {
       configurable: true,
       value: Object.assign(new EventTarget(), { enumerateDevices, getUserMedia: getUserMediaMock }),
     });
-    setPreferredMicrophone({ deviceId: "usb", label: "External microphone" });
+    rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     getUserMediaMock.mockResolvedValueOnce(fallback).mockResolvedValueOnce(usb);
     const { result } = renderHook(() => useVoiceInput());
     await act(async () => {});
@@ -1167,4 +1174,171 @@ describe("useVoiceInput — screen wake lock", () => {
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
     expect(requestLock).toHaveBeenCalledTimes(1);
   });
+});
+
+// Live switches must keep the original recorder and audio chunks, including failure/cancellation races.
+describe("useVoiceInput — live microphone selection", () => {
+  it("switches the input without replacing the recorder or losing earlier chunks", async () => {
+    const first = makeMockStream("live", "Built-in microphone");
+    const second = makeMockStream("live", "External microphone");
+    getUserMediaMock.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+    await act(async () => {
+      result.current.startRecording();
+    });
+    const recorder = MockMediaRecorder.lastInstance!;
+    recorder.emitData("before-switch");
+    let selection!: Promise<"switched" | "next-recording">;
+    act(() => {
+      selection = result.current.microphoneSelection.select({ deviceId: "usb", label: "External microphone" });
+    });
+    expect(getUserMediaMock).toHaveBeenLastCalledWith({
+      audio: expect.objectContaining({ deviceId: { exact: "usb" } }),
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await selection).toBe("switched");
+    });
+    expect(MockMediaRecorder.lastInstance).toBe(recorder);
+    expect(recorder.state).toBe("recording");
+    expect(first.getTracks()[0].stop).toHaveBeenCalledOnce();
+    expect(second.getTracks()[0].stop).not.toHaveBeenCalled();
+    expect(result.current.inputDeviceLabel).toBe("External microphone");
+    recorder.emitData("after-switch");
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(onAudioReady).toHaveBeenCalledOnce();
+    const blob = onAudioReady.mock.calls[0][0] as Blob;
+    expect(blob.size).toBeGreaterThanOrEqual("before-switchafter-switch".length);
+    expect(onAudioReady.mock.calls[0][1].audioInputLabel).toBe("Built-in microphone → External microphone");
+    expect(second.getTracks()[0].stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps recording on the old mic when opening the selected one is denied", async () => {
+    const first = makeMockStream("live", "Built-in microphone");
+    getUserMediaMock.mockResolvedValueOnce(first).mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+    await expect(
+      result.current.microphoneSelection.select({ deviceId: "usb", label: "External microphone" }),
+    ).rejects.toThrow("Still recording");
+    expect(first.getTracks()[0].stop).not.toHaveBeenCalled();
+    expect(MockMediaRecorder.lastInstance!.state).toBe("recording");
+    expect(result.current.inputDeviceLabel).toBe("Built-in microphone");
+  });
+
+  it("releases a late replacement after recording was cancelled", async () => {
+    let finish!: (stream: MediaStream) => void;
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+    getUserMediaMock.mockImplementationOnce(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const selection = result.current.microphoneSelection.select({ deviceId: "usb", label: "External microphone" });
+    act(() => result.current.cancelRecording());
+    const late = makeMockStream();
+    await act(async () => {
+      finish(late);
+      await selection;
+    });
+    expect(late.getTracks()[0].stop).toHaveBeenCalledOnce();
+    expect(result.current.isRecording).toBe(false);
+  });
+
+  it("saves a pick for next time when the browser cannot create a stable recording input", async () => {
+    vi.spyOn(MockAudioContext.prototype, "createMediaStreamDestination").mockImplementation(() => {
+      throw new Error("Unsupported");
+    });
+    const current = makeMockStream("live", "Built-in microphone");
+    getUserMediaMock.mockResolvedValueOnce(current);
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(await result.current.microphoneSelection.select({ deviceId: "usb", label: "External microphone" })).toBe(
+      "next-recording",
+    );
+    expect(getUserMediaMock).toHaveBeenCalledOnce();
+    expect(current.getTracks()[0].stop).not.toHaveBeenCalled();
+    expect(result.current.isRecording).toBe(true);
+  });
+
+  it("finishes captured audio when the hardware source ends instead of recording a silent bridge forever", async () => {
+    const input = makeMockStream();
+    getUserMediaMock.mockResolvedValueOnce(input);
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+    await act(async () => {
+      result.current.startRecording();
+    });
+    await act(async () => {
+      (input.getAudioTracks()[0] as unknown as { emit: (type: string) => void }).emit("ended");
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.isRecording).toBe(false);
+    expect(onAudioReady).toHaveBeenCalledOnce();
+  });
+
+  it("tries a lower-ranked remembered mic before the system when the first saved ID has vanished", async () => {
+    rememberMicrophone({ deviceId: "built-in", label: "Built-in" });
+    rememberMicrophone({ deviceId: "usb", label: "External" });
+    getUserMediaMock.mockRejectedValueOnce(new DOMException("Gone", "OverconstrainedError"));
+    await requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenNthCalledWith(2, {
+      audio: expect.objectContaining({ deviceId: { exact: "built-in" } }),
+    });
+  });
+});
+
+it("releases a replacement cancelled while its audio source is priming", async () => {
+  // Cancellation can happen after getUserMedia resolves but before the 60ms graph handoff.
+  const next = makeMockStream("live", "External microphone");
+  const { result } = renderHook(() => useVoiceInput());
+  await act(async () => {
+    result.current.startRecording();
+  });
+  getUserMediaMock.mockResolvedValueOnce(next);
+  let switching!: Promise<"switched" | "next-recording">;
+  await act(async () => {
+    switching = result.current.microphoneSelection.select({ deviceId: "usb", label: "External microphone" });
+  });
+  act(() => result.current.cancelRecording());
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60);
+    await switching;
+  });
+  expect(next.getTracks()[0].stop).toHaveBeenCalledOnce();
+  expect(result.current.isRecording).toBe(false);
+});
+
+it("releases a microphone granted after preparing was cancelled", async () => {
+  let grant!: (stream: MediaStream) => void;
+  getUserMediaMock.mockImplementationOnce(
+    () =>
+      new Promise<MediaStream>((resolve) => {
+        grant = resolve;
+      }),
+  );
+  const { result } = renderHook(() => useVoiceInput());
+  act(() => {
+    result.current.startRecording();
+  });
+  act(() => result.current.cancelRecording());
+  const stream = makeMockStream();
+  await act(async () => {
+    grant(stream);
+  });
+  expect(stream.getTracks()[0].stop).toHaveBeenCalledOnce();
+  expect(result.current.isRecording).toBe(false);
+  expect(MockMediaRecorder.lastInstance).toBeNull();
 });

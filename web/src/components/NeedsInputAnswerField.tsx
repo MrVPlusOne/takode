@@ -1,3 +1,4 @@
+import type { VoiceMicrophoneSelection } from "../utils/voice-microphone.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { api, type VoiceTranscriptionPhase } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
@@ -169,6 +170,7 @@ export function NeedsInputAnswerField({
     volumeLevel,
     volumeHistory,
     inputDeviceLabel,
+    microphoneSelection,
   } = useVoiceInput({
     onAudioReady: (blob) => {
       void transcribeAnswer(blob);
@@ -352,6 +354,7 @@ export function NeedsInputAnswerField({
           volumeLevel={volumeLevel}
           volumeHistory={volumeHistory}
           inputDeviceLabel={inputDeviceLabel}
+          microphoneSelection={microphoneSelection}
         />
       )}
       {error && failedTranscription && !isRecording && !isTranscribing ? (
@@ -415,16 +418,19 @@ export function NeedsInputRecordingStatus({
   volumeLevel,
   volumeHistory,
   inputDeviceLabel,
+  microphoneSelection,
 }: {
   volumeLevel: number;
   volumeHistory: VoiceLevelSample[];
   inputDeviceLabel?: string | null;
+  microphoneSelection?: VoiceMicrophoneSelection;
 }) {
   return (
     <VoiceRecordingStatus
       currentLevel={volumeLevel}
       samples={volumeHistory}
       inputDeviceLabel={inputDeviceLabel}
+      microphoneSelection={microphoneSelection}
       testId="needs-input-recording-status"
       className="mt-1.5 flex-wrap rounded-md border border-cc-primary/20 bg-cc-primary/5 px-2 py-1.5"
       waveformClassName="min-w-[64px] max-w-[112px] flex-1"

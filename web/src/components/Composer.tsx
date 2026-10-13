@@ -177,6 +177,7 @@ export function Composer({
     volumeLevel,
     volumeHistory = [],
     inputDeviceLabel,
+    microphoneSelection,
     setIsTranscribing,
     setTranscriptionPhase,
     setError: setVoiceError,
@@ -1611,6 +1612,7 @@ export function Composer({
                 volumeLevel={volumeLevel}
                 volumeHistory={volumeHistory}
                 inputDeviceLabel={inputDeviceLabel}
+                microphoneSelection={microphoneSelection}
                 voiceCaptureMode={voiceCaptureMode}
                 voiceUnsupportedInfoOpen={voiceUnsupportedInfoOpen}
                 voiceUnsupportedMessage={voiceUnsupportedMessage}

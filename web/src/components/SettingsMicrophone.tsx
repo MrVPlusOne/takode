@@ -1,94 +1,58 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  getPreferredMicrophone,
-  listVoiceMicrophones,
-  setPreferredMicrophone,
+  getMicrophoneOrder,
+  resetMicrophoneOrder,
+  watchMicrophoneOrder,
   watchVoiceMicrophones,
 } from "../utils/voice-microphone.js";
-import { requestVoiceCaptureStream } from "../hooks/useVoiceInput.js";
 
-/** Browser-local microphone selection; device discovery requests permission only on a click. */
+/** Shows the order learned from recording-row picks; choosing microphones happens only there. */
 export function SettingsMicrophone() {
-  const id = useId();
-  const [preference, setPreference] = useState(getPreferredMicrophone);
+  const [order, setOrder] = useState(getMicrophoneOrder);
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const supported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.enumerateDevices;
-  const missing = preference && !inputs.some((input) => input.deviceId === preference.deviceId);
-
-  useEffect(() => watchVoiceMicrophones(setInputs, () => setError("Could not list microphones. Try again.")), []);
-
-  async function revealMicrophones() {
-    setLoading(true);
-    setError("");
-    let stream: MediaStream | undefined;
-    try {
-      // Request directly inside the click: WebKit only gives the first request gesture privilege.
-      stream = await requestVoiceCaptureStream();
-      setInputs(await listVoiceMicrophones());
-    } catch (error) {
-      setError(
-        (error as { name?: string })?.name === "NotAllowedError"
-          ? "Microphone access denied. Allow microphone access in your browser, then try again."
-          : "Could not list microphones. Check the connection and try again.",
-      );
-    } finally {
-      stream?.getTracks().forEach((track) => track.stop());
-      setLoading(false);
-    }
-  }
+  useEffect(() => watchVoiceMicrophones(setInputs, () => setError("Could not check connected microphones.")), []);
+  useEffect(() => watchMicrophoneOrder(() => setOrder(getMicrophoneOrder())), []);
 
   return (
     <div className="space-y-2 mb-5" data-settings-item-id="voice-microphone">
-      <label htmlFor={id} className="block text-xs font-medium text-cc-muted">
-        Preferred microphone
-      </label>
-      <div className="flex flex-wrap gap-2">
-        <select
-          id={id}
-          value={preference?.deviceId ?? ""}
-          className="min-w-0 w-full sm:flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-          onChange={(event) => {
-            const input = inputs.find((input) => input.deviceId === event.target.value);
-            const next = input ? { deviceId: input.deviceId, label: input.label } : null;
-            try {
-              setPreferredMicrophone(next);
-              setPreference(next);
-              setError("");
-            } catch {
-              setError("Could not save microphone preference. Allow browser storage, then try again.");
-            }
-          }}
-        >
-          <option value="">Follow the system microphone</option>
-          {missing && <option value={preference.deviceId}>{preference.label} (not currently listed)</option>}
-          {inputs.map((input) => (
-            <option key={input.deviceId} value={input.deviceId}>
-              {input.label}
-            </option>
+      <h3 className="text-xs font-medium text-cc-muted">Microphone order</h3>
+      <p className="text-xs text-cc-muted">
+        Tap the microphone name while recording to choose. Your latest pick goes first; voice input uses the first
+        connected mic below, then the system mic.
+      </p>
+      {order.length ? (
+        <ol className="list-decimal pl-5 space-y-1 text-sm text-cc-fg" aria-label="Remembered microphone order">
+          {order.map((microphone) => (
+            <li key={microphone.deviceId}>
+              {microphone.label}
+              {!inputs.some((input) => input.deviceId === microphone.deviceId) && (
+                <span className="text-xs text-cc-muted"> (not currently listed)</span>
+              )}
+            </li>
           ))}
-        </select>
+        </ol>
+      ) : (
+        <p className="text-sm text-cc-fg">Following the system microphone.</p>
+      )}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-cc-muted">Remembered in this browser only.</p>
         <button
           type="button"
-          disabled={!supported || loading}
-          onClick={revealMicrophones}
-          className="px-3 py-2 text-xs font-medium border border-cc-border rounded-lg text-cc-fg hover:bg-cc-hover disabled:opacity-50 cursor-pointer disabled:cursor-default"
+          disabled={!order.length}
+          onClick={() => {
+            try {
+              resetMicrophoneOrder();
+              setError("");
+            } catch {
+              setError("Could not reset microphone order. Allow browser storage and try again.");
+            }
+          }}
+          className="shrink-0 rounded-lg border border-cc-border px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover disabled:opacity-50 cursor-pointer disabled:cursor-default"
         >
-          {loading ? "Checking microphones…" : "Find microphones"}
+          Reset to system mic
         </button>
       </div>
-      <p className="text-xs text-cc-muted">
-        Uses your chosen mic when connected, otherwise the system microphone. Saved automatically in this browser only.
-      </p>
-      {supported && inputs.length === 0 && (
-        <p className="text-xs text-cc-muted">Find microphones to allow access and show device names.</p>
-      )}
-      {!supported && (
-        <p className="text-xs text-cc-muted">
-          Microphone selection requires HTTPS or localhost and a supported browser.
-        </p>
-      )}
       {error && (
         <p role="alert" className="text-xs text-cc-error">
           {error}

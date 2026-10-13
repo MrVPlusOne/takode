@@ -235,6 +235,7 @@ export function AnnotationEditor({
             currentLevel={voice.volumeLevel}
             samples={voice.volumeHistory}
             inputDeviceLabel={voice.inputDeviceLabel}
+            microphoneSelection={voice.microphoneSelection}
           />
         )}
         {voice.isTranscribing && (

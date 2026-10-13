@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { VoiceMicrophoneSelection } from "../utils/voice-microphone.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { ReplyChip } from "./ReplyChip.js";
@@ -15,6 +16,7 @@ export function ComposerStatusBlocks({
   volumeLevel,
   volumeHistory = [],
   inputDeviceLabel,
+  microphoneSelection,
   voiceCaptureMode,
   voiceUnsupportedInfoOpen,
   voiceUnsupportedMessage,
@@ -44,6 +46,7 @@ export function ComposerStatusBlocks({
   volumeLevel: number;
   volumeHistory?: VoiceLevelSample[];
   inputDeviceLabel?: string | null;
+  microphoneSelection?: VoiceMicrophoneSelection;
   voiceCaptureMode: "dictation" | "edit" | "append";
   voiceUnsupportedInfoOpen: boolean;
   voiceUnsupportedMessage: string | null;
@@ -103,6 +106,7 @@ export function ComposerStatusBlocks({
           currentLevel={volumeLevel}
           samples={volumeHistory}
           inputDeviceLabel={inputDeviceLabel}
+          microphoneSelection={microphoneSelection}
           className="px-4 pt-2"
           prefix={
             voiceCaptureMode !== "dictation" ? (
