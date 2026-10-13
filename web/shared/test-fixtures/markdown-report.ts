@@ -14,7 +14,6 @@ export function makeMarkdownReportFixture(): MarkdownReportMessage {
       sourcePath: "/project/reports/daily.md",
       sha256: "a".repeat(64),
       responsibleWorkerId: "report-worker",
-      responsibleWorkerLabel: "Report worker",
     },
     content:
       "# Daily engineering report\n\nComplete source-linked findings.\n\n" +

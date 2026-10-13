@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, renderHook, screen, cleanup } from "@testing-library/react";
+import { act, render, screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-report.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
@@ -10,7 +10,6 @@ import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { captureAnnotationSource, resolveAnnotationRange } from "./annotation-passages.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
-import { useReportCommentSend } from "./use-report-comment-send.js";
 import { applySessionDraftWrite } from "../../server/bridge/session-drafts-controller.js";
 import { applySessionDraftsSnapshot, flushPendingDrafts, resetDraftSyncForTests } from "../draft-sync.js";
 
@@ -45,7 +44,6 @@ describe("saved Markdown reports", () => {
     const draft = {
       text: "Follow up",
       images: [],
-      reportRecipientSessionId: "report-worker",
       annotations: [
         {
           id: "comment",
@@ -153,68 +151,20 @@ describe("saved Markdown reports", () => {
     expect(screen.getByText("Last paragraph remains visible.")).toBeTruthy();
   });
 
-  it("requires explicit recipient choice and retains the draft on server rejection", async () => {
+  it("lists saved report comments in the composer without asking who receives them", () => {
+    // Report comments go to the session showing the report, like any other comment, so the
+    // composer shows the saved comment and no recipient choice.
     const report = makeMarkdownReportFixture();
-    const draft = {
+    useStore.getState().setComposerDraft(report.source.sessionId, {
       text: "",
       images: [],
       annotations: [
         { id: "a", selectedText: "one hour", comment: "Why?", sourceMessageId: report.id, reportSource: report.source },
       ],
-    };
-    useStore.getState().setComposerDraft(report.source.sessionId, draft);
+    });
     render(<ComposerAnnotations sessionId={report.source.sessionId} threadKey={report.threadKey} />);
-    expect((screen.getByLabelText("Report comment recipient") as HTMLSelectElement).value).toBe("");
-    fireEvent.change(screen.getByLabelText("Report comment recipient"), { target: { value: "report-worker" } });
-    const selected = useStore.getState().composerDrafts.get(report.source.sessionId);
-    const fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: "Worker unavailable" }) });
-    vi.stubGlobal("fetch", fetch);
-    const { result } = renderHook(() => useReportCommentSend(report.source.sessionId, report.threadKey));
-    await act(async () => {
-      expect(await result.current.send()).toBe(false);
-    });
-    expect(result.current.status).toBe("Worker unavailable");
-    expect(useStore.getState().composerDrafts.get(report.source.sessionId)).toBe(selected);
-    expect(JSON.parse(fetch.mock.calls[0][1].body).recipientSessionId).toBe("report-worker");
-    fetch.mockResolvedValue({ ok: true, json: async () => ({ recipientSessionId: "report-worker" }) });
-    await act(async () => {
-      expect(await result.current.send()).toBe(true);
-    });
-    expect(useStore.getState().composerDrafts.has(report.source.sessionId)).toBe(false);
-  });
-
-  it("does not erase a newly edited draft when an earlier send is acknowledged", async () => {
-    const report = makeMarkdownReportFixture();
-    const draft = {
-      text: "original",
-      images: [],
-      reportRecipientSessionId: report.source.sessionId,
-      annotations: [
-        { id: "a", selectedText: "one hour", comment: "Why?", sourceMessageId: report.id, reportSource: report.source },
-      ],
-    };
-    useStore.getState().setComposerDraft(report.source.sessionId, draft);
-    let finish!: (value: unknown) => void;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          }),
-      ),
-    );
-    const { result } = renderHook(() => useReportCommentSend(report.source.sessionId, report.threadKey));
-    let sent!: Promise<boolean>;
-    act(() => {
-      sent = result.current.send();
-    });
-    const edited = { ...draft, text: "new question" };
-    useStore.getState().setComposerDraft(report.source.sessionId, edited);
-    await act(async () => {
-      finish({ ok: true, json: async () => ({ recipientSessionId: report.source.sessionId }) });
-      await sent;
-    });
-    expect(useStore.getState().composerDrafts.get(report.source.sessionId)).toBe(edited);
+    expect(screen.getByTestId("annotation-attachments").textContent).toContain("Comment 1");
+    expect(screen.queryByLabelText("Report comment recipient")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 });

@@ -12,7 +12,6 @@ import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-r
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { resolveSessionMessageTarget } from "../session-message-search.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
-import { buildProgrammaticUserMessage } from "../session-pause.js";
 import { prepareAnnotatedUserMessage } from "../bridge/user-message-delivery.js";
 import { isHistoryBackedEvent } from "../bridge/replay-buffer-policy.js";
 import {
@@ -27,26 +26,19 @@ function harness() {
   ]);
   const history: BrowserIncomingMessage[] = [];
   const host = { id: "report-host", messageHistory: history };
-  const inject = vi.fn((_id, _content, _source, _batch, _route, options) => {
-    options.afterAccepted();
-    return "sent";
-  });
   const persist = vi.fn();
   const ctx = {
     authenticateTakodeCaller: (c: any) =>
       c.req.header("x-agent") === "valid"
         ? { callerId: host.id, caller: sessions.get(host.id) }
         : { response: c.json({ error: "unauthorized" }, 403) },
-    authenticateCompanionCallerOptional: (c: any) =>
-      c.req.header("x-agent") ? { callerId: host.id, caller: sessions.get(host.id) } : null,
     resolveId: (id: string) => (sessions.has(id) ? id : null),
-    launcher: { getSession: (id: string) => sessions.get(id), getSessionNum: () => 7 },
+    launcher: { getSession: (id: string) => sessions.get(id) },
     wsBridge: {
       getSession: (id: string) => (id === host.id ? host : sessions.has(id) ? { id, messageHistory: [] } : null),
       persistSessionById: persist,
       broadcastToSession: vi.fn(),
       refreshSessionConversation: vi.fn(),
-      injectUserMessage: inject,
     },
   } as unknown as RouteContext;
   const api = createMarkdownReportRoutes(ctx);
@@ -56,7 +48,7 @@ function harness() {
       headers: { "content-type": "application/json", ...(agent ? { "x-agent": "valid" } : {}) },
       body: JSON.stringify(body),
     });
-  return { ctx, host, sessions, inject, persist, post };
+  return { ctx, host, sessions, persist, post };
 }
 
 describe("Markdown report publication and human comments", () => {
@@ -184,13 +176,11 @@ describe("Markdown report publication and human comments", () => {
     expect((await h.post("/takode/reports", body, true)).status).toBe(201);
   });
 
-  it.each([
-    "report-host",
-    "report-worker",
-  ])("delivers complete human context to %s without borrowing source identity", async (recipientSessionId) => {
-    const h = harness();
+  it("delivers a report comment as ordinary composer input that names the report to read", () => {
+    // Report comments use the normal composer send to the session showing the report, with no
+    // recipient choice. The agent may not have written or read the report, so the delivered text
+    // must identify it (report ID and source path) next to the quoted passage and comment.
     const report = makeMarkdownReportFixture();
-    h.host.messageHistory.push(report);
     const annotation = {
       id: "comment",
       selectedText: "The cache expires after one hour.",
@@ -199,54 +189,25 @@ describe("Markdown report publication and human comments", () => {
       reportSource: report.source,
       sourceAnchor: { scopeIndex: 0, start: 10, end: 43, text: "The cache expires after one hour." },
     };
-    const body = { content: "Follow up", annotations: [annotation], threadKey: "q-42", recipientSessionId };
-    const response = await h.post("/sessions/report-host/report-annotations", body);
-    expect(response.status).toBe(200);
-    const call = h.inject.mock.calls[0];
-    expect(call[0]).toBe(recipientSessionId);
-    expect(call[2]).toBeUndefined(); // This is human input, never a forged leader/agent send.
-    expect(call[4].threadKey).toBe(recipientSessionId === "report-host" ? "q-42" : "main");
-    expect(call[5].annotations).toEqual([annotation]);
-    const paused = buildProgrammaticUserMessage({ content: body.content, options: call[5] });
-    expect(paused.annotations).toEqual([annotation]);
-    const delivery = prepareAnnotatedUserMessage(recipientSessionId, paused);
-    expect(delivery.deliveryContent).toContain(formatAnnotatedMessage(body.content, [annotation]));
-    expect(delivery.deliveryContent).toContain(report.source.sha256);
+    const delivery = prepareAnnotatedUserMessage(report.source.sessionId, {
+      type: "user_message",
+      content: "Follow up",
+      annotations: [annotation],
+      threadKey: report.threadKey,
+      inputSource: "composer",
+    } as any);
+    expect(delivery.annotations).toEqual([annotation]);
+    expect(delivery.deliveryContent).toBe(formatAnnotatedMessage("Follow up", [annotation]));
+    expect(delivery.deliveryContent).toContain(`Report ${report.id} in session ${report.source.sessionId}`);
+    expect(delivery.deliveryContent).toContain(`Source: ${report.source.sourcePath}`);
+    expect(delivery.deliveryContent).toContain(
+      "> The cache expires after one hour.\n[comment 1] Explain this exactly.",
+    );
   });
 
-  it("rejects stale recipients, foreign sources, agent impersonation and failed delivery", async () => {
+  it("offers no separate report-comment route", async () => {
+    // The retired recipient route must not linger as a second way to send report comments.
     const h = harness();
-    const report = makeMarkdownReportFixture();
-    h.host.messageHistory.push(report);
-    const body = {
-      content: "",
-      threadKey: "q-42",
-      recipientSessionId: "report-worker",
-      annotations: [
-        {
-          id: "comment",
-          selectedText: "one hour",
-          comment: "Why?",
-          sourceMessageId: report.id,
-          reportSource: report.source,
-        },
-      ],
-    };
-    expect((await h.post("/sessions/report-host/report-annotations", body, true)).status).toBe(403);
-    h.sessions.get("report-worker")!.herdedBy = "new-leader";
-    expect((await h.post("/sessions/report-host/report-annotations", body)).status).toBe(400);
-    h.sessions.get("report-worker")!.herdedBy = "report-host";
-    h.sessions.get("report-worker")!.archived = true;
-    expect((await h.post("/sessions/report-host/report-annotations", body)).status).toBe(409);
-    h.sessions.get("report-worker")!.archived = false;
-    body.annotations[0].reportSource = { ...report.source, sessionId: "foreign" };
-    expect((await h.post("/sessions/report-host/report-annotations", body)).status).toBe(400);
-    expect(h.inject).not.toHaveBeenCalled();
-    body.annotations[0].reportSource = report.source;
-    h.inject.mockImplementation((_id, _content, _source, _batch, _route, options) => {
-      options.afterRejected("route_failed");
-      return "queued";
-    });
-    expect((await h.post("/sessions/report-host/report-annotations", body)).status).toBe(409);
+    expect((await h.post("/sessions/report-host/report-annotations", { content: "" })).status).toBe(404);
   });
 });

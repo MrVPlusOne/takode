@@ -403,7 +403,6 @@ export interface ComposerDraft {
   text: string;
   images: ComposerDraftImage[];
   annotations?: ConversationAnnotation[];
-  reportRecipientSessionId?: string;
 }
 
 export interface AnnotationEditorState {

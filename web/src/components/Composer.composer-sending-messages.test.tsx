@@ -258,7 +258,7 @@ function setupMockStore(
     sessionStatus?: "idle" | "running" | "compacting" | null;
     session?: Partial<SessionState>;
     draftText?: string;
-    draft?: { text: string; images: unknown[] };
+    draft?: { text: string; images: unknown[]; annotations?: unknown[] };
     zoomLevel?: number;
     sdkSessionTotals?: { added: number; removed: number };
     sdkSessions?: SdkSessionInfo[];
@@ -743,6 +743,52 @@ describe("Composer sending messages", () => {
         },
       }),
     );
+  });
+
+  it("sends report comments to this session like any other comment, alongside other attachments", () => {
+    // Report comments have no recipient choice or separate send route: the ordinary composer send
+    // delivers them to the session showing the report, together with ordinary comments and images.
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const reportComment = {
+      id: "report-comment",
+      selectedText: "one hour",
+      comment: "Why?",
+      sourceMessageId: "report-1",
+      reportSource: { sessionId: "s1", reportId: "report-1", sourcePath: "/reports/daily.md", sha256: "a".repeat(64) },
+    };
+    const messageComment = { id: "message-comment", selectedText: "Earlier answer", comment: "And this?" };
+    setupMockStore({
+      draft: {
+        text: "Follow up",
+        images: [
+          {
+            id: "img",
+            name: "shot.png",
+            base64: "ZmFrZQ==",
+            mediaType: "image/png",
+            status: "ready",
+            prepared: { imageRef: { imageId: "img", media_type: "image/png" }, path: "/fixture/shot.png" },
+          },
+        ],
+        annotations: [reportComment, messageComment],
+      },
+    });
+    render(<Composer sessionId="s1" />);
+    expect(screen.queryByLabelText("Report comment recipient")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "Follow up",
+        annotations: [reportComment, messageComment],
+        imageRefs: [{ imageId: "img", media_type: "image/png" }],
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("uploads image attachments immediately and only enables send after preparation completes", async () => {

@@ -6,8 +6,8 @@ export interface MarkdownReportSource {
   reportId: string;
   sourcePath: string;
   sha256: string;
+  /** Worker whose session context resolves the report's Takode `file:` links. */
   responsibleWorkerId?: string;
-  responsibleWorkerLabel?: string;
 }
 
 /** An immutable publication, independent of provider turns and answer coverage. */

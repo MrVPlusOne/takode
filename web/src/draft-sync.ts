@@ -293,7 +293,7 @@ function adoptLegacyReportCommentDraft(sessionId: string): void {
   try {
     const state = useStore.getState();
     const current = state.composerDrafts.get(sessionId);
-    const parsed = JSON.parse(stored) as { text?: unknown; annotations?: unknown; reportRecipientSessionId?: unknown };
+    const parsed = JSON.parse(stored) as { text?: unknown; annotations?: unknown };
     const annotations = readConversationAnnotations(parsed.annotations);
     if (!current?.text && !current?.annotations?.length && typeof parsed.text === "string") {
       if (annotations.some((annotation) => annotation.reportSource)) {
@@ -301,9 +301,6 @@ function adoptLegacyReportCommentDraft(sessionId: string): void {
           text: parsed.text,
           images: current?.images ?? [],
           annotations,
-          ...(typeof parsed.reportRecipientSessionId === "string"
-            ? { reportRecipientSessionId: parsed.reportRecipientSessionId }
-            : {}),
         });
       }
     }

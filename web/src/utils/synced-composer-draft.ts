@@ -20,7 +20,6 @@ export function toSyncedComposerDraft(draft: ComposerDraft | undefined): SyncedC
   return normalizeSyncedComposerDraft({
     text: draft.text,
     ...(draft.annotations ? { annotations: draft.annotations } : {}),
-    ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
     ...(images.length ? { images } : {}),
   });
 }
@@ -62,6 +61,5 @@ export function mergeSyncedComposerDraft(
     text: synced?.text ?? "",
     images,
     ...(synced?.annotations ? { annotations: synced.annotations } : {}),
-    ...(synced?.reportRecipientSessionId ? { reportRecipientSessionId: synced.reportRecipientSessionId } : {}),
   };
 }

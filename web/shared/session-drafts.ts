@@ -13,7 +13,6 @@ import { readConversationAnnotations, type ConversationAnnotation } from "./conv
 export interface SyncedComposerDraft {
   text: string;
   annotations?: ConversationAnnotation[];
-  reportRecipientSessionId?: string;
   images?: SyncedDraftImage[];
 }
 
@@ -95,7 +94,6 @@ export function normalizeSyncedComposerDraft(draft: SyncedComposerDraft | null):
   return {
     text: draft.text,
     ...(annotations ? { annotations } : {}),
-    ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
     ...(images ? { images } : {}),
   };
 }
@@ -155,9 +153,6 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
     const draft = write.draft;
     if (!isRecord(draft) || typeof draft.text !== "string") return { error: "draft.text must be a string." };
     if (draft.text.length > MAX_COMPOSER_DRAFT_TEXT_CHARS) return { error: "Draft text is too long." };
-    if (draft.reportRecipientSessionId !== undefined && typeof draft.reportRecipientSessionId !== "string") {
-      return { error: "draft.reportRecipientSessionId must be a string." };
-    }
     let annotations: ConversationAnnotation[];
     let images: SyncedDraftImage[];
     try {
@@ -173,7 +168,6 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
         draft: normalizeSyncedComposerDraft({
           text: draft.text,
           annotations,
-          ...(draft.reportRecipientSessionId ? { reportRecipientSessionId: draft.reportRecipientSessionId } : {}),
           images,
         }),
       },
@@ -213,9 +207,6 @@ export function readSessionDraftsState(value: unknown): SessionDraftsState | und
         const normalized = normalizeSyncedComposerDraft({
           text: draft.text,
           annotations: readConversationAnnotations(draft.annotations),
-          ...(typeof draft.reportRecipientSessionId === "string"
-            ? { reportRecipientSessionId: draft.reportRecipientSessionId }
-            : {}),
           images: readSyncedDraftImages(draft.images),
         });
         if (normalized) state.composer = { ...entryMeta(value.composer), draft: normalized };

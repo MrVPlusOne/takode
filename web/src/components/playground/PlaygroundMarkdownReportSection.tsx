@@ -18,7 +18,7 @@ export function PlaygroundMarkdownReportSection() {
     <section id="markdown-reports" className="space-y-4 scroll-mt-24" data-testid="playground-markdown-reports">
       <h2 className="text-lg font-semibold">Saved Markdown reports</h2>
       <p className="text-sm text-cc-muted">
-        Select a passage to add a comment and choose its recipient. This preview does not send messages.
+        Select a passage to add a comment. Comments go to this session. This preview does not send messages.
       </p>
       <div
         ref={setRoot}
@@ -31,9 +31,7 @@ export function PlaygroundMarkdownReportSection() {
         <SelectionContextMenu selection={selection} sessionId={report.source.sessionId} onClose={selection.dismiss} />
         <ComposerAnnotations sessionId={report.source.sessionId} threadKey={report.threadKey} />
         {draft?.annotations?.length ? (
-          <p className="text-xs text-cc-muted">
-            {draft.annotations.length} saved comment(s). Recipient selection is explicit.
-          </p>
+          <p className="text-xs text-cc-muted">{draft.annotations.length} saved comment(s).</p>
         ) : null}
       </div>
     </section>

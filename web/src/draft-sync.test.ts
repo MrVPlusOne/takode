@@ -332,9 +332,10 @@ describe("composer draft sync", () => {
     expect(localStorage.getItem("server-one:report-comment-draft:s1")).toBeNull();
     expect(server.session.drafts?.composer?.draft).toMatchObject({
       text: "Follow up",
-      reportRecipientSessionId: "worker",
       annotations: [expect.objectContaining({ id: "c1" })],
     });
+    // The old build's recipient choice is retired: comments go to the session showing the report.
+    expect(server.session.drafts?.composer?.draft).not.toHaveProperty("reportRecipientSessionId");
   });
 });
 

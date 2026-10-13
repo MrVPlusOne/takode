@@ -6,7 +6,8 @@ export const REPORT_HELP = `Usage: takode report <markdown-file> --thread <main|
 Read an exact local Markdown file under your existing permissions and publish a frozen,
 annotatable copy into your own session. The original file and its links are not rewritten.
 Files above 2 MiB, invalid UTF-8, and empty files are rejected, never truncated.
---worker records an eligible responsible worker for explicit human follow-up routing.
+--worker names the worker whose checkout resolves the report's Takode file: links.
+Comments on the report come to your session, like any other comment.
 The receipt contains identity and size only; use takode read for saved content.
 `;
 

@@ -8,8 +8,9 @@ takode report /absolute/path/daily-report.md --thread main
 takode report /absolute/path/daily-report.md --thread main --worker 12
 ```
 
-The thread may also be an exact quest thread. `--worker` records a responsible
-worker belonging to the publishing session (or the publishing worker itself).
+The thread may also be an exact quest thread. `--worker` names a worker
+belonging to the publishing session (or the publishing worker itself) whose
+session context resolves the report's Takode `file:` links.
 The command reads the exact local file using the agent's existing filesystem
 permissions. It uploads text to an authenticated API, which never opens the
 supplied server path. A worker's report must already be accessible to the agent
@@ -22,19 +23,15 @@ without publishing partial content. HTML and scripts remain non-executable
 under the shared Markdown renderer. The receipt is compact; `--json` returns
 identity, destination, digest and byte count without the report body.
 
-Select a passage and choose **Comment** as usual. After saving comments, choose
-**This session** or the recorded worker in the composer, then send. The server
-revalidates the worker relationship. An ineligible recipient leaves the draft
-intact with an error; it never selects a replacement. Comments preserve the
-complete quotation, exact reply, source session, snapshot identity and passage
-anchor. Sent comments include an **Open source report** action.
-Saved, unsent report comments and their recipient choice also survive reload in
-that browser's server-scoped draft storage. Image attachments retain their
-existing temporary lifetime. A storage failure is shown while keeping the
-editable comments in the current tab.
+Select a passage and choose **Comment** as usual. Report comments work like any
+other comment: they are sent with the composer to the session showing the
+report, can be mixed with other comments, images and replies, and stay in the
+synced composer draft until sent. Because the agent may not have written or
+read the report, each report comment tells it the report ID, source session,
+source path and digest, so it can open the file for context. Comments also keep
+the complete quotation, exact reply and passage anchor, and sent comments
+include an **Open source report** action.
 
-Send report comments separately from images, reply attachments or comments on
-ordinary chat messages. Normal links retain their existing behavior. Relative
-Markdown file links resolve beside the report; Takode `file:` links use the
-recorded worker's session context when present. Linked resources are not copied
-into the snapshot.
+Normal links retain their existing behavior. Relative Markdown file links
+resolve beside the report; Takode `file:` links use the `--worker` session's
+context when present. Linked resources are not copied into the snapshot.

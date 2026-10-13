@@ -54,8 +54,7 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
         typeof report.sourcePath !== "string" ||
         typeof report.sha256 !== "string" ||
         !/^[a-f0-9]{64}$/.test(report.sha256) ||
-        (report.responsibleWorkerId !== undefined && typeof report.responsibleWorkerId !== "string") ||
-        (report.responsibleWorkerLabel !== undefined && typeof report.responsibleWorkerLabel !== "string"))
+        (report.responsibleWorkerId !== undefined && typeof report.responsibleWorkerId !== "string"))
     ) {
       throw new Error("Invalid report source.");
     }
@@ -84,7 +83,6 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
               sourcePath: report.sourcePath,
               sha256: report.sha256,
               ...(report.responsibleWorkerId ? { responsibleWorkerId: report.responsibleWorkerId } : {}),
-              ...(report.responsibleWorkerLabel ? { responsibleWorkerLabel: report.responsibleWorkerLabel } : {}),
             },
           }
         : {}),
