@@ -165,10 +165,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
       setListLeft(null);
       return;
     }
-    // A tab with a list arrow sits in a positioned wrapper, which then carries its offset.
-    const tab =
-      bar.querySelector<HTMLElement>(`[data-list-anchor="${openGroup}"]`) ??
-      bar.querySelector<HTMLElement>(`[data-testid="thread-tab-group-chip"][data-group="${openGroup}"]`);
+    const tab = bar.querySelector<HTMLElement>(`[data-testid="thread-tab-group-chip"][data-group="${openGroup}"]`);
     setListLeft(Math.max(0, Math.min(tab?.offsetLeft ?? 0, bar.clientWidth - WIDE_LIST_WIDTH_PX)));
   }, [openGroup]);
 
@@ -216,25 +213,16 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
                 count: groups[id].length,
                 activeOutput: groups[id].some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
                 testId: "thread-tab-group-chip",
-                // A tap opens the group's first tab. A group of one stops there, its list
-                // (with the tab's latest result and menu) a long-press or right-click away;
-                // a larger group also opens its list to pick another. On a tab of this group
-                // already, a tap only toggles the list, so it never moves the user away.
-                // New results never opens its list on a tap: reading the opened tab moves it
-                // to Done, so each tap simply opens the next unread, newest first.
-                onClick: () => {
-                  if (groups[id].length === 1 || id === "new-results") return select(groups[id][0]!.threadKey);
-                  if (currentGroup !== id) rows.onSelect(groups[id][0]!.threadKey);
-                  setOpenGroup((open) => (open === id ? null : id));
-                },
+                // A group of one opens its tab on a tap; its list (with the tab's latest
+                // result and menu) stays a long-press or right-click away. A larger group
+                // opens its list and leaves the tab on screen alone: stepping through items
+                // that need attention is the feed's Next chip's job.
+                onClick: () =>
+                  groups[id].length === 1
+                    ? select(groups[id][0]!.threadKey)
+                    : setOpenGroup((open) => (open === id ? null : id)),
                 onOpenList: () => setOpenGroup(id),
-                // Right-click is hard to discover on desktop, so New results also shows a
-                // small list arrow there; phones open the list with a long-press.
-                onToggleList:
-                  id === "new-results" && groups[id].length > 1
-                    ? () => setOpenGroup((open) => (open === id ? null : id))
-                    : undefined,
-                single: groups[id].length === 1 || id === "new-results",
+                single: groups[id].length === 1,
                 children: <GroupContent id={id} tabs={groups[id]} />,
               })
             : null,
@@ -349,8 +337,6 @@ interface BarItemProps {
   onOpenList?: () => void;
   /** A group of one switches on tap instead of opening a list. */
   single?: boolean;
-  /** Wide screens show a small list arrow at the item's right edge that toggles its list. */
-  onToggleList?: () => void;
   children: ReactNode;
 }
 
@@ -372,7 +358,6 @@ function BarItem({
   onClick,
   onOpenList,
   single = false,
-  onToggleList,
   children,
 }: BarItemProps) {
   const longPress = useLongPress(onOpenList ? () => onOpenList() : undefined);
@@ -384,14 +369,14 @@ function BarItem({
     : open
       ? "border-cc-border bg-cc-hover/70 text-cc-fg"
       : "border-cc-border/70 bg-cc-hover/30 text-cc-muted";
-  const tab = (
+  return (
     <button
       type="button"
       role="tab"
       onClick={onClick}
       {...longPress.handlers}
       style={longPress.pressStyle}
-      className={`relative inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${onToggleList ? "w-full md:pl-3 md:pr-7" : size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
+      className={`relative inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
       aria-label={label}
       aria-selected={selected}
       aria-expanded={group && !single ? open : undefined}
@@ -405,33 +390,6 @@ function BarItem({
       {activeOutput && <ActiveOutputSpinner />}
       {children}
     </button>
-  );
-  if (!onToggleList) return tab;
-  // A sibling of the tab rather than a button inside it, laid over the tab's right padding.
-  return (
-    <span className={`relative inline-flex ${size.replace("md:px-3", "")}`} data-list-anchor={group}>
-      {tab}
-      <button
-        type="button"
-        onClick={onToggleList}
-        className="absolute right-1 top-1/2 hidden h-6 w-5 -translate-y-1/2 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 md:inline-flex"
-        aria-label={`Show the ${label.split(":")[0]} list`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid="thread-tab-group-list-toggle"
-        data-group={group}
-      >
-        <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
-          <path
-            d={placement === "bottom" ? "M3 7.5l3-3 3 3" : "M3 4.5l3 3 3-3"}
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </span>
   );
 }
 
