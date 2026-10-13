@@ -250,12 +250,14 @@ export function createMessageDeliveryProbe(deps: {
     if (backendState === "broken" || backendState === "recovery_suppressed") {
       return { kind: "waiting", reason: "the session's recovery is paused until a manual Resume", wait: "starting" };
     }
-    const connected = !!(session.claudeSdkAdapter?.isConnected() || session.codexAdapter?.isConnected());
-    if (connected && !holdsInputFrom(session, senderSessionId)) return { kind: "delivered" };
-    if (isSessionPaused(session)) return { kind: "waiting", reason: "the session is paused", wait: "paused" };
+    // A backend on an offline host still looks connected, but input waits on
+    // the coordinator until the host is back.
     if (info.hostId && !deps.hostIsOnline(info.hostId)) {
       return { kind: "waiting", reason: `host ${await deps.hostName(info.hostId)} is offline`, wait: "host_offline" };
     }
+    const connected = !!(session.claudeSdkAdapter?.isConnected() || session.codexAdapter?.isConnected());
+    if (connected && !holdsInputFrom(session, senderSessionId)) return { kind: "delivered" };
+    if (isSessionPaused(session)) return { kind: "waiting", reason: "the session is paused", wait: "paused" };
     if (info.state === "exited") return { kind: "waiting", reason: "the session is stopped", wait: "stopped" };
     return { kind: "waiting", reason: "the session is starting", wait: "starting" };
   };

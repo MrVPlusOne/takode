@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attachClaudeSdkAdapterLifecycle } from "./claude-sdk-adapter-lifecycle-controller.js";
+import { attachClaudeSdkAdapterLifecycle, flushHeldSdkMessages } from "./claude-sdk-adapter-lifecycle-controller.js";
 
 function makeAdapterMock() {
   let onBrowserMessageCb: ((msg: any) => void) | undefined;
@@ -170,6 +170,42 @@ describe("claude-sdk-adapter-lifecycle-controller", () => {
     expect(session.claudeSdkAdapter).toBe(adapter2);
     expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith({ type: "user_message", content: "queued" });
     expect(session.cliResuming).toBe(false);
+  });
+
+  // Input held while the session's host was offline goes to the backend still
+  // running there once the host is back, but never while a resume replays.
+  it("flushes messages held while the host was offline to the attached backend", () => {
+    const held = JSON.stringify({ type: "user_message", content: "while away" });
+    const session = makeSession();
+    const deps = makeDeps(session);
+    const adapter = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter, deps);
+    adapter.sendBrowserMessage.mockClear();
+
+    session.pendingMessages.push(held);
+    session.cliResuming = true;
+    flushHeldSdkMessages(session);
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    session.cliResuming = false;
+    flushHeldSdkMessages(session);
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith({ type: "user_message", content: "while away" });
+    expect(session.pendingMessages).toEqual([]);
+  });
+
+  // A host that comes back restarted has lost the backend: its disconnect must
+  // relaunch the session even with no browser open, so the held input arrives.
+  it("relaunches a session holding input when its backend disconnects without a browser", () => {
+    const session = makeSession({ browserSockets: new Set() });
+    const deps = makeDeps(session);
+    const adapter = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter, deps);
+    deps.requestCliRelaunch.mockClear();
+
+    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "while away" }));
+    adapter.emitDisconnect();
+    expect(deps.requestCliRelaunch).toHaveBeenCalledWith("s1");
+    expect(session.pendingMessages).toHaveLength(1);
   });
 
   it("requests relaunch on init error for an active browser session", () => {

@@ -9,6 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { createMessageDeliveryProbe } from "./message-delivery-tracker.js";
+import { flushHeldSdkMessages } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
+import type { HostLinkManager } from "./remote-host/host-link-manager.js";
+import { configureRemoteMachines } from "./remote-host/session-machine.js";
 import { SessionStore } from "./session-store.js";
 import { WsBridge } from "./ws-bridge.js";
 
@@ -30,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  configureRemoteMachines(null);
   vi.useRealTimers();
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -75,6 +79,27 @@ describe("message delivery against the bridge", () => {
     await vi.advanceTimersByTimeAsync(2_500);
     expect(session.pendingMessages).toEqual([]);
     expect(await probe("s1")).toEqual({ kind: "delivered" });
+  });
+
+  // A Claude process on a host that went silent still looks connected. Input
+  // written to it would be lost if the host came back restarted, so the bridge
+  // holds it, reports it queued, and hands it over once the host is back.
+  it("Claude: holds a message for a backend whose host is offline until the host is back", async () => {
+    let hostOnline = false;
+    configureRemoteMachines({ status: () => ({ online: hostOnline }) } as unknown as HostLinkManager);
+    const session = bridge.getOrCreateSession("s3", "claude-sdk");
+    session.state.host_id = "condor";
+    const backend = createClaudeSdkTestBackend("s3").attach(bridge);
+
+    expect(bridge.injectUserMessage("s3", "hourly check", LEADER)).toBe("queued");
+    expect(backend.promptTexts().join("\n")).not.toContain("hourly check");
+    expect(session.pendingMessages).toHaveLength(1);
+
+    hostOnline = true;
+    flushHeldSdkMessages(session);
+    expect(backend.promptTexts().join("\n")).toContain("hourly check");
+    expect(session.pendingMessages).toEqual([]);
+    expect(bridge.injectUserMessage("s3", "next check", LEADER)).toBe("sent");
   });
 
   it("Codex: queued without an adapter, delivered once a connected adapter is attached", async () => {

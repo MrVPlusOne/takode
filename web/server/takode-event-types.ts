@@ -20,7 +20,9 @@ export type TakodeEventType =
   | "board_dispatchable"
   | "notification_needs_input"
   | "notification_dismissed"
-  | "message_delivery";
+  | "message_delivery"
+  | "host_offline"
+  | "host_online";
 
 export interface TakodeTurnEndMsgRange {
   from: number;
@@ -223,6 +225,21 @@ export interface TakodeMessageDeliveryEventData {
   questId?: string;
 }
 
+/** The remote host a session runs on stopped answering (see host-outage-alerts.ts). */
+export interface TakodeHostOfflineEventData {
+  hostId: string;
+  hostName: string;
+  /** When the host went silent, or when this coordinator started if it never heard from it. */
+  offlineSince: number;
+}
+
+/** The remote host of a session reported by `host_offline` answers again. */
+export interface TakodeHostOnlineEventData {
+  hostId: string;
+  hostName: string;
+  offlineForMs: number;
+}
+
 export interface TakodeHerdBatchSnapshot {
   events: TakodeEvent[];
   renderedLines: string[];
@@ -257,6 +274,8 @@ export interface TakodeEventDataByType {
   notification_needs_input: TakodeNotificationNeedsInputEventData;
   notification_dismissed: TakodeNotificationDismissedEventData;
   message_delivery: TakodeMessageDeliveryEventData;
+  host_offline: TakodeHostOfflineEventData;
+  host_online: TakodeHostOnlineEventData;
 }
 
 interface TakodeEventBase {

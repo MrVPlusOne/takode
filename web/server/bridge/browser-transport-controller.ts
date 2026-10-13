@@ -230,6 +230,8 @@ export interface BrowserTransportDeps {
   getLauncherSessionInfo: (sessionId: string) => BrowserTransportLauncherInfo | null | undefined;
   backendAttached: (session: BrowserTransportSessionLike) => boolean;
   backendConnected: (session: BrowserTransportSessionLike) => boolean;
+  /** Whether a registered remote host is offline; a backend there looks connected but cannot take input. */
+  isHostOffline?: (hostId: string) => boolean;
   requestCliRelaunch?: (sessionId: string) => void;
   getRouteChain: (sessionId: string) => Promise<void> | undefined;
   setRouteChain: (sessionId: string, task: Promise<void>) => void;
@@ -891,7 +893,8 @@ export function injectUserMessage(
     }
   }
 
-  return backendLive ? "sent" : "queued";
+  const hostOffline = !!session.state.host_id && deps.isHostOffline?.(session.state.host_id) === true;
+  return backendLive && !hostOffline ? "sent" : "queued";
 }
 
 export function isHerdEventSource(agentSource: AgentSource | undefined): boolean {

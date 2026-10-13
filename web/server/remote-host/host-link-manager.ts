@@ -18,6 +18,7 @@ import {
 import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
+import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
 import type { HostUpdateMode } from "./host-update-sessions.js";
 
 /**
@@ -112,6 +113,8 @@ interface HostLink {
   socket: HostLinkSocket | null;
   online: boolean;
   lastSeenAt: number | null;
+  /** When the link last went down while this coordinator ran, for the log line when it returns. */
+  offlineAt: number | null;
   /** The `takode node` instance currently or last connected. */
   hostInstanceId: string | null;
   /** Home directory reported by the host. */
@@ -262,7 +265,7 @@ export class HostLinkManager {
     const link = this.links.get(hostId);
     if (!link || link.socket !== socket) return;
     link.socket = null;
-    this.setOnline(hostId, link, false);
+    this.setOnline(hostId, link, false, "its connection closed");
   }
 
   handleMessage(hostId: string, socket: HostLinkSocket, frame: string | ArrayBuffer | Uint8Array): void {
@@ -277,7 +280,7 @@ export class HostLinkManager {
       // longer share the compression history; start the connection over.
       console.warn(`[host-link] Could not decode a message from host ${hostId}; reconnecting:`, error);
       link.socket = null;
-      this.setOnline(hostId, link, false);
+      this.setOnline(hostId, link, false, "a message from it did not decode");
       socket.close(4005, "Undecodable message");
       return;
     }
@@ -400,7 +403,7 @@ export class HostLinkManager {
     if (!link?.socket) return;
     const socket = link.socket;
     link.socket = null;
-    this.setOnline(hostId, link, false);
+    this.setOnline(hostId, link, false, reason);
     socket.close(4003, reason);
   }
 
@@ -411,6 +414,11 @@ export class HostLinkManager {
   hasUsableNetwork(hostId: string): boolean {
     const link = this.links.get(hostId);
     return Boolean(link?.online && link.network);
+  }
+
+  /** Whether the host still runs the process, as far as this coordinator knows; false once it ended or was lost. */
+  hasProcess(hostId: string, procId: string): boolean {
+    return this.links.get(hostId)?.processes.has(procId) ?? false;
   }
 
   /** The host's home directory as last reported, or null before it ever connected. */
@@ -714,6 +722,7 @@ export class HostLinkManager {
         socket: null,
         online: false,
         lastSeenAt: null,
+        offlineAt: null,
         hostInstanceId: null,
         homeDir: null,
         platform: null,
@@ -739,10 +748,18 @@ export class HostLinkManager {
     return link;
   }
 
-  private setOnline(hostId: string, link: HostLink, online: boolean): void {
+  private setOnline(hostId: string, link: HostLink, online: boolean, reason?: string): void {
     if (link.online === online) return;
     link.online = online;
-    if (!online) {
+    // Hosts come and go (a laptop sleeps, a cluster node moves), and the log
+    // is where an outage is first looked for.
+    if (online) {
+      const after = link.offlineAt === null ? "" : ` again after ${formatDuration(this.now() - link.offlineAt)}`;
+      console.log(`[host-link] Host ${hostId} is online${after}`);
+      link.offlineAt = null;
+    } else {
+      link.offlineAt = this.now();
+      console.warn(`[host-link] Host ${hostId} is offline: ${reason ?? "its link closed"}`);
       for (const pending of link.requests.values()) {
         clearTimeout(pending.timer);
         pending.reject(new HostUnavailableError(hostId));
@@ -766,9 +783,11 @@ export class HostLinkManager {
       }
       if (!link.socket) continue;
       if (link.lastSeenAt !== null && now - link.lastSeenAt > HOST_LINK_STALE_MS) {
+        // A connection can stay open after the host is gone, e.g. when a relay
+        // or tunnel in between keeps its own end up; only silence shows it.
         const socket = link.socket;
         link.socket = null;
-        this.setOnline(hostId, link, false);
+        this.setOnline(hostId, link, false, `nothing heard from it for ${formatDuration(now - link.lastSeenAt)}`);
         socket.close(4002, "Heartbeat timeout");
         continue;
       }

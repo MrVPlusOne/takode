@@ -258,10 +258,11 @@ export function attachClaudeSdkAdapterLifecycle(
       deps.persistSession(session);
     }
 
+    // Input held while the host was offline needs a backend even with no browser open.
     if (
       !idleKilled &&
       deps.requestCliRelaunch &&
-      session.browserSockets.size > 0 &&
+      (session.browserSockets.size > 0 || session.pendingMessages.length > 0) &&
       deps.isCurrentSession(sessionId, session) &&
       session.consecutiveAdapterFailures <= deps.maxAdapterRelaunchFailures
     ) {
@@ -293,6 +294,17 @@ export function attachClaudeSdkAdapterLifecycle(
 
   deps.broadcastToBrowsers(session, { type: "backend_connected" });
   console.log(`[ws-bridge] Claude SDK adapter attached for session ${sessionTag(sessionId)}`);
+}
+
+/**
+ * Hand the user messages held while a session's host was offline to its
+ * backend, which kept running there. A backend the host lost instead
+ * disconnects, and its relaunch takes them.
+ */
+export function flushHeldSdkMessages(session: any): void {
+  const adapter = session.claudeSdkAdapter;
+  if (!adapter || session.cliResuming || session.pendingMessages.length === 0) return;
+  flushQueuedSdkMessages(session, adapter, `for session ${sessionTag(session.id)} now that its host is back`);
 }
 
 function flushQueuedSdkMessages(session: any, adapter: any, reason: string): void {

@@ -63,6 +63,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "codex_turn_recovery"
     | "context_used_percent"
     | "cwd"
+    | "host_id"
     | "is_compacting"
     | "leaderThreadStatuses"
     | "threadMonitoring"
@@ -112,6 +113,8 @@ export interface AdapterBrowserRoutingSessionLike {
 }
 
 export interface AdapterBrowserRoutingDeps {
+  /** Whether a registered remote host is offline, so a backend running there cannot take input now. */
+  isHostOffline?: (hostId: string) => boolean;
   flushHerdEventsBeforePromptInput?: (sessionId: string, before: number) => void;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;

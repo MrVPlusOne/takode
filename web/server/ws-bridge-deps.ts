@@ -1,3 +1,4 @@
+import { hostIsOnline } from "./remote-host/session-machine.js";
 import { serverWorkAdmission } from "./server-work-admission.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
@@ -971,6 +972,7 @@ export function getBrowserTransportDeps(host: any) {
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     backendAttached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
+    isHostOffline: (hostId: string) => !hostIsOnline(hostId),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
@@ -1401,6 +1403,7 @@ export function getBrowserRoutingDeps(host: any) {
         ? host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>)
         : host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>, actorSessionId),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    isHostOffline: (hostId: string) => !hostIsOnline(hostId),
     persistHistoryMetadataRepair: async (targetSession: unknown, expectedFrozenCount: number) => {
       if (!host.store) return;
       await host.store.rewriteFrozenHistoryMetadata(

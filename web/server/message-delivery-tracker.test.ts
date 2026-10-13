@@ -196,6 +196,18 @@ describe("createMessageDeliveryProbe", () => {
     expect(await probeFor(disconnected, { state: "exited" })).toMatchObject({ kind: "waiting", wait: "stopped" });
   });
 
+  // A backend on a host that went silent keeps its adapter "connected" (its
+  // process may still run there), but nothing reaches it until the host is
+  // back, so the message is not delivered yet.
+  it("keeps waiting for an offline host although the backend still looks connected", async () => {
+    expect(await probeFor(bridgeSession(), { state: "connected", hostId: "h1" }, false)).toEqual({
+      kind: "waiting",
+      reason: "host devbox is offline",
+      wait: "host_offline",
+    });
+    expect(await probeFor(bridgeSession(), { state: "connected", hostId: "h1" }, true)).toEqual({ kind: "delivered" });
+  });
+
   it("reports archived and missing sessions as gone", async () => {
     expect(await probeFor(bridgeSession(), { state: "exited", archived: true })).toEqual({
       kind: "gone",

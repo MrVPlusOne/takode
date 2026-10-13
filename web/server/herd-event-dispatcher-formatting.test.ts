@@ -1164,3 +1164,47 @@ describe("notification_dismissed events", () => {
     dispatcher.destroy();
   });
 });
+
+describe("host outage events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("delivers a worker's host going silent and coming back to its leader", () => {
+    // A leader must learn that a worker's remote host stopped answering, since
+    // work sent there waits, and that it is back so it can carry on.
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    const now = Date.now();
+    triggerEvent(
+      makeEvent({
+        event: "host_offline",
+        ts: now,
+        data: { hostId: "h1", hostName: "condor1-cpu-takode", offlineSince: now - 2 * 60_000 },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "host_online",
+        ts: now,
+        data: { hostId: "h1", hostName: "condor1-cpu-takode", offlineForMs: 16 * 60 * 60_000 },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    const contents = vi.mocked(bridge.injectUserMessage).mock.calls.map((call) => call[1]);
+    expect(contents[0]).toContain("host_offline | host condor1-cpu-takode has not answered for 2m 0s");
+    expect(contents[1]).toContain("host_online | host condor1-cpu-takode is back after 16h 0m");
+
+    dispatcher.destroy();
+  });
+});

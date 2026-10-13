@@ -1384,6 +1384,22 @@ export function routeAdapterBrowserMessage(
     }
     const adapter = session.codexAdapter || session.claudeSdkAdapter;
     const raw = JSON.stringify(adapterMsg);
+    // Input written to a process on an offline host is lost if the host comes
+    // back restarted, so hold it here until the host returns (or the relaunch
+    // that follows its restart takes it).
+    const hostId = session.state.host_id;
+    if (
+      adapter &&
+      adapter === session.claudeSdkAdapter &&
+      msg.type === "user_message" &&
+      hostId &&
+      deps.isHostOffline?.(hostId)
+    ) {
+      console.log(`[ws-bridge] Host of session ${sessionTag(session.id)} is offline, holding user_message`);
+      queueAdapterMessage(session, raw);
+      deps.persistSession(session);
+      return true;
+    }
     if (adapter) {
       const accepted = adapter.sendBrowserMessage(adapterMsg);
       if (!accepted) {

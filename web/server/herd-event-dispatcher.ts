@@ -1,6 +1,7 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
 import { isCurrentWorkerReport } from "./worker-report-event.js";
 import { formatWorkerReport } from "../shared/worker-report.js";
+import { formatLeaseWaitDuration } from "../shared/resource-lease-message.js";
 /**
  * Push-based event delivery for herded sessions.
  *
@@ -248,6 +249,8 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "notification_needs_input",
   "notification_dismissed",
   "message_delivery",
+  "host_offline",
+  "host_online",
 ]);
 
 /** Events that must survive inbox overflow — dropping these leaves workers stuck. */
@@ -1618,6 +1621,12 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           : `your message was not delivered: ${evt.data.reason ?? "unknown reason"} (it stays queued there)`;
       return `${label} | message_delivery | ${outcome} | ${evt.data.messageId} "${truncate(evt.data.preview, 80)}"${ageSuffix}`;
     }
+    case "host_offline": {
+      const silentFor = formatLeaseWaitDuration(evt.ts - evt.data.offlineSince);
+      return `${label} | host_offline | host ${evt.data.hostName} has not answered for ${silentFor}; this session cannot work and messages to it wait until the host is back${ageSuffix}`;
+    }
+    case "host_online":
+      return `${label} | host_online | host ${evt.data.hostName} is back after ${formatLeaseWaitDuration(evt.data.offlineForMs)}${ageSuffix}`;
     default:
       return `${label} | ${evt.event}${ageSuffix}`;
   }
