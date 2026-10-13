@@ -310,7 +310,7 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
 
     const chip = chipButton();
-    expect(chip).toHaveTextContent("1/1·needs input");
+    expect(chip).toHaveTextContent("1/1·Next");
     expect(chip).not.toHaveTextContent("Waiting");
 
     openInbox();
@@ -344,7 +344,7 @@ describe("NotificationChip", () => {
     // The chip now names the next item to open; reviews are not attention items here.
     const chip = chipButton();
     const needsInputBell = chip.querySelector("svg");
-    expect(chip).toHaveTextContent("1/2·needs input");
+    expect(chip).toHaveTextContent("1/2·Next");
     expect(chip).not.toHaveTextContent("review");
     expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-cc-attention");
     expect(within(chip).queryByTestId("notification-chip-review")).not.toBeInTheDocument();
@@ -1291,11 +1291,11 @@ describe("NotificationChip", () => {
       ]);
       render(<NotificationChip sessionId="s1" />);
 
-      expect(chipButton()).toHaveTextContent("1/2·needs input");
+      expect(chipButton()).toHaveTextContent("1/2·Next");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
       expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
-      expect(chipButton()).toHaveTextContent("2/2·needs input");
+      expect(chipButton()).toHaveTextContent("2/2·Next");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
       expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
@@ -1330,11 +1330,16 @@ describe("NotificationChip", () => {
         />,
       );
 
-      expect(chipButton()).toHaveTextContent("1/3·needs input");
+      // The chip always reads "Next"; the kind shows in its tinted icon and is named in its
+      // accessible label.
+      expect(chipButton()).toHaveTextContent("1/3·Next");
+      expect(chipButton().getAttribute("aria-label")).toContain("Needs input, 1 of 3");
       fireEvent.click(chipButton());
-      expect(chipButton()).toHaveTextContent("2/3·Notify Me");
+      expect(chipButton()).toHaveTextContent("2/3·Next");
+      expect(chipButton().getAttribute("aria-label")).toContain("Notify Me result, 2 of 3");
       fireEvent.click(chipButton());
-      expect(chipButton()).toHaveTextContent("3/3·unread");
+      expect(chipButton()).toHaveTextContent("3/3·Next");
+      expect(chipButton().getAttribute("aria-label")).toContain("of 3");
 
       openInbox();
       const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
@@ -1445,7 +1450,7 @@ describe("NotificationChip", () => {
         });
         fireEvent.touchEnd(unreadRow!);
         expect(screen.getByRole("button", { name: "Mark as read" })).toBeInTheDocument();
-        expect(chipButton()).toHaveTextContent("1/2·Notify Me");
+        expect(chipButton()).toHaveTextContent("1/2·Next");
         expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -1494,7 +1499,7 @@ describe("NotificationChip", () => {
       fireEvent.click(chipButton());
       view.unmount();
       render(<NotificationChip sessionId="s1" />);
-      expect(chipButton()).toHaveTextContent("2/2·needs input");
+      expect(chipButton()).toHaveTextContent("2/2·Next");
     });
 
     it("shows an unread result on its own and reads the session when opened", () => {
@@ -1504,7 +1509,7 @@ describe("NotificationChip", () => {
       mockStoreState.sessionAttention = new Map([["s1", "review"]]);
       render(<NotificationChip sessionId="s1" />);
 
-      expect(chipButton()).toHaveTextContent("1/1·unread");
+      expect(chipButton()).toHaveTextContent("1/1·Next");
       fireEvent.click(chipButton());
       expect(mockMarkSessionRead).toHaveBeenCalledWith("s1", { mode: "session-view" });
     });

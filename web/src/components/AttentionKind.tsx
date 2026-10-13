@@ -10,13 +10,6 @@ import { NotifyMeIcon } from "./NotifyMe.js";
  */
 export type AttentionKind = NextAttentionItem["kind"];
 
-/** Short kind names for chips: "1/3 · needs input". */
-export const ATTENTION_KIND_SHORT: Record<AttentionKind, string> = {
-  "needs-input": "needs input",
-  "notify-me": "Notify Me",
-  unread: "unread",
-};
-
 /** Kind names for toasts and accessible labels. */
 export const ATTENTION_KIND_TITLE: Record<AttentionKind, string> = {
   "needs-input": "Needs input",

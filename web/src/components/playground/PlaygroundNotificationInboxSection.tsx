@@ -586,12 +586,12 @@ export function PlaygroundNotificationInboxSection() {
               Click &quot;Seed notification data&quot; above first. The chip is a one-tap next button for this session:
               each tap opens the next item that needs attention (needs-input prompts, then Notify Me results, then
               unread results, newest first in each kind) and wraps at the end, and its label shows the next item&apos;s
-              position and kind, like &quot;1/4 · needs input&quot;. Right-click or long-press opens the inbox, which
-              lists Notify Me and Unread sections after the prompts and marks the next row. On a closable quest tab it
-              first offers &quot;Close tab and go to next&quot; (skipping items in that tab) or &quot;Show list&quot;.
-              Rows keep only Go to; right-click or long-press a row (not the chip) for its own menu: Acknowledge and
-              Stop tracking for Notify Me, Mark as read and Close tab for unread threads. Here steps only move the
-              position and toast; in a session they jump to each item.
+              position, like &quot;1/4 · Next&quot;, with the icon tinted by its kind. Right-click or long-press opens
+              the inbox, which lists Notify Me and Unread sections after the prompts and marks the next row. On a
+              closable quest tab it first offers &quot;Close tab and go to next&quot; (skipping items in that tab) or
+              &quot;Show list&quot;. Rows keep only Go to; right-click or long-press a row (not the chip) for its own
+              menu: Acknowledge and Stop tracking for Notify Me, Mark as read and Close tab for unread threads. Here
+              steps only move the position and toast; in a session they jump to each item.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">

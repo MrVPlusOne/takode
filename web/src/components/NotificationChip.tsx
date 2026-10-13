@@ -33,7 +33,6 @@ import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
 import { AttentionItemSections, SessionAttentionToast, attentionThreadPlace } from "./AttentionItemRows.js";
 import {
-  ATTENTION_KIND_SHORT,
   ATTENTION_KIND_TITLE,
   AttentionKindIcon,
   NextChevron,
@@ -1017,7 +1016,8 @@ export function NotificationChip({
                 {next.position + 1}/{total}
               </span>
               <span className="relative text-cc-muted">·</span>
-              <span className={`relative ${tone!.text}`}>{ATTENTION_KIND_SHORT[next.item.kind]}</span>
+              {/* "Next" rather than the kind ("needs input" was long); the tinted icon tells the kinds apart. */}
+              <span className={`relative ${tone!.text}`}>Next</span>
               <span className={`relative ${tone!.text}`}>
                 <NextChevron />
               </span>
