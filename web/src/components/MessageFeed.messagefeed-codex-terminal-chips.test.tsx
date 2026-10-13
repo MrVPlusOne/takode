@@ -49,9 +49,7 @@ const mockClearScrollToTurn = vi.fn();
 const mockClearScrollToMessage = vi.fn();
 const mockSetActiveTaskTurnId = vi.fn();
 const mockKeepTurnExpanded = vi.fn();
-const mockSetCollapsibleTurnIds = vi.fn();
 const mockSetFeedScrollPosition = vi.fn();
-const mockCollapseAllTurnActivity = vi.fn();
 const mockClearBottomAlignOnNextUserMessage = vi.fn();
 const mockSetComposerDraft = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
@@ -106,8 +104,6 @@ vi.mock("../store.js", () => {
   useStore.getState = () => ({
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: mockSetFeedScrollPosition,
-    collapseAllTurnActivity: mockCollapseAllTurnActivity,
-    setCollapsibleTurnIds: mockSetCollapsibleTurnIds,
     turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
     autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
     toggleTurnActivity: mockToggleTurnActivity,
@@ -380,9 +376,7 @@ function resetStore() {
   mockClearScrollToMessage.mockReset();
   mockSetActiveTaskTurnId.mockReset();
   mockKeepTurnExpanded.mockReset();
-  mockSetCollapsibleTurnIds.mockReset();
   mockSetFeedScrollPosition.mockReset();
-  mockCollapseAllTurnActivity.mockReset();
   mockClearBottomAlignOnNextUserMessage.mockReset();
   mockSetComposerDraft.mockReset();
   mockSendToSession.mockReset();

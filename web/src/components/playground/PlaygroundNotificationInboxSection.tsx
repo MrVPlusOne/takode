@@ -473,7 +473,13 @@ function seedCollapsedAnswerNeedsInputPrompt() {
       done: false,
     },
   ]);
-  store.collapseAllTurnActivity(COLLAPSED_PROMPT_SESSION_ID, ["playground-collapsed-answered-user"]);
+  // The answered turn starts collapsed, as the user would have left it.
+  useStore.setState((state) => ({
+    turnActivityOverrides: new Map(state.turnActivityOverrides).set(
+      COLLAPSED_PROMPT_SESSION_ID,
+      new Map([["playground-collapsed-answered-user", false]]),
+    ),
+  }));
 }
 
 function seedOwnerThreadNeedsInputPanel() {

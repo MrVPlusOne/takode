@@ -289,7 +289,6 @@ export const useStore = create<AppState>((set, get) => ({
   focusComposerTrigger: 0,
   turnActivityOverrides: new Map(),
   autoExpandedTurnIds: new Map(),
-  collapsibleTurnIds: new Map(),
   terminalOpen: false,
   terminalCwd: null,
   terminalSessionId: null,
@@ -1558,15 +1557,6 @@ export const useStore = create<AppState>((set, get) => ({
       return { turnActivityOverrides: overrides };
     }),
 
-  collapseAllTurnActivity: (sessionId, turnIds) =>
-    set((s) => {
-      const overrides = new Map(s.turnActivityOverrides);
-      const session = new Map<string, boolean>();
-      for (const id of turnIds) session.set(id, false);
-      overrides.set(sessionId, session);
-      return { turnActivityOverrides: overrides };
-    }),
-
   focusTurn: (sessionId, targetTurnId) =>
     set((s) => {
       const overrides = new Map(s.turnActivityOverrides);
@@ -1602,16 +1592,6 @@ export const useStore = create<AppState>((set, get) => ({
       const autoExpandedTurnIds = new Map(s.autoExpandedTurnIds);
       autoExpandedTurnIds.delete(sessionId);
       return { autoExpandedTurnIds };
-    }),
-
-  setCollapsibleTurnIds: (sessionId, turnIds) =>
-    set((s) => {
-      const previous = s.collapsibleTurnIds.get(sessionId);
-      if ((previous === undefined && turnIds.length === 0) || stringArrayEqual(previous, turnIds)) return s;
-      const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
-      if (turnIds.length === 0) collapsibleTurnIds.delete(sessionId);
-      else collapsibleTurnIds.set(sessionId, turnIds);
-      return { collapsibleTurnIds };
     }),
 
   setTerminalOpen: (open) => set({ terminalOpen: open }),
@@ -1727,7 +1707,6 @@ export const useStore = create<AppState>((set, get) => ({
       focusComposerTrigger: 0,
       turnActivityOverrides: new Map(),
       autoExpandedTurnIds: new Map(),
-      collapsibleTurnIds: new Map(),
       questDetails: new Map(),
       questDetailEtags: new Map(),
       questTitlePreviews: new Map(),

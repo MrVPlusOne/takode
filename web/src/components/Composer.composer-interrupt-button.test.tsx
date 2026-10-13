@@ -416,9 +416,7 @@ function setupMockStore(
       mockStoreState.dismissedVsCodeSelectionKey = key;
       notifyMockStore();
     }),
-    collapsibleTurnIds: new Map(),
     turnActivityOverrides: new Map(),
-    collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
     diffFileStats: new Map(),

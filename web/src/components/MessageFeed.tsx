@@ -664,16 +664,6 @@ export function MessageFeed({
     pendingSectionLoadKeyRef.current = null;
     setPendingSectionLoadDirection(null);
   }, [activeHistoryWindow, activeThreadWindow, sectionWindowStart]);
-  // Collapse-all and expand-last act on each turn's current override key (see TurnCollapseState).
-  const collapsibleTurnIds = useMemo(
-    () => turnStates.filter((_, index) => visibleTurns[index]?.agentEntries.length).map((s) => s.overrideKey),
-    [turnStates, visibleTurns],
-  );
-
-  useEffect(() => {
-    useStore.getState().setCollapsibleTurnIds(sessionId, collapsibleTurnIds);
-  }, [sessionId, collapsibleTurnIds]);
-
   useEffect(() => {
     if (isWindowedFeed) {
       setSectionWindowStart(null);

@@ -138,8 +138,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   turnActivityOverrides.delete(sessionId);
   const autoExpandedTurnIds = new Map(s.autoExpandedTurnIds);
   autoExpandedTurnIds.delete(sessionId);
-  const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
-  collapsibleTurnIds.delete(sessionId);
   const sessionAttention = new Map(s.sessionAttention);
   sessionAttention.delete(sessionId);
   const sessionInfoOpenSessionId = s.sessionInfoOpenSessionId === sessionId ? null : s.sessionInfoOpenSessionId;
@@ -211,7 +209,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     replyContexts,
     turnActivityOverrides,
     autoExpandedTurnIds,
-    collapsibleTurnIds,
     sessionAttention,
     sessionInfoOpenSessionId,
     codexSubagentInspector,

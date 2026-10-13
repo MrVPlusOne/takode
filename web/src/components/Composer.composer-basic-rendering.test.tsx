@@ -425,9 +425,7 @@ function setupMockStore(
       mockStoreState.dismissedVsCodeSelectionKey = key;
       notifyMockStore();
     }),
-    collapsibleTurnIds: new Map(),
     turnActivityOverrides: new Map(),
-    collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
     diffFileStats: new Map(),
@@ -1333,7 +1331,7 @@ it("restores automatic sizing after the draft changes while minimized", () => {
     setupMockStore({ draftText: "Original long draft" });
     render(<Composer sessionId="s1" />);
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
-    fireEvent.click(screen.getByLabelText("Minimize composer"));
+    fireEvent.pointerDown(document.body); // a press outside collapses the composer
     act(() => (mockStoreState.setComposerDraft as Function)("s1", { text: "A changed long draft", images: [] }));
     act(() => screen.getByRole("textbox").focus());
     expect(textarea.style.height).toBe("140px");
@@ -1536,7 +1534,7 @@ it.each([
   act(() => textarea.focus());
   expect(screen.queryByTestId("composer-compact-preview")).toBeNull();
   expect(screen.queryAllByRole("img")).toHaveLength(imageCount);
-  fireEvent.click(screen.getByLabelText("Minimize composer"));
+  fireEvent.pointerDown(document.body); // a press outside collapses the composer
   expect(textarea.value).toBe(text);
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
 });
@@ -1558,5 +1556,7 @@ it.each([false, true])("starts with only the populated input visible (touch=%s)"
   fireEvent.click(textarea.parentElement!);
   expect(textarea.getAttribute("aria-expanded")).toBe("true");
   expect(textarea.wrap).toBe("soft");
-  expect(screen.getByLabelText("Minimize composer").closest("[data-testid=composer-footer-toolbar]")).toBeTruthy();
+  // The open composer shows its toolbar; it has no minimize button (a press outside collapses it).
+  expect(screen.getByTestId("composer-footer-toolbar")).toBeTruthy();
+  expect(screen.queryByLabelText("Minimize composer")).toBeNull();
 });

@@ -100,8 +100,6 @@ vi.mock("../store.js", () => {
   useStore.getState = () => ({
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: vi.fn(),
-    collapseAllTurnActivity: vi.fn(),
-    setCollapsibleTurnIds: vi.fn(),
     turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
     autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
     toggleTurnActivity: vi.fn(),

@@ -168,21 +168,6 @@ const PLAYGROUND_CLAUDE_MODEL_OPTIONS = [
   { value: "claude-haiku-4.5", label: "Haiku 4.5", icon: "◕", supportedReasoningLevels: [] },
 ];
 
-function PlaygroundCollapseAllButton() {
-  return (
-    <button
-      type="button"
-      className="flex h-7 w-7 cursor-default items-center justify-center rounded-md text-cc-muted/40"
-      title="Collapse all turns"
-    >
-      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 16 16">
-        <path d="M4 2l4 4 4-4" />
-        <path d="M4 14l4-4 4 4" />
-      </svg>
-    </button>
-  );
-}
-
 function PlaygroundComposerPermissionToolbar({
   backend,
   state,
@@ -247,7 +232,6 @@ function PlaygroundComposerPermissionToolbar({
           onRequestPermissionMode={() => {}}
           onCancelPermissionMode={() => {}}
           onConfirmPermissionMode={() => {}}
-          collapseAllButton={<PlaygroundCollapseAllButton />}
           pauseControl={
             <PauseOtherSourcesButton
               isPaused={isCodex}
@@ -335,7 +319,6 @@ function PlaygroundModelToolbar({
           onRequestPermissionMode={() => {}}
           onCancelPermissionMode={() => {}}
           onConfirmPermissionMode={() => {}}
-          collapseAllButton={<PlaygroundCollapseAllButton />}
           pauseControl={null}
           onOpenFilePicker={() => {}}
           warmMicrophone={() => {}}
@@ -443,7 +426,6 @@ export function PlaygroundInteractiveSections() {
                 />
                 <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <PlaygroundCollapseAllButton />
                     <PauseOtherSourcesButton
                       isPaused={true}
                       heldCount={2}

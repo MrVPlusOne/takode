@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createPortal } from "react-dom";
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "./ComposerMinimizer.js";
+import { ComposerMinimizer, ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
 import { useComposerTextareaSize } from "./use-composer-textarea-size.js";
 import { useStore } from "../store.js";
@@ -67,15 +67,14 @@ function Fixture({
       <button>Outside</button>
       <ComposerMinimizer destination={destination} expanded={expanded} onExpandedChange={setExpanded}>
         <Draft unmounted={unmounted} portal={portal} textareaRef={textareaRef} />
-        <div hidden={!expanded}>
-          <ComposerMinimizeButton onClick={() => setExpanded(false)} disabled={reveal} />
-        </div>
       </ComposerMinimizer>
     </>
   );
 }
 
 const isCollapsed = () => screen.getByTestId("composer-minimizer").getAttribute("data-collapsed") === "true";
+// The composer has no minimize button; a press outside it is the way to collapse it.
+const pressOutside = () => fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
 const focusDraft = () => act(() => screen.getByRole("textbox").focus());
 
 describe("composer minimization", () => {
@@ -89,7 +88,7 @@ describe("composer minimization", () => {
     focusDraft();
     const image = screen.getByRole("img");
     fireEvent.change(textarea, { target: { value: "Unsaved first line\nUnsaved second line" } });
-    fireEvent.click(screen.getByLabelText("Minimize composer"));
+    pressOutside();
     expect(isCollapsed()).toBe(true);
     expect(screen.getByRole("textbox")).toBe(textarea);
     expect(textarea.value).toBe("Unsaved first line\nUnsaved second line");
@@ -110,17 +109,20 @@ describe("composer minimization", () => {
     act(() => useStore.getState().focusComposer());
     expect(isCollapsed()).toBe(false);
     expect(screen.getByRole("textbox")).toBe(document.activeElement);
-    fireEvent.click(screen.getByLabelText("Minimize composer"));
+    pressOutside();
     view.rerender(<Fixture reveal />);
     expect(isCollapsed()).toBe(false);
-    expect((screen.getByLabelText("Minimize composer") as HTMLButtonElement).disabled).toBe(true);
+    // Active voice or editor work keeps the composer revealed even after another outside press.
+    pressOutside();
+    view.rerender(<Fixture reveal />);
+    expect(isCollapsed()).toBe(false);
   });
 
   it("does not revive old destination or blur requests after a fresh expansion", async () => {
     // A destination round trip starts compact unless an intentional focus actually survives it.
     const view = render(<Fixture destination="one:main" />);
     focusDraft();
-    fireEvent.click(screen.getByLabelText("Minimize composer"));
+    pressOutside();
     view.rerender(<Fixture destination="two:main" />);
     expect(isCollapsed()).toBe(true);
     view.rerender(<Fixture destination="one:main" />);

@@ -32,7 +32,7 @@ it("demonstrates compact indicators with preserved multiline text and hidden att
   expect(screen.queryByRole("img", { name: "Example attached image" })).toBeNull();
   act(() => input.focus());
   const image = screen.getByRole("img", { name: "Example attached image" });
-  fireEvent.click(screen.getByLabelText("Minimize composer"));
+  fireEvent.pointerDown(document.body); // a press outside collapses the composer
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(input.value).toBe(original);
   expect(image.closest("[hidden]")).toBeTruthy();

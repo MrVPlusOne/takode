@@ -446,14 +446,11 @@ export interface AppState {
   focusComposer: () => void;
   turnActivityOverrides: Map<string, Map<string, boolean>>;
   autoExpandedTurnIds: Map<string, Set<string>>;
-  collapsibleTurnIds: Map<string, string[]>;
   toggleTurnActivity: (sessionId: string, turnId: string, defaultExpanded: boolean) => void;
-  collapseAllTurnActivity: (sessionId: string, turnIds: string[]) => void;
   focusTurn: (sessionId: string, targetTurnId: string) => void;
   keepTurnExpanded: (sessionId: string, turnId: string) => void;
   keepTurnAutoExpanded: (sessionId: string, turnId: string) => void;
   clearAutoExpandedTurns: (sessionId: string) => void;
-  setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
   setActiveTab: (tab: "chat" | "diff") => void;
   openDiffView: (sessionId: string, threadKey: string) => void;
   setDiffPanelSelectedFile: (sessionId: string, filePath: string | null) => void;

@@ -55,7 +55,6 @@ vi.mock("../api.js", () => ({
 }));
 
 const mockStoreValues: Record<string, unknown> = {};
-const mockSetCollapsibleTurnIds = vi.fn();
 const mockSetActiveTaskTurnId = vi.fn();
 
 vi.mock("../store.js", () => {
@@ -117,8 +116,6 @@ vi.mock("../store.js", () => {
   useStore.getState = () => ({
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: vi.fn(),
-    collapseAllTurnActivity: vi.fn(),
-    setCollapsibleTurnIds: mockSetCollapsibleTurnIds,
     turnActivityOverrides: new Map(),
     autoExpandedTurnIds: new Map(),
     toggleTurnActivity: vi.fn(),
@@ -161,7 +158,6 @@ import { measureThreadStatusLayoutContribution } from "./MessageFeedThreadStatus
 beforeEach(() => {
   mockScrollTo.mockClear();
   mockSetActiveTaskTurnId.mockClear();
-  mockSetCollapsibleTurnIds.mockClear();
   mockSendToSession.mockClear();
   mediaState.touchDevice = false;
   localStorage.clear();

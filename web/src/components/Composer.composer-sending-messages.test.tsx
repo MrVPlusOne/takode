@@ -416,9 +416,7 @@ function setupMockStore(
       mockStoreState.dismissedVsCodeSelectionKey = key;
       notifyMockStore();
     }),
-    collapsibleTurnIds: new Map(),
     turnActivityOverrides: new Map(),
-    collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
     diffFileStats: new Map(),
@@ -1150,7 +1148,7 @@ it.each([
   const { container } = render(<Composer sessionId="s1" />);
   const textarea = container.querySelector("textarea")!;
   const image = screen.getByAltText("reference.png");
-  fireEvent.click(screen.getByLabelText("Minimize composer"));
+  fireEvent.pointerDown(document.body); // a press outside collapses the composer
   expect(screen.getByRole("textbox")).toBe(textarea);
   expect(textarea.getAttribute("aria-expanded")).toBe("false");
   expect(image.closest("[hidden]")).toBeTruthy();

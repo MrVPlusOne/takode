@@ -121,7 +121,6 @@ function ToolbarHarness({
         onRequestPermissionMode={() => {}}
         onCancelPermissionMode={() => {}}
         onConfirmPermissionMode={() => {}}
-        collapseAllButton={null}
         pauseControl={null}
         onOpenFilePicker={() => {}}
         warmMicrophone={warmMicrophone}

@@ -1,4 +1,4 @@
-import { ComposerMinimizer, ComposerMinimizeButton } from "./ComposerMinimizer.js";
+import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
@@ -29,7 +29,6 @@ import { ComposerMenus } from "./ComposerMenus.js";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 import { buildComposerPlaceholder } from "./composer-placeholder.js";
 import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
-import { CollapseAllButton } from "./ComposerCollapseAllButton.js";
 import { ComposerInputSurface } from "./ComposerSurface.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
@@ -1828,10 +1827,6 @@ export function Composer({
                 }}
                 onCancelPermissionMode={() => setPendingPermissionMode(null)}
                 onConfirmPermissionMode={confirmPermissionChange}
-                collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
-                minimizeButton={
-                  <ComposerMinimizeButton disabled={keepComposerOpen} onClick={() => setComposerExpanded(false)} />
-                }
                 pauseControl={
                   <PauseOtherSourcesButton
                     isPaused={isPaused}

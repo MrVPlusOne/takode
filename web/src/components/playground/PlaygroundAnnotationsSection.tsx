@@ -1,5 +1,5 @@
 import { useComposerTextareaSize } from "../use-composer-textarea-size.js";
-import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "../ComposerMinimizer.js";
+import { ComposerMinimizer, ComposerVisibilityContext } from "../ComposerMinimizer.js";
 import { useContext, useEffect, useId, useRef, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { ComposerCompactPreview } from "../ComposerCompactPreview.js";
 import { useStore } from "../../store.js";
@@ -57,11 +57,12 @@ export function PlaygroundAnnotationsSection() {
       <p className="text-sm text-cc-muted">
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
         at the passage, or hover to strengthen its highlight and preview the comment. Clicking outside an open comment
-        editor saves a non-empty comment; Cancel or Escape discards it. Minimize the draft to read more of the feed: an
-        ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear the text to
-        try an attachment-only draft. Click the compact draft to expand and focus it. Moving the pointer over or away
-        from the composer leaves it unchanged. Simulate voice completion to insert text and release focus without
-        leaving the composer. This preview changes only local fixture state and records no audio.
+        editor saves a non-empty comment; Cancel or Escape discards it. Click outside the composer to minimize the draft
+        and read more of the feed: an ellipsis indicates more text, and small image/comment counts keep attachments
+        discoverable. Clear the text to try an attachment-only draft. Click the compact draft to expand and focus it.
+        Moving the pointer over or away from the composer leaves it unchanged. Simulate voice completion to insert text
+        and release focus without leaving the composer. This preview changes only local fixture state and records no
+        audio.
       </p>
       <div
         ref={root}
@@ -97,7 +98,6 @@ export function PlaygroundAnnotationsSection() {
             />
             <div hidden={!visible}>
               <div className="flex items-center gap-2 p-2">
-                <ComposerMinimizeButton disabled={editing} onClick={() => setExpanded(false)} />
                 <button
                   type="button"
                   className="rounded-lg border border-cc-border px-3 py-2 text-sm text-cc-fg"

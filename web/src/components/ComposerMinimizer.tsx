@@ -75,29 +75,3 @@ export function ComposerMinimizer({
     </div>
   );
 }
-
-/** Fit manual minimization into the existing toolbar without adding a row. */
-export function ComposerMinimizeButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-label="Minimize composer"
-      title="Minimize composer"
-      aria-expanded="true"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
-    >
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        className="h-4 w-4"
-      >
-        <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-}

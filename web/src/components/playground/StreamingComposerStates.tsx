@@ -70,7 +70,6 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
           onRequestPermissionMode={() => {}}
           onCancelPermissionMode={() => {}}
           onConfirmPermissionMode={() => {}}
-          collapseAllButton={null}
           pauseControl={null}
           onOpenFilePicker={() => {}}
           warmMicrophone={() => {}}

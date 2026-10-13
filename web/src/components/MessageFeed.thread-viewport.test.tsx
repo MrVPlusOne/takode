@@ -42,7 +42,6 @@ vi.mock("../ws.js", () => ({
 }));
 
 const mockStoreValues: Record<string, unknown> = {};
-const mockSetCollapsibleTurnIds = vi.fn();
 const mockSetActiveTaskTurnId = vi.fn();
 
 vi.mock("../store.js", () => {
@@ -96,8 +95,6 @@ vi.mock("../store.js", () => {
   useStore.getState = () => ({
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: vi.fn(),
-    collapseAllTurnActivity: vi.fn(),
-    setCollapsibleTurnIds: mockSetCollapsibleTurnIds,
     turnActivityOverrides: new Map(),
     autoExpandedTurnIds: new Map(),
     toggleTurnActivity: vi.fn(),
@@ -170,7 +167,6 @@ function makeThreadWindow(overrides: Partial<ThreadWindowState> = {}): ThreadWin
 beforeEach(() => {
   mockScrollTo.mockClear();
   mockSetActiveTaskTurnId.mockClear();
-  mockSetCollapsibleTurnIds.mockClear();
   mockSendToSession.mockClear();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
