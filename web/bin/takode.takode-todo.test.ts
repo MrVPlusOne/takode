@@ -125,6 +125,8 @@ describe("takode todo", () => {
       expect(show.stdout).toContain("Markdown:\n[Reply to Alice]");
       expect(show.stdout).toContain("Private full detail");
       expect(show.stdout).toContain("Authorization: direct_message");
+      // Users never see td-N IDs, so show prints a ready-to-paste link with the plain-text title.
+      expect(show.stdout).toContain("Link: [Reply to Alice](todo:td-1)");
     } finally {
       server.close();
     }
@@ -306,6 +308,52 @@ describe("takode todo", () => {
 
       const show = await runTakode(["todo", "show", "td-1"], port);
       expect(show.stdout).toContain("Linked quests:\n  q-7 [done] Build the export");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("prints a ready-to-paste proposal link after proposing and in proposal show", async () => {
+    // Users never see tp-N IDs, so agents need a `[label](todo:tp-N)` link that opens the
+    // proposal preview. An add proposal is labelled by its plain-text to-do title.
+    const proposal = {
+      id: "tp-7",
+      mutation: { action: "item:add", input: { markdown: "Review **PR 98888**\nDetails stay out of the label" } },
+      status: "pending",
+      createdAt: 100,
+      updatedAt: 100,
+      requestedBy: { kind: "session", sessionId: "worker-1", label: "2978" },
+    };
+    const server = createServer(async (req, res) => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/api/takode/me") {
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      }
+      if (req.method === "POST" && req.url === "/api/todos/proposals") {
+        await readJson(req);
+        res.writeHead(201);
+        return res.end(JSON.stringify({ state: snapshot(), proposal }));
+      }
+      if (req.url === "/api/todos/proposals/tp-7") {
+        return res.end(JSON.stringify({ proposal }));
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const proposed = await runTakode(["todo", "propose", "add", "Review PR 98888"], port);
+      expect(proposed.status).toBe(0);
+      expect(proposed.stdout).toContain("Link: [Review PR 98888](todo:tp-7)");
+
+      const show = await runTakode(["todo", "proposal", "show", "tp-7"], port);
+      expect(show.stdout).toContain("Link: [Review PR 98888](todo:tp-7)");
+
+      // Proposals only add new to-dos; other changes are described to the user for approval instead.
+      const retired = await runTakode(["todo", "propose", "status", "td-1", "done"], port);
+      expect(retired.status).toBe(1);
+      expect(retired.stderr).toContain("Proposals only add new to-dos");
     } finally {
       server.close();
     }

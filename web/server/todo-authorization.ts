@@ -79,6 +79,12 @@ export async function authorizeTodoMutation(
     categoryIds: string[];
     authorizedBy?: unknown;
     allowGrant?: boolean;
+    /**
+     * The change cannot make the user lose track of something, so an agent may make it on its own
+     * judgment. Everything else needs the user's approval (`--authorized-by` naming their reply to
+     * the agent's description of the change) or a matching grant; new to-dos can also be proposed.
+     */
+    lowRisk?: boolean;
   },
 ): Promise<TodoAuthorizationResult> {
   const auth = ctx.authenticateCompanionCallerOptional(c);
@@ -138,19 +144,43 @@ export async function authorizeTodoMutation(
     }
   }
 
+  if (options.lowRisk) {
+    return { ok: true, provenance: { actor: callerActor(auth), authorization: { kind: "agent_direct" }, at: now } };
+  }
+
+  const canPropose = options.action === "item:add";
   return {
     ok: false,
     response: c.json(
       {
-        error:
-          "This to-do mutation is not authorized. Use --authorized-by <human-message-index>, run under a matching workflow grant, or create a proposal instead.",
-        canPropose: true,
+        error: canPropose
+          ? "Adding a to-do needs the user's approval. Propose it with `takode todo propose add`, or describe it to the user and rerun with --authorized-by <their reply's message index>."
+          : "This to-do change needs the user's approval. Describe it to the user, linking the to-do, and rerun with --authorized-by <their reply's message index>.",
+        canPropose,
         requiredAction: options.action,
         requiredCategoryIds: options.categoryIds,
       },
       403,
     ),
   };
+}
+
+/**
+ * An edit that only adds text: the title stays and every existing line is kept, in order. Adding
+ * context to a to-do is low-risk; rewording or removing what the user wrote is not.
+ */
+export function isAdditiveTodoEdit(before: string, after: string): boolean {
+  const lines = (markdown: string) =>
+    markdown
+      .split(/\r\n|\n|\r/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  const kept = lines(before);
+  const next = lines(after);
+  if (next[0] !== kept[0]) return false;
+  let matched = 0;
+  for (const line of next) if (line === kept[matched]) matched += 1;
+  return matched === kept.length;
 }
 
 export function todoProposalActor(

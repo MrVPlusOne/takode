@@ -12,6 +12,7 @@ import type {
   TodoStatus,
 } from "../shared/todo-types.js";
 import { TODO_GRANT_ACTIONS, TODO_STATUSES } from "../shared/todo-types.js";
+import { formatTodoMarkdownLink } from "../shared/todo-link.js";
 import {
   apiGet,
   apiPatch,
@@ -170,8 +171,14 @@ function printItems(items: TodoCompactItem[]): void {
   );
 }
 
+/** A ready-to-paste `[title](todo:td-N)` link, so agents can point the user at the to-do's preview. */
+function itemLink(item: TodoItem): string {
+  return `Link: ${formatTodoMarkdownLink(item.id, titleText(derivedTitle(item.markdown)))}`;
+}
+
 function printItem(item: TodoItem, category: TodoCategory | null, quests: TodoLinkedQuest[]): void {
   console.log(`${item.id}  ${item.status.toUpperCase()}${item.archivedAt ? "  ARCHIVED" : ""}`);
+  console.log(itemLink(item));
   console.log(`Category: ${category?.name ?? item.categoryId} (${item.categoryId})`);
   if (quests.length) {
     console.log("Linked quests:");
@@ -290,7 +297,7 @@ async function handleAdd(
   })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
   console.log(
-    `Added ${response.item!.id} [${response.item!.status}] ${titleText(derivedTitle(response.item!.markdown))}`,
+    `Added ${response.item!.id} [${response.item!.status}] ${titleText(derivedTitle(response.item!.markdown))}\n${itemLink(response.item!)}`,
   );
 }
 
@@ -439,6 +446,16 @@ async function handleCategory(base: string, args: string[], flags: Record<string
   );
 }
 
+/** A ready-to-paste `[label](todo:tp-N)` link, so agents can point the user at the proposal's preview. */
+function proposalLink(proposal: TodoProposal): string {
+  const mutation = proposal.mutation;
+  const label =
+    mutation.action === "item:add"
+      ? titleText(derivedTitle(mutation.input.markdown ?? mutation.input.titleMarkdown ?? ""))
+      : proposalSummary(proposal);
+  return `Link: ${formatTodoMarkdownLink(proposal.id, label)}`;
+}
+
 function proposalSummary(proposal: TodoProposal): string {
   const mutation = proposal.mutation;
   switch (mutation.action) {
@@ -496,63 +513,9 @@ async function buildProposalMutation(
       },
     };
   }
-  if (action === "edit") {
-    if (!args[0]) err("Usage: takode todo propose edit <td-id> --markdown-file ...");
-    const input = await readItemInput(flags);
-    return { action: "item:edit", itemId: args[0], input };
-  }
-  if (action === "status") {
-    if (!args[0] || !args[1]) err("Usage: takode todo propose status <td-id> <todo|doing|done>");
-    return { action: "item:status", itemId: args[0], status: validStatus(args[1])! };
-  }
-  if (action === "move") {
-    if (!args[0]) err("Usage: takode todo propose move <td-id> [category] [--before <td-id>|--after <td-id>]");
-    const beforeItemId = resolveStringFlag(flags, "before", "before item id");
-    const afterItemId = resolveStringFlag(flags, "after", "after item id");
-    if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
-    if (!args[1] && !beforeItemId && !afterItemId) err("Move requires a category, --before, or --after.");
-    return {
-      action: "item:move",
-      itemId: args[0],
-      ...(args[1] ? { categoryId: await resolveCategoryId(base, args[1]) } : {}),
-      ...(beforeItemId ? { beforeItemId } : {}),
-      ...(afterItemId ? { afterItemId } : {}),
-    };
-  }
-  if (action === "archive" || action === "restore") {
-    if (!args[0]) err(`Usage: takode todo propose ${action} <td-id>`);
-    return { action: action === "archive" ? "item:archive" : "item:restore", itemId: args[0] };
-  }
-  if (action === "link" || action === "unlink") {
-    const questIds = questIdArgs(args.slice(1));
-    if (!args[0] || questIds.length === 0) err(`Usage: takode todo propose ${action} <td-id> <q-id>...`);
-    return {
-      action: "item:link",
-      itemId: args[0],
-      [action === "link" ? "addQuestIds" : "removeQuestIds"]: questIds,
-    };
-  }
-  if (action === "category-create") {
-    if (!args[0]) err("Usage: takode todo propose category-create <name>");
-    return { action: "category:create", input: { name: args[0] } };
-  }
-  if (action === "category-rename") {
-    if (!args[0] || !args[1]) err("Usage: takode todo propose category-rename <category> <new-name>");
-    return { action: "category:rename", categoryId: await resolveCategoryId(base, args[0]), name: args[1] };
-  }
-  if (action === "category-archive" || action === "category-restore") {
-    if (!args[0]) err(`Usage: takode todo propose ${action} <category>`);
-    if (action === "category-archive") {
-      return { action: "category:archive", categoryId: await resolveCategoryId(base, args[0]) };
-    }
-    const categories = ((await apiGet(base, "/todos/categories")) as { categories: TodoCategory[] }).categories;
-    const category = categories.find(
-      (candidate) => candidate.id === args[0] || candidate.name.toLocaleLowerCase() === args[0]!.toLocaleLowerCase(),
-    );
-    if (!category) err(`Category not found: ${args[0]}`);
-    return { action: "category:restore", categoryId: category.id };
-  }
-  err(`Unknown proposal action: ${action}`);
+  err(
+    `Proposals only add new to-dos (takode todo propose add ...). For other changes, describe the change to the user, linking the to-do, and rerun the command with --authorized-by <their reply's message index>.`,
+  );
 }
 
 async function handleProposal(
@@ -580,7 +543,7 @@ async function handleProposal(
       .proposal;
     if (jsonOutput(flags, proposal)) return;
     console.log(
-      `${proposal.id}  ${proposal.status}\n${proposalSummary(proposal)}\nRequested by: ${proposal.requestedBy.kind}${proposal.requestedBy.label ? ` (${proposal.requestedBy.label})` : ""}`,
+      `${proposal.id}  ${proposal.status}\n${proposalSummary(proposal)}\nRequested by: ${proposal.requestedBy.kind}${proposal.requestedBy.label ? ` (${proposal.requestedBy.label})` : ""}\n${proposalLink(proposal)}`,
     );
     return;
   }
@@ -613,12 +576,14 @@ async function handleProposal(
       "after",
       "json",
     ]),
-    "Usage: takode todo propose <add|edit|status|move|archive|restore|link|unlink|category-create|category-rename|category-archive|category-restore> ... [--json]",
+    "Usage: takode todo propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--before <td-id>|--after <td-id>] [--json]",
   );
   const mutation = await buildProposalMutation(base, action, rest, flags);
   const response = (await apiPost(base, "/todos/proposals", { mutation })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.proposal)) return;
-  console.log(`Proposed ${response.proposal!.id}: ${proposalSummary(response.proposal!)}`);
+  console.log(
+    `Proposed ${response.proposal!.id}: ${proposalSummary(response.proposal!)}\n${proposalLink(response.proposal!)}`,
+  );
 }
 
 function grantSummary(grant: TodoGrant, categories: Map<string, TodoCategory>): string {

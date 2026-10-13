@@ -434,17 +434,20 @@ Mutation commands:
   archive|restore <td-id> [--authorized-by <index>] [--json]
   link|unlink <td-id> <q-id>... [--authorized-by <index>] [--json]
   category create|rename|archive|restore ... [--authorized-by <index>] [--json]
-  propose <add|edit|status|move|archive|restore|link|unlink|category-create|category-rename|category-archive|category-restore> ...
+  propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status ...] [--before|--after <td-id>]
   proposal approve|reject <tp-id> [--authorized-by <index>] [--json]
   grant create --principal-kind session|cron --principal <id> --actions <csv>
       [--categories <csv>|--all-categories] [--authorized-by <index>] [--json]
   grant revoke <tg-id> [--authorized-by <index>] [--json]
 
 Authorization:
-  Reads and proposals are allowed to authenticated Takode sessions. Real-list mutations require a direct human user-message index from the same session or a matching server-derived session/cron workflow grant. UI actions are user-authorized. Unauthorized commands fail closed; use \`takode todo propose ...\` instead.
+  Reads are open to authenticated Takode sessions. Low-risk changes, which cannot make the user lose track of anything, need no approval: edits that only add text (the title stays and every existing line is kept), linking or unlinking quests, setting status to todo or doing, and restoring an archived item or category. Every other change needs the user's approval: describe it to them, linking the to-do, and pass their reply's message index with --authorized-by; a matching session/cron workflow grant also authorizes it. New to-dos can instead be proposed with \`takode todo propose add\`, which the user approves from the proposal's preview; proposals only add new to-dos. UI actions are user-authorized. Unauthorized commands fail closed.
+
+Links:
+  Mention to-dos as \`[title](todo:td-12)\` and proposals as \`[summary](todo:tp-36)\`; both open a preview. add, show, propose and proposal show print ready-to-paste links.
 
 Quest links:
-  A to-do can link related quests as metadata (many-to-many). Links are informational only: a quest's progress never changes a to-do's status, so judge whether the to-do is done and change it yourself when authorized. list shows each linked quest's current status, show adds titles, \`find --quest\` lists the to-dos linked to a quest, and \`quest show\` lists them too. Linking is a to-do mutation (grant action item:link) with the usual authorization.
+  A to-do can link related quests as metadata (many-to-many). Links are informational only: a quest's progress never changes a to-do's status, so judge whether the to-do is done and change it yourself when authorized. list shows each linked quest's current status, show adds titles, \`find --quest\` lists the to-dos linked to a quest, and \`quest show\` lists them too. Linking and unlinking are low-risk changes an agent may make on its own judgment.
 
 Markdown and ordering:
   Each item is one Markdown body: the first non-empty line is its derived title and later lines are collapsible details. Prefer --markdown-file (use \`-\` for stdin) for links or shell-sensitive content. Legacy --title-file/--details-file inputs remain compatibility aliases. Use --before/--after for active Todo/Doing order; Done remains grouped by completion time. Default list/find output is compact; show and explicit JSON reveal the raw body and provenance.

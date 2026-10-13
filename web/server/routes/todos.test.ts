@@ -347,33 +347,81 @@ describe("to-do routes", () => {
     expect((await unlinked.json()).item.questIds).toEqual(["q-7", "q-8"]);
   });
 
-  it("requires the usual to-do authority to link quests, with item:link grants and proposals", async () => {
+  it("lets agents link quests on their own judgment, and refuses link proposals", async () => {
+    // Quest links are informational metadata, so they cannot make the user lose track of anything.
     quests = [{ questId: "q-7", title: "Build the export", status: "done" }];
     const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Ship export" })).json()).item;
-    await jsonRequest("/todos/grants", "POST", {
-      principal: { kind: "cron", id: "daily-briefing" },
-      actions: ["item:link"],
-      categoryIds: null,
-    });
 
     optionalCaller = caller();
-    const denied = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7"] });
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toMatchObject({ canPropose: true, requiredAction: "item:link" });
-
-    optionalCaller = caller({ cronJobId: "daily-briefing" });
-    const granted = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7"] });
-    expect((await granted.json()).item.lastModifiedBy.authorization).toMatchObject({ kind: "grant" });
-
-    requiredCaller = caller();
-    const badProposal = await jsonRequest("/todos/proposals", "POST", {
-      mutation: { action: "item:link", itemId: item.id, addQuestIds: ["q-404"] },
+    const missing = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-404"] });
+    expect(missing.status).toBe(404);
+    const linked = await jsonRequest(`/todos/items/${item.id}/links`, "POST", { addQuestIds: ["q-7"] });
+    expect(linked.status).toBe(200);
+    expect((await linked.json()).item.lastModifiedBy).toMatchObject({
+      actor: { kind: "session", sessionId: "session-1" },
+      authorization: { kind: "agent_direct" },
     });
-    expect(badProposal.status).toBe(404);
+
+    // Proposals only add new to-dos now; other changes go through the user's reply.
+    requiredCaller = caller();
     const proposal = await jsonRequest("/todos/proposals", "POST", {
       mutation: { action: "item:link", itemId: item.id, removeQuestIds: ["q-7"] },
     });
-    expect(proposal.status).toBe(201);
+    expect(proposal.status).toBe(400);
+    expect((await proposal.json()).error).toContain("Proposals only add new to-dos");
     expect((await store.getItem(item.id)).questIds).toEqual(["q-7"]);
+  });
+
+  it("lets agents make low-risk changes directly and requires approval for changes that could lose track", async () => {
+    // The split: adding text, starting or reopening a to-do and restoring are low-risk; rewording or
+    // removing text, completing, archiving, moving and category changes need the user's approval.
+    const item = (
+      await (await jsonRequest("/todos/items", "POST", { markdown: "Review PR 98888\nAsked by Junhong" })).json()
+    ).item;
+    const done = (await (await jsonRequest("/todos/items", "POST", { markdown: "Old task", status: "done" })).json())
+      .item;
+    const archived = (await (await jsonRequest("/todos/items", "POST", { markdown: "Parked" })).json()).item;
+    await jsonRequest(`/todos/items/${archived.id}/archive`, "POST", {});
+
+    optionalCaller = caller();
+    const allowed: Array<[string, string, unknown]> = [
+      [
+        `/todos/items/${item.id}`,
+        "PATCH",
+        { markdown: "Review PR 98888\nAsked by Junhong\nWeights question answered" },
+      ],
+      [`/todos/items/${item.id}/status`, "POST", { status: "doing" }],
+      [`/todos/items/${done.id}/status`, "POST", { status: "todo" }],
+      [`/todos/items/${archived.id}/restore`, "POST", {}],
+    ];
+    for (const [path, method, body] of allowed) {
+      const response = await jsonRequest(path, method, body);
+      expect(response.status, path).toBe(200);
+      expect((await response.json()).item.lastModifiedBy.authorization.kind).toBe("agent_direct");
+    }
+
+    const needsApproval: Array<[string, string, unknown]> = [
+      // Renaming the title or dropping a line the user wrote.
+      [
+        `/todos/items/${item.id}`,
+        "PATCH",
+        { markdown: "Review PR 98899\nAsked by Junhong\nWeights question answered" },
+      ],
+      [`/todos/items/${item.id}`, "PATCH", { markdown: "Review PR 98888\nWeights question answered" }],
+      [`/todos/items/${item.id}/status`, "POST", { status: "done" }],
+      [`/todos/items/${item.id}/archive`, "POST", {}],
+      [`/todos/items/${item.id}/move`, "POST", { beforeItemId: done.id }],
+      ["/todos/items", "POST", { markdown: "New reminder" }],
+      ["/todos/categories", "POST", { name: "New category" }],
+      ["/todos/categories/cat-inbox", "PATCH", { name: "Renamed" }],
+    ];
+    for (const [path, method, body] of needsApproval) {
+      const response = await jsonRequest(path, method, body);
+      expect(response.status, `${method} ${path}`).toBe(403);
+      expect((await response.json()).error).toContain("--authorized-by");
+    }
+    expect((await store.getItem(item.id)).markdown).toBe(
+      "Review PR 98888\nAsked by Junhong\nWeights question answered",
+    );
   });
 });

@@ -34,6 +34,8 @@ import { HighlightedText, buildHighlightPattern } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { NotificationInlineLink } from "./NotificationInlineLink.js";
 import { parseNotificationLinkHref } from "../../shared/notification-link.js";
+import { parseTodoLinkHref } from "../../shared/todo-link.js";
+import { TodoInlineLink } from "./TodoInlineLink.js";
 import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
 import {
   KATEX_RENDER_OPTIONS,
@@ -866,6 +868,18 @@ export const MarkdownContent = memo(function MarkdownContent({
                 >
                   {children}
                 </NotificationInlineLink>
+              );
+            }
+            const todoTarget = parseTodoLinkHref(href);
+            if (todoTarget) {
+              return (
+                <TodoInlineLink
+                  target={todoTarget}
+                  className={`text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`}
+                  stopPropagation={stopLinkPropagation}
+                >
+                  {children}
+                </TodoInlineLink>
               );
             }
             const sessionLink = parseSessionLinkFromHref(href);

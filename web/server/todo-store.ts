@@ -219,7 +219,7 @@ export function applyLegacyTodoMarkdownEdit(markdown: string, input: TodoItemEdi
   return normalizeMarkdown(next);
 }
 
-function resolveEditMarkdown(current: string, input: TodoItemEditInput): string {
+export function resolveEditMarkdown(current: string, input: TodoItemEditInput): string {
   const hasMarkdown = input.markdown !== undefined;
   const hasLegacy = input.titleMarkdown !== undefined || hasOwn(input, "detailsMarkdown");
   if (hasMarkdown && hasLegacy) {
