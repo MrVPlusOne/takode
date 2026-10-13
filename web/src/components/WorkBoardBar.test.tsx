@@ -1141,16 +1141,14 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    // Main carries its own bell, and Needs you lists Main rather than a separate chip.
+    // Main carries its own bell and is in no group, so no Needs you group appears for it.
     const mainTab = getByTestId("thread-tab-group-main");
     expect(mainTab).toHaveTextContent("Main");
     expect(mainTab).not.toHaveTextContent("Answer");
     expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
     expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
-    const needsYou = getByTestId("thread-tab-group-chip");
-    expect(needsYou).toHaveAttribute("data-group", "needs-input");
-    expect(needsYou).toHaveAttribute("data-count", "1");
+    expect(queryByTestId("thread-tab-group-chip")).not.toBeInTheDocument();
   });
 
   it("renders Main needs-input as an attention bell without tinting Main while a quest tab is current", () => {

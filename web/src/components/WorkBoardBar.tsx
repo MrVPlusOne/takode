@@ -545,12 +545,7 @@ function WorkBoardBarComponent({
 
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    const nextThreadKey = threadKeyToSelectAfterClosing(
-      normalized,
-      displayedThreadTabs,
-      currentThreadKey,
-      mainThreadState,
-    );
+    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, displayedThreadTabs, currentThreadKey);
     onCloseThreadTab?.(normalized, nextThreadKey);
   };
   // The quest strip's close button closes through here too, so every close picks the next

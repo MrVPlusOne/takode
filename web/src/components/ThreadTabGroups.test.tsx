@@ -57,14 +57,13 @@ function renderBar(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {})
 describe("groupThreadTabs", () => {
   it("files tabs by prompt, unread result, finished state, keeping tab order", () => {
     // A prompt outranks an unread result, and a finished tab with an unread result stays
-    // under New results until it is read; Main joins only through its bells.
-    const groups = groupThreadTabs(TABS, MAIN);
+    // under New results until it is read.
+    const groups = groupThreadTabs(TABS);
     const keys = (id: keyof typeof groups) => groups[id].map((item) => item.threadKey);
     expect(keys("needs-input")).toEqual(["q-11"]);
-    expect(keys("new-results")).toEqual(["main", "q-12"]);
+    expect(keys("new-results")).toEqual(["q-12"]);
     expect(keys("in-progress")).toEqual(["q-10"]);
     expect(keys("done")).toEqual(["q-13", "q-14", "q-15"]);
-    expect(groupThreadTabs([], tab("main")).done).toEqual([]);
   });
 });
 
@@ -122,7 +121,7 @@ describe("ThreadTabGroupBar", () => {
     // groups read left to right as stages of the work: ongoing, then unread results, then done.
     expect(chips.map((chip) => [chip.dataset.group, chip.dataset.count])).toEqual([
       ["in-progress", "1"],
-      ["new-results", "2"],
+      ["new-results", "1"],
       ["done", "3"],
     ]);
     expect(chips.map((chip) => chip.dataset.selected)).toEqual(["true", "false", "false"]);
@@ -130,19 +129,38 @@ describe("ThreadTabGroupBar", () => {
 
   it("opens a group's list and switches tabs from it", () => {
     const { onSelect } = renderBar();
-    const results = screen
-      .getAllByTestId("thread-tab-group-chip")
-      .find((chip) => chip.dataset.group === "new-results")!;
-    fireEvent.click(results);
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.click(done);
     const list = screen.getByTestId("thread-tab-group-list");
     expect(
       within(list)
         .getAllByTestId("thread-tab-list-row")
         .map((row) => row.dataset.threadKey),
-    ).toEqual(["main", "q-12"]);
+    ).toEqual(["q-13", "q-14", "q-15"]);
     fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[1]!);
-    expect(onSelect).toHaveBeenCalledWith("q-12");
+    expect(onSelect).toHaveBeenLastCalledWith("q-14");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("keeps Main out of the groups, with its bell on its own tab and in Find", () => {
+    // Main has a prompt and the only quest prompt is answered, so no Needs you group shows:
+    // counting Main there too duplicated it, and tapping that group from Main did nothing.
+    renderBar({
+      main: tab("main", { questId: undefined, title: "Main Thread", needsInput: true }),
+      tabs: TABS.filter((item) => !item.needsInput),
+      currentThreadKey: "main",
+    });
+    expect(screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group)).not.toContain(
+      "needs-input",
+    );
+    expect(within(screen.getByTestId("thread-tab-group-main")).getByTestId("thread-tab-bell").dataset.kind).toBe(
+      "needs-input",
+    );
+    // Find still reaches Main's prompt: Main stays pinned first, bell included.
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    const firstRow = within(screen.getByTestId("thread-tab-switcher")).getAllByTestId("thread-tab-list-row")[0]!;
+    expect(firstRow.dataset.threadKey).toBe("main");
+    expect(within(firstRow).getByTestId("thread-tab-bell").dataset.kind).toBe("needs-input");
   });
 
   it("opens a larger group's first tab and its list in one tap", () => {

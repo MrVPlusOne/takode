@@ -39,23 +39,19 @@ const GROUP_LABEL: Record<ThreadTabGroupId, string> = {
 };
 
 /**
- * Splits tabs by what the user looks for. A prompt outranks an unread result; without
- * either, a tab is in progress until its quest is finished. Main joins a group only when
- * it has a prompt or a result. Within a group, the tab that entered it most recently
- * (the server's `groupChangedAt`) comes first, and ties keep the leader's tab order.
+ * Splits quest tabs by what the user looks for. A prompt outranks an unread result; without
+ * either, a tab is in progress until its quest is finished. Main is never a member: it is
+ * always its own tab with its own bell, so counting it again in a group duplicated it.
+ * Within a group, the tab that entered it most recently (the server's `groupChangedAt`)
+ * comes first, and ties keep the leader's tab order.
  */
-export function groupThreadTabs(
-  tabs: readonly PrimaryThreadChip[],
-  main?: PrimaryThreadChip,
-): Record<ThreadTabGroupId, PrimaryThreadChip[]> {
+export function groupThreadTabs(tabs: readonly PrimaryThreadChip[]): Record<ThreadTabGroupId, PrimaryThreadChip[]> {
   const groups: Record<ThreadTabGroupId, PrimaryThreadChip[]> = {
     "needs-input": [],
     "new-results": [],
     "in-progress": [],
     done: [],
   };
-  if (main?.needsInput) groups["needs-input"].push(main);
-  else if (main?.blueNudge) groups["new-results"].push(main);
   for (const tab of tabs) {
     if (tab.needsInput) groups["needs-input"].push(tab);
     else if (tab.blueNudge) groups["new-results"].push(tab);
@@ -88,14 +84,10 @@ export function threadKeyToSelectAfterClosing(
   threadKey: string,
   tabs: readonly PrimaryThreadChip[],
   currentThreadKey: string,
-  main?: PrimaryThreadChip,
 ): string {
   const closing = normalizeThreadKey(threadKey);
   const currentKey = normalizeThreadKey(currentThreadKey);
-  const groups = groupThreadTabs(
-    tabs.map((tab) => readOnScreen(tab, currentKey)),
-    main ? readOnScreen(main, currentKey) : undefined,
-  );
+  const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
   for (const group of Object.values(groups)) {
     const index = group.findIndex((tab) => normalizeThreadKey(tab.threadKey) === closing);
     if (index < 0) continue;
@@ -148,10 +140,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     updatedAt: 0,
   };
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
-  const groups = groupThreadTabs(
-    tabs.map((tab) => readOnScreen(tab, currentKey)),
-    readOnScreen(mainTab, currentKey),
-  );
+  const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
   // The All view sits under the Main strip too, so Main is the selected tab there.
   const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
   const currentGroup = onMain
@@ -625,8 +614,9 @@ function ThreadTabSwitcherSheet({
   const [filter, setFilter] = useState<ThreadTabGroupId | "all">("all");
   const [query, setQuery] = useState("");
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
-  const total = THREAD_TAB_GROUP_ORDER.reduce((sum, id) => sum + groups[id].filter((tab) => !isMain(tab)).length, 1);
-  const showMainRow = filter === "all" && !main.needsInput && !main.blueNudge && matchesQuery(main, query);
+  const total = THREAD_TAB_GROUP_ORDER.reduce((sum, id) => sum + groups[id].length, 1);
+  // Main is in no group, so the sheet always pins it first, with its bell when it has one.
+  const showMainRow = filter === "all" && matchesQuery(main, query);
   const sections = THREAD_TAB_GROUP_ORDER.filter((id) => filter === "all" || filter === id)
     .map((id) => ({ id, tabs: groups[id].filter((tab) => matchesQuery(tab, query)) }))
     .filter((section) => section.tabs.length > 0);
