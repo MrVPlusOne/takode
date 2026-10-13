@@ -1123,6 +1123,28 @@ describe("NewSessionModal", () => {
     expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ hostId: "h1", cwd: "/Users/me/app" }));
   });
 
+  // Each machine has its own Claude and Codex programs: the backend picker
+  // follows the chosen machine, not the server's. Here the server's machine has
+  // no Codex while the laptop host has it (the reported bug), and vice versa
+  // for Claude, so each switch must refetch and re-enable the right button.
+  it("offers the backends the selected machine has", async () => {
+    const user = userEvent.setup();
+    mockRemoteHosts = [{ id: "h1", name: "laptop", online: true }];
+    mockApi.getBackends.mockImplementation(async (hostId?: string) => [
+      { id: "claude", name: "Claude", available: hostId !== "h1" },
+      { id: "codex", name: "Codex", available: hostId === "h1" },
+    ]);
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Codex" })).toBeDisabled());
+
+    await user.selectOptions(screen.getByLabelText("Machine"), "h1");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Codex" })).toBeEnabled());
+    expect(mockApi.getBackends).toHaveBeenLastCalledWith("h1");
+    // The reason names the machine that lacks the program.
+    expect(screen.getByRole("button", { name: "Claude" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Claude" })).toHaveAttribute("title", "Claude CLI not found on laptop");
+  });
+
   // Opened from a session on a remote host (the new-session shortcut), the
   // dialog starts on that host with the session's folder.
   it("opens on the machine of the folder it was given", async () => {

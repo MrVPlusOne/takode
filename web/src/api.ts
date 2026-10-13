@@ -1500,7 +1500,9 @@ export const api = {
     get<PRStatusResponse>(`/git/pr-status?cwd=${encodeURIComponent(cwd)}&branch=${encodeURIComponent(branch)}`),
 
   // Backends
-  getBackends: () => get<BackendInfo[]>("/backends"),
+  /** Backends a new session can use on this machine, or on the remote host `hostId`. */
+  getBackends: (hostId?: string) =>
+    get<BackendInfo[]>(`/backends${hostId ? `?host=${encodeURIComponent(hostId)}` : ""}`),
   getBackendModels: (backendId: string) => get<BackendModelInfo[]>(`/backends/${encodeURIComponent(backendId)}/models`),
 
   // Containers

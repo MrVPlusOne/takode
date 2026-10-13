@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { machineSettingsFor } from "../remote-host/machine-settings.js";
 import { readFile, writeFile, stat, rm, mkdir, unlink, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -9,7 +8,7 @@ import * as cronStore from "../cron-store.js";
 import { getNamerLogIndex, getNamerLogEntry } from "../session-namer.js";
 import { runExport, runImport, type ImportStats } from "../migration.js";
 import { containerManager } from "../container-manager.js";
-import { resolveBinary, captureUserShellEnv } from "../path-resolver.js";
+import { captureUserShellEnv } from "../path-resolver.js";
 import { getLogPath } from "../server-logger.js";
 import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
@@ -36,7 +35,9 @@ import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
 import { getClaudeModelCatalog } from "../claude-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
-import { hostIsOnline, machineFor } from "../remote-host/session-machine.js";
+import { hostIsOnline, machineFor, machineProgram } from "../remote-host/session-machine.js";
+import { onMachine } from "../remote-host/host-operations.js";
+import { remoteHostFailure } from "./session-remote-host.js";
 import { getTakodeProcessBuildId, TAKODE_DEVELOPMENT_BUILD_ID } from "../build-identity.js";
 
 function getCodexModelVariantRank(slug: string): number {
@@ -577,17 +578,25 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   // ─── Available backends ─────────────────────────────────────
 
-  api.get("/backends", (c) => {
-    // Availability on this machine; remote hosts resolve their own programs.
-    const s = machineSettingsFor(null);
-    const backends: Array<{ id: string; name: string; available: boolean }> = [];
-
-    // Only two creation-time backends: "claude" (launched through the Agent SDK)
-    // and "codex".
-    backends.push({ id: "claude", name: "Claude", available: resolveBinary(s.claudeBinary || "claude") !== null });
-    backends.push({ id: "codex", name: "Codex", available: resolveBinary(s.codexBinary || "codex") !== null });
-
-    return c.json(backends);
+  api.get("/backends", async (c) => {
+    // Availability on the machine a new session would run on: this one, or the remote host `host`.
+    const host = c.req.query("host") || undefined;
+    // Only two creation-time backends: "claude" (launched through the Agent SDK) and "codex".
+    const backends = [
+      { id: "claude", name: "Claude" },
+      { id: "codex", name: "Codex" },
+    ] as const;
+    try {
+      const found = await onMachine(
+        host,
+        "findPrograms",
+        backends.map(({ id }) => machineProgram(host, id)),
+      );
+      return c.json(backends.map((backend, index) => ({ ...backend, available: found[index] ?? false })));
+    } catch (error) {
+      if (!host) throw error;
+      return remoteHostFailure(c, error, host, launcher.remoteHosts?.registry);
+    }
   });
 
   api.get("/backends/:id/models", async (c) => {

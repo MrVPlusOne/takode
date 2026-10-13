@@ -6,7 +6,8 @@ import { resolveGitInfo, makeDefaultState } from "../bridge/session-git-state.js
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 import { HostAgent } from "./host-agent.js";
 import { HostLinkManager, HostUnavailableError } from "./host-link-manager.js";
-import { configureRemoteMachines, hostHasUsableNetwork, machineFor } from "./session-machine.js";
+import { configureMachineSettings } from "./machine-settings.js";
+import { configureRemoteMachines, hostHasUsableNetwork, machineFor, machineProgram } from "./session-machine.js";
 import { resolveFileLinkPath } from "../routes/filesystem.js";
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -136,5 +137,36 @@ describe("session machine on a remote host", () => {
       return content === "png-bytes";
     });
     expect(hostHasUsableNetwork(hostId)).toBe(true);
+  });
+});
+
+/**
+ * The program the coordinator expects a machine to run for a backend, so it
+ * can ask that machine whether the program exists. It must follow the host's
+ * own order (node command line, then machine setting, then the bare name), or
+ * the New Session dialog would check a program the host never runs.
+ */
+describe("machineProgram", () => {
+  afterEach(() => {
+    configureRemoteMachines(null);
+    configureMachineSettings(null);
+  });
+
+  it("prefers the node's command line, then the machine setting, then the role name", () => {
+    configureMachineSettings({
+      machineSettings: (id) =>
+        id === "laptop"
+          ? { claudeBinary: "/opt/claude", codexBinary: "/opt/homebrew/bin/codex", worktreeRoot: "" }
+          : { claudeBinary: "", codexBinary: "", worktreeRoot: "" },
+    });
+    configureRemoteMachines({
+      status: (id: string) => ({ commandOverrides: id === "laptop" ? { claude: "/node/claude" } : {} }),
+    } as unknown as HostLinkManager);
+
+    expect(machineProgram("laptop", "claude")).toBe("/node/claude");
+    expect(machineProgram("laptop", "codex")).toBe("/opt/homebrew/bin/codex");
+    expect(machineProgram("other-host", "codex")).toBe("codex");
+    // This machine's own programs come from its settings only.
+    expect(machineProgram(undefined, "codex")).toBe("codex");
   });
 });

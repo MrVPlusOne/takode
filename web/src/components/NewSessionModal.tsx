@@ -375,16 +375,26 @@ export function NewSessionModal({
       .then(({ model }) => setCodexDefaultModel(model || ""))
       .catch(() => setCodexDefaultModel(""));
     api
-      .getBackends()
-      .then(setBackends)
-      .catch(() => {});
-    api
       .getSettings()
       .then((settings) => {
         setSettingsDefaults(settings.sessionDefaults);
       })
       .catch(() => {});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Which backends the selected machine has; each machine finds its own programs.
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    api
+      .getBackends(hostId || undefined)
+      .then((list) => current && setBackends(list))
+      // Unknown availability (e.g. the machine is offline, which the folder check reports) blocks no backend.
+      .catch(() => current && setBackends((list) => list.map((b) => ({ ...b, available: true }))));
+    return () => {
+      current = false;
+    };
+  }, [open, hostId]);
 
   useEffect(() => {
     if (!open) return;
@@ -857,7 +867,7 @@ export function NewSessionModal({
                           key={b.id}
                           onClick={() => b.available && switchBackend(b.id as NewSessionBackend)}
                           disabled={!b.available}
-                          title={b.available ? b.name : `${b.name} CLI not found in PATH`}
+                          title={b.available ? b.name : `${b.name} CLI not found on ${machineName}`}
                           className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
                             !b.available
                               ? "text-cc-muted/40 cursor-not-allowed"
@@ -1090,7 +1100,7 @@ export function NewSessionModal({
                               key={b.id}
                               onClick={() => b.available && switchBackend(b.id as NewSessionBackend)}
                               disabled={!b.available}
-                              title={b.available ? b.name : `${b.name} CLI not found in PATH`}
+                              title={b.available ? b.name : `${b.name} CLI not found on ${machineName}`}
                               className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
                                 !b.available
                                   ? "text-cc-muted/40 cursor-not-allowed"

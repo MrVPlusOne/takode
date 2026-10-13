@@ -5,6 +5,7 @@ import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git
 import { startLandingRunner } from "../landing-runner-launcher.js";
 import { syncBaseCheckoutToRemote } from "../landing-target-sync.js";
 import { recreateSessionCheckout } from "../migration.js";
+import { resolveBinary } from "../path-resolver.js";
 import { verifyReview } from "../port-tracking.js";
 import { verifyPublishedDeliveryTarget } from "../published-delivery-target.js";
 import { buildCodeDelivery, runPortCommand } from "../quest-code-deliveries.js";
@@ -24,6 +25,8 @@ import { requestOnHost } from "./session-machine.js";
  */
 const operations = {
   listDirectories: (path: string | undefined, showHidden: boolean) => listDirectories(path, showHidden),
+  // For each program, whether this machine can find it (the New Session backend picker).
+  findPrograms: (programs: string[]) => programs.map((program) => resolveBinary(program) !== null),
   repoInfo: (cwd: string) => getRepoInfoAsync(cwd),
   listBranches: (repoRoot: string, options: Parameters<typeof listBranchesAsync>[1]) =>
     listBranchesAsync(repoRoot, options),

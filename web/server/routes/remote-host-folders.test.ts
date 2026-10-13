@@ -10,6 +10,7 @@ import { configureRemoteMachines } from "../remote-host/session-machine.js";
 import type { RouteContext } from "./context.js";
 import { createFilesystemRoutes } from "./filesystem.js";
 import { createGitRoutes } from "./git.js";
+import { createSystemRoutes } from "./system.js";
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
   const started = Date.now();
@@ -24,7 +25,8 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 /**
- * The new-session dialog browses folders and repos on a selected remote host.
+ * The new-session dialog browses folders and repos, and checks which backends
+ * exist, on a selected remote host.
  * The "remote" host is an in-process HostAgent reached only through the host
  * link, so a passing request proves the route asked the host; every folder it
  * lists lives under a temporary directory.
@@ -65,6 +67,8 @@ describe("folder and repo routes for a remote host", () => {
       coordinatorUrl: "http://coordinator.test",
       token: "token",
       apiProxyPort: 45_678,
+      // The node's command-line programs, which the host runs instead of its settings.
+      commands: { claude: join(dir, "missing-claude"), codex: join(dir, "codex") },
       log: () => {},
       connect: () => new FakeHostLink(manager, hostId).agentSide,
     });
@@ -83,6 +87,7 @@ describe("folder and repo routes for a remote host", () => {
     app = new Hono();
     app.route("/api", createFilesystemRoutes(ctx));
     app.route("/api", createGitRoutes(ctx));
+    app.route("/api", createSystemRoutes(ctx));
   });
 
   afterEach(async () => {
@@ -226,6 +231,26 @@ describe("folder and repo routes for a remote host", () => {
     });
   });
 
+  // Backends are offered by what the chosen machine has, not the coordinator:
+  // the host looks for the programs its node actually runs (here its
+  // command-line choices), on its own filesystem and PATH.
+  it("reports which backends the host can run", async () => {
+    const request = vi.spyOn(manager, "request");
+    await writeFile(join(dir, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+
+    const res = await app.request(`/api/backends?host=${hostId}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      { id: "claude", name: "Claude", available: false },
+      { id: "codex", name: "Codex", available: true },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      hostId,
+      { kind: "operation", name: "findPrograms", args: [[join(dir, "missing-claude"), join(dir, "codex")]] },
+      expect.any(Number),
+    );
+  });
+
   // An offline host gets a clear message naming it, not an empty folder.
   it("reports an offline host by name", async () => {
     agent.stop();
@@ -245,5 +270,9 @@ describe("folder and repo routes for a remote host", () => {
 
     const commits = await app.request(`/api/git/commits?host=${hostId}&repoRoot=${encodeURIComponent(repo)}`);
     expect(commits.status).toBe(503);
+
+    // Backend availability is unknown, not "missing".
+    const backends = await app.request(`/api/backends?host=${hostId}`);
+    expect(backends.status).toBe(503);
   });
 });

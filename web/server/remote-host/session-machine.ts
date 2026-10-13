@@ -2,10 +2,11 @@ import { exec as execCallback } from "node:child_process";
 import { mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import type { HostRequest, HostResponse } from "../../shared/host-protocol.js";
+import type { HostProgramRole, HostRequest, HostResponse } from "../../shared/host-protocol.js";
 import { coreActionLatency } from "../core-action-latency.js";
 import { spawnLocalTerminal, type TerminalOutput, type TerminalProcess } from "../terminal-process.js";
 import type { HostLinkManager } from "./host-link-manager.js";
+import { machineSettingsFor } from "./machine-settings.js";
 
 const execLocal = promisify(execCallback);
 
@@ -102,6 +103,16 @@ export function hostStartBlocker(hostId: string): string | null {
 /** Whether a remote host is reachable and reports a usable network of its own. */
 export function hostHasUsableNetwork(hostId: string): boolean {
   return hostLinks?.hasUsableNetwork(hostId) ?? false;
+}
+
+/**
+ * The program a machine runs for a role: on a remote host, the program its
+ * `takode node` was started with, else the machine's setting, else the role
+ * name, the same order the host uses (`HostAgent.program`).
+ */
+export function machineProgram(hostId: string | null | undefined, role: HostProgramRole): string {
+  const override = hostId ? hostLinks?.status(hostId).commandOverrides[role] : undefined;
+  return override || machineSettingsFor(hostId)[`${role}Binary`] || role;
 }
 
 /** Send a one-shot request to a remote host; rejects with `HostUnavailableError` while it is offline. */
