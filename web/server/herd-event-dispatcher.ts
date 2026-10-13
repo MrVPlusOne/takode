@@ -51,6 +51,7 @@ import {
   type LeaderIdleStateLike,
 } from "./bridge/session-registry-controller.js";
 import { sessionTag } from "./session-tag.js";
+import { getStableHerdEventKey } from "./herd-event-keys.js";
 import { formatCompactAgentLabel } from "../shared/takode-constants.js";
 
 export interface BufferedTakodeEventState {
@@ -1623,10 +1624,15 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
     }
     case "host_offline": {
       const silentFor = formatLeaseWaitDuration(evt.ts - evt.data.offlineSince);
-      return `${label} | host_offline | host ${evt.data.hostName} has not answered for ${silentFor}; this session cannot work and messages to it wait until the host is back${ageSuffix}`;
+      const sessions = evt.data.sessions
+        .map((session) => `${formatSessionNumLink(session)} (${session.reasons.join(", ")})`)
+        .join("; ");
+      return `${label} | host_offline | host ${evt.data.hostName} has not answered for ${silentFor}; these sessions there are stalled and messages to them wait until it is back: ${sessions}${ageSuffix}`;
     }
-    case "host_online":
-      return `${label} | host_online | host ${evt.data.hostName} is back after ${formatLeaseWaitDuration(evt.data.offlineForMs)}${ageSuffix}`;
+    case "host_online": {
+      const sessions = evt.data.sessions.map(formatSessionNumLink).join(", ");
+      return `${label} | host_online | host ${evt.data.hostName} is back after ${formatLeaseWaitDuration(evt.data.offlineForMs)}; ${sessions} can continue${ageSuffix}`;
+    }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;
   }
@@ -1701,6 +1707,8 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
     case "notification_dismissed":
     case "user_message":
     case "message_delivery":
+    case "host_offline":
+    case "host_online":
       return event.data.questId;
     default:
       return undefined;
@@ -1731,97 +1739,6 @@ function inferActivityEventRouteFromHistory(
       const inferredRoute = inferRouteFromHistoryEntryContent(entry);
       if (inferredRoute && inferredRoute.threadKey !== "main") return inferredRoute;
     }
-  }
-  return null;
-}
-
-function getStableHerdEventKey(event: TakodeEvent): string | null {
-  if (event.event === "turn_end") {
-    const range = event.data.msgRange;
-    if (!range) return null;
-    const keyParts: unknown[] = [
-      "turn_end",
-      event.sessionId,
-      event.data.reason,
-      event.data.duration_ms,
-      event.data.is_error,
-      event.data.interrupted,
-      event.data.interrupt_source,
-      event.data.interrupt_origin,
-      event.data.restart_prep_operation_id,
-      event.data.compacted,
-      event.data.recovery_pending,
-      event.data.provisional,
-      event.data.threadKey,
-      event.data.questId,
-      stableToolCountsPart(event.data.tools),
-      truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
-      range.from,
-      range.to,
-      event.data.questChange?.questId,
-      event.data.questChange?.from,
-      event.data.questChange?.to,
-      event.data.userMsgs?.count,
-      stableNumberListPart(event.data.userMsgs?.ids),
-      event.data.turn_source,
-    ];
-    if (event.data.awaiting_decision || event.data.resumed_after_decision) {
-      keyParts.push(event.data.awaiting_decision, event.data.resumed_after_decision);
-    }
-    return keyParts.map(stableKeyPart).join("|");
-  }
-  if (event.event === "worker_stream") {
-    if (event.data.report) return `worker_stream|${event.sessionId}|report|${event.data.report.id}`;
-    const range = event.data.msgRange;
-    if (!range) return null;
-    return [
-      "worker_stream",
-      event.sessionId,
-      event.data.reason,
-      event.data.duration_ms,
-      event.data.threadKey,
-      event.data.questId,
-      stableToolCountsPart(event.data.tools),
-      truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
-      range.from,
-      range.to,
-      event.data.questChange?.questId,
-      event.data.questChange?.from,
-      event.data.questChange?.to,
-      event.data.userMsgs?.count,
-      stableNumberListPart(event.data.userMsgs?.ids),
-      event.data.turn_source,
-    ]
-      .map(stableKeyPart)
-      .join("|");
-  }
-  if (event.event === "board_stalled") {
-    return [
-      "board_stalled",
-      event.sessionId,
-      event.data.questId,
-      event.data.stage,
-      event.data.signature,
-      event.data.workerStatus,
-      event.data.reviewerStatus,
-      event.data.reason,
-      event.data.action,
-    ]
-      .map(stableKeyPart)
-      .join("|");
-  }
-  if (event.event === "board_dispatchable") {
-    return [
-      "board_dispatchable",
-      event.sessionId,
-      event.data.questId,
-      event.data.signature,
-      event.data.rowUpdatedAt,
-      event.data.summary,
-      event.data.action,
-    ]
-      .map(stableKeyPart)
-      .join("|");
   }
   return null;
 }
@@ -1890,24 +1807,6 @@ function trimRecentEventKeys(inbox: HerdInbox): void {
   }
 }
 
-function stableToolCountsPart(tools: Record<string, number> | undefined): string {
-  if (!tools) return "";
-  return Object.entries(tools)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([tool, count]) => `${tool}:${count}`)
-    .join(",");
-}
-
-function stableNumberListPart(values: number[] | undefined): string {
-  return values?.join(",") ?? "";
-}
-
-function stableKeyPart(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
-}
-
 function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): TakodeHerdBatchSnapshot | undefined {
   const eventKeys = events.map((event) => getStableHerdEventKey(event) ?? "");
   const hasBoardStalledEvent = events.some((event) => event.event === "board_stalled");
@@ -1946,6 +1845,12 @@ function formatSessionLink(evt: TakodeEvent): string {
   return typeof evt.sessionNum === "number" && evt.sessionNum > 0
     ? `[#${evt.sessionNum}](session:${evt.sessionNum})`
     : evt.sessionName;
+}
+
+function formatSessionNumLink(session: { sessionId: string; sessionNum?: number }): string {
+  return typeof session.sessionNum === "number" && session.sessionNum > 0
+    ? `[#${session.sessionNum}](session:${session.sessionNum})`
+    : session.sessionId.slice(0, 8);
 }
 
 function formatToolCounts(tools: Record<string, number> | undefined): string {

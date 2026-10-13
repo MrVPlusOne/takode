@@ -225,19 +225,34 @@ export interface TakodeMessageDeliveryEventData {
   questId?: string;
 }
 
-/** The remote host a session runs on stopped answering (see host-outage-alerts.ts). */
+/** A leader's session whose work a host outage holds up (see host-outage-alerts.ts). */
+export interface TakodeHostOutageSession {
+  sessionId: string;
+  sessionNum?: number;
+  /** Why the outage holds up its work, such as "mid-turn", "2 messages waiting" or "q-12 in Work". */
+  reasons: string[];
+  /** The board quest it works on. */
+  questId?: string;
+}
+
+/** A remote host stopped answering while some of the leader's sessions there had work under way. */
 export interface TakodeHostOfflineEventData {
   hostId: string;
   hostName: string;
   /** When the host went silent, or when this coordinator started if it never heard from it. */
   offlineSince: number;
+  sessions: TakodeHostOutageSession[];
+  /** Set when every listed session works on this quest, so the event reaches its thread. */
+  questId?: string;
 }
 
-/** The remote host of a session reported by `host_offline` answers again. */
+/** A host reported by `host_offline` answers again. */
 export interface TakodeHostOnlineEventData {
   hostId: string;
   hostName: string;
   offlineForMs: number;
+  sessions: TakodeHostOutageSession[];
+  questId?: string;
 }
 
 export interface TakodeHerdBatchSnapshot {

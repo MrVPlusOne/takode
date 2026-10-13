@@ -76,7 +76,7 @@ import { FULL_SUITE_POOL_PREFIX } from "../shared/landing-queue.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
-import { HostOutageAlerts } from "./remote-host/host-outage-alerts.js";
+import { HostOutageAlerts, describeHeldWork } from "./remote-host/host-outage-alerts.js";
 import { flushHeldSdkMessages } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
 import { HostUpdateSessions } from "./remote-host/host-update-sessions.js";
 import { hostPortFor, hostPortGate, mainPortHostRefusal } from "./remote-host/host-port.js";
@@ -698,13 +698,21 @@ const messageDeliveries = new MessageDeliveryTracker({
       },
     ),
 });
-// Leaders hear when a remote host their sessions run on goes silent and when it is back.
-new HostOutageAlerts({
+// Leaders hear when a remote host goes silent while their sessions there have work under way, and when it is back.
+const hostOutageAlerts = new HostOutageAlerts({
   status: (hostId) => hostLinks.status(hostId),
   sessions: () => launcher.listSessions(),
+  heldWork: (info) =>
+    describeHeldWork(
+      info.sessionId,
+      wsBridge.getSession(info.sessionId),
+      (info.herdedBy && wsBridge.getSession(info.herdedBy)?.board.values()) || [],
+    ),
   hostName: (hostId) => hostRegistry.nameOf(hostId) ?? hostId,
-  emit: (sessionId, event, data) => herdEventDispatcher.emitTakodeEvent(sessionId, event, data),
-}).start();
+  emit: (leaderId, event, data) => herdEventDispatcher.emitTakodeEventForOrchestrator(leaderId, leaderId, event, data),
+});
+hostOutageAlerts.start();
+hostLinks.onStatusChange(() => hostOutageAlerts.check());
 // Messages held while a host was offline go to the sessions whose processes it still runs.
 hostLinks.onStatusChange((status) => {
   if (!status.online) return;

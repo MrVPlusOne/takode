@@ -1174,36 +1174,46 @@ describe("host outage events", () => {
     vi.useRealTimers();
   });
 
-  it("delivers a worker's host going silent and coming back to its leader", () => {
-    // A leader must learn that a worker's remote host stopped answering, since
-    // work sent there waits, and that it is back so it can carry on.
+  it("delivers one host outage alert per leader, listing its affected sessions", () => {
+    // HostOutageAlerts sends each leader one alert per outage straight to that
+    // leader, naming the sessions whose work is held up and why. The leader
+    // must see them as session links, and an alert about a single quest's
+    // sessions belongs in that quest's thread.
     const { bridge, launcher } = createMocks();
     vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
-    const dispatcher = new HerdEventDispatcher(bridge, launcher);
-    dispatcher.setupForOrchestrator("orch-1");
+    const dispatcher = new HerdEventDispatcher(bridge, launcher, { getSessionNum: () => 2851 });
 
-    const now = Date.now();
-    triggerEvent(
-      makeEvent({
-        event: "host_offline",
-        ts: now,
-        data: { hostId: "h1", hostName: "condor1-cpu-takode", offlineSince: now - 2 * 60_000 },
-      }),
-    );
+    const offlineSince = Date.now() - 2 * 60_000;
+    dispatcher.emitTakodeEventForOrchestrator("leader-a", "leader-a", "host_offline", {
+      hostId: "h1",
+      hostName: "condor1-cpu-takode",
+      offlineSince,
+      sessions: [
+        { sessionId: "worker-1", sessionNum: 2937, reasons: ["mid-turn", "q-12 in Work"], questId: "q-12" },
+        { sessionId: "worker-2", sessionNum: 2940, reasons: ["2 messages waiting"] },
+      ],
+    });
     vi.advanceTimersByTime(600);
-    triggerEvent(
-      makeEvent({
-        id: 2,
-        event: "host_online",
-        ts: now,
-        data: { hostId: "h1", hostName: "condor1-cpu-takode", offlineForMs: 16 * 60 * 60_000 },
-      }),
-    );
+    dispatcher.emitTakodeEventForOrchestrator("leader-a", "leader-a", "host_online", {
+      hostId: "h1",
+      hostName: "condor1-cpu-takode",
+      offlineForMs: 16 * 60 * 60_000,
+      sessions: [{ sessionId: "worker-1", sessionNum: 2937, reasons: ["mid-turn", "q-12 in Work"], questId: "q-12" }],
+      questId: "q-12",
+    });
     vi.advanceTimersByTime(600);
 
-    const contents = vi.mocked(bridge.injectUserMessage).mock.calls.map((call) => call[1]);
-    expect(contents[0]).toContain("host_offline | host condor1-cpu-takode has not answered for 2m 0s");
-    expect(contents[1]).toContain("host_online | host condor1-cpu-takode is back after 16h 0m");
+    const calls = vi.mocked(bridge.injectUserMessage).mock.calls;
+    expect(calls.map((call) => call[0])).toEqual(["leader-a", "leader-a"]);
+    expect(calls[0]![1]).toContain(
+      "host_offline | host condor1-cpu-takode has not answered for 2m 0s; these sessions there are stalled and messages to them wait until it is back: [#2937](session:2937) (mid-turn, q-12 in Work); [#2940](session:2940) (2 messages waiting)",
+    );
+    // Sessions on different quests: the alert stays in the main thread.
+    expect(calls[0]![4]).toMatchObject({ threadKey: "main" });
+    expect(calls[1]![1]).toContain(
+      "host_online | host condor1-cpu-takode is back after 16h 0m; [#2937](session:2937) can continue",
+    );
+    expect(calls[1]![4]).toMatchObject({ threadKey: "q-12" });
 
     dispatcher.destroy();
   });
