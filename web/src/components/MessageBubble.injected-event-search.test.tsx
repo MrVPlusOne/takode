@@ -226,7 +226,7 @@ describe("MessageBubble injected event search highlighting", () => {
     const chip = screen.getByRole("button", { name: `Expand ${CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL}` });
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(chip.textContent).toContain(CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL);
-    expect(chip.className).not.toContain("red-");
+    expect(chip.getAttribute("data-chip-tone")).toBe("neutral");
     expect(screen.queryByText(/send a new instruction in this thread/)).toBeNull();
 
     fireEvent.click(chip);
@@ -290,7 +290,7 @@ describe("MessageBubble injected event search highlighting", () => {
 
     const chip = screen.getByRole("button", { name: `Expand ${MEMORY_CATALOG_TITLE}` });
     expect(chip.textContent).toContain("warning");
-    expect(chip.className).toContain("red");
+    expect(chip.getAttribute("data-chip-tone")).toBe("warning");
     expect(screen.queryByText(/Memory repo:/)).toBeNull();
 
     fireEvent.click(chip);

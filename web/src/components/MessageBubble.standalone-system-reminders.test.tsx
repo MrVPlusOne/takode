@@ -72,11 +72,11 @@ describe("MessageBubble standalone system reminder messages", () => {
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
     const chip = screen.getByTestId("standalone-system-reminder-chip");
-    expect(chip.getAttribute("data-reminder-kind")).toBe("resource-lease");
+    expect(chip.getAttribute("data-chip-kind")).toBe("resource-lease");
     expect(chip.textContent).toContain("Resource lease acquired");
     expect(chip.textContent).toContain("agent-browser");
     // The wait sits outside the truncating summary so a long lease key cannot hide it.
-    expect(screen.getByTestId("system-reminder-meta").textContent).toBe("waited 3m 12s");
+    expect(screen.getByTestId("injected-message-chip-meta").textContent).toBe("waited 3m 12s");
     expect(chip.textContent).toContain("lease");
     expect(chip.textContent).not.toContain("Execute browser validation");
     expect(chip.textContent).not.toContain("expires");
@@ -126,7 +126,7 @@ describe("MessageBubble standalone system reminder messages", () => {
     const chip = screen.getByTestId("standalone-system-reminder-chip");
     expect(chip.textContent).toContain("agent-browser");
     expect(chip.textContent).not.toContain("waited");
-    expect(screen.queryByTestId("system-reminder-meta")).toBeNull();
+    expect(screen.queryByTestId("injected-message-chip-meta")).toBeNull();
     expect(chip.textContent).not.toContain("Execute browser validation");
 
     fireEvent.click(chip);
@@ -146,7 +146,7 @@ describe("MessageBubble standalone system reminder messages", () => {
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
     const chip = screen.getByTestId("standalone-system-reminder-chip");
-    expect(chip.getAttribute("data-reminder-kind")).toBe("long-sleep-guard");
+    expect(chip.getAttribute("data-chip-kind")).toBe("long-sleep-guard");
     expect(chip.textContent).toContain("Long sleep guard");
     expect(chip.textContent).toContain("guard");
     expect(screen.queryByTestId("agent-source-badge")).toBeNull();
@@ -162,7 +162,7 @@ describe("MessageBubble standalone system reminder messages", () => {
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
     const chip = screen.getByTestId("standalone-system-reminder-chip");
-    expect(chip.getAttribute("data-reminder-kind")).toBe("restart-continuation");
+    expect(chip.getAttribute("data-chip-kind")).toBe("restart-continuation");
     expect(chip.textContent).toContain("Restart continuation");
     expect(chip.textContent).toContain("system");
     expect(screen.queryByText("Continue.")).toBeNull();
@@ -200,5 +200,109 @@ describe("MessageBubble standalone system reminder messages", () => {
     } finally {
       useStore.setState({ sessionSearch: prevSearch });
     }
+  });
+
+  it("renders landing-queue messages as collapsed chips with the outcome as a badge", () => {
+    // The leader-facing completion message from the screenshot that motivated
+    // this: the chip shows only its first sentence; SHAs and the commit-links
+    // command stay in the expanded detail, and the agent still gets the full text.
+    const msg = makeMessage({
+      content: [
+        "[Landing queue] q-12 landed on jiayi and Takode completed it with final Memory's results.",
+        "Target SHAs in order: e26ee0c65e679d8342964f9dd4484f4c73d99217",
+        "Delivery a1b285f5b2ffc1ee6b63adbb3d5bb1c3: `quest commit-links q-12 --delivery a1b285f5b2ffc1ee6b63adbb3d5bb1c3`",
+      ].join("\n"),
+      agentSource: { sessionId: "landing-queue", sessionLabel: "Landing Queue" },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("landing-queue");
+    expect(chip.getAttribute("data-chip-tone")).toBe("success");
+    expect(chip.textContent).toContain("Landing queue");
+    expect(chip.textContent).toContain("q-12 landed on jiayi and Takode completed it with final Memory's results");
+    expect(chip.textContent).toContain("landed");
+    expect(chip.textContent).not.toContain("e26ee0c6");
+    expect(chip.textContent).not.toContain("[Landing queue]");
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+    expect(screen.queryByTestId("user-message-bubble")).toBeNull();
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/Target SHAs in order: e26ee0c65e679d8342964f9dd4484f4c73d99217/)).toBeTruthy();
+  });
+
+  it.each([
+    {
+      // Worker landed message: the SHAs follow the first sentence on the same line.
+      first: "[Landing queue] Your change for q-7 landed on release/1.2. Target SHAs in order: abc,def",
+      summary: "Your change for q-7 landed on release/1.2",
+      badge: "landed",
+      tone: "success",
+    },
+    {
+      // Run and log details in parentheses stay in the expanded text.
+      first:
+        "[Landing queue] Your change for q-7 bounced from main (run lr-1 on devbox, log /tmp/a.log) and did not land.",
+      summary: "Your change for q-7 bounced from main and did not land",
+      badge: "bounced",
+      tone: "attention",
+    },
+    {
+      first: "[Landing queue] q-7's change bounced and did not land. Reason: tests failed",
+      summary: "q-7's change bounced and did not land",
+      badge: "bounced",
+      tone: "attention",
+    },
+    {
+      first: "[Landing queue] q-7's change was withdrawn and did not land. Reason: none recorded",
+      summary: "q-7's change was withdrawn and did not land",
+      badge: "withdrawn",
+      tone: "attention",
+    },
+    {
+      // A landed change whose recording failed is a problem, not good news.
+      first:
+        "[Landing queue] q-7's change landed on main (target SHAs abc) but could not be completed: boom. Takode retries every few minutes.",
+      summary: "q-7's change landed on main but could not be completed: boom",
+      badge: "problem",
+      tone: "attention",
+    },
+  ])("summarizes the landing-queue message $badge", ({ first, summary, badge, tone }) => {
+    render(
+      <MessageBubble
+        message={makeMessage({
+          content: `${first}\n\nMore detail.`,
+          agentSource: { sessionId: "landing-queue" },
+        })}
+        showTimestamp={false}
+      />,
+    );
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-tone")).toBe(tone);
+    expect(chip.textContent).toBe(`Landing queue · ${summary}${badge}`);
+  });
+
+  it("renders session recovery notices as chips naming what Takode rebuilt", () => {
+    const msg = makeMessage({
+      content: [
+        "Takode had to rebuild part of this session before this launch. What was kept and what was lost:",
+        "- Worktree: /old no longer existed, so Takode created /new on your branch b. Kept: the commits on b.",
+        "- Conversation: your previous conversation is no longer saved on this session's machine.",
+        "Recover your context before acting.",
+      ].join("\n\n"),
+      agentSource: { sessionId: "system:session-recovery", sessionLabel: "System" },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("session-recovery");
+    expect(chip.textContent).toContain("Session rebuilt · new worktree, conversation lost");
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+    expect(screen.queryByText(/Recover your context/)).toBeNull();
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/Recover your context/)).toBeTruthy();
   });
 });

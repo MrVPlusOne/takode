@@ -1,34 +1,10 @@
-import { useId, useState } from "react";
+import type { SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
 import type { ChatMessage } from "../types.js";
-import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
-import { HighlightedText } from "./HighlightedText.js";
+import type { InjectedEventMessageViewModel } from "../utils/injected-event-message.js";
+import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
+import { EventIcon, WarningIcon } from "./InjectedMessageIcons.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
-
-type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
-
-function formatEventMessageTime(timestamp: number): string {
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function EventTimestamp({ timestamp }: { timestamp: number }) {
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return null;
-  const timeText = formatEventMessageTime(timestamp);
-  if (!timeText) return null;
-  return (
-    <time
-      data-testid="message-timestamp"
-      dateTime={d.toISOString()}
-      title={d.toLocaleString()}
-      className="inline-block ml-2 text-[11px] text-cc-muted/70"
-    >
-      {timeText}
-    </time>
-  );
-}
 
 function formatCharacterCount(count: number): string {
   return count.toLocaleString() + " " + (count === 1 ? "character" : "characters");
@@ -42,104 +18,38 @@ export function InjectedEventMessageView({
   searchHighlight,
   questLinkSurface = "legacy",
 }: {
-  event: NonNullable<ReturnType<typeof buildInjectedEventMessageViewModel>>;
+  event: InjectedEventMessageViewModel;
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
   questLinkSurface?: QuestLinkSurface;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const detailId = useId();
-  const renderedTitle = searchHighlight?.query ? (
-    <HighlightedText
-      text={event.title}
-      query={searchHighlight.query}
-      mode={searchHighlight.mode}
-      isCurrent={searchHighlight.isCurrent}
-    />
-  ) : (
-    event.title
-  );
   const warningTone = event.tone === "warning";
-  const chipClassName = warningTone
-    ? "inline-flex max-w-full items-center gap-2 rounded-md border border-red-400/45 bg-red-500/10 px-2 py-1 text-left text-[11px] leading-snug text-red-200/90 transition-colors hover:border-red-300/60 hover:bg-red-500/15 hover:text-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-300/70"
-    : "inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border/30 bg-cc-hover/15 px-2 py-1 text-left text-[11px] leading-snug text-cc-muted/85 transition-colors hover:border-cc-border/50 hover:bg-cc-hover/30 hover:text-cc-fg/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60";
-  const expandedClassName = warningTone
-    ? "mt-1.5 rounded-md border border-red-400/25 bg-red-500/10 px-2.5 py-2 text-left"
-    : "mt-1.5 rounded-md border border-cc-border/20 bg-cc-card/35 px-2.5 py-2 text-left";
-
   return (
-    <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setExpanded((value) => !value)}
-              aria-expanded={expanded}
-              aria-controls={detailId}
-              aria-label={`${expanded ? "Collapse" : "Expand"} ${event.title}`}
-              className={chipClassName}
-              data-testid="injected-event-message-chip"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className={`h-3 w-3 shrink-0 transition-transform ${warningTone ? "text-red-200/75" : "text-cc-muted/55"} ${expanded ? "rotate-90" : ""}`}
-              >
-                <path d="M6 4l4 4-4 4" />
-              </svg>
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                className={`h-3.5 w-3.5 shrink-0 ${warningTone ? "text-red-200/80" : "text-cc-muted/65"}`}
-                aria-hidden="true"
-              >
-                <path d="M8 2.5v4.25" strokeLinecap="round" />
-                <path d="M8 9.25v4.25" strokeLinecap="round" />
-                <path d="M2.5 8h4.25" strokeLinecap="round" />
-                <path d="M9.25 8h4.25" strokeLinecap="round" />
-                <circle cx="8" cy="8" r="1.35" />
-              </svg>
-              <span className="min-w-0 truncate font-mono-code">{renderedTitle}</span>
-              <span
-                className={`shrink-0 rounded-full border px-1.5 py-0.5 font-mono-code text-[9px] leading-none ${warningTone ? "border-red-300/40 text-red-100/80" : "border-cc-border/35 text-cc-muted/60"}`}
-              >
-                {warningTone ? "warning" : "event"}
-              </span>
-            </button>
-            {expanded && (
-              <div
-                id={detailId}
-                role="region"
-                aria-label={`${event.title} details`}
-                className={expandedClassName}
-                data-testid="injected-event-message-detail"
-              >
-                <p className={`mb-1.5 text-[11px] leading-snug ${warningTone ? "text-red-100/85" : "text-cc-muted"}`}>
-                  {event.description}
-                </p>
-                <p
-                  className={`mb-1.5 font-mono-code text-[10px] leading-snug ${warningTone ? "text-red-100/70" : "text-cc-muted/75"}`}
-                >
-                  Message size: {formatCharacterCount(event.messageSizeChars)}
-                </p>
-                <MarkdownContent
-                  text={event.rawContent}
-                  variant="conservative"
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  questLinkSurface={questLinkSurface}
-                />
-              </div>
-            )}
-          </div>
-          {showTimestamp && <EventTimestamp timestamp={message.timestamp} />}
-        </div>
-      </div>
-    </div>
+    <InjectedMessageRow timestamp={message.timestamp} showTimestamp={showTimestamp}>
+      <InjectedMessageChip
+        title={event.title}
+        badge={warningTone ? "warning" : "event"}
+        tone={warningTone ? "warning" : "neutral"}
+        icon={warningTone ? <WarningIcon /> : <EventIcon />}
+        testId="injected-event-message-chip"
+        searchHighlight={searchHighlight}
+      >
+        <p className={`mb-1.5 text-[11px] leading-snug ${warningTone ? "text-cc-error" : "text-cc-muted"}`}>
+          {event.description}
+        </p>
+        <p className="mb-1.5 font-mono-code text-[10px] leading-snug text-cc-muted">
+          Message size: {formatCharacterCount(event.messageSizeChars)}
+        </p>
+        <MarkdownContent
+          text={event.rawContent}
+          variant="conservative"
+          sessionId={sessionId}
+          searchHighlight={searchHighlight}
+          questLinkSurface={questLinkSurface}
+        />
+      </InjectedMessageChip>
+    </InjectedMessageRow>
   );
 }

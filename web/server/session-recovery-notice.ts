@@ -1,10 +1,11 @@
+import { SESSION_RECOVERY_SOURCE_ID } from "../shared/injected-event-message.js";
 import {
   getLeaderRecycleRecoveryInstructions,
   getStandardContextRecoveryInstructions,
 } from "./compaction-recovery-prompts.js";
 
 /** Sender of the message that tells a session's agent what Takode rebuilt when it launched. */
-export const SESSION_RECOVERY_SOURCE = { sessionId: "system:session-recovery", sessionLabel: "System" };
+export const SESSION_RECOVERY_SOURCE = { sessionId: SESSION_RECOVERY_SOURCE_ID, sessionLabel: "System" };
 
 /**
  * What Takode had to rebuild for a session since its agent last ran, kept

@@ -81,7 +81,7 @@ describe("MessageBubble thread-routing reminder messages", () => {
     render(<MessageBubble message={makeThreadRoutingReminderMessage()} sessionId="thread-routing-reminder-session" />);
 
     expect(screen.getByText("Thread routing reminder")).toBeTruthy();
-    expect(screen.getByTestId("model-only-reminder-icon").getAttribute("data-icon-kind")).toBe("route");
+    expect(screen.getByTestId("model-only-reminder-chip").getAttribute("data-chip-kind")).toBe("thread-routing");
     expect(screen.getByText("model-only")).toBeTruthy();
     expect(screen.queryByTestId("agent-source-badge")).toBeNull();
     expect(screen.queryByTitle("Message options")).toBeNull();
@@ -100,7 +100,7 @@ describe("MessageBubble thread-routing reminder messages", () => {
     render(<MessageBubble message={makeQuestThreadReminderMessage()} sessionId="quest-thread-reminder-session" />);
 
     expect(screen.getByText("Quest thread reminder")).toBeTruthy();
-    expect(screen.getByTestId("model-only-reminder-icon").getAttribute("data-icon-kind")).toBe("link");
+    expect(screen.getByTestId("model-only-reminder-chip").getAttribute("data-chip-kind")).toBe("quest-thread");
     expect(screen.getByText("model-only")).toBeTruthy();
     expect(screen.queryByTestId("agent-source-badge")).toBeNull();
     expect(screen.queryByTitle("Message options")).toBeNull();

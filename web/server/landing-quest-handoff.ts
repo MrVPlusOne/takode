@@ -1,7 +1,7 @@
-import type { LandingCommitMapping, LandingEntry } from "../shared/landing-queue.js";
+import { LANDING_QUEUE_MESSAGE_TAG, type LandingCommitMapping, type LandingEntry } from "../shared/landing-queue.js";
 import type { BoardRow, BoardRowLanding, ParkedQuestCompletion } from "./session-types.js";
 
-const TAG = "[Landing queue]";
+const TAG = LANDING_QUEUE_MESSAGE_TAG;
 
 export interface LandedDeliveryInput {
   questId: string;

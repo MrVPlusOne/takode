@@ -7,8 +7,18 @@ import {
   parseResourceLeaseMessageFields,
   stripResourceLeaseMessageFields,
 } from "../../shared/resource-lease-message.js";
+import { LANDING_QUEUE_MESSAGE_SOURCE, LANDING_QUEUE_MESSAGE_TAG } from "../../shared/landing-queue.js";
+import { SESSION_RECOVERY_SOURCE_ID } from "../../shared/injected-event-message.js";
 
-export type SystemReminderKind = "resource-lease" | "long-sleep-guard" | "restart-continuation";
+export type SystemReminderKind =
+  | "resource-lease"
+  | "long-sleep-guard"
+  | "restart-continuation"
+  | "landing-queue"
+  | "session-recovery";
+
+/** Color of a chip: good news, something that needs a look, or neutral system info. */
+export type SystemReminderTone = "success" | "attention" | "info";
 
 export interface SystemReminderDetailFact {
   label: string;
@@ -22,6 +32,7 @@ export interface SystemReminderViewModel {
   /** Short text kept visible beside the badge while the summary truncates. */
   meta?: string;
   badge: string;
+  tone: SystemReminderTone;
   /** Labeled facts shown above the detail text when the chip is expanded. */
   detailFacts: SystemReminderDetailFact[];
   /** Markdown shown when the chip is expanded. */
@@ -39,7 +50,9 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === NEEDS_INPUT_RESOLUTION_NOTICE_SOURCE_ID ||
     sourceId?.startsWith("resource-lease:") === true ||
     sourceId === "system:long-sleep-guard" ||
-    sourceId?.startsWith("system:restart-continuation:") === true
+    sourceId?.startsWith("system:restart-continuation:") === true ||
+    sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
+    sourceId === SESSION_RECOVERY_SOURCE_ID
   );
 }
 
@@ -54,6 +67,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
       title: "Long sleep guard",
       summary: "Use takode timer instead of sleeps longer than 1 minute.",
       badge: "guard",
+      tone: "attention",
       detailFacts: [],
       detailContent: message.content,
     };
@@ -64,10 +78,13 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
       title: "Restart continuation",
       summary: "Server restart resumed this session.",
       badge: "system",
+      tone: "info",
       detailFacts: [],
       detailContent: message.content,
     };
   }
+  if (sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId) return buildLandingQueueReminder(message.content);
+  if (sourceId === SESSION_RECOVERY_SOURCE_ID) return buildSessionRecoveryReminder(message.content);
   return null;
 }
 
@@ -91,8 +108,62 @@ function buildResourceLeaseReminder(message: ReminderCandidate, sourceId: string
     summary: resourceKey,
     ...(fields.waited ? { meta: `waited ${fields.waited}` } : {}),
     badge: "lease",
+    tone: "success",
     detailFacts,
     detailContent: stripResourceLeaseMessageFields(content),
+  };
+}
+
+/**
+ * Landing-queue messages tell a worker or leader that a change landed, bounced
+ * or could not be recorded. The chip keeps the first sentence ("q-12 landed on
+ * main") and an outcome badge; SHAs, commands and bounce logs stay in the detail.
+ */
+function buildLandingQueueReminder(content: string): SystemReminderViewModel {
+  const body = content.startsWith(LANDING_QUEUE_MESSAGE_TAG)
+    ? content.slice(LANDING_QUEUE_MESSAGE_TAG.length).trimStart()
+    : content;
+  const firstLine = body.split(/\r?\n/, 1)[0] ?? "";
+  // A first sentence ends at ". " so dotted branch names and paths stay whole.
+  // Parenthetical run, log and SHA details would push the outcome off a phone screen.
+  const sentenceEnd = firstLine.indexOf(". ");
+  const summary = (sentenceEnd >= 0 ? firstLine.slice(0, sentenceEnd) : firstLine)
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\.$/, "");
+  const outcome = landingOutcome(firstLine);
+  return {
+    kind: "landing-queue",
+    title: "Landing queue",
+    summary,
+    badge: outcome,
+    tone: outcome === "landed" ? "success" : outcome === "notice" ? "info" : "attention",
+    detailFacts: [],
+    detailContent: body,
+  };
+}
+
+function landingOutcome(firstLine: string): "landed" | "bounced" | "withdrawn" | "problem" | "notice" {
+  if (/\bcould not\b/.test(firstLine)) return "problem";
+  if (/\bbounced\b/.test(firstLine)) return "bounced";
+  if (/\bwas withdrawn\b/.test(firstLine)) return "withdrawn";
+  if (/\blanded on\b/.test(firstLine)) return "landed";
+  return "notice";
+}
+
+/** The notice lists what Takode rebuilt as "- Worktree:" and "- Conversation:" lines. */
+function buildSessionRecoveryReminder(content: string): SystemReminderViewModel {
+  const rebuilt = [
+    /^- Worktree:/m.test(content) ? "new worktree" : null,
+    /^- Conversation:/m.test(content) ? "conversation lost" : null,
+  ].filter((part): part is string => part !== null);
+  return {
+    kind: "session-recovery",
+    title: "Session rebuilt",
+    summary: rebuilt.length > 0 ? rebuilt.join(", ") : "Takode rebuilt part of this session",
+    badge: "system",
+    tone: "attention",
+    detailFacts: [],
+    detailContent: content,
   };
 }
 

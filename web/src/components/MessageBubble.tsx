@@ -39,6 +39,8 @@ import { getSingleAnchoredNotification } from "../utils/anchored-notifications.j
 import { buildThreadOutcomeReminderViewModel } from "../utils/thread-outcome-reminder.js";
 import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 import { InjectedEventMessageView } from "./InjectedEventMessageView.js";
+import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
+import { ClockIcon } from "./InjectedMessageIcons.js";
 import { isStandaloneReminderMessage, StandaloneReminderMessageView } from "./StandaloneReminderMessageView.js";
 import { FILE_TOOL_NAMES } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -665,75 +667,33 @@ function ThreadOutcomeReminderMessage({
   searchHighlight?: SearchHighlightInfo;
   questLinkSurface: QuestLinkSurface;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const notifications = useStore((s) => (sessionId ? s.sessionNotifications?.get(sessionId) : undefined));
   const reminder = buildThreadOutcomeReminderViewModel(message, notifications);
   if (!reminder) return null;
-  const renderedTitle = searchHighlight?.query ? (
-    <HighlightedText
-      text={reminder.title}
-      query={searchHighlight.query}
-      mode={searchHighlight.mode}
-      isCurrent={searchHighlight.isCurrent}
-    />
-  ) : (
-    reminder.title
-  );
 
   return (
-    <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setExpanded((value) => !value)}
-              aria-expanded={expanded}
-              aria-label={`${expanded ? "Collapse" : "Expand"} ${reminder.title}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border/35 bg-cc-hover/20 px-2 py-1 text-left text-[11px] leading-snug text-cc-muted/85 transition-colors hover:border-cc-border/55 hover:bg-cc-hover/35 hover:text-cc-fg/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
-              data-testid="thread-outcome-reminder-chip"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className={`h-3 w-3 shrink-0 text-cc-muted/55 transition-transform ${expanded ? "rotate-90" : ""}`}
-              >
-                <path d="M6 4l4 4-4 4" />
-              </svg>
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                className="h-3.5 w-3.5 shrink-0 text-cc-primary/65"
-                aria-hidden="true"
-              >
-                <path d="M8 2.5v5l3 1.5" strokeLinecap="round" strokeLinejoin="round" />
-                <circle cx="8" cy="8" r="5.5" />
-              </svg>
-              <span className="min-w-0 truncate font-mono-code">{renderedTitle}</span>
-            </button>
-            {expanded && (
-              <div className="mt-1.5 rounded-md border border-cc-border/20 bg-cc-card/35 px-2.5 py-2 text-left">
-                {reminder.satisfiedSummary && (
-                  <div className="mb-1.5 text-[11px] leading-snug text-cc-muted">
-                    Satisfied by needs-input: {reminder.satisfiedSummary}
-                  </div>
-                )}
-                <MarkdownContent
-                  text={reminder.rawContent}
-                  variant="conservative"
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  questLinkSurface={questLinkSurface}
-                />
-              </div>
-            )}
+    <InjectedMessageRow timestamp={message.timestamp} showTimestamp={showTimestamp}>
+      <InjectedMessageChip
+        title={reminder.title}
+        icon={<ClockIcon />}
+        testId="thread-outcome-reminder-chip"
+        kind="thread-outcome-reminder"
+        searchHighlight={searchHighlight}
+      >
+        {reminder.satisfiedSummary && (
+          <div className="mb-1.5 text-[11px] leading-snug text-cc-muted">
+            Satisfied by needs-input: {reminder.satisfiedSummary}
           </div>
-          {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
-        </div>
-      </div>
-    </div>
+        )}
+        <MarkdownContent
+          text={reminder.rawContent}
+          variant="conservative"
+          sessionId={sessionId}
+          searchHighlight={searchHighlight}
+          questLinkSurface={questLinkSurface}
+        />
+      </InjectedMessageChip>
+    </InjectedMessageRow>
   );
 }
 

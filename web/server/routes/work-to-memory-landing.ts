@@ -1,4 +1,4 @@
-import type { LandingEntry } from "../../shared/landing-queue.js";
+import { LANDING_QUEUE_MESSAGE_SOURCE, type LandingEntry } from "../../shared/landing-queue.js";
 import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { LandingQueueManager } from "../landing-queue-manager.js";
 import { LandingQuestHandoff } from "../landing-quest-handoff.js";
@@ -79,7 +79,6 @@ export function createLandingQuestHandoff(deps: {
       if (!wsBridge.completeLandedQuest) throw new Error("quest completion is not available");
       await wsBridge.completeLandedQuest(questId, completion, workerSessionId);
     },
-    notify: (sessionId, text) =>
-      void wsBridge.injectUserMessage(sessionId, text, { sessionId: "landing-queue", sessionLabel: "Landing Queue" }),
+    notify: (sessionId, text) => void wsBridge.injectUserMessage(sessionId, text, LANDING_QUEUE_MESSAGE_SOURCE),
   });
 }

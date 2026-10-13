@@ -72,7 +72,7 @@ import { setLandingRunnerApiPort, startLandingRunner } from "./landing-runner-la
 import { onMachine } from "./remote-host/host-operations.js";
 import { LandingQueueStore } from "./landing-queue-store.js";
 import { LandingGateStore } from "./landing-gate-store.js";
-import { FULL_SUITE_POOL_PREFIX } from "../shared/landing-queue.js";
+import { FULL_SUITE_POOL_PREFIX, LANDING_QUEUE_MESSAGE_SOURCE } from "../shared/landing-queue.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
@@ -333,7 +333,7 @@ const isLandingRunnerRequest = (request: Request): boolean =>
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
 const notifyFromLandingQueue = (sessionId: string, text: string) => {
-  wsBridge.injectUserMessage(sessionId, text, { sessionId: "landing-queue", sessionLabel: "Landing Queue" });
+  wsBridge.injectUserMessage(sessionId, text, LANDING_QUEUE_MESSAGE_SOURCE);
 };
 setLandingRunnerApiPort(port);
 const landingQueue = new LandingQueueManager(

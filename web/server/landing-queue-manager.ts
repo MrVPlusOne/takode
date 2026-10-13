@@ -19,6 +19,7 @@ import {
   type LandingRunnerLaunch,
   type LandingRunReport,
   type LandingTarget,
+  LANDING_QUEUE_MESSAGE_TAG,
 } from "../shared/landing-queue.js";
 import { LandingGateStore } from "./landing-gate-store.js";
 import { emptyLandingQueueFile, LandingQueueStore, type LandingQueueFile } from "./landing-queue-store.js";
@@ -863,7 +864,7 @@ export class LandingQueueManager {
     ].filter(Boolean);
     if (entry.state === "landed") {
       return [
-        `[Landing queue] Your change${quest} landed on ${where}.`,
+        `${LANDING_QUEUE_MESSAGE_TAG} Your change${quest} landed on ${where}.`,
         "",
         `Target SHAs in order: ${entry.mapping!.map((commit) => commit.target).join(",")}`,
         ...extras,
@@ -872,7 +873,7 @@ export class LandingQueueManager {
       ].join("\n");
     }
     return [
-      `[Landing queue] Your change${quest} bounced from ${where} and did not land.`,
+      `${LANDING_QUEUE_MESSAGE_TAG} Your change${quest} bounced from ${where} and did not land.`,
       "",
       `Reason: ${entry.reason}`,
       ...(entry.details ? ["", "```", entry.details.slice(-3000), "```"] : []),

@@ -7,6 +7,8 @@ export const LEADER_KICKOFF_SOURCE_LABEL = "Leader Kickoff";
 export const LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX = "system:leader-skill-preload:";
 export const LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX = "Required leader skill preloaded";
 export const MEMORY_CATALOG_SOURCE_ID = "system:memory-catalog";
+/** Sender of the notice telling a session's agent what Takode rebuilt before its launch. */
+export const SESSION_RECOVERY_SOURCE_ID = "system:session-recovery";
 export const CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX = "system:codex-turn-recovery:";
 export const CODEX_TURN_RECOVERY_SOURCE_LABEL = "Resuming Interrupted Work";
 export const MEMORY_CATALOG_SOURCE_LABEL = "Memory Catalog";

@@ -387,7 +387,8 @@ describe("MessageBubble needs-input reminder messages", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input resolution notice" }));
 
-    expect(screen.getByText("2.")).toBeTruthy();
+    // Users never see notification IDs, so the legacy entry number is not shown.
+    expect(screen.queryByText("2.")).toBeNull();
     expect(screen.getByText("Already handled")).toBeTruthy();
     expect(screen.getByText("(dismissed or resolved outside the agent)")).toBeTruthy();
   });

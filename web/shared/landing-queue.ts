@@ -25,6 +25,10 @@ export const LANDING_RUNNER_SESSION_PREFIX = "landing-runner:";
 export const LANDING_QUEUE_OWNER_PREFIX = "landing-queue:";
 /** Lease pools `full-suite:<repo>` (per machine) cap concurrent full runs (`takode land test --full`, `gate try`). */
 export const FULL_SUITE_POOL_PREFIX = "full-suite:";
+/** Sender of the queue's messages to sessions; the feed renders them as collapsed chips. */
+export const LANDING_QUEUE_MESSAGE_SOURCE = { sessionId: "landing-queue", sessionLabel: "Landing Queue" } as const;
+/** Every landing-queue message starts with this tag. */
+export const LANDING_QUEUE_MESSAGE_TAG = "[Landing queue]";
 
 export type LandingEntryState = "pending" | "running" | "landed" | "bounced" | "withdrawn";
 
