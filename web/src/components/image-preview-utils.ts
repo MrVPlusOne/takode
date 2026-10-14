@@ -94,11 +94,12 @@ export function extractMentionedLocalImagePreviewItems(
     start: match.index ?? 0,
     end: (match.index ?? 0) + match[0].length,
   }));
-  for (const match of text.matchAll(/!\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"\n]*")?\s*\)/g)) {
+  // `<...>` targets may hold spaces (`<file:/Users/me/Library/Mobile Documents/...>`).
+  for (const match of text.matchAll(/!\[[^\]\n]*\]\(\s*(?:<([^<>\n]+)>|([^)\s>]+))(?:\s+"[^"\n]*")?\s*\)/g)) {
     const matchStart = match.index ?? 0;
     if (literalRanges.some((range) => matchStart >= range.start && matchStart < range.end)) continue;
     localLinkRanges.push({ start: matchStart, end: matchStart + match[0].length });
-    addMarkdownImage(match[1] ?? "", matchStart);
+    addMarkdownImage(match[1] ?? match[2] ?? "", matchStart);
   }
 
   for (const match of text.matchAll(/`([^`\n]+)`/g)) {
@@ -109,10 +110,10 @@ export function extractMentionedLocalImagePreviewItems(
     else addAbsolutePath(codeText, matchStart);
   }
 
-  for (const match of text.matchAll(/!?\[[^\]\n]*\]\((file:[^)]+)\)/gi)) {
+  for (const match of text.matchAll(/!?\[[^\]\n]*\]\((?:<(file:[^<>\n]+)>|(file:[^)]+))\)/gi)) {
     const matchStart = match.index ?? 0;
     localLinkRanges.push({ start: matchStart, end: matchStart + match[0].length });
-    addFileHref(match[1] ?? "", matchStart);
+    addFileHref(match[1] ?? match[2] ?? "", matchStart);
   }
 
   for (const match of text.matchAll(/\bfile:[^\s`"'<>]+/gi)) {

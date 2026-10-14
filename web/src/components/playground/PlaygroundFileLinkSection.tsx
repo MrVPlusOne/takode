@@ -21,6 +21,15 @@ export function PlaygroundFileLinkSection() {
             />
           </div>
         </Card>
+        <Card label="Paths with spaces, tildes and parentheses (iCloud Drive)">
+          <MarkdownContent
+            text={[
+              "Agents write iCloud Drive links by their real path: [Trip_Plan_2026-10.md](file:/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Travel/Trip_Plan_2026-10.md)。",
+              "The bracketed form also works: [Budget (1).pdf](<file:/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Travel/Budget (1).pdf:2>).",
+              "Single tildes stay literal (~/a and ~/b in ~5 min) while ~~double tildes~~ strike through; code stays as written: `[a](file:/tmp/My Docs/a.md)`.",
+            ].join("\n\n")}
+          />
+        </Card>
       </div>
     </Section>
   );

@@ -152,8 +152,8 @@ export function normalizeFileResolveInput(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  const markdownFileLink = trimmed.match(/^\[[^\]]*]\((file:[^)]+)\)$/);
-  const linkOrPath = markdownFileLink ? markdownFileLink[1] : stripAngleBrackets(trimmed);
+  const markdownFileLink = trimmed.match(/^\[[^\]]*]\((?:<(file:[^<>]+)>|(file:[^)]+))\)$/);
+  const linkOrPath = markdownFileLink ? (markdownFileLink[1] ?? markdownFileLink[2]) : stripAngleBrackets(trimmed);
   const pathText = linkOrPath.startsWith("file:") ? linkOrPath.slice("file:".length).trim() : linkOrPath;
   return pathText ? pathText : null;
 }

@@ -1268,6 +1268,74 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
+  it("renders iCloud Drive file links whose paths hold spaces, tildes and parentheses", async () => {
+    // Agents on a Mac link iCloud Drive files by their real path, as in the reported message.
+    // CommonMark ends a bare link target at the first space, so the link showed as raw text
+    // with `~apple~` struck through. Both the bare form agents write and the angle-bracket
+    // form must become working links to the exact path.
+    mockReadFileLinkText.mockResolvedValue({ absolutePath: "/x.md", content: "# Notes" });
+    const icloud = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Medical";
+    const { container } = render(
+      <>
+        <MarkdownContent
+          text={[
+            `报告：[Research.md](file:${icloud}/Research 2026-10.md)。`,
+            `Scan: [scan](<file:${icloud}/Scan (1).pdf:3>) and [copy](file:${icloud}/Copy (2).txt)`,
+          ].join("\n\n")}
+        />
+        <MarkdownFileViewerHost />
+      </>,
+    );
+
+    expect(container.querySelector("del")).toBeNull();
+    expect(container.textContent).not.toContain("](");
+    expect(screen.getByRole("link", { name: "scan" }).getAttribute("href")).toBe(`file:${icloud}/Scan (1).pdf:3`);
+    expect(screen.getByRole("link", { name: "copy" }).getAttribute("href")).toBe(`file:${icloud}/Copy (2).txt:1`);
+
+    fireEvent.click(screen.getByRole("link", { name: "Research.md" }));
+    await screen.findByRole("dialog", { name: "Research 2026-10.md" });
+    expect(mockReadFileLinkText).toHaveBeenCalledWith(
+      { path: `${icloud}/Research 2026-10.md`, isRelative: false },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("opens spaced and special-character paths in a local editor with an exact URI", async () => {
+    // `#` and `?` would otherwise end the path inside the vscode:// URI.
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(<MarkdownContent text="[log](file:/tmp/My Logs/run #2?.log:4)" />);
+    fireEvent.click(screen.getByRole("link", { name: "log" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//tmp/My%20Logs/run%20%232%3F.log:4:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
+  it("leaves spaced file links in code exactly as written", () => {
+    // The renderer only repairs prose; code shows the literal source an agent quoted.
+    const source = "[a](file:/tmp/My Docs/a.txt)";
+    const { container } = render(<MarkdownContent text={`\`${source}\`\n\n\`\`\`\n${source}\n\`\`\``} />);
+
+    expect(screen.queryByRole("link")).toBeNull();
+    const codes = [...container.querySelectorAll("code")].map((node) => node.textContent?.trim());
+    expect(codes).toEqual([source, source]);
+  });
+
+  it("keeps single tildes literal while double tildes still strike through", () => {
+    // Paths and approximations (`~/a and ~/b`, `~5 min`) must not render as strikethrough.
+    const { container } = render(<MarkdownContent text="Edit ~/a and ~/b in ~5 min, not ~~this~~." />);
+
+    expect(container.textContent).toContain("Edit ~/a and ~/b in ~5 min, not this.");
+    expect([...container.querySelectorAll("del")].map((node) => node.textContent)).toEqual(["this"]);
+  });
+
   it("opens explicit and standard HTML file links through native same-browser new-tab navigation", () => {
     // A real target=_blank anchor preserves browser popup, modifier, and keyboard semantics
     // without an async window.open call that can be blocked or duplicated.

@@ -630,6 +630,8 @@ export interface DirListResult {
   path: string;
   dirs: DirEntry[];
   home: string;
+  /** Well-known starting folders of the listed machine, such as iCloud Drive on a Mac. */
+  places?: DirEntry[];
   error?: string;
 }
 

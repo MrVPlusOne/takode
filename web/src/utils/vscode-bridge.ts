@@ -14,7 +14,9 @@ export interface VsCodeOpenFileTarget {
 
 export function buildLocalEditorUri(target: VsCodeOpenFileTarget, editor: "vscode-local" | "cursor"): string {
   const scheme = editor === "cursor" ? "cursor" : "vscode";
-  const pathUri = `${scheme}://file/${encodeURI(target.absolutePath)}`;
+  // encodeURI leaves `#` and `?` as is, which would end the path early.
+  const encodedPath = encodeURI(target.absolutePath).replace(/[#?]/g, encodeURIComponent);
+  const pathUri = `${scheme}://file/${encodedPath}`;
   if (target.targetKind === "directory") {
     return pathUri;
   }

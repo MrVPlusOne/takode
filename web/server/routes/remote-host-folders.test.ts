@@ -108,6 +108,8 @@ describe("folder and repo routes for a remote host", () => {
         { name: "repo", path: repo },
       ],
       home: homedir(),
+      // The host's own platform decides its places (directory-listing.test.ts covers them).
+      places: expect.any(Array),
     });
     expect(request).toHaveBeenCalledWith(
       hostId,

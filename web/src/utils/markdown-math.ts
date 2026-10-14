@@ -1,8 +1,7 @@
 import type { Element, Parent as HastParent, Root as HastRoot } from "hast";
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified, type Processor } from "unified";
+import type { Processor } from "unified";
 import type { VFile } from "vfile";
+import { markdownSourceParser } from "./markdown-syntax.js";
 
 interface MarkdownPosition {
   start?: { offset?: number };
@@ -59,10 +58,6 @@ export const MAX_MATH_SOURCE_LENGTH = 2048;
 /** Bound aggregate KaTeX input per rendered Markdown surface. */
 export const MAX_TOTAL_MATH_SOURCE_LENGTH = 8192;
 
-const compatibilityParser =
-  typeof remarkGfm === "function"
-    ? unified().use(remarkParse).use(remarkGfm).freeze()
-    : unified().use(remarkParse).freeze();
 const HARD_PROTECTED_MARKDOWN_NODES = new Set([
   "code",
   "inlineCode",
@@ -170,7 +165,7 @@ function hasBackslashMathCandidate(source: string): boolean {
 
 function parseCompatibilityTree(source: string): MarkdownNode | null {
   try {
-    return compatibilityParser.parse(source) as MarkdownNode;
+    return markdownSourceParser.parse(source) as MarkdownNode;
   } catch {
     return null;
   }

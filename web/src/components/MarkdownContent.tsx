@@ -58,6 +58,8 @@ import {
   type FileLinkActionTarget,
   type FileLinkResolveResponse,
 } from "../api/file-link-actions.js";
+import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
+import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -683,7 +685,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
-  const preparedMath = useMemo(() => prepareMarkdownMathSource(text), [text]);
+  const preparedMath = useMemo(() => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(text)), [text]);
   const imagePathLinks = useContext(ImagePathLinkContext);
   const imagePathLinksPlugin = useMemo<NonNullable<MarkdownOptions["remarkPlugins"]>>(
     () =>
@@ -767,7 +769,7 @@ export const MarkdownContent = memo(function MarkdownContent({
     >
       <Markdown
         remarkPlugins={[
-          remarkGfm,
+          [remarkGfm, REMARK_GFM_OPTIONS],
           remarkMath,
           remarkBreaks,
           remarkNormalizeOrderedListContinuations,

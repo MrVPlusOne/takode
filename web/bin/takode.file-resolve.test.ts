@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeFileResolveInput } from "./takode-file-resolve.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -302,5 +303,14 @@ describe("takode file-resolve", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("normalizeFileResolveInput", () => {
+  it("accepts Markdown file links whose target is in angle brackets because the path has spaces", () => {
+    // Agents write `[name](<file:...>)` for paths such as iCloud Drive's "Mobile Documents".
+    const path = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a b.md";
+    expect(normalizeFileResolveInput(`[a b.md](<file:${path}>)`)).toBe(path);
+    expect(normalizeFileResolveInput(`[a b.md](file:${path})`)).toBe(path);
   });
 });

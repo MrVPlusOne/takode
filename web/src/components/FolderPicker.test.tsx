@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockListDirs = vi.fn();
@@ -78,5 +78,45 @@ describe("FolderPicker", () => {
     expect(mockListDirs).toHaveBeenNthCalledWith(1, "/Users/someone/Code/app", { hidden: false, hostId: "h1" });
     expect(mockListDirs).toHaveBeenNthCalledWith(2, undefined, { hidden: false, hostId: "h1" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // A Mac host reports its well-known folders. iCloud Drive's real folder is
+  // ~/Library/Mobile Documents/com~apple~CloudDocs, which nobody remembers, so
+  // it is one tap away and its breadcrumbs read "iCloud Drive" instead.
+  it("offers a Mac's places and names iCloud Drive in the breadcrumbs", async () => {
+    const icloud = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs";
+    const places = [
+      { name: "Home", path: "/Users/me" },
+      { name: "iCloud Drive", path: icloud },
+    ];
+    mockListDirs.mockImplementation(async (path?: string) => ({
+      path: path ?? "/Users/me",
+      dirs: path === icloud ? [{ name: "Medical", path: `${icloud}/Medical` }] : [],
+      home: "/Users/me",
+      places,
+    }));
+    render(<FolderPicker initialPath="" hostId="laptop" onSelect={() => {}} onClose={() => {}} />);
+
+    const group = await screen.findByRole("group", { name: "Places" });
+    expect(within(group).getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(group).getByRole("button", { name: "iCloud Drive" }));
+
+    fireEvent.click(await screen.findByText("Medical"));
+    await waitFor(() => expect(mockListDirs).toHaveBeenLastCalledWith(`${icloud}/Medical`, expect.anything()));
+    expect(within(group).getByRole("button", { name: "iCloud Drive" })).toHaveAttribute("aria-pressed", "true");
+    const crumbs = screen
+      .getAllByTitle(/^\//)
+      .filter((node) => node.tagName === "BUTTON" && node.className.includes("font-mono-code"));
+    expect(crumbs.map((node) => node.textContent)).toEqual(["/", "iCloud Drive", "Medical"]);
+    expect(screen.queryByText("Mobile Documents")).not.toBeInTheDocument();
+  });
+
+  // Other machines report no places, so the row is not shown.
+  it("shows no places row when the machine reports none", async () => {
+    mockListDirs.mockResolvedValue({ path: "/home/coder", dirs: [], home: "/home/coder", places: [] });
+    render(<FolderPicker initialPath="" onSelect={() => {}} onClose={() => {}} />);
+
+    await waitFor(() => expect(mockListDirs).toHaveBeenCalled());
+    expect(screen.queryByRole("group", { name: "Places" })).not.toBeInTheDocument();
   });
 });

@@ -223,6 +223,21 @@ describe("image preview item provenance", () => {
     expect(items[2]?.showWhenMissing).toBeUndefined();
   });
 
+  it("finds images linked by paths with spaces in angle-bracket form", () => {
+    // iCloud Drive paths hold a space ("Mobile Documents"), which agents write as `<...>` targets.
+    const icloud = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Shots";
+    const items = buildAssistantImagePreviewItems(
+      message({
+        role: "assistant",
+        content: `![before](<${icloud}/before 1.png>) and [after](<file:${icloud}/after 2.png>)`,
+      }),
+      "session-1",
+    );
+
+    expect(items.map((item) => item.id)).toEqual([`path:${icloud}/before 1.png`, `path:${icloud}/after 2.png`]);
+    expect(items[0]?.showWhenMissing).toBe(true);
+  });
+
   it("finds screenshot paths in leader messages shaped like real stored history", () => {
     // Text copied from a leader session's stored messages (README screenshots review). A text
     // block listing bare paths on their own lines, followed by a tool call in the same message,

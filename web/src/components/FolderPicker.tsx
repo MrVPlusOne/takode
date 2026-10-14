@@ -23,6 +23,7 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
   const [showHidden, setShowHidden] = useState(false);
   const [focusIndex, setFocusIndex] = useState(-1);
   const [recentDirs, setRecentDirs] = useState<string[]>([]);
+  const [places, setPlaces] = useState<DirEntry[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +38,7 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
         const result = await api.listDirs(path, { hidden: showHidden, hostId });
         setBrowsePath(result.path);
         setBrowseDirs(result.dirs);
+        setPlaces(result.places ?? []);
         return true;
       } catch (error) {
         setBrowseDirs([]);
@@ -79,8 +81,8 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
     ? browseDirs.filter((d) => d.name.toLowerCase().includes(filter.toLowerCase()))
     : browseDirs;
 
-  // Build breadcrumb segments from browsePath
-  const breadcrumbs = buildBreadcrumbs(browsePath);
+  const currentPlace = findPlace(browsePath, places);
+  const breadcrumbs = buildBreadcrumbs(browsePath, currentPlace);
 
   // Keyboard navigation
   useEffect(() => {
@@ -187,6 +189,35 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
           </div>
         )}
 
+        {/* Well-known folders of the browsed machine (macOS: Home, iCloud Drive, ...) */}
+        {places.length > 0 && (
+          <div
+            className="px-4 py-2 border-b border-cc-border flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] shrink-0"
+            aria-label="Places"
+            role="group"
+          >
+            {places.map((place) => {
+              const active = place.path === currentPlace?.path;
+              return (
+                <button
+                  key={place.path}
+                  onClick={() => loadDirs(place.path)}
+                  aria-pressed={active}
+                  title={place.path}
+                  className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 sm:py-1 text-[11px] rounded-full border transition-colors cursor-pointer ${
+                    active
+                      ? "border-cc-primary/40 bg-cc-primary/10 text-cc-primary"
+                      : "border-cc-border text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                  }`}
+                >
+                  <PlaceIcon name={place.name} />
+                  {place.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Breadcrumb path bar */}
         <div className="px-4 py-2.5 border-b border-cc-border flex items-center gap-1 shrink-0 min-w-0">
           {showDirInput ? (
@@ -211,7 +242,7 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
           ) : (
             <>
               {/* Clickable breadcrumbs */}
-              <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+              <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto [scrollbar-width:none]">
                 {breadcrumbs.map((crumb, i) => (
                   <span key={crumb.path} className="flex items-center gap-0.5 shrink-0">
                     {i > 0 && (
@@ -337,13 +368,54 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
   );
 }
 
-/** Build breadcrumb segments from an absolute path */
-function buildBreadcrumbs(path: string): { label: string; path: string }[] {
+/** The place `path` is in: the one with the longest matching prefix. */
+function findPlace(path: string, places: DirEntry[]): DirEntry | null {
+  let found: DirEntry | null = null;
+  for (const place of places) {
+    const inside = path === place.path || path.startsWith(`${place.path}/`);
+    if (inside && place.path.length > (found?.path.length ?? -1)) found = place;
+  }
+  return found;
+}
+
+/**
+ * Breadcrumb segments of an absolute path. Inside a place, its folders collapse
+ * into one crumb named after it, so iCloud Drive reads as "iCloud Drive" instead
+ * of `Users > me > Library > Mobile Documents > com~apple~CloudDocs`.
+ */
+function buildBreadcrumbs(path: string, place: DirEntry | null): { label: string; path: string }[] {
   if (!path) return [];
-  const parts = path.split("/").filter(Boolean);
   const crumbs: { label: string; path: string }[] = [{ label: "/", path: "/" }];
+  let base = "";
+  if (place && place.path !== "/") {
+    crumbs.push({ label: place.name, path: place.path });
+    base = place.path;
+  }
+  const parts = path.slice(base.length).split("/").filter(Boolean);
   for (let i = 0; i < parts.length; i++) {
-    crumbs.push({ label: parts[i], path: "/" + parts.slice(0, i + 1).join("/") });
+    crumbs.push({ label: parts[i], path: `${base}/${parts.slice(0, i + 1).join("/")}` });
   }
   return crumbs;
+}
+
+function PlaceIcon({ name }: { name: string }) {
+  if (name === "Home") {
+    return (
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-70 shrink-0" aria-hidden="true">
+        <path d="M8.354 1.646a.5.5 0 00-.708 0l-6 6A.5.5 0 002 8.5h1v5A1.5 1.5 0 004.5 15h2a.5.5 0 00.5-.5V11h2v3.5a.5.5 0 00.5.5h2a1.5 1.5 0 001.5-1.5v-5h1a.5.5 0 00.354-.854l-6-6z" />
+      </svg>
+    );
+  }
+  if (name === "iCloud Drive") {
+    return (
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70 shrink-0" aria-hidden="true">
+        <path d="M4.406 5.342A5.53 5.53 0 018 4c2.69 0 4.923 2 5.166 4.579C14.758 8.804 16 10.137 16 11.773 16 13.569 14.502 15 12.687 15H3.781C1.708 15 0 13.366 0 11.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60 shrink-0" aria-hidden="true">
+      <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+    </svg>
+  );
 }
