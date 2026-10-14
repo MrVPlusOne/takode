@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServerCheckout, readServerCheckoutStatus } from "./server-checkout.js";
+import { createServerCheckout, readServerCheckoutStatus, rememberServerBuild } from "./server-checkout.js";
 
 /**
  * The server checkout tests use real Git repositories under a temporary root:
@@ -148,5 +148,58 @@ describe("server checkout", () => {
     commit(origin, "c.txt", "three\n");
     clock += 61_000;
     expect((await serverCheckout.status()).behind).toBe(2);
+  });
+
+  it("lists the commits a restart would load, newest first, and those the current build added", async () => {
+    // The server runs `running`; two landings since then reached the branch.
+    const previous = git(checkout, "rev-parse", "HEAD");
+    const running = commit(origin, "b.txt", "two\n");
+    git(checkout, "pull", "--quiet", "--ff-only");
+    const firstLanding = commit(origin, "c.txt", "three\n");
+    const secondLanding = commit(origin, "d.txt", "four\n");
+    const serverCheckout = createServerCheckout({
+      dir: checkout,
+      runningCommit: running,
+      previousBuild: { commit: previous, replacedAt: 5 },
+    });
+
+    const changes = await serverCheckout.changes(await serverCheckout.status());
+    expect(changes.incoming.total).toBe(2);
+    expect(changes.incoming.changes.map((change) => [change.sha, change.subject])).toEqual([
+      [secondLanding, "change d.txt"],
+      [firstLanding, "change c.txt"],
+    ]);
+    expect(changes.incoming.changes[0].committedAt).toBeGreaterThan(0);
+    expect(changes.currentBuild).toMatchObject({ commit: previous, replacedAt: 5, total: 1 });
+    expect(changes.currentBuild?.changes.map((change) => change.sha)).toEqual([running]);
+
+    // Once fast-forwarded, a restart loads the checkout itself, so the same commits stay listed.
+    await serverCheckout.updateBeforeRestart();
+    const afterUpdate = await serverCheckout.changes(await serverCheckout.status());
+    expect(afterUpdate.incoming.changes.map((change) => change.sha)).toEqual([secondLanding, firstLanding]);
+  });
+
+  it("lists no incoming commits when a restart would load the running commit", async () => {
+    commit(origin, "b.txt", "two\n");
+    commit(checkout, "c.txt", "local\n");
+    const head = git(checkout, "rev-parse", "HEAD");
+    // A diverged checkout is not fast-forwarded, so a restart loads what already runs.
+    const serverCheckout = createServerCheckout({ dir: checkout, runningCommit: head });
+    const changes = await serverCheckout.changes(await serverCheckout.status());
+    expect(changes).toEqual({ incoming: { changes: [], total: 0 }, currentBuild: null });
+  });
+
+  it("remembers the build the server ran before, across restarts onto the same commit", async () => {
+    const file = join(root, "server-build.json");
+    // The first start has nothing to compare with.
+    expect(await rememberServerBuild(file, "a".repeat(40), 1)).toBeNull();
+    expect(await rememberServerBuild(file, "a".repeat(40), 2)).toBeNull();
+    // A restart onto new code records the old build as the previous one.
+    expect(await rememberServerBuild(file, "b".repeat(40), 3)).toEqual({ commit: "a".repeat(40), replacedAt: 3 });
+    // Restarting again onto the same code keeps showing what that build brought in.
+    expect(await rememberServerBuild(file, "b".repeat(40), 4)).toEqual({ commit: "a".repeat(40), replacedAt: 3 });
+    // An unknown running commit leaves the record alone.
+    expect(await rememberServerBuild(file, null, 5)).toEqual({ commit: "a".repeat(40), replacedAt: 3 });
+    expect(JSON.parse(readFileSync(file, "utf-8"))).toMatchObject({ commit: "b".repeat(40) });
   });
 });

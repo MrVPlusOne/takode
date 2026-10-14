@@ -8,6 +8,7 @@ import {
   type TranscriptionConfig,
   type EditorKind,
   type InterruptRestartBlockersResponse,
+  type ServerChanges,
   type ServerCheckoutStatus,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
@@ -208,6 +209,7 @@ export function SettingsPage({
   const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
   const [checkoutStatus, setCheckoutStatus] = useState<ServerCheckoutStatus | null>(null);
+  const [serverChanges, setServerChanges] = useState<ServerChanges | null>(null);
   const checkoutStatusSequenceRef = useRef(0);
   const [serverSlug, setServerSlug] = useState("");
   const [serverSlugSaving, setServerSlugSaving] = useState(false);
@@ -292,8 +294,10 @@ export function SettingsPage({
     const sequence = ++checkoutStatusSequenceRef.current;
     api
       .getServerCheckout(refresh)
-      .then(({ status }) => {
-        if (checkoutStatusSequenceRef.current === sequence) setCheckoutStatus(status);
+      .then(({ status, changes }) => {
+        if (checkoutStatusSequenceRef.current !== sequence) return;
+        setCheckoutStatus(status);
+        setServerChanges(changes);
       })
       .catch(() => {});
   }, []);
@@ -1078,6 +1082,7 @@ export function SettingsPage({
                 restartPrepResult={restartPrepResult}
                 restarting={restarting}
                 checkoutStatus={checkoutStatus}
+                serverChanges={serverChanges}
                 onSaveServerSlug={onSaveServerSlug}
                 onRestartServer={onRestartServer}
                 onRefreshCheckoutStatus={() => loadCheckoutStatus(true)}

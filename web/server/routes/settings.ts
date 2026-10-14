@@ -64,7 +64,9 @@ import {
 } from "../../shared/takode-constants.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
 import { processHostOf } from "../remote-host/host-registry.js";
-import type { ServerCheckout, ServerCheckoutUpdate } from "../server-checkout.js";
+import type { ServerChangeList, ServerChanges, ServerCheckout, ServerCheckoutUpdate } from "../server-checkout.js";
+import * as questStore from "../quest-store.js";
+import type { QuestmasterTask } from "../quest-types.js";
 import { canonicalTimeZone, serverDefaultTimeZone, timeZoneInEffect } from "../server-time-zone.js";
 import {
   findCodexReasoningEffortSupportIssue,
@@ -580,9 +582,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
   }
 
   api.get("/server/checkout", async (c) => {
-    if (!options?.serverCheckout) return c.json({ status: null });
+    if (!options?.serverCheckout) return c.json({ status: null, changes: null });
     try {
-      return c.json({ status: await options.serverCheckout.status({ refresh: c.req.query("refresh") === "1" }) });
+      const status = await options.serverCheckout.status({ refresh: c.req.query("refresh") === "1" });
+      const changes = withQuestIds(await options.serverCheckout.changes(status), await questStore.listQuests());
+      return c.json({ status, changes });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
@@ -1540,4 +1544,27 @@ function readNonNegativeIntEnv(name: string, fallback: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Name the quest that recorded each change's commit, so the Restart section can link to it. */
+export function withQuestIds(
+  changes: ServerChanges,
+  quests: Pick<QuestmasterTask, "questId" | "commitShas">[],
+): ServerChanges {
+  // Older quests may store abbreviated SHAs, so look them up by prefix.
+  const byPrefix = new Map<string, { sha: string; questId: string }[]>();
+  for (const quest of quests) {
+    for (const sha of quest.commitShas ?? []) {
+      const key = sha.slice(0, 7).toLowerCase();
+      byPrefix.set(key, [...(byPrefix.get(key) ?? []), { sha: sha.toLowerCase(), questId: quest.questId }]);
+    }
+  }
+  const tag = <T extends ServerChangeList>(list: T): T => ({
+    ...list,
+    changes: list.changes.map((change) => ({
+      ...change,
+      questId: byPrefix.get(change.sha.slice(0, 7))?.find((entry) => change.sha.startsWith(entry.sha))?.questId ?? null,
+    })),
+  });
+  return { incoming: tag(changes.incoming), currentBuild: changes.currentBuild && tag(changes.currentBuild) };
 }

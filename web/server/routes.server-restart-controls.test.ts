@@ -36,7 +36,7 @@ vi.mock("./path-resolver.js", () => ({
   getEnrichedPath: vi.fn(() => process.env.PATH ?? ""),
 }));
 
-import { createSettingsRoutes } from "./routes/settings.js";
+import { createSettingsRoutes, withQuestIds } from "./routes/settings.js";
 import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
@@ -832,14 +832,19 @@ describe("server restart controls", () => {
       });
     });
 
-    it("serves the checkout status for Settings, refreshing on request", async () => {
+    it("serves the checkout status and its changes for Settings, refreshing on request", async () => {
       const status = vi.fn(async () => checkoutStatus({ state: "behind", behind: 1 }));
-      const checkoutApp = appWithCheckout({ status });
+      const incoming = { changes: [{ sha: LANDED, subject: "feat: landed", committedAt: 7 }], total: 1 };
+      const changes = vi.fn(async () => ({ incoming, currentBuild: null }));
+      const checkoutApp = appWithCheckout({ status, changes });
 
       const cached = await checkoutApp.request("/api/server/checkout");
       await expect(cached.json()).resolves.toMatchObject({
         status: { state: "behind", behind: 1 },
+        // The disposable test HOME has no quests, so no change names one.
+        changes: { incoming: { total: 1, changes: [{ sha: LANDED, questId: null }] }, currentBuild: null },
       });
+      expect(changes).toHaveBeenCalledWith(expect.objectContaining({ state: "behind" }));
       expect(status).toHaveBeenLastCalledWith({ refresh: false });
 
       await checkoutApp.request("/api/server/checkout?refresh=1");
@@ -847,7 +852,37 @@ describe("server restart controls", () => {
 
       // A server without a Git checkout has nothing to show.
       const none = await appWithCheckout(undefined).request("/api/server/checkout");
-      await expect(none.json()).resolves.toEqual({ status: null });
+      await expect(none.json()).resolves.toEqual({ status: null, changes: null });
+    });
+
+    it("names the quest that recorded each change, matching abbreviated stored commits too", () => {
+      const full = "c".repeat(40);
+      const short = "d".repeat(40);
+      const tagged = withQuestIds(
+        {
+          incoming: {
+            changes: [
+              { sha: full, subject: "full", committedAt: 1 },
+              { sha: short, subject: "short", committedAt: 2 },
+              { sha: "e".repeat(40), subject: "unrecorded", committedAt: 3 },
+            ],
+            total: 3,
+          },
+          currentBuild: {
+            commit: OLD,
+            replacedAt: 4,
+            changes: [{ sha: full, subject: "full", committedAt: 1 }],
+            total: 1,
+          },
+        },
+        [
+          { questId: "q-1", commitShas: [full] },
+          { questId: "q-2", commitShas: ["DDDDDDDDDD"] },
+          { questId: "q-3", commitShas: undefined as unknown as string[] },
+        ],
+      );
+      expect(tagged.incoming.changes.map((change) => change.questId)).toEqual(["q-1", "q-2", null]);
+      expect(tagged.currentBuild).toMatchObject({ commit: OLD, total: 1, changes: [{ questId: "q-1" }] });
     });
   });
 });

@@ -1,7 +1,13 @@
 import { useState } from "react";
-import type { InterruptRestartBlockersResponse, ServerCheckoutStatus, ServerInterruptResultItem } from "../api.js";
+import type {
+  InterruptRestartBlockersResponse,
+  ServerChanges,
+  ServerCheckoutStatus,
+  ServerInterruptResultItem,
+} from "../api.js";
 import { RestartHostProgress } from "./RestartHostProgress.js";
 import { describeServerCheckout } from "../server-checkout-status.js";
+import { SettingsServerChanges } from "./SettingsServerChanges.js";
 import { SettingsSubsection } from "./settings-controls.js";
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
@@ -151,6 +157,7 @@ export function SettingsServerDiagnosticsSection({
   restartPrepResult,
   restarting,
   checkoutStatus = null,
+  serverChanges = null,
   onSaveServerSlug,
   onRestartServer,
   onRefreshCheckoutStatus,
@@ -169,6 +176,8 @@ export function SettingsServerDiagnosticsSection({
   restarting: boolean;
   /** The server's Git checkout against its branch; null when unknown or not a Git checkout. */
   checkoutStatus?: ServerCheckoutStatus | null;
+  /** What a restart would load and what the current build brought in. */
+  serverChanges?: ServerChanges | null;
   onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
   /** Re-reads the checkout status (with a fetch) when the user is about to restart. */
@@ -289,6 +298,8 @@ export function SettingsServerDiagnosticsSection({
               {checkout.text}
             </p>
           )}
+
+          <SettingsServerChanges changes={serverChanges} />
 
           {restartError && (
             <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">

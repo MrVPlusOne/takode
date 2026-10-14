@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -7,6 +8,8 @@ const GIT_TIMEOUT_MS = 10_000;
 const FETCH_TIMEOUT_MS = 30_000;
 /** How long a status read with a fetch stays fresh for Settings views. */
 const STATUS_CACHE_MS = 60_000;
+/** Longer ranges list only their newest commits, with the full count. */
+const MAX_LISTED_CHANGES = 200;
 
 /**
  * Where the server's own checkout stands against the branch it tracks.
@@ -50,9 +53,41 @@ export interface ServerCheckoutUpdate {
   status: ServerCheckoutStatus;
 }
 
+/** One commit, as the Restart section lists it. */
+export interface ServerChange {
+  sha: string;
+  subject: string;
+  /** Committer time: when the commit reached the branch (landings cherry-pick onto it). */
+  committedAt: number;
+  /** The quest that recorded the commit as delivered, filled in by the route. */
+  questId?: string | null;
+}
+
+/** The newest commits of a range, newest first, and how many the range has in all. */
+export interface ServerChangeList {
+  changes: ServerChange[];
+  total: number;
+}
+
+/** The build the server ran before the current one. */
+export interface PreviousServerBuild {
+  commit: string;
+  /** When the current build replaced it. */
+  replacedAt: number;
+}
+
+export interface ServerChanges {
+  /** Commits Restart Server would load that the running server lacks. */
+  incoming: ServerChangeList;
+  /** Commits the current build added to the previous one; null when that build is unknown. */
+  currentBuild: (ServerChangeList & PreviousServerBuild) | null;
+}
+
 export interface ServerCheckout {
   /** Status with a fresh fetch, cached briefly unless `refresh` is set. */
   status(options?: { refresh?: boolean }): Promise<ServerCheckoutStatus>;
+  /** The commits behind `status`: what a restart would load, and what the current build brought in. */
+  changes(status: ServerCheckoutStatus): Promise<ServerChanges>;
   /**
    * Fetch and fast-forward a clean checkout that is only behind its branch, so
    * the restart loads the code that reached the branch. Never touches a checkout
@@ -68,9 +103,11 @@ export interface ServerCheckout {
 export function createServerCheckout(options: {
   dir: string;
   runningCommit: string | null;
+  /** From `rememberServerBuild` at startup. */
+  previousBuild?: PreviousServerBuild | null;
   now?: () => number;
 }): ServerCheckout {
-  const { dir, runningCommit } = options;
+  const { dir, runningCommit, previousBuild = null } = options;
   const now = options.now ?? Date.now;
   let queue: Promise<unknown> = Promise.resolve();
   let cached: ServerCheckoutStatus | null = null;
@@ -92,6 +129,19 @@ export function createServerCheckout(options: {
         if (!refresh && cached && now() - cached.checkedAt < STATUS_CACHE_MS) return cached;
         return freshStatus();
       }),
+    changes: async (status) => {
+      const loaded = status.runningCommit ?? status.head;
+      // Mirrors updateBeforeRestart: only a clean checkout that is only behind is fast-forwarded.
+      const restartLoads = status.state === "behind" && !status.localChanges ? status.upstreamHead : status.head;
+      const [incoming, current] = await Promise.all([
+        loaded && restartLoads ? readChangeList(dir, loaded, restartLoads) : null,
+        previousBuild && runningCommit ? readChangeList(dir, previousBuild.commit, runningCommit) : null,
+      ]);
+      return {
+        incoming: incoming ?? { changes: [], total: 0 },
+        currentBuild: current && previousBuild ? { ...previousBuild, ...current } : null,
+      };
+    },
     updateBeforeRestart: () =>
       serialized(async () => {
         const before = await freshStatus();
@@ -145,6 +195,52 @@ export async function readServerCheckoutStatus(
   status.behind = behind;
   status.state = ahead > 0 && behind > 0 ? "diverged" : behind > 0 ? "behind" : ahead > 0 ? "ahead" : "current";
   return status;
+}
+
+/**
+ * Record the build this server loaded in `file` and return the one it ran
+ * before. Restarting onto the same commit keeps the earlier record, so the
+ * Restart section keeps showing what the current build brought in.
+ */
+export async function rememberServerBuild(
+  file: string,
+  runningCommit: string | null,
+  now = Date.now(),
+): Promise<PreviousServerBuild | null> {
+  let stored: { commit?: unknown; previous?: PreviousServerBuild | null } = {};
+  try {
+    stored = JSON.parse(await readFile(file, "utf-8")) ?? {};
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") console.warn("[server-checkout] Could not read the previous server build:", error);
+  }
+  const previous = stored.previous ?? null;
+  if (!runningCommit || stored.commit === runningCommit) return previous;
+  const replaced = typeof stored.commit === "string" ? { commit: stored.commit, replacedAt: now } : null;
+  await writeFile(file, JSON.stringify({ commit: runningCommit, previous: replaced }, null, 2), "utf-8");
+  return replaced;
+}
+
+/** Commits in `to` that `from` lacks, newest first; null when Git cannot compare them. */
+async function readChangeList(dir: string, from: string, to: string): Promise<ServerChangeList | null> {
+  if (from === to) return { changes: [], total: 0 };
+  const range = `${from}..${to}`;
+  try {
+    const [log, total] = await Promise.all([
+      git(dir, ["log", "--no-merges", `--max-count=${MAX_LISTED_CHANGES}`, "--format=%H%x1f%ct%x1f%s", range]),
+      git(dir, ["rev-list", "--no-merges", "--count", range]),
+    ]);
+    const changes = log
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, seconds, subject] = line.split("\x1f");
+        return { sha, subject, committedAt: Number(seconds) * 1000 };
+      });
+    return { changes, total: Number.parseInt(total, 10) || changes.length };
+  } catch (error) {
+    console.warn(`[server-checkout] Could not list the commits ${range}:`, errorMessage(error));
+    return null;
+  }
 }
 
 /** Fetch only the branch's upstream; returns the error, or null when it worked or needs no fetch. */

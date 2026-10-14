@@ -166,7 +166,7 @@ import {
   readCoordinatorMove,
 } from "./coordinator-lock.js";
 import { checkBackendStartup } from "./backend-startup-check.js";
-import { createServerCheckout } from "./server-checkout.js";
+import { createServerCheckout, rememberServerBuild } from "./server-checkout.js";
 import { applyServerTimeZone, timeZoneInEffect } from "./server-time-zone.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
 import {
@@ -299,7 +299,13 @@ configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const runningCommit = await readCheckoutCommit(packageRoot);
 const hostLinks = new HostLinkManager({ build: runningCommit });
-const serverCheckout = createServerCheckout({ dir: packageRoot, runningCommit });
+const previousBuild = await rememberServerBuild(join(sessionStore.directory, "server-build.json"), runningCommit).catch(
+  (error) => {
+    console.warn("[server] Could not record the server build:", error);
+    return null;
+  },
+);
+const serverCheckout = createServerCheckout({ dir: packageRoot, runningCommit, previousBuild });
 const coordinatorStartedAt = Date.now();
 // After the user's Restart Server, hosts that opted in are updated to this
 // server's commit right away; otherwise only while none of their sessions is in a turn.

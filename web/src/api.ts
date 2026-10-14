@@ -32,6 +32,7 @@ import {
   isInterruptRestartBlockersResponse,
   type InterruptRestartBlockersResponse,
   type RestartServerResponse,
+  type ServerChanges,
   type ServerCheckoutStatus,
 } from "./api/server-restart.js";
 import type {
@@ -101,6 +102,9 @@ export type {
   InterruptRestartBlockersResponse,
   RestartPrepAttemptResult,
   RestartServerResponse,
+  ServerChange,
+  ServerChangeList,
+  ServerChanges,
   ServerCheckoutStatus,
   ServerCheckoutUpdate,
   ServerInterruptResultItem,
@@ -1379,7 +1383,9 @@ export const api = {
   // Server control
   restartServer: () => post<RestartServerResponse>("/server/restart", {}),
   getServerCheckout: (refresh = false) =>
-    get<{ status: ServerCheckoutStatus | null }>(`/server/checkout${refresh ? "?refresh=1" : ""}`),
+    get<{ status: ServerCheckoutStatus | null; changes: ServerChanges | null }>(
+      `/server/checkout${refresh ? "?refresh=1" : ""}`,
+    ),
   interruptRestartBlockers: () => post<InterruptRestartBlockersResponse>("/server/interrupt-all", {}),
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>

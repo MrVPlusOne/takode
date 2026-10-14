@@ -1,6 +1,12 @@
 import type { ServerCheckoutUpdate } from "../../server/server-checkout.js";
 
-export type { ServerCheckoutStatus, ServerCheckoutUpdate } from "../../server/server-checkout.js";
+export type {
+  ServerChange,
+  ServerChangeList,
+  ServerChanges,
+  ServerCheckoutStatus,
+  ServerCheckoutUpdate,
+} from "../../server/server-checkout.js";
 
 export interface ServerInterruptResultItem {
   sessionId: string;
