@@ -344,9 +344,23 @@ vi.mock("./components/QuestmasterPage.js", () => ({
   QuestmasterPage: () => <div data-testid="questmaster-page" />,
 }));
 
-vi.mock("./components/QuestDetailPanel.js", () => ({
-  QuestDetailPanel: () => null,
-}));
+// Like the real panel, it renders into the right-hand area when the app provides one.
+vi.mock("./components/QuestDetailPanel.js", async () => {
+  const { createPortal } = await import("react-dom");
+  const { useSecondaryViewTarget } = await import("./utils/secondary-view.js");
+  return {
+    QuestDetailPanel: () => {
+      const open = !!mockState.questOverlayId;
+      const target = useSecondaryViewTarget(open, () => {});
+      if (!open) return null;
+      return target ? (
+        createPortal(<div data-testid="quest-detail-host" data-docked="true" />, target)
+      ) : (
+        <div data-testid="quest-detail-host" data-docked="false" />
+      );
+    },
+  };
+});
 
 vi.mock("./components/UniversalSearchOverlay.js", () => ({
   UniversalSearchOverlay: ({
@@ -388,6 +402,7 @@ vi.mock("./utils/vscode-bridge.js", () => ({
 }));
 
 import App from "./App.js";
+import { setSecondaryViewMode } from "./utils/secondary-view.js";
 import { hydrateSessionList } from "./session-list-hydration.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-status-auto-refresh.js";
 import { retireSessionMessageRoute } from "./utils/routing.js";
@@ -414,6 +429,119 @@ function latestViewportSessionEntryId(sessionId: string): string | undefined {
   return calls.at(-1)?.entryId;
 }
 
+// The session stays the primary view while a page (Questmaster, Memory, Settings...) is open,
+// so closing the page never rebuilds the feed or reconnects the session.
+describe("App primary and secondary views", () => {
+  function chatLayer(): HTMLElement {
+    return screen.getByTestId("chat-view").closest(".absolute") as HTMLElement;
+  }
+
+  beforeEach(() => {
+    setSecondaryViewMode("side");
+  });
+
+  it("keeps the conversation mounted and connected while a page covers it on phones", async () => {
+    setViewportWidth(430);
+    window.location.hash = "#/session/s1?view=questmaster";
+
+    render(<App />);
+
+    expect(await screen.findByTestId("questmaster-page")).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-view-overlay")).toContainElement(screen.getByTestId("questmaster-page"));
+    expect(chatLayer()).toHaveClass("invisible");
+    expect(chatLayer()).toHaveAttribute("inert");
+    expect(screen.queryByTestId("secondary-view-pane")).toBeNull();
+    expect(mockDisconnectSession).not.toHaveBeenCalled();
+  });
+
+  it("shows a page beside the visible conversation on wide screens and closes it from its header", async () => {
+    setViewportWidth(1512);
+    window.location.hash = "#/session/s1?thread=q-9&view=memory";
+
+    render(<App />);
+
+    const pane = screen.getByTestId("secondary-view-pane");
+    expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
+    expect(pane).toContainElement(screen.getByTestId("memory-page"));
+    expect(pane).toHaveAttribute("data-mode", "side");
+    expect(screen.queryByTestId("secondary-view-scrim")).toBeNull();
+    expect(chatLayer()).not.toHaveClass("invisible");
+    // The session keeps its own top bar; the page names itself in the pane header.
+    expect(screen.getByTestId("top-bar")).toHaveAttribute("data-full-page-label", "");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Memory" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9"));
+    expect(screen.queryByTestId("memory-page")).toBeNull();
+  });
+
+  it("floats the page over the conversation in overlay mode and dismisses it on an outside click", async () => {
+    setViewportWidth(1512);
+    setSecondaryViewMode("overlay");
+    window.location.hash = "#/session/s1?view=memory";
+
+    render(<App />);
+
+    expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-view-pane")).toHaveAttribute("data-mode", "overlay");
+    expect(chatLayer()).not.toHaveClass("invisible");
+
+    fireEvent.click(screen.getByTestId("secondary-view-scrim"));
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1"));
+  });
+
+  it("floats the page over the conversation when the window is too narrow to show both", async () => {
+    // Desktop shell, but the chat would get narrower than readable beside the page.
+    setViewportWidth(900);
+    window.location.hash = "#/session/s1?view=memory";
+
+    render(<App />);
+
+    expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-view-pane")).toHaveAttribute("data-mode", "overlay");
+    expect(screen.queryByTestId("secondary-view-mode-toggle")).toBeNull();
+  });
+
+  it("rewrites a page link to open over the last session and thread", async () => {
+    setViewportWidth(430);
+    window.location.hash = "#/session/s1?thread=q-9";
+    render(<App />);
+
+    window.location.hash = "#/questmaster?quest=q-1";
+
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?quest=q-1&thread=q-9&view=questmaster"));
+    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1");
+    expect(mockDisconnectSession).not.toHaveBeenCalled();
+  });
+
+  it("opens viewers such as quest details in the right-hand area only when the screen is wide enough", async () => {
+    setViewportWidth(1512);
+    resetStore({ questOverlayId: "q-1" });
+    const view = render(<App />);
+
+    const pane = screen.getByTestId("secondary-view-pane");
+    await waitFor(() => expect(pane).toContainElement(screen.getByTestId("quest-detail-host")));
+    expect(pane).not.toHaveClass("hidden");
+
+    view.unmount();
+    setViewportWidth(430);
+    render(<App />);
+    expect(screen.getByTestId("quest-detail-host")).toHaveAttribute("data-docked", "false");
+  });
+
+  it("shows the session diff beside the conversation on wide screens", () => {
+    setViewportWidth(1512);
+    resetStore({
+      activeTab: "diff",
+      sessions: new Map([["s1", { backend_type: "claude" }]]),
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId("secondary-view-pane")).toContainElement(screen.getByTestId("diff-panel"));
+    expect(chatLayer()).not.toHaveClass("invisible");
+  });
+});
+
 describe("App quest overlay routes", () => {
   it("keeps an initial routed target authoritative across StrictMode effect replay", async () => {
     window.location.hash = "#/questmaster?quest=q-1966&feedback=5";
@@ -425,7 +553,8 @@ describe("App quest overlay routes", () => {
     );
 
     await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1966", undefined, 5));
-    expect(window.location.hash).toBe("#/questmaster?quest=q-1966&feedback=5");
+    // The page link is rewritten to open over the current session, keeping the quest target.
+    expect(window.location.hash).toBe("#/session/s1?quest=q-1966&feedback=5&view=questmaster");
     expect(mockState.closeQuestOverlay).not.toHaveBeenCalled();
   });
 
@@ -600,7 +729,6 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
     expect(screen.getByTestId("codex-subagent-inspector-host")).toHaveAttribute("data-session-id", "s1");
   });
 
@@ -754,10 +882,11 @@ describe("App hidden panels", () => {
 
     // Full pages load on first use, outside the startup bundle.
     expect(await screen.findByTestId("todos-and-timers-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
-  it("lets full-page routes own the top chrome instead of rendering session identity chrome", async () => {
+  it("lets pages that cover the session own the top chrome instead of rendering session identity chrome", async () => {
+    // Phones have no right-hand area, so each page covers the conversation.
+    setViewportWidth(430);
     for (const [hash, testId, label] of [
       ["#/memory", "memory-page", "Memory"],
       ["#/changelog", "changelog-page", "Changelog"],
@@ -782,7 +911,6 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
   it("keeps the legacy streams hash pointed at MemoryPage", async () => {
@@ -791,7 +919,6 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
   it("does not render a page-level server unreachable banner while a chat session is visible", () => {
@@ -808,6 +935,8 @@ describe("App hidden panels", () => {
   });
 
   it("keeps the server unreachable banner on non-chat views even if the session transport is connected", () => {
+    // Phones have no right-hand area, so the diff covers the conversation.
+    setViewportWidth(430);
     resetStore({
       serverReachable: false,
       activeTab: "diff",
@@ -820,7 +949,9 @@ describe("App hidden panels", () => {
     expect(screen.getByText("Server unreachable")).toBeInTheDocument();
   });
 
-  it("does not mount the hidden chat view while the diff tab is active", () => {
+  it("keeps the chat view mounted but hidden and inert while the diff tab covers it", () => {
+    // Phones have no right-hand area, so the diff covers the conversation.
+    setViewportWidth(430);
     resetStore({
       activeTab: "diff",
       currentSessionId: "s1",
@@ -832,7 +963,10 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
+    // Returning from the diff must not rebuild the feed or lose its scroll position.
+    const chatLayer = screen.getByTestId("chat-view").closest(".absolute") as HTMLElement;
+    expect(chatLayer).toHaveClass("invisible");
+    expect(chatLayer).toHaveAttribute("inert");
   });
 
   it("marks route-open session reads as session views instead of broad explicit reads", async () => {

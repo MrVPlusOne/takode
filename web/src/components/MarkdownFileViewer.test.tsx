@@ -12,6 +12,7 @@ vi.mock("../api/file-link-actions.js", async () => {
 });
 
 import { MarkdownFileViewerHost, openMarkdownFileViewer } from "./MarkdownFileViewer.js";
+import { closeSecondaryViewers, setSecondaryViewTarget } from "../utils/secondary-view.js";
 
 const FILES: Record<string, string> = {
   "/reports/briefing.md": "# Briefing\n\nSee [the details](notes/details.md).",
@@ -98,5 +99,29 @@ describe("MarkdownFileViewer", () => {
     const viewer = await screen.findByRole("dialog", { name: "missing.md" });
     expect((await within(viewer).findByRole("alert")).textContent).toBe("Cannot open this file: File not found");
     fireEvent.click(within(viewer).getByRole("button", { name: "Close file" }));
+  });
+
+  // On wide screens the app registers a right-hand area beside the conversation: files open there,
+  // stacked, with no backdrop, and the area can dismiss them all at once.
+  it("opens files in the right-hand area beside the conversation when one is available", async () => {
+    const area = document.createElement("div");
+    document.body.appendChild(area);
+    act(() => setSecondaryViewTarget(area));
+    try {
+      render(<MarkdownFileViewerHost />);
+      act(() => {
+        openMarkdownFileViewer({ path: "/reports/briefing.md", isRelative: false });
+        openMarkdownFileViewer({ path: "/reports/notes/details.md", isRelative: false });
+      });
+      const details = await screen.findByRole("dialog", { name: "details.md" });
+      expect(area.contains(details)).toBe(true);
+      expect(details.getAttribute("aria-modal")).toBeNull();
+
+      act(() => closeSecondaryViewers());
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      act(() => setSecondaryViewTarget(null));
+      area.remove();
+    }
   });
 });

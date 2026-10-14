@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { waitFor } from "@testing-library/dom";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   absoluteUrlForHash,
   hasMessageDeepLinkFromHash,
@@ -29,6 +29,11 @@ import {
   playgroundSectionIdFromHash,
   withPlaygroundSectionInHash,
   withoutPlaygroundSectionInHash,
+  primarySessionHash,
+  secondaryPageFromHash,
+  secondaryPageOverSession,
+  setSecondaryViewDocked,
+  withSecondaryPageInHash,
 } from "./routing.js";
 import { useStore } from "../store.js";
 
@@ -366,6 +371,53 @@ describe("navigateToSession", () => {
     expect(dispatchSpy).toHaveBeenCalledWith(expect.any(HashChangeEvent));
     spy.mockRestore();
     dispatchSpy.mockRestore();
+  });
+});
+
+// A secondary page (Questmaster, Memory, Settings...) is a `view` param on the session route, so
+// the session stays the primary view underneath or beside it.
+describe("secondary view hash helpers", () => {
+  it("reads the secondary page from a page path or the session view param", () => {
+    expect(secondaryPageFromHash("#/questmaster")).toBe("questmaster");
+    expect(secondaryPageFromHash("#/streams")).toBe("memory");
+    expect(secondaryPageFromHash("#/session/s1?thread=q-9&view=settings")).toBe("settings");
+    expect(secondaryPageFromHash("#/session/s1?view=playground")).toBeNull();
+    expect(secondaryPageFromHash("#/session/s1")).toBeNull();
+    expect(parseHash("#/session/s1?view=memory")).toEqual({ page: "session", sessionId: "s1" });
+  });
+
+  it("sets and clears the view param without touching other params", () => {
+    expect(withSecondaryPageInHash("#/session/s1?thread=q-9", "memory")).toBe("#/session/s1?thread=q-9&view=memory");
+    expect(withSecondaryPageInHash("#/session/s1?thread=q-9&view=memory", null)).toBe("#/session/s1?thread=q-9");
+  });
+
+  it("keeps only the session and thread as the primary view", () => {
+    expect(primarySessionHash("#/session/s1/msg/42?thread=q-9&quest=q-1&view=memory")).toBe("#/session/s1?thread=q-9");
+    expect(primarySessionHash("#/questmaster")).toBeNull();
+  });
+
+  it("re-expresses a page link over the primary session, keeping the page's own params", () => {
+    expect(secondaryPageOverSession("#/questmaster?quest=q-1", "#/session/s1/msg/3?thread=q-9")).toBe(
+      "#/session/s1?quest=q-1&thread=q-9&view=questmaster",
+    );
+  });
+
+  describe("switching sessions", () => {
+    beforeEach(() => {
+      window.location.hash = "#/session/s1?view=memory&quest=q-1";
+    });
+    afterEach(() => setSecondaryViewDocked(false));
+
+    it("keeps a docked secondary view and its quest open", () => {
+      setSecondaryViewDocked(true);
+      navigateToSession("s2");
+      expect(window.location.hash).toBe("#/session/s2?view=memory&quest=q-1");
+    });
+
+    it("leaves a covering secondary view behind", () => {
+      navigateToSession("s2");
+      expect(window.location.hash).toBe("#/session/s2");
+    });
   });
 });
 

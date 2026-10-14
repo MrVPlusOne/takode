@@ -150,11 +150,12 @@ describe("shortcuts", () => {
     const navigateTo = vi.fn();
     const navigateToSession = vi.fn();
     const navigateToMostRecentSession = vi.fn().mockReturnValue(true);
+    const closeSecondaryPage = vi.fn();
     const setActiveTab = vi.fn();
     const toggleSidebar = vi.fn();
 
     const opened = performShortcutAction("open_terminal", {
-      route: { page: "session", sessionId: "s1" },
+      secondaryPage: null,
       currentSessionId: "s1",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -171,6 +172,7 @@ describe("shortcuts", () => {
       navigateTo,
       navigateToSession,
       navigateToMostRecentSession,
+      closeSecondaryPage,
     });
 
     expect(opened).toBe(true);
@@ -178,7 +180,7 @@ describe("shortcuts", () => {
     expect(navigateTo).toHaveBeenCalledWith("/terminal");
 
     const returned = performShortcutAction("open_terminal", {
-      route: { page: "terminal" },
+      secondaryPage: "terminal",
       currentSessionId: "s1",
       currentSessionCwd: "/repo",
       terminalCwd: "/repo",
@@ -195,10 +197,11 @@ describe("shortcuts", () => {
       navigateTo,
       navigateToSession,
       navigateToMostRecentSession,
+      closeSecondaryPage,
     });
 
     expect(returned).toBe(true);
-    expect(navigateToSession).toHaveBeenCalledWith("s1");
+    expect(closeSecondaryPage).toHaveBeenCalled();
     expect(setActiveTab).toHaveBeenCalledWith("chat");
   });
 
@@ -206,7 +209,7 @@ describe("shortcuts", () => {
     const navigateToSession = vi.fn();
 
     const handled = performShortcutAction("next_session", {
-      route: { page: "session", sessionId: "s2" },
+      secondaryPage: null,
       currentSessionId: "s2",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -227,6 +230,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(handled).toBe(true);
@@ -242,7 +246,7 @@ describe("shortcuts", () => {
     ];
 
     performShortcutAction("next_session", {
-      route: { page: "session", sessionId: "s-current" },
+      secondaryPage: null,
       currentSessionId: "s-current",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -259,6 +263,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(navigateToSession).toHaveBeenCalledWith("s-middle");
@@ -273,7 +278,7 @@ describe("shortcuts", () => {
     ];
 
     performShortcutAction("next_session", {
-      route: { page: "session", sessionId: "leader" },
+      secondaryPage: null,
       currentSessionId: "leader",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -290,6 +295,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(navigateToSession).toHaveBeenCalledWith("worker");
@@ -305,7 +311,7 @@ describe("shortcuts", () => {
     ];
 
     performShortcutAction("next_session", {
-      route: { page: "session", sessionId: "worker" },
+      secondaryPage: null,
       currentSessionId: "worker",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -322,6 +328,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(navigateToSession).toHaveBeenCalledWith("leader");
@@ -337,7 +344,7 @@ describe("shortcuts", () => {
     ];
 
     performShortcutAction("previous_session", {
-      route: { page: "session", sessionId: "leader" },
+      secondaryPage: null,
       currentSessionId: "leader",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -354,6 +361,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(navigateToSession).toHaveBeenCalledWith("worker");
@@ -378,7 +386,7 @@ describe("shortcuts", () => {
     const toggleSidebar = vi.fn();
 
     const sidebarHandled = performShortcutAction("toggle_sidebar", {
-      route: { page: "session", sessionId: "s1" },
+      secondaryPage: null,
       currentSessionId: "s1",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -395,6 +403,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession: vi.fn(),
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(sidebarHandled).toBe(true);
@@ -406,7 +415,7 @@ describe("shortcuts", () => {
     const navigateToSession = vi.fn();
 
     const handled = performShortcutAction("search_session", {
-      route: { page: "questmaster" },
+      secondaryPage: "questmaster",
       currentSessionId: null,
       currentSessionCwd: null,
       terminalCwd: null,
@@ -423,6 +432,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession,
       navigateToMostRecentSession: vi.fn().mockReturnValue(false),
+      closeSecondaryPage: vi.fn(),
     });
 
     expect(handled).toBe(true);
@@ -434,7 +444,7 @@ describe("shortcuts", () => {
     // The shortcut walks the same list as the top bar's Next; without a
     // handler (no top bar mounted) it is left unhandled for the browser.
     const runtime = {
-      route: { page: "session", sessionId: "s1" },
+      secondaryPage: null,
       currentSessionId: "s1",
       currentSessionCwd: "/repo",
       terminalCwd: null,
@@ -451,6 +461,7 @@ describe("shortcuts", () => {
       navigateTo: vi.fn(),
       navigateToSession: vi.fn(),
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
     } satisfies ShortcutRuntime;
     const goToNextAttention = vi.fn();
     expect(performShortcutAction("next_attention", { ...runtime, goToNextAttention })).toBe(true);

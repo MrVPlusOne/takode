@@ -1,6 +1,8 @@
 import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ZoomableImage } from "./ZoomableImage.js";
+import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { isShortcutEventTargetEditable } from "../shortcuts.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -12,15 +14,18 @@ interface LightboxProps {
 }
 
 /**
- * Full-screen image lightbox modal.
- *
- * Renders as a portal on document.body. The image is displayed at its natural
- * size, constrained to fit the viewport, and can be zoomed and panned. Click the
- * backdrop or press Escape to close.
+ * Image lightbox: in the right-hand secondary view area beside the conversation on wide
+ * screens, otherwise a full-screen modal on document.body. The image is displayed at its
+ * natural size, constrained to fit, and can be zoomed and panned. Click around the image
+ * or press Escape to close.
  */
 export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProps) {
+  const dockTarget = useSecondaryViewTarget(true, onClose);
+  const docked = dockTarget !== null;
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Beside the conversation, keys typed into the composer belong to it.
+      if (docked && isShortcutEventTargetEditable(e.target)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -28,29 +33,37 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
         onClose();
       }
     },
-    [onClose],
+    [docked, onClose],
   );
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown, { capture: true });
-    // Prevent body scroll while lightbox is open
+    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [handleKeyDown]);
+
+  useEffect(() => {
+    if (docked) return;
+    // Prevent body scroll while the full-screen lightbox is open
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", handleKeyDown, { capture: true });
       document.body.style.overflow = prev;
     };
-  }, [handleKeyDown]);
+  }, [docked]);
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 cursor-zoom-out"
+      className={`${docked ? SECONDARY_VIEWER_LAYER_CLASS : "fixed inset-0 z-50 bg-black/80"} items-center justify-center cursor-zoom-out`}
       onClick={onClose}
       data-testid="lightbox-backdrop"
     >
       {/* Close button in top-right corner */}
       <button
-        className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+        className={`absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
+          docked
+            ? "bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+            : "bg-white/10 hover:bg-white/20 text-white"
+        }`}
         onClick={(e) => {
           e.stopPropagation();
           onClose();
@@ -67,10 +80,12 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
         src={src}
         alt={alt}
         className="absolute inset-0 flex items-center justify-center"
-        imageClassName="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl select-none"
+        imageClassName={`${
+          docked ? "max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)]" : "max-w-[90vw] max-h-[90vh]"
+        } object-contain rounded-lg shadow-2xl select-none`}
         imageTestId="lightbox-image"
       />
     </div>,
-    document.body,
+    dockTarget ?? document.body,
   );
 }

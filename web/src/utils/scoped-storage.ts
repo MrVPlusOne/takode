@@ -28,6 +28,7 @@ const GLOBAL_KEYS = new Set([
   "cc-settings-collapsed",
   "cc-settings-scroll",
   "cc-session-sort-mode",
+  "cc-secondary-view-mode",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */

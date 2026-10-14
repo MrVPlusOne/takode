@@ -1,4 +1,4 @@
-import type { Route } from "./utils/routing.js";
+import type { SecondaryPage } from "./utils/routing.js";
 
 export type ShortcutActionId =
   | "search_session"
@@ -56,7 +56,8 @@ export interface ShortcutNewSessionContext {
 }
 
 export interface ShortcutRuntime {
-  route: Route;
+  /** The page open over or beside the current session, if any. */
+  secondaryPage: SecondaryPage | null;
   currentSessionId: string | null;
   currentSessionCwd: string | null;
   /** Remote host the current session runs on; absent for the server's machine. */
@@ -76,6 +77,7 @@ export interface ShortcutRuntime {
   navigateTo: (path: string) => void;
   navigateToSession: (sessionId: string) => void;
   navigateToMostRecentSession: () => boolean;
+  closeSecondaryPage: () => void;
   /** Open the next item in the top bar's attention list. */
   goToNextAttention?: () => void;
 }
@@ -759,13 +761,10 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       runtime.toggleSidebar();
       return true;
     case "open_terminal": {
-      if (runtime.route.page === "terminal") {
-        if (runtime.currentSessionId) {
-          runtime.navigateToSession(runtime.currentSessionId);
-          runtime.setActiveTab("chat");
-          return true;
-        }
-        return runtime.navigateToMostRecentSession();
+      if (runtime.secondaryPage === "terminal") {
+        runtime.closeSecondaryPage();
+        runtime.setActiveTab("chat");
+        return true;
       }
       runtime.captureConversationViewport?.();
       const cwd = runtime.currentSessionCwd ?? runtime.terminalCwd;

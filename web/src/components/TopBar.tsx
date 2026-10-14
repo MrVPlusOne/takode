@@ -4,8 +4,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
-import { parseHash } from "../utils/routing.js";
-import { navigateTo } from "../utils/navigation.js";
+import { parseHash, secondaryPageFromHash } from "../utils/routing.js";
+import { toggleSecondaryPage } from "../utils/secondary-view.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { useSessionSettings } from "./SessionSettingsMenu.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
@@ -104,7 +104,7 @@ export function TopBar({
   );
   const route = useMemo(() => parseHash(hash), [hash]);
   const isSessionView = route.page === "session" || route.page === "home";
-  const isQuestmasterPage = route.page === "questmaster";
+  const isQuestmasterPage = secondaryPageFromHash(hash) === "questmaster";
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
   const compact = !useDesktopShellLayout();
   const {
@@ -269,25 +269,10 @@ export function TopBar({
     };
   }, [refreshQuestSummary]);
 
-  // Track the hash before navigating to questmaster so we can toggle back
-  const prevHashRef = useRef<string>("");
-
   const handleQuestToggle = useCallback(() => {
     closeCodexSubagentInspector();
-    if (isQuestmasterPage) {
-      // Toggle back to previous view (or home)
-      const prev = prevHashRef.current;
-      if (prev && prev !== "#/questmaster") {
-        navigateTo(prev);
-      } else {
-        navigateTo("");
-      }
-    } else {
-      // Save current hash before navigating to questmaster
-      prevHashRef.current = window.location.hash;
-      navigateTo("/questmaster");
-    }
-  }, [closeCodexSubagentInspector, isQuestmasterPage]);
+    toggleSecondaryPage("questmaster");
+  }, [closeCodexSubagentInspector]);
   // Opens the board under the tabs without leaving the current thread; the panel switches views itself.
   const toggleLeaderWorkboardInPlace = useCallback(() => {
     if (!currentSessionId) return;

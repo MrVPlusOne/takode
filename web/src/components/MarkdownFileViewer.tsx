@@ -4,6 +4,8 @@ import { create } from "zustand";
 import { readFileLinkText, type FileLinkActionTarget } from "../api/file-link-actions.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
+import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { isShortcutEventTargetEditable } from "../shortcuts.js";
 
 /**
  * Open viewers, bottom first. They live outside the link that opened them, so a viewer stays open
@@ -56,6 +58,9 @@ function MarkdownFileViewer({
   const sheetRef = useRef<HTMLDivElement>(null);
   const [file, setFile] = useState<ViewerContent>({ status: "loading" });
   usePreviewSheetHistoryEntry(true, sheetRef, onClose);
+  // Wide screens show the file beside the conversation instead of over it.
+  const dockTarget = useSecondaryViewTarget(true, onClose);
+  const docked = dockTarget !== null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -71,19 +76,22 @@ function MarkdownFileViewer({
   useEffect(() => {
     if (!isTop) return;
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Beside the conversation, keys typed into the composer belong to it.
+      if (docked && isShortcutEventTargetEditable(event.target)) return;
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isTop, onClose]);
+  }, [docked, isTop, onClose]);
 
   useEffect(() => {
+    if (docked) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, []);
+  }, [docked]);
 
   const path = file.status === "loaded" ? file.absolutePath : target.path;
   const name = path.split(/[\\/]/).pop() || path;
@@ -91,20 +99,28 @@ function MarkdownFileViewer({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4 sm:px-6"
+      className={
+        docked
+          ? SECONDARY_VIEWER_LAYER_CLASS
+          : "fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4 sm:px-6"
+      }
       onClick={(event) => {
         // Portal clicks still bubble through React to the link's own ancestors, such as a message row.
         event.stopPropagation();
-        onClose();
+        if (!docked) onClose();
       }}
       data-testid="markdown-file-viewer-backdrop"
     >
       <div
         ref={sheetRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={docked ? undefined : "true"}
         aria-label={name}
-        className="flex h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-bg shadow-2xl sm:h-[calc(100dvh-3rem)]"
+        className={
+          docked
+            ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-cc-bg"
+            : "flex h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-bg shadow-2xl sm:h-[calc(100dvh-3rem)]"
+        }
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start gap-3 border-b border-cc-border bg-cc-card px-4 py-3">
@@ -137,13 +153,13 @@ function MarkdownFileViewer({
               sessionId={target.sessionId}
               fileBasePath={file.absolutePath}
               wrapLongContent
-              onSessionNavigate={closeAll}
+              onSessionNavigate={docked ? undefined : closeAll}
               questLinkSurface="chat-feed"
             />
           )}
         </div>
       </div>
     </div>,
-    document.body,
+    dockTarget ?? document.body,
   );
 }

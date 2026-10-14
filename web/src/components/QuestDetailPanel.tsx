@@ -51,14 +51,37 @@ import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
+import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { isShortcutEventTargetEditable } from "../shortcuts.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
 const STATUS_CONFIG = QUEST_STATUS_THEME;
 const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
+const noop = () => {};
 
+function closeQuestDetails(): void {
+  const currentHash = window.location.hash || "#/";
+  const nextHash = withoutQuestIdInHash(currentHash);
+  if (nextHash !== currentHash) {
+    window.history.replaceState(window.history.state, "", nextHash);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+  useStore.getState().closeQuestOverlay();
+}
+
+/**
+ * Quest details, opened from quest links and Questmaster: in the right-hand secondary view area
+ * beside the conversation on wide screens, otherwise as a modal over the app.
+ */
 export function QuestDetailPanel() {
   const questOverlayId = useStore((s) => s.questOverlayId);
+  const dockTarget = useSecondaryViewTarget(!!questOverlayId, closeQuestDetails);
+  const docked = dockTarget != null;
+  const portalTarget = dockTarget ?? document.body;
+  const backdropClassName = docked
+    ? SECONDARY_VIEWER_LAYER_CLASS
+    : "fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-2 py-4 sm:px-3";
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
   const sessionBoards = useStore((s) => s.sessionBoards);
@@ -178,23 +201,18 @@ export function QuestDetailPanel() {
 
   // Lock body scroll while open
   useEffect(() => {
-    if (!questOverlayId) return;
+    if (!questOverlayId || docked) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [questOverlayId]);
+  }, [docked, questOverlayId]);
 
-  const closePanel = useCallback(() => {
-    const currentHash = window.location.hash || "#/";
-    const nextHash = withoutQuestIdInHash(currentHash);
-    if (nextHash !== currentHash) {
-      window.history.replaceState(window.history.state, "", nextHash);
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    }
-    useStore.getState().closeQuestOverlay();
-  }, []);
+  const closePanel = closeQuestDetails;
+
+  // Docked details sit beside the conversation, so opening a session from them keeps them open.
+  const closeAfterSessionNavigate = docked ? noop : closePanel;
 
   const cacheUpdatedQuest = useCallback((updatedQuest: QuestmasterTask) => {
     setFetchedQuest(updatedQuest);
@@ -206,6 +224,10 @@ export function QuestDetailPanel() {
     if (!questOverlayId) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // Beside the conversation, Escape typed into the composer belongs to it.
+      const typingOutside =
+        dockTarget && !dockTarget.contains(e.target as Node) && isShortcutEventTargetEditable(e.target);
+      if (typingOutside) return;
       if (lightboxSrc) return; // Lightbox has its own Escape handler
       if (commitDiffState.activeCommitKey !== null) {
         commitDiffState.closeCommit();
@@ -229,6 +251,7 @@ export function QuestDetailPanel() {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [
+    dockTarget,
     questOverlayId,
     lightboxSrc,
     commitDiffState,
@@ -669,14 +692,22 @@ export function QuestDetailPanel() {
   if (!quest) {
     return createPortal(
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
-        onClick={closePanel}
+        className={
+          docked
+            ? backdropClassName
+            : "fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
+        }
+        onClick={docked ? undefined : closePanel}
         data-testid="quest-detail-panel-backdrop"
       >
         <div
-          className="w-[min(520px,100%)] min-w-0 max-w-full bg-cc-card border border-cc-border rounded-xl shadow-2xl overflow-hidden"
+          className={
+            docked
+              ? "min-w-0 flex-1 bg-cc-card overflow-hidden"
+              : "w-[min(520px,100%)] min-w-0 max-w-full bg-cc-card border border-cc-border rounded-xl shadow-2xl overflow-hidden"
+          }
           role="dialog"
-          aria-modal="true"
+          aria-modal={docked ? undefined : "true"}
           aria-label="Quest details"
           onClick={(e) => e.stopPropagation()}
           data-testid="quest-detail-panel"
@@ -701,7 +732,7 @@ export function QuestDetailPanel() {
           </div>
         </div>
       </div>,
-      document.body,
+      portalTarget,
     );
   }
 
@@ -744,14 +775,18 @@ export function QuestDetailPanel() {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-2 py-4 sm:px-3"
-      onClick={closePanel}
+      className={backdropClassName}
+      onClick={docked ? undefined : closePanel}
       data-testid="quest-detail-panel-backdrop"
     >
       <div
-        className="w-[min(920px,100%)] min-w-0 max-w-full max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className={
+          docked
+            ? "min-h-0 min-w-0 flex-1 bg-cc-card flex flex-col overflow-hidden"
+            : "w-[min(920px,100%)] min-w-0 max-w-full max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        }
         role="dialog"
-        aria-modal="true"
+        aria-modal={docked ? undefined : "true"}
         aria-label={`Quest details: ${quest.title}`}
         onClick={(e) => e.stopPropagation()}
         data-testid="quest-detail-panel"
@@ -835,7 +870,7 @@ export function QuestDetailPanel() {
             workerSessionId={sessionTargets?.workerSessionId ?? null}
             workerStatus={sessionTargets?.workerStatus}
             leaderSessionId={sessionTargets?.leaderSessionId ?? null}
-            onNavigate={closePanel}
+            onNavigate={closeAfterSessionNavigate}
           />
         </div>
 
@@ -1058,7 +1093,7 @@ export function QuestDetailPanel() {
                 journeyStatus={journeyStatus}
                 searchHighlight={searchHighlight}
                 sessionId={questMarkdownSessionId}
-                onSessionNavigate={closePanel}
+                onSessionNavigate={closeAfterSessionNavigate}
                 feedbackTarget={activeFeedbackTarget}
                 highlightedFeedbackIndex={highlightedFeedbackIndex}
                 onFeedbackTargetReady={handleFeedbackTargetReady}
@@ -1067,7 +1102,7 @@ export function QuestDetailPanel() {
                     items={quest.quizItems}
                     sessionId={questMarkdownSessionId}
                     collapsed
-                    onSessionNavigate={closePanel}
+                    onSessionNavigate={closeAfterSessionNavigate}
                   />
                 }
               />
@@ -1173,7 +1208,7 @@ export function QuestDetailPanel() {
                                       <CompactSessionLink
                                         sessionId={feedbackSessionId}
                                         className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
-                                        onNavigate={closePanel}
+                                        onNavigate={closeAfterSessionNavigate}
                                       />
                                       {feedbackAuthorSuffix && (
                                         <span className="text-[11px] font-medium text-amber-400/70">
@@ -1340,7 +1375,7 @@ export function QuestDetailPanel() {
                                             size="sm"
                                             sessionId={questMarkdownSessionId}
                                             wrapLongContent
-                                            onSessionNavigate={closePanel}
+                                            onSessionNavigate={closeAfterSessionNavigate}
                                           />
                                         </div>
                                         <details
@@ -1354,7 +1389,7 @@ export function QuestDetailPanel() {
                                               size="sm"
                                               sessionId={questMarkdownSessionId}
                                               wrapLongContent
-                                              onSessionNavigate={closePanel}
+                                              onSessionNavigate={closeAfterSessionNavigate}
                                             />
                                           </div>
                                         </details>
@@ -1365,7 +1400,7 @@ export function QuestDetailPanel() {
                                         size="sm"
                                         sessionId={questMarkdownSessionId}
                                         wrapLongContent
-                                        onSessionNavigate={closePanel}
+                                        onSessionNavigate={closeAfterSessionNavigate}
                                       />
                                     )}
                                     {entry.images && entry.images.length > 0 && (
@@ -1461,7 +1496,7 @@ export function QuestDetailPanel() {
                       size="sm"
                       sessionId={questMarkdownSessionId}
                       wrapLongContent
-                      onSessionNavigate={closePanel}
+                      onSessionNavigate={closeAfterSessionNavigate}
                     />
                   </div>
                 </div>
@@ -1480,7 +1515,7 @@ export function QuestDetailPanel() {
               </div>
 
               {historyForId === quest.questId && (
-                <QuestVersionHistory questId={quest.questId} onNavigate={closePanel} />
+                <QuestVersionHistory questId={quest.questId} onNavigate={closeAfterSessionNavigate} />
               )}
 
               {/* Action bar */}
@@ -1671,7 +1706,7 @@ export function QuestDetailPanel() {
           );
         })()}
     </div>,
-    document.body,
+    portalTarget,
   );
 }
 

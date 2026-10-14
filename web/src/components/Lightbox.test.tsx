@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from "@testing-library/react";
+import { act } from "react";
 import { Lightbox } from "./Lightbox.js";
+import { setSecondaryViewTarget } from "../utils/secondary-view.js";
 
 describe("Lightbox", () => {
   const defaultProps = {
@@ -103,5 +105,36 @@ describe("Lightbox", () => {
     // After unmount, overflow should be restored
     unmount();
     expect(document.body.style.overflow).not.toBe("hidden");
+  });
+
+  // On wide screens the app registers a right-hand area beside the conversation; the image opens
+  // there, and the composer beside it keeps its own keys.
+  describe("beside the conversation", () => {
+    let area: HTMLDivElement;
+    beforeEach(() => {
+      area = document.createElement("div");
+      document.body.appendChild(area);
+      act(() => setSecondaryViewTarget(area));
+    });
+    afterEach(() => {
+      act(() => setSecondaryViewTarget(null));
+      area.remove();
+    });
+
+    it("renders in the right-hand area and leaves Escape in the composer alone", () => {
+      render(<Lightbox {...defaultProps} />);
+
+      expect(area.contains(screen.getByTestId("lightbox-backdrop"))).toBe(true);
+      expect(document.body.style.overflow).not.toBe("hidden");
+
+      const composer = document.createElement("textarea");
+      document.body.appendChild(composer);
+      fireEvent.keyDown(composer, { key: "Escape" });
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+      composer.remove();
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });

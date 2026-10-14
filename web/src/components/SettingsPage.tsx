@@ -67,7 +67,7 @@ import {
   type CodexLeaderCompactionMode,
 } from "../../shared/codex-leader-compaction-mode.js";
 
-import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
+import { closeSecondaryPage } from "../utils/secondary-view.js";
 
 const SCROLL_STORAGE_KEY = "cc-settings-scroll";
 
@@ -235,15 +235,6 @@ export function SettingsPage({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const settingsSearch = useSettingsSearchNavigation(scrollRef, isActive);
-
-  function navigateBackFromSettings() {
-    const sessionId = useStore.getState().currentSessionId;
-    if (sessionId) {
-      navigateToSession(sessionId);
-    } else {
-      navigateToMostRecentSession();
-    }
-  }
 
   useEffect(() => {
     if (!isActive) return;
@@ -720,7 +711,7 @@ export function SettingsPage({
       className={`${embedded ? "h-full" : "h-[100dvh]"} bg-cc-bg text-cc-fg font-sans-ui antialiased overflow-y-auto`}
     >
       <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-4">
-        <SettingsPageHeader embedded={embedded} onBack={navigateBackFromSettings} />
+        <SettingsPageHeader embedded={embedded} onBack={closeSecondaryPage} />
 
         {error && errorBox(error)}
 

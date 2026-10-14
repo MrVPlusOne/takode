@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
+import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { isShortcutEventTargetEditable } from "../shortcuts.js";
 import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
@@ -394,6 +396,9 @@ function ImagePreviewModal({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const image = images[selectedIndex];
+  // Wide screens show the image beside the conversation instead of over it.
+  const dockTarget = useSecondaryViewTarget(true, onClose);
+  const docked = dockTarget !== null;
   const canNavigate = images.length > 1;
 
   const selectOffset = useCallback(
@@ -407,17 +412,20 @@ function ImagePreviewModal({
   );
 
   useEffect(() => {
+    dialogRef.current?.focus();
+    if (docked) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    dialogRef.current?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, []);
+  }, [docked]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" && event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      // Beside the conversation, keys typed into the composer belong to it.
+      if (docked && isShortcutEventTargetEditable(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -432,16 +440,20 @@ function ImagePreviewModal({
     return () => {
       document.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
-  }, [onClose, selectOffset]);
+  }, [docked, onClose, selectOffset]);
 
   if (!image) return null;
 
   return createPortal(
     <div
       ref={dialogRef}
-      className="fixed inset-0 z-50 flex flex-col bg-cc-bg/95 text-cc-fg"
+      className={
+        docked
+          ? `${SECONDARY_VIEWER_LAYER_CLASS} text-cc-fg`
+          : "fixed inset-0 z-50 flex flex-col bg-cc-bg/95 text-cc-fg"
+      }
       role="dialog"
-      aria-modal="true"
+      aria-modal={docked ? undefined : "true"}
       aria-label={`Image preview: ${image.filename}`}
       tabIndex={-1}
       data-testid="image-preview-modal"
@@ -492,7 +504,7 @@ function ImagePreviewModal({
         />
       </div>
     </div>,
-    document.body,
+    dockTarget ?? document.body,
   );
 }
 

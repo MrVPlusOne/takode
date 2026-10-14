@@ -20,7 +20,12 @@ import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
-import { hasMessageDeepLinkFromHash, navigateToSessionThread, threadRouteFromHash } from "../utils/routing.js";
+import {
+  hasMessageDeepLinkFromHash,
+  navigateToSessionThread,
+  parseHash,
+  threadRouteFromHash,
+} from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
@@ -850,6 +855,9 @@ export function ChatView({
   useEffect(() => {
     if (!routeSyncEnabled || preview) return;
     const liveHash = window.location.hash;
+    // A page path such as `#/questmaster` is being rewritten to open over this session; the
+    // thread route is not ours to correct until the URL names the session again.
+    if (parseHash(liveHash).page !== "session") return;
     const liveThreadRoute = threadRouteFromHash(liveHash);
     if (liveThreadRoute.hasThreadParam !== hasThreadRoute || liveThreadRoute.threadKey !== (routeThreadKey ?? null)) {
       return;

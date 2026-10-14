@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import * as Diff from "diff";
+import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { orderDiffFilesCodeFirst } from "../../shared/diff-file-groups.js";
 import {
   buildHighlightedLines,
@@ -950,41 +951,48 @@ export const DiffViewer = memo(function DiffViewer({
           </select>,
           fileNavigationTarget,
         )}
-      {isCompact &&
-        expanded &&
-        createPortal(
-          <div className="diff-modal-backdrop" onClick={() => setExpanded(false)}>
-            <div className="diff-modal-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="diff-modal-header">
-                <span className="diff-modal-title">{fileName || "Diff Viewer"}</span>
-                <button
-                  type="button"
-                  onClick={() => setExpanded(false)}
-                  className="diff-modal-close"
-                  title="Close full-screen diff"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="diff-modal-body">
-                <DiffViewer
-                  oldText={oldText}
-                  newText={newText}
-                  unifiedDiff={unifiedDiff}
-                  sourceFiles={sourceFiles}
-                  fileName={fileName}
-                  mode="full"
-                  showLineNumbers
-                  headerActions={headerActions}
-                  renderHeaderActions={renderHeaderActions}
-                  stickyFileHeaders={stickyFileHeaders}
-                  collapsibleFiles={collapsibleFiles}
-                />
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {isCompact && expanded && (
+        <ExpandedDiff title={fileName || "Diff Viewer"} onClose={() => setExpanded(false)}>
+          <DiffViewer
+            oldText={oldText}
+            newText={newText}
+            unifiedDiff={unifiedDiff}
+            sourceFiles={sourceFiles}
+            fileName={fileName}
+            mode="full"
+            showLineNumbers
+            headerActions={headerActions}
+            renderHeaderActions={renderHeaderActions}
+            stickyFileHeaders={stickyFileHeaders}
+            collapsibleFiles={collapsibleFiles}
+          />
+        </ExpandedDiff>
+      )}
     </>
   );
 });
+
+/** The full-size diff opened from a compact one: beside the conversation on wide screens, else full-screen. */
+function ExpandedDiff({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const dockTarget = useSecondaryViewTarget(true, onClose);
+  return createPortal(
+    <div
+      className={dockTarget ? SECONDARY_VIEWER_LAYER_CLASS : "diff-modal-backdrop"}
+      onClick={dockTarget ? undefined : onClose}
+    >
+      <div
+        className={dockTarget ? "diff-modal-panel diff-modal-panel-docked" : "diff-modal-panel"}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="diff-modal-header">
+          <span className="diff-modal-title">{title}</span>
+          <button type="button" onClick={onClose} className="diff-modal-close" title="Close full-size diff">
+            Close
+          </button>
+        </div>
+        <div className="diff-modal-body">{children}</div>
+      </div>
+    </div>,
+    dockTarget ?? document.body,
+  );
+}

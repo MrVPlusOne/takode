@@ -21,6 +21,7 @@ const QUEST_ID_PATTERN = /^q-\d+$/i;
 const THREAD_QUERY_PARAM = "thread";
 const QUEST_QUERY_PARAM = "quest";
 const FEEDBACK_QUERY_PARAM = "feedback";
+const SECONDARY_VIEW_QUERY_PARAM = "view";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -84,6 +85,109 @@ export function parseHash(hash: string): Route {
   }
 
   return { page: "home" };
+}
+
+/** Pages that open as the secondary view, over or beside the primary session view. */
+export type SecondaryPage =
+  | "settings"
+  | "changelog"
+  | "logs"
+  | "terminal"
+  | "environments"
+  | "scheduled"
+  | "questmaster"
+  | "memory";
+
+const SECONDARY_PAGES: ReadonlySet<string> = new Set<SecondaryPage>([
+  "settings",
+  "changelog",
+  "logs",
+  "terminal",
+  "environments",
+  "scheduled",
+  "questmaster",
+  "memory",
+]);
+
+export function isSecondaryPage(value: string | null | undefined): value is SecondaryPage {
+  return value != null && SECONDARY_PAGES.has(value);
+}
+
+function joinHash(path: string, params: URLSearchParams): string {
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * The secondary page a hash shows: a page path such as `#/questmaster`, or the
+ * `view` param on a session route, which keeps that session as the primary view.
+ */
+export function secondaryPageFromHash(hash: string): SecondaryPage | null {
+  const route = parseHash(hash);
+  if (isSecondaryPage(route.page)) return route.page;
+  if (route.page !== "session") return null;
+  const view = splitHash(hash).params.get(SECONDARY_VIEW_QUERY_PARAM);
+  return isSecondaryPage(view) ? view : null;
+}
+
+/** Return a hash with the secondary page param set, or removed when `page` is null. */
+export function withSecondaryPageInHash(hash: string, page: SecondaryPage | null): string {
+  const { path, params } = splitHash(hash);
+  if (page) params.set(SECONDARY_VIEW_QUERY_PARAM, page);
+  else params.delete(SECONDARY_VIEW_QUERY_PARAM);
+  return joinHash(path, params);
+}
+
+/**
+ * The primary view a session hash names: its session and leader thread, without
+ * message deep links, overlays or the secondary page.
+ */
+export function primarySessionHash(hash: string): string | null {
+  const route = parseHash(hash);
+  if (route.page !== "session") return null;
+  const thread = splitHash(hash).params.get(THREAD_QUERY_PARAM);
+  const params = new URLSearchParams();
+  if (thread) params.set(THREAD_QUERY_PARAM, thread);
+  return joinHash(sessionHash(route.sessionId), params);
+}
+
+/**
+ * Re-express a page path such as `#/questmaster?quest=q-1` as that page over the
+ * given primary session hash, keeping the page's own params.
+ */
+export function secondaryPageOverSession(pageHash: string, primaryHash: string): string {
+  const page = parseHash(pageHash).page;
+  const primary = primarySessionHash(primaryHash);
+  if (!isSecondaryPage(page) || !primary) return pageHash;
+  const { path, params: primaryParams } = splitHash(primary);
+  const { params } = splitHash(pageHash);
+  for (const [key, value] of primaryParams) params.set(key, value);
+  params.set(SECONDARY_VIEW_QUERY_PARAM, page);
+  return joinHash(path, params);
+}
+
+let secondaryViewDocked = false;
+
+/** Tell navigation whether the secondary view sits beside the primary view, set by the app shell. */
+export function setSecondaryViewDocked(docked: boolean): void {
+  secondaryViewDocked = docked;
+}
+
+/**
+ * While the secondary view is docked beside the primary view, switching the
+ * primary session keeps it, and any quest it shows, open.
+ */
+function carryDockedSecondaryView(newHash: string): string {
+  if (!secondaryViewDocked) return newHash;
+  const currentHash = window.location.hash;
+  if (parseHash(currentHash).page !== "session") return newHash;
+  const { params: current } = splitHash(currentHash);
+  const { path, params } = splitHash(newHash);
+  for (const key of [SECONDARY_VIEW_QUERY_PARAM, QUEST_QUERY_PARAM, FEEDBACK_QUERY_PARAM]) {
+    const value = current.get(key);
+    if (value && !params.has(key)) params.set(key, value);
+  }
+  return joinHash(path, params);
 }
 
 /**
@@ -259,12 +363,12 @@ function resolveMessageByReadableIndex(messages: ChatMessage[], messageIndex: nu
  * When replace=true, uses replaceState to avoid creating a history entry.
  */
 export function navigateToSession(sessionId: string, replace = false): void {
-  const newHash = sessionHash(sessionId);
+  const newHash = carryDockedSecondaryView(sessionHash(sessionId));
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   } else {
-    window.location.hash = `/session/${sessionId}`;
+    window.location.hash = newHash.slice(1);
   }
 }
 
@@ -311,7 +415,7 @@ export function navigateToSessionThread(
   const currentHash =
     currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
       ? window.location.hash
-      : sessionHash(routeSessionId);
+      : carryDockedSecondaryView(sessionHash(routeSessionId));
   const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
     preserveMain: options.preserveMainThreadRoute,
   });

@@ -19,7 +19,8 @@ import {
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { connectSession } from "../ws.js";
-import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
+import { navigateToSession, secondaryPageFromHash } from "../utils/routing.js";
+import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
@@ -123,12 +124,12 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     loadArchivedSessionsPage,
     loadMoreSentinelRef: archivedLoadMoreSentinelRef,
   } = useArchivedSessionPaging({ showArchived, scrollerRef: sessionScrollerRef });
-  const route = parseHash(hash);
-  const isSettingsPage = route.page === "settings";
-  const isTerminalPage = route.page === "terminal";
-  const isScheduledPage = route.page === "scheduled";
-  const isQuestmasterPage = route.page === "questmaster";
-  const isMemoryPage = route.page === "memory";
+  const secondaryPage = secondaryPageFromHash(hash);
+  const isSettingsPage = secondaryPage === "settings";
+  const isTerminalPage = secondaryPage === "terminal";
+  const isScheduledPage = secondaryPage === "scheduled";
+  const isQuestmasterPage = secondaryPage === "questmaster";
+  const isMemoryPage = secondaryPage === "memory";
   const isDesktopLayout = useDesktopShellLayout();
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
@@ -1052,7 +1053,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
                   state.openTerminal(sessionCwd, sessionId);
                 }
               }
-              window.location.hash = "#/terminal";
+              openSecondaryPage("terminal");
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }
@@ -1071,16 +1072,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
             title="To-dos & Timers"
             aria-label="To-dos & Timers"
             onClick={() => {
-              if (isScheduledPage) {
-                const sessionId = useStore.getState().currentSessionId;
-                if (sessionId) {
-                  navigateToSession(sessionId);
-                } else {
-                  navigateToMostRecentSession();
-                }
-              } else {
-                window.location.hash = "#/scheduled";
-              }
+              toggleSecondaryPage("scheduled");
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }
@@ -1107,16 +1099,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
           <button
             title="Memory"
             onClick={() => {
-              if (isMemoryPage) {
-                const sessionId = useStore.getState().currentSessionId;
-                if (sessionId) {
-                  navigateToSession(sessionId);
-                } else {
-                  navigateToMostRecentSession();
-                }
-              } else {
-                window.location.hash = "#/memory";
-              }
+              toggleSecondaryPage("memory");
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }
@@ -1143,16 +1126,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
           <button
             title="Quests"
             onClick={() => {
-              if (isQuestmasterPage) {
-                const sessionId = useStore.getState().currentSessionId;
-                if (sessionId) {
-                  navigateToSession(sessionId);
-                } else {
-                  navigateToMostRecentSession();
-                }
-              } else {
-                window.location.hash = "#/questmaster";
-              }
+              toggleSecondaryPage("questmaster");
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }
@@ -1168,16 +1142,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
           <button
             title="Settings"
             onClick={() => {
-              if (isSettingsPage) {
-                const sessionId = useStore.getState().currentSessionId;
-                if (sessionId) {
-                  navigateToSession(sessionId);
-                } else {
-                  navigateToMostRecentSession();
-                }
-              } else {
-                window.location.hash = "#/settings";
-              }
+              toggleSecondaryPage("settings");
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }

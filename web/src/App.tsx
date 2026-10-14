@@ -1,5 +1,5 @@
 import { browserLoadDiagnostics } from "./utils/browser-load-diagnostics.js";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store.js";
 import {
@@ -25,7 +25,22 @@ import {
   threadRouteFromHash,
   resolveSessionIdFromRoute,
   scrollToMessageIndex,
+  isSecondaryPage,
+  primarySessionHash,
+  secondaryPageFromHash,
+  secondaryPageOverSession,
+  sessionHash,
+  setSecondaryViewDocked,
+  type SecondaryPage,
 } from "./utils/routing.js";
+import {
+  closeSecondaryPage,
+  closeSecondaryViewers,
+  setSecondaryViewTarget,
+  useSecondaryViewMode,
+  useSecondaryViewOccupied,
+} from "./utils/secondary-view.js";
+import { SecondaryViewArea } from "./components/SecondaryViewArea.js";
 import { UserContentNotice } from "./components/UserContentNotice.js";
 import { navigateTo } from "./utils/navigation.js";
 import type { QuestLinkTarget } from "./utils/quest-link-target.js";
@@ -52,7 +67,13 @@ import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
 import { UniversalSearchOverlay } from "./components/UniversalSearchOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
-import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
+import {
+  canShowSecondaryViewBeside,
+  getEffectiveViewportWidth,
+  secondaryViewWidth,
+  isDesktopShellLayout,
+  isDesktopTaskPanelLayout,
+} from "./utils/layout.js";
 import { installAppViewportSizing } from "./utils/app-viewport.js";
 import { getLastSessionCreationContext } from "./utils/new-session-defaults.js";
 import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js";
@@ -229,6 +250,86 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
     .filter((session): session is NonNullable<typeof session> => session !== null);
 }
 
+function subscribeResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+function useViewportWidth(zoomLevel: number): number {
+  return useSyncExternalStore(subscribeResize, () => getEffectiveViewportWidth(zoomLevel));
+}
+
+const SECONDARY_PAGE_LABELS: Record<SecondaryPage, string> = {
+  settings: "Settings",
+  changelog: "Changelog",
+  logs: "Logs",
+  terminal: "Terminal",
+  environments: "Environments",
+  scheduled: "To-dos & Timers",
+  questmaster: "Questmaster",
+  memory: "Memory",
+};
+
+function secondaryPageLabel(page: SecondaryPage): string {
+  return SECONDARY_PAGE_LABELS[page];
+}
+
+/** The page shown as the secondary view. Settings stays mounted under the Changelog it links to. */
+function renderSecondaryPage(page: SecondaryPage) {
+  switch (page) {
+    case "settings":
+    case "changelog":
+      return (
+        <>
+          <div className={`absolute inset-0 ${page === "settings" ? "" : "hidden"}`}>
+            <SettingsPage embedded isActive={page === "settings"} />
+          </div>
+          {page === "changelog" && (
+            <div className="absolute inset-0">
+              <ChangelogPage />
+            </div>
+          )}
+        </>
+      );
+    case "logs":
+      return (
+        <div className="absolute inset-0">
+          <LogsPage />
+        </div>
+      );
+    case "terminal":
+      return (
+        <div className="absolute inset-0">
+          <TerminalPage />
+        </div>
+      );
+    case "environments":
+      return (
+        <div className="absolute inset-0">
+          <EnvManager embedded />
+        </div>
+      );
+    case "scheduled":
+      return (
+        <div className="absolute inset-0">
+          <TodosAndTimersPage />
+        </div>
+      );
+    case "questmaster":
+      return (
+        <div className="absolute inset-0">
+          <QuestmasterPage isActive={true} />
+        </div>
+      );
+    case "memory":
+      return (
+        <div className="absolute inset-0">
+          <MemoryPage embedded />
+        </div>
+      );
+  }
+}
+
 export default function App() {
   useLayoutEffect(() => browserLoadDiagnostics.markAppCommitted(), []);
   const {
@@ -268,36 +369,31 @@ export default function App() {
       questOverlayFeedbackIndex: s.questOverlayFeedbackTarget?.index ?? null,
     })),
   );
-  const hash = useHashLocation();
-  useQuestOverlayRouteSync(hash, questOverlayId, questOverlayFeedbackIndex);
+  const rawHash = useHashLocation();
+  useQuestOverlayRouteSync(rawHash, questOverlayId, questOverlayFeedbackIndex);
+  // A page link such as `#/questmaster` opens over the last session, which stays the
+  // primary view; the effect below rewrites the URL to say so.
+  const lastPrimaryHashRef = useRef<string | null>(null);
+  const rawPage = parseHash(rawHash).page;
+  if (rawPage === "session") lastPrimaryHashRef.current = primarySessionHash(rawHash);
+  const primaryHashForPage = isSecondaryPage(rawPage)
+    ? (lastPrimaryHashRef.current ?? (currentSessionId ? sessionHash(currentSessionId) : null))
+    : null;
+  const hash = primaryHashForPage ? secondaryPageOverSession(rawHash, primaryHashForPage) : rawHash;
+  useEffect(() => {
+    if (hash !== rawHash) navigateTo(hash, true);
+  }, [hash, rawHash]);
   const route = useMemo(() => parseHash(hash), [hash]);
   const threadRoute = useMemo(
     () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
     [hash, route.page],
   );
-  const isSettingsPage = route.page === "settings";
-  const isChangelogPage = route.page === "changelog";
-  const isLogsPage = route.page === "logs";
-  const isTerminalPage = route.page === "terminal";
-  const isEnvironmentsPage = route.page === "environments";
-  const isScheduledPage = route.page === "scheduled";
-  const isQuestmasterPage = route.page === "questmaster";
-  const isMemoryPage = route.page === "memory";
-  const isFullPageRoute =
-    isSettingsPage || isChangelogPage || isTerminalPage || isScheduledPage || isQuestmasterPage || isMemoryPage;
-  const fullPageRouteLabel = isMemoryPage
-    ? "Memory"
-    : isChangelogPage
-      ? "Changelog"
-      : isTerminalPage
-        ? "Terminal"
-        : isScheduledPage
-          ? "To-dos & Timers"
-          : isSettingsPage
-            ? "Settings"
-            : isQuestmasterPage
-              ? "Questmaster"
-              : undefined;
+  const secondaryPage = secondaryPageFromHash(hash);
+  // Logs and Environments keep the session top bar; other pages name themselves in it.
+  const fullPageRouteLabel =
+    secondaryPage && secondaryPage !== "logs" && secondaryPage !== "environments"
+      ? secondaryPageLabel(secondaryPage)
+      : undefined;
   const isSessionView = route.page === "session" || route.page === "home";
   const routeSessionId = useMemo(
     () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
@@ -323,8 +419,44 @@ export default function App() {
   );
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
+  const inlineTaskPanelOpen =
+    isDesktopTaskPanel && taskPanelOpen && isSessionView && !!currentSessionId && !isPendingId(currentSessionId);
+  const viewportWidth = useViewportWidth(zoomLevel);
+  // Wide screens show the secondary view (a page and viewers opened from the conversation) in a
+  // right-hand area, beside the conversation or floating over it; phones cover the conversation
+  // with it. Either way the conversation, the primary view, stays mounted.
+  const preferredSecondaryViewMode = useSecondaryViewMode();
+  const secondaryViewersOpen = useSecondaryViewOccupied();
+  const secondaryAvailableWidth = viewportWidth - (sidebarOpen ? 260 : 0) - (inlineTaskPanelOpen ? 280 : 0);
+  const secondaryAreaWidth = isDesktopShell && isSessionView ? secondaryViewWidth(secondaryAvailableWidth) : null;
+  const canShowSecondaryBeside =
+    secondaryAreaWidth !== null && canShowSecondaryViewBeside(secondaryAvailableWidth, secondaryAreaWidth);
+  const secondaryViewMode = canShowSecondaryBeside ? preferredSecondaryViewMode : "overlay";
+  const diffInSecondaryArea =
+    secondaryAreaWidth !== null && activeTab === "diff" && !!currentSessionId && !isPendingId(currentSessionId);
+  const secondaryAreaOpen =
+    secondaryAreaWidth !== null && (secondaryPage !== null || secondaryViewersOpen || diffInSecondaryArea);
+  const primaryHidden =
+    (activeTab !== "chat" && !diffInSecondaryArea && !!displayedSessionId) ||
+    (secondaryPage !== null && secondaryAreaWidth === null);
+  const [secondaryAreaElement, setSecondaryAreaElement] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSecondaryViewTarget(secondaryAreaWidth !== null ? secondaryAreaElement : null);
+  }, [secondaryAreaElement, secondaryAreaWidth]);
+  useEffect(
+    () => setSecondaryViewDocked(secondaryAreaOpen && secondaryViewMode === "side"),
+    [secondaryAreaOpen, secondaryViewMode],
+  );
+  const dismissSecondaryArea = useCallback(() => {
+    closeSecondaryViewers();
+    if (useStore.getState().activeTab === "diff") useStore.getState().setActiveTab("chat");
+    if (secondaryPageFromHash(window.location.hash)) closeSecondaryPage();
+  }, []);
   const chatSessionVisible =
-    isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
+    isSessionView &&
+    (activeTab === "chat" || diffInSecondaryArea) &&
+    !!displayedSessionId &&
+    !isPendingId(displayedSessionId);
   const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
   const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
   const sidebarShellRef = useRef<HTMLDivElement | null>(null);
@@ -552,7 +684,7 @@ export default function App() {
         (currentSessionId ? state.sdkSessions.find((session) => session.sessionId === currentSessionId) : null) ??
         null;
       const handled = performShortcutAction(actionId, {
-        route,
+        secondaryPage,
         currentSessionId,
         currentSessionCwd: currentSession?.cwd ?? null,
         currentSessionHostId:
@@ -576,6 +708,7 @@ export default function App() {
         navigateTo,
         navigateToSession,
         navigateToMostRecentSession: () => navigateToMostRecentSession(),
+        closeSecondaryPage,
         goToNextAttention: () => window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT)),
       });
       if (!handled) return false;
@@ -657,7 +790,7 @@ export default function App() {
       document.removeEventListener("keyup", handleKeyUp, { capture: true });
       clearShortcutTap();
     };
-  }, [closeUniversalSearch, openUniversalSearch, route, shortcutSettings, universalSearchOpen]);
+  }, [closeUniversalSearch, openUniversalSearch, secondaryPage, shortcutSettings, universalSearchOpen]);
 
   useEffect(() => {
     return installAppViewportSizing(window);
@@ -755,6 +888,7 @@ export default function App() {
       // Auto-navigate to the most recent session if available
       navigateToMostRecentSession({ replace: true });
     } else {
+      // A page opened with no session to sit over.
       consumedStableMessageRouteRef.current = null;
       if (connectedSessionIdRef.current) {
         disconnectSession(connectedSessionIdRef.current);
@@ -852,7 +986,7 @@ export default function App() {
 
   return (
     <div
-      className="flex font-sans-ui bg-cc-bg text-cc-fg antialiased"
+      className="relative flex font-sans-ui bg-cc-bg text-cc-fg antialiased"
       style={{
         transform: `scale(${zoomLevel})`,
         transformOrigin: "top left",
@@ -896,7 +1030,7 @@ export default function App() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden" data-codex-subagent-workspace="true">
         <TopBar
-          fullPageLabel={isFullPageRoute ? fullPageRouteLabel : undefined}
+          fullPageLabel={secondaryAreaWidth === null ? fullPageRouteLabel : undefined}
           universalSearchOpen={universalSearchOpen}
           onOpenUniversalSearch={openUniversalSearch}
           onCloseUniversalSearch={closeUniversalSearch}
@@ -910,60 +1044,12 @@ export default function App() {
               <span className="text-xs text-red-400 font-medium">Server unreachable</span>
             </div>
           )}
-          {(isSettingsPage || isChangelogPage) && (
-            <div className={`absolute inset-0 ${isSettingsPage ? "" : "hidden"}`}>
-              <SettingsPage embedded isActive={isSettingsPage} />
-            </div>
-          )}
-
-          {isChangelogPage && (
-            <div className="absolute inset-0">
-              <ChangelogPage />
-            </div>
-          )}
-
-          {isLogsPage && (
-            <div className="absolute inset-0">
-              <LogsPage />
-            </div>
-          )}
-
-          {isTerminalPage && (
-            <div className="absolute inset-0">
-              <TerminalPage />
-            </div>
-          )}
-
-          {isEnvironmentsPage && (
-            <div className="absolute inset-0">
-              <EnvManager embedded />
-            </div>
-          )}
-
-          {isScheduledPage && (
-            <div className="absolute inset-0">
-              <TodosAndTimersPage />
-            </div>
-          )}
-
-          {isQuestmasterPage && (
-            <div className="absolute inset-0">
-              <QuestmasterPage isActive={true} />
-            </div>
-          )}
-
-          {isMemoryPage && (
-            <div className="absolute inset-0">
-              <MemoryPage embedded />
-            </div>
-          )}
-
           {isSessionView && (
             <>
-              {/* Chat tab — visible when activeTab is "chat" or no session */}
-              <div className={`absolute inset-0 ${activeTab === "chat" || !displayedSessionId ? "" : "hidden"}`}>
-                {activeTab !== "chat" && displayedSessionId ? null : displayedSessionId &&
-                  isPendingId(displayedSessionId) ? (
+              {/* Chat tab: the primary view. It stays mounted, hidden, while the diff or a
+                  secondary page covers it, so returning to it does not rebuild the feed. */}
+              <div className={`absolute inset-0 ${primaryHidden ? "invisible" : ""}`} inert={primaryHidden}>
+                {displayedSessionId && isPendingId(displayedSessionId) ? (
                   <SessionCreationView pendingId={displayedSessionId} />
                 ) : displayedSessionId ? (
                   conversationView
@@ -972,8 +1058,8 @@ export default function App() {
                 )}
               </div>
 
-              {/* Diff tab */}
-              {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && (
+              {/* Diff tab, covering the conversation where there is no right-hand area */}
+              {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && !diffInSecondaryArea && (
                 <div className="absolute inset-0 flex min-h-0 flex-col">
                   {diffTarget && (
                     <DiffTabView target={diffTarget} onBack={() => useStore.getState().setActiveTab("chat")} />
@@ -982,8 +1068,39 @@ export default function App() {
               )}
             </>
           )}
+
+          {secondaryPage && secondaryAreaWidth === null && (
+            <div className="absolute inset-0 z-[1] bg-cc-bg" data-testid="secondary-view-overlay">
+              {renderSecondaryPage(secondaryPage)}
+            </div>
+          )}
         </div>
       </div>
+
+      {secondaryAreaWidth !== null && (
+        <SecondaryViewArea
+          width={secondaryAreaWidth}
+          open={secondaryAreaOpen}
+          mode={secondaryViewMode}
+          canShowBeside={canShowSecondaryBeside}
+          // Viewers bring their own header and cover the page's.
+          title={
+            secondaryPage && !secondaryViewersOpen && !diffInSecondaryArea
+              ? secondaryPageLabel(secondaryPage)
+              : undefined
+          }
+          onClose={closeSecondaryPage}
+          onDismiss={dismissSecondaryArea}
+          contentRef={setSecondaryAreaElement}
+        >
+          {secondaryPage && renderSecondaryPage(secondaryPage)}
+          {diffInSecondaryArea && diffTarget && (
+            <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-cc-bg">
+              <DiffTabView target={diffTarget} onBack={() => useStore.getState().setActiveTab("chat")} />
+            </div>
+          )}
+        </SecondaryViewArea>
+      )}
 
       {/* New session modal */}
       <NewSessionModal
@@ -1002,7 +1119,7 @@ export default function App() {
         <CodexSubagentInspector sessionId={codexSubagentInspector.sessionId} />
       )}
 
-      {/* Global quest detail overlay */}
+      {/* Quest details and Markdown files: in the right-hand area on wide screens, else full-screen */}
       <QuestDetailPanel />
       <MarkdownFileViewerHost />
 
