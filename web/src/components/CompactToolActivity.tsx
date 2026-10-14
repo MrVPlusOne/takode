@@ -19,6 +19,8 @@ export interface CompactToolActivityItem {
    */
   input: Record<string, unknown>;
   messageId?: string;
+  /** Server time (ms) of the item's message, used as its start for the group's elapsed time. */
+  timestamp?: number;
   kind?: "tool" | "worker_event" | "thought";
   /** Result owned by this item (e.g. a native child tool); replaces the stored session result. */
   resultOverride?: ToolResultPreview;
@@ -199,9 +201,10 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
 interface LineStatus {
   running: boolean;
   failed: boolean;
-  durationSeconds?: number;
-  /** Server start time of a running tool, for the group's live total. */
-  startTimestamp?: number;
+  /** When the activity began (ms): the server's tool start time, else its message's time. */
+  startedAt?: number;
+  /** When it finished (ms), known once a tool's result reports its duration. */
+  endedAt?: number;
 }
 
 function itemKey(item: CompactToolActivityItem): string {
@@ -273,21 +276,22 @@ function useLineStatuses(sessionId: string | undefined, items: CompactToolActivi
   return useMemo(() => {
     const statuses = new Map<string, LineStatus>();
     for (const item of items) {
-      if (item.kind === "thought") {
-        statuses.set(itemKey(item), { running: item.input.streaming === true, failed: false });
-        continue;
-      }
-      if (item.kind === "worker_event") {
-        statuses.set(itemKey(item), { running: false, failed: false });
+      if (item.kind === "thought" || item.kind === "worker_event") {
+        // Points in time: they widen the group's span but have no run time of their own.
+        const running = item.kind === "thought" && item.input.streaming === true;
+        statuses.set(itemKey(item), { running, failed: false, startedAt: item.timestamp, endedAt: item.timestamp });
         continue;
       }
       const result = item.resultOverride ?? results?.get(item.id);
-      const startTimestamp = result ? undefined : startTimes?.get(item.id);
+      const serverStart = startTimes?.get(item.id);
+      // The server's start time is exact; a message's time can be later when blocks were appended to it.
+      const startedAt = serverStart ?? item.timestamp;
+      const durationSeconds = result?.duration_seconds;
       statuses.set(itemKey(item), {
-        running: startTimestamp != null,
+        running: !result && serverStart != null,
         failed: result?.is_error === true,
-        durationSeconds: result?.duration_seconds,
-        startTimestamp,
+        startedAt,
+        endedAt: startedAt != null && durationSeconds != null ? startedAt + durationSeconds * 1000 : startedAt,
       });
     }
     return statuses;
@@ -304,6 +308,32 @@ function useLiveClock(enabled: boolean): number {
     return () => clearInterval(timer);
   }, [enabled]);
   return now;
+}
+
+/**
+ * Wall-clock time a group spans: from its first activity's start to its last
+ * one's end, running up to `now` while anything in it runs. Summing the calls'
+ * own run times instead hid the model's time between them, so a minutes-long
+ * group of quick calls read as a fraction of a second. Only groups with a tool
+ * call show a time; their thoughts and worker events still count toward the span.
+ */
+function groupElapsedSeconds(
+  items: CompactToolActivityItem[],
+  statuses: Array<LineStatus | undefined>,
+  now: number | undefined,
+): number | null {
+  if (!items.some((item) => item.kind !== "thought" && item.kind !== "worker_event")) return null;
+  let start = Infinity;
+  let end = -Infinity;
+  for (const status of statuses) {
+    if (status?.startedAt != null) start = Math.min(start, status.startedAt);
+    if (status?.endedAt != null) end = Math.max(end, status.endedAt);
+  }
+  if (now != null) end = Math.max(end, now);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const seconds = Math.max(0, end - start) / 1000;
+  // Live time ticks in whole seconds, like the lines' own badges.
+  return now != null ? Math.round(seconds) : Math.round(seconds * 10) / 10;
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -436,18 +466,8 @@ function ActivityHeading({
   const lineStatuses = items.map((item) => statuses.get(itemKey(item)));
   const running = lineStatuses.some((status) => status?.running);
   const failedCount = lineStatuses.filter((status) => status?.failed).length;
-  const knownDurations = lineStatuses.flatMap((status) =>
-    status?.durationSeconds != null ? [status.durationSeconds] : [],
-  );
-  // Running tools have no duration yet, so their elapsed time joins the total live,
-  // counted the way their own line badges count it.
-  const runningStarts = lineStatuses.flatMap((status) =>
-    status?.running && status.startTimestamp != null ? [status.startTimestamp] : [],
-  );
-  const live = runningStarts.length > 0;
-  const now = useLiveClock(live);
-  const liveSeconds = runningStarts.reduce((sum, start) => sum + Math.max(0, Math.round((now - start) / 1000)), 0);
-  const totalSeconds = knownDurations.reduce((sum, seconds) => sum + seconds, 0) + liveSeconds;
+  const now = useLiveClock(running);
+  const elapsedSeconds = groupElapsedSeconds(items, lineStatuses, running ? now : undefined);
   // Per-type counts only add information when the group mixes activity types.
   const typeCounts = new Map<string, number>();
   for (const item of items) typeCounts.set(lineLabel(item), (typeCounts.get(lineLabel(item)) ?? 0) + 1);
@@ -469,12 +489,12 @@ function ActivityHeading({
           ))}
         </span>
       )}
-      {(live || knownDurations.length > 0) && (
+      {elapsedSeconds != null && (
         <span
-          className={`shrink-0 text-[10px] tabular-nums ${live ? "text-cc-primary" : "text-cc-muted"}`}
+          className={`shrink-0 text-[10px] tabular-nums ${running ? "text-cc-primary" : "text-cc-muted"}`}
           data-testid="compact-tool-activity-total"
         >
-          {formatDuration(totalSeconds)}
+          {formatDuration(elapsedSeconds)}
         </span>
       )}
     </>

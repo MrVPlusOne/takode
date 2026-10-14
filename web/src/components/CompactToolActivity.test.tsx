@@ -410,19 +410,58 @@ describe("CompactToolActivity", () => {
     );
     expect(screen.getByText("1 failed")).toBeTruthy();
     expect(screen.getByText("failed")).toBeTruthy();
-    expect(screen.getByText("3.0s")).toBeTruthy();
 
     rerender(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
     expect(screen.getAllByTestId("compact-tool-activity-line")[2].querySelector(".animate-pulse")).toBeTruthy();
   });
 
-  it("counts a running group's total time live in its heading", () => {
-    // The heading total used to appear only after every call finished, because a running
-    // call has no duration yet. It now adds each running call's elapsed time to the
-    // finished durations and keeps counting until the group is done.
+  it("shows the group's start-to-finish elapsed time instead of the sum of its calls", () => {
+    // A long group of quick calls used to show the sum of their run times (0.7s for 19
+    // calls spread over minutes). The heading now spans from the first activity's start
+    // to the last one's end, so the model's time between calls counts too. The thought
+    // that opens the group starts the span even though it has no run time of its own.
+    const start = 1_800_000_000_000;
+    const items: CompactToolActivityItem[] = [
+      { id: "thought-1", name: "Thought", kind: "thought", input: { text: "Plan" }, timestamp: start },
+      ...bashItems(19).map((item, index) => ({ ...item, timestamp: start + (index + 1) * 10_000 })),
+    ];
+    useStore.setState({
+      toolResults: new Map([
+        ["s1", new Map(items.slice(1).map((item) => [item.id, toolResult(item.id, { duration_seconds: 0.1 })]))],
+      ]),
+    });
+    render(<CompactToolActivity sessionId="s1" items={items} renderDetails={renderDetails} active={false} />);
+    // The last call starts at +190s and runs 0.1s.
+    expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("3m10s");
+  });
+
+  it("counts parallel calls of one message once rather than adding their times", () => {
+    // Calls from one message share its start time, so the group lasts until its
+    // slowest call ends, not the sum of both.
+    const items = bashItems(2).map((item) => ({ ...item, timestamp: 1_800_000_000_000 }));
+    useStore.setState({
+      toolResults: new Map([
+        [
+          "s1",
+          new Map([
+            ["bash-1", toolResult("bash-1", { duration_seconds: 4 })],
+            ["bash-2", toolResult("bash-2", { duration_seconds: 7 })],
+          ]),
+        ],
+      ]),
+    });
+    render(<CompactToolActivity sessionId="s1" items={items} renderDetails={renderDetails} />);
+    expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("7.0s");
+  });
+
+  it("counts a running group's elapsed time live and settles when its last call ends", () => {
+    // While a call runs the span reaches the current time and ticks every second in the
+    // accent color; once the call's result arrives the span ends at that call's finish.
     vi.useFakeTimers();
     try {
-      const start = Date.now();
+      const now = Date.now();
+      const offsets = [120_000, 60_000, 10_000];
+      const items = bashItems(3).map((item, index) => ({ ...item, timestamp: now - offsets[index] }));
       useStore.setState({
         toolResults: new Map([
           [
@@ -433,19 +472,19 @@ describe("CompactToolActivity", () => {
             ]),
           ],
         ]),
-        toolStartTimestamps: new Map([["s1", new Map([["bash-3", start - 85_000]])]]),
+        // The server's start time is exact, so it wins over the message's time.
+        toolStartTimestamps: new Map([["s1", new Map([["bash-3", now - 9_000]])]]),
       });
-      render(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
+      render(<CompactToolActivity sessionId="s1" items={items} renderDetails={renderDetails} />);
       const total = screen.getByTestId("compact-tool-activity-total");
-      expect(total.textContent).toBe("1m55s");
+      expect(total.textContent).toBe("2m0s");
       expect(total.className).toContain("text-cc-primary");
 
       act(() => {
         vi.advanceTimersByTime(5_000);
       });
-      expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("2m0s");
+      expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("2m5s");
 
-      // Once the last call finishes, the heading settles on the static sum of durations.
       act(() => {
         useStore.setState({
           toolResults: new Map([
@@ -454,18 +493,29 @@ describe("CompactToolActivity", () => {
               new Map([
                 ["bash-1", toolResult("bash-1", { duration_seconds: 20 })],
                 ["bash-2", toolResult("bash-2", { duration_seconds: 10 })],
-                ["bash-3", toolResult("bash-3", { duration_seconds: 92 })],
+                ["bash-3", toolResult("bash-3", { duration_seconds: 12 })],
               ]),
             ],
           ]),
         });
       });
+      // bash-3 started 9s before the first render and ran 12s: the group spans 120s + 3s.
       const settled = screen.getByTestId("compact-tool-activity-total");
-      expect(settled.textContent).toBe("2m2s");
+      expect(settled.textContent).toBe("2m3s");
       expect(settled.className).toContain("text-cc-muted");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows no time for a group without tool calls", () => {
+    // Thought and worker-event groups never showed a duration; the span keeps it that way.
+    const items: CompactToolActivityItem[] = [
+      { id: "thought-1", name: "Thought", kind: "thought", input: { text: "A" }, timestamp: 1_000 },
+      { id: "thought-2", name: "Thought", kind: "thought", input: { text: "B" }, timestamp: 61_000 },
+    ];
+    render(<CompactToolActivity items={items} renderDetails={renderDetails} />);
+    expect(screen.queryByTestId("compact-tool-activity-total")).toBeNull();
   });
 
   it("colors only the failed line's label as an error", () => {

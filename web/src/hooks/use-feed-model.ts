@@ -29,6 +29,8 @@ export interface ToolItem {
   name: string;
   input: Record<string, unknown>;
   messageId?: string;
+  /** Server time (ms) of the tool's message. */
+  timestamp?: number;
   codexSubagent?: NonNullable<NonNullable<ChatMessage["metadata"]>["codexSubagent"]>;
   resultOverride?: ToolResultPreview;
 }
@@ -113,6 +115,7 @@ function getToolOnlyGroup(
         name: b.name,
         input: b.input,
         messageId: msg.id,
+        timestamp: msg.timestamp,
         ...(codexSubagent ? { codexSubagent } : {}),
         ...(childToolResults?.[b.id] ? { resultOverride: childToolResults[b.id] } : {}),
       });

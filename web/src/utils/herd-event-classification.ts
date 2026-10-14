@@ -115,6 +115,7 @@ export function makeWorkerEventActivityItems(messages: ChatMessage[]) {
       kind: "worker_event" as const,
       input: { eventCount, ...(summary ? { summary } : {}) },
       messageId: message.id,
+      timestamp: message.timestamp,
     };
   });
 }

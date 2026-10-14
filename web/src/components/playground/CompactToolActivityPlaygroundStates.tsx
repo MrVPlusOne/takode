@@ -183,12 +183,16 @@ const WORKER_EVENTS: ChatMessage[] = [
 const ACTIVITY_SESSION_ID = "playground-activity-groups";
 const LIVE_ACTIVITY_SESSION_ID = "playground-activity-live";
 
+// The group starts with this thought; its calls follow every 15 seconds, so the
+// heading's elapsed time (minutes) is far longer than the calls' own run times.
+const ACTIVITY_STARTED_AT = Date.now() - 4 * 60_000;
+
 // Producer-shaped: history normalization copies thinking text into `content`.
 const ACTIVITY_THOUGHT: ChatMessage = {
   id: "activity-thought",
   role: "assistant",
   content: "**Check where the preview falls back**\nThe 60-character cap makes long descriptions show the command.",
-  timestamp: Date.now() - 60_000,
+  timestamp: ACTIVITY_STARTED_AT,
   contentBlocks: [
     {
       type: "thinking",
@@ -199,7 +203,7 @@ const ACTIVITY_THOUGHT: ChatMessage = {
 };
 
 // A realistic mixed run between two pieces of agent text: read, search, edit and test.
-const ACTIVITY_TOOLS: Array<{ id: string; name: string; input: Record<string, unknown> }> = [
+const ACTIVITY_TOOLS: Array<{ id: string; name: string; input: Record<string, unknown>; timestamp?: number }> = [
   { id: "activity-read", name: "Read", input: { file_path: "web/src/components/ToolBlock.tsx" } },
   { id: "activity-grep", name: "Grep", input: { pattern: "getPreview(", path: "web/src" } },
   {
@@ -231,7 +235,7 @@ const ACTIVITY_TOOLS: Array<{ id: string; name: string; input: Record<string, un
     name: "Bash",
     input: { command: "git commit -m 'fix(feed): prefer descriptions'", description: "Commit the description fix" },
   },
-];
+].map((tool, index) => ({ ...tool, timestamp: ACTIVITY_STARTED_AT + (index + 1) * 15_000 }));
 
 function toolGroup(id: string, tools: typeof ACTIVITY_TOOLS): ToolMsgGroup {
   return {

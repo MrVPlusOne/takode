@@ -952,7 +952,11 @@ type GroupedBlock =
 
 type RenderedGroupedBlock =
   | GroupedBlock
-  | { kind: "tool_activity"; groups: Array<Extract<GroupedBlock, { kind: "tool_group" }>>; items: ToolGroupItem[] };
+  | {
+      kind: "tool_activity";
+      groups: Array<Extract<GroupedBlock, { kind: "tool_group" }>>;
+      items: CompactToolActivityItem[];
+    };
 
 function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   const groups: GroupedBlock[] = [];
@@ -985,7 +989,8 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   return groups;
 }
 
-function compactToolGroups(groups: GroupedBlock[]): RenderedGroupedBlock[] {
+/** Runs of passive tools become activity groups; their calls start at the message's time. */
+function compactToolGroups(groups: GroupedBlock[], timestamp: number): RenderedGroupedBlock[] {
   const compacted: RenderedGroupedBlock[] = [];
   let index = 0;
 
@@ -998,12 +1003,12 @@ function compactToolGroups(groups: GroupedBlock[]): RenderedGroupedBlock[] {
     }
 
     const activityGroups: Array<Extract<GroupedBlock, { kind: "tool_group" }>> = [];
-    const items: ToolGroupItem[] = [];
+    const items: CompactToolActivityItem[] = [];
     while (index < groups.length) {
       const candidate = groups[index];
       if (candidate.kind !== "tool_group" || !candidate.items.every(isCompactToolActivityItem)) break;
       activityGroups.push(candidate);
-      items.push(...candidate.items);
+      items.push(...candidate.items.map((item) => ({ ...item, timestamp })));
       index++;
     }
     compacted.push({ kind: "tool_activity", groups: activityGroups, items });
@@ -1096,8 +1101,8 @@ function AssistantMessage({
   const blocks = projection.blocks;
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
   const renderedGroups = useMemo(
-    () => (compactToolActivity ? compactToolGroups(grouped) : grouped),
-    [compactToolActivity, grouped],
+    () => (compactToolActivity ? compactToolGroups(grouped, message.timestamp) : grouped),
+    [compactToolActivity, grouped, message.timestamp],
   );
   const compactInlineNotificationCategory =
     compactToolActivity && !resolvedNotification ? getInlineToolNotificationCategory(blocks) : null;
@@ -1285,7 +1290,7 @@ function AssistantMessage({
               return (
                 <CompactToolActivity
                   key={i}
-                  items={group.items as CompactToolActivityItem[]}
+                  items={group.items}
                   sessionId={sessionId}
                   containedMessageIds={[message.id]}
                   // Text later in the message makes the group inactive; trailing passive tools are

@@ -67,6 +67,7 @@ function makeThoughtActivityItems(messages: ChatMessage[]): CompactToolActivityI
       streaming: message.metadata?.codexReasoningDetail?.status === "streaming",
     },
     messageId: message.id,
+    timestamp: message.timestamp,
     feedBlockId: getMessageFeedBlockId(message.id),
   }));
 }

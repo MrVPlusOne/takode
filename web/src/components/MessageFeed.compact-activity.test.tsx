@@ -412,6 +412,62 @@ describe("MessageFeed - compact activity", () => {
     expect(screen.getByText("Everything passes.")).toBeTruthy();
   });
 
+  it("times a feed activity group from its first message to its last call's end", () => {
+    // Producer-shaped history: each assistant message carries the server time it arrived,
+    // and each result its call's own run time. Quick calls spread over minutes must show
+    // the minutes, not the sum of their run times.
+    const sid = "test-compact-elapsed";
+    mockStoreValues.compactToolActivity = true;
+    const startedAt = 1_791_272_100_000;
+    const assistant = (id: string, content: ContentBlock[], historyIndex: number, offsetMs: number) =>
+      normalizeHistoryMessageToChatMessages(
+        {
+          type: "assistant",
+          message: { id, type: "message", role: "assistant", model: "claude-opus-5-5", content, stop_reason: null },
+          parent_tool_use_id: null,
+          timestamp: startedAt + offsetMs,
+        } as Parameters<typeof normalizeHistoryMessageToChatMessages>[0],
+        historyIndex,
+      )[0];
+    const read = (id: string): ContentBlock => ({ type: "tool_use", id, name: "Read", input: { file_path: `/${id}` } });
+    const bash = (id: string): ContentBlock => ({
+      type: "tool_use",
+      id,
+      name: "Bash",
+      input: { command: `echo ${id}` },
+    });
+    mockStoreValues.toolResults = new Map([
+      [
+        sid,
+        new Map(
+          ["r1", "b1", "b2", "b3"].map((id) => [
+            id,
+            {
+              tool_use_id: id,
+              content: "",
+              is_error: false,
+              total_size: 0,
+              is_truncated: false,
+              duration_seconds: 0.2,
+            },
+          ]),
+        ),
+      ],
+    ]);
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Investigate" }),
+      assistant("m1", [{ type: "thinking", thinking: "" }, read("r1"), bash("b1")], 1, 0),
+      assistant("m2", [{ type: "thinking", thinking: "Compare the two paths" }, bash("b2")], 2, 95_000),
+      assistant("m3", [bash("b3")], 3, 170_000),
+      makeMessage({ id: "a-final", role: "assistant", content: "Found it." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // 170s to the last call's start plus its 0.2s run.
+    expect(screen.getByTestId("compact-tool-activity-total").textContent).toBe("2m50s");
+  });
+
   it("merges a mixed tool message with the following tool-only message", () => {
     // Codex can put Bash and Read blocks in one assistant payload, then emit another Read payload immediately after it.
     const sid = "test-compact-mixed-tool-boundary";
