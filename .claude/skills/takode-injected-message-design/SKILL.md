@@ -1,6 +1,6 @@
 ---
 name: takode-injected-message-design
-description: "Use before changing Takode injected messages, synthetic user messages, model-only reminders, reminder messages, system notices (landing queue, resource lease, recovery, restart), or how any of them render or are delivered, and before adding a new message type to the chat feed or choosing between a message bubble and a collapsed chip. Future agents working on injected-message behavior must read this skill first."
+description: "Use before changing Takode injected messages, synthetic user messages, model-only reminders, reminder messages, system notices (landing queue, resource lease, recovery, restart), or how any of them render or are delivered, or any text Takode composes for agents (such as comment headers), and before adding a new message type to the chat feed or choosing between a message bubble and a collapsed chip. Future agents working on injected-message behavior must read this skill first."
 ---
 
 # Takode Injected Message Design
@@ -22,6 +22,7 @@ Injected messages are part of the model and operator workflow, not ordinary chat
 
 - Identify the source id and label for the injected message, and keep server/frontend contracts shared when the UI depends on them.
 - Keep injected message routing metadata separate from status metadata. A status marker can update status without moving source prose, tool blocks, notifications, or answer UI.
+- Keep long opaque identifiers (UUIDs, SHA-256 digests, full hashes, internal record IDs) out of the text agents receive, including injected messages and user messages Takode composes (such as comment headers), unless the agent needs the exact value for its next step, like passing it to a command. Name what the agent can act on (a file path, session number, quest ID) and keep exact identities in structured metadata. The `takode-cli-design` skill has the full rule.
 - Avoid recursive reminder loops. System-triggered reminder turns and historical replay should not create fresh reminders.
 - Add focused tests for both sides of the policy: the skip condition and a normal eligible path that still works.
 - Prefer server-side prevention over frontend suppression when the product expectation is that no injected message exists.

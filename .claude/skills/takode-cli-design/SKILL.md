@@ -1,6 +1,6 @@
 ---
 name: takode-cli-design
-description: "Use when designing, changing, or reviewing Takode CLI commands, JSON output schemas, inspection commands, or orchestration command output that may expose session objects, prompts, histories, logs, recordings, images, tool results, artifacts, or other bulky/uncommon fields."
+description: "Use when designing, changing, or reviewing Takode CLI commands, JSON output schemas, inspection commands, or orchestration command output that may expose session objects, prompts, histories, logs, recordings, images, tool results, artifacts, or other bulky/uncommon fields, or that shows agents long identifiers such as UUIDs and hashes."
 ---
 
 # Takode CLI Design
@@ -34,6 +34,14 @@ Before adding a default field to repeated rows, ask:
 - Does this field multiply token cost across long outputs?
 
 If the field mainly supports a rare follow-up, do not include it by default. Add or improve the follow-up command instead.
+
+## Opaque Identifiers
+
+Do not show agents long opaque identifiers such as UUIDs, SHA-256 digests, full commit hashes or internal record IDs, in CLI output or in any text Takode builds for them, unless the agent needs that exact value for its next step: passing it to a command (`takode land status <entry-id>`), or checking it when it is the subject of the work (verifying a commit).
+
+Why: an agent cannot interpret these values, and they cost tokens every time the text is read, often many times over (every row, every comment, every activity scan).
+
+Instead, name what the agent can act on, such as a file path, session number, quest ID or short label, and keep exact identities in structured metadata, JSON or an explicit reveal path. Example: report comments once named the report UUID, session UUID and SHA-256 above every comment; they now name the report's source path once.
 
 ## Bulky Fields
 
