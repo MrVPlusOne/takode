@@ -26,7 +26,11 @@ import { findQuestJourneyContext } from "../utils/quest-journey-context.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
-import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
+import {
+  QuestPreviewCardContent,
+  QuestPreviewHeaderAction,
+  QuestPreviewSessionActions,
+} from "./QuestPreviewCardContent.js";
 import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import {
@@ -1443,6 +1447,7 @@ const QuestFeedRichPreview = forwardRef<
           headerAction={isModal ? undefined : primaryAction}
           suppressNestedHoverCards
           onSessionNavigate={onNavigate}
+          omitSessionActions={isModal}
         />
       ) : (
         <div className="flex min-w-0 items-start gap-3">
@@ -1510,6 +1515,15 @@ const QuestFeedRichPreview = forwardRef<
           isModal ? "sticky -bottom-2.5 -mx-3 -mb-2.5 bg-cc-card px-3 pb-2.5" : ""
         }`}
       >
+        {isModal && phase === "rich-ready" && quest && (
+          // Within thumb reach like the quest view's phone footer; Open Thread is the most common jump.
+          <QuestPreviewSessionActions
+            quest={quest}
+            size="touch"
+            className="basis-full justify-end"
+            onNavigate={onNavigate}
+          />
+        )}
         {isModal && (
           // On the phone the link opens this sheet, so the way on to the full view is the
           // sheet's main action: large and pinned to the bottom while the content scrolls.

@@ -1349,6 +1349,39 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(sheetAction).toHaveAttribute("href", "#/session/s1?quest=q-58&feedback=3");
   });
 
+  it("pins Open Worker and Open Thread in the touch sheet's footer instead of under the title", async () => {
+    // Jumping to the leader thread is the most common move from a quest link on the phone, so the
+    // sheet keeps the session buttons at its bottom within thumb reach, like the quest view does.
+    const cached = quest({ questId: "q-495", title: "Sheet session buttons", leaderSessionId: "leader-495" });
+    useStore.setState({
+      questDetails: new Map([["q-495", cached]]),
+      questDetailEtags: new Map([["q-495", '"sheet"']]),
+      sdkSessions: [
+        {
+          sessionId: "leader-495",
+          sessionNum: 7495,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp",
+          createdAt: 1,
+        },
+      ],
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"sheet"' });
+    renderFeedLink("q-495");
+    const link = screen.getByRole("link", { name: "q-495" });
+
+    fireEvent.pointerDown(link, { pointerType: "touch" });
+    fireEvent.click(link, { button: 0, detail: 1 });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Sheet session buttons" });
+    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
+    const footer = within(dialog).getByTestId("quest-feed-rich-footer");
+    expect(within(dialog).getAllByTestId("quest-session-actions")).toHaveLength(1);
+    expect(within(footer).getByTestId("quest-open-thread")).toHaveAttribute("href", "#/session/7495?thread=q-495");
+  });
+
   it("keeps a touch-opened sheet open where the eye is hidden", async () => {
     // Touch-first devices hide the eye with CSS because a tap on the link previews; with no
     // eye on the page, the preview anchors to the link instead of closing itself again.

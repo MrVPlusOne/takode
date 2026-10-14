@@ -39,6 +39,49 @@ export interface QuestPreviewCardContentProps {
   suppressNestedHoverCards?: boolean;
   /** Called after Open Worker or Open Thread navigates, so the surrounding preview can close. */
   onSessionNavigate?: () => void;
+  /** Leave out Open Worker and Open Thread because the host shows them elsewhere (the phone sheet's footer). */
+  omitSessionActions?: boolean;
+}
+
+/**
+ * Open Worker and Open Thread for a quest preview host that places them itself, resolving the
+ * sessions the same way as the preview card.
+ */
+export function QuestPreviewSessionActions({
+  quest,
+  size,
+  className,
+  onNavigate,
+}: {
+  quest: QuestmasterTask | QuestListPreview;
+  size?: "compact" | "touch";
+  className?: string;
+  onNavigate?: () => void;
+}) {
+  const sessionBoards = useStore((state) => state.sessionBoards);
+  const sessionCompletedBoards = useStore((state) => state.sessionCompletedBoards);
+  const sessionBoardRowStatuses = useStore((state) => state.sessionBoardRowStatuses);
+  const sdkSessions = useStore((state) => state.sdkSessions);
+  const { workerSessionId, workerStatus, leaderSessionId } = useMemo(() => {
+    const journeyContext = findQuestJourneyContext(
+      quest,
+      sessionBoards,
+      sessionCompletedBoards,
+      sessionBoardRowStatuses,
+    );
+    return resolveQuestSessionTargets(quest, journeyContext, sdkSessions);
+  }, [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses, sdkSessions]);
+  return (
+    <QuestSessionActions
+      className={className}
+      size={size}
+      questId={quest.questId}
+      workerSessionId={workerSessionId}
+      workerStatus={workerStatus}
+      leaderSessionId={leaderSessionId}
+      onNavigate={onNavigate}
+    />
+  );
 }
 
 export function QuestPreviewHeaderAction({
@@ -107,6 +150,7 @@ export function QuestPreviewCardContent({
   headerAction,
   suppressNestedHoverCards = false,
   onSessionNavigate,
+  omitSessionActions = false,
 }: QuestPreviewCardContentProps) {
   const isCancelled = isQuestCancelled(quest);
   const owner = getQuestDisplayOwner(quest);
@@ -198,14 +242,16 @@ export function QuestPreviewCardContent({
         </div>
         {headerAction}
       </div>
-      <QuestSessionActions
-        className="mt-2.5"
-        questId={quest.questId}
-        workerSessionId={workerSessionId}
-        workerStatus={workerStatus}
-        leaderSessionId={leaderSessionId}
-        onNavigate={onSessionNavigate}
-      />
+      {!omitSessionActions && (
+        <QuestSessionActions
+          className="mt-2.5"
+          questId={quest.questId}
+          workerSessionId={workerSessionId}
+          workerStatus={workerStatus}
+          leaderSessionId={leaderSessionId}
+          onNavigate={onSessionNavigate}
+        />
+      )}
       {summary && (
         <QuestPreviewSection testId="quest-hover-tldr" label={summary.label}>
           <QuestPreviewMarkdown text={summary.text} />

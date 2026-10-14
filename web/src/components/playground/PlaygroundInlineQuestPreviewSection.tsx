@@ -107,7 +107,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     questId: "q-9418",
     title: "Preview the quest when a message link is tapped",
     description:
-      "A touch tap on the text link opens the same modal sheet, with its large Open action pinned at the bottom; a mouse or keyboard click opens the full view.",
+      "A touch tap on the text link opens the same modal sheet, with Open Worker, Open Thread and its large Open action pinned at the bottom; a mouse or keyboard click opens the full view.",
   },
   {
     id: "cancelled",
