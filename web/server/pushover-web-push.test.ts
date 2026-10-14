@@ -144,4 +144,34 @@ describe("PushoverNotifier with Web Push", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-1");
   });
+
+  // Follow-up reminders summarize every waiting question, so they skip the per-session delay and filters
+  // and go straight to both channels, linking to the attention list. Fetch is stubbed: nothing leaves the test.
+  it("sends a reminder at once to Web Push and Pushover", async () => {
+    makeNotifier({
+      getSettings: () => ({
+        pushoverUserKey: "user",
+        pushoverApiToken: "token",
+        pushoverDelaySeconds: 30,
+        pushoverEnabled: true,
+      }),
+      getBaseUrl: () => "https://takode.example/",
+    });
+    await notifier.sendReminder({
+      title: "2 questions waiting for you (oldest 3h)",
+      body: "A, B",
+      path: "/#/attention",
+    });
+
+    expect(webPush.alerts).toEqual([
+      { title: "2 questions waiting for you (oldest 3h)", body: "A, B", url: "/#/attention" },
+    ]);
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe(PUSHOVER_API_URL);
+    const body = init!.body as URLSearchParams;
+    expect(body.get("title")).toBe("2 questions waiting for you (oldest 3h)");
+    expect(body.get("message")).toBe("A, B");
+    expect(body.get("url")).toBe("https://takode.example/#/attention");
+    expect(body.get("html")).toBe("0");
+  });
 });

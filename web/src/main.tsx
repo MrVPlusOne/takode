@@ -9,11 +9,13 @@ import { installBrowserPerfDebugHooks } from "./utils/browser-perf-debug.js";
 import { installUiCrashDebugHooks } from "./utils/ui-crash-debug.js";
 import { installPressFeedback } from "./utils/press-feedback.js";
 import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
+import { installUserActivityReporter } from "./utils/user-activity.js";
 import "./index.css";
 
 installUiCrashDebugHooks();
 installLoginRequiredWatcher();
 installPressFeedback();
+installUserActivityReporter();
 if (import.meta.env.DEV) {
   installBrowserPerfDebugHooks();
 }

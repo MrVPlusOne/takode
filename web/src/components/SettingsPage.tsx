@@ -29,7 +29,11 @@ import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
 import { SettingsServerTimeZoneSection } from "./SettingsServerTimeZoneSection.js";
 import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcutSection.js";
-import { SettingsPhoneAlertRules, SettingsPushoverSection } from "./SettingsPhoneAlertsSection.js";
+import {
+  SettingsFollowUpReminders,
+  SettingsPhoneAlertRules,
+  SettingsPushoverSection,
+} from "./SettingsPhoneAlertsSection.js";
 import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
 import { SettingsSessionNamerSection } from "./SettingsSessionNamerSection.js";
 import { SettingsWorkerSlotsSection } from "./SettingsWorkerSlotsSection.js";
@@ -887,6 +891,10 @@ export function SettingsPage({
               <SettingsPhoneAlertRules
                 settings={loadedSettings}
                 hidden={settingsSearch.rowHidden("notifications", "phone-alerts")}
+              />
+              <SettingsFollowUpReminders
+                settings={loadedSettings}
+                hidden={settingsSearch.rowHidden("notifications", "follow-up-reminders")}
               />
               <SettingsWebPushSection hidden={settingsSearch.rowHidden("notifications", "web-push")} />
               <SettingsPushoverSection

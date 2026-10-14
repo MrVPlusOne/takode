@@ -42,6 +42,7 @@ import type {
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
+import type { NeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import type { SendKeyScheme } from "../shared/send-key-scheme.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { WorkerSlotLimits } from "../shared/takode-constants.js";
@@ -669,6 +670,8 @@ export interface AppSettings {
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
   pushoverEventFilters?: PushoverEventFilters;
+  /** Follow-up phone reminders for questions left waiting. */
+  needsInputReminders?: NeedsInputReminderSettings;
   pushoverDelaySeconds: number;
   pushoverBaseUrl: string;
   maxKeepAlive: number;
@@ -1414,6 +1417,7 @@ export const api = {
     pushoverDelaySeconds?: number;
     pushoverEnabled?: boolean;
     pushoverEventFilters?: Partial<PushoverEventFilters>;
+    needsInputReminders?: Partial<NeedsInputReminderSettings>;
     pushoverBaseUrl?: string;
     maxKeepAlive?: number;
     heavyRepoModeEnabled?: boolean;
@@ -1454,6 +1458,7 @@ export const api = {
   unsubscribeWebPush: (endpoint: string) =>
     del<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", { endpoint }),
   testWebPush: (endpoint: string) => post<{ ok: boolean }>("/web-push/test", { endpoint }),
+  reportUserActivity: () => post<{ ok: boolean }>("/user-activity"),
   getCaffeinateStatus: () =>
     get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 

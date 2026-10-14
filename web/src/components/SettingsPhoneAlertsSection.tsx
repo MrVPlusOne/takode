@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type AppSettings, type PushoverEventFilters } from "../api.js";
+import {
+  DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS,
+  NEEDS_INPUT_REMINDER_LIMITS,
+  type NeedsInputReminderSettings,
+} from "../../shared/needs-input-reminder-settings.js";
 import { NumberStepper, SettingsRow, SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
@@ -117,6 +122,126 @@ export function SettingsPhoneAlertRules({
           max={300}
           suffix="s"
           onChange={(next) => void save({ pushoverDelaySeconds: next })}
+        />
+      </SettingsRow>
+
+      {error && (
+        <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+          {error}
+        </div>
+      )}
+    </SettingsSubsection>
+  );
+}
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+  value: hour,
+  label: new Date(2000, 0, 1, hour).toLocaleTimeString([], { hour: "numeric" }),
+}));
+
+/**
+ * Follow-up reminders: when questions stay unanswered while the user is away,
+ * one summary goes to the phone channels, with doubling gaps, a daily cap and
+ * quiet hours. Changes apply immediately.
+ */
+export function SettingsFollowUpReminders({
+  settings,
+  hidden = false,
+}: {
+  settings: AppSettings | null;
+  hidden?: boolean;
+}) {
+  const [reminders, setReminders] = useState<NeedsInputReminderSettings>(DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (settings?.needsInputReminders) setReminders(settings.needsInputReminders);
+  }, [settings]);
+
+  async function save(patch: Partial<NeedsInputReminderSettings>) {
+    const previous = reminders;
+    setReminders({ ...reminders, ...patch });
+    setError("");
+    try {
+      const res = await api.updateSettings({ needsInputReminders: patch });
+      if (res.needsInputReminders) setReminders(res.needsInputReminders);
+    } catch (err: unknown) {
+      setReminders(previous);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const { inactivityMinutes, dailyMax } = NEEDS_INPUT_REMINDER_LIMITS;
+  const selectClass =
+    "px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg focus:outline-none focus:border-cc-primary/60";
+
+  return (
+    <SettingsSubsection
+      title="Follow-up Reminders"
+      description="If questions stay unanswered while you are away from Takode, send one reminder listing them. Taps, typing and messages count as activity; an open screen does not."
+      hidden={hidden}
+    >
+      <SettingsToggle
+        label="Remind me about waiting questions"
+        checked={reminders.enabled}
+        onChange={(next) => void save({ enabled: next })}
+      />
+      <SettingsRow
+        label="After inactivity"
+        htmlFor="reminder-inactivity"
+        description="Each later reminder waits twice as long as the gap before it."
+      >
+        <NumberStepper
+          id="reminder-inactivity"
+          label="inactivity"
+          value={reminders.inactivityMinutes / 60}
+          step={0.5}
+          min={inactivityMinutes.min / 60}
+          max={inactivityMinutes.max / 60}
+          decimals={1}
+          suffix="h"
+          onChange={(hours) => void save({ inactivityMinutes: Math.round(hours * 60) })}
+        />
+      </SettingsRow>
+      <SettingsRow label="Quiet hours" description="A reminder due then waits until they end.">
+        <span className="flex items-center gap-1.5 text-xs text-cc-muted">
+          <select
+            aria-label="Quiet hours start"
+            value={reminders.quietStartHour}
+            onChange={(e) => void save({ quietStartHour: Number(e.target.value) })}
+            className={selectClass}
+          >
+            {HOUR_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          to
+          <select
+            aria-label="Quiet hours end"
+            value={reminders.quietEndHour}
+            onChange={(e) => void save({ quietEndHour: Number(e.target.value) })}
+            className={selectClass}
+          >
+            {HOUR_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </span>
+      </SettingsRow>
+      <SettingsRow label="Daily limit" htmlFor="reminder-daily-max">
+        <NumberStepper
+          id="reminder-daily-max"
+          label="daily limit"
+          value={reminders.dailyMax}
+          step={1}
+          min={dailyMax.min}
+          max={dailyMax.max}
+          suffix="/day"
+          onChange={(next) => void save({ dailyMax: next })}
         />
       </SettingsRow>
 

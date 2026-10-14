@@ -34,6 +34,11 @@ import {
 } from "../settings-manager.js";
 import { normalizeGptTranscribeLanguageHints } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
+import {
+  applyNeedsInputReminderPatch,
+  normalizeNeedsInputReminderSettings,
+  type NeedsInputReminderSettings,
+} from "../../shared/needs-input-reminder-settings.js";
 import { createLogger, getLogPath } from "../server-logger.js";
 import { COMPANION_SESSION_ID_HEADER } from "./auth.js";
 import type { RouteContext } from "./context.js";
@@ -1037,6 +1042,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
+      needsInputReminders: normalizeNeedsInputReminderSettings(settings.needsInputReminders),
       pushoverDelaySeconds: settings.pushoverDelaySeconds,
       pushoverBaseUrl: settings.pushoverBaseUrl,
       maxKeepAlive: settings.maxKeepAlive,
@@ -1196,6 +1202,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
       if (filters.error !== undefined && typeof filters.error !== "boolean") {
         return c.json({ error: "pushoverEventFilters.error must be a boolean" }, 400);
       }
+    }
+    let needsInputReminders: NeedsInputReminderSettings | undefined;
+    if (body.needsInputReminders !== undefined) {
+      const current = normalizeNeedsInputReminderSettings(getSettings().needsInputReminders);
+      const result = applyNeedsInputReminderPatch(current, body.needsInputReminders);
+      if ("error" in result) return c.json({ error: result.error }, 400);
+      needsInputReminders = result.settings;
     }
     if (body.pushoverBaseUrl !== undefined && typeof body.pushoverBaseUrl !== "string") {
       return c.json({ error: "pushoverBaseUrl must be a string" }, 400);
@@ -1405,6 +1418,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "pushoverDelaySeconds",
       "pushoverEnabled",
       "pushoverEventFilters",
+      "needsInputReminders",
       "pushoverBaseUrl",
       "maxKeepAlive",
       "heavyRepoModeEnabled",
@@ -1445,6 +1459,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       pushoverEventFilters: body.pushoverEventFilters
         ? parsePushoverEventFiltersFromBody(body.pushoverEventFilters as Record<string, unknown>)
         : undefined,
+      needsInputReminders,
       pushoverBaseUrl: typeof body.pushoverBaseUrl === "string" ? body.pushoverBaseUrl.trim() : undefined,
       maxKeepAlive: typeof body.maxKeepAlive === "number" ? body.maxKeepAlive : undefined,
       heavyRepoModeEnabled: typeof body.heavyRepoModeEnabled === "boolean" ? body.heavyRepoModeEnabled : undefined,

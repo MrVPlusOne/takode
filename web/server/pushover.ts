@@ -268,6 +268,22 @@ export class PushoverNotifier {
     }
   }
 
+  /**
+   * Send a reminder about all waiting questions right away on every channel. It belongs
+   * to no single session, so the delay, event filters and per-session limits do not apply;
+   * Web Push still skips devices that are viewing Takode.
+   */
+  async sendReminder(alert: { title: string; body: string; path: string }): Promise<void> {
+    console.log(`[pushover] Sending reminder: ${alert.title}`);
+    if (this.opts.webPush?.hasSubscriptions()) {
+      void this.opts.webPush.sendAlert({ title: alert.title, body: alert.body, url: alert.path });
+    }
+    if (this.isPushoverConfigured()) {
+      const url = this.opts.getBaseUrl().replace(/\/+$/, "") + alert.path;
+      await this.sendToApi(this.opts.getSettings(), alert.title, alert.body, EVENT_PRIORITY.question, url, false);
+    }
+  }
+
   /** Send a test notification (bypasses delay and cooldowns). */
   async sendTest(): Promise<{ ok: boolean; error?: string }> {
     const settings = this.opts.getSettings();

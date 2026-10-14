@@ -887,6 +887,31 @@ export function wakeDueSnoozedNotifications(
   return woken;
 }
 
+/**
+ * Every open, unmuted (so also unsnoozed) needs-input question waiting for the user, for follow-up
+ * reminders. `isAddressedToUser` leaves out sessions the global attention list leaves out: archived
+ * ones, and herded workers, whose questions are for their leader.
+ */
+export function listWaitingUserQuestions(
+  sessions: Iterable<SessionLike>,
+  isAddressedToUser: (sessionId: string) => boolean,
+): Array<{ key: string; sessionId: string; questId?: string; askedAt: number }> {
+  const waiting = [];
+  for (const session of sessions) {
+    if (!isAddressedToUser(session.id)) continue;
+    for (const notif of (session.notifications ?? []) as SessionNotification[]) {
+      if (notif.category !== "needs-input" || notif.done || notif.muted) continue;
+      waiting.push({
+        key: `${session.id}:${notif.id}`,
+        sessionId: session.id as string,
+        questId: notif.questId,
+        askedAt: notif.timestamp,
+      });
+    }
+  }
+  return waiting;
+}
+
 export function markAllNotificationsDone(
   session: SessionLike,
   done: boolean,

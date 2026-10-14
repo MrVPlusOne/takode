@@ -17,6 +17,10 @@ export type Route =
   | { page: "playground" };
 
 const SESSION_PREFIX = "#/session/";
+/** Opens the top bar's attention list over whatever is on screen; follow-up phone reminders link here. */
+export const ATTENTION_LIST_HASH = "#/attention";
+/** Asks the top bar to open its attention list. */
+export const ATTENTION_OPEN_EVENT = "takode:attention-open";
 const QUEST_ID_PATTERN = /^q-\d+$/i;
 const THREAD_QUERY_PARAM = "thread";
 const QUEST_QUERY_PARAM = "quest";

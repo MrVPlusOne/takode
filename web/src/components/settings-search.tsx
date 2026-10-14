@@ -144,6 +144,16 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         subsection: "phone-alerts",
       },
       {
+        id: "reminders-enabled",
+        text: "Follow-up reminders remind me about waiting questions unanswered nudge repeat",
+        subsection: "follow-up-reminders",
+      },
+      {
+        id: "reminders-schedule",
+        text: "Reminder inactivity hours quiet hours night daily limit per day",
+        subsection: "follow-up-reminders",
+      },
+      {
         id: "web-push",
         text: "Web Push enable on this device iPhone Home Screen subscribed devices send test",
         subsection: "web-push",

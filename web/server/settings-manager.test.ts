@@ -49,6 +49,7 @@ describe("settings-manager", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      needsInputReminders: { enabled: true, inactivityMinutes: 120, quietStartHour: 23, quietEndHour: 9, dailyMax: 3 },
       pushoverBaseUrl: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexNonLeaderAutoCompactThresholdPercent: 90,
@@ -150,6 +151,32 @@ describe("settings-manager", () => {
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, notifyMe: true, error: false });
+  });
+
+  it("persists follow-up reminder settings and replaces invalid stored fields with defaults", async () => {
+    const updated = updateSettings({
+      needsInputReminders: { enabled: false, inactivityMinutes: 90, quietStartHour: 22, quietEndHour: 7, dailyMax: 5 },
+    });
+    expect(updated.needsInputReminders).toEqual({
+      enabled: false,
+      inactivityMinutes: 90,
+      quietStartHour: 22,
+      quietEndHour: 7,
+      dailyMax: 5,
+    });
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).needsInputReminders.dailyMax).toBe(5);
+
+    // A hand-edited file with out-of-range values keeps the valid ones.
+    writeFileSync(settingsPath, JSON.stringify({ needsInputReminders: { enabled: false, quietStartHour: 30 } }));
+    _resetForTest(settingsPath);
+    expect(getSettings().needsInputReminders).toEqual({
+      enabled: false,
+      inactivityMinutes: 120,
+      quietStartHour: 23,
+      quietEndHour: 9,
+      dailyMax: 3,
+    });
   });
 
   it.each([
@@ -610,6 +637,7 @@ describe("settings-manager", () => {
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      needsInputReminders: { enabled: true, inactivityMinutes: 120, quietStartHour: 23, quietEndHour: 9, dailyMax: 3 },
       pushoverBaseUrl: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexNonLeaderAutoCompactThresholdPercent: 90,

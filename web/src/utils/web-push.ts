@@ -7,6 +7,7 @@
  */
 
 import { api } from "../api.js";
+import { ATTENTION_LIST_HASH, ATTENTION_OPEN_EVENT } from "./routing.js";
 
 export type WebPushSupport = "supported" | "needs-home-screen" | "unsupported";
 
@@ -60,7 +61,10 @@ export async function resumeWebPushOnThisDevice(): Promise<void> {
   navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
     const data = event.data as { type?: string; url?: string } | null;
     if (data?.type !== "takode-open-url" || !data.url) return;
-    window.location.hash = new URL(data.url, window.location.origin).hash;
+    const hash = new URL(data.url, window.location.origin).hash;
+    // The attention list opens over the current view instead of navigating away from it.
+    if (hash === ATTENTION_LIST_HASH) window.dispatchEvent(new Event(ATTENTION_OPEN_EVENT));
+    else window.location.hash = hash;
   });
   navigator.serviceWorker.startMessages();
   const registration = await navigator.serviceWorker.getRegistration();

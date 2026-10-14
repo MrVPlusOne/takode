@@ -15,6 +15,11 @@ import { DEFAULT_SEND_KEY_SCHEME, normalizeSendKeyScheme, type SendKeyScheme } f
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 import { canonicalTimeZone } from "./server-time-zone.js";
 import {
+  DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS,
+  normalizeNeedsInputReminderSettings,
+  type NeedsInputReminderSettings,
+} from "../shared/needs-input-reminder-settings.js";
+import {
   DEFAULT_SESSION_DEFAULTS,
   normalizeSessionDefaults,
   type SessionDefaultsSettings,
@@ -63,6 +68,8 @@ export interface CompanionSettings {
   pushoverEnabled: boolean;
   /** Per-category Pushover notification preferences. */
   pushoverEventFilters?: PushoverEventFilters;
+  /** Follow-up phone reminders for questions left waiting. Optional for backward-compatible tests/mocks. */
+  needsInputReminders?: NeedsInputReminderSettings;
   /** External base URL for deep links in push notifications */
   pushoverBaseUrl: string;
   /** Max number of live CLI processes to keep alive (0 = unlimited) */
@@ -237,6 +244,7 @@ let settings: CompanionSettings = {
   pushoverDelaySeconds: 30,
   pushoverEnabled: true,
   pushoverEventFilters: { ...DEFAULT_PUSHOVER_EVENT_FILTERS },
+  needsInputReminders: { ...DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS },
   pushoverBaseUrl: "",
   maxKeepAlive: 0,
   heavyRepoModeEnabled: false,
@@ -521,6 +529,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.pushoverDelaySeconds === "number" && raw.pushoverDelaySeconds >= 5 ? raw.pushoverDelaySeconds : 30,
     pushoverEnabled: typeof raw?.pushoverEnabled === "boolean" ? raw.pushoverEnabled : true,
     pushoverEventFilters: normalizePushoverEventFilters(raw?.pushoverEventFilters),
+    needsInputReminders: normalizeNeedsInputReminderSettings(raw?.needsInputReminders),
     pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     heavyRepoModeEnabled: typeof raw?.heavyRepoModeEnabled === "boolean" ? raw.heavyRepoModeEnabled : false,
@@ -680,6 +689,7 @@ export function updateSettings(
       | "pushoverDelaySeconds"
       | "pushoverEnabled"
       | "pushoverEventFilters"
+      | "needsInputReminders"
       | "pushoverBaseUrl"
       | "maxKeepAlive"
       | "heavyRepoModeEnabled"
@@ -714,6 +724,9 @@ export function updateSettings(
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   if (defined.pushoverEventFilters) {
     defined.pushoverEventFilters = normalizePushoverEventFilters(defined.pushoverEventFilters);
+  }
+  if (defined.needsInputReminders) {
+    defined.needsInputReminders = normalizeNeedsInputReminderSettings(defined.needsInputReminders);
   }
   if (defined.leaderProfilePools) {
     defined.leaderProfilePools = normalizeLeaderProfilePoolSettings(defined.leaderProfilePools);

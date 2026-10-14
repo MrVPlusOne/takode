@@ -59,6 +59,10 @@ import {
   initWithPort,
 } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
+import { NeedsInputReminders } from "./needs-input-reminders.js";
+import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
+import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
+import { createUserActivityRoutes } from "./routes/user-activity.js";
 import { WebPushChannel } from "./web-push.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
@@ -555,6 +559,24 @@ wsBridge.sessionNameGetter = (sessionId) => sessionNames.getName(sessionId) || s
 wsBridge.sessionStoredNameGetter = (sessionId) => sessionNames.getName(sessionId);
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
+
+// ── Follow-up phone reminders for questions left waiting ─────────────────────
+const needsInputReminders = new NeedsInputReminders({
+  getSettings: () => normalizeNeedsInputReminderSettings(getSettings().needsInputReminders),
+  getWaitingQuestions: () =>
+    listWaitingUserQuestions(bridgeAny.sessions.values(), (sessionId) => {
+      const info = launcher.getSession(sessionId);
+      return !!info && !info.archived && !info.herdedBy;
+    }),
+  getLastUserMessageAt: () =>
+    launcher.listSessions().reduce((latest, info) => Math.max(latest, info.lastUserMessageAt ?? 0), 0),
+  describe: async (question) =>
+    (question.questId && (await getQuest(question.questId))?.title) ||
+    sessionNames.getName(question.sessionId) ||
+    question.sessionId.slice(0, 8),
+  send: (alert) => void pushoverNotifier.sendReminder(alert),
+});
+needsInputReminders.start();
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
 launcher.setEnvResolver(async (slug) => {
@@ -1247,6 +1269,7 @@ app.route(
   }),
 );
 app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
+app.route("/api", createUserActivityRoutes(needsInputReminders));
 app.route(
   "/api",
   createUserContentRoutes(userContentService, (sessionId, text) =>
@@ -1611,6 +1634,7 @@ const shutdown = new ServerShutdown({
     idleManager.stop();
     sleepInhibitor.stop();
     pushoverNotifier.destroy();
+    needsInputReminders.destroy();
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);

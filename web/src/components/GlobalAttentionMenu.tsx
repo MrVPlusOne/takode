@@ -10,6 +10,7 @@ import { buildAttentionBacklog, type AttentionBacklog, type NextAttentionItem } 
 import { AttentionItemRow, AttentionItemSections } from "./AttentionItemRows.js";
 import { AttentionKindIcon, BellIcon, NextAttentionToast, NextChevron, attentionTone } from "./AttentionKind.js";
 import { useNotifyMeSummary } from "./NotifyMe.js";
+import { ATTENTION_LIST_HASH, ATTENTION_OPEN_EVENT } from "../utils/routing.js";
 
 const TOAST_MS = 2600;
 const ALL_KINDS = ["needs-input", "notify-me", "unread"] as const;
@@ -54,8 +55,22 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
     return () => window.removeEventListener(ATTENTION_NEXT_EVENT, step);
   }, [step]);
 
+  // A phone reminder links here (`ATTENTION_LIST_HASH`): a cold start lands on the hash, a running app gets the event.
   useEffect(() => {
-    if (!hasAnything) setOpen(false);
+    const openList = () => setOpen(true);
+    if (window.location.hash === ATTENTION_LIST_HASH) {
+      window.history.replaceState(window.history.state, "", "#/");
+      openList();
+    }
+    window.addEventListener(ATTENTION_OPEN_EVENT, openList);
+    return () => window.removeEventListener(ATTENTION_OPEN_EVENT, openList);
+  }, []);
+
+  // Close once everything is handled, but not while the list is still loading (a reminder can open it at startup).
+  const hadAnything = useRef(hasAnything);
+  useEffect(() => {
+    if (hadAnything.current && !hasAnything) setOpen(false);
+    hadAnything.current = hasAnything;
   }, [hasAnything]);
 
   // While a question is open the pill counts only questions, so amber with a

@@ -1548,6 +1548,46 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).not.toHaveBeenCalled();
   });
 
+  it("changes one follow-up reminder setting and keeps the others", async () => {
+    // The mocked saved settings have no reminder settings, so the rest stay at their defaults.
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ needsInputReminders: { quietStartHour: 22 } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        needsInputReminders: {
+          enabled: true,
+          inactivityMinutes: 120,
+          quietStartHour: 22,
+          quietEndHour: 9,
+          dailyMax: 3,
+        },
+      }),
+    );
+  });
+
+  it("rejects follow-up reminder settings outside their limits", async () => {
+    for (const needsInputReminders of [
+      { enabled: "yes" },
+      { inactivityMinutes: 10 },
+      { quietEndHour: 24 },
+      { dailyMax: 1.5 },
+      [],
+    ]) {
+      const res = await app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ needsInputReminders }),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid non-leader Codex auto-compact threshold percent", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
