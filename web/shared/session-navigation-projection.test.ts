@@ -39,6 +39,7 @@ function value(): SessionNavigationProjectionValue {
     pausedInputQueueCount: 0,
     lastActivityAt: 2,
     lastUserMessageAt: 1,
+    lastAttentionAt: null,
     lastMessagePreviewAt: 2,
     claimedQuestId: "q-1",
     claimedQuestTitle: "Build projection",

@@ -137,6 +137,7 @@ export function createSessionNavigationProjectionValue(
     pausedInputQueueCount: 0,
     lastActivityAt: 2,
     lastUserMessageAt: 1,
+    lastAttentionAt: null,
     lastMessagePreviewAt: 1,
     claimedQuestId: null,
     claimedQuestTitle: null,

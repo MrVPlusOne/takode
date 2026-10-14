@@ -192,6 +192,43 @@ describe("session navigation projection", () => {
     expect(buildSessionNavigationProjectionValue(session, deps).askPermission).toBe(false);
   });
 
+  it("reports when the session last asked for the user, except for herded workers", () => {
+    // lastAttentionAt feeds the sidebar's recent-interaction order: the newest needs-input or
+    // review (unread result) notification counts even after it was answered or read, while other
+    // categories do not. Herded workers address their leader, so they never report one.
+    const session = makeSession();
+    (session as { notifications: unknown[] }).notifications = [
+      { id: "n-1", category: "needs-input", summary: "Pick one", timestamp: 300, done: true },
+      { id: "n-2", category: "review", summary: "Done", timestamp: 500, done: false },
+      { id: "n-3", category: "waiting", summary: "Waiting", timestamp: 900, done: false },
+    ];
+    let launcherInfo: SdkSessionInfo = {
+      sessionId: session.id,
+      state: "connected",
+      cwd: session.state.cwd,
+      createdAt: 5,
+      backendType: "codex",
+    };
+    const deps = {
+      getSession: () => session,
+      getLauncherSessionInfo: () => launcherInfo,
+      getSessionName: () => undefined,
+      getPendingTimerCount: () => 0,
+      getWaitingFor: () => null,
+      getBackendConnected: () => true,
+      getSessionStatus: () => "idle" as const,
+      getLastActivityAt: () => undefined,
+      getLastUserMessageAt: () => undefined,
+      getLastMessagePreviewAt: () => undefined,
+      authorizeSubscription: () => true,
+    };
+
+    expect(buildSessionNavigationProjectionValue(session, deps).lastAttentionAt).toBe(500);
+
+    launcherInfo = { ...launcherInfo, herdedBy: "leader-1" };
+    expect(buildSessionNavigationProjectionValue(session, deps).lastAttentionAt).toBeNull();
+  });
+
   it("uses the recycle budget only for Codex leaders that are actually in recycle mode", () => {
     // A compact-mode leader can retain an older recycle threshold in persisted
     // metadata. That stale value must not replace the provider runtime window.

@@ -36,6 +36,7 @@ import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarQuickActions } from "./SidebarQuickActions.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
+import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
@@ -98,6 +99,9 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
   const setReorderMode = useStore((s) => s.setReorderMode);
   const sessionSortMode = useStore((s) => s.sessionSortMode);
   const setSessionSortMode = useStore((s) => s.setSessionSortMode);
+  const sidebarViewMode = useStore((s) => s.sidebarViewMode);
+  const setSidebarViewMode = useStore((s) => s.setSidebarViewMode);
+  const recentView = sidebarViewMode === "recent";
   const treeGroups = useStore((s) => s.treeGroups);
   const treeAssignments = useStore((s) => s.treeAssignments);
   const collapsedTreeGroups = useStore((s) => s.collapsedTreeGroups);
@@ -258,7 +262,10 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
           console.warn("[sidebar] shortcut settings hydration failed:", err);
         });
         hydrateChatDisplaySettingsFromServer(s);
-        useStore.setState({ sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme) });
+        useStore.setState({
+          sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
+          sidebarViewMode: s.sidebarViewMode === "recent" ? "recent" : "spaces",
+        });
       })
       .catch(() => {});
   }, []);
@@ -499,6 +506,15 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     window.setTimeout(() => void refreshSessionListNow(true), 1500);
   }
 
+  function switchSidebarView(mode: "spaces" | "recent") {
+    if (mode === "recent") {
+      cancelBulkSelection();
+      setBulkSourceMenuOpen(false);
+      setReorderMode(false);
+    }
+    setSidebarViewMode(mode);
+  }
+
   const toggleArchivedSessions = useCallback(() => {
     const nextShowArchived = !showArchived;
     setShowArchived(nextShowArchived);
@@ -513,6 +529,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     archivedSessions,
     orderedVisibleSessionIds,
     treeViewGroups,
+    recentNodes,
     sessionSetAttention,
   } = useMemo(
     () =>
@@ -525,6 +542,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
         expandedHerdNodes,
         sessionAttention,
         sessionSortMode,
+        sidebarViewMode,
       }),
     [
       sdkSessions,
@@ -535,6 +553,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       collapsedTreeGroups,
       expandedHerdNodes,
       sessionSortMode,
+      sidebarViewMode,
     ],
   );
 
@@ -792,10 +811,31 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       >
         {allSessionList.length > 0 && (
           <div className="px-2 pt-2 pb-1.5 flex items-center gap-1">
-            <span className="flex-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-cc-muted">
-              Sessions
-            </span>
-            {bulkSourceGroups.length > 0 && (
+            <div
+              role="group"
+              aria-label="Sidebar view"
+              className="shrink-0 mr-auto inline-flex items-center rounded-md border border-cc-border/70 p-px"
+            >
+              {(["spaces", "recent"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => switchSidebarView(mode)}
+                  aria-pressed={sidebarViewMode === mode}
+                  title={mode === "spaces" ? "Group sessions by Session Space" : "List sessions by recent interaction"}
+                  className={`h-6 px-2 rounded-[5px] text-[10px] transition-colors cursor-pointer ${
+                    sidebarViewMode === mode ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"
+                  }`}
+                >
+                  {mode === "spaces" ? "Spaces" : "Recent"}
+                </button>
+              ))}
+            </div>
+            {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
+            {recentView && (
+              <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />
+            )}
+            {!recentView && bulkSourceGroups.length > 0 && (
               <button
                 type="button"
                 onClick={() => setBulkSourceMenuOpen((open) => !open)}
@@ -814,7 +854,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
                 Bulk
               </button>
             )}
-            {showSortControls && sessionSortMode !== "activity" && (
+            {!recentView && showSortControls && sessionSortMode !== "activity" && (
               <button
                 onClick={() => setReorderMode(!reorderMode)}
                 className={`sm:hidden text-[10px] font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
@@ -824,10 +864,10 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
                 {reorderMode ? "Done" : "Edit"}
               </button>
             )}
-            {showSortControls && (
+            {!recentView && showSortControls && (
               <button
                 onClick={() => setSessionSortMode(sessionSortMode === "created" ? "activity" : "created")}
-                title={sessionSortMode === "activity" ? "Sorted by last user message" : "Sorted by creation time"}
+                title={sessionSortMode === "activity" ? "Sorted by recent interaction" : "Sorted by creation time"}
                 className={`text-[10px] font-medium px-1.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
                   sessionSortMode === "activity"
                     ? "bg-cc-primary/10 text-cc-primary"
@@ -903,71 +943,86 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
               </div>
             )}
 
-            <DndContext
-              sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : treeSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeDragEnd}
-              modifiers={[restrictToVerticalAxis]}
-            >
-              <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
-                {treeViewGroups.map((group, i) => (
-                  <SortableTreeGroup key={group.id} id={group.id}>
-                    {({ setNodeRef, style, listeners, attributes, isDragging }) => (
-                      <div ref={setNodeRef} style={style}>
-                        <TreeViewGroup
-                          group={group}
-                          isGroupCollapsed={collapsedTreeGroups.has(group.id)}
-                          collapsedTreeNodes={collapsedTreeNodes}
-                          onToggleGroupCollapse={toggleTreeGroupCollapse}
-                          onToggleNodeCollapse={toggleTreeNodeCollapse}
-                          onCreateSession={handleCreateSessionInTreeGroup}
-                          currentSessionId={currentSessionId}
-                          recentlyRenamed={recentlyRenamed}
-                          isFirst={i === 0}
-                          groupDragging={isDragging}
-                          onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
-                          groupDragHandleProps={
-                            treeViewGroups.length > 1 && sessionSortMode !== "activity" && !bulkSelectionGroupId
-                              ? {
-                                  listeners: listeners as Record<string, unknown> | undefined,
-                                  attributes: attributes as unknown as Record<string, unknown>,
-                                }
-                              : undefined
-                          }
-                          visibleSessionLimit={groupVisibleLimits.get(group.id) ?? DEFAULT_GROUP_VISIBLE_SESSION_LIMIT}
-                          overflowExpanded={expandedOverflowGroups.has(group.id)}
-                          onToggleOverflow={toggleGroupOverflow}
-                          onSetVisibleSessionLimit={setGroupVisibleLimit}
-                          sessionAttention={sessionSetAttention}
-                          herdGroupBadgeThemes={herdGroupBadgeThemes}
-                          bulkSelectionActive={bulkSelectionGroupId === group.id}
-                          bulkSelectedSessionIds={bulkSelectedSessionIds}
-                          bulkTargetGroupId={bulkTargetGroupId}
-                          bulkAssigning={bulkAssigning}
-                          availableBulkTargetGroups={treeGroups.filter((candidate) => candidate.id !== group.id)}
-                          onCancelBulkSelection={cancelBulkSelection}
-                          onToggleBulkSession={toggleBulkSession}
-                          onToggleBulkSelectAll={toggleBulkSelectAll}
-                          onBulkTargetGroupChange={setBulkTargetGroupId}
-                          onApplyBulkAssignment={applyBulkAssignment}
-                          onCreateGroupForBulkAssignment={createGroupForBulkAssignment}
-                          {...sessionItemProps}
-                        />
-                      </div>
-                    )}
-                  </SortableTreeGroup>
-                ))}
-              </SortableContext>
-            </DndContext>
-            <button
-              onClick={handleCreateTreeGroup}
-              className="w-full mt-1 px-2 py-1.5 flex items-center gap-1.5 rounded-md text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
-                <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
-              </svg>
-              <span className="font-medium">New Session Space</span>
-            </button>
+            {recentView ? (
+              <RecentSessionList
+                nodes={recentNodes}
+                currentSessionId={currentSessionId}
+                recentlyRenamed={recentlyRenamed}
+                sessionAttention={sessionSetAttention}
+                herdGroupBadgeThemes={herdGroupBadgeThemes}
+                rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
+              />
+            ) : (
+              <>
+                <DndContext
+                  sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : treeSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeDragEnd}
+                  modifiers={[restrictToVerticalAxis]}
+                >
+                  <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
+                    {treeViewGroups.map((group, i) => (
+                      <SortableTreeGroup key={group.id} id={group.id}>
+                        {({ setNodeRef, style, listeners, attributes, isDragging }) => (
+                          <div ref={setNodeRef} style={style}>
+                            <TreeViewGroup
+                              group={group}
+                              isGroupCollapsed={collapsedTreeGroups.has(group.id)}
+                              collapsedTreeNodes={collapsedTreeNodes}
+                              onToggleGroupCollapse={toggleTreeGroupCollapse}
+                              onToggleNodeCollapse={toggleTreeNodeCollapse}
+                              onCreateSession={handleCreateSessionInTreeGroup}
+                              currentSessionId={currentSessionId}
+                              recentlyRenamed={recentlyRenamed}
+                              isFirst={i === 0}
+                              groupDragging={isDragging}
+                              onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
+                              groupDragHandleProps={
+                                treeViewGroups.length > 1 && sessionSortMode !== "activity" && !bulkSelectionGroupId
+                                  ? {
+                                      listeners: listeners as Record<string, unknown> | undefined,
+                                      attributes: attributes as unknown as Record<string, unknown>,
+                                    }
+                                  : undefined
+                              }
+                              visibleSessionLimit={
+                                groupVisibleLimits.get(group.id) ?? DEFAULT_GROUP_VISIBLE_SESSION_LIMIT
+                              }
+                              overflowExpanded={expandedOverflowGroups.has(group.id)}
+                              onToggleOverflow={toggleGroupOverflow}
+                              onSetVisibleSessionLimit={setGroupVisibleLimit}
+                              sessionAttention={sessionSetAttention}
+                              herdGroupBadgeThemes={herdGroupBadgeThemes}
+                              bulkSelectionActive={bulkSelectionGroupId === group.id}
+                              bulkSelectedSessionIds={bulkSelectedSessionIds}
+                              bulkTargetGroupId={bulkTargetGroupId}
+                              bulkAssigning={bulkAssigning}
+                              availableBulkTargetGroups={treeGroups.filter((candidate) => candidate.id !== group.id)}
+                              onCancelBulkSelection={cancelBulkSelection}
+                              onToggleBulkSession={toggleBulkSession}
+                              onToggleBulkSelectAll={toggleBulkSelectAll}
+                              onBulkTargetGroupChange={setBulkTargetGroupId}
+                              onApplyBulkAssignment={applyBulkAssignment}
+                              onCreateGroupForBulkAssignment={createGroupForBulkAssignment}
+                              {...sessionItemProps}
+                            />
+                          </div>
+                        )}
+                      </SortableTreeGroup>
+                    ))}
+                  </SortableContext>
+                </DndContext>
+                <button
+                  onClick={handleCreateTreeGroup}
+                  className="w-full mt-1 px-2 py-1.5 flex items-center gap-1.5 rounded-md text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
+                    <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
+                  </svg>
+                  <span className="font-medium">New Session Space</span>
+                </button>
+              </>
+            )}
 
             {cronSessions.length > 0 && (
               <div className="mt-2 pt-2 border-t border-cc-border">

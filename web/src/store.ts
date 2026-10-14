@@ -261,6 +261,7 @@ export const useStore = create<AppState>((set, get) => ({
     typeof window !== "undefined" && localStorage.getItem("cc-session-sort-mode") === "activity"
       ? "activity"
       : "created",
+  sidebarViewMode: "spaces",
   taskPanelOpen: false,
   searchPreviewSessionId: null,
   newSessionModalState: null,
@@ -458,6 +459,14 @@ export const useStore = create<AppState>((set, get) => ({
   setSessionSortMode: (mode) => {
     localStorage.setItem("cc-session-sort-mode", mode);
     set({ sessionSortMode: mode });
+  },
+  setSidebarViewMode: (mode) => {
+    const previous = get().sidebarViewMode;
+    set({ sidebarViewMode: mode });
+    api.updateSettings({ sidebarViewMode: mode }).catch((err) => {
+      console.warn("[store] failed to save sidebar view:", err);
+      if (get().sidebarViewMode === mode) set({ sidebarViewMode: previous });
+    });
   },
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open, ...(open ? { codexSubagentInspector: null } : {}) }),
   setSearchPreviewSessionId: (sessionId) => set({ searchPreviewSessionId: sessionId }),

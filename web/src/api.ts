@@ -680,6 +680,7 @@ export interface AppSettings {
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
+  sidebarViewMode: "spaces" | "recent";
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
   sendKeyScheme?: SendKeyScheme;
@@ -1423,6 +1424,7 @@ export const api = {
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
+    sidebarViewMode?: "spaces" | "recent";
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;
     sendKeyScheme?: SendKeyScheme;

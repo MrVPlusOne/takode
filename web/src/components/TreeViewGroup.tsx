@@ -1,12 +1,10 @@
 import { type RefObject, useCallback, useState, useRef, useEffect } from "react";
-import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import { type DraggableAttributes } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TreeViewGroupData, TreeNode } from "../utils/tree-grouping.js";
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import { SessionItem, StatusCountDots, type ArchiveConfirmationState, type StatusCounts } from "./SessionItem.js";
-import { deriveSessionStatus } from "./SessionStatusDot.js";
+import { StatusCountDots, type ArchiveConfirmationState } from "./SessionItem.js";
+import { SessionTreeNodeCard, type SessionTreeRowProps } from "./SessionTreeNodeCard.js";
 import { useStore } from "../store.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { isTouchDevice } from "../utils/mobile.js";
@@ -187,8 +185,6 @@ export function TreeViewGroup({
 }: TreeViewGroupProps) {
   const reorderMode = useStore((s) => s.reorderMode);
   const sessionSortMode = useStore((s) => s.sessionSortMode);
-  const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
-  const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
   const touchDevice = isTouchDevice();
   const isDraggable = sessionSortMode !== "activity" && !bulkSelectionActive;
 
@@ -260,8 +256,7 @@ export function TreeViewGroup({
   const bulkSelectedCount = rootNodeIds.filter((id) => bulkSelectedSessionIds?.has(id)).length;
   const allSelectableSessionsSelected = rootNodeIds.length > 0 && bulkSelectedCount === rootNodeIds.length;
 
-  // Shared session item props
-  const sessionItemProps = {
+  const rowProps: SessionTreeRowProps = {
     onSelect,
     onStartRename,
     onArchive,
@@ -286,174 +281,43 @@ export function TreeViewGroup({
     onMobileReorderHandleActiveChange,
   };
 
-  function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
-    const permCount = s.permCount;
-    const attention = sessionAttention?.get(s.id) ?? null;
-    return (
-      <SessionItem
-        key={s.id}
-        session={s}
-        isActive={currentSessionId === s.id}
-        sessionName={s.name ?? undefined}
-        sessionPreview={s.lastMessagePreview || undefined}
-        permCount={permCount}
-        isRecentlyRenamed={recentlyRenamed.has(s.id)}
-        attention={attention}
-        hasUnread={hasUnreadSessionAttention(attention)}
-        herdGroupBadgeTheme={herdGroupBadgeThemes?.get(s.id)}
-        herdHoverHighlight={herdHoverHighlights?.get(s.id)}
-        compact={opts?.compact}
-        reviewerSession={opts?.reviewerSession}
-        {...sessionItemProps}
+  function renderTreeNode(node: TreeNode) {
+    const card = (
+      <SessionTreeNodeCard
+        node={node}
+        currentSessionId={currentSessionId}
+        recentlyRenamed={recentlyRenamed}
+        sessionAttention={sessionAttention}
+        herdHoverHighlights={herdHoverHighlights}
+        herdGroupBadgeThemes={herdGroupBadgeThemes}
+        rowProps={rowProps}
       />
     );
-  }
+    if (!bulkSelectionActive) return card;
 
-  /** Count child sessions by visual status for the herd summary bar. */
-  function computeChildSessionSummary(sessions: SessionItemType[]): StatusCounts {
-    let running = 0;
-    let permission = 0;
-    let unread = 0;
-    let waiting = 0;
-    const countSession = (s: SessionItemType) => {
-      const sPermCount = s.permCount;
-      const sAttention = sessionAttention?.get(s.id) ?? null;
-      const status = deriveSessionStatus({
-        archived: s.archived,
-        permCount: sPermCount,
-        isConnected: s.isConnected,
-        sdkState: s.sdkState,
-        status: s.status,
-        hasUnread: hasUnreadSessionAttention(sAttention),
-        idleKilled: s.idleKilled,
-      });
-      const isWaiting = (s.pendingTimerCount ?? 0) > 0 || !!s.waitingFor;
-      const showsWaitingStatus =
-        !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !sAttention && sPermCount === 0 && isWaiting;
-      if (showsWaitingStatus) waiting++;
-      else if (status === "running" || status === "compacting") running++;
-      else if (status === "permission") permission++;
-      else if (status === "completed_unread") unread++;
-    };
-    for (const session of sessions) countSession(session);
-    return { running, permission, unread, waiting };
-  }
-
-  function renderTreeNode(node: TreeNode) {
-    const hasWorkers = node.workers.length > 0;
-    const hasReviewersOnly = !hasWorkers && node.reviewers.length > 0;
-    const childSessions = hasWorkers ? [...node.workers, ...node.reviewers] : [];
-    const childSummary = hasWorkers ? computeChildSessionSummary(childSessions) : undefined;
     const leaderLabel = node.leader.name || node.leader.model || node.leader.id;
     const isBulkSelected = bulkSelectedSessionIds?.has(node.leader.id) ?? false;
-
-    const wrapBulkSelectableNode = (content: React.ReactNode) => {
-      if (!bulkSelectionActive) return content;
-      return (
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleBulkSession?.(node.leader.id);
-            }}
-            aria-label={`${isBulkSelected ? "Deselect" : "Select"} session ${leaderLabel}`}
-            className={`mt-2 shrink-0 w-4 h-4 rounded border transition-colors cursor-pointer ${
-              isBulkSelected
-                ? "border-cc-primary bg-cc-primary/20 text-cc-primary"
-                : "border-cc-border text-transparent hover:border-cc-primary/70"
-            }`}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 m-0.5">
-              <path d="M3.5 8.5l2.5 2.5 6-6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <div className={`min-w-0 flex-1 rounded-lg ${isBulkSelected ? "ring-1 ring-cc-primary/50" : ""}`}>
-            {content}
-          </div>
-        </div>
-      );
-    };
-
-    // Herded nodes (leader with workers): collapsible container pattern
-    if (hasWorkers) {
-      const isExpanded = expandedHerdNodes.has(node.leader.id);
-      const totalMembers = childSessions.length;
-      const idleCount =
-        totalMembers -
-        (childSummary!.running + childSummary!.permission + childSummary!.unread + (childSummary!.waiting ?? 0));
-      const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
-      const reviewerCount = node.reviewers.length;
-      const memberLabel =
-        reviewerCount > 0
-          ? `${node.workers.length} worker${node.workers.length !== 1 ? "s" : ""}, ${reviewerCount} reviewer${reviewerCount !== 1 ? "s" : ""}`
-          : `${node.workers.length} worker${node.workers.length !== 1 ? "s" : ""}`;
-
-      return wrapBulkSelectableNode(
-        <div
-          key={node.leader.id}
-          className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20 border-l-[3px] border-l-cc-primary/30"
+    return (
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleBulkSession?.(node.leader.id);
+          }}
+          aria-label={`${isBulkSelected ? "Deselect" : "Select"} session ${leaderLabel}`}
+          className={`mt-2 shrink-0 w-4 h-4 rounded border transition-colors cursor-pointer ${
+            isBulkSelected
+              ? "border-cc-primary bg-cc-primary/20 text-cc-primary"
+              : "border-cc-border text-transparent hover:border-cc-primary/70"
+          }`}
         >
-          {/* Leader chip -- full width, no chevron, no indent */}
-          {renderSessionItem(node.leader, { reviewerSession: leaderReviewer })}
-
-          {/* Herd summary bar -- always visible, toggles expand/collapse */}
-          <button
-            data-testid={`herd-summary-${node.leader.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleHerdNodeExpand(node.leader.id);
-            }}
-            className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted hover:bg-cc-hover/50 transition-colors cursor-pointer"
-            title={isExpanded ? "Collapse sessions" : "Expand sessions"}
-          >
-            <span className="text-cc-muted/50 shrink-0">{memberLabel}</span>
-            <span className="ml-auto flex items-center gap-1.5">
-              <StatusCountDots counts={childSummary!} />
-              {idleCount > 0 && (
-                <span className="flex items-center gap-0.5 text-cc-muted/50">
-                  {idleCount}
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />
-                </span>
-              )}
-            </span>
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className={`w-3 h-3 text-cc-muted/40 transition-transform shrink-0 ${isExpanded ? "rotate-180" : ""}`}
-            >
-              <path d="M4 6l4 4 4-4" />
-            </svg>
-          </button>
-
-          {/* Workers container -- only when expanded */}
-          {isExpanded && (
-            <div className="border-t border-cc-border/30 pl-3">
-              {node.workers.map((w) => {
-                const workerReviewer = node.reviewers.find((r) => r.reviewerOf === w.sessionNum);
-                return <div key={w.id}>{renderSessionItem(w, { compact: true, reviewerSession: workerReviewer })}</div>;
-              })}
-            </div>
-          )}
-        </div>,
-      );
-    }
-
-    // Standalone node with only reviewers (no workers): show reviewer as inline chip
-    if (hasReviewersOnly) {
-      const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
-      return wrapBulkSelectableNode(
-        <div key={node.leader.id} className="border border-cc-border/20 rounded-lg">
-          {renderSessionItem(node.leader, { reviewerSession: leaderReviewer })}
-        </div>,
-      );
-    }
-
-    // Standalone node (no workers, no reviewers): plain session chip
-    return wrapBulkSelectableNode(
-      <div key={node.leader.id} className="border border-cc-border/20 rounded-lg">
-        {renderSessionItem(node.leader)}
-      </div>,
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 m-0.5">
+            <path d="M3.5 8.5l2.5 2.5 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div className={`min-w-0 flex-1 rounded-lg ${isBulkSelected ? "ring-1 ring-cc-primary/50" : ""}`}>{card}</div>
+      </div>
     );
   }
 

@@ -84,6 +84,27 @@ describe("settings routes", () => {
     expect(getSettings().sendKeyScheme).toBe("mod-enter");
   });
 
+  it("keeps one sidebar view for every browser and rejects unknown views", async () => {
+    // The Spaces/Recent choice is a single server-side setting, so every browser reads the same view.
+    const app = createApp();
+    const put = (sidebarViewMode: unknown) =>
+      app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sidebarViewMode }),
+      });
+
+    expect((await (await app.request("/api/settings")).json()).sidebarViewMode).toBe("spaces");
+    const ok = await put("recent");
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).sidebarViewMode).toBe("recent");
+    expect(getSettings().sidebarViewMode).toBe("recent");
+
+    const bad = await put("grid");
+    expect(bad.status).toBe(400);
+    expect(getSettings().sidebarViewMode).toBe("recent");
+  });
+
   it("accepts centralized session defaults settings updates", async () => {
     const app = createApp();
     const sessionDefaults = {

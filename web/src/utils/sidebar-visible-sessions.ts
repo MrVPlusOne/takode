@@ -1,6 +1,7 @@
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
 import { resolveSessionNavigation } from "./session-navigation-resolver.js";
-import { buildTreeViewGroups } from "./tree-grouping.js";
+import { buildTreeViewGroups, type TreeNode } from "./tree-grouping.js";
+import { buildRecentSessionNodes, type RecentSessionNode } from "./recent-sessions.js";
 import type { TreeGroup, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 
 type SessionAttentionReason = "action" | "error" | "review" | null;
@@ -14,6 +15,8 @@ export interface SidebarVisibleSessionsInput {
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
   sessionSortMode: "created" | "activity";
+  /** Defaults to the Session Space view. */
+  sidebarViewMode?: "spaces" | "recent";
 }
 
 export interface SidebarVisibleSessionsResult {
@@ -24,6 +27,8 @@ export interface SidebarVisibleSessionsResult {
   archivedSessions: SidebarSessionItem[];
   orderedVisibleSessionIds: string[];
   treeViewGroups: ReturnType<typeof buildTreeViewGroups>;
+  /** Every space's cards in one list, newest interaction first, for the Recent view. */
+  recentNodes: RecentSessionNode[];
   sessionSetAttention: Map<string, SessionAttentionReason>;
 }
 
@@ -39,6 +44,7 @@ export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSession
     expandedHerdNodes,
     sessionAttention,
     sessionSortMode,
+    sidebarViewMode,
   } = input;
   const sessionSetAttention = sessionAttention;
 
@@ -72,16 +78,17 @@ export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSession
     treeNodeOrder,
     attachedReviewers,
   );
-  const orderedVisibleSessionIds = treeViewGroups.flatMap((group) => {
-    if (collapsedTreeGroups.has(group.id)) return [];
-    return group.nodes.flatMap((node) => {
-      const visibleIds = [node.leader.id];
-      if (expandedHerdNodes.has(node.leader.id)) {
-        visibleIds.push(...node.workers.map((worker) => worker.id));
-      }
-      return visibleIds;
-    });
-  });
+  const recentNodes = buildRecentSessionNodes(treeViewGroups);
+  const visibleIdsForNode = (node: TreeNode) =>
+    expandedHerdNodes.has(node.leader.id)
+      ? [node.leader.id, ...node.workers.map((worker) => worker.id)]
+      : [node.leader.id];
+  const orderedVisibleSessionIds =
+    sidebarViewMode === "recent"
+      ? recentNodes.flatMap(visibleIdsForNode)
+      : treeViewGroups.flatMap((group) =>
+          collapsedTreeGroups.has(group.id) ? [] : group.nodes.flatMap(visibleIdsForNode),
+        );
 
   return {
     allSessionList,
@@ -91,6 +98,7 @@ export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSession
     archivedSessions,
     orderedVisibleSessionIds,
     treeViewGroups,
+    recentNodes,
     sessionSetAttention,
   };
 }

@@ -83,6 +83,8 @@ export interface CompanionSettings {
   sleepInhibitorDurationMinutes: number;
   /** Preferred Questmaster list layout. Optional for backward-compatible tests/mocks. */
   questmasterViewMode?: QuestmasterViewMode;
+  /** Session sidebar layout, shared by every browser. Optional for backward-compatible tests/mocks. */
+  sidebarViewMode?: SidebarViewMode;
   /** Preferred Questmaster compact-table sort. Optional for backward-compatible tests/mocks. */
   questmasterCompactSort?: QuestmasterCompactSort;
   /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
@@ -127,6 +129,8 @@ export interface ShortcutSettings {
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
+/** Sessions grouped by Session Space, or one list ordered by recent interaction. */
+export type SidebarViewMode = "spaces" | "recent";
 export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
   "quest",
   "title",
@@ -252,6 +256,7 @@ let settings: CompanionSettings = {
   sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
   questmasterViewMode: "cards",
+  sidebarViewMode: "spaces",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
@@ -532,6 +537,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       raw?.questmasterViewMode === "compact" || raw?.questmasterViewMode === "cards"
         ? raw.questmasterViewMode
         : "cards",
+    sidebarViewMode: raw?.sidebarViewMode === "recent" ? "recent" : "spaces",
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
     sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),
@@ -684,6 +690,7 @@ export function updateSettings(
       | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
       | "questmasterViewMode"
+      | "sidebarViewMode"
       | "questmasterCompactSort"
       | "chatMessageLineHeight"
       | "sendKeyScheme"

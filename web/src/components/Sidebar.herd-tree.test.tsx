@@ -157,6 +157,8 @@ interface MockStoreState {
   sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   sessionSortMode: "created" | "activity";
+  sidebarViewMode: "spaces" | "recent";
+  setSidebarViewMode: ReturnType<typeof vi.fn>;
   setReorderMode: ReturnType<typeof vi.fn>;
   pendingSessions: Map<string, unknown>;
   serverName: string;
@@ -264,6 +266,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionInfoOpenSessionId: null,
     reorderMode: false,
     sessionSortMode: "created",
+    sidebarViewMode: "spaces",
+    setSidebarViewMode: vi.fn(),
     setReorderMode: vi.fn(),
     pendingSessions: new Map(),
     serverName: "",
@@ -313,6 +317,7 @@ vi.mock("../store.js", () => {
 });
 
 import { Sidebar } from "./Sidebar.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "../utils/session-git-status-auto-refresh.js";
 
 beforeEach(() => {
@@ -891,5 +896,121 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     const workerButton = screen.getByText("Cross Project Worker").closest("button")!;
     const betaHeader = screen.getByText("Beta");
     expect(workerButton.compareDocumentPosition(betaHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("Sidebar Recent view", { timeout: 10000 }, () => {
+  // Three spaces: Takode holds a leader whose worker the user answered most recently and an older
+  // standalone session; MSI holds a leader whose result just became unread; Personal is empty.
+  function recentViewState(): MockStoreState {
+    return createMockState({
+      sidebarViewMode: "recent",
+      sdkSessions: [
+        makeSdkSession("leader-a", {
+          name: "Takode Leader",
+          sessionNum: 1,
+          isOrchestrator: true,
+          createdAt: 1,
+          lastUserMessageAt: 100,
+        }),
+        makeSdkSession("worker-a", {
+          name: "Worker",
+          sessionNum: 2,
+          herdedBy: "leader-a",
+          createdAt: 2,
+          lastUserMessageAt: 900,
+        }),
+        makeSdkSession("solo-a", { name: "Old Solo", sessionNum: 3, createdAt: 3, lastUserMessageAt: 50 }),
+        makeSdkSession("leader-b", {
+          name: "MSI Leader",
+          sessionNum: 4,
+          isOrchestrator: true,
+          createdAt: 4,
+          lastAttentionAt: 500,
+        }),
+      ],
+      treeGroups: [
+        { id: "takode", name: "Takode" },
+        { id: "msi", name: "MSI" },
+        { id: "personal", name: "Personal" },
+      ],
+      treeAssignments: new Map([
+        ["leader-a", "takode"],
+        ["solo-a", "takode"],
+        ["leader-b", "msi"],
+      ]),
+    });
+  }
+
+  it("lists every space's cards in one list by recent interaction, naming each card's space", () => {
+    mockState = recentViewState();
+    render(<Sidebar />);
+
+    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-session-id]")).map(
+      (row) => row.dataset.sessionId,
+    );
+    // The worker stays collapsed under its leader; its answer still brings the leader to the top.
+    expect(roots).toEqual(["leader-a", "leader-b", "solo-a"]);
+    expect(screen.getAllByTestId("session-space-label").map((label) => label.textContent)).toEqual([
+      "Takode",
+      "MSI",
+      "Takode",
+    ]);
+    // No per-space headers or per-space New buttons in this view.
+    expect(screen.queryByLabelText("Create session in Takode Session Space")).not.toBeInTheDocument();
+  });
+
+  it("switches views through the shared server setting", () => {
+    mockState = recentViewState();
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Spaces" }));
+    expect(mockState.setSidebarViewMode).toHaveBeenCalledWith("spaces");
+  });
+
+  it("shows status totals and reveals the per-space breakdown on tap", () => {
+    mockState = recentViewState();
+    mockState.sdkSessions = mockState.sdkSessions.map((session) =>
+      session.sessionId === "worker-a"
+        ? { ...session, state: "running", cliConnected: true, status: "running" }
+        : session,
+    );
+    render(<Sidebar />);
+
+    const status = screen.getByTestId("recent-spaces-status");
+    expect(within(status).getByTestId("status-count-running")).toHaveTextContent("1");
+    expect(screen.queryByTestId("recent-spaces-status-breakdown")).not.toBeInTheDocument();
+
+    fingerTap(status);
+    const breakdown = screen.getByTestId("recent-spaces-status-breakdown");
+    expect(breakdown).toHaveTextContent("Takode");
+    expect(breakdown).toHaveTextContent("MSI");
+    expect(breakdown).toHaveTextContent("Personal");
+
+    // A second tap on the same spot closes it again.
+    fingerTap(status);
+    expect(screen.queryByTestId("recent-spaces-status-breakdown")).not.toBeInTheDocument();
+  });
+
+  it("opens the breakdown on mouse hover and closes it when the mouse leaves", () => {
+    mockState = recentViewState();
+    render(<Sidebar />);
+
+    const status = screen.getByTestId("recent-spaces-status");
+    fireEvent.pointerOver(status, { pointerType: "mouse" });
+    expect(screen.getByTestId("recent-spaces-status-breakdown")).toBeInTheDocument();
+    fireEvent.pointerOut(status, { pointerType: "mouse" });
+    expect(screen.queryByTestId("recent-spaces-status-breakdown")).not.toBeInTheDocument();
+  });
+
+  it("creates a session in the space picked from the New menu", () => {
+    mockState = recentViewState();
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Personal" }));
+
+    expect(mockState.openNewSessionModal).toHaveBeenCalledWith(expect.objectContaining({ treeGroupId: "personal" }));
+    expect(screen.queryByRole("menuitem", { name: "Personal" })).not.toBeInTheDocument();
   });
 });

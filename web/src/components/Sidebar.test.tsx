@@ -1106,7 +1106,9 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
-  it("labels activity sort as sorting by last user message", () => {
+  it("labels activity sort as sorting by recent interaction", () => {
+    // Activity sort follows the same interaction time as the Recent view (user messages plus
+    // the session raising unread results or questions), so it no longer claims user messages only.
     const session1 = makeSession("s1");
     const session2 = makeSession("s2");
     const sdk1 = makeSdkSession("s1");
@@ -1122,8 +1124,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     render(<Sidebar />);
 
-    expect(screen.getByTitle("Sorted by last user message")).toBeInTheDocument();
-    expect(screen.queryByTitle("Sorted by recent activity")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Sorted by recent interaction")).toBeInTheDocument();
+    expect(screen.queryByTitle("Sorted by last user message")).not.toBeInTheDocument();
   });
 
   it("renders a mobile dismiss button that closes the sidebar explicitly", () => {

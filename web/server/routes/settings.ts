@@ -1048,6 +1048,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
+      sidebarViewMode: settings.sidebarViewMode === "recent" ? "recent" : "spaces",
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
@@ -1272,6 +1273,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: 'questmasterViewMode must be "cards" or "compact"' }, 400);
     }
+    if (body.sidebarViewMode !== undefined && body.sidebarViewMode !== "spaces" && body.sidebarViewMode !== "recent") {
+      return c.json({ error: 'sidebarViewMode must be "spaces" or "recent"' }, 400);
+    }
     if (body.questmasterCompactSort !== undefined) {
       if (
         typeof body.questmasterCompactSort !== "object" ||
@@ -1411,6 +1415,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
+      "sidebarViewMode",
       "questmasterCompactSort",
       "chatMessageLineHeight",
       "sendKeyScheme",
@@ -1458,6 +1463,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.questmasterViewMode === "cards" || body.questmasterViewMode === "compact"
           ? body.questmasterViewMode
           : undefined,
+      sidebarViewMode:
+        body.sidebarViewMode === "spaces" || body.sidebarViewMode === "recent" ? body.sidebarViewMode : undefined,
       questmasterCompactSort:
         body.questmasterCompactSort && typeof body.questmasterCompactSort === "object"
           ? normalizeQuestmasterCompactSort(body.questmasterCompactSort)

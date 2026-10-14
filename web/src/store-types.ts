@@ -210,6 +210,10 @@ export interface AppState {
   reorderMode: boolean;
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
+  /** Sidebar layout: sessions grouped by Session Space, or one list by the user's recent interaction. */
+  sidebarViewMode: "spaces" | "recent";
+  /** Saves the choice on the server, which keeps one view for every browser. */
+  setSidebarViewMode: (mode: "spaces" | "recent") => void;
   taskPanelOpen: boolean;
   searchPreviewSessionId: string | null;
   newSessionModalState: {

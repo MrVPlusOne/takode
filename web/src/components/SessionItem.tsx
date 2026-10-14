@@ -258,6 +258,8 @@ export interface SessionItemProps {
   /** When true, renders a compact chip (no preview, no herd badge). Tree view workers only. */
   compact?: boolean;
   useStatusBar?: boolean;
+  /** Session Space name, shown in lists that mix spaces. */
+  spaceLabel?: string;
 }
 
 function SessionItemComponent({
@@ -304,6 +306,7 @@ function SessionItemComponent({
   indentLevel = 0,
   compact,
   useStatusBar,
+  spaceLabel,
 }: SessionItemProps) {
   const rowRef = useRef<HTMLElement | null>(null);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
@@ -796,6 +799,15 @@ function SessionItemComponent({
               className={`flex min-w-0 items-center gap-1 mt-0.5 text-[10.5px] ${sidebarMetadataClassName} leading-tight ${usesExpandedLeaderPortrait ? "col-start-2 row-start-2" : ""}`}
               data-testid={usesExpandedLeaderPortrait ? "session-metadata-row" : undefined}
             >
+              {spaceLabel && (
+                <span
+                  className="max-w-[45%] truncate text-[10px] font-medium text-cc-fg/70 shrink-0"
+                  title={`${spaceLabel} Session Space`}
+                  data-testid="session-space-label"
+                >
+                  {spaceLabel}
+                </span>
+              )}
               {s.sessionNum != null && (
                 <span className="text-[9px] font-mono text-current shrink-0">#{s.sessionNum}</span>
               )}

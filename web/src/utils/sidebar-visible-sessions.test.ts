@@ -239,6 +239,34 @@ describe("buildSidebarVisibleSessions", () => {
     );
   });
 
+  it("orders next/previous-session navigation by the Recent list in the Recent view", () => {
+    // Keyboard session stepping follows what the sidebar shows: across spaces by recent
+    // interaction, ignoring collapsed space groups, with expanded herds' workers after their leader.
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("old", { createdAt: 1, sessionNum: 1, treeGroupId: "a", lastUserMessageAt: 10 }),
+      makeSdkSession("leader", { createdAt: 2, sessionNum: 2, treeGroupId: "b", isOrchestrator: true }),
+      makeSdkSession("worker", { createdAt: 3, sessionNum: 3, herdedBy: "leader", lastUserMessageAt: 50 }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sdkSessions,
+      treeGroups: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(["b"]),
+      expandedHerdNodes: new Set(["leader"]),
+      sessionAttention: new Map(),
+      sessionSortMode: "created",
+      sidebarViewMode: "recent",
+    });
+
+    expect(result.recentNodes.map((node) => node.leader.id)).toEqual(["leader", "old"]);
+    expect(result.orderedVisibleSessionIds).toEqual(["leader", "worker", "old"]);
+  });
+
   it("filters hidden Side Chat child sessions from the compatible-build snapshot", () => {
     const sdkSessions: SdkSessionInfo[] = [
       makeSdkSession("root", { createdAt: 2, sessionNum: 10 }),

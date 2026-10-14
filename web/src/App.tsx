@@ -233,6 +233,7 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
     expandedHerdNodes: state.expandedHerdNodes,
     sessionAttention: state.sessionAttention,
     sessionSortMode: state.sessionSortMode,
+    sidebarViewMode: state.sidebarViewMode,
   });
   const sdkById = new Map(state.sdkSessions.map((session) => [session.sessionId, session] as const));
   return orderedVisibleSessionIds

@@ -122,6 +122,21 @@ function effectiveContextWindow(
   return modelWindow ?? configured;
 }
 
+/**
+ * When the session last asked for the user: its newest needs-input question or
+ * unread result (review notification), read or not. Herded workers address
+ * their leader, not the user, so they never count.
+ */
+function lastAttentionAt(session: Session): number | null {
+  let latest: number | null = null;
+  for (const notification of session.notifications ?? []) {
+    if (notification.category !== "needs-input" && notification.category !== "review") continue;
+    if (!Number.isFinite(notification.timestamp) || notification.timestamp < 0) continue;
+    if (latest === null || notification.timestamp > latest) latest = notification.timestamp;
+  }
+  return latest;
+}
+
 export function buildSessionNavigationProjectionValue<TSubscriber>(
   session: Session,
   deps: SessionNavigationProjectionDefinitionDeps<TSubscriber>,
@@ -182,6 +197,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     pausedInputQueueCount: nonNegativeInteger(pause?.queuedMessages.length),
     lastActivityAt: nonNegativeNullableNumber(deps.getLastActivityAt(session.id)),
     lastUserMessageAt: nonNegativeNullableNumber(deps.getLastUserMessageAt(session.id)),
+    lastAttentionAt: launcherInfo?.herdedBy ? null : lastAttentionAt(session),
     lastMessagePreviewAt: nonNegativeNullableNumber(deps.getLastMessagePreviewAt(session.id)),
     claimedQuestId: boundedNullableText(state.claimedQuestId, SESSION_NAVIGATION_ID_MAX_LENGTH),
     claimedQuestTitle: boundedNullableText(state.claimedQuestTitle),
@@ -242,6 +258,7 @@ export function createSessionNavigationProjectionDefinition<TSubscriber>(
       "resource-leases",
       "backend-connection",
       "transient-status",
+      "notifications",
     ],
     resolveSource: deps.getSession,
     selectValue: (session) => buildSessionNavigationProjectionValue(session, deps),

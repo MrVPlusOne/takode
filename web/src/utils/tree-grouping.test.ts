@@ -233,6 +233,21 @@ describe("buildTreeViewGroups", () => {
     expect(result[0].nodes[1].leader.id).toBe("older-empty");
   });
 
+  it("activity sort counts a session asking for the user and a worker's messages", () => {
+    // Activity order uses the same interaction time as the Recent view: a leader whose result just
+    // became unread, or whose worker the user just answered, moves above one the user last messaged.
+    const sessions = [
+      makeSession({ id: "messaged", sessionNum: 1, isOrchestrator: true, createdAt: 0, lastUserMessageAt: 300 }),
+      makeSession({ id: "asked", sessionNum: 2, isOrchestrator: true, createdAt: 0, lastUserMessageAt: 100 }),
+      makeSession({ id: "herd", sessionNum: 3, isOrchestrator: true, createdAt: 0, lastUserMessageAt: 50 }),
+      makeSession({ id: "worker", sessionNum: 4, herdedBy: "herd", createdAt: 10, lastUserMessageAt: 500 }),
+    ];
+    sessions[1].lastAttentionAt = 400;
+
+    const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, undefined, "activity");
+    expect(result[0].nodes.map((node) => node.leader.id)).toEqual(["herd", "asked", "messaged"]);
+  });
+
   it("sorts by creation time by default", () => {
     const now = Date.now();
     const sessions = [

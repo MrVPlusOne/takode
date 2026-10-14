@@ -383,7 +383,7 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
 
     const { unmount } = render(<Sidebar />);
     expect(screen.getByTestId("sidebar-quick-actions")).toBeInTheDocument();
-    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Sidebar view" })).toBeInTheDocument();
     expect(screen.queryByTitle("Search sessions")).not.toBeInTheDocument();
     unmount();
 

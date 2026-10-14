@@ -39,6 +39,8 @@ const RULES = {
   pausedInputQueueCount: "nonnegative-integer",
   lastActivityAt: "nonnegative-nullable-number",
   lastUserMessageAt: "nonnegative-nullable-number",
+  /** When the session last became unread or asked the user a needs-input question. */
+  lastAttentionAt: "nonnegative-nullable-number",
   lastMessagePreviewAt: "nonnegative-nullable-number",
   claimedQuestId: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],
   claimedQuestTitle: ["nullable-string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
@@ -154,6 +156,7 @@ export function sessionNavigationProjectionToSessionFields(value: SessionNavigat
     waitingFor: value.waitingFor ?? undefined,
     lastActivityAt: value.lastActivityAt ?? undefined,
     lastUserMessageAt: value.lastUserMessageAt ?? undefined,
+    lastAttentionAt: value.lastAttentionAt ?? undefined,
     lastMessagePreviewAt: value.lastMessagePreviewAt ?? undefined,
     gitStatusRefreshedAt: value.gitStatusRefreshedAt ?? undefined,
     codexLeaderRecycleThresholdTokens: value.codexLeaderRecycleThresholdTokens ?? undefined,

@@ -2,6 +2,7 @@ import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.j
 import type { TreeGroup } from "../types.js";
 import { deriveSessionStatus } from "../components/SessionStatusDot.js";
 import { hasUnreadSessionAttention } from "./session-attention-status.js";
+import { sessionInteractionAt, treeNodeInteractionAt } from "./recent-sessions.js";
 
 export const PENDING_TREE_GROUP_ID = "__pending_session_location__";
 const PENDING_TREE_GROUP: TreeGroup = { id: PENDING_TREE_GROUP_ID, name: "Locating..." };
@@ -28,9 +29,10 @@ export interface TreeViewGroupData {
 
 // ─── Sort helpers ────────────────────────────────────────────────────────────
 
-/** Sort sessions in-place by most recent user activity. */
+/** Sort sessions in-place by most recent interaction (see `sessionInteractionAt`). */
 function sortByActivity(sessions: SessionItem[]): void {
-  sessions.sort((a, b) => (b.lastUserMessageAt ?? b.createdAt) - (a.lastUserMessageAt ?? a.createdAt));
+  const activityAt = (s: SessionItem) => Math.max(s.createdAt, sessionInteractionAt(s));
+  sessions.sort((a, b) => activityAt(b) - activityAt(a));
 }
 
 /** Sort sessions in-place by custom order (new sessions first), or by createdAt desc if no custom order. */
@@ -207,12 +209,8 @@ export function buildTreeViewGroups(
       sortReviewersForParent(list);
     }
 
-    // Sort leaders/standalone by activity or by custom order / creation
-    if (sortMode === "activity") {
-      sortByActivity(leaders);
-    } else {
-      sortByCustomOrder(leaders, treeNodeOrder?.get(group.id));
-    }
+    // Activity order sorts whole cards after they are built; otherwise use custom order / creation.
+    if (sortMode !== "activity") sortByCustomOrder(leaders, treeNodeOrder?.get(group.id));
 
     // Build nodes
     const nodes: TreeNode[] = [];
@@ -249,6 +247,9 @@ export function buildTreeViewGroups(
       if (!leaderInBucket) {
         nodes.push({ leader: w, workers: [], reviewers: [] });
       }
+    }
+    if (sortMode === "activity") {
+      nodes.sort((a, b) => treeNodeInteractionAt(b) - treeNodeInteractionAt(a));
     }
 
     // Compute aggregate counters (include reviewers whose parent is in this group)
