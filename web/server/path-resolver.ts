@@ -27,7 +27,9 @@ export function captureUserShellPath(): string {
   try {
     const shell = process.env.SHELL || "/bin/bash";
     const printCommands = [
-      'echo "___PATH_START___$PATH___PATH_END___"',
+      // Braces are required: unbraced `$PATH___PATH_END___` is a single
+      // (unset) variable name, which silently forced the fallback path.
+      'echo "___PATH_START___${PATH}___PATH_END___"',
       ...warmedShellEnvVars.map((name) => `echo "___ENV_${name}___=\${${name}:-}"`),
     ].join("; ");
     const captured = execFileSync(
