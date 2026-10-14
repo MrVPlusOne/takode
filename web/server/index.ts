@@ -165,7 +165,7 @@ import {
   coordinatorMovePath,
   readCoordinatorMove,
 } from "./coordinator-lock.js";
-import { checkBackendStartup } from "./backend-startup-check.js";
+import { checkBackendStartup, installDependencies } from "./backend-startup-check.js";
 import { createServerCheckout, rememberServerBuild } from "./server-checkout.js";
 import { applyServerTimeZone, timeZoneInEffect } from "./server-time-zone.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
@@ -305,7 +305,12 @@ const previousBuild = await rememberServerBuild(join(sessionStore.directory, "se
     return null;
   },
 );
-const serverCheckout = createServerCheckout({ dir: packageRoot, runningCommit, previousBuild });
+const serverCheckout = createServerCheckout({
+  dir: packageRoot,
+  runningCommit,
+  installDependencies: () => installDependencies(packageRoot),
+  previousBuild,
+});
 const coordinatorStartedAt = Date.now();
 // After the user's Restart Server, hosts that opted in are updated to this
 // server's commit right away; otherwise only while none of their sessions is in a turn.
@@ -1267,6 +1272,7 @@ app.route(
       prepareRestart: prepareProductionFrontendRestart,
       checkBackendStartup: () => checkBackendStartup(packageRoot),
       serverCheckout,
+      updateCheckoutOnRestart: frontendRequired,
       restartSupported,
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,

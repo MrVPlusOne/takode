@@ -8,8 +8,7 @@ import {
   type TranscriptionConfig,
   type EditorKind,
   type InterruptRestartBlockersResponse,
-  type ServerChanges,
-  type ServerCheckoutStatus,
+  type ServerCheckoutInfo,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
 import {
@@ -208,9 +207,10 @@ export function SettingsPage({
   const [restartSuccess, setRestartSuccess] = useState("");
   const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
-  const [checkoutStatus, setCheckoutStatus] = useState<ServerCheckoutStatus | null>(null);
-  const [serverChanges, setServerChanges] = useState<ServerChanges | null>(null);
+  const [checkoutInfo, setCheckoutInfo] = useState<ServerCheckoutInfo | null>(null);
   const checkoutStatusSequenceRef = useRef(0);
+  const [checkoutUpdateSaving, setCheckoutUpdateSaving] = useState(false);
+  const [checkoutUpdateError, setCheckoutUpdateError] = useState("");
   const [serverSlug, setServerSlug] = useState("");
   const [serverSlugSaving, setServerSlugSaving] = useState(false);
   const [serverSlugError, setServerSlugError] = useState("");
@@ -290,20 +290,32 @@ export function SettingsPage({
   }, [isActive]);
 
   // The latest read wins; a failed read keeps the last known status.
-  const loadCheckoutStatus = useCallback((refresh: boolean) => {
+  const loadCheckoutStatus = useCallback((refresh: boolean): Promise<void> => {
     const sequence = ++checkoutStatusSequenceRef.current;
-    api
+    return api
       .getServerCheckout(refresh)
-      .then(({ status, changes }) => {
-        if (checkoutStatusSequenceRef.current !== sequence) return;
-        setCheckoutStatus(status);
-        setServerChanges(changes);
+      .then((info) => {
+        if (checkoutStatusSequenceRef.current === sequence) setCheckoutInfo(info);
       })
       .catch(() => {});
   }, []);
 
+  async function saveRestartUpdatesCheckout(enabled: boolean) {
+    setCheckoutUpdateSaving(true);
+    setCheckoutUpdateError("");
+    try {
+      await api.updateSettings({ restartUpdatesCheckout: enabled });
+      // The server says what a restart now does with the checkout.
+      await loadCheckoutStatus(false);
+    } catch (e: unknown) {
+      setCheckoutUpdateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCheckoutUpdateSaving(false);
+    }
+  }
+
   useEffect(() => {
-    if (isActive) loadCheckoutStatus(false);
+    if (isActive) void loadCheckoutStatus(false);
   }, [isActive, loadCheckoutStatus]);
 
   useEffect(() => {
@@ -593,6 +605,8 @@ export function SettingsPage({
         }
         setRestartError(msg);
         finishRestartAttempt();
+        // A restart stopped by the checkout leaves a fresh status to show.
+        void loadCheckoutStatus(false);
         return;
       }
       const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
@@ -628,7 +642,7 @@ export function SettingsPage({
         onReloadAfterRestart();
         return;
       }
-      loadCheckoutStatus(false);
+      void loadCheckoutStatus(false);
       if (restartConfirmed) setRestartSuccess(restartCompletedMessage(Date.now(), checkoutNote));
       else
         setRestartError(
@@ -1081,11 +1095,13 @@ export function SettingsPage({
                 restartSuccess={restartSuccess}
                 restartPrepResult={restartPrepResult}
                 restarting={restarting}
-                checkoutStatus={checkoutStatus}
-                serverChanges={serverChanges}
+                checkout={checkoutInfo}
+                checkoutUpdateSaving={checkoutUpdateSaving}
+                checkoutUpdateError={checkoutUpdateError}
+                onSetRestartUpdatesCheckout={(enabled) => void saveRestartUpdatesCheckout(enabled)}
                 onSaveServerSlug={onSaveServerSlug}
                 onRestartServer={onRestartServer}
-                onRefreshCheckoutStatus={() => loadCheckoutStatus(true)}
+                onRefreshCheckoutStatus={() => void loadCheckoutStatus(true)}
                 isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
               />
             </CollapsibleSection>

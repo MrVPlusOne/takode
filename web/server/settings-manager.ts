@@ -47,6 +47,12 @@ export interface CompanionSettings {
   serverSlug: string;
   /** Canonical IANA zone the server formats local times in, applied at startup; "" uses the machine's zone. Optional for backward-compatible tests/mocks. */
   serverTimeZone?: string;
+  /**
+   * Whether Restart Server first brings a production server's Git checkout up to
+   * date with its branch (fetch, fast-forward, frozen install) and stops when it
+   * cannot (default: true). Optional for backward-compatible tests/mocks.
+   */
+  restartUpdatesCheckout?: boolean;
   /** Pushover user key for push notifications */
   pushoverUserKey: string;
   /** Pushover API/app token */
@@ -221,6 +227,7 @@ let settings: CompanionSettings = {
   serverId: "",
   serverSlug: "",
   serverTimeZone: "",
+  restartUpdatesCheckout: true,
   pushoverUserKey: "",
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
@@ -502,6 +509,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     serverId: typeof raw?.serverId === "string" ? raw.serverId : "",
     serverSlug: serverSlug && isValidServerSlug(serverSlug) ? serverSlug : "",
     serverTimeZone: typeof raw?.serverTimeZone === "string" ? (canonicalTimeZone(raw.serverTimeZone) ?? "") : "",
+    restartUpdatesCheckout: typeof raw?.restartUpdatesCheckout === "boolean" ? raw.restartUpdatesCheckout : true,
     pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
     pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
     pushoverDelaySeconds:
@@ -690,6 +698,7 @@ export function updateSettings(
       | "workerSlotLimits"
       | "serverSlug"
       | "serverTimeZone"
+      | "restartUpdatesCheckout"
     >
   >,
 ): CompanionSettings {

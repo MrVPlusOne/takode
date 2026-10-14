@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { checkoutUpdateBlocker } from "./server-checkout-policy.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,10 +45,16 @@ export interface ServerCheckoutStatus {
 
 /** What a restart did to the checkout before loading it. */
 export interface ServerCheckoutUpdate {
-  /** `updated`: fast-forwarded; `unchanged`: left as it was (see `status`); `failed`: the fast-forward failed. */
-  action: "updated" | "unchanged" | "failed";
+  /**
+   * `updated`: fast-forwarded, then dependencies installed; `unchanged`: already
+   * current (dependencies installed) or not a Git checkout; `blocked`: the
+   * checkout could not be brought up to date, so the restart must not go ahead
+   * (see `error`).
+   */
+  action: "updated" | "unchanged" | "blocked";
   /** Commit before the fast-forward, when it moved. */
   from: string | null;
+  /** Why the restart is blocked, as a sentence saying what to do. */
   error: string | null;
   /** The checkout after the attempt. */
   status: ServerCheckoutStatus;
@@ -86,12 +93,18 @@ export interface ServerChanges {
 export interface ServerCheckout {
   /** Status with a fresh fetch, cached briefly unless `refresh` is set. */
   status(options?: { refresh?: boolean }): Promise<ServerCheckoutStatus>;
-  /** The commits behind `status`: what a restart would load, and what the current build brought in. */
-  changes(status: ServerCheckoutStatus): Promise<ServerChanges>;
   /**
-   * Fetch and fast-forward a clean checkout that is only behind its branch, so
-   * the restart loads the code that reached the branch. Never touches a checkout
-   * with uncommitted changes to tracked files, local commits, or no branch.
+   * The commits behind `status`: what a restart would load, and what the current
+   * build brought in. `updatesCheckout` says whether the restart first brings
+   * the checkout up to date with its branch.
+   */
+  changes(status: ServerCheckoutStatus, options: { updatesCheckout: boolean }): Promise<ServerChanges>;
+  /**
+   * Bring the checkout up to date with its branch before a restart: fetch,
+   * fast-forward when behind, then install dependencies from the lockfile.
+   * Blocks instead of touching a checkout that cannot simply follow its branch
+   * (uncommitted changes to tracked files, local commits, no branch or upstream)
+   * or when the fetch fails, so the restart never silently loads older code.
    */
   updateBeforeRestart(): Promise<ServerCheckoutUpdate>;
 }
@@ -103,11 +116,13 @@ export interface ServerCheckout {
 export function createServerCheckout(options: {
   dir: string;
   runningCommit: string | null;
+  /** Installs dependencies from the lockfile; throws with the reason when it fails. */
+  installDependencies: () => Promise<void>;
   /** From `rememberServerBuild` at startup. */
   previousBuild?: PreviousServerBuild | null;
   now?: () => number;
 }): ServerCheckout {
-  const { dir, runningCommit, previousBuild = null } = options;
+  const { dir, runningCommit, installDependencies, previousBuild = null } = options;
   const now = options.now ?? Date.now;
   let queue: Promise<unknown> = Promise.resolve();
   let cached: ServerCheckoutStatus | null = null;
@@ -129,10 +144,11 @@ export function createServerCheckout(options: {
         if (!refresh && cached && now() - cached.checkedAt < STATUS_CACHE_MS) return cached;
         return freshStatus();
       }),
-    changes: async (status) => {
+    changes: async (status, { updatesCheckout }) => {
       const loaded = status.runningCommit ?? status.head;
-      // Mirrors updateBeforeRestart: only a clean checkout that is only behind is fast-forwarded.
-      const restartLoads = status.state === "behind" && !status.localChanges ? status.upstreamHead : status.head;
+      // Mirrors updateBeforeRestart: only a checkout that is behind with nothing blocking the update is fast-forwarded.
+      const fastForwards = updatesCheckout && status.state === "behind" && !checkoutUpdateBlocker(status);
+      const restartLoads = fastForwards ? status.upstreamHead : status.head;
       const [incoming, current] = await Promise.all([
         loaded && restartLoads ? readChangeList(dir, loaded, restartLoads) : null,
         previousBuild && runningCommit ? readChangeList(dir, previousBuild.commit, runningCommit) : null,
@@ -143,21 +159,50 @@ export function createServerCheckout(options: {
       };
     },
     updateBeforeRestart: () =>
-      serialized(async () => {
+      serialized(async (): Promise<ServerCheckoutUpdate> => {
         const before = await freshStatus();
-        if (before.state !== "behind" || before.localChanges) {
-          return { action: "unchanged", from: null, error: null, status: before };
+        // A package install has no Git checkout to follow; its package manager updates it.
+        if (before.state === "not-git") return { action: "unchanged", from: null, error: null, status: before };
+        const blocker = checkoutUpdateBlocker(before);
+        if (blocker) return { action: "blocked", from: null, error: blocker, status: before };
+
+        let status = before;
+        let from: string | null = null;
+        if (before.state === "behind") {
+          try {
+            await git(dir, ["merge", "--quiet", "--ff-only", "@{upstream}"]);
+          } catch (error) {
+            return {
+              action: "blocked",
+              from: null,
+              error: `Could not fast-forward the server checkout (${before.branch}) to ${before.upstream}: ${errorMessage(error)}`,
+              status: before,
+            };
+          }
+          from = before.head;
+          status = { ...(await readServerCheckoutStatus(dir, { runningCommit, fetch: false, now })), fetchError: null };
+          cached = status;
         }
+
         try {
-          await git(dir, ["merge", "--quiet", "--ff-only", "@{upstream}"]);
+          // A landed dependency change must not block the restart's load check.
+          await installDependencies();
         } catch (error) {
-          return { action: "failed", from: null, error: errorMessage(error), status: before };
+          const moved = from ? ` after fast-forwarding the server checkout to ${shortCommit(status.head)}` : "";
+          return {
+            action: "blocked",
+            from,
+            error: `Installing dependencies failed${moved}: ${errorMessage(error)}`,
+            status,
+          };
         }
-        const after = await readServerCheckoutStatus(dir, { runningCommit, fetch: false, now });
-        cached = { ...after, fetchError: before.fetchError };
-        return { action: "updated", from: before.head, error: null, status: cached };
+        return { action: from ? "updated" : "unchanged", from, error: null, status };
       }),
   };
+}
+
+function shortCommit(commit: string | null): string {
+  return commit ? commit.slice(0, 8) : "unknown";
 }
 
 /** Read where the checkout at `dir` stands, optionally fetching its upstream branch first. */

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkBackendStartup, findOutdatedDependencies } from "./backend-startup-check.js";
+import { checkBackendStartup, findOutdatedDependencies, installDependencies } from "./backend-startup-check.js";
 
 // Each test builds a disposable fake web root: a package.json manifest, a
 // node_modules tree with hand-written package manifests, and a server/index.ts
@@ -76,5 +76,24 @@ describe("backend startup check", () => {
     await expect(failure).rejects.toThrow(/^The backend code on disk cannot load:\n/);
     await expect(failure).rejects.toThrow(/undeclared-package/);
     await expect(failure).rejects.not.toThrow(/entry executed/);
+  });
+
+  // Restart Server runs this frozen install before its load check. These cases
+  // need no registry: a manifest without dependencies installs offline, and a
+  // malformed manifest fails before any resolution.
+  it("installs from the lockfile in the web root", async () => {
+    await writeJson("package.json", { name: "fake-web", version: "1.0.0" });
+    await expect(installDependencies(webRoot)).resolves.toBeUndefined();
+  });
+
+  it("fails with the install's own output", async () => {
+    await writeFile(join(webRoot, "package.json"), "{ not json");
+    await expect(installDependencies(webRoot)).rejects.toThrow(/package\.json/);
+  });
+
+  it("stops an install that runs past its time limit", async () => {
+    await writeJson("package.json", { name: "fake-web", version: "1.0.0" });
+    // A 1 ms limit fires before Bun can finish, exercising the kill path.
+    await expect(installDependencies(webRoot, 1)).rejects.toThrow(/Stopped after 0 s\./);
   });
 });

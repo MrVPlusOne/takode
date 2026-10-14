@@ -460,7 +460,7 @@ describe("SettingsPage", () => {
       checkedAt: 1,
     };
     const current = { ...behind, state: "current", head: "b".repeat(40), behind: 0 };
-    mockApi.getServerCheckout.mockResolvedValue({ status: behind });
+    mockApi.getServerCheckout.mockResolvedValue({ status: behind, restartMode: "on", blocker: null });
     mockApi.restartServer.mockResolvedValue({
       ok: true,
       restartRequested: true,
@@ -476,7 +476,7 @@ describe("SettingsPage", () => {
       expect(mockApi.getServerCheckout).toHaveBeenCalledWith(false);
       expect(screen.getByTestId("server-checkout-status")).toHaveTextContent("Restart Server fast-forwards");
 
-      mockApi.getServerCheckout.mockResolvedValue({ status: current });
+      mockApi.getServerCheckout.mockResolvedValue({ status: current, restartMode: "on", blocker: null });
       requestRestartFromSettings();
       expect(mockApi.getServerCheckout).toHaveBeenCalledWith(true);
       await act(async () => {
@@ -505,18 +505,18 @@ describe("SettingsPage", () => {
       restartRequested: true,
       replacementBuildId: "backend-after-reload-note",
       checkoutUpdate: {
-        action: "unchanged",
-        from: null,
+        action: "updated",
+        from: "c".repeat(40),
         error: null,
         status: {
-          state: "diverged",
+          state: "current",
           runningCommit: null,
           head: "a".repeat(40),
           branch: "main",
           upstream: "origin/main",
-          upstreamHead: "b".repeat(40),
-          behind: 2,
-          ahead: 1,
+          upstreamHead: "a".repeat(40),
+          behind: 0,
+          ahead: 0,
           localChanges: false,
           fetchError: null,
           checkedAt: 1,
@@ -547,9 +547,11 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      // The note about a checkout left behind survives the reload with the completion message.
+      // The note about the fast-forward survives the reload with the completion message.
       expect(
-        screen.getByText(/This page loaded the new build\. The checkout \(main\) is 2 commits behind origin\/main/),
+        screen.getByText(
+          /This page loaded the new build\. The checkout \(main\) was first fast-forwarded from cccccccc to aaaaaaaa\./,
+        ),
       ).toBeInTheDocument();
       expect(sessionStorage.getItem("cc-server-restart-completed-at")).toBeNull();
     } finally {
@@ -620,6 +622,63 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Failed to resolve import while preparing the frontend")).toBeInTheDocument();
     expect(mockCheckReadinessStatus).not.toHaveBeenCalled();
     expect(mockState.setServerRestartPhase).toHaveBeenLastCalledWith(null);
+  });
+
+  it("shows why the checkout stopped a restart and re-reads the checkout afterwards", async () => {
+    // The server refuses to restart onto a checkout it cannot update; the running page stays usable.
+    const blocked =
+      'Restart blocked: The server checkout (main) has uncommitted changes to tracked files. Commit or discard them. The server keeps running; restart again once that is fixed, or turn off "Update the checkout before restarting" in Settings > Restart to restart onto the checkout as it is.';
+    mockApi.restartServer.mockRejectedValue(new MockApiError(blocked, 409, { error: blocked }));
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+    mockApi.getServerCheckout.mockClear();
+    requestRestartFromSettings();
+
+    expect(await screen.findByText(blocked)).toBeInTheDocument();
+    expect(mockCheckReadinessStatus).not.toHaveBeenCalled();
+    // One read when the user clicks Restart Server (with a fetch), one after the refusal (cached by the restart).
+    await waitFor(() => expect(mockApi.getServerCheckout.mock.calls).toEqual([[true], [false]]));
+  });
+
+  it("turns updating the checkout before restarts off and shows what a restart now does", async () => {
+    const status = {
+      state: "behind",
+      runningCommit: "a".repeat(40),
+      head: "a".repeat(40),
+      branch: "main",
+      upstream: "origin/main",
+      upstreamHead: "b".repeat(40),
+      behind: 1,
+      ahead: 0,
+      localChanges: true,
+      fetchError: null,
+      checkedAt: 1,
+    };
+    mockApi.getServerCheckout.mockResolvedValue({
+      status,
+      restartMode: "on",
+      blocker: "The server checkout (main) has uncommitted changes to tracked files. Commit or discard them.",
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+    const toggle = await screen.findByRole("switch", { name: "Update the checkout before restarting" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    mockApi.getServerCheckout.mockResolvedValue({ status, restartMode: "off", blocker: null });
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Update the checkout before restarting" })).toHaveAttribute(
+        "aria-checked",
+        "false",
+      ),
+    );
+    expect(mockApi.updateSettings).toHaveBeenCalledWith({ restartUpdatesCheckout: false });
+    expect(screen.getByTestId("server-checkout-status")).toHaveTextContent(
+      "updating before restarts is turned off, so Restart Server loads the checkout as it is",
+    );
   });
 
   it("surfaces rich restart-prep details when Restart Server auto-prep fails", async () => {

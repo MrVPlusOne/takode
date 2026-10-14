@@ -1,4 +1,5 @@
-import type { ServerCheckoutUpdate } from "../../server/server-checkout.js";
+import type { ServerCheckoutRestartMode } from "../../server/server-checkout-policy.js";
+import type { ServerChanges, ServerCheckoutStatus, ServerCheckoutUpdate } from "../../server/server-checkout.js";
 
 export type {
   ServerChange,
@@ -7,6 +8,7 @@ export type {
   ServerCheckoutStatus,
   ServerCheckoutUpdate,
 } from "../../server/server-checkout.js";
+export type { ServerCheckoutRestartMode } from "../../server/server-checkout-policy.js";
 
 export interface ServerInterruptResultItem {
   sessionId: string;
@@ -47,12 +49,23 @@ export interface InterruptRestartBlockersResponse {
   };
 }
 
+/** The server's checkout and what Restart Server will do with it. */
+export interface ServerCheckoutInfo {
+  /** Null when the server does not run from a Git checkout. */
+  status: ServerCheckoutStatus | null;
+  /** What a restart would load and what the current build brought in; null without a Git checkout. */
+  changes: ServerChanges | null;
+  restartMode: ServerCheckoutRestartMode;
+  /** Why a restart would stop instead of updating the checkout; null when it would go ahead. */
+  blocker: string | null;
+}
+
 export interface RestartServerResponse {
   ok: boolean;
   restartRequested: boolean;
   /** Exact prepared production build accepted for this restart request. */
   replacementBuildId: string | null;
-  /** What the restart did to the server's checkout first; null when it does not run from a Git checkout. */
+  /** What the restart did to the server's checkout first; null when it did not update it. */
   checkoutUpdate?: ServerCheckoutUpdate | null;
 }
 
