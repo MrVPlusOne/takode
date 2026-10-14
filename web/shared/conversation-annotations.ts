@@ -94,17 +94,26 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
   });
 }
 
-/** Format the agent-facing user message; attachment identity stays in structured metadata. */
+/**
+ * Format the agent-facing user message; attachment identity stays in structured metadata.
+ * Report comments name only the report's source file, which is what the agent can open, and
+ * only once per run of consecutive comments on the same report; report and session IDs and
+ * the digest stay in `reportSource`.
+ */
 export function formatAnnotatedMessage(content: string, annotations?: readonly ConversationAnnotation[]): string {
   if (!annotations?.length) return content;
   const comments = annotations
-    .map(
-      (annotation, index) =>
-        `${annotation.reportSource ? `Report ${annotation.reportSource.reportId} in session ${annotation.reportSource.sessionId}\nSource: ${annotation.reportSource.sourcePath} (SHA-256 ${annotation.reportSource.sha256})\n` : ""}${annotation.selectedText
-          .split("\n")
-          .map((line) => `> ${line}`)
-          .join("\n")}\n[comment ${index + 1}] ${annotation.comment}`,
-    )
+    .map((annotation, index) => {
+      const report = annotation.reportSource;
+      const previous = annotations[index - 1]?.reportSource;
+      const sameReport = report && previous?.reportId === report.reportId && previous.sessionId === report.sessionId;
+      const header = report && !sameReport ? `On report ${report.sourcePath}:\n` : "";
+      const quote = annotation.selectedText
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      return `${header}${quote}\n[comment ${index + 1}] ${annotation.comment}`;
+    })
     .join("\n\n");
   return content.trim() ? `${comments}\n\n---\n${content}` : comments;
 }

@@ -27,8 +27,9 @@ Select a passage and choose **Comment** as usual. Report comments work like any
 other comment: they are sent with the composer to the session showing the
 report, can be mixed with other comments, images and replies, and stay in the
 synced composer draft until sent. Because the agent may not have written or
-read the report, each report comment tells it the report ID, source session,
-source path and digest, so it can open the file for context. Comments also keep
+read the report, report comments name its source path (once for a run of
+comments on the same report), so it can open the file for context; the report
+ID, session and digest stay in the comment's metadata. Comments also keep
 the complete quotation, exact reply and passage anchor, and sent comments
 include an **Open source report** action.
 

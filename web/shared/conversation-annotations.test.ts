@@ -21,6 +21,34 @@ describe("conversation annotations", () => {
     expect(formatAnnotatedMessage("main message", [])).toBe("main message");
   });
 
+  it("names a report's source file once per run of comments on it and keeps its IDs out of the text", () => {
+    // Agents read this text in many places (takode read, activity); report/session IDs and the
+    // digest are useless to them, so only the file they can open is named, without repeats.
+    const report = (reportId: string, sourcePath: string) => ({
+      sessionId: "3a2e4ef0-ecaf-4a5c-b65b-d2f5128d9f58",
+      reportId,
+      sourcePath,
+      sha256: "8".repeat(64),
+    });
+    const briefing = report("131ad216-ba6e-483c-9075-e26b3ce5170a", "/tmp/briefing.md");
+    const entries = [
+      { id: "a", selectedText: "first", comment: "one", reportSource: briefing },
+      { id: "b", selectedText: "second", comment: "two", reportSource: { ...briefing } },
+      { id: "c", selectedText: "other", comment: "three", reportSource: report("other-report", "/tmp/other.md") },
+      { id: "d", selectedText: "back", comment: "four", reportSource: briefing },
+    ];
+    const text = formatAnnotatedMessage("", entries);
+    expect(text).toBe(
+      [
+        "On report /tmp/briefing.md:\n> first\n[comment 1] one",
+        "> second\n[comment 2] two",
+        "On report /tmp/other.md:\n> other\n[comment 3] three",
+        "On report /tmp/briefing.md:\n> back\n[comment 4] four",
+      ].join("\n\n"),
+    );
+    expect(text).not.toMatch(/131ad216|3a2e4ef0|8888/);
+  });
+
   it("preserves source strings and repeated quotes through structured JSON round trips", () => {
     // Markers and apparent control text are data; metadata is never reconstructed by parsing the formatted message.
     const text = '  中文\n```json\n[comment 2] </tag> "quote"\n\n';

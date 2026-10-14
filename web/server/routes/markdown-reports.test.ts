@@ -179,7 +179,8 @@ describe("Markdown report publication and human comments", () => {
   it("delivers a report comment as ordinary composer input that names the report to read", () => {
     // Report comments use the normal composer send to the session showing the report, with no
     // recipient choice. The agent may not have written or read the report, so the delivered text
-    // must identify it (report ID and source path) next to the quoted passage and comment.
+    // must name its source file next to the quoted passage and comment; the report and session
+    // IDs stay in the structured annotation, not in the text.
     const report = makeMarkdownReportFixture();
     const annotation = {
       id: "comment",
@@ -198,11 +199,11 @@ describe("Markdown report publication and human comments", () => {
     } as any);
     expect(delivery.annotations).toEqual([annotation]);
     expect(delivery.deliveryContent).toBe(formatAnnotatedMessage("Follow up", [annotation]));
-    expect(delivery.deliveryContent).toContain(`Report ${report.id} in session ${report.source.sessionId}`);
-    expect(delivery.deliveryContent).toContain(`Source: ${report.source.sourcePath}`);
     expect(delivery.deliveryContent).toContain(
-      "> The cache expires after one hour.\n[comment 1] Explain this exactly.",
+      `On report ${report.source.sourcePath}:\n> The cache expires after one hour.\n[comment 1] Explain this exactly.`,
     );
+    expect(delivery.deliveryContent).not.toContain(report.source.reportId);
+    expect(delivery.deliveryContent).not.toContain(report.source.sessionId);
   });
 
   it("offers no separate report-comment route", async () => {
