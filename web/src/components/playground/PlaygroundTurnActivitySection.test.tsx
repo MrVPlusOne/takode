@@ -74,8 +74,9 @@ function assertDisclosureFlow(container: HTMLElement) {
   const turn = container.querySelector<HTMLElement>('[data-turn-id="activity-request"]')!;
   const view = within(turn);
   // Retain the existing Turn.stats accounting, including its superseded-answer case.
+  // The time runs to the leader's last tool calls (52s), not to the next request (73s).
   const disclosure = view.getByRole("button", {
-    name: "Show turn activity · 1m 13s · 3 messages · 5 tools · 2 worker events",
+    name: "Show turn activity · 52s · 3 messages · 5 tools · 2 worker events",
   });
   const firstAnswer = view.getByText(/The list now keeps your filters/);
   const secondAnswer = view.getByText(/One additional detail:/);

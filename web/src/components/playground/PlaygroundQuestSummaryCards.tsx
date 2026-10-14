@@ -130,7 +130,6 @@ function QuestThread({
         sections={sections}
         sessionId={SESSION_ID}
         currentThreadKey={questId}
-        leaderMode
         leaderSession
         showInlineMessageTiming={false}
         isCodexSession={false}

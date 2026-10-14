@@ -623,7 +623,10 @@ describe("MessageFeed - turn grouping", () => {
     ]);
   });
 
-  it("does not show normal-session summary duration when no final assistant response exists", () => {
+  it("times a turn without a final answer up to its last activity", () => {
+    // A turn that ends in tool calls (stopped, or handed off without prose) used to
+    // show no duration because only a final answer ended the turn. Its time now runs
+    // to the agent's last activity, and the next question starts a new turn.
     const sid = "test-turn-duration-summary-no-response";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First question", timestamp: 1_000 }),
@@ -640,11 +643,9 @@ describe("MessageFeed - turn grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Only the unfinished first turn lacks a duration; the completed later turn
-    // keeps its valid value even though it has no hidden assistant messages.
     const firstTurn = screen.getByText("First question").closest<HTMLElement>("[data-turn-id]")!;
     const secondTurn = screen.getByText("Second question").closest<HTMLElement>("[data-turn-id]")!;
-    expect(within(firstTurn).queryByTestId("turn-summary-duration")).toBeNull();
+    expect(within(firstTurn).getByTestId("turn-summary-duration").textContent).toBe("4s");
     expect(within(secondTurn).getByTestId("turn-summary-duration").textContent).toBe("5s");
   });
 });

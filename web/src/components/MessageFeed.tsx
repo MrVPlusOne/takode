@@ -1869,7 +1869,6 @@ export function MessageFeed({
                     sections={visibleSections}
                     sessionId={sessionId}
                     currentThreadKey={threadKey}
-                    leaderMode={collapseLeaderThreadActivity}
                     leaderSession={isLeaderSession}
                     showInlineMessageTiming={!isLeaderSession}
                     isCodexSession={isCodexSession}

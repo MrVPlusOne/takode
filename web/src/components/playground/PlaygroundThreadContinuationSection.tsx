@@ -100,7 +100,6 @@ export function PlaygroundThreadContinuationSection() {
               sections={sections}
               sessionId="playground-continuation"
               currentThreadKey={thread}
-              leaderMode
               showInlineMessageTiming={false}
               isCodexSession
               activeCodexTerminalIds={EMPTY_IDS}

@@ -1530,4 +1530,52 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByTestId("thread-transition-marker")).toBeTruthy();
     expect(screen.queryByText("Terminal")).toBeNull();
   });
+
+  it("times every leader quest-thread turn up to the leader's last activity", () => {
+    // Leader thread turns used to run until the next human message: the thread's
+    // latest turn never showed a time, and older turns counted the idle hour before
+    // the reply. Each turn now runs from its human message to the leader's last
+    // activity, including the wait for worker events in between.
+    const sid = "test-leader-thread-turn-durations";
+    const threadRef = { threadKey: "q-2566", questId: "q-2566", source: "explicit" as const };
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    const leader = (id: string, content: string, timestamp: number) =>
+      makeMessage({ id, role: "assistant", content, timestamp, metadata: { threadRefs: [threadRef] } });
+    const workerEvent = (id: string, timestamp: number) => ({
+      ...makeHerdEvent(id, "1 event from 1 session\n\n#3027 | turn_end | done", null, threadRef, {
+        eventType: "turn_end",
+      }),
+      timestamp,
+    });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Start q-2566",
+        timestamp: 0,
+        metadata: { threadRefs: [threadRef] },
+      }),
+      leader("a1", "Dispatched the worker.", 60_000),
+      workerEvent("h1", 600_000),
+      leader("a2", "The worker finished the first pass.", 660_000),
+      makeMessage({
+        id: "u2",
+        role: "user",
+        content: "Use server state",
+        timestamp: 3_600_000,
+        metadata: { threadRefs: [threadRef] },
+      }),
+      leader("a3", "Sent the change to the worker.", 3_640_000),
+      workerEvent("h2", 3_850_000),
+      leader("a4", "The Recent view has landed.", 3_900_000),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-2566" />);
+
+    expect(screen.getAllByTestId("turn-summary-duration").map((duration) => duration.textContent)).toEqual([
+      "11m 0s",
+      "5m 0s",
+    ]);
+  });
 });

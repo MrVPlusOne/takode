@@ -73,7 +73,6 @@ export function PlaygroundTurnActivitySection() {
             sections={sections}
             sessionId={turnActivityFixture.sessionId}
             currentThreadKey={turnActivityFixture.threadKey}
-            leaderMode
             showInlineMessageTiming={false}
             isCodexSession
             activeCodexTerminalIds={EMPTY_IDS}

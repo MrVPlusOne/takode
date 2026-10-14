@@ -302,7 +302,6 @@ export const TurnEntries = memo(function TurnEntries({
   sections,
   sessionId,
   currentThreadKey,
-  leaderMode,
   leaderSession = false,
   showInlineMessageTiming,
   isCodexSession,
@@ -324,7 +323,6 @@ export const TurnEntries = memo(function TurnEntries({
   sections: FeedSection[];
   sessionId: string;
   currentThreadKey: string;
-  leaderMode: boolean;
   /** Collapsed turns without an answer show their last message (leader feeds only). */
   leaderSession?: boolean;
   showInlineMessageTiming: boolean;
@@ -456,7 +454,7 @@ export const TurnEntries = memo(function TurnEntries({
             : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) || turn.subConclusions.length > 0);
         const hasCollapsedCurrentAnswer =
           collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ?? false;
-        const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
+        const turnSummaryDuration = getTurnSummaryDurationMs(turn);
         const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
         const isCompletionHost = completionSummaryHost?.turnId === turn.id;
         const completionSummaryCard =
