@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
  * Phone thread tab groups: how tabs are filed into groups, the chips and their lists,
- * the switcher sheet's search and closing, and the rail choosing groups on phones.
+ * the switcher sheet's search and closing, closed tabs in Find, and the rail choosing groups on phones.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
+import { buildClosedThreadTabs } from "./WorkBoardBar.js";
+import { useStore } from "../store.js";
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
   return {
@@ -414,5 +416,132 @@ describe("ThreadTabRail", () => {
     const list = screen.getByTestId("thread-tab-group-list");
     expect(list.style.left).toBe("120px");
     expect(list.style.width).toBe("448px");
+  });
+});
+
+describe("Find with closed tabs", () => {
+  // Closed tabs come newest first, as WorkBoardBar orders them.
+  const CLOSED = [
+    tab("q-9", { title: "Relay proxy timeout", completed: true, stateLabel: "Done" }),
+    tab("q-8", { title: "Board colors", completed: true, stateLabel: "Done" }),
+    tab("q-7", { title: "Old relay cleanup", stateLabel: "Work" }),
+  ];
+
+  function openFind(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {}) {
+    const result = renderBar({ closedTabs: CLOSED, ...props });
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    return { ...result, sheet: screen.getByTestId("thread-tab-switcher") };
+  }
+
+  const rowKeys = (sheet: HTMLElement) =>
+    within(sheet)
+      .getAllByTestId("thread-tab-list-row")
+      .map((row) => row.dataset.threadKey);
+
+  it("keeps closed tabs out of the default view behind one link", () => {
+    // The open tabs read as before; the closed ones only show as a count until asked for.
+    const { sheet } = openFind();
+    expect(rowKeys(sheet)).not.toContain("q-9");
+    expect(within(sheet).getByTestId("thread-tab-switcher-show-closed").textContent).toContain("3 closed tabs");
+    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-show-closed"));
+    expect(rowKeys(sheet)).toEqual(["q-9", "q-8", "q-7"]);
+    const filter = within(sheet)
+      .getAllByTestId("thread-tab-switcher-filter")
+      .find((chip) => chip.dataset.filter === "closed")!;
+    expect(filter.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("searches closed tabs by title below the open matches and reopens the one chosen", () => {
+    // Choosing a closed row selects its thread, which opens its tab again.
+    const { sheet, onSelect } = openFind();
+    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "relay" } });
+    expect(rowKeys(sheet)).toEqual(["q-10", "q-9", "q-7"]);
+    const closedSection = within(sheet)
+      .getAllByTestId("thread-tab-switcher-section")
+      .find((section) => section.dataset.group === "closed")!;
+    expect(closedSection.textContent).toContain("Closed");
+    const closedRow = within(closedSection).getAllByTestId("thread-tab-list-row")[0]!;
+    expect(closedRow.dataset.closed).toBe("true");
+    expect(within(closedRow).queryByTestId("thread-tab-list-row-close")).toBeNull();
+    fireEvent.click(within(closedRow).getByTestId("thread-tab-list-row-select"));
+    expect(onSelect).toHaveBeenCalledWith("q-9");
+  });
+
+  it("finds a closed tab by quest number", () => {
+    const { sheet } = openFind();
+    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "q-8" } });
+    expect(rowKeys(sheet)).toEqual(["q-8"]);
+  });
+
+  it("lists hundreds of closed tabs a page at a time", () => {
+    // Rendering every past quest at once would make Find slow for long-running leaders.
+    const many = Array.from({ length: 250 }, (_, index) => tab(`q-${1000 - index}`, { completed: true }));
+    const { sheet } = openFind({ closedTabs: many });
+    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-show-closed"));
+    expect(rowKeys(sheet)).toHaveLength(100);
+    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-closed-more"));
+    expect(rowKeys(sheet)).toHaveLength(200);
+    expect(within(sheet).getByTestId("thread-tab-switcher-closed-more").textContent).toBe("Show 50 more");
+  });
+
+  it("offers no Closed filter or link when the leader has no closed tabs", () => {
+    const { sheet } = openFind({ closedTabs: [] });
+    expect(within(sheet).queryByTestId("thread-tab-switcher-show-closed")).toBeNull();
+    const filters = within(sheet)
+      .getAllByTestId("thread-tab-switcher-filter")
+      .map((chip) => chip.dataset.filter);
+    expect(filters).not.toContain("closed");
+  });
+});
+
+describe("buildClosedThreadTabs", () => {
+  it("lists the leader's quest threads without an open tab, most recently active first", () => {
+    const closed = buildClosedThreadTabs(
+      [
+        { threadKey: "q-1", questId: "q-1", title: "Old", status: "done", section: "done", lastActiveAt: 100 },
+        { threadKey: "q-10", questId: "q-10", title: "Open already", section: "active", lastActiveAt: 900 },
+        { threadKey: "q-2", questId: "q-2", title: "Recent", status: "done", section: "done", lastActiveAt: 500 },
+        {
+          threadKey: "q-3",
+          questId: "q-3",
+          title: "Paused",
+          section: "active",
+          boardStatus: "PORTING",
+          lastActiveAt: 50,
+        },
+        // Known only from history: the row builder files it as done, but its status is unknown.
+        { threadKey: "q-4", questId: "q-4", title: "q-4", section: "done" },
+      ],
+      TABS,
+    );
+    expect(closed.map((item) => [item.threadKey, item.stateLabel, item.canClose])).toEqual([
+      ["q-2", "Done", false],
+      ["q-1", "Done", false],
+      ["q-3", "Port", false],
+      ["q-4", undefined, false],
+    ]);
+  });
+});
+
+describe("ThreadTabRail closed tab titles", () => {
+  it("fetches missing titles of closed quests when Find opens", () => {
+    // Threads known only from history carry their quest number as title until hydrated.
+    const original = useStore.getState().hydrateQuestTitles;
+    const hydrateQuestTitles = vi.fn(async () => {});
+    useStore.setState({ hydrateQuestTitles });
+    onTestFinished(() => useStore.setState({ hydrateQuestTitles: original }));
+    render(
+      <ThreadTabRail
+        mainState={MAIN}
+        tabs={TABS}
+        closedTabs={[tab("q-5", { title: "q-5" }), tab("q-6", { title: "Known" })]}
+        sessionId="rail-session"
+        currentThreadKey="q-10"
+        onSelectThread={vi.fn()}
+      />,
+    );
+    expect(hydrateQuestTitles).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    expect(hydrateQuestTitles).toHaveBeenCalledWith(["q-5"]);
   });
 });

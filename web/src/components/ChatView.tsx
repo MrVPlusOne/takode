@@ -91,6 +91,7 @@ import type {
 type LeaderThreadRow = QuestThreadBannerRow & {
   messageCount: number;
   createdAt: number;
+  lastActiveAt?: number;
 };
 
 const EMPTY_BOARD_ROWS: BoardRowData[] = [];
@@ -320,6 +321,7 @@ function toWorkBoardThreadRows(rows: LeaderThreadRow[]): WorkBoardThreadNavigati
     boardStatus: row.boardStatus,
     messageCount: row.messageCount,
     section: row.section,
+    lastActiveAt: row.lastActiveAt,
   }));
 }
 

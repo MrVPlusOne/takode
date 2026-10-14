@@ -23,6 +23,8 @@ export interface LeaderProjectionThreadRow {
   section?: "active" | "done";
   messageCount: number;
   createdAt: number;
+  /** Latest message in the thread or board row change, whichever is newer; 0 when unknown. */
+  lastActiveAt?: number;
 }
 
 /** Compact browser wire contract. Keep this limited to fields consumed by the browser. */

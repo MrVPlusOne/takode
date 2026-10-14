@@ -1,8 +1,8 @@
 /**
  * Phone thread tabs as status groups: the bar names only the current tab and shows one
  * chip per kind of tab the user scans for (prompts waiting, unread results, quests in
- * progress, finished). A chip lists its tabs; the current tab opens a switcher sheet with
- * every tab, search by title or quest number, and closing.
+ * progress, finished). A chip lists its tabs; Find opens a switcher sheet with every tab,
+ * search by title or quest number, closing, and the closed tabs to reopen.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -119,6 +119,10 @@ interface RowContext {
 export interface ThreadTabGroupBarProps extends RowContext {
   main?: PrimaryThreadChip;
   tabs: readonly PrimaryThreadChip[];
+  /** Quest threads without an open tab, newest first; Find searches them and reopens one when chosen. */
+  closedTabs?: readonly PrimaryThreadChip[];
+  /** Called when Find opens. */
+  onOpenFind?: () => void;
   /** Where the bar sits; group lists open away from the screen edge. */
   placement?: "top" | "bottom";
 }
@@ -127,7 +131,14 @@ export interface ThreadTabGroupBarProps extends RowContext {
  * The phone tab bar: Main, one item per non-empty group, and search. The quest strip
  * below already names the current quest, so the bar only marks which group holds it.
  */
-export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: ThreadTabGroupBarProps) {
+export function ThreadTabGroupBar({
+  main,
+  tabs,
+  closedTabs = [],
+  onOpenFind,
+  placement = "top",
+  ...rows
+}: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const mainTab = main ?? {
@@ -236,6 +247,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
           onClick: () => {
             setOpenGroup(null);
             setSheetOpen(true);
+            onOpenFind?.();
           },
           children: (
             <>
@@ -272,6 +284,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
         <ThreadTabSwitcherSheet
           main={mainTab}
           groups={groups}
+          closedTabs={closedTabs}
           context={rowContext}
           onClose={() => setSheetOpen(false)}
         />
@@ -467,31 +480,39 @@ function GroupContent({ id, tabs }: { id: ThreadTabGroupId; tabs: readonly Prima
   );
 }
 
-function GroupHeading({ id, count, action }: { id: ThreadTabGroupId; count: number; action?: ReactNode }) {
+type SheetSectionId = ThreadTabGroupId | "closed";
+const SHEET_LABEL: Record<SheetSectionId, string> = { ...GROUP_LABEL, closed: "Closed" };
+
+function GroupHeading({ id, count, action }: { id: SheetSectionId; count: number; action?: ReactNode }) {
   const tone = id === "needs-input" ? "text-cc-attention" : id === "new-results" ? "text-cc-info" : "text-cc-muted";
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
-      <span className={`text-[11px] uppercase tracking-wide ${tone}`}>{GROUP_LABEL[id]}</span>
+      <span className={`text-[11px] uppercase tracking-wide ${tone}`}>{SHEET_LABEL[id]}</span>
       <span className="text-[11px] tabular-nums text-cc-muted">{count}</span>
       {action}
     </div>
   );
 }
 
-/** One tab in a group list or the switcher: its color, title, quest number and state, bell and close. */
+/**
+ * One tab in a group list or the switcher: its color, title, quest number and state, bell
+ * and close. A closed tab reads muted, has no close or menu, and reopens when chosen.
+ */
 function ThreadTabListRow({
   tab,
   context,
   query = "",
+  closed = false,
 }: {
   tab: PrimaryThreadChip;
   context: RowContext;
   query?: string;
+  closed?: boolean;
 }) {
   const threadKey = normalizeThreadKey(tab.threadKey);
   const main = isMain(tab);
   const selected = threadKey === normalizeThreadKey(context.currentThreadKey);
-  const openMenu = main ? undefined : context.onOpenMenu?.(tab);
+  const openMenu = main || closed ? undefined : context.onOpenMenu?.(tab);
   const longPress = useLongPress(openMenu);
   const monitor = context.monitors?.[threadKey];
   const status = context.threadStatuses?.[threadStatusKey(threadKey)];
@@ -501,7 +522,7 @@ function ThreadTabListRow({
     : [tab.questId ?? threadKey, tab.stateLabel ?? tab.detail, tab.updatedAt ? timeAgo(tab.updatedAt) : null]
         .filter(Boolean)
         .join(" · ");
-  const quiet = tab.completed && !tab.needsInput && !tab.blueNudge;
+  const quiet = closed || (tab.completed && !tab.needsInput && !tab.blueNudge);
   const style: CSSProperties = { ...longPress.pressStyle };
   return (
     <div
@@ -514,6 +535,7 @@ function ThreadTabListRow({
       data-title-color={main ? "" : (tab.titleColor ?? "")}
       data-ownership-note={tab.ownershipNote ?? ""}
       data-closable={tab.canClose ? "true" : "false"}
+      data-closed={closed ? "true" : "false"}
       data-needs-input={tab.needsInput ? "true" : "false"}
       data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
       data-blue-notification={tab.blueNudge ? "true" : "false"}
@@ -556,7 +578,7 @@ function ThreadTabListRow({
       </button>
       {monitor && <NotifyMeIcon pending={Boolean(monitor.pendingResultId)} className="h-4 w-4" />}
       <AttentionBell tab={tab} size="md" />
-      {context.onClose && tab.canClose ? (
+      {context.onClose && tab.canClose && !closed ? (
         <button
           type="button"
           aria-label={`Close ${tab.questId ?? tab.title}`}
@@ -595,24 +617,32 @@ function matchesQuery(tab: PrimaryThreadChip, query: string): boolean {
   return number.includes(needle) || tab.title.toLowerCase().includes(needle);
 }
 
+/** Closed tabs render in pages, so a leader with hundreds of past quests opens Find at once. */
+const CLOSED_PAGE_SIZE = 100;
+
 /**
  * Every tab, Main first, then the groups in order. Search narrows by title or quest
- * number; "Close all" asks once, then closes the finished tabs that can close.
+ * number; "Close all" asks once, then closes the finished tabs that can close. Closed
+ * tabs stay out of the way: the default view only offers a link to them, while a search
+ * or the Closed filter lists them, and choosing one reopens its tab.
  */
 function ThreadTabSwitcherSheet({
   main,
   groups,
+  closedTabs,
   context,
   onClose,
 }: {
   main: PrimaryThreadChip;
   groups: Record<ThreadTabGroupId, PrimaryThreadChip[]>;
+  closedTabs: readonly PrimaryThreadChip[];
   context: RowContext;
   onClose: () => void;
 }) {
-  const [filter, setFilter] = useState<ThreadTabGroupId | "all">("all");
+  const [filter, setFilter] = useState<SheetSectionId | "all">("all");
   const [query, setQuery] = useState("");
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
+  const [closedShown, setClosedShown] = useState(CLOSED_PAGE_SIZE);
   const total = THREAD_TAB_GROUP_ORDER.reduce((sum, id) => sum + groups[id].length, 1);
   // Main is in no group, so the sheet always pins it first, with its bell when it has one.
   const showMainRow = filter === "all" && matchesQuery(main, query);
@@ -620,6 +650,25 @@ function ThreadTabSwitcherSheet({
     .map((id) => ({ id, tabs: groups[id].filter((tab) => matchesQuery(tab, query)) }))
     .filter((section) => section.tabs.length > 0);
   const closableDone = groups.done.filter((tab) => tab.canClose);
+  const listClosed = filter === "closed" || (filter === "all" && query.trim() !== "");
+  const closedMatches = listClosed ? closedTabs.filter((tab) => matchesQuery(tab, query)) : [];
+  // Closed rows have no close button or menu; choosing one opens its tab again.
+  const closedContext: RowContext = { ...context, onClose: undefined, onOpenMenu: undefined };
+  // The Closed chip sits past the phone's edge; keep the chosen filter in view, and start
+  // its list at the top.
+  const filterRowRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+    filterRowRef.current
+      ?.querySelector<HTMLElement>('[aria-pressed="true"]')
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [filter]);
+  const filters: Array<SheetSectionId | "all"> = [
+    "all",
+    ...THREAD_TAB_GROUP_ORDER,
+    ...(closedTabs.length > 0 ? (["closed"] as const) : []),
+  ];
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -681,8 +730,8 @@ function ThreadTabSwitcherSheet({
             />
           </label>
         </div>
-        <div className="flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
-          {(["all", ...THREAD_TAB_GROUP_ORDER] as const).map((id) => (
+        <div ref={filterRowRef} className="flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
+          {filters.map((id) => (
             <button
               key={id}
               type="button"
@@ -696,12 +745,14 @@ function ThreadTabSwitcherSheet({
             >
               {id === "needs-input" && <BellIcon className="h-3 w-3 text-cc-attention" />}
               {id === "new-results" && <BellIcon className="h-3 w-3 text-cc-info" />}
-              {id === "all" ? "All" : GROUP_LABEL[id]}
-              <span className="tabular-nums text-cc-muted">{id === "all" ? total : groups[id].length}</span>
+              {id === "all" ? "All" : SHEET_LABEL[id]}
+              <span className="tabular-nums text-cc-muted">
+                {id === "all" ? total : id === "closed" ? closedTabs.length : groups[id].length}
+              </span>
             </button>
           ))}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-6">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-6">
           {showMainRow && <ThreadTabListRow tab={main} context={context} query={query} />}
           {sections.map((section) => (
             <div key={section.id} data-testid="thread-tab-switcher-section" data-group={section.id}>
@@ -726,8 +777,43 @@ function ThreadTabSwitcherSheet({
               ))}
             </div>
           ))}
-          {!showMainRow && sections.length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-cc-muted">No tab matches “{query}”.</p>
+          {closedMatches.length > 0 && (
+            <div data-testid="thread-tab-switcher-section" data-group="closed">
+              <GroupHeading id="closed" count={closedMatches.length} />
+              {closedMatches.slice(0, closedShown).map((tab) => (
+                <ThreadTabListRow key={tab.threadKey} tab={tab} context={closedContext} query={query} closed />
+              ))}
+              {closedMatches.length > closedShown && (
+                <button
+                  type="button"
+                  onClick={() => setClosedShown((shown) => shown + CLOSED_PAGE_SIZE)}
+                  className="w-full px-4 py-3 text-left text-[13px] text-cc-primary"
+                  data-testid="thread-tab-switcher-closed-more"
+                >
+                  Show {Math.min(CLOSED_PAGE_SIZE, closedMatches.length - closedShown)} more
+                </button>
+              )}
+            </div>
+          )}
+          {filter === "all" && !listClosed && closedTabs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilter("closed")}
+              className="mt-1 flex w-full items-center gap-2 border-t border-cc-border/60 px-4 py-3 text-left text-[13px] text-cc-muted hover:bg-cc-hover/40"
+              data-testid="thread-tab-switcher-show-closed"
+            >
+              <span>
+                {closedTabs.length} closed {closedTabs.length === 1 ? "tab" : "tabs"}
+              </span>
+              <svg viewBox="0 0 16 16" className="ml-auto h-3.5 w-3.5" fill="none" aria-hidden="true">
+                <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+          {!showMainRow && sections.length === 0 && closedMatches.length === 0 && (
+            <p className="px-4 py-6 text-[13px] text-cc-muted">
+              {query.trim() ? `No tab matches “${query}”.` : "No tabs here."}
+            </p>
           )}
         </div>
       </div>

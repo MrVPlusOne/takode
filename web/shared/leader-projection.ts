@@ -121,6 +121,7 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
   const rows = new Map<string, LeaderProjectionThreadRow>();
   const counts = new Map<string, number>();
   const firstMessageAt = new Map<string, number>();
+  const lastMessageAt = new Map<string, number>();
 
   for (const summary of input.threadSummaries ?? []) {
     const key = normalizeThreadKey(summary.threadKey);
@@ -128,6 +129,9 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
     counts.set(key, (counts.get(key) ?? 0) + summary.messageCount);
     if (typeof summary.firstMessageAt === "number") {
       firstMessageAt.set(key, Math.min(firstMessageAt.get(key) ?? Number.POSITIVE_INFINITY, summary.firstMessageAt));
+    }
+    if (typeof summary.lastMessageAt === "number") {
+      lastMessageAt.set(key, Math.max(lastMessageAt.get(key) ?? 0, summary.lastMessageAt));
     }
   }
 
@@ -178,6 +182,12 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
       createdAt: Math.min(
         partial.createdAt ?? Number.MAX_SAFE_INTEGER,
         existing?.createdAt ?? creationTimeFor(key, boardRow),
+      ),
+      lastActiveAt: Math.max(
+        lastMessageAt.get(key) ?? 0,
+        boardRow?.completedAt ?? 0,
+        boardRow?.updatedAt ?? 0,
+        boardRow?.createdAt ?? 0,
       ),
       section,
     });

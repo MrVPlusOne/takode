@@ -207,6 +207,18 @@ describe("leader projection summaries", () => {
     expect(rows[0]?.boardRow).not.toHaveProperty("completedAt");
   });
 
+  it("dates each row by its latest message or board change, for ordering closed tabs", () => {
+    // A thread known only from history takes its last message; a finished board row its completion.
+    const rows = buildLeaderThreadRowsFromSummaries({
+      completedBoard: [{ questId: "q-2", title: "Finished", status: "DONE", createdAt: 5, completedAt: 70 }],
+      threadSummaries: [
+        { threadKey: "q-1", questId: "q-1", messageCount: 2, firstMessageAt: 10, lastMessageAt: 40 },
+        { threadKey: "q-2", questId: "q-2", messageCount: 1, firstMessageAt: 20, lastMessageAt: 30 },
+      ],
+    });
+    expect(Object.fromEntries(rows.map((row) => [row.threadKey, row.lastActiveAt]))).toEqual({ "q-1": 40, "q-2": 70 });
+  });
+
   it("uses quest lifecycle status as authoritative for done and refined restart rows", () => {
     const rows = buildLeaderThreadRowsFromSummaries({
       threadSummaries: [

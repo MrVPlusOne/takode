@@ -124,6 +124,7 @@ function cachedQuestForId(questId: string | undefined): QuestmasterTask | undefi
 export function ThreadTabRail({
   mainState,
   tabs,
+  closedTabs,
   sessionId,
   currentThreadKey,
   onSelectThread,
@@ -132,6 +133,8 @@ export function ThreadTabRail({
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
+  /** Quest threads without an open tab, which Find lists and reopens. */
+  closedTabs?: readonly PrimaryThreadChip[];
   sessionId: string;
   currentThreadKey: string;
   onSelectThread?: (threadKey: string) => void;
@@ -185,6 +188,11 @@ export function ThreadTabRail({
     }
     return items;
   };
+  // Threads known only from history may lack a loaded title; fetch them so Find can match by title.
+  const hydrateClosedTitles = () => {
+    const untitled = (closedTabs ?? []).filter((tab) => tab.questId && tab.title === tab.questId);
+    if (untitled.length > 0) void useStore.getState().hydrateQuestTitles(untitled.map((tab) => tab.questId!));
+  };
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
@@ -197,6 +205,8 @@ export function ThreadTabRail({
       <ThreadTabGroupBar
         main={mainState}
         tabs={displayedTabs}
+        closedTabs={closedTabs}
+        onOpenFind={hydrateClosedTitles}
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
         monitors={monitors}
