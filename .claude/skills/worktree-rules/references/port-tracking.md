@@ -45,7 +45,7 @@ git reset --soft <prepared-base-sha>
 git commit --file <commit-message-file>
 ```
 
-For multiple groups, use normal interactive rebase to preserve the declared group boundaries. Never bypass commit hooks. Do not mix content changes into packaging; review any new content first. Keep authored/signature or other meaningful boundaries when squashing would misrepresent them.
+Always soft-reset to a SHA your commits are built on, never to a remote-tracking name like `origin/<BASE_BRANCH>`: that ref can move under you, and the squash would then silently undo whatever landed in between (see the landing-queue step in the main skill). For multiple groups, use normal interactive rebase to preserve the declared group boundaries. Never bypass commit hooks. Do not mix content changes into packaging; review any new content first. Keep authored/signature or other meaningful boundaries when squashing would misrepresent them.
 
 Then validate the replacement commits against the retained review:
 
