@@ -7,11 +7,12 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 
 const BUTTON_CLASS =
-  "inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
-const WORKER_BUTTON_CLASS = `${BUTTON_CLASS} border-cc-border bg-cc-hover/30 text-cc-fg hover:border-cc-primary/45 hover:bg-cc-hover/60`;
+  "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
+const SIZE_CLASS = { compact: "h-8 px-2 text-xs", touch: "h-10 px-3 text-sm" } as const;
+const WORKER_COLOR_CLASS = "border-cc-border bg-cc-hover/30 text-cc-fg hover:border-cc-primary/45 hover:bg-cc-hover/60";
 // Open Thread is the jump users want most often, so it carries the accent.
-const THREAD_BUTTON_CLASS = `${BUTTON_CLASS} border-cc-primary/50 bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25`;
-const DISABLED_BUTTON_CLASS = `${BUTTON_CLASS} cursor-not-allowed border-dashed border-cc-border/60 text-cc-muted/60`;
+const THREAD_COLOR_CLASS = "border-cc-primary/50 bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25";
+const DISABLED_COLOR_CLASS = "cursor-not-allowed border-dashed border-cc-border/60 text-cc-muted/60";
 
 /**
  * The quest views' top jump buttons: Open Worker opens the worker session and Open Thread opens
@@ -26,6 +27,7 @@ export function QuestSessionActions({
   workerStatus,
   leaderSessionId,
   onNavigate,
+  size = "compact",
   className = "",
 }: {
   questId: string;
@@ -35,9 +37,12 @@ export function QuestSessionActions({
   leaderSessionId: string | null;
   /** Called after either button navigates, so a preview or dialog can close itself. */
   onNavigate?: () => void;
+  /** `touch` makes taller buttons for a phone's thumb, as in the quest view's bottom bar. */
+  size?: keyof typeof SIZE_CLASS;
   className?: string;
 }) {
   if (!workerSessionId && !leaderSessionId) return null;
+  const buttonClass = `${BUTTON_CLASS} ${SIZE_CLASS[size]}`;
   return (
     <div
       data-testid="quest-session-actions"
@@ -49,7 +54,8 @@ export function QuestSessionActions({
         label="Open Worker"
         sessionId={workerSessionId}
         status={workerStatus}
-        className={WORKER_BUTTON_CLASS}
+        className={`${buttonClass} ${WORKER_COLOR_CLASS}`}
+        disabledClassName={`${buttonClass} ${DISABLED_COLOR_CLASS}`}
         missingTitle="No worker session for this quest"
         testId="quest-open-worker"
         onNavigate={onNavigate}
@@ -59,7 +65,8 @@ export function QuestSessionActions({
         label="Open Thread"
         sessionId={leaderSessionId}
         threadKey={questId}
-        className={THREAD_BUTTON_CLASS}
+        className={`${buttonClass} ${THREAD_COLOR_CLASS}`}
+        disabledClassName={`${buttonClass} ${DISABLED_COLOR_CLASS}`}
         missingTitle="No leader session for this quest"
         testId="quest-open-thread"
         onNavigate={onNavigate}
@@ -75,6 +82,7 @@ function QuestSessionButton({
   status,
   threadKey,
   className,
+  disabledClassName,
   missingTitle,
   testId,
   onNavigate,
@@ -85,6 +93,7 @@ function QuestSessionButton({
   status?: BoardParticipantStatus["status"];
   threadKey?: string;
   className: string;
+  disabledClassName: string;
   missingTitle: string;
   testId: string;
   onNavigate?: () => void;
@@ -103,7 +112,7 @@ function QuestSessionButton({
 
   if (!sessionId) {
     return (
-      <button type="button" disabled data-testid={testId} className={DISABLED_BUTTON_CLASS} title={missingTitle}>
+      <button type="button" disabled data-testid={testId} className={disabledClassName} title={missingTitle}>
         {content}
       </button>
     );

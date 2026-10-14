@@ -62,13 +62,6 @@ vi.mock("../utils/routing.js", () => ({
     `#/?quest=${questId}&feedback=${feedbackIndex}`,
 }));
 
-vi.mock("./quest-assign.js", () => ({
-  buildQuestAssignDraft: (questId: string) => "Assign draft for " + questId,
-}));
-vi.mock("./quest-rework.js", () => ({
-  buildQuestReworkDraft: (questId: string) => "Rework draft for " + questId,
-}));
-
 import { QuestDetailPanel } from "./QuestDetailPanel.js";
 import type { QuestmasterTask } from "../types.js";
 

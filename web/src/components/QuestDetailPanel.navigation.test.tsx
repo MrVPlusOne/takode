@@ -20,14 +20,6 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-vi.mock("./quest-assign.js", () => ({
-  buildQuestAssignDraft: (questId: string) => `Assign draft for ${questId}`,
-}));
-
-vi.mock("./quest-rework.js", () => ({
-  buildQuestReworkDraft: (questId: string) => `Rework draft for ${questId}`,
-}));
-
 function makeQuest(overrides: Partial<QuestmasterTask> = {}): QuestmasterTask {
   return {
     id: "q-42-v1",
@@ -231,7 +223,7 @@ describe("QuestDetailPanel navigation dismissal", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByText("show history"));
+    fireEvent.click(screen.getByText("Show history"));
     const historyRow = await screen.findByText("Earlier modal navigation");
     fireEvent.click(historyRow);
 
@@ -265,7 +257,7 @@ describe("QuestDetailPanel navigation dismissal", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByText("show history"));
+    fireEvent.click(screen.getByText("Show history"));
     await screen.findByText("Earlier modal navigation");
     fireEvent.click(screen.getByRole("link", { name: "version leader session" }));
 
@@ -296,7 +288,7 @@ describe("QuestDetailPanel navigation dismissal", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByText("show history"));
+    fireEvent.click(screen.getByText("Show history"));
     await screen.findByText("Earlier modal navigation");
     fireEvent.click(screen.getByRole("link", { name: "related quest" }));
 

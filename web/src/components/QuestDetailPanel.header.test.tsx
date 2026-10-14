@@ -15,14 +15,6 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-vi.mock("./quest-assign.js", () => ({
-  buildQuestAssignDraft: (questId: string) => `Assign draft for ${questId}`,
-}));
-
-vi.mock("./quest-rework.js", () => ({
-  buildQuestReworkDraft: (questId: string) => `Rework draft for ${questId}`,
-}));
-
 function makeQuest(overrides: Partial<QuestmasterTask> = {}): QuestmasterTask {
   return {
     id: "q-42-v1",
@@ -83,5 +75,33 @@ describe("QuestDetailPanel header", () => {
     render(<QuestDetailPanel />);
     expect(screen.getByRole("link", { name: "Open Worker #123" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Thread #777" })).toBeInTheDocument();
+  });
+
+  it("pins Open Worker and Open Thread to the bottom on phones and keeps them under the title on desktop", () => {
+    // Jumping to the leader thread is the most common move from the quest view, so on a phone the
+    // buttons sit in a pinned footer within thumb reach instead of at the top of the dialog.
+    useStore.setState({
+      quests: [makeQuest()],
+      questOverlayId: "q-42",
+      sessionBoards: workingBoard,
+      sdkSessions: [{ sessionId: "leader-42", sessionNum: 777, state: "connected", cwd: "/repo", createdAt: 1 }],
+    });
+    const desktopWidth = window.innerWidth;
+    try {
+      window.innerWidth = 430;
+      const phone = render(<QuestDetailPanel />);
+      const footer = screen.getByTestId("quest-detail-session-footer");
+      expect(footer).toContainElement(screen.getByRole("link", { name: "Open Thread #777" }));
+      // The footer follows the scrolling body, so it stays at the bottom however long the quest is.
+      expect(screen.getByTestId("quest-detail-scroll-container").nextElementSibling).toBe(footer);
+      phone.unmount();
+
+      window.innerWidth = 1280;
+      render(<QuestDetailPanel />);
+      expect(screen.queryByTestId("quest-detail-session-footer")).toBeNull();
+      expect(screen.getByRole("link", { name: "Open Thread #777" })).toBeInTheDocument();
+    } finally {
+      window.innerWidth = desktopWidth;
+    }
   });
 });

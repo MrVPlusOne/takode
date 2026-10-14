@@ -11,15 +11,25 @@ export function PlaygroundQuestDetailModalSection() {
       <div className="max-w-3xl space-y-4">
         <Card label="Open quest detail modal">
           <div className="p-3">
-            <button
-              type="button"
-              onClick={openPlaygroundQuestDetail}
-              className="px-4 py-2 text-sm font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
-            >
-              Open Quest Detail Modal (q-42)
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openPlaygroundQuestDetail("q-42")}
+                className="px-4 py-2 text-sm font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
+              >
+                Open Quest Detail Modal (q-42)
+              </button>
+              <button
+                type="button"
+                onClick={() => openPlaygroundQuestDetail("q-44")}
+                className="px-4 py-2 text-sm font-medium border border-cc-border bg-cc-hover/30 text-cc-fg hover:bg-cc-hover/60 rounded-lg transition-colors cursor-pointer"
+              >
+                In-progress quest (q-44)
+              </button>
+            </div>
             <p className="text-xs text-cc-muted mt-2">
-              Click to open a mock quest detail overlay. Press Escape or click the backdrop to close.
+              Click to open a mock quest detail overlay: q-42 is done with feedback, q-44 is in progress with none
+              (Finish Quest and the empty feedback field). Press Escape or click the backdrop to close.
             </p>
           </div>
         </Card>
@@ -29,7 +39,7 @@ export function PlaygroundQuestDetailModalSection() {
   );
 }
 
-function openPlaygroundQuestDetail() {
+function openPlaygroundQuestDetail(questId: "q-42" | "q-44") {
   const now = Date.now();
   const journeyRuns = buildPlaygroundJourneyRuns(now);
   useStore.setState({
@@ -111,6 +121,25 @@ function openPlaygroundQuestDetail() {
           ],
         },
       ],
+      [
+        "q-44",
+        {
+          id: "q-44-v2",
+          questId: "q-44",
+          version: 2,
+          title: "Keep the top bar clear after closing previews",
+          status: "in_progress" as const,
+          description:
+            "The top bar stays blurred after a preview sheet closes. Find what leaves the blur and remove it.",
+          tldr: "Remove the blur the top bar keeps after a preview sheet closes.",
+          createdAt: now - 7200000,
+          updatedAt: now - 600000,
+          sessionId: "playground-worker",
+          leaderSessionId: "playground-leader",
+          claimedAt: now - 3600000,
+          tags: ["ui", "bugfix"],
+        },
+      ],
     ]),
     sdkSessions: [
       {
@@ -134,7 +163,7 @@ function openPlaygroundQuestDetail() {
       },
     ],
   });
-  useStore.getState().openQuestOverlay("q-42");
+  useStore.getState().openQuestOverlay(questId);
 }
 
 const PLAYGROUND_PHASE_CYCLE = ["alignment", "user-checkpoint", "work", "memory"] as const;

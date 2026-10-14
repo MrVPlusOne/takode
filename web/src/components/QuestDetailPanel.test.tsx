@@ -75,14 +75,6 @@ vi.mock("../utils/routing.js", () => ({
     `#/?quest=${questId}&feedback=${feedbackIndex}`,
 }));
 
-// Mock quest-assign and quest-rework
-vi.mock("./quest-assign.js", () => ({
-  buildQuestAssignDraft: (questId: string) => `Assign draft for ${questId}`,
-}));
-vi.mock("./quest-rework.js", () => ({
-  buildQuestReworkDraft: (questId: string) => `Rework draft for ${questId}`,
-}));
-
 import { QuestDetailPanel } from "./QuestDetailPanel.js";
 import { NotificationChip } from "./NotificationChip.js";
 import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
@@ -1479,7 +1471,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByText("show history"));
+    fireEvent.click(screen.getByText("Show history"));
 
     await waitFor(() => {
       expect(screen.getByText("Legacy backup history")).toBeTruthy();
@@ -1851,13 +1843,32 @@ describe("QuestDetailPanel", () => {
 
   // ─── Action button tests (new in QuestDetailPanel) ──────────────────
 
-  it("shows Edit button in the action bar", () => {
-    const quest = makeVerificationQuest();
-    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+  it("shows only Edit, Delete, the status and Finish Quest in the action bar", () => {
+    // Manual Assign and Rework were retired: quests are dispatched and reworked through leaders now,
+    // so they must stay gone even when the owner session is live and has unaddressed feedback.
+    const quest = makeVerificationQuest({
+      status: "in_progress",
+      feedback: [{ author: "human", text: "Please fix", ts: Date.now() }],
+    } as Partial<QuestmasterTask>);
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sdkSessions: [{ sessionId: "session-abc", state: "connected", cwd: "/repo", createdAt: Date.now() }],
+    } as never);
 
     render(<QuestDetailPanel />);
 
-    expect(screen.getByText("Edit")).toBeTruthy();
+    const actions = within(screen.getByTestId("quest-detail-actions"));
+    expect(actions.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Edit",
+      "Delete",
+      "Finish Quest",
+    ]);
+    expect(actions.getByRole("combobox", { name: "Quest status" })).toBeTruthy();
+    expect(screen.queryByText("Assign")).toBeNull();
+    expect(screen.queryByText("Rework")).toBeNull();
+    // Nothing to send yet, so Add Feedback is disabled (gray) rather than a faded accent.
+    expect(screen.getByRole("button", { name: "Add Feedback" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows status dropdown with current status", () => {

@@ -1,4 +1,5 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
@@ -6,7 +7,7 @@ import { useSendKey } from "../hooks/useSendKey.js";
 import { api } from "../api.js";
 import { navigateToSession, withoutQuestIdInHash } from "../utils/routing.js";
 import { markdownToPlainText } from "../utils/copy-utils.js";
-import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
+import { CANCELLED_QUEST_STATUS_THEME, QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import {
   extractPastedImages,
   extractHashtags,
@@ -35,7 +36,6 @@ import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { PickerSessionChip } from "./QuestPickerSessionChip.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
@@ -43,12 +43,9 @@ import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 import { QuestCommitEvidenceList, shortCommitSha } from "./QuestCommitEvidence.js";
 import { buildQuestCommitEntries, QuestCommitDiffView, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
-import { buildQuestAssignDraft } from "./quest-assign.js";
-import { buildQuestReworkDraft } from "./quest-rework.js";
 import { useQuestDetailRecord } from "./useQuestDetailRecord.js";
 import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
-import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
@@ -57,6 +54,14 @@ import { isShortcutEventTargetEditable } from "../shortcuts.js";
 type EditorTarget = "editTitle" | "editDescription";
 
 const STATUS_CONFIG = QUEST_STATUS_THEME;
+// The quest view's buttons share the shape of the Open Worker and Open Thread buttons in its header.
+const QUEST_BUTTON_BASE_CLASS =
+  "inline-flex h-8 shrink-0 items-center rounded-md border px-3 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
+const QUEST_BUTTON_CLASS = `${QUEST_BUTTON_BASE_CLASS} border-cc-border bg-cc-hover/30 text-cc-fg hover:bg-cc-hover/70`;
+const QUEST_DELETE_BUTTON_CLASS = `${QUEST_BUTTON_BASE_CLASS} border-cc-border bg-cc-hover/30 text-cc-error hover:bg-cc-error/10`;
+// Filled like the composer's send button, and gray rather than faded while there is nothing to send.
+const QUEST_PRIMARY_BUTTON_CLASS = `${QUEST_BUTTON_BASE_CLASS} border-transparent bg-cc-primary text-white hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:border-cc-border disabled:bg-cc-hover disabled:text-cc-muted`;
+const QUEST_DANGER_BUTTON_CLASS = `${QUEST_BUTTON_BASE_CLASS} border-transparent bg-cc-error text-white hover:bg-cc-error/85`;
 const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 const noop = () => {};
 
@@ -87,6 +92,7 @@ export function QuestDetailPanel() {
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
+  const phoneLayout = !useDesktopShellLayout();
   const feedbackNavigationTarget = useStore((s) => s.questOverlayFeedbackTarget);
 
   const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
@@ -145,7 +151,6 @@ export function QuestDetailPanel() {
 
   const [error, setError] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [historyForId, setHistoryForId] = useState<string | null>(null);
   const [highlightedFeedbackTarget, setHighlightedFeedbackTarget] = useState<QuestFeedbackTargetRequest | null>(null);
@@ -182,7 +187,6 @@ export function QuestDetailPanel() {
     setConfirmDeleteFeedback(null);
     setError("");
     setConfirmDeleteId(null);
-    setAssignPickerForId(null);
     setLightboxSrc(null);
     setHistoryForId(null);
     setHighlightedFeedbackTarget(null);
@@ -219,7 +223,7 @@ export function QuestDetailPanel() {
     useStore.getState().upsertQuestDetail(updatedQuest);
   }, []);
 
-  // Escape key: lightbox > assign picker > inline feedback actions > edit cancel > close panel
+  // Escape key: lightbox > commit diff > inline feedback actions > edit cancel > close panel
   useEffect(() => {
     if (!questOverlayId) return;
     function handleKey(e: KeyboardEvent) {
@@ -233,7 +237,6 @@ export function QuestDetailPanel() {
         commitDiffState.closeCommit();
         return;
       }
-      if (assignPickerForId) return; // Assign picker has its own Escape handler
       if (confirmDeleteFeedback) {
         setConfirmDeleteFeedback(null);
         return;
@@ -255,22 +258,11 @@ export function QuestDetailPanel() {
     questOverlayId,
     lightboxSrc,
     commitDiffState,
-    assignPickerForId,
     confirmDeleteFeedback,
     editingFeedback,
     editingId,
     closePanel,
   ]);
-
-  // Close assign picker on Escape
-  useEffect(() => {
-    if (!assignPickerForId) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setAssignPickerForId(null);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [assignPickerForId]);
 
   // On-demand details need not appear in the bounded quest list.
   useEffect(() => {
@@ -659,35 +651,6 @@ export function QuestDetailPanel() {
     }
   }
 
-  function handleAssignToSession(q: QuestmasterTask, sessionId: string) {
-    setAssignPickerForId(null);
-    const draftText = buildQuestAssignDraft(q.questId);
-    useStore.getState().setComposerDraft(sessionId, { text: draftText, images: [] });
-    navigateToSession(sessionId);
-    closePanel();
-  }
-
-  function handleReworkInSession(q: QuestmasterTask, sessionId: string) {
-    const draftText = buildQuestReworkDraft(q.questId);
-    useStore.getState().setComposerDraft(sessionId, { text: draftText, images: [] });
-    navigateToSession(sessionId);
-    closePanel();
-  }
-
-  // Active sessions for assign picker come from the canonical current-build rows.
-  const pickerSessions = useMemo(
-    () =>
-      sdkSessions
-        .flatMap((session) => {
-          const resolved = resolveSessionNavigation({ sdkSessions }, session.sessionId);
-          return resolved && resolved.sidebarItem.sdkState !== "exited" && !resolved.sidebarItem.archived
-            ? [resolved]
-            : [];
-        })
-        .sort((left, right) => right.sidebarItem.createdAt - left.sidebarItem.createdAt),
-    [sdkSessions],
-  );
-
   if (!questOverlayId) return null;
   if (!quest) {
     return createPortal(
@@ -737,7 +700,6 @@ export function QuestDetailPanel() {
   }
 
   const isCancelled = isQuestCancelled(quest);
-  const cfg = STATUS_CONFIG[quest.status];
   const statusPresentation = getQuestStatusPresentation(quest, journeyContext);
   const isEditing = editingId === quest.questId;
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
@@ -746,7 +708,6 @@ export function QuestDetailPanel() {
   const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const questMarkdownSessionId = questSessionId ?? undefined;
-  const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
   const indexedFeedbackEntries = getQuestFeedback(quest)
     .map((entry, index) => ({ ...entry, index }))
@@ -771,6 +732,18 @@ export function QuestDetailPanel() {
       questOwner?.kind === "codex" ||
       commitDiffState.commitEntries.length > 0 ||
       quest.relatedQuests?.some((entry) => entry.kind !== "references"),
+  );
+
+  const sessionActions = (className: string, size: "compact" | "touch") => (
+    <QuestSessionActions
+      className={className}
+      size={size}
+      questId={quest.questId}
+      workerSessionId={sessionTargets?.workerSessionId ?? null}
+      workerStatus={sessionTargets?.workerStatus}
+      leaderSessionId={sessionTargets?.leaderSessionId ?? null}
+      onNavigate={closeAfterSessionNavigate}
+    />
   );
 
   return createPortal(
@@ -864,14 +837,7 @@ export function QuestDetailPanel() {
               </span>
             )}
           </div>
-          <QuestSessionActions
-            className="mt-2"
-            questId={quest.questId}
-            workerSessionId={sessionTargets?.workerSessionId ?? null}
-            workerStatus={sessionTargets?.workerStatus}
-            leaderSessionId={sessionTargets?.leaderSessionId ?? null}
-            onNavigate={closeAfterSessionNavigate}
-          />
+          {!phoneLayout && sessionActions("mt-2", "compact")}
         </div>
 
         {/* Stale edit notice */}
@@ -1465,18 +1431,22 @@ export function QuestDetailPanel() {
                           ))}
                         </div>
                       )}
-                      <div className="flex items-center gap-1.5">
+                      {/* Add Feedback sits at the right edge, within right-thumb reach like the composer's send button. */}
+                      <div className="flex items-center gap-2">
+                        <span className="mr-auto text-[11px] text-cc-muted">
+                          {uploadingFeedbackImage ? "Uploading image..." : feedbackSaveKey.hint}
+                        </span>
                         <button
-                          onClick={() => handleAddFeedback(quest.questId, feedbackDraft)}
-                          disabled={(!feedbackDraft.trim() && feedbackImages.length === 0) || feedbackSubmitting}
-                          className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                          type="button"
+                          onClick={() => {
+                            if (!feedbackSubmitting) handleAddFeedback(quest.questId, feedbackDraft);
+                          }}
+                          disabled={!feedbackDraft.trim() && feedbackImages.length === 0 && !feedbackSubmitting}
+                          aria-busy={feedbackSubmitting || undefined}
+                          className={QUEST_PRIMARY_BUTTON_CLASS}
                         >
-                          {feedbackSubmitting ? "Saving..." : "Add Feedback"}
+                          Add Feedback
                         </button>
-                        {uploadingFeedbackImage && (
-                          <span className="text-xs text-cc-muted animate-pulse">Uploading...</span>
-                        )}
-                        <span className="text-[11px] text-cc-muted/40 ml-auto">{feedbackSaveKey.hint}</span>
                       </div>
                     </div>
                   </div>
@@ -1502,136 +1472,108 @@ export function QuestDetailPanel() {
                 </div>
               )}
 
-              {/* Metadata: quest ID + version history */}
-              <div className="flex items-center gap-2 text-[10px] text-cc-muted/50">
-                <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50" />
+              {/* Action bar: everyday actions on the left, the status and Finish Quest on the right edge.
+                  Delete asks in place of the whole row, so confirming never reflows the other buttons. */}
+              {confirmDeleteId === quest.questId ? (
+                <div
+                  className="flex flex-wrap items-center justify-end gap-1.5 border-t border-cc-border pt-3"
+                  data-testid="quest-detail-actions"
+                >
+                  <span className="mr-auto text-xs text-cc-fg">Delete this quest?</span>
+                  <button type="button" onClick={() => setConfirmDeleteId(null)} className={QUEST_BUTTON_CLASS}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deletePending.run(() => handleDelete(quest.questId))}
+                    aria-busy={deletePending.pending || undefined}
+                    className={QUEST_DANGER_BUTTON_CLASS}
+                  >
+                    Confirm Delete
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-2 border-t border-cc-border pt-3"
+                  data-testid="quest-detail-actions"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => enterEditMode(quest)} className={QUEST_BUTTON_CLASS}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(quest.questId)}
+                      className={QUEST_DELETE_BUTTON_CLASS}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {(() => {
+                      const statusTheme = isCancelled ? CANCELLED_QUEST_STATUS_THEME : STATUS_CONFIG[quest.status];
+                      return (
+                        <select
+                          aria-label="Quest status"
+                          value={isCancelled ? "cancelled" : quest.status}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "cancelled") handleCancel(quest);
+                            else handleTransition(quest, val as QuestStatus);
+                          }}
+                          className={`h-8 rounded-md border px-2 text-xs font-medium cursor-pointer outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cc-primary/50 ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
+                        >
+                          {ALL_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {STATUS_CONFIG[s].label}
+                            </option>
+                          ))}
+                          <option key="cancelled" value="cancelled">
+                            Cancelled
+                          </option>
+                        </select>
+                      );
+                    })()}
+                    {quest.status !== "done" && (
+                      <button
+                        type="button"
+                        onClick={() => void finishPending.run(() => handleTransition(quest, "done"))}
+                        aria-busy={finishPending.pending || undefined}
+                        className={QUEST_PRIMARY_BUTTON_CLASS}
+                      >
+                        Finish Quest
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 text-[11px] text-cc-muted">
+                <CopyableQuestId questId={quest.questId} className="text-[11px] text-cc-muted" />
                 <span>rev {quest.version}</span>
                 <button
+                  type="button"
                   onClick={() => toggleHistory(quest.questId)}
-                  className="px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer text-[10px]"
+                  aria-expanded={historyForId === quest.questId}
+                  className="rounded px-1 -mx-1 text-cc-muted underline-offset-2 hover:text-cc-fg hover:underline transition-colors cursor-pointer"
                 >
-                  {historyForId === quest.questId ? "hide" : "show"} history
+                  {historyForId === quest.questId ? "Hide history" : "Show history"}
                 </button>
               </div>
 
               {historyForId === quest.questId && (
                 <QuestVersionHistory questId={quest.questId} onNavigate={closeAfterSessionNavigate} />
               )}
-
-              {/* Action bar */}
-              <div className="flex items-start justify-between gap-2 flex-wrap pt-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    onClick={() => enterEditMode(quest)}
-                    className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer"
-                  >
-                    Edit
-                  </button>
-
-                  {quest.status !== "done" && (
-                    <button
-                      onClick={() => setAssignPickerForId(quest.questId)}
-                      className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary/10 text-cc-primary border border-cc-primary/20 hover:bg-cc-primary/20 transition-colors cursor-pointer"
-                    >
-                      Assign
-                    </button>
-                  )}
-
-                  <span className="w-px h-4 bg-cc-border mx-0.5" />
-
-                  {(() => {
-                    const dropdownCfg = isCancelled
-                      ? { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20" }
-                      : cfg;
-                    return (
-                      <select
-                        value={isCancelled ? "cancelled" : quest.status}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === "cancelled") handleCancel(quest);
-                          else handleTransition(quest, val as QuestStatus);
-                        }}
-                        className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${dropdownCfg.bg} ${dropdownCfg.text} border ${dropdownCfg.border}`}
-                      >
-                        {ALL_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {STATUS_CONFIG[s].label}
-                          </option>
-                        ))}
-                        <option key="cancelled" value="cancelled">
-                          Cancelled
-                        </option>
-                      </select>
-                    );
-                  })()}
-
-                  <span className="w-px h-4 bg-cc-border mx-0.5" />
-
-                  {quest.status !== "done" && (
-                    <>
-                      <button
-                        onClick={() => void finishPending.run(() => handleTransition(quest, "done"))}
-                        aria-busy={finishPending.pending || undefined}
-                        className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
-                      >
-                        Finish Quest
-                      </button>
-                      <span className="w-px h-4 bg-cc-border mx-0.5" />
-                    </>
-                  )}
-
-                  {questSessionId && isKnownSession && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleReworkInSession(quest, questSessionId)}
-                        disabled={unaddressedFeedbackCount === 0}
-                        title={
-                          unaddressedFeedbackCount > 0
-                            ? "Switch to this session and draft a rework message for quest feedback."
-                            : "No unaddressed human feedback."
-                        }
-                        className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
-                          unaddressedFeedbackCount > 0
-                            ? "bg-cc-hover text-cc-fg border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 cursor-pointer"
-                            : "bg-cc-hover text-cc-muted/60 border-cc-border cursor-not-allowed"
-                        }`}
-                      >
-                        Rework
-                      </button>
-                      <span className="w-px h-4 bg-cc-border mx-0.5" />
-                    </>
-                  )}
-
-                  {confirmDeleteId === quest.questId ? (
-                    <>
-                      <button
-                        onClick={() => void deletePending.run(() => handleDelete(quest.questId))}
-                        aria-busy={deletePending.pending || undefined}
-                        className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
-                      >
-                        Confirm Delete
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDeleteId(quest.questId)}
-                      className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-red-400 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
             </>
           )}
         </div>
+
+        {/* On phones the session jumps sit pinned at the bottom, within thumb reach; Open Thread is the most common. */}
+        {phoneLayout && (sessionTargets?.workerSessionId || sessionTargets?.leaderSessionId) && (
+          <div className="shrink-0 border-t border-cc-border px-3 py-2.5" data-testid="quest-detail-session-footer">
+            {sessionActions("justify-end", "touch")}
+          </div>
+        )}
       </div>
 
       {commitDiffState.activeCommitEntry && (
@@ -1651,60 +1593,6 @@ export function QuestDetailPanel() {
 
       {/* Lightbox */}
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
-
-      {/* Assign picker modal */}
-      {assignPickerForId &&
-        (() => {
-          const assignQuest = quests.find((q) => q.questId === assignPickerForId);
-          if (!assignQuest) return null;
-          return (
-            <div
-              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
-              onClick={() => setAssignPickerForId(null)}
-            >
-              <div
-                className="w-[min(480px,90vw)] max-h-[70vh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between px-4 py-3 border-b border-cc-border shrink-0">
-                  <div>
-                    <h3 className="text-sm font-semibold text-cc-fg">Assign to Session</h3>
-                    <p className="text-[11px] text-cc-muted truncate mt-0.5">{assignQuest.title}</p>
-                  </div>
-                  <button
-                    onClick={() => setAssignPickerForId(null)}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      className="w-3.5 h-3.5"
-                    >
-                      <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </div>
-                {pickerSessions.length === 0 ? (
-                  <div className="px-4 py-8 text-xs text-cc-muted text-center">No active sessions</div>
-                ) : (
-                  <div className="overflow-y-auto p-2 space-y-0.5">
-                    {pickerSessions.map((resolved) => (
-                      <PickerSessionChip
-                        key={resolved.sidebarItem.id}
-                        session={resolved.sidebarItem}
-                        sessionName={resolved.sidebarItem.name}
-                        sessionPreview={resolved.sidebarItem.lastMessagePreview || undefined}
-                        onClick={() => handleAssignToSession(assignQuest, resolved.sidebarItem.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
     </div>,
     portalTarget,
   );
