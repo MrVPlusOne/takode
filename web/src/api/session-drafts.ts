@@ -1,14 +1,7 @@
-import type { SessionDraftChange, SessionDraftWriteRequest, SessionDraftsState } from "../../shared/session-drafts.js";
+import type { SessionDraftChange, SessionDraftWriteRequest } from "../../shared/session-drafts.js";
 
 /** A draft write the server refused for good (for example, its prompt was already resolved). */
 export class DraftWriteRejectedError extends Error {}
-
-/** Current server drafts of a session, for a browser that is not subscribed to it. */
-export async function fetchSessionDrafts(sessionId: string): Promise<SessionDraftsState> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/drafts`);
-  if (!res.ok) throw new Error(`Could not load drafts (${res.status})`);
-  return ((await res.json()) as { drafts: SessionDraftsState }).drafts;
-}
 
 /**
  * Saves one draft change. `keepalive` lets the request finish while the page is

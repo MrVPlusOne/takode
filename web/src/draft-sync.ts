@@ -8,7 +8,7 @@ import {
   type SyncedComposerDraft,
   type SyncedNeedsInputAnswers,
 } from "../shared/session-drafts.js";
-import { DraftWriteRejectedError, fetchSessionDrafts, writeSessionDraft } from "./api/session-drafts.js";
+import { DraftWriteRejectedError, writeSessionDraft } from "./api/session-drafts.js";
 import { setLocalDraftChangeListener, type LocalDraftTarget } from "./draft-sync-bridge.js";
 import { useStore } from "./store.js";
 import { scopedGetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
@@ -50,7 +50,6 @@ interface DraftSlot {
 
 const clientId = createClientId();
 const slots = new Map<string, Map<string, DraftSlot>>();
-const hydratedSessions = new Set<string>();
 
 export function getDraftSyncClientId(): string {
   return clientId;
@@ -212,11 +211,9 @@ export function applyRemoteDraftChange(sessionId: string, change: SessionDraftCh
 
 /**
  * Replaces this tab's drafts for a session with the server's, except drafts this tab
- * is still sending. Runs on every subscribe (state_snapshot) and for sessions loaded
- * without a subscription.
+ * is still sending. Runs on every subscribe (state_snapshot).
  */
 export function applySessionDraftsSnapshot(sessionId: string, drafts: SessionDraftsState | undefined): void {
-  hydratedSessions.add(sessionId);
   const changes = new Map<string, SessionDraftChange>();
   const revision = drafts?.revision ?? 0;
   const remember = (change: SessionDraftChange) => changes.set(sessionDraftKey(change), change);
@@ -256,18 +253,6 @@ export function applySessionDraftsSnapshot(sessionId: string, drafts: SessionDra
 
 function meta(entry: { revision: number; clientId: string; updatedAt: number } | undefined, revision: number) {
   return entry ?? { revision, clientId: "", updatedAt: 0 };
-}
-
-/** Loads a session's drafts once for surfaces (like the global needs-input menu) that show unsubscribed sessions. */
-export function ensureSessionDraftsLoaded(sessionId: string): void {
-  if (hydratedSessions.has(sessionId)) return;
-  hydratedSessions.add(sessionId);
-  fetchSessionDrafts(sessionId)
-    .then((drafts) => applySessionDraftsSnapshot(sessionId, drafts))
-    .catch(() => {
-      // Not fatal: the next mount, or a subscribe snapshot, loads them again.
-      hydratedSessions.delete(sessionId);
-    });
 }
 
 /** Sends every pending draft now; used when the page is hidden or closed. */
@@ -315,7 +300,6 @@ export function resetDraftSyncForTests(): void {
     for (const slot of sessionSlots.values()) if (slot.timer) clearTimeout(slot.timer);
   }
   slots.clear();
-  hydratedSessions.clear();
 }
 
 setLocalDraftChangeListener(handleLocalDraftChange);

@@ -34,7 +34,6 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
       if (!result.ok) throw new actual.DraftWriteRejectedError(result.error);
       return result.change;
     }),
-    fetchSessionDrafts: vi.fn(async () => server.session.drafts ?? { revision: 0 }),
   };
 });
 
