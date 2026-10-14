@@ -25,8 +25,6 @@ import { ContextMenu } from "./ContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHostBadge } from "./HostBadge.js";
 import { GlobalAttentionMenu } from "./GlobalAttentionMenu.js";
-import { useGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
-import { useNotifyMeSummary } from "./GlobalNotifyMeMenu.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
@@ -384,7 +382,7 @@ export function TopBar({
         {/* Sidebar toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`relative flex items-center justify-center rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${
+          className={`flex items-center justify-center rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${
             compact ? "w-9 h-9 shrink-0" : "w-7 h-7"
           }`}
           title={getShortcutTitle("Toggle sidebar", shortcutSettings, "toggle_sidebar", shortcutPlatform)}
@@ -396,7 +394,6 @@ export function TopBar({
               clipRule="evenodd"
             />
           </svg>
-          {!sidebarOpen && <SessionsPanelWaitingDot />}
         </button>
 
         {/* Current session status + title — clickable to open session info */}
@@ -551,7 +548,7 @@ export function TopBar({
             onToggle={toggleLeaderWorkboardInPlace}
           />
         )}
-        {/* Needs input, Notify Me, Search and Quests live in the sessions panel (SidebarQuickActions). */}
+        {/* Search and Quests live in the sessions panel; needs input and Notify Me in the attention list. */}
         <GlobalAttentionMenu compact={compact} />
         {currentSessionId && isSessionView && (
           <>
@@ -621,19 +618,6 @@ function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOp
         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
       </svg>
     </button>
-  );
-}
-
-/** Amber dot on the closed sidebar toggle while the sessions panel holds needs-input prompts or Notify Me results. */
-function SessionsPanelWaitingDot() {
-  const { entries } = useGlobalNeedsInputEntries();
-  const { pending } = useNotifyMeSummary();
-  if (entries.length === 0 && pending === 0) return null;
-  return (
-    <span
-      data-testid="topbar-sessions-panel-waiting-dot"
-      className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-cc-attention ring-2 ring-cc-card"
-    />
   );
 }
 

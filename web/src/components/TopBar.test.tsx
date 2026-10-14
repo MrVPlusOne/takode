@@ -1408,9 +1408,9 @@ describe("TopBar phone layout and Next", () => {
   }
 
   it("keeps only the sidebar toggle, title and the attention list on a phone", () => {
-    // The phone bar was too crowded to show the title. Needs input, Notify Me,
-    // Search and Quests move to the sessions panel; a dot on ≡ says something waits there.
-    // Diffs open from the quest banner chip, so the bar has no Diff button either.
+    // The phone bar was too crowded to show the title. Search and Quests live in the
+    // sessions panel, and the attention list covers needs input and Notify Me, so ≡
+    // carries no waiting dot. Diffs open from the quest banner chip, so no Diff button either.
     window.innerWidth = 430;
     resetStore({ ...twoPromptsState(), sidebarOpen: false });
     render(<TopBar />);
@@ -1418,7 +1418,6 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByText("Worker One")).toBeInTheDocument();
     expect(screen.getByText("#101")).toBeInTheDocument();
     expect(screen.getByTestId("attention-list-button")).toHaveTextContent("2");
-    expect(screen.getByTestId("topbar-sessions-panel-waiting-dot")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /diff/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("topbar-universal-search")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Quests")).not.toBeInTheDocument();
@@ -1431,7 +1430,7 @@ describe("TopBar phone layout and Next", () => {
     resetStore(twoPromptsState());
     render(<TopBar />);
 
-    // Desktop matches the phone: Needs input, Notify Me, Search and Quests live in the sessions panel.
+    // Desktop matches the phone: the attention list stands in for the needs-input and Notify Me counts.
     const pill = screen.getByTestId("attention-list-button");
     expect(pill).toHaveTextContent("2");
     expect(screen.queryByRole("button", { name: /needs-input notifications across sessions/ })).not.toBeInTheDocument();

@@ -34,7 +34,6 @@ import {
   type GlobalNeedsInputEntry,
   type GlobalNeedsInputState,
 } from "../utils/global-needs-input.js";
-import { PanelChip } from "./PanelChip.js";
 import { anchoredPopoverStyle } from "../utils/anchored-popover.js";
 
 const MENU_TOP_PX = 44;
@@ -501,17 +500,8 @@ export function useGlobalNeedsInputEntries() {
   return { entries, mutedEntries, sdkSessions };
 }
 
-/**
- * Needs-input count button and its cross-session panel. `variant="panel"` is the
- * sessions-panel quick-action chip; `onOpen` lets the phone panel close itself first.
- */
-export function GlobalNeedsInputMenu({
-  variant = "chip",
-  onOpen,
-}: {
-  variant?: "chip" | "panel";
-  onOpen?: () => void;
-} = {}) {
+/** Needs-input count button and its cross-session panel, in full-page headers. */
+export function GlobalNeedsInputMenu() {
   const { entries, mutedEntries, sdkSessions } = useGlobalNeedsInputEntries();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -520,43 +510,28 @@ export function GlobalNeedsInputMenu({
   const count = entries.length;
   const hasMuted = mutedEntries.length > 0;
   const label = `${count} unresolved needs-input ${count === 1 ? "notification" : "notifications"} across sessions`;
-  const toggle = () => {
-    if (!open) onOpen?.();
-    setOpen((value) => !value);
-  };
 
   return (
     <>
-      {variant === "panel" ? (
-        <PanelChip
-          ref={triggerRef}
-          onClick={toggle}
-          icon={<BellIcon className="h-3.5 w-3.5 shrink-0" />}
-          label={count}
-          tone={count > 0 ? "attention" : undefined}
-          ariaLabel={label}
-        />
-      ) : (
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={toggle}
-          className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
-            count > 0
-              ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention hover:bg-cc-attention-bg/80"
-              : "border-cc-border bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          }`}
-          aria-label={label}
-          title={
-            hasMuted
-              ? "Needs-input notifications across sessions, including muted"
-              : "Needs-input notifications across sessions"
-          }
-        >
-          <span>{count}</span>
-          <BellIcon className={`h-3.5 w-3.5 shrink-0 ${count > 0 ? "text-cc-attention" : "text-cc-muted"}`} />
-        </button>
-      )}
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
+          count > 0
+            ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention hover:bg-cc-attention-bg/80"
+            : "border-cc-border bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+        }`}
+        aria-label={label}
+        title={
+          hasMuted
+            ? "Needs-input notifications across sessions, including muted"
+            : "Needs-input notifications across sessions"
+        }
+      >
+        <span>{count}</span>
+        <BellIcon className={`h-3.5 w-3.5 shrink-0 ${count > 0 ? "text-cc-attention" : "text-cc-muted"}`} />
+      </button>
       {open && (
         <GlobalNeedsInputPopover
           activeEntries={entries}

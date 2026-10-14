@@ -12,7 +12,6 @@ import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { fetchThreadMonitoring, updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
-import { PanelChip } from "./PanelChip.js";
 import { anchoredPopoverStyle } from "../utils/anchored-popover.js";
 import type { SdkSessionInfo } from "../types.js";
 
@@ -135,17 +134,8 @@ export function openNotifyMeEntry(entry: ThreadMonitoringEntry, sdkSessions: Sdk
   else navigateToSessionThread(entry.sessionId, entry.threadKey, false, routeSessionId);
 }
 
-/**
- * Notify Me count button and its results panel. `variant="panel"` is the
- * sessions-panel quick-action chip; `onOpen` lets the phone panel close itself first.
- */
-export function GlobalNotifyMeMenu({
-  variant = "chip",
-  onOpen,
-}: {
-  variant?: "chip" | "panel";
-  onOpen?: () => void;
-} = {}) {
+/** Notify Me count button and its results panel, in full-page headers. */
+export function GlobalNotifyMeMenu() {
   const { sdkSessions, ...summary } = useNotifyMeSummary();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<"pending" | "all">("pending");
@@ -207,37 +197,22 @@ export function GlobalNotifyMeMenu({
     setOpen(false);
   }
 
-  function toggle() {
-    if (!open) onOpen?.();
-    setOpen((open) => !open);
-  }
   const label = `Notify Me: ${summary.pending} ${summary.pending === 1 ? "task" : "tasks"} with results`;
 
   return (
     <>
-      {variant === "panel" ? (
-        <PanelChip
-          ref={triggerRef}
-          onClick={toggle}
-          icon={<NotifyMeIcon pending={summary.pending > 0} monitored={summary.tracked > 0} className="h-3.5 w-3.5" />}
-          label={summary.pending}
-          tone={summary.pending > 0 ? "info" : undefined}
-          ariaLabel={label}
-        />
-      ) : (
-        <button
-          type="button"
-          ref={triggerRef}
-          onClick={toggle}
-          aria-expanded={open}
-          aria-label={label}
-          title="Notify Me: monitored task results"
-          className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] cursor-pointer ${summary.pending ? "border-cc-info/40 bg-cc-info/10 text-cc-info" : "border-cc-border text-cc-muted hover:bg-cc-hover"}`}
-        >
-          <span>{summary.pending}</span>
-          <NotifyMeIcon pending={summary.pending > 0} monitored={summary.tracked > 0} className="h-3.5 w-3.5" />
-        </button>
-      )}
+      <button
+        type="button"
+        ref={triggerRef}
+        onClick={() => setOpen((open) => !open)}
+        aria-expanded={open}
+        aria-label={label}
+        title="Notify Me: monitored task results"
+        className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] cursor-pointer ${summary.pending ? "border-cc-info/40 bg-cc-info/10 text-cc-info" : "border-cc-border text-cc-muted hover:bg-cc-hover"}`}
+      >
+        <span>{summary.pending}</span>
+        <NotifyMeIcon pending={summary.pending > 0} monitored={summary.tracked > 0} className="h-3.5 w-3.5" />
+      </button>
       {open &&
         createPortal(
           <div
