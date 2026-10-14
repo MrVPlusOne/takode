@@ -8,6 +8,7 @@ import type {
   TodoLinkedQuest,
   TodoState,
   TodoProposalMutation,
+  TodoProposalStatuses,
   TodoStatus,
 } from "../../shared/todo-types.js";
 import { TODO_STATUSES } from "../../shared/todo-types.js";
@@ -244,6 +245,18 @@ export function createTodoRoutes(
           : state.proposals,
         revision: state.revision,
       });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  /** Each proposal's status alone, for the markers on `todo:tp-N` links in messages. */
+  api.get("/todos/proposal-statuses", async (c) => {
+    try {
+      const state = await store.snapshot();
+      const statuses: TodoProposalStatuses["statuses"] = {};
+      for (const proposal of state.proposals) statuses[proposal.id] = proposal.status;
+      return c.json({ statuses, revision: state.revision } satisfies TodoProposalStatuses);
     } catch (error) {
       return errorResponse(c, error);
     }

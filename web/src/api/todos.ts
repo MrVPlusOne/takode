@@ -5,6 +5,7 @@ import type {
   TodoItemMoveInput,
   TodoLinkedQuest,
   TodoPrincipal,
+  TodoProposalStatuses,
   TodoState,
   TodoStateMutationResponse,
   TodoStatus,
@@ -27,6 +28,8 @@ async function request<T>(path: string, options?: { method?: "GET" | "POST" | "P
 
 export const todoApi = {
   getTodoState: () => request<TodoState>("/todos"),
+
+  getTodoProposalStatuses: () => request<TodoProposalStatuses>("/todos/proposal-statuses"),
 
   getTodoLinkedQuests: () => request<{ quests: TodoLinkedQuest[]; revision: number }>("/todos/linked-quests"),
 

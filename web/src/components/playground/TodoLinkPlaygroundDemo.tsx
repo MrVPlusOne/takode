@@ -82,17 +82,29 @@ function demoState(): TodoState {
         "pending",
       ),
       demoProposal("tp-34", { action: "item:status", itemId: "td-30", status: "done" }, "approved"),
+      demoProposal(
+        "tp-35",
+        { action: "item:add", input: { markdown: "File the September expense report" } },
+        "rejected",
+      ),
     ],
     grants: [],
   };
 }
 
-/** To-do and proposal links in prose: tapping one opens its preview, where a pending proposal can be decided. */
+/**
+ * To-do and proposal links in prose, each with its marker (a proposal's shows its status): tapping one
+ * opens its preview, where a pending proposal can be decided.
+ */
 export function PlaygroundTodoLinkDemo() {
   // Decisions change only this demo's in-memory copy, never the real list.
   const stateRef = useRef<TodoState>(demoState());
   const source = useMemo<TodoLinkSource>(
     () => ({
+      loadProposalStatuses: async () => ({
+        statuses: Object.fromEntries(stateRef.current.proposals.map((proposal) => [proposal.id, proposal.status])),
+        revision: stateRef.current.revision,
+      }),
       loadState: async () => stateRef.current,
       resolve: async (proposalId, decision) => {
         const current = stateRef.current;
@@ -113,7 +125,7 @@ export function PlaygroundTodoLinkDemo() {
 
   return (
     <TodoLinkSourceContext.Provider value={source}>
-      <MarkdownContent text="To-dos: [Ship the export feature](todo:td-31) (doing, linked quest) and [Reply to Alice about the offsite](todo:td-30). The [PR 98888 review](todo:tp-36) may only need the stamp. Older proposals: [a new plan for the offsite reply](todo:tp-30) (edit) and [mark the offsite reply done](todo:tp-34) (approved). Missing: [an old proposal](todo:tp-99)." />
+      <MarkdownContent text="To-dos: [Ship the export feature](todo:td-31) (doing, linked quest) and [Reply to Alice about the offsite](todo:td-30). The [PR 98888 review](todo:tp-36) may only need the stamp. Older proposals: [a new plan for the offsite reply](todo:tp-30) (edit), [mark the offsite reply done](todo:tp-34) (approved) and [file the September expense report](todo:tp-35) (rejected). Missing: [an old proposal](todo:tp-99)." />
     </TodoLinkSourceContext.Provider>
   );
 }

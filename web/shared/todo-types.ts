@@ -164,6 +164,12 @@ export interface TodoProposal {
   resolution?: TodoMutationProvenance;
 }
 
+/** `GET /todos/proposal-statuses`: every proposal's status by ID, without the rest of the list. */
+export interface TodoProposalStatuses {
+  statuses: Record<string, TodoProposal["status"]>;
+  revision: number;
+}
+
 export interface TodoState {
   schemaVersion: 2;
   revision: number;

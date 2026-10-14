@@ -59,9 +59,15 @@ function todoState(proposals: TodoProposal[], revision = 5): TodoState {
   };
 }
 
-function renderLink(source: TodoLinkSource, text = "The [PR 98888 review](todo:tp-36) may only need the stamp.") {
+// Preview tests don't care about the link markers, so their statuses default to an empty list.
+type PreviewSource = Omit<TodoLinkSource, "loadProposalStatuses"> & Partial<TodoLinkSource>;
+
+function renderLink(source: PreviewSource, text = "The [PR 98888 review](todo:tp-36) may only need the stamp.") {
+  const fullSource: TodoLinkSource = source.loadProposalStatuses
+    ? (source as TodoLinkSource)
+    : { loadProposalStatuses: async () => ({ statuses: {}, revision: 0 }), ...source };
   return render(
-    <TodoLinkSourceContext.Provider value={source}>
+    <TodoLinkSourceContext.Provider value={fullSource}>
       <MarkdownContent text={text} />
     </TodoLinkSourceContext.Provider>,
   );
@@ -168,6 +174,75 @@ describe("to-do and proposal links", () => {
     // An item has nothing to decide: no Approve/Reject, only the way on to the list.
     expect(screen.queryByTestId("todo-proposal-approve")).toBeNull();
     expect(screen.getByRole("link", { name: "Open to-dos" }).getAttribute("href")).toBe("#/scheduled");
+  });
+
+  it("marks to-do and proposal links, with each proposal's status once it loads", async () => {
+    // The marker tells to-do links apart from web links. Until the statuses load, a proposal's marker
+    // keeps its place but stays invisible, so it never shows a wrong state and nothing shifts later.
+    let finishLoad!: (value: { statuses: Record<string, TodoProposal["status"]>; revision: number }) => void;
+    const loadProposalStatuses = vi.fn(
+      () =>
+        new Promise<Awaited<ReturnType<TodoLinkSource["loadProposalStatuses"]>>>((resolve) => (finishLoad = resolve)),
+    );
+    const source: TodoLinkSource = { loadProposalStatuses, loadState: vi.fn(), resolve: vi.fn() };
+    renderLink(
+      source,
+      "[Reply](todo:td-1), [pending](todo:tp-1), [approved](todo:tp-2), [rejected](todo:tp-3), [gone](todo:tp-4)",
+    );
+
+    const marker = (name: string) =>
+      screen.getByRole("link", { name }).querySelector<SVGElement>('[data-testid="todo-link-marker"]')!;
+    expect(marker("Reply").dataset.marker).toBe("item");
+    const pendingMarker = marker("pending");
+    expect(pendingMarker.dataset.status).toBe("loading");
+    expect(pendingMarker.getAttribute("class")).toContain("invisible");
+    // Every proposal link shares one load.
+    await waitFor(() => expect(loadProposalStatuses).toHaveBeenCalledTimes(1));
+    expect(marker("pending").dataset.status).toBe("loading");
+
+    await act(async () =>
+      finishLoad({ statuses: { "tp-1": "pending", "tp-2": "approved", "tp-3": "rejected" }, revision: 3 }),
+    );
+    // The same element changes state in place rather than being replaced.
+    expect(marker("pending")).toBe(pendingMarker);
+    expect(pendingMarker.dataset.status).toBe("pending");
+    expect(pendingMarker.getAttribute("class")).not.toContain("invisible");
+    expect(marker("approved").dataset.status).toBe("approved");
+    expect(marker("rejected").dataset.status).toBe("rejected");
+    expect(marker("gone").dataset.status).toBe("missing");
+  });
+
+  it("gives links shown later their status at once and keeps statuses current", async () => {
+    // Scrolling or switching threads remounts links; they must render their final marker from the
+    // shared statuses, not load and change in front of the user.
+    const loadProposalStatuses = vi
+      .fn<TodoLinkSource["loadProposalStatuses"]>()
+      .mockResolvedValueOnce({ statuses: { "tp-36": "pending" }, revision: 5 })
+      .mockResolvedValueOnce({ statuses: { "tp-36": "rejected" }, revision: 7 })
+      .mockResolvedValueOnce({ statuses: { "tp-36": "pending" }, revision: 6 });
+    const resolve = vi.fn(async () => ({
+      state: todoState([proposal({ status: "approved", resolvedAt: Date.now() })], 6),
+    }));
+    const source: TodoLinkSource = { loadProposalStatuses, loadState: async () => todoState([proposal()], 5), resolve };
+    const first = renderLink(source);
+    const status = () => screen.getByRole("link", { name: "PR 98888 review" }).querySelector("svg")!.dataset.status;
+    await waitFor(() => expect(status()).toBe("pending"));
+    first.unmount();
+
+    renderLink(source);
+    expect(status()).toBe("pending");
+
+    // Deciding in the preview updates the link right away, before any reload.
+    fireEvent.click(screen.getByRole("link", { name: "PR 98888 review" }));
+    fireEvent.click(await screen.findByTestId("todo-proposal-approve"));
+    await waitFor(() => expect(status()).toBe("approved"));
+
+    // A change elsewhere reloads the statuses; an answer older than what the page has is ignored.
+    await act(async () => window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT)));
+    await waitFor(() => expect(status()).toBe("rejected"));
+    await act(async () => window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT)));
+    expect(loadProposalStatuses).toHaveBeenCalledTimes(3);
+    expect(status()).toBe("rejected");
   });
 
   it("reports a missing proposal and closes on Escape or the backdrop", async () => {

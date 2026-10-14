@@ -17,26 +17,49 @@ import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import {
+  applyTodoProposalStatuses,
+  type TodoProposalStatus,
+  type TodoProposalStatusSource,
+  useTodoProposalStatus,
+  watchTodoProposalStatuses,
+} from "./todo-proposal-statuses.js";
 
-/** Where to-do previews read the list and send proposal decisions; the Playground swaps in mock data. */
-export interface TodoLinkSource {
+/**
+ * Where to-do links read proposal statuses and the list and send proposal decisions; the Playground
+ * swaps in mock data.
+ */
+export interface TodoLinkSource extends TodoProposalStatusSource {
   loadState: () => Promise<TodoState>;
   resolve: (proposalId: string, decision: "approve" | "reject") => Promise<TodoStateMutationResponse>;
 }
 
-export const TodoLinkSourceContext = createContext<TodoLinkSource>({
+const SERVER_TODO_LINK_SOURCE: TodoLinkSource = {
+  loadProposalStatuses: () => api.getTodoProposalStatuses(),
   loadState: () => api.getTodoState(),
   resolve: (proposalId, decision) => api.resolveTodoProposal(proposalId, decision),
-});
+};
+
+export const TodoLinkSourceContext = createContext<TodoLinkSource>(SERVER_TODO_LINK_SOURCE);
+
+/**
+ * Load proposal statuses at app start, so proposal links in the first messages shown already have
+ * their status marker instead of gaining it a moment later.
+ */
+export function preloadTodoProposalStatuses(): void {
+  watchTodoProposalStatuses(SERVER_TODO_LINK_SOURCE);
+}
 
 const TODOS_PAGE_HASH = "#/scheduled";
 const INBOX_CATEGORY_ID = "cat-inbox";
 const STATUS_LABELS: Record<TodoStatus, string> = { todo: "Todo", doing: "Doing", done: "Done" };
 
 /**
- * Inline link for `todo:td-<n>` (item) and `todo:tp-<n>` (proposal) hrefs. Clicking or tapping it
- * opens a preview, a bottom sheet on phones and a centered dialog on wider screens; a pending
- * proposal can be approved or rejected there. The href falls back to the to-dos page for new tabs.
+ * Inline link for `todo:td-<n>` (item) and `todo:tp-<n>` (proposal) hrefs. A small leading marker
+ * sets it apart from web links; a proposal's marker also shows whether it is pending, approved or
+ * rejected. Clicking or tapping it opens a preview, a bottom sheet on phones and a centered dialog
+ * on wider screens; a pending proposal can be approved or rejected there. The href falls back to
+ * the to-dos page for new tabs.
  */
 export function TodoInlineLink({
   target,
@@ -65,10 +88,74 @@ export function TodoInlineLink({
         title={target.kind === "item" ? "Preview to-do" : "Preview to-do proposal"}
         data-testid="todo-inline-link"
       >
+        {target.kind === "item" ? <TodoItemMarker /> : <ProposalMarker proposalId={target.id} />}
         {children}
       </a>
       {open && <TodoPreview target={target} onClose={close} />}
     </>
+  );
+}
+
+// A text-sized glyph with the same box in every state, so a status that loads or changes never
+// moves the text around it.
+const MARKER_CLASS = "mr-[0.2em] inline-block h-[1em] w-[1em] align-[-0.15em]";
+
+const PROPOSAL_MARKER_COLORS: Record<TodoProposalStatus | "missing", string> = {
+  pending: "text-cc-attention",
+  approved: "text-cc-success",
+  rejected: "text-cc-muted",
+  missing: "text-cc-muted",
+};
+
+/** A small checklist: this link is one of the user's to-dos. */
+function TodoItemMarker() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+      className={MARKER_CLASS}
+      data-testid="todo-link-marker"
+      data-marker="item"
+    >
+      <rect x="1.75" y="2.25" width="4.5" height="4.5" rx="1" />
+      <rect x="1.75" y="9.25" width="4.5" height="4.5" rx="1" />
+      <path d="M9 4.5h5.25M9 11.5h5.25" />
+    </svg>
+  );
+}
+
+/**
+ * A circle that shows where the proposal stands: dashed with a plus while it waits for a decision
+ * (amber, like other things waiting on the user), a green check once approved, a muted cross once
+ * rejected. It stays invisible, but takes its space, until the statuses first load, so it never
+ * shows a wrong state.
+ */
+function ProposalMarker({ proposalId }: { proposalId: string }) {
+  const status = useTodoProposalStatus(useContext(TodoLinkSourceContext), proposalId);
+  const resolved = status === "approved" || status === "rejected";
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={`${MARKER_CLASS} ${status ? PROPOSAL_MARKER_COLORS[status] : "invisible"}`}
+      data-testid="todo-link-marker"
+      data-marker="proposal"
+      data-status={status ?? "loading"}
+    >
+      <circle cx="8" cy="8" r="6.25" pathLength={40} strokeDasharray={resolved ? undefined : "3 2"} />
+      {status === "approved" && <path d="M5.25 8.25l1.9 1.9 3.6-4" />}
+      {status === "rejected" && <path d="M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5" />}
+      {(status === "pending" || status === null) && <path d="M8 5.5v5M5.5 8h5" />}
+    </svg>
   );
 }
 
@@ -80,9 +167,17 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
   const action = usePendingAction("Could not update the proposal.");
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const applyState = useCallback((next: TodoState) => {
-    setState((current) => (!current || next.revision >= current.revision ? next : current));
-  }, []);
+  const applyState = useCallback(
+    (next: TodoState) => {
+      setState((current) => (!current || next.revision >= current.revision ? next : current));
+      // Keep the link markers in step with what the preview shows, e.g. right after a decision.
+      applyTodoProposalStatuses(source, {
+        statuses: Object.fromEntries(next.proposals.map((proposal) => [proposal.id, proposal.status])),
+        revision: next.revision,
+      });
+    },
+    [source],
+  );
 
   useEffect(() => {
     // Keep the preview current while it is open, e.g. when the proposal is resolved elsewhere.

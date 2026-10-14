@@ -1681,7 +1681,7 @@ export function PlaygroundInteractiveSections() {
           <Card label="Needs-input notification links show the prompt and its status">
             <PlaygroundNotificationLinkDemo />
           </Card>
-          <Card label="To-do and proposal links open a preview; proposals offer Approve and Reject">
+          <Card label="To-do and proposal links carry a marker (a proposal's shows its status) and open a preview with Approve and Reject">
             <PlaygroundTodoLinkDemo />
           </Card>
         </div>

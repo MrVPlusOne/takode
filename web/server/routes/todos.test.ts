@@ -264,6 +264,29 @@ describe("to-do routes", () => {
     });
   });
 
+  it("lists each proposal's status alone for the markers on proposal links", async () => {
+    // Messages mark every proposal link with its status, so this read stays small: no mutations or bodies.
+    requiredCaller = caller();
+    const propose = async (title: string) =>
+      (
+        await (
+          await jsonRequest("/todos/proposals", "POST", {
+            mutation: { action: "item:add", input: { markdown: title } },
+          })
+        ).json()
+      ).proposal.id as string;
+    const pending = await propose("Pending one");
+    const approved = await propose("Approved one");
+    await jsonRequest(`/todos/proposals/${approved}/approve`, "POST", {});
+
+    const response = await jsonRequest("/todos/proposal-statuses");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      statuses: { [pending]: "pending", [approved]: "approved" },
+      revision: (await store.snapshot()).revision,
+    });
+  });
+
   it("keeps category archival reversible and refuses silent item loss", async () => {
     const category = (await (await jsonRequest("/todos/categories", "POST", { name: "Results" })).json()).category;
     const item = (
