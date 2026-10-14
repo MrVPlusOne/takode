@@ -170,30 +170,6 @@ export function secondaryPageOverSession(pageHash: string, primaryHash: string):
   return joinHash(path, params);
 }
 
-let secondaryViewDocked = false;
-
-/** Tell navigation whether the secondary view sits beside the primary view, set by the app shell. */
-export function setSecondaryViewDocked(docked: boolean): void {
-  secondaryViewDocked = docked;
-}
-
-/**
- * While the secondary view is docked beside the primary view, switching the
- * primary session keeps it, and any quest it shows, open.
- */
-function carryDockedSecondaryView(newHash: string): string {
-  if (!secondaryViewDocked) return newHash;
-  const currentHash = window.location.hash;
-  if (parseHash(currentHash).page !== "session") return newHash;
-  const { params: current } = splitHash(currentHash);
-  const { path, params } = splitHash(newHash);
-  for (const key of [SECONDARY_VIEW_QUERY_PARAM, QUEST_QUERY_PARAM, FEEDBACK_QUERY_PARAM]) {
-    const value = current.get(key);
-    if (value && !params.has(key)) params.set(key, value);
-  }
-  return joinHash(path, params);
-}
-
 /**
  * Read the coupled quest overlay target from hash query parameters.
  * Invalid feedback indexes degrade to whole-quest navigation.
@@ -367,7 +343,7 @@ function resolveMessageByReadableIndex(messages: ChatMessage[], messageIndex: nu
  * When replace=true, uses replaceState to avoid creating a history entry.
  */
 export function navigateToSession(sessionId: string, replace = false): void {
-  const newHash = carryDockedSecondaryView(sessionHash(sessionId));
+  const newHash = sessionHash(sessionId);
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -419,7 +395,7 @@ export function navigateToSessionThread(
   const currentHash =
     currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
       ? window.location.hash
-      : carryDockedSecondaryView(sessionHash(routeSessionId));
+      : sessionHash(routeSessionId);
   const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
     preserveMain: options.preserveMainThreadRoute,
   });

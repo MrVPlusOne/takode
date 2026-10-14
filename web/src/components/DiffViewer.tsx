@@ -972,9 +972,9 @@ export const DiffViewer = memo(function DiffViewer({
   );
 });
 
-/** The full-size diff opened from a compact one: beside the conversation on wide screens, else full-screen. */
+/** The full-size diff opened from a compact one: in the secondary view on wide screens, else full-screen. */
 function ExpandedDiff({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const dockTarget = useSecondaryViewTarget(true, onClose);
+  const dockTarget = useSecondaryViewTarget(true, onClose, "wide");
   return createPortal(
     <div
       className={dockTarget ? SECONDARY_VIEWER_LAYER_CLASS : "diff-modal-backdrop"}

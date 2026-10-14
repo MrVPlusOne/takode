@@ -489,6 +489,28 @@ html, body {
   50% { box-shadow: 0 0 6px 0 var(--glow-color, transparent); }
 }
 
+/* The secondary view slides in from the right; transform-only so it never paints transparent. */
+.secondary-view-enter {
+  animation: secondary-view-slide-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.secondary-view-scrim {
+  animation: fadeIn 180ms ease-out;
+}
+@keyframes secondary-view-slide-in {
+  from {
+    transform: translateX(48px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .secondary-view-enter,
+  .secondary-view-scrim {
+    animation: none;
+  }
+}
+
 /* Transform-only so the long-press menu never paints transparent. */
 @keyframes context-menu-pop {
   0% {

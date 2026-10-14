@@ -15,44 +15,42 @@ import {
 /**
  * The secondary view: pages such as Questmaster, Memory and Settings, and viewers opened from the
  * conversation (quest details, files, images, diffs), shown without replacing the conversation, the
- * primary view, which stays mounted. Wide screens show it in a right-hand area, either beside the
- * conversation or on top of it; phones and narrow windows cover the conversation with it.
+ * primary view, which stays mounted. Wide screens float it over the app from the right, as wide as
+ * its content needs; phones cover the conversation with it.
  */
 
-/** "side": the right-hand area sits beside the conversation and stays open; "overlay": it floats over it and an outside click dismisses it. */
-export type SecondaryViewMode = "side" | "overlay";
+/** The widest the secondary view grows for each kind of content, in CSS pixels. */
+export const SECONDARY_VIEW_MAX_WIDTHS = {
+  /** Quest details and Markdown files: a comfortable text column. */
+  reading: 880,
+  /** Pages such as Questmaster, Memory and Settings, whose content is at most 1024 px wide. */
+  page: 1080,
+  /** Diffs and logs, whose long lines read better unwrapped. */
+  wide: 1280,
+  /** Images, which use all the room a large window gives them. */
+  media: 1600,
+} as const;
 
-const MODE_STORAGE_KEY = "cc-secondary-view-mode";
+export type SecondaryViewSize = keyof typeof SECONDARY_VIEW_MAX_WIDTHS;
+
+interface SecondaryViewOccupant {
+  close: () => void;
+  size: SecondaryViewSize;
+}
 
 interface SecondaryDockState {
-  mode: SecondaryViewMode;
   /** The right-hand area viewers render into, or null when the layout has none. */
   target: HTMLElement | null;
-  /** Close callbacks of the viewers open in the right-hand area. */
-  occupants: ReadonlyMap<number, () => void>;
+  /** The viewers open in the right-hand area. */
+  occupants: ReadonlyMap<number, SecondaryViewOccupant>;
 }
 
 const useSecondaryDock = create<SecondaryDockState>(() => ({
-  mode: readStoredMode(),
   target: null,
   occupants: new Map(),
 }));
 
 let nextOccupantId = 0;
-
-function readStoredMode(): SecondaryViewMode {
-  if (typeof localStorage === "undefined") return "side";
-  return localStorage.getItem(MODE_STORAGE_KEY) === "overlay" ? "overlay" : "side";
-}
-
-export function useSecondaryViewMode(): SecondaryViewMode {
-  return useSecondaryDock((state) => state.mode);
-}
-
-export function setSecondaryViewMode(mode: SecondaryViewMode): void {
-  localStorage.setItem(MODE_STORAGE_KEY, mode);
-  useSecondaryDock.setState({ mode });
-}
 
 /** Set by the app shell: the right-hand area's element, or null when the layout has none. */
 export function setSecondaryViewTarget(target: HTMLElement | null): void {
@@ -64,16 +62,33 @@ export function useSecondaryViewOccupied(): boolean {
   return useSecondaryDock((state) => state.occupants.size > 0);
 }
 
-/** Close every viewer open in the right-hand area, as an outside click in overlay mode does. */
+/** Whether any viewer is open in the right-hand area right now, for event handlers. */
+export function secondaryViewersOpen(): boolean {
+  return useSecondaryDock.getState().occupants.size > 0;
+}
+
+/** The widest maximum among the viewers open in the right-hand area, or 0 when none is. */
+export function useSecondaryViewersMaxWidth(): number {
+  return useSecondaryDock((state) =>
+    Math.max(0, ...[...state.occupants.values()].map((occupant) => SECONDARY_VIEW_MAX_WIDTHS[occupant.size])),
+  );
+}
+
+/** Close every viewer open in the right-hand area, as an outside click does. */
 export function closeSecondaryViewers(): void {
-  for (const close of [...useSecondaryDock.getState().occupants.values()]) close();
+  for (const { close } of [...useSecondaryDock.getState().occupants.values()]) close();
 }
 
 /**
  * Where a viewer opened from the conversation renders while `open`: the right-hand area on wide
- * screens, or null for its own full-screen modal. `onClose` lets the area dismiss the viewer.
+ * screens, or null for its own full-screen modal. `onClose` lets the area dismiss the viewer, and
+ * `size` caps how wide the area grows for it.
  */
-export function useSecondaryViewTarget(open: boolean, onClose: () => void): HTMLElement | null {
+export function useSecondaryViewTarget(
+  open: boolean,
+  onClose: () => void,
+  size: SecondaryViewSize,
+): HTMLElement | null {
   const target = useSecondaryDock((state) => state.target);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -82,7 +97,7 @@ export function useSecondaryViewTarget(open: boolean, onClose: () => void): HTML
     if (!docked) return;
     const id = nextOccupantId++;
     useSecondaryDock.setState((state) => ({
-      occupants: new Map(state.occupants).set(id, () => onCloseRef.current()),
+      occupants: new Map(state.occupants).set(id, { close: () => onCloseRef.current(), size }),
     }));
     return () =>
       useSecondaryDock.setState((state) => {
@@ -90,7 +105,7 @@ export function useSecondaryViewTarget(open: boolean, onClose: () => void): HTML
         occupants.delete(id);
         return { occupants };
       });
-  }, [docked]);
+  }, [docked, size]);
   return docked ? target : null;
 }
 

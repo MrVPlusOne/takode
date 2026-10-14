@@ -32,7 +32,6 @@ import {
   primarySessionHash,
   secondaryPageFromHash,
   secondaryPageOverSession,
-  setSecondaryViewDocked,
   withSecondaryPageInHash,
 } from "./routing.js";
 import { useStore } from "../store.js";
@@ -402,22 +401,11 @@ describe("secondary view hash helpers", () => {
     );
   });
 
-  describe("switching sessions", () => {
-    beforeEach(() => {
-      window.location.hash = "#/session/s1?view=memory&quest=q-1";
-    });
-    afterEach(() => setSecondaryViewDocked(false));
-
-    it("keeps a docked secondary view and its quest open", () => {
-      setSecondaryViewDocked(true);
-      navigateToSession("s2");
-      expect(window.location.hash).toBe("#/session/s2?view=memory&quest=q-1");
-    });
-
-    it("leaves a covering secondary view behind", () => {
-      navigateToSession("s2");
-      expect(window.location.hash).toBe("#/session/s2");
-    });
+  // The secondary view floats over the conversation, so switching sessions leaves it behind.
+  it("closes the secondary view and its quest when switching sessions", () => {
+    window.location.hash = "#/session/s1?view=memory&quest=q-1";
+    navigateToSession("s2");
+    expect(window.location.hash).toBe("#/session/s2");
   });
 });
 

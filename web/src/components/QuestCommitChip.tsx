@@ -219,8 +219,8 @@ function QuestDeliveryModal({
     dialogRef.current?.close();
     onClose();
   };
-  // Wide screens show the commit beside the conversation instead of over it.
-  const dockTarget = useSecondaryViewTarget(true, onClose);
+  // Wide screens show the commit in the secondary view, over the app's right side.
+  const dockTarget = useSecondaryViewTarget(true, onClose, "wide");
   const docked = dockTarget !== null;
 
   useEffect(() => {

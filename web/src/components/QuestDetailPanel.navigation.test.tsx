@@ -6,7 +6,6 @@ import type { QuestmasterTask } from "../types.js";
 import { QuestDetailPanel } from "./QuestDetailPanel.js";
 import { act } from "react";
 import { setSecondaryViewTarget } from "../utils/secondary-view.js";
-import { setSecondaryViewDocked } from "../utils/routing.js";
 
 const mockGetQuestHistory = vi.fn();
 
@@ -110,26 +109,22 @@ describe("QuestDetailPanel navigation dismissal", () => {
     expect(window.location.hash).toBe("#/session/worker-42");
   });
 
-  // Beside the conversation the details are meant to stay up while the user opens the sessions they
-  // name, so Open Worker switches the conversation and keeps the quest open.
-  it("stays open beside the conversation when Open Worker switches the session", () => {
+  // The details float over the app, so opening a session from them closes them to show it.
+  it("closes in the secondary view when Open Worker switches the session", () => {
     const area = document.createElement("div");
     document.body.appendChild(area);
     act(() => setSecondaryViewTarget(area));
-    setSecondaryViewDocked(true);
     try {
       useStore.setState({ quests: [makeQuest()], questOverlayId: "q-42" });
 
       render(<QuestDetailPanel />);
       expect(area).toContainElement(screen.getByTestId("quest-detail-panel"));
-      expect(screen.getByTestId("quest-detail-panel")).not.toHaveAttribute("aria-modal");
 
       fireEvent.click(screen.getByRole("link", { name: "Open Worker #123" }));
 
-      expect(useStore.getState().questOverlayId).toBe("q-42");
-      expect(window.location.hash).toBe("#/session/worker-42?quest=q-42");
+      expect(useStore.getState().questOverlayId).toBeNull();
+      expect(window.location.hash).toBe("#/session/worker-42");
     } finally {
-      setSecondaryViewDocked(false);
       act(() => setSecondaryViewTarget(null));
       area.remove();
     }

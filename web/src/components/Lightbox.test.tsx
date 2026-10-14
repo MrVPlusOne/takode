@@ -107,9 +107,9 @@ describe("Lightbox", () => {
     expect(document.body.style.overflow).not.toBe("hidden");
   });
 
-  // On wide screens the app registers a right-hand area beside the conversation; the image opens
-  // there, and the composer beside it keeps its own keys.
-  describe("beside the conversation", () => {
+  // On wide screens the app registers a secondary view area floating over the app; the image opens
+  // there, and the app behind it is inert, so Escape closes the image wherever focus is.
+  describe("in the secondary view area", () => {
     let area: HTMLDivElement;
     beforeEach(() => {
       area = document.createElement("div");
@@ -121,17 +121,11 @@ describe("Lightbox", () => {
       area.remove();
     });
 
-    it("renders in the right-hand area and leaves Escape in the composer alone", () => {
+    it("renders in the area without locking body scroll and closes on Escape", () => {
       render(<Lightbox {...defaultProps} />);
 
       expect(area.contains(screen.getByTestId("lightbox-backdrop"))).toBe(true);
       expect(document.body.style.overflow).not.toBe("hidden");
-
-      const composer = document.createElement("textarea");
-      document.body.appendChild(composer);
-      fireEvent.keyDown(composer, { key: "Escape" });
-      expect(defaultProps.onClose).not.toHaveBeenCalled();
-      composer.remove();
 
       fireEvent.keyDown(document, { key: "Escape" });
       expect(defaultProps.onClose).toHaveBeenCalledTimes(1);

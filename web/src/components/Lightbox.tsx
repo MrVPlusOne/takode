@@ -2,7 +2,6 @@ import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
-import { isShortcutEventTargetEditable } from "../shortcuts.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -14,18 +13,16 @@ interface LightboxProps {
 }
 
 /**
- * Image lightbox: in the right-hand secondary view area beside the conversation on wide
+ * Image lightbox: in the secondary view floating over the app's right side on wide
  * screens, otherwise a full-screen modal on document.body. The image is displayed at its
  * natural size, constrained to fit, and can be zoomed and panned. Click around the image
  * or press Escape to close.
  */
 export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProps) {
-  const dockTarget = useSecondaryViewTarget(true, onClose);
+  const dockTarget = useSecondaryViewTarget(true, onClose, "media");
   const docked = dockTarget !== null;
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Beside the conversation, keys typed into the composer belong to it.
-      if (docked && isShortcutEventTargetEditable(e.target)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -33,7 +30,7 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
         onClose();
       }
     },
-    [docked, onClose],
+    [onClose],
   );
 
   useEffect(() => {

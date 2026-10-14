@@ -351,7 +351,7 @@ vi.mock("./components/QuestDetailPanel.js", async () => {
   return {
     QuestDetailPanel: () => {
       const open = !!mockState.questOverlayId;
-      const target = useSecondaryViewTarget(open, () => {});
+      const target = useSecondaryViewTarget(open, () => {}, "reading");
       if (!open) return null;
       return target ? (
         createPortal(<div data-testid="quest-detail-host" data-docked="true" />, target)
@@ -402,7 +402,6 @@ vi.mock("./utils/vscode-bridge.js", () => ({
 }));
 
 import App from "./App.js";
-import { setSecondaryViewMode } from "./utils/secondary-view.js";
 import { hydrateSessionList } from "./session-list-hydration.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-status-auto-refresh.js";
 import { retireSessionMessageRoute } from "./utils/routing.js";
@@ -436,10 +435,6 @@ describe("App primary and secondary views", () => {
     return screen.getByTestId("chat-view").closest(".absolute") as HTMLElement;
   }
 
-  beforeEach(() => {
-    setSecondaryViewMode("side");
-  });
-
   it("keeps the conversation mounted and connected while a page covers it on phones", async () => {
     setViewportWidth(430);
     window.location.hash = "#/session/s1?view=questmaster";
@@ -454,7 +449,7 @@ describe("App primary and secondary views", () => {
     expect(mockDisconnectSession).not.toHaveBeenCalled();
   });
 
-  it("shows a page beside the visible conversation on wide screens and closes it from its header", async () => {
+  it("floats a page over the visible conversation on wide screens and closes it from its header", async () => {
     setViewportWidth(1512);
     window.location.hash = "#/session/s1?thread=q-9&view=memory";
 
@@ -463,42 +458,43 @@ describe("App primary and secondary views", () => {
     const pane = screen.getByTestId("secondary-view-pane");
     expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
     expect(pane).toContainElement(screen.getByTestId("memory-page"));
-    expect(pane).toHaveAttribute("data-mode", "side");
-    expect(screen.queryByTestId("secondary-view-scrim")).toBeNull();
     expect(chatLayer()).not.toHaveClass("invisible");
+    // The conversation shows through the scrim but can't be used until the page closes.
+    expect(screen.getByTestId("secondary-view-scrim")).toBeInTheDocument();
+    expect(screen.getByTestId("top-bar").closest("[inert]")).not.toBeNull();
     // The session keeps its own top bar; the page names itself in the pane header.
     expect(screen.getByTestId("top-bar")).toHaveAttribute("data-full-page-label", "");
 
     fireEvent.click(screen.getByRole("button", { name: "Close Memory" }));
     await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9"));
     expect(screen.queryByTestId("memory-page")).toBeNull();
+    expect(screen.getByTestId("top-bar").closest("[inert]")).toBeNull();
   });
 
-  it("floats the page over the conversation in overlay mode and dismisses it on an outside click", async () => {
+  it("dismisses the page on an outside click", async () => {
     setViewportWidth(1512);
-    setSecondaryViewMode("overlay");
     window.location.hash = "#/session/s1?view=memory";
 
     render(<App />);
 
     expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
-    expect(screen.getByTestId("secondary-view-pane")).toHaveAttribute("data-mode", "overlay");
-    expect(chatLayer()).not.toHaveClass("invisible");
-
     fireEvent.click(screen.getByTestId("secondary-view-scrim"));
     await waitFor(() => expect(window.location.hash).toBe("#/session/s1"));
   });
 
-  it("floats the page over the conversation when the window is too narrow to show both", async () => {
-    // Desktop shell, but the chat would get narrower than readable beside the page.
+  // Width comes from the whole app, sidebar included: a narrow window gives the page all but a
+  // strip to click outside, and a wide one stops at the page's maximum.
+  it("sizes the page from the whole app width up to its maximum", async () => {
     setViewportWidth(900);
     window.location.hash = "#/session/s1?view=memory";
-
-    render(<App />);
-
+    const view = render(<App />);
     expect(await screen.findByTestId("memory-page")).toBeInTheDocument();
-    expect(screen.getByTestId("secondary-view-pane")).toHaveAttribute("data-mode", "overlay");
-    expect(screen.queryByTestId("secondary-view-mode-toggle")).toBeNull();
+    expect(screen.getByTestId("secondary-view-pane")).toHaveStyle({ width: "852px" });
+
+    view.unmount();
+    setViewportWidth(2560);
+    render(<App />);
+    expect(screen.getByTestId("secondary-view-pane")).toHaveStyle({ width: "1080px" });
   });
 
   it("rewrites a page link to open over the last session and thread", async () => {
@@ -528,7 +524,7 @@ describe("App primary and secondary views", () => {
     expect(screen.getByTestId("quest-detail-host")).toHaveAttribute("data-docked", "false");
   });
 
-  it("shows the session diff beside the conversation on wide screens", () => {
+  it("shows the session diff over the conversation on wide screens", () => {
     setViewportWidth(1512);
     resetStore({
       activeTab: "diff",

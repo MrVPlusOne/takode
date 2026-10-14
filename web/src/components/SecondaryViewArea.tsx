@@ -1,17 +1,16 @@
-import type { ReactNode } from "react";
-import { setSecondaryViewMode, type SecondaryViewMode } from "../utils/secondary-view.js";
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { isShortcutEventTargetEditable } from "../shortcuts.js";
+import { secondaryViewersOpen } from "../utils/secondary-view.js";
 
 /**
- * The right-hand area of wide screens, holding the secondary view: a page such as Questmaster and
- * any viewers opened from the conversation, which render into `contentRef` from their own place
- * in the tree. Beside the conversation it stays open while the user works in the chat; floating
- * over it, a click anywhere outside dismisses it.
+ * The secondary view on wide screens: a page such as Questmaster and any viewers opened from the
+ * conversation, which render into `contentRef` from their own place in the tree. It floats over
+ * the app from the right; a click outside dismisses everything in it and Escape closes what is on
+ * top. While open, focus moves into it, and returns where it was when it closes.
  */
 export function SecondaryViewArea({
   width,
   open,
-  mode,
-  canShowBeside,
   title,
   onClose,
   onDismiss,
@@ -21,33 +20,49 @@ export function SecondaryViewArea({
   width: number;
   /** Whether anything is shown; the area stays mounted while empty so viewers have a stable target. */
   open: boolean;
-  /** How the area is shown right now: beside the conversation or floating over it. */
-  mode: SecondaryViewMode;
-  /** Whether the window is wide enough to show the area beside the conversation. */
-  canShowBeside: boolean;
   /** Name of the page shown, when its header is not covered by a viewer. */
   title?: string;
+  /** Closes what is on top, from the header button or Escape; viewers handle their own Escape. */
   onClose: () => void;
-  /** Closes everything in the area, for an outside click while it floats. */
+  /** Closes everything in the area, for an outside click. */
   onDismiss: () => void;
   contentRef: (element: HTMLDivElement | null) => void;
   children?: ReactNode;
 }) {
-  const floating = mode === "overlay";
+  const areaRef = useRef<HTMLElement>(null);
+  useSecondaryViewFocus(areaRef, open);
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Viewers close themselves, and dialogs opened from a page (or typing in it) own Escape.
+      if (secondaryViewersOpen() || isShortcutEventTargetEditable(event.target)) return;
+      if (document.querySelector('[aria-modal="true"], dialog[open]')) return;
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
   return (
     <>
-      {open && floating && (
-        <div className="absolute inset-0 z-40 bg-black/20" onClick={onDismiss} data-testid="secondary-view-scrim" />
+      {open && (
+        <div
+          className="secondary-view-scrim absolute inset-0 z-50 bg-black/30"
+          onClick={onDismiss}
+          data-testid="secondary-view-scrim"
+        />
       )}
       <aside
-        className={`${open ? "flex" : "hidden"} h-full shrink-0 flex-col border-l border-cc-border bg-cc-bg ${
-          floating ? "absolute right-0 top-0 z-40 shadow-2xl" : "relative"
-        }`}
+        ref={areaRef}
+        tabIndex={-1}
+        className={`${open ? "flex" : "hidden"} secondary-view-enter absolute right-0 top-0 z-50 h-full flex-col border-l border-cc-border bg-cc-bg shadow-2xl outline-none`}
         style={{ width }}
         data-testid="secondary-view-pane"
-        data-mode={mode}
       >
-        {canShowBeside && <SecondaryViewModeToggle mode={mode} />}
         {title && (
           <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 bg-cc-card border-b border-cc-border">
             <span className="truncate text-[12px] font-semibold text-cc-fg">{title}</span>
@@ -73,33 +88,18 @@ export function SecondaryViewArea({
   );
 }
 
-/** A small handle on the area's left edge that switches between beside and over the conversation. */
-function SecondaryViewModeToggle({ mode }: { mode: SecondaryViewMode }) {
-  const label = mode === "side" ? "Show over the conversation" : "Show beside the conversation";
-  return (
-    <button
-      type="button"
-      onClick={() => setSecondaryViewMode(mode === "side" ? "overlay" : "side")}
-      className="absolute left-0 top-1/2 z-50 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-cc-border bg-cc-card text-cc-muted shadow-sm transition-colors hover:bg-cc-hover hover:text-cc-fg"
-      title={label}
-      aria-label={label}
-      data-testid="secondary-view-mode-toggle"
-    >
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3.5 w-3.5">
-        {mode === "side" ? (
-          // Two stacked sheets: switch to floating over the conversation.
-          <>
-            <rect x="2" y="4.5" width="8.5" height="9" rx="1.5" />
-            <path d="M5.5 4.5V3.5A1.5 1.5 0 017 2h5.5A1.5 1.5 0 0114 3.5v6a1.5 1.5 0 01-1.5 1.5h-2" />
-          </>
-        ) : (
-          // Two columns: switch to beside the conversation.
-          <>
-            <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
-            <path d="M9 2.75v10.5" />
-          </>
-        )}
-      </svg>
-    </button>
-  );
+/**
+ * Moves focus into the area when it opens, unless a viewer already focused something inside it, and
+ * gives it back to where it was (such as the composer) when the area closes. A layout effect reads
+ * the focused element before the browser drops focus from the app made inert behind the area, and
+ * the restore waits for the commit that lifts that inertness.
+ */
+function useSecondaryViewFocus(areaRef: RefObject<HTMLElement | null>, open: boolean) {
+  useLayoutEffect(() => {
+    const area = areaRef.current;
+    if (!open || !area) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!area.contains(document.activeElement)) area.focus({ preventScroll: true });
+    return () => queueMicrotask(() => previous?.focus({ preventScroll: true }));
+  }, [areaRef, open]);
 }

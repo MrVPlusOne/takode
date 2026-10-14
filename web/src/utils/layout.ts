@@ -22,22 +22,13 @@ export function isNarrowComposerLayout(zoomLevel: number): boolean {
   return getEffectiveViewportWidth(zoomLevel) < COMPOSER_NARROW_BREAKPOINT;
 }
 
-const SECONDARY_VIEW_MIN_WIDTH = 420;
-const SECONDARY_VIEW_MAX_WIDTH = 760;
 const SECONDARY_VIEW_MIN_UNCOVERED_WIDTH = 48;
-const PRIMARY_VIEW_MIN_WIDTH_BESIDE_SECONDARY = 560;
 
 /**
- * Width of the right-hand secondary view area, given the width left for the conversation and it
- * after the sidebar and task panel, or null when it would not fit and should cover the
- * conversation instead. Leaves a strip of the conversation uncovered when it floats.
+ * Width of the secondary view floating over the app from the right: as wide as its content's
+ * maximum, within the whole app width (sidebar included) less a strip left uncovered so a click
+ * there dismisses it.
  */
-export function secondaryViewWidth(availableWidth: number): number | null {
-  if (availableWidth - SECONDARY_VIEW_MIN_UNCOVERED_WIDTH < SECONDARY_VIEW_MIN_WIDTH) return null;
-  return Math.min(SECONDARY_VIEW_MAX_WIDTH, Math.max(SECONDARY_VIEW_MIN_WIDTH, Math.round(availableWidth * 0.45)));
-}
-
-/** Whether the conversation stays readable beside a secondary view area of `width`. */
-export function canShowSecondaryViewBeside(availableWidth: number, width: number): boolean {
-  return availableWidth - width >= PRIMARY_VIEW_MIN_WIDTH_BESIDE_SECONDARY;
+export function secondaryViewWidth(appWidth: number, contentMaxWidth: number): number {
+  return Math.min(contentMaxWidth, appWidth - SECONDARY_VIEW_MIN_UNCOVERED_WIDTH);
 }

@@ -5,7 +5,6 @@ import { readFileLinkText, type FileLinkActionTarget } from "../api/file-link-ac
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
-import { isShortcutEventTargetEditable } from "../shortcuts.js";
 
 /**
  * Open viewers, bottom first. They live outside the link that opened them, so a viewer stays open
@@ -58,8 +57,8 @@ function MarkdownFileViewer({
   const sheetRef = useRef<HTMLDivElement>(null);
   const [file, setFile] = useState<ViewerContent>({ status: "loading" });
   usePreviewSheetHistoryEntry(true, sheetRef, onClose);
-  // Wide screens show the file beside the conversation instead of over it.
-  const dockTarget = useSecondaryViewTarget(true, onClose);
+  // Wide screens show the file in the secondary view, over the app's right side.
+  const dockTarget = useSecondaryViewTarget(true, onClose, "reading");
   const docked = dockTarget !== null;
 
   useEffect(() => {
@@ -76,13 +75,11 @@ function MarkdownFileViewer({
   useEffect(() => {
     if (!isTop) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Beside the conversation, keys typed into the composer belong to it.
-      if (docked && isShortcutEventTargetEditable(event.target)) return;
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [docked, isTop, onClose]);
+  }, [isTop, onClose]);
 
   useEffect(() => {
     if (docked) return;
@@ -153,7 +150,7 @@ function MarkdownFileViewer({
               sessionId={target.sessionId}
               fileBasePath={file.absolutePath}
               wrapLongContent
-              onSessionNavigate={docked ? undefined : closeAll}
+              onSessionNavigate={closeAll}
               questLinkSurface="chat-feed"
             />
           )}

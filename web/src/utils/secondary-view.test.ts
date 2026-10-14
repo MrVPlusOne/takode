@@ -4,10 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeSecondaryViewers,
   openSecondaryPage,
-  setSecondaryViewMode,
   setSecondaryViewTarget,
   toggleSecondaryPage,
-  useSecondaryViewMode,
+  useSecondaryViewersMaxWidth,
   useSecondaryViewOccupied,
   useSecondaryViewTarget,
 } from "./secondary-view.js";
@@ -20,7 +19,7 @@ describe("secondary view area registry", () => {
   afterEach(() => act(() => setSecondaryViewTarget(null)));
 
   it("renders viewers as modals when the layout has no right-hand area", () => {
-    const { result } = renderHook(() => useSecondaryViewTarget(true, vi.fn()));
+    const { result } = renderHook(() => useSecondaryViewTarget(true, vi.fn(), "reading"));
     expect(result.current).toBeNull();
   });
 
@@ -29,13 +28,15 @@ describe("secondary view area registry", () => {
     act(() => setSecondaryViewTarget(area));
     const onClose = vi.fn();
 
-    const viewer = renderHook(({ open }) => useSecondaryViewTarget(open, onClose), { initialProps: { open: true } });
+    const viewer = renderHook(({ open }) => useSecondaryViewTarget(open, onClose, "reading"), {
+      initialProps: { open: true },
+    });
     const occupied = renderHook(() => useSecondaryViewOccupied());
 
     expect(viewer.result.current).toBe(area);
     expect(occupied.result.current).toBe(true);
 
-    // An outside click in overlay mode closes every viewer in the area.
+    // An outside click closes every viewer in the area.
     closeSecondaryViewers();
     expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -43,16 +44,22 @@ describe("secondary view area registry", () => {
     expect(viewer.result.current).toBeNull();
     expect(occupied.result.current).toBe(false);
   });
-});
 
-describe("secondary view mode", () => {
-  it("defaults to beside the conversation and remembers the user's choice", () => {
-    const { result } = renderHook(() => useSecondaryViewMode());
-    act(() => setSecondaryViewMode("overlay"));
-    expect(result.current).toBe("overlay");
-    expect(localStorage.getItem("cc-secondary-view-mode")).toBe("overlay");
-    act(() => setSecondaryViewMode("side"));
-    expect(result.current).toBe("side");
+  // The area grows to the widest of the viewers open in it, so a narrow viewer opened over a wide
+  // one does not shrink it, and it falls back once the wide one closes.
+  it("reports the widest maximum among the open viewers", () => {
+    act(() => setSecondaryViewTarget(document.createElement("div")));
+    const maxWidth = renderHook(() => useSecondaryViewersMaxWidth());
+    expect(maxWidth.result.current).toBe(0);
+
+    const image = renderHook(({ open }) => useSecondaryViewTarget(open, vi.fn(), "media"), {
+      initialProps: { open: true },
+    });
+    renderHook(() => useSecondaryViewTarget(true, vi.fn(), "reading"));
+    expect(maxWidth.result.current).toBe(1600);
+
+    image.rerender({ open: false });
+    expect(maxWidth.result.current).toBe(880);
   });
 });
 

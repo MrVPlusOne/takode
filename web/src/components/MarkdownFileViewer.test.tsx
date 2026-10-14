@@ -101,9 +101,9 @@ describe("MarkdownFileViewer", () => {
     fireEvent.click(within(viewer).getByRole("button", { name: "Close file" }));
   });
 
-  // On wide screens the app registers a right-hand area beside the conversation: files open there,
-  // stacked, with no backdrop, and the area can dismiss them all at once.
-  it("opens files in the right-hand area beside the conversation when one is available", async () => {
+  // On wide screens the app registers a secondary view area floating over the app: files open
+  // there, stacked, with no backdrop of their own, and the area can dismiss them all at once.
+  it("opens files in the secondary view area when one is available", async () => {
     const area = document.createElement("div");
     document.body.appendChild(area);
     act(() => setSecondaryViewTarget(area));

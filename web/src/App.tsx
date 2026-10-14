@@ -30,15 +30,16 @@ import {
   secondaryPageFromHash,
   secondaryPageOverSession,
   sessionHash,
-  setSecondaryViewDocked,
   type SecondaryPage,
 } from "./utils/routing.js";
 import {
   closeSecondaryPage,
   closeSecondaryViewers,
+  SECONDARY_VIEW_MAX_WIDTHS,
   setSecondaryViewTarget,
-  useSecondaryViewMode,
+  useSecondaryViewersMaxWidth,
   useSecondaryViewOccupied,
+  type SecondaryViewSize,
 } from "./utils/secondary-view.js";
 import { SecondaryViewArea } from "./components/SecondaryViewArea.js";
 import { UserContentNotice } from "./components/UserContentNotice.js";
@@ -68,7 +69,6 @@ import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
 import { UniversalSearchOverlay } from "./components/UniversalSearchOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import {
-  canShowSecondaryViewBeside,
   getEffectiveViewportWidth,
   secondaryViewWidth,
   isDesktopShellLayout,
@@ -260,20 +260,16 @@ function useViewportWidth(zoomLevel: number): number {
   return useSyncExternalStore(subscribeResize, () => getEffectiveViewportWidth(zoomLevel));
 }
 
-const SECONDARY_PAGE_LABELS: Record<SecondaryPage, string> = {
-  settings: "Settings",
-  changelog: "Changelog",
-  logs: "Logs",
-  terminal: "Terminal",
-  environments: "Environments",
-  scheduled: "To-dos & Timers",
-  questmaster: "Questmaster",
-  memory: "Memory",
+const SECONDARY_PAGES: Record<SecondaryPage, { label: string; size: SecondaryViewSize }> = {
+  settings: { label: "Settings", size: "page" },
+  changelog: { label: "Changelog", size: "page" },
+  logs: { label: "Logs", size: "wide" },
+  terminal: { label: "Terminal", size: "page" },
+  environments: { label: "Environments", size: "page" },
+  scheduled: { label: "To-dos & Timers", size: "page" },
+  questmaster: { label: "Questmaster", size: "page" },
+  memory: { label: "Memory", size: "page" },
 };
-
-function secondaryPageLabel(page: SecondaryPage): string {
-  return SECONDARY_PAGE_LABELS[page];
-}
 
 /** The page shown as the secondary view. Settings stays mounted under the Changelog it links to. */
 function renderSecondaryPage(page: SecondaryPage) {
@@ -393,7 +389,7 @@ export default function App() {
   // Logs and Environments keep the session top bar; other pages name themselves in it.
   const fullPageRouteLabel =
     secondaryPage && secondaryPage !== "logs" && secondaryPage !== "environments"
-      ? secondaryPageLabel(secondaryPage)
+      ? SECONDARY_PAGES[secondaryPage].label
       : undefined;
   const isSessionView = route.page === "session" || route.page === "home";
   const routeSessionId = useMemo(
@@ -420,34 +416,37 @@ export default function App() {
   );
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
-  const inlineTaskPanelOpen =
-    isDesktopTaskPanel && taskPanelOpen && isSessionView && !!currentSessionId && !isPendingId(currentSessionId);
   const viewportWidth = useViewportWidth(zoomLevel);
-  // Wide screens show the secondary view (a page and viewers opened from the conversation) in a
-  // right-hand area, beside the conversation or floating over it; phones cover the conversation
-  // with it. Either way the conversation, the primary view, stays mounted.
-  const preferredSecondaryViewMode = useSecondaryViewMode();
+  // Wide screens float the secondary view (a page and viewers opened from the conversation) over
+  // the whole app from the right, as wide as its content needs; phones cover the conversation with
+  // it. Either way the conversation, the primary view, stays mounted.
   const secondaryViewersOpen = useSecondaryViewOccupied();
-  const secondaryAvailableWidth = viewportWidth - (sidebarOpen ? 260 : 0) - (inlineTaskPanelOpen ? 280 : 0);
-  const secondaryAreaWidth = isDesktopShell && isSessionView ? secondaryViewWidth(secondaryAvailableWidth) : null;
-  const canShowSecondaryBeside =
-    secondaryAreaWidth !== null && canShowSecondaryViewBeside(secondaryAvailableWidth, secondaryAreaWidth);
-  const secondaryViewMode = canShowSecondaryBeside ? preferredSecondaryViewMode : "overlay";
+  const secondaryViewersMaxWidth = useSecondaryViewersMaxWidth();
+  const secondaryAreaAvailable = isDesktopShell && isSessionView;
   const diffInSecondaryArea =
-    secondaryAreaWidth !== null && activeTab === "diff" && !!currentSessionId && !isPendingId(currentSessionId);
+    secondaryAreaAvailable && activeTab === "diff" && !!currentSessionId && !isPendingId(currentSessionId);
   const secondaryAreaOpen =
-    secondaryAreaWidth !== null && (secondaryPage !== null || secondaryViewersOpen || diffInSecondaryArea);
+    secondaryAreaAvailable && (secondaryPage !== null || secondaryViewersOpen || diffInSecondaryArea);
+  const secondaryAreaWidth = secondaryViewWidth(
+    viewportWidth,
+    Math.max(
+      secondaryViewersMaxWidth,
+      secondaryPage ? SECONDARY_VIEW_MAX_WIDTHS[SECONDARY_PAGES[secondaryPage].size] : 0,
+      diffInSecondaryArea ? SECONDARY_VIEW_MAX_WIDTHS.wide : 0,
+    ),
+  );
   const primaryHidden =
     (activeTab !== "chat" && !diffInSecondaryArea && !!displayedSessionId) ||
-    (secondaryPage !== null && secondaryAreaWidth === null);
+    (secondaryPage !== null && !secondaryAreaAvailable);
   const [secondaryAreaElement, setSecondaryAreaElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    setSecondaryViewTarget(secondaryAreaWidth !== null ? secondaryAreaElement : null);
-  }, [secondaryAreaElement, secondaryAreaWidth]);
-  useEffect(
-    () => setSecondaryViewDocked(secondaryAreaOpen && secondaryViewMode === "side"),
-    [secondaryAreaOpen, secondaryViewMode],
-  );
+    setSecondaryViewTarget(secondaryAreaAvailable ? secondaryAreaElement : null);
+  }, [secondaryAreaElement, secondaryAreaAvailable]);
+  // The diff opens over a page, so it closes first.
+  const closeTopSecondaryContent = useCallback(() => {
+    if (useStore.getState().activeTab === "diff") useStore.getState().setActiveTab("chat");
+    else closeSecondaryPage();
+  }, []);
   const dismissSecondaryArea = useCallback(() => {
     closeSecondaryViewers();
     if (useStore.getState().activeTab === "diff") useStore.getState().setActiveTab("chat");
@@ -1007,6 +1006,7 @@ export default function App() {
         <div
           ref={sidebarShellRef}
           aria-hidden={isMobileSidebarHidden ? "true" : undefined}
+          inert={secondaryAreaOpen}
           data-testid="app-sidebar-shell"
           data-mobile-sidebar-state={shouldKeepMobileSidebarMounted ? (sidebarOpen ? "open" : "hidden") : undefined}
           className={`
@@ -1028,13 +1028,17 @@ export default function App() {
         </div>
       )}
 
-      {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden" data-codex-subagent-workspace="true">
+      {/* Main area, inert with the sidebar and task panel while the secondary view floats over them */}
+      <div
+        className="flex-1 flex flex-col min-w-0 overflow-hidden"
+        data-codex-subagent-workspace="true"
+        inert={secondaryAreaOpen}
+      >
         {/* Keeps iOS from leaving a stale blur over the top bar; see .top-edge-anchor.
             Placed before the top bar so its badges still paint above the strip. */}
         {!isDesktopShell && <div aria-hidden="true" data-testid="top-edge-anchor" className="top-edge-anchor" />}
         <TopBar
-          fullPageLabel={secondaryAreaWidth === null ? fullPageRouteLabel : undefined}
+          fullPageLabel={secondaryAreaAvailable ? undefined : fullPageRouteLabel}
           universalSearchOpen={universalSearchOpen}
           onOpenUniversalSearch={openUniversalSearch}
           onCloseUniversalSearch={closeUniversalSearch}
@@ -1073,7 +1077,7 @@ export default function App() {
             </>
           )}
 
-          {secondaryPage && secondaryAreaWidth === null && (
+          {secondaryPage && !secondaryAreaAvailable && (
             <div className="absolute inset-0 z-[1] bg-cc-bg" data-testid="secondary-view-overlay">
               {renderSecondaryPage(secondaryPage)}
             </div>
@@ -1081,19 +1085,17 @@ export default function App() {
         </div>
       </div>
 
-      {secondaryAreaWidth !== null && (
+      {secondaryAreaAvailable && (
         <SecondaryViewArea
           width={secondaryAreaWidth}
           open={secondaryAreaOpen}
-          mode={secondaryViewMode}
-          canShowBeside={canShowSecondaryBeside}
           // Viewers bring their own header and cover the page's.
           title={
             secondaryPage && !secondaryViewersOpen && !diffInSecondaryArea
-              ? secondaryPageLabel(secondaryPage)
+              ? SECONDARY_PAGES[secondaryPage].label
               : undefined
           }
-          onClose={closeSecondaryPage}
+          onClose={closeTopSecondaryContent}
           onDismiss={dismissSecondaryArea}
           contentRef={setSecondaryAreaElement}
         >
@@ -1150,6 +1152,7 @@ export default function App() {
           )}
 
           <div
+            inert={secondaryAreaOpen}
             className={`
               ${isDesktopTaskPanel ? "relative z-auto w-[280px] translate-x-0" : "fixed z-40 right-0 top-0 w-[280px] translate-x-0"}
               h-full shrink-0 transition-all duration-200 overflow-hidden

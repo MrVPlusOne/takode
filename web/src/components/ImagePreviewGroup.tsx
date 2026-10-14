@@ -2,7 +2,6 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import type { ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
-import { isShortcutEventTargetEditable } from "../shortcuts.js";
 import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
@@ -396,8 +395,8 @@ function ImagePreviewModal({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const image = images[selectedIndex];
-  // Wide screens show the image beside the conversation instead of over it.
-  const dockTarget = useSecondaryViewTarget(true, onClose);
+  // Wide screens show the image in the secondary view, over the app's right side.
+  const dockTarget = useSecondaryViewTarget(true, onClose, "media");
   const docked = dockTarget !== null;
   const canNavigate = images.length > 1;
 
@@ -424,8 +423,6 @@ function ImagePreviewModal({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" && event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      // Beside the conversation, keys typed into the composer belong to it.
-      if (docked && isShortcutEventTargetEditable(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -440,7 +437,7 @@ function ImagePreviewModal({
     return () => {
       document.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
-  }, [docked, onClose, selectOffset]);
+  }, [onClose, selectOffset]);
 
   if (!image) return null;
 
