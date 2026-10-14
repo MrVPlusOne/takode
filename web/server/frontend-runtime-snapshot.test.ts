@@ -218,7 +218,6 @@ describe("frontend snapshot shutdown", () => {
     return new ServerShutdown({
       admission: new ServerWorkAdmission(),
       stopWork: () => {},
-      settleWork: async () => {},
       cancelFrontendPreparation: async () => {},
       stopSessions: async () => {},
       stopListener: () => server.stop(true),
