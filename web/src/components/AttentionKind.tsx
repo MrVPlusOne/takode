@@ -1,7 +1,6 @@
 import { createPortal } from "react-dom";
 import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
-import { BellIcon } from "./GlobalNeedsInputMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 
 /**
@@ -29,6 +28,23 @@ export function attentionTone(kind: AttentionKind) {
   return kind === "needs-input"
     ? { text: "text-cc-attention", border: "border-cc-attention-border", bg: "bg-cc-attention-bg" }
     : { text: "text-cc-info", border: "border-cc-info-border", bg: "bg-cc-info-bg" };
+}
+
+export function BellIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
+      <path d="M6 12a2 2 0 0 0 4 0" />
+    </svg>
+  );
 }
 
 export function AttentionKindIcon({ kind, className = "h-3.5 w-3.5" }: { kind: AttentionKind; className?: string }) {

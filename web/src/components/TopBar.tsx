@@ -13,8 +13,6 @@ import { resolveSessionNavigation } from "../utils/session-navigation-resolver.j
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
-import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
-import { GlobalNotifyMeMenu } from "./GlobalNotifyMeMenu.js";
 import { activeBoardPhaseDots } from "./leader-board-summary.js";
 import { LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -324,8 +322,6 @@ export function TopBar({
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
           <GlobalAttentionMenu compact={compact} />
-          <GlobalNeedsInputMenu />
-          <GlobalNotifyMeMenu />
           <SearchToggleButton
             isOpen={universalSearchOpen}
             onOpen={onOpenUniversalSearch}

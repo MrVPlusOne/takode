@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import { fetchThreadMonitoring } from "../api/thread-monitoring.js";
-import { useGlobalNeedsInputEntries } from "../components/GlobalNeedsInputMenu.js";
-import { useNotifyMeSummary } from "../components/GlobalNotifyMeMenu.js";
+import { useNotifyMeSummary } from "../components/NotifyMe.js";
+import { useGlobalNeedsInputEntries } from "./useGlobalNeedsInputEntries.js";
 import { useStore } from "../store.js";
 import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
@@ -57,5 +57,40 @@ export function usePendingNotifyMeEntries(pending: number, signature: string): T
     return () => controller.abort();
   }, [pending, signature]);
 
+  return entries;
+}
+
+/**
+ * Every tracked Notify Me thread, across all result pages, loaded while
+ * `enabled` and refetched when `signature` changes. The last list stays while
+ * disabled, so reopening shows it at once and then refreshes.
+ */
+export function useTrackedNotifyMeEntries(enabled: boolean, signature: string): ThreadMonitoringEntry[] {
+  const [entries, setEntries] = useState<ThreadMonitoringEntry[]>([]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    fetchAllTrackedEntries(controller.signal)
+      .then((loaded) => {
+        if (!controller.signal.aborted) setEntries(loaded);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) console.warn("[next-attention] Tracked Notify Me tasks failed to load:", error);
+      });
+    return () => controller.abort();
+  }, [enabled, signature]);
+
+  return entries;
+}
+
+async function fetchAllTrackedEntries(signal: AbortSignal): Promise<ThreadMonitoringEntry[]> {
+  const entries: ThreadMonitoringEntry[] = [];
+  let offset: number | null = 0;
+  while (offset !== null) {
+    const page = await fetchThreadMonitoring("all", offset, signal);
+    entries.push(...page.entries);
+    offset = page.nextOffset;
+  }
   return entries;
 }

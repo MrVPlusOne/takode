@@ -285,7 +285,7 @@ vi.mock("../store.js", () => {
 
 import { getCurrentTopBarSessionState, TopBar } from "./TopBar.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
-import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
+import { getGlobalNeedsInputEntries } from "../utils/global-needs-input.js";
 import { api } from "../api.js";
 import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
 import { ATTENTION_NEXT_EVENT } from "./GlobalAttentionMenu.js";
@@ -515,39 +515,21 @@ describe("TopBar", () => {
     expect(entries.map((entry) => entry.sessionNum)).toEqual([12, 11]);
   });
 
-  it("renders the global needs-input control at zero without counting other attention states", () => {
+  it("gives full-page headers the attention list instead of separate needs-input and Notify Me counts", () => {
+    // The attention list already holds prompts and Notify Me results, so the two
+    // count buttons were removed from full-page headers as well as the sessions panel.
     resetStore({
-      sdkSessions: [
-        { sessionId: "s-running", createdAt: 40, cliConnected: true, state: "running" },
-        { sessionId: "s-waiting", createdAt: 30, cliConnected: true, state: "idle" },
-        { sessionId: "s-unread", createdAt: 20, cliConnected: true, state: "idle" },
-      ],
-      sessionStatus: new Map([
-        ["s-running", "running"],
-        ["s-waiting", "idle"],
-        ["s-unread", "idle"],
-      ]),
-      cliConnected: new Map([
-        ["s-running", true],
-        ["s-waiting", true],
-        ["s-unread", true],
-      ]),
-      pendingPermissions: new Map([["s-waiting", new Map([["perm-1", {}]])]]),
+      sdkSessions: [{ sessionId: "s-unread", createdAt: 20, cliConnected: true, state: "idle" }],
       sessionAttention: new Map([["s-unread", "review"]]),
-      sessionNotifications: new Map([
-        [
-          "s-unread",
-          [{ id: "review", category: "review", summary: "Review only", timestamp: Date.now(), done: false }],
-        ],
-      ]),
     });
 
-    // The session header moved this control to the sessions panel; full-page headers keep it.
     render(<TopBar fullPageLabel="Quests" />);
 
+    expect(screen.getByTestId("attention-list-button")).toHaveTextContent("1");
     expect(
-      screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /needs-input notifications? across sessions/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Notify Me:/ })).not.toBeInTheDocument();
   });
 
   it("keeps pause controls out of the top bar", () => {
@@ -786,53 +768,42 @@ describe("TopBar", () => {
     expect(screen.queryByText("Reconnect")).not.toBeInTheDocument();
   });
 
-  it("opens an aggregated needs-input menu across sessions", () => {
+  it("lists muted prompts once, in a collapsed section below the open questions", () => {
+    // Muted prompts moved here from the removed needs-input menu. They stay out of
+    // the Needs input group and Next, so nothing shows twice.
     resetStore({
       sessionNotifications: new Map([
         [
           "s1",
           [
-            {
-              id: "n-1",
-              category: "needs-input",
-              summary: "Pick deployment window",
-              timestamp: 1,
-              messageId: "m1",
-              done: false,
-            },
-          ],
-        ],
-        [
-          "s2",
-          [
+            { id: "n-1", category: "needs-input", summary: "Pick deployment window", timestamp: 1, messageId: "m1" },
             {
               id: "n-2",
               category: "needs-input",
               summary: "Confirm rollback plan",
               timestamp: 2,
               messageId: "m2",
-              done: false,
+              muted: true,
             },
-            { id: "review", category: "review", summary: "Review", timestamp: 3, messageId: "m3", done: false },
           ],
         ],
       ]),
-      sdkSessions: [
-        { sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" },
-        { sessionId: "s2", createdAt: 20, sessionNum: 102, name: "Worker Two" },
-      ],
+      sdkSessions: [{ sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" }],
     });
 
-    // The session header moved this control to the sessions panel; full-page headers keep it.
     render(<TopBar fullPageLabel="Quests" />);
+    fireEvent.click(screen.getByTestId("attention-list-button"));
 
-    fireEvent.click(screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" }));
+    const list = screen.getByRole("dialog", { name: "Everything that needs attention" });
+    expect(within(list).getByRole("region", { name: "Needs-input prompts" })).toHaveTextContent(
+      "Pick deployment window",
+    );
+    expect(within(list).queryByText("Confirm rollback plan")).not.toBeInTheDocument();
 
-    expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
-    expect(screen.getByText("#102 Worker Two")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Go to source for Confirm rollback plan" })).toBeInTheDocument();
-    expect(screen.getByText("#101 Worker One")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Go to source for Pick deployment window" })).toBeInTheDocument();
+    fireEvent.click(within(list).getByRole("button", { name: /Muted questions/ }));
+    const muted = within(list).getByRole("region", { name: "Muted questions" });
+    expect(muted).toHaveTextContent("Confirm rollback plan");
+    expect(within(list).getAllByText("Confirm rollback plan")).toHaveLength(1);
   });
 
   it("stops quest badge polling while the tab is hidden", async () => {

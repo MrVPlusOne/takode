@@ -1,8 +1,11 @@
-import { useState } from "react";
-import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
+import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { useStore } from "../store.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
+import type { SdkSessionInfo } from "../types.js";
+import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 
 export function NotifyMeIcon({
   pending = false,
@@ -114,4 +117,44 @@ export function NotifyMeControl({ sessionId, threadKey }: { sessionId: string; t
       onAcknowledge={() => void act("acknowledge")}
     />
   );
+}
+
+/**
+ * Notify Me counts across sessions from the synchronized projection. `signature`
+ * changes whenever any session's monitoring state changes, so callers can refetch.
+ */
+export function useNotifyMeSummary() {
+  const state = useStore(
+    useShallow((state) => ({
+      sdkSessions: state.sdkSessions,
+      syncedProjectionValues: state.syncedProjectionValues,
+      syncedProjectionKeys: state.syncedProjectionKeys,
+    })),
+  );
+  const summary = useMemo(() => {
+    let pending = 0;
+    let tracked = 0;
+    const revisions: string[] = [];
+    for (const session of state.sdkSessions) {
+      if (session.archived) continue;
+      const value = getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, session.sessionId);
+      if (!value) continue;
+      pending += value.pendingCount;
+      tracked += value.trackedCount;
+      revisions.push(`${session.sessionId}:${value.revision}`);
+    }
+    return { pending, tracked, signature: revisions.join("|") };
+  }, [state]);
+  return { ...summary, sdkSessions: state.sdkSessions };
+}
+
+/** Open a monitored thread at its waiting result, or at the thread when nothing is waiting. */
+export function openNotifyMeEntry(entry: ThreadMonitoringEntry, sdkSessions: SdkSessionInfo[]) {
+  const routeSessionId = routeSessionRefForId(entry.sessionId, sdkSessions);
+  if (entry.pending?.messageId)
+    navigateToSessionMessageId(entry.sessionId, entry.pending.messageId, {
+      routeSessionId,
+      threadKey: entry.threadKey,
+    });
+  else navigateToSessionThread(entry.sessionId, entry.threadKey, false, routeSessionId);
 }

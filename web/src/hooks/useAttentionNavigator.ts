@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { api } from "../api.js";
-import { openNotifyMeEntry } from "../components/GlobalNotifyMeMenu.js";
+import { openNotifyMeEntry } from "../components/NotifyMe.js";
 import { useStore } from "../store.js";
 import type { SdkSessionInfo } from "../types.js";
 import {

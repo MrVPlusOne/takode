@@ -296,9 +296,7 @@ vi.mock("./SessionInlineLink.js", () => ({
   SessionInlineLink: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("./SessionStatusDot.js", () => ({ SessionStatusDot: () => null }));
-vi.mock("./GlobalNeedsInputMenu.js", () => ({
-  GlobalNeedsInputMenu: () => null,
-  BellIcon: () => null,
+vi.mock("../hooks/useGlobalNeedsInputEntries.js", () => ({
   useGlobalNeedsInputEntries: () => ({ entries: [], mutedEntries: [], sdkSessions: [] }),
 }));
 vi.mock("./CatIcons.js", () => ({ YarnBallDot: () => null }));

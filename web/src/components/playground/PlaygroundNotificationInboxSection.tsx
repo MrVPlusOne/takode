@@ -7,7 +7,7 @@ import {
 } from "../../test-fixtures/leader-thread-tabs-projection.js";
 import { NotificationChip } from "../NotificationChip.js";
 import { PlaygroundNotifyMe } from "./PlaygroundNotifyMe.js";
-import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
+import { GlobalAttentionMenu } from "../GlobalAttentionMenu.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { TimerChip } from "../TimerWidget.js";
 import { useStore } from "../../store.js";
@@ -637,7 +637,7 @@ export function PlaygroundNotificationInboxSection() {
           </div>
         </Card>
 
-        <Card label="Global top-bar needs-input aggregate">
+        <Card label="Top-bar attention list with muted prompts">
           <div className="p-3 space-y-2">
             <button
               type="button"
@@ -647,11 +647,11 @@ export function PlaygroundNotificationInboxSection() {
               Seed global needs-input data
             </button>
             <div className="flex h-16 items-start justify-end rounded-lg border border-cc-border bg-cc-bg p-3">
-              <GlobalNeedsInputMenu />
+              <GlobalAttentionMenu />
             </div>
             <p className="text-[10px] text-cc-muted">
-              Shows the top-bar aggregate for unresolved needs-input notifications, with quiet source-context navigation
-              and review or unread-style activity excluded. Muted prompts appear as a secondary backlog.
+              Shows the top-bar attention list for seeded prompts across sessions. The muted prompt sits in the
+              collapsed Muted questions section, which Next skips.
             </p>
           </div>
         </Card>

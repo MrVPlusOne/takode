@@ -11,7 +11,7 @@ import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monito
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { timeAgo } from "../utils/quest-helpers.js";
-import { BellIcon } from "./GlobalNeedsInputMenu.js";
+import { BellIcon } from "./AttentionKind.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";

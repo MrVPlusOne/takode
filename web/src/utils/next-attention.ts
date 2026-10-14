@@ -96,6 +96,37 @@ export function buildNextAttentionQueue(input: {
   return items.sort((a, b) => compareQueuePlace(attentionCursorFor(a), attentionCursorFor(b)));
 }
 
+/**
+ * What the attention list keeps below the queue, collapsed, and Next never
+ * visits: muted prompts, and tracked Notify Me threads still waiting for a
+ * result. Threads that have a result are already in the queue's Notify Me
+ * group, so they are left out here. Newest first.
+ */
+export function buildAttentionBacklog(input: {
+  muted: readonly GlobalNeedsInputEntry[];
+  tracked: readonly ThreadMonitoringEntry[];
+}): AttentionBacklog {
+  const muted = buildNextAttentionQueue({ needsInput: input.muted, notifyMe: [], unread: [] });
+  const tracked: NextAttentionItem[] = input.tracked
+    .filter((entry) => !entry.pending)
+    .map((entry) => ({
+      kind: "notify-me",
+      entry,
+      key: `tracked:${entry.sessionId}:${entry.threadKey}`,
+      sessionId: entry.sessionId,
+      threadKey: entry.threadKey,
+      label: entry.title,
+      timestamp: entry.trackedAt,
+    }));
+  tracked.sort((a, b) => b.timestamp - a.timestamp);
+  return { muted, tracked };
+}
+
+export interface AttentionBacklog {
+  muted: NextAttentionItem[];
+  tracked: NextAttentionItem[];
+}
+
 export function attentionCursorFor(item: NextAttentionItem): AttentionCursor {
   return { key: item.key, rank: GROUP_RANK[item.kind], timestamp: item.timestamp };
 }

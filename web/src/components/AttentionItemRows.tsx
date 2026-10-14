@@ -8,11 +8,13 @@ import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import {
   ATTENTION_GROUP_TITLE,
   AttentionKindIcon,
+  BellIcon,
   NextAttentionToast,
   formatRelativeTime,
   type AttentionKind,
 } from "./AttentionKind.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { NotifyMeIcon } from "./NotifyMe.js";
 
 const GO_TO_BUTTON_CLASS =
   "inline-flex shrink-0 items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 cursor-pointer";
@@ -32,11 +34,23 @@ export function SessionAttentionToast({ landing }: { landing: NextAttentionLandi
   );
 }
 
-/** The row's first line: what needs attention. Where it lives goes on the second line. */
+/**
+ * The row's first line: what needs attention. Where it lives goes on the second
+ * line. A tracked thread without a result has nothing new to say, so its first
+ * line is its title, which the second line then leaves out.
+ */
 function itemLabel(item: NextAttentionItem): string {
   if (item.kind === "unread") return item.threadKey === null ? "Latest result" : item.summary || "New result";
-  if (item.kind === "notify-me") return item.entry.pending?.summary || item.label;
+  if (item.kind === "notify-me") return item.entry.pending?.summary || withoutQuestId(item.label, item.threadKey ?? "");
   return item.label;
+}
+
+/** Muted prompts and tracked threads without a result take quiet icons, so they never read as waiting. */
+function ItemIcon({ item }: { item: NextAttentionItem }) {
+  if (item.kind === "needs-input" && item.entry.notification.muted)
+    return <BellIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />;
+  if (item.kind === "notify-me" && !item.entry.pending) return <NotifyMeIcon className="h-3.5 w-3.5" />;
+  return <AttentionKindIcon kind={item.kind} />;
 }
 
 /**
@@ -52,6 +66,7 @@ export function attentionThreadPlace(
   const key = item.threadKey?.trim().toLowerCase();
   if (!key) return null;
   if (key === MAIN_THREAD_KEY) return threads?.hasThreadTabs(item.sessionId) ? { thread: "Main", title: "" } : null;
+  if (item.kind === "notify-me" && !item.entry.pending) return { thread: key, title: "" };
   const fallback =
     item.kind === "notify-me" ? withoutQuestId(item.entry.title, key) : item.kind === "unread" ? item.label : "";
   return { thread: key, title: threads?.titleFor(item.sessionId, key) ?? fallback };
@@ -110,7 +125,7 @@ export function AttentionItemRow({
         data-attention-next={isNext ? "true" : undefined}
       >
         <span className="mt-0.5">
-          <AttentionKindIcon kind={item.kind} />
+          <ItemIcon item={item} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">

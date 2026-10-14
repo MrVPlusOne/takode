@@ -9,7 +9,7 @@ import {
 import type { ThreadMonitoringEntry } from "../../../shared/thread-monitoring.js";
 import { useAttentionNavigator, type NextAttentionLanding } from "../../hooks/useAttentionNavigator.js";
 import type { SessionNotification } from "../../types.js";
-import { buildNextAttentionQueue } from "../../utils/next-attention.js";
+import { buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
 import { NextAttentionToast } from "../AttentionKind.js";
 import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
 import { SidebarQuickActions } from "../SidebarQuickActions.js";
@@ -38,6 +38,11 @@ function prompt(sessionId: string, id: string, summary: string, minutesAgo: numb
     done: false,
   } as SessionNotification;
   return { sessionId, sessionName: "", sessionNum: null, notification };
+}
+
+function mutedPrompt(sessionId: string, id: string, summary: string, minutesAgo: number) {
+  const entry = prompt(sessionId, id, summary, minutesAgo);
+  return { ...entry, notification: { ...entry.notification, muted: true } };
 }
 
 const NOTIFY_ME: ThreadMonitoringEntry = {
@@ -81,6 +86,22 @@ const QUEUE = buildNextAttentionQueue({
   ],
 });
 
+/** Below the queue, collapsed: one muted prompt and one tracked thread still waiting for a result. */
+const BACKLOG = buildAttentionBacklog({
+  muted: [mutedPrompt("playground-attention-worker", "n-9", "Rename the attention sections now or later?", 300)],
+  tracked: [
+    {
+      sessionId: "playground-attention-leader",
+      sessionName: "DevBox takode",
+      sessionNum: 2851,
+      threadKey: "q-2415",
+      title: "q-2415 Restart must not hang waiting for accepted work",
+      trackedAt: NOW - 26 * 3_600_000,
+      pending: null,
+    },
+  ],
+});
+
 const LANDINGS: NextAttentionLanding[] = [
   { item: QUEUE[0]!, sessionNum: 2851, position: 1, total: QUEUE.length },
   { item: QUEUE[2]!, sessionNum: 2851, position: 3, total: QUEUE.length },
@@ -120,6 +141,7 @@ function InteractiveAttentionList() {
         onClose={() => {}}
         onNext={() => setLanding(goNext())}
         onOpen={open}
+        backlog={BACKLOG}
         sessionsOverride={SESSIONS}
         threadsOverride={{
           titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
@@ -131,13 +153,11 @@ function InteractiveAttentionList() {
   );
 }
 
-/** Phone top bar mock: ≡ with its waiting dot, two-line identity and the attention list. */
+/** Phone top bar mock: ≡, two-line identity and the attention list. */
 function PhoneTopBar() {
   return (
     <div className="flex w-[390px] shrink-0 items-center gap-2 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5">
-      <span className="relative h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true">
-        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-cc-attention ring-2 ring-cc-card" />
-      </span>
+      <span className="h-9 w-9 shrink-0 rounded-lg bg-cc-hover/60" aria-hidden="true" />
       <span className="relative shrink-0" aria-hidden="true">
         <span className="block h-8 w-8 rounded-full bg-cc-hover" />
         <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-cc-success ring-2 ring-cc-card" />
@@ -158,15 +178,16 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List and Phone Top Bar"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the thread's Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the thread's Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Needing Attention shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked, and a toast says where it landed. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. Below the list, collapsed and skipped by Next, sit Muted questions and tracked Notify Me threads with no result yet; with only those, the pill is a quiet bell without a count. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
-          <Card label="Attention list pill (desktop and phone; amber counts only open questions, blue counts everything waiting)">
+          <Card label="Attention list pill (desktop and phone; amber counts only open questions, blue counts everything waiting, quiet bell when only muted or tracked items remain)">
             <div className="flex items-center gap-3">
               <AttentionListPill count={1} topKind="needs-input" />
               <AttentionListPill count={2} topKind="unread" />
               <AttentionListPill count={2} topKind="needs-input" compact open />
               <AttentionListPill count={1} topKind="notify-me" compact />
+              <AttentionListPill count={0} topKind={undefined} />
             </div>
           </Card>
           <Card label="Attention list with Next (click Next to walk it)">

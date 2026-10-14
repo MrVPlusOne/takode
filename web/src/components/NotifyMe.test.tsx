@@ -3,7 +3,6 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NotifyMeControl, NotifyMeControlView } from "./NotifyMe.js";
-import { NotifyMeResults } from "./GlobalNotifyMeMenu.js";
 import { useStore } from "../store.js";
 import { buildThreadMonitoringProjection } from "../../server/thread-monitoring-projection.js";
 import {
@@ -28,19 +27,6 @@ const entry: ThreadMonitoringEntry = {
 };
 
 describe("Notify Me controls", () => {
-  it("keeps opening a result separate from acknowledging or untracking it", () => {
-    const open = vi.fn();
-    const action = vi.fn();
-    render(<NotifyMeResults entries={[entry]} onOpen={open} onAction={action} />);
-    fireEvent.click(screen.getByRole("button", { name: "Compare design options" }));
-    expect(open).toHaveBeenCalledWith(entry);
-    expect(action).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(action).toHaveBeenLastCalledWith(entry, "acknowledge");
-    fireEvent.click(screen.getByRole("button", { name: "Stop tracking" }));
-    expect(action).toHaveBeenLastCalledWith(entry, "untrack");
-  });
-
   it("offers only the state-appropriate header action while preserving monitoring icons and tooltips", () => {
     const onToggle = vi.fn();
     const onAcknowledge = vi.fn();
