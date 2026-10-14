@@ -1362,6 +1362,28 @@ select {
   }
 }
 
+/* iOS 27 can leave its status-bar blur over the top bar after a full-screen
+   overlay closes. WebKit hides that blur while a fixed element with a
+   background touches the top edge, so the Home Screen app keeps one there.
+   WebKit reads the background directly only from boxes over 10px deep, so the
+   strip is 11px tall and pulled up 5px: the 6px that shows covers only the
+   mobile top bar's own top padding, in the same color. */
+.top-edge-anchor {
+  display: none;
+}
+@media (display-mode: standalone) {
+  .top-edge-anchor {
+    display: block;
+    position: fixed;
+    top: -5px;
+    left: 0;
+    right: 0;
+    height: 11px;
+    background: var(--color-cc-card);
+    pointer-events: none;
+  }
+}
+
 /* Reserve the compact input's 24px viewport, vertical padding and borders.
    Desktop expansion covers the feed instead of resizing its scroll container. */
 @media (hover: hover) and (pointer: fine) {

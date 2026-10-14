@@ -679,6 +679,24 @@ describe("App hidden panels", () => {
 
     expect(screen.queryByTestId("sidebar")).toBeNull();
     expect(screen.queryByTestId("task-panel")).toBeNull();
+    // The iOS top-edge strip is a phone-only workaround; the desktop shell never renders it.
+    expect(screen.queryByTestId("top-edge-anchor")).toBeNull();
+  });
+
+  it("renders the iOS top-edge strip before the top bar in the mobile shell", () => {
+    // On iOS 27 a fixed element at the top edge keeps WebKit from re-showing its
+    // status-bar blur after overlays close. It must come before the top bar so the
+    // top bar's positioned badges still paint above it.
+    setViewportWidth(430);
+    resetStore({ sidebarOpen: false, taskPanelOpen: false });
+
+    render(<App />);
+
+    const anchor = screen.getByTestId("top-edge-anchor");
+    expect(anchor).toHaveClass("top-edge-anchor");
+    expect(anchor).toHaveAttribute("aria-hidden", "true");
+    const topBar = screen.getByTestId("top-bar");
+    expect(anchor.compareDocumentPosition(topBar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("keeps the mobile sidebar mounted but inert while hidden", async () => {

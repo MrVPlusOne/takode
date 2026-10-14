@@ -1030,6 +1030,9 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden" data-codex-subagent-workspace="true">
+        {/* Keeps iOS from leaving a stale blur over the top bar; see .top-edge-anchor.
+            Placed before the top bar so its badges still paint above the strip. */}
+        {!isDesktopShell && <div aria-hidden="true" data-testid="top-edge-anchor" className="top-edge-anchor" />}
         <TopBar
           fullPageLabel={secondaryAreaWidth === null ? fullPageRouteLabel : undefined}
           universalSearchOpen={universalSearchOpen}
