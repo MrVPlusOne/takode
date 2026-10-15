@@ -423,6 +423,50 @@ describe("ChatView leader thread tabs projection", () => {
     expect(window.location.hash).toBe("#/session/leader?thread=q-3");
   });
 
+  it("opens a routed thread the browser has not seen yet, and moves to Main once it is closed elsewhere", async () => {
+    // A phone alert can name a tab the server opened while this page was asleep, so the
+    // held projection lacks it: the tap must land on that thread and open it, not fall
+    // back to Main. Only a later authoritative projection without it (closed on another
+    // device) hands the view to Main.
+    window.location.hash = "#/session/leader?thread=q-9";
+    const view = render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-9" />);
+    const withQ9 = (revision: number, orderedOpenThreadKeys: string[]) =>
+      createLeaderThreadTabsProjectionEnvelope({
+        type: "synced_projection_update",
+        key: "leader",
+        revision,
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: { version: 1, orderedOpenThreadKeys, closedThreadTombstones: [], updatedAt: revision },
+          tabs: orderedOpenThreadKeys.map((threadKey) => ({
+            ...projectedTab(threadKey, revision),
+            threadKey,
+            questId: threadKey,
+          })),
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
+          threadStatuses: {},
+          activePhaseSummary: [],
+        }),
+      });
+
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-9"));
+    expect(mockSendToSession).toHaveBeenCalledWith("leader", {
+      type: "leader_thread_tabs_update",
+      operation: { type: "open", threadKey: "q-9", placement: "first" },
+    });
+
+    act(() => useStore.getState().applySyncedProjectionUpdate(withQ9(2, ["q-9", "q-1"])));
+    await waitFor(() =>
+      expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-9,q-1"),
+    );
+    expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-9");
+    expect(window.location.hash).toBe("#/session/leader?thread=q-9");
+
+    act(() => useStore.getState().applySyncedProjectionUpdate(withQ9(3, ["q-1"])));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(window.location.hash).toBe("#/session/leader");
+    view.unmount();
+  });
+
   it("prioritizes active tabs before migrating a restored scheduled-first order", async () => {
     // First-upgrade migration applies the narrow server precedence rule instead of persisting stale local order.
     useStore.getState().reset();

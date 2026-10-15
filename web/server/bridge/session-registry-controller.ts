@@ -131,7 +131,7 @@ export interface SessionRegistryDeps {
     sessionId: string,
     category: "question" | "completed",
     detail: string,
-    options?: { skipReadCheck?: boolean; notificationId?: string },
+    options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string },
   ) => void;
   scheduleCompletedNotification?: (sessionId: string, detail: string) => void;
   scheduleResultCompletedNotification?: (sessionId: string) => void;

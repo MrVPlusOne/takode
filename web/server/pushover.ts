@@ -50,6 +50,8 @@ export interface PushoverScheduleOptions {
   skipReadCheck?: boolean;
   /** Takode notification ID that can later cancel/revalidate this pending push. */
   notificationId?: string;
+  /** Leader thread (`main` or `q-N`) the alert came from; tapping the alert opens that tab. */
+  threadKey?: string;
   /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
   monitoredResult?: { threadKey: string; isPending: () => boolean };
 }
@@ -68,6 +70,10 @@ interface PendingNotification {
   requestDetails: Record<string, string>;
   /** Notification details keyed by notification ID, used when still-active batched items fire. */
   notificationDetails: Record<string, string>;
+  /** Thread of each batched notification, so the link follows the items still waiting. */
+  notificationThreadKeys: Record<string, string>;
+  /** Thread of an alert scheduled without a notification ID. */
+  threadKey?: string;
   /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
   skipReadCheck?: boolean;
   monitoredResult?: PushoverScheduleOptions["monitoredResult"];
@@ -187,6 +193,7 @@ export class PushoverNotifier {
       }
       if (detail && requestId) existing.requestDetails[requestId] = detail;
       if (detail && notificationId) existing.notificationDetails[notificationId] = detail;
+      if (notificationId && options?.threadKey) existing.notificationThreadKeys[notificationId] = options.threadKey;
       // Extend the batch window, but don't exceed the configured delay from original creation
       const maxFireAt = existing.createdAt + settings.pushoverDelaySeconds * 1000;
       const batchFireAt = Math.min(Date.now() + PERMISSION_BATCH_WINDOW_MS, maxFireAt);
@@ -214,6 +221,8 @@ export class PushoverNotifier {
       notificationIds: notificationId ? [notificationId] : [],
       requestDetails: detail && requestId ? { [requestId]: detail } : {},
       notificationDetails: detail && notificationId ? { [notificationId]: detail } : {},
+      notificationThreadKeys: notificationId && options?.threadKey ? { [notificationId]: options.threadKey } : {},
+      threadKey: notificationId ? undefined : options?.threadKey,
       skipReadCheck: options?.skipReadCheck,
       monitoredResult,
     };
@@ -249,6 +258,7 @@ export class PushoverNotifier {
       if (idx === -1) continue;
 
       delete pending.notificationDetails[notificationId];
+      delete pending.notificationThreadKeys[notificationId];
       pending.notificationIds.splice(idx, 1);
       if (pending.requestIds.length === 0 && pending.notificationIds.length === 0) {
         clearTimeout(pending.timer);
@@ -377,7 +387,7 @@ export class PushoverNotifier {
     }
 
     const message = lines.join("\n");
-    const path = this.buildDeepLinkPath(sessionId, pending.monitoredResult?.threadKey);
+    const path = this.buildDeepLinkPath(sessionId, this.getDeepLinkThreadKey(pending));
 
     console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
     if (this.opts.webPush?.hasSubscriptions()) void this.opts.webPush.sendAlert({ title, body: message, url: path });
@@ -462,6 +472,20 @@ export class PushoverNotifier {
     cooldown.lastNotifiedAt = now;
     cooldown.windowCount++;
     return true;
+  }
+
+  /**
+   * The thread a tapped alert opens: the monitored thread, else the oldest still-waiting
+   * batched item's thread. Main is named explicitly: a bare session link reopens whichever
+   * tab the app last showed, not the thread the alert came from.
+   */
+  private getDeepLinkThreadKey(pending: PendingNotification): string | undefined {
+    if (pending.monitoredResult) return pending.monitoredResult.threadKey;
+    for (const notificationId of pending.notificationIds) {
+      const threadKey = pending.notificationThreadKeys[notificationId];
+      if (threadKey) return threadKey;
+    }
+    return pending.threadKey;
   }
 
   private buildDeepLinkPath(sessionId: string, threadKey?: string): string {

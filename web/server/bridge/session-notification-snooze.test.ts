@@ -77,7 +77,21 @@ describe("needs-input snooze", () => {
   });
 
   it("wakes a due prompt as a fresh alert: active again, attention set, phone alert scheduled", () => {
-    const session = makeSession();
+    // A quest-thread prompt: the new alert must still open that thread's tab when tapped.
+    const session = makeSession({
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Pick a plan",
+          timestamp: 1000,
+          messageId: null,
+          done: false,
+          threadKey: "q-7",
+          questId: "q-7",
+        },
+      ],
+    });
     const deps = makeDeps();
     snoozeNotification(session, "n-1", 50_000, deps);
 
@@ -102,6 +116,7 @@ describe("needs-input snooze", () => {
     expect(deps.scheduleNotification).toHaveBeenCalledWith("s1", "question", "Pick a plan", {
       skipReadCheck: true,
       notificationId: "n-1",
+      threadKey: "q-7",
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,

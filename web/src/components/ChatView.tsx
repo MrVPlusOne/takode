@@ -915,43 +915,49 @@ export function ChatView({
     }
 
     const nextThreadKey = normalizeThreadKey(routeThreadKey);
-    if (isAvailableLeaderThread(nextThreadKey, navigationThreadRows, openThreadTabKeys)) {
-      const localSelectionRoute = locallySelectedRouteThreadKeyRef.current === nextThreadKey;
-      if (localSelectionRoute) {
-        locallySelectedRouteThreadKeyRef.current = null;
+    const knownThread = isAvailableLeaderThread(nextThreadKey, navigationThreadRows, openThreadTabKeys);
+    if (!knownThread) {
+      // Wait for thread sources, so a cold start decides with them and over a connected socket.
+      if (historyLoading || !hasKnownThreadSources) return;
+      // A newly routed thread this browser has not seen is opened rather than replaced with
+      // Main: a phone alert can name a tab the server opened while this page was asleep or
+      // offline, and the browser learns of it only after reconnecting. Main takes over only
+      // when the thread is gone after that open, as when the tab was closed elsewhere.
+      if (lastProcessedRouteThreadKeyRef.current === nextThreadKey) {
+        lastProcessedRouteThreadKeyRef.current = null;
+        passiveRestoreThreadKeyRef.current = MAIN_THREAD_KEY;
+        selectedThreadKeyRef.current = MAIN_THREAD_KEY;
+        if (selectedThreadKey !== MAIN_THREAD_KEY) {
+          setSelectedThreadKey(MAIN_THREAD_KEY);
+        }
+        persistLeaderSelectedThreadKey(sessionId, MAIN_THREAD_KEY);
+        if (!preserveMessageThreadRoute) {
+          navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
+        }
+        return;
       }
-      const repositionExisting = shouldRepairRouteThreadOrder({
-        lastProcessedRouteThreadKey: lastProcessedRouteThreadKeyRef.current,
-        localSelectionRoute,
-        threadKey: nextThreadKey,
-      });
-      if (repositionExisting) {
-        openThreadTab(nextThreadKey, { repositionExisting });
-      }
-      lastProcessedRouteThreadKeyRef.current = nextThreadKey;
-      passiveRestoreThreadKeyRef.current = nextThreadKey;
-      selectedThreadKeyRef.current = nextThreadKey;
-      if (selectedThreadKey !== nextThreadKey) {
-        setSelectedThreadKey(nextThreadKey);
-      }
-      persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
-      if (nextThreadKey === MAIN_THREAD_KEY && hasThreadRoute && !preserveMessageThreadRoute) {
-        navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
-      }
-      return;
     }
-
-    if (!historyLoading && hasKnownThreadSources) {
-      lastProcessedRouteThreadKeyRef.current = null;
-      passiveRestoreThreadKeyRef.current = MAIN_THREAD_KEY;
-      selectedThreadKeyRef.current = MAIN_THREAD_KEY;
-      if (selectedThreadKey !== MAIN_THREAD_KEY) {
-        setSelectedThreadKey(MAIN_THREAD_KEY);
-      }
-      persistLeaderSelectedThreadKey(sessionId, MAIN_THREAD_KEY);
-      if (!preserveMessageThreadRoute) {
-        navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
-      }
+    const localSelectionRoute = locallySelectedRouteThreadKeyRef.current === nextThreadKey;
+    if (localSelectionRoute) {
+      locallySelectedRouteThreadKeyRef.current = null;
+    }
+    const repositionExisting = shouldRepairRouteThreadOrder({
+      lastProcessedRouteThreadKey: lastProcessedRouteThreadKeyRef.current,
+      localSelectionRoute,
+      threadKey: nextThreadKey,
+    });
+    if (repositionExisting || !knownThread) {
+      openThreadTab(nextThreadKey, { repositionExisting });
+    }
+    lastProcessedRouteThreadKeyRef.current = nextThreadKey;
+    passiveRestoreThreadKeyRef.current = nextThreadKey;
+    selectedThreadKeyRef.current = nextThreadKey;
+    if (selectedThreadKey !== nextThreadKey) {
+      setSelectedThreadKey(nextThreadKey);
+    }
+    persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
+    if (nextThreadKey === MAIN_THREAD_KEY && hasThreadRoute && !preserveMessageThreadRoute) {
+      navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
     }
   }, [
     authoritativeLeaderOpenThreadTabs,

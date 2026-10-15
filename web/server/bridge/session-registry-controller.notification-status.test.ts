@@ -418,15 +418,22 @@ describe("session notification status metadata", () => {
     );
   });
 
-  it("tags explicit needs-input Pushover schedules with their notification id", () => {
+  it("tags explicit needs-input Pushover schedules with their notification id and thread", () => {
     const session = makeSession();
     const deps = makeDeps();
 
     notifyUser(session, "needs-input", "Approve deploy", deps);
+    notifyUser(session, "review", "Quest done", deps, { threadRoute: { threadKey: "q-7", questId: "q-7" } });
 
+    // The thread lets a tapped phone alert open the exact tab; Main is named, not left implicit.
     expect(deps.scheduleNotification).toHaveBeenCalledWith("s1", "question", "Approve deploy", {
       skipReadCheck: true,
       notificationId: "n-1",
+      threadKey: "main",
+    });
+    expect(deps.scheduleNotification).toHaveBeenCalledWith("s1", "completed", "Quest done", {
+      skipReadCheck: true,
+      threadKey: "q-7",
     });
   });
 

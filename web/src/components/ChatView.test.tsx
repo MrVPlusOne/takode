@@ -993,7 +993,10 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
   });
 
-  it("replaces an unavailable leader thread URL with Main after thread sources are loaded", async () => {
+  it("opens a quest thread the URL names even when this browser does not know it yet", async () => {
+    // A phone alert can name a tab the server opened while this page was asleep: the browser's
+    // held thread sources lack it until it reconnects. The tap must still land on that thread
+    // (and open its tab), not be replaced with Main.
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
@@ -1006,9 +1009,33 @@ describe("ChatView chat surface and leader routing", () => {
     const scope = within(view.container);
 
     await waitFor(() => {
-      expect(window.location.hash).toBe("#/session/s1");
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-999");
     });
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-999");
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: { type: "open", threadKey: "q-999", placement: "first" },
+    });
+  });
+
+  it("waits for thread sources before opening a quest thread the URL names", () => {
+    // On a cold start nothing is known yet; opening now could send the tab open before the
+    // socket is connected. The route is kept and handled once thread sources arrive.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      historyLoading: new Map([["s1", true]]),
+      quests: [],
+    });
+    window.location.hash = "#/session/s1?thread=q-999";
+
+    render(<ChatView sessionId="s1" routeThreadKey="q-999" hasThreadRoute={true} />);
+
+    expect(window.location.hash).toBe("#/session/s1?thread=q-999");
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "leader_thread_tabs_update" }),
+    );
   });
 
   it("replaces an invalid leader thread URL with Main", async () => {
@@ -1044,7 +1071,7 @@ describe("ChatView chat surface and leader routing", () => {
     expect(window.location.hash).toBe("#/session/41/msg/alpha-thread-target?thread=q-1177");
   });
 
-  it("preserves a message deep link thread query when leader thread sources do not contain the target thread", async () => {
+  it("opens a message deep link's thread when leader thread sources do not contain it yet", async () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
@@ -1057,7 +1084,7 @@ describe("ChatView chat surface and leader routing", () => {
     const scope = within(view.container);
 
     await waitFor(() => {
-      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1177");
     });
     expect(window.location.hash).toBe("#/session/41/msg/alpha-thread-target?thread=q-1177");
   });

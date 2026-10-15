@@ -71,7 +71,7 @@ type NotifyUserDeps = PersistNotificationDeps & {
     sessionId: string,
     category: "question" | "completed",
     detail: string,
-    options?: { skipReadCheck?: boolean; notificationId?: string },
+    options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string },
   ) => void;
 };
 
@@ -491,7 +491,9 @@ export function notifyUser(
       session.id,
       category === "needs-input" ? "question" : "completed",
       summary,
-      category === "needs-input" ? { skipReadCheck: true, notificationId: notif.id } : { skipReadCheck: true },
+      category === "needs-input"
+        ? { skipReadCheck: true, notificationId: notif.id, threadKey: threadRoute.threadKey }
+        : { skipReadCheck: true, threadKey: threadRoute.threadKey },
     );
   }
 
@@ -690,6 +692,10 @@ function surfaceCreatedNeedsInputThreadTab(
 
 function activeNotificationThreadRoute(session: SessionLike): ThreadRouteMetadata | null {
   return normalizeThreadRoute(session.activeTurnRoute?.threadKey, session.activeTurnRoute?.questId);
+}
+
+function notificationThreadRoute(notification: SessionNotification): ThreadRouteMetadata {
+  return normalizeThreadRoute(notification.threadKey, notification.questId) ?? { threadKey: "main" };
 }
 
 function markSatisfiedThreadOutcomeReminders(
@@ -909,12 +915,7 @@ export function wakeDueSnoozedNotifications(
       delete notif.muted;
       delete notif.mutedAt;
       delete notif.snoozedUntil;
-      surfaceCreatedNeedsInputThreadTab(
-        session,
-        normalizeThreadRoute(notif.threadKey, notif.questId) ?? { threadKey: "main" },
-        now,
-        deps,
-      );
+      surfaceCreatedNeedsInputThreadTab(session, notificationThreadRoute(notif), now, deps);
     }
     touchNotificationStatus(session);
     deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
@@ -924,6 +925,7 @@ export function wakeDueSnoozedNotifications(
         deps.scheduleNotification?.(session.id, "question", notif.summary ?? "Needs input", {
           skipReadCheck: true,
           notificationId: notif.id,
+          threadKey: notificationThreadRoute(notif).threadKey,
         });
       }
     }

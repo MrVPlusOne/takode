@@ -27,7 +27,7 @@ export interface WebPushSubscriptionRecord {
 export interface WebPushAlert {
   title: string;
   body: string;
-  /** Same-origin path the notification opens, e.g. `/#/session/<id>`. */
+  /** Same-origin path the notification opens, e.g. `/#/session/<id>?thread=q-7`. */
   url: string;
 }
 

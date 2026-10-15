@@ -145,6 +145,41 @@ describe("PushoverNotifier with Web Push", () => {
     expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-1");
   });
 
+  // A bare session link reopens whichever tab the app last showed, so an alert from a
+  // leader thread must name that thread, Main included, for the tap to land on it.
+  it("links a needs-input alert to the thread it came from, naming Main explicitly", async () => {
+    makeNotifier().scheduleNotification("sess-1", "question", "Main question", undefined, {
+      notificationId: "n-1",
+      threadKey: "main",
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    makeNotifier().scheduleNotification("sess-2", "completed", "Quest done", undefined, { threadKey: "q-7" });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(webPush.alerts.map((alert) => alert.url)).toEqual([
+      "/#/session/sess-1?thread=main",
+      "/#/session/sess-2?thread=q-7",
+    ]);
+  });
+
+  it("links a batched alert to the oldest question still waiting", async () => {
+    makeNotifier();
+    notifier.scheduleNotification("sess-1", "question", "First", undefined, {
+      notificationId: "n-1",
+      threadKey: "q-1",
+    });
+    notifier.scheduleNotification("sess-1", "question", "Second", undefined, {
+      notificationId: "n-2",
+      threadKey: "q-2",
+    });
+    // The first question is answered before the batch fires: the link follows the one still waiting.
+    notifier.cancelNotification("sess-1", "n-1");
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(webPush.alerts).toHaveLength(1);
+    expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-2");
+  });
+
   // Follow-up reminders summarize every waiting question, so they skip the per-session delay and filters
   // and go straight to both channels, linking to the attention list. Fetch is stubbed: nothing leaves the test.
   it("sends a reminder at once to Web Push and Pushover", async () => {
