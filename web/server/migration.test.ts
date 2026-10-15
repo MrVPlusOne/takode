@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -487,35 +487,51 @@ describe("recreateWorktreeIfMissing", () => {
       };
     }
 
-    it("checks the session's own branch out again, with its commits, despite the vanished checkout", async () => {
-      const oldCwd = join(root, "node-local", "main-wt-1111");
+    // Git records worktree paths with symlinks resolved, while the session may have recorded
+    // its cwd through a symlink. macOS's temp folder /var is really /private/var, so on macOS
+    // even the direct case goes through a symlink; the second case covers it on every OS.
+    it.each([
+      { via: "", link: null },
+      { via: " through a symlinked folder", link: "linked" },
+    ])("checks the session's own branch out again, with its commits, despite the vanished checkout$via", async ({
+      link,
+    }) => {
+      const sessionRoot = link ? join(root, link) : root;
+      if (link) symlinkSync(root, sessionRoot);
+      const oldCwd = join(sessionRoot, "node-local", "main-wt-1111");
       git(`worktree add -q -b main-wt-1111 "${oldCwd}"`);
       git("-c user.name=t -c user.email=t@t commit -q --allow-empty -m session-work", oldCwd);
       const sessionTip = git("rev-parse main-wt-1111");
       rmSync(join(root, "node-local"), { recursive: true });
+      // Keep the new checkout under this test's folder, so cases cannot collide in the shared HOME.
+      const worktreeRoot = join(root, "worktrees");
+      configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "", worktreeRoot }) });
+      try {
+        const d = deps();
+        const info = {
+          sessionId: "s",
+          cwd: oldCwd,
+          state: "exited" as const,
+          createdAt: 0,
+          isWorktree: true,
+          repoRoot,
+          branch: "main",
+          actualBranch: "main-wt-1111",
+        };
+        const result = await recreateWorktreeIfMissing("s", info, d);
 
-      const d = deps();
-      const info = {
-        sessionId: "s",
-        cwd: oldCwd,
-        state: "exited" as const,
-        createdAt: 0,
-        isWorktree: true,
-        repoRoot,
-        branch: "main",
-        actualBranch: "main-wt-1111",
-      };
-      const result = await recreateWorktreeIfMissing("s", info, d);
-
-      expect(result).toEqual({ recreated: true });
-      const [, update] = d.launcher.updateWorktree.mock.calls[0];
-      expect(update.actualBranch).toBe("main-wt-1111");
-      expect(git("rev-parse HEAD", update.cwd)).toBe(sessionTip);
-      expect(git("worktree list")).not.toContain(oldCwd);
-      // Commits are kept, but the agent is told uncommitted work in the old folder is not.
-      expect(d.launcher.noteRecovery).toHaveBeenCalledWith("s", {
-        checkout: { oldCwd, cwd: update.cwd, branch: "main-wt-1111", ownBranchKept: true },
-      });
+        expect(result).toEqual({ recreated: true });
+        const [, update] = d.launcher.updateWorktree.mock.calls[0];
+        expect(update.actualBranch).toBe("main-wt-1111");
+        expect(git("rev-parse HEAD", update.cwd)).toBe(sessionTip);
+        expect(git("worktree list")).not.toContain("node-local");
+        // Commits are kept, but the agent is told uncommitted work in the old folder is not.
+        expect(d.launcher.noteRecovery).toHaveBeenCalledWith("s", {
+          checkout: { oldCwd, cwd: update.cwd, branch: "main-wt-1111", ownBranchKept: true },
+        });
+      } finally {
+        configureMachineSettings(null);
+      }
     });
 
     it("creates the new checkout in the machine's configured worktree folder", async () => {

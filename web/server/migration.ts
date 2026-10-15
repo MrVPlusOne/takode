@@ -11,7 +11,8 @@ import {
   utimesSync,
   renameSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { realpath } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
 import * as gitUtils from "./git-utils.js";
@@ -583,7 +584,7 @@ export async function recreateSessionCheckout(input: {
 
   // Git still lists a checkout that vanished without it (its machine was replaced,
   // say), and refuses to check its branch out anywhere else until it is forgotten.
-  await gitUtils.gitSafeAsync(`worktree remove --force "${input.oldCwd}"`, repoRoot);
+  await gitUtils.gitSafeAsync(`worktree remove --force "${await recordedPathOfMissing(input.oldCwd)}"`, repoRoot);
 
   // Archive saves branch tips as refs/companion/archived/<branch> so they
   // don't pollute `git branch` output but can be restored here.
@@ -637,6 +638,24 @@ export async function recreateSessionCheckout(input: {
     baseBranch,
     restored: false,
   };
+}
+
+/**
+ * The path git recorded for a checkout whose folder is gone. Git records worktree
+ * paths with symlinks resolved (macOS's `/var` is `/private/var`) and cannot match
+ * an unresolvable path against them, so resolve the deepest folder that still exists.
+ */
+async function recordedPathOfMissing(path: string): Promise<string> {
+  const missing: string[] = [];
+  for (let dir = path; dirname(dir) !== dir; dir = dirname(dir)) {
+    try {
+      return join(await realpath(dir), ...missing);
+    } catch {
+      // Not there (any longer): its parent is the next candidate.
+      missing.unshift(basename(dir));
+    }
+  }
+  return path;
 }
 
 function seedWorktreeBridgeState(
