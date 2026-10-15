@@ -566,6 +566,6 @@ describe("POST /api/quests/:questId/done", () => {
       claimedQuestTitle: undefined,
       claimedQuestStatus: undefined,
     });
-    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1", { cancelled: false });
   });
 });

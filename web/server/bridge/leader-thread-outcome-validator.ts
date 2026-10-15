@@ -640,7 +640,8 @@ function freshOutcomeKind(
     if (!sameThread(thread, notification) || notification.timestamp < thread.earliestTimestamp) continue;
     if (notification.category === "needs-input" && !notification.done) return "needs-input";
     if (notification.category === "waiting" && !notification.done) return "waiting";
-    if (notification.category === "review") return "review";
+    // Unread Takode adds for an answer or a completed quest is not an outcome the leader marked.
+    if (notification.category === "review" && !notification.unreadReason) return "review";
   }
   return null;
 }

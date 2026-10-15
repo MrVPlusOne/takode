@@ -81,7 +81,6 @@ function makeHarness() {
     broadcastBoard: (session: TestSession, board: unknown[], completedBoard: unknown[]) =>
       broadcasts.push({ sessionId: session.id, board, completedBoard }),
     persistSession: vi.fn(),
-    notifyReview: vi.fn(),
   };
 
   return { ownerLeader, externalLeader, sessions, watchdogDeps, workBoardStateDeps, targetedEvents, injectedReminders };

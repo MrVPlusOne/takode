@@ -7,18 +7,18 @@ import {
   buildLeaderThreadResponseState,
   finalizeRoutedLeaderResponseMessage,
 } from "../../server/leader-thread-response.js";
-import { recordThreadReadyUnreadNotifications } from "../../server/bridge/session-notification-controller.js";
+import { recordAnswerUnreadNotifications } from "../../server/bridge/session-notification-controller.js";
 import { useStore } from "../store.js";
 import type { BrowserIncomingMessage, SessionNotification, SessionState } from "../types.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
 import { MessageFeed } from "./MessageFeed.js";
 
-// An answer the leader posts in one quest tab also shows in the tab where the
-// user asked. Its Ready result is an unread notification on that answer.
-// Reading the answer in a quest tab reads it everywhere it appears, Main
-// included. Reading it in Main never clears another thread's result, and a
+// An answer the leader posts in one tab also shows in the tab where the user
+// asked. A settled answer is an unread notification in the thread it was
+// written in. Reading the answer in a quest tab reads it everywhere it appears,
+// Main included. Reading it in Main never clears another thread's result, and a
 // thread's other unread results stay unread. These tests replay a leader
-// history through the server's answer routing, Ready notifications and
+// history through the server's answer routing, answer unread notifications and
 // thread-window producer, then render each tab.
 
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
@@ -162,26 +162,25 @@ function say(
 }
 
 /**
- * The QA Data case: asked in one quest tab, answered and marked Ready in
- * another, which then reports completion on its own. Plus two Main requests
- * whose answers are written in that quest: one marks both Main and the quest
- * Ready, the other only Main (the quest is still working).
+ * The QA Data case: asked in one quest tab, answered in another, which then
+ * marks itself Ready on a separate status message. Plus two Main requests whose
+ * answers are written in that quest, and a quest request answered from Main.
  */
 function leaderHistory(): { history: BrowserIncomingMessage[]; notifications: SessionNotification[] } {
   const history: BrowserIncomingMessage[] = [];
+  const answers: Assistant[] = [];
   ask(history, "ask-quest", "u7", ASKING_QUEST);
-  say(history, "shared-answer", ANSWERING_QUEST, [ANSWERING_QUEST], ["u7"]);
+  answers.push(say(history, "shared-answer", ANSWERING_QUEST, [ANSWERING_QUEST], ["u7"]));
   say(history, "quest-only-status", ANSWERING_QUEST, [ANSWERING_QUEST]);
   ask(history, "ask-main", "u8", "main");
-  say(history, "main-answer", ANSWERING_QUEST, ["main", ANSWERING_QUEST], ["u8"]);
+  answers.push(say(history, "main-answer", ANSWERING_QUEST, ["main", ANSWERING_QUEST], ["u8"]));
   ask(history, "ask-main-again", "u9", "main");
-  say(history, "main-only-ready-answer", ANSWERING_QUEST, ["main"], ["u9"]);
+  answers.push(say(history, "main-only-ready-answer", ANSWERING_QUEST, ["main"], ["u9"]));
+  ask(history, "ask-quest-again", "u10", ASKING_QUEST);
+  answers.push(say(history, "main-written-answer", "main", ["main"], ["u10"]));
 
   const session = { id: SESSION_ID, messageHistory: history, notifications: [] as SessionNotification[] };
-  const markers = history.flatMap(
-    (message) => (message as { threadStatusMarkers?: LeaderThreadStatus[] }).threadStatusMarkers ?? [],
-  );
-  recordThreadReadyUnreadNotifications(session, markers, { persistSession: () => {} });
+  recordAnswerUnreadNotifications(session, answers, { persistSession: () => {} });
   return { history, notifications: session.notifications };
 }
 
@@ -231,40 +230,39 @@ function markedRead(): string[] {
 
 describe("an answer shown in several tabs", () => {
   // The user's report: an answer written in a quest tab also shows in Main,
-  // where it was asked, and marking both Ready left both tabs unread for the
-  // same message. Only the thread the answer was written in counts it unread.
+  // where it was asked, and it left both tabs unread for the same message.
+  // Only the thread the answer was written in counts it unread.
   it("counts as unread only in the thread it was written in", () => {
     const { notifications } = leaderHistory();
 
     expect(notifications.filter((n) => n.messageId === "main-answer").map((n) => n.threadKey)).toEqual([
       ANSWERING_QUEST,
     ]);
+    expect(notifications.filter((n) => n.messageId === "main-only-ready-answer").map((n) => n.threadKey)).toEqual([
+      ANSWERING_QUEST,
+    ]);
   });
 
-  it("still counts where it was marked when its own thread has no result on it", () => {
+  it("adds no unread for a status message marked Ready without an answer", () => {
     const { notifications } = leaderHistory();
 
-    expect(notifications.filter((n) => n.messageId === "main-only-ready-answer").map((n) => n.threadKey)).toEqual([
-      "main",
-    ]);
+    expect(notifications.some((n) => n.messageId === "quest-only-status")).toBe(false);
   });
 });
 
 describe("reading a shared answer in a quest tab", () => {
-  it("reads the answering quest's result on that answer, but not its other unread result", () => {
+  it("reads the other threads' results on the answers it shows, but not their other unread results", () => {
     const notifications = deliver(ASKING_QUEST);
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={ASKING_QUEST} markSharedResultsRead />);
 
     expect(view.container.querySelector('[data-message-id="shared-answer"]')).not.toBeNull();
-    expect(markedRead()).toEqual([notificationId(notifications, ANSWERING_QUEST, "shared-answer")]);
-  });
-
-  it("reads Main's result on an answer shown in the quest tab", () => {
-    const notifications = deliver(ANSWERING_QUEST);
-    render(<MessageFeed sessionId={SESSION_ID} threadKey={ANSWERING_QUEST} markSharedResultsRead />);
-
-    // The quest's own results are cleared by the owner-thread rule in ChatView.
-    expect(markedRead()).toEqual([notificationId(notifications, "main", "main-only-ready-answer")]);
+    expect(view.container.querySelector('[data-message-id="main-written-answer"]')).not.toBeNull();
+    expect(markedRead()).toEqual(
+      [
+        notificationId(notifications, ANSWERING_QUEST, "shared-answer"),
+        notificationId(notifications, "main", "main-written-answer"),
+      ].sort(),
+    );
   });
 
   it("never reads another thread's result from Main", () => {

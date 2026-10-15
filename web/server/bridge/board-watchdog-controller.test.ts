@@ -46,7 +46,7 @@ function createDeps(): WorkBoardStateDeps {
     broadcastBoard: vi.fn(),
     broadcastAttentionRecords: vi.fn(),
     persistSession: vi.fn(),
-    notifyReview: vi.fn(),
+    recordQuestCompletionUnread: vi.fn(),
   };
 }
 
@@ -1217,11 +1217,12 @@ describe("Quest Journey board phase timing", () => {
       createdAt: 2_000,
       route: { threadKey: "q-1036", questId: "q-1036" },
     });
-    expect(deps.notifyReview).toHaveBeenCalledWith(
-      "leader-1",
-      "q-1036 ready for review: Finish compact lifecycle cards",
-      { suppressThreadTabPromotion: true },
-    );
+    // Finishing the Journey makes the quest's own thread unread.
+    expect(deps.recordQuestCompletionUnread).toHaveBeenCalledWith(session, {
+      questId: "q-1036",
+      summary: "q-1036 ready for review: Finish compact lifecycle cards",
+      completedAt: 2_000,
+    });
   });
 });
 
@@ -1282,7 +1283,24 @@ describe("done quest board reconciliation", () => {
     );
     expect(deps.invalidateLeaderThreadTabsForQuestIds).toHaveBeenCalledWith(["q-1430"]);
     expect(deps.persistSession).toHaveBeenCalledWith(session);
-    expect(deps.notifyReview).not.toHaveBeenCalled();
+    // Completing the quest makes its thread unread; the unfinished row adds nothing.
+    expect(deps.recordQuestCompletionUnread).toHaveBeenCalledTimes(1);
+    expect(deps.recordQuestCompletionUnread).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ questId: "q-1430", summary: "q-1430 ready for review: Completed Memory quest" }),
+    );
+  });
+
+  it("adds no unread when the done quest was cancelled", () => {
+    // A cancelled quest shows no Quest complete card, so there is nothing new to read.
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-1433", { questId: "q-1433", title: "Cancelled", status: "WORK", createdAt: 1, updatedAt: 2 });
+
+    completeDoneBoardRowsForQuestInAllSessions(new Map([[session.id, session]]), "q-1433", deps, { cancelled: true });
+
+    expect(getCompletedBoard(session).map((row) => row.questId)).toEqual(["q-1433"]);
+    expect(deps.recordQuestCompletionUnread).not.toHaveBeenCalled();
   });
 
   it("replaces an older completed Journey when a newer active run is finally completed", () => {

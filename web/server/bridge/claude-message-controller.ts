@@ -55,7 +55,7 @@ import {
   splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
-import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
+import { recordAnswerUnreadNotifications } from "./session-notification-controller.js";
 import { displayOnlyLeaderAnswerThreads } from "./leader-answer-ready-authority.js";
 import {
   consumeQuestThreadRemindersForCompletedTurn,
@@ -796,6 +796,7 @@ function finalizeLeaderTurnResponseControls(
   const rejectedReadyThreadKeys = new Set<string>();
   const entries = currentTurnAssistantEntries(session);
   const answerCanAnchorReady = new Map<Extract<BrowserIncomingMessage, { type: "assistant" }>, boolean>();
+  const settledAnswers: Array<Extract<BrowserIncomingMessage, { type: "assistant" }>> = [];
 
   // Finalize every answer before applying any Ready marker. A multi-section
   // leader output may put the status segment before the answer segment.
@@ -809,8 +810,10 @@ function finalizeLeaderTurnResponseControls(
       answerCanAnchorReady.set(entry, authoritative);
       if (finalized.finalized) {
         changed = true;
+        settledAnswers.push(entry);
       }
     }
+    recordAnswerUnreadNotifications(session, settledAnswers, deps);
   }
 
   const displayOnlyReadyThreadKeys = displayOnlyLeaderAnswerThreads(
@@ -840,7 +843,6 @@ function finalizeLeaderTurnResponseControls(
       );
       if (statusUpdate.records.length > 0) {
         entry.threadStatusMarkers = [...(entry.threadStatusMarkers ?? []), ...statusUpdate.records];
-        recordThreadReadyUnreadNotifications(session, statusUpdate.records, deps);
       }
       for (const key of statusUpdate.monitoredThreadKeys ?? []) deps.onMonitoredThreadResult?.(session, key);
       for (const route of statusUpdate.rejectedReadyRoutes ?? []) {

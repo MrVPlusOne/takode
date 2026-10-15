@@ -44,7 +44,7 @@ import {
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
-  notifyUser as notifyUserController,
+  recordQuestCompletionUnreadNotification as recordQuestCompletionUnreadNotificationController,
   setSessionClaimedQuest as setSessionClaimedQuestController,
 } from "./bridge/session-registry-controller.js";
 import type { BoardRow } from "./session-types.js";
@@ -376,10 +376,8 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
         rowSessionStatuses: anyBridge.getBoardRowSessionStatuses(session.id, board, completedBoard),
       } as any),
     persistSession: (session: any) => bridge.persistSessionById(session.id),
-    notifyReview: (sessionId: string, summary: string) => {
-      const session = bridge.getSession(sessionId);
-      if (session) notifyUserController(session, "review", summary, getNotificationTestDeps(bridge));
-    },
+    recordQuestCompletionUnread: (session: any, completion: any) =>
+      recordQuestCompletionUnreadNotificationController(session, completion, getNotificationTestDeps(bridge)),
   };
   const boardWatchdogDeps = {
     getLauncherSessionInfo: () => undefined,
@@ -682,7 +680,7 @@ describe("work board", () => {
     expect(board![0].questId).toBe("q-2");
   });
 
-  it("removeBoardRows sends a review notification when a row is completed", () => {
+  it("removeBoardRows makes a completed quest's thread unread", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -691,6 +689,8 @@ describe("work board", () => {
       type: "assistant",
       message: { id: "asst-board-remove", content: [{ type: "text", text: "Quest finished" }] },
       timestamp: Date.now(),
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     bridge.upsertBoardRow("s1", { questId: "q-1", title: "Quest 1" });
@@ -703,7 +703,10 @@ describe("work board", () => {
       expect.objectContaining({
         category: "review",
         summary: "q-1 ready for review: Quest 1",
+        // The quest's own thread becomes unread, pointing at its latest message.
+        threadKey: "q-1",
         messageId: "asst-board-remove",
+        unreadReason: "quest-complete",
       }),
     );
     expect(session.attentionReason).toBe("review");
@@ -734,6 +737,8 @@ describe("work board", () => {
       type: "assistant",
       message: { id: "asst-leader-a", content: [{ type: "text", text: "Quest finished in leader A" }] },
       timestamp: Date.now(),
+      threadKey: "q-510",
+      questId: "q-510",
     });
     leaderBSession.messageHistory.push({
       type: "assistant",
@@ -757,21 +762,9 @@ describe("work board", () => {
       }),
     );
     expect(leaderBSession.notifications).toHaveLength(0);
-    const leaderAHistoryAssistant = leaderASession.messageHistory.find(
-      (message: any) => message?.type === "assistant" && message?.message?.id === "asst-leader-a",
-    );
-    const leaderBHistoryAssistant = leaderBSession.messageHistory.find(
-      (message: any) => message?.type === "assistant" && message?.message?.id === "asst-leader-b",
-    );
-    expect((leaderAHistoryAssistant as any)?.notification).toEqual(
-      expect.objectContaining({
-        category: "review",
-        summary: "q-510 ready for review: Fix cross-leader notification leak",
-      }),
-    );
-    expect((leaderBHistoryAssistant as any)?.notification).toBeUndefined();
+    // Completion unread is not stamped onto a feed message in either session.
     expect(
-      leaderBSession.messageHistory.some(
+      [...leaderASession.messageHistory, ...leaderBSession.messageHistory].some(
         (message: any) => message?.type === "assistant" && (message as any).notification != null,
       ),
     ).toBe(false);
@@ -796,42 +789,27 @@ describe("work board", () => {
       .filter(Boolean);
 
     expect(leaderAMessages.some((message: any) => message?.type === "notification_update")).toBe(true);
-    expect(
-      leaderAMessages.some(
-        (message: any) => message?.type === "notification_anchored" && message?.messageId === "asst-leader-a",
-      ),
-    ).toBe(true);
     expect(leaderBMessages.some((message: any) => message?.type === "notification_update")).toBe(false);
     expect(leaderBMessages.some((message: any) => message?.type === "notification_anchored")).toBe(false);
   });
 
-  it("removeBoardRows sends one aggregated review notification for multiple completed rows", () => {
-    // Batch completion should produce a single review notification so the same
-    // anchored assistant message does not get conflicting notification stamps.
+  it("removeBoardRows makes each completed quest's own thread unread", () => {
+    // Each quest has its own thread and Quest complete card, so a batch
+    // completion makes every completed quest's thread unread, not one Main entry.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const session = (bridge as any).sessions.get("s1");
-    session.messageHistory.push({
-      type: "assistant",
-      message: { id: "asst-board-batch", content: [{ type: "text", text: "Multiple quests finished" }] },
-      timestamp: Date.now(),
-    });
-
     bridge.upsertBoardRow("s1", { questId: "q-1", title: "Quest 1" });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Quest 2" });
     browser.send.mockClear();
 
     bridge.removeBoardRows("s1", ["q-1", "q-2"]);
 
-    expect(session.notifications).toHaveLength(1);
-    expect(session.notifications[0]).toEqual(
-      expect.objectContaining({
-        category: "review",
-        summary: "2 quests ready for review: q-1, q-2",
-        messageId: "asst-board-batch",
-      }),
-    );
+    expect(session.notifications.map((n: any) => [n.threadKey, n.summary])).toEqual([
+      ["q-1", "q-1 ready for review: Quest 1"],
+      ["q-2", "q-2 ready for review: Quest 2"],
+    ]);
   });
 
   it("removeBoardRows does not send duplicate review notifications for already-completed rows", () => {
@@ -1336,6 +1314,8 @@ describe("work board", () => {
       type: "assistant",
       message: { id: "asst-final-phase", content: [{ type: "text", text: "Investigation finished" }] },
       timestamp: Date.now(),
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     bridge.upsertBoardRow("s1", {
@@ -1372,6 +1352,8 @@ describe("work board", () => {
         category: "review",
         summary: "q-1 ready for review: Investigate flaky session auth",
         messageId: "asst-final-phase",
+        threadKey: "q-1",
+        unreadReason: "quest-complete",
       }),
     );
   });
@@ -1632,7 +1614,7 @@ describe("work board", () => {
     expect(previews[0].content).toContain("1 quest completed");
   });
 
-  it("advanceBoardRow sends a review notification when completing the final phase", () => {
+  it("advanceBoardRow makes the quest's thread unread when completing the final phase", () => {
     // Advancing off the final board phase is the explicit completion path for
     // Quest Journey-driven work and should notify exactly once.
     const browser = makeBrowserSocket("s1");
@@ -1643,6 +1625,8 @@ describe("work board", () => {
       type: "assistant",
       message: { id: "asst-board-advance", content: [{ type: "text", text: "Quest finished" }] },
       timestamp: Date.now(),
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     bridge.upsertBoardRow("s1", { questId: "q-1", title: "Quest 1", status: "MEMORY" });
@@ -1657,6 +1641,8 @@ describe("work board", () => {
         category: "review",
         summary: "q-1 ready for review: Quest 1",
         messageId: "asst-board-advance",
+        threadKey: "q-1",
+        unreadReason: "quest-complete",
       }),
     );
     expect(session.attentionReason).toBe("review");

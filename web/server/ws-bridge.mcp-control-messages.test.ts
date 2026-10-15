@@ -42,7 +42,6 @@ import {
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
-  notifyUser as notifyUserController,
   setSessionClaimedQuest as setSessionClaimedQuestController,
 } from "./bridge/session-registry-controller.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -366,10 +365,6 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
     broadcastBoard: (session: any, board: unknown[], completedBoard: unknown[]) =>
       bridge.broadcastToSession(session.id, { type: "board_updated", board, completedBoard } as any),
     persistSession: (session: any) => bridge.persistSessionById(session.id),
-    notifyReview: (sessionId: string, summary: string) => {
-      const session = bridge.getSession(sessionId);
-      if (session) notifyUserController(session, "review", summary, getNotificationTestDeps(bridge));
-    },
   };
   anyBridge.getBoard = (sessionId: string) =>
     bridge.getSession(sessionId) ? getBoardController(bridge.getSession(sessionId)!) : [];

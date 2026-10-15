@@ -8,7 +8,7 @@ vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec })
 import {
   clearAttentionAndMarkRead,
   markSessionUnread,
-  recordThreadReadyUnreadNotifications,
+  recordAnswerUnreadNotifications,
   setAttention,
 } from "./bridge/session-registry-controller.js";
 import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
@@ -39,17 +39,17 @@ function notificationDeps(bridge: WsBridge) {
   };
 }
 
-function ready(questId: string, timestamp: number) {
+/** A settled leader answer authored in the quest thread; each one makes that thread unread. */
+function answer(questId: string, timestamp: number) {
   return {
-    kind: "ready" as const,
-    label: "Thread Ready" as const,
+    type: "assistant",
+    message: { id: `message-${questId}`, content: [{ type: "text", text: `${questId} complete` }] },
+    parent_tool_use_id: null,
+    timestamp,
     threadKey: questId,
     questId,
-    summary: `${questId} complete`,
-    messageId: `message-${questId}`,
-    timestamp,
-    updatedAt: timestamp,
-  };
+    threadAnswer: { version: 2, answerUserMessageIds: ["u1"], authoredThreadKey: questId },
+  } as any;
 }
 
 describe("WsBridge synchronized projections", () => {
@@ -110,13 +110,13 @@ describe("WsBridge synchronized projections", () => {
     carrier.send.mockClear();
     otherCarrier.send.mockClear();
 
-    expect(recordThreadReadyUnreadNotifications(worker, [ready("q-1", 100)], notificationDeps(bridge))).toBe(true);
+    expect(recordAnswerUnreadNotifications(worker, [answer("q-1", 100)], notificationDeps(bridge))).toBe(true);
     await bridge.getSyncedProjectionController().flushForTest();
     owner.send.mockClear();
     carrier.send.mockClear();
     otherCarrier.send.mockClear();
 
-    expect(recordThreadReadyUnreadNotifications(worker, [ready("q-2", 200)], notificationDeps(bridge))).toBe(true);
+    expect(recordAnswerUnreadNotifications(worker, [answer("q-2", 200)], notificationDeps(bridge))).toBe(true);
     await bridge.getSyncedProjectionController().flushForTest();
 
     const ownerMessages = messages(owner);

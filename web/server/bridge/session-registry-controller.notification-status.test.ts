@@ -7,7 +7,8 @@ import {
   markAllNotificationsDone,
   markNotificationDone,
   notifyUser,
-  recordThreadReadyUnreadNotifications,
+  recordAnswerUnreadNotifications,
+  recordQuestCompletionUnreadNotification,
   restorePersistedSessions,
   setNotificationMuted,
   setSessionClaimedQuest,
@@ -16,7 +17,6 @@ import {
 import { replaceAttentionRecords } from "./attention-record-controller.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
-import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { applyLeaderServerCandidateThreadTabEvent } from "../../shared/leader-open-thread-tabs.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {
@@ -106,28 +106,30 @@ function visibleLeaderMessage(id: string, timestamp: number) {
   };
 }
 
-function threadStatus({
-  kind,
+/** A settled leader answer: written in `threadKey`, optionally also shown in other threads. */
+function leaderAnswer({
   threadKey = "q-1539",
-  summary = kind === "ready" ? "quest complete" : "waiting on reviewer",
-  messageId = `${kind}-message`,
+  messageId = "answer-message",
   timestamp = 1000,
+  text = "The fix landed.",
+  alsoShownIn = [] as string[],
 }: {
-  kind: LeaderThreadStatus["kind"];
   threadKey?: string;
-  summary?: string;
   messageId?: string;
   timestamp?: number;
-}): LeaderThreadStatus {
+  text?: string;
+  alsoShownIn?: string[];
+} = {}): any {
   return {
-    kind,
-    label: kind === "ready" ? "Thread Ready" : "Thread Waiting",
+    type: "assistant",
+    message: { id: messageId, content: [{ type: "text", text }] },
+    parent_tool_use_id: null,
+    timestamp,
     threadKey,
     ...(threadKey !== "main" ? { questId: threadKey } : {}),
-    summary,
-    messageId,
-    timestamp,
-    updatedAt: timestamp,
+    threadRefs: alsoShownIn.map((key) => ({ threadKey: key, questId: key, source: "backfill" })),
+    leaderThreadRole: "answer",
+    threadAnswer: { version: 2, answerUserMessageIds: ["u1"], authoredThreadKey: threadKey },
   };
 }
 
@@ -323,7 +325,7 @@ describe("session claimed quest projection invalidation", () => {
 });
 
 describe("session notification status metadata", () => {
-  it("emits review tab promotion edges for review notifications and new Thread Ready markers", () => {
+  it("emits review tab promotion edges for review notifications and new answers", () => {
     const session = makeSession({
       state: { backend_type: "claude", isOrchestrator: true },
       browserSockets: new Set(),
@@ -341,19 +343,10 @@ describe("session notification status metadata", () => {
     expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(session.id, "q-42", expect.any(Number), "review");
 
     promoteLeaderThreadTabForAttention.mockClear();
-    const ready = {
-      kind: "ready" as const,
-      label: "Thread Ready" as const,
-      threadKey: "q-43",
-      questId: "q-43",
-      summary: "ready for review",
-      messageId: "ready-q-43",
-      timestamp: 200,
-      updatedAt: 200,
-    };
-    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(true);
+    const answer = leaderAnswer({ threadKey: "q-43", messageId: "answer-q-43", timestamp: 200 });
+    expect(recordAnswerUnreadNotifications(session, [answer], deps)).toBe(true);
     expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(session.id, "q-43", 200, "review");
-    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(false);
+    expect(recordAnswerUnreadNotifications(session, [answer], deps)).toBe(false);
     expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledTimes(1);
   });
 
@@ -694,16 +687,16 @@ describe("session notification status metadata", () => {
     expect(idleState.leaderUnreadSetByGroupIdle).toBe(false);
   });
 
-  it("keeps thread-scoped Thread Ready unread when an automatic session-view read fires from Main", () => {
+  it("keeps thread-scoped answer unread when an automatic session-view read fires from Main", () => {
     const session = makeSession({
       state: leaderState(["q-1563"]),
       attentionReason: "review",
       notificationStatusVersion: 4,
     });
     const deps = makeDeps();
-    recordThreadReadyUnreadNotifications(
+    recordAnswerUnreadNotifications(
       session,
-      [threadStatus({ kind: "ready", threadKey: "q-1563", timestamp: 1000, messageId: "ready-q1563" })],
+      [leaderAnswer({ threadKey: "q-1563", timestamp: 1000, messageId: "answer-q1563" })],
       deps,
     );
     deps.broadcastToBrowsers.mockClear();
@@ -729,16 +722,16 @@ describe("session notification status metadata", () => {
     );
   });
 
-  it("keeps broad explicit read behavior for thread-scoped Thread Ready unread", () => {
+  it("keeps broad explicit read behavior for thread-scoped answer unread", () => {
     const session = makeSession({
       state: leaderState(["q-1563"]),
       attentionReason: "review",
       notificationStatusVersion: 4,
     });
     const deps = makeDeps();
-    recordThreadReadyUnreadNotifications(
+    recordAnswerUnreadNotifications(
       session,
-      [threadStatus({ kind: "ready", threadKey: "q-1563", timestamp: 1000, messageId: "ready-q1563" })],
+      [leaderAnswer({ threadKey: "q-1563", timestamp: 1000, messageId: "answer-q1563" })],
       deps,
     );
     deps.broadcastToBrowsers.mockClear();
@@ -1093,68 +1086,116 @@ describe("session notification status metadata", () => {
     ]);
   });
 
-  it("records Thread Ready status markers as internal review unread notifications", () => {
+  it("records a settled answer as review unread in the thread it was written in", () => {
     const session = makeSession({ state: { isOrchestrator: true } });
     const deps = makeDeps();
-    const ready = threadStatus({ kind: "ready", threadKey: "q-1539", summary: "quest complete" });
 
-    const changed = recordThreadReadyUnreadNotifications(session, [ready], deps);
+    const changed = recordAnswerUnreadNotifications(
+      session,
+      [leaderAnswer({ text: "{[(Thread Ready: q-1539 | done)]}\n\nThe fix landed on jiayi." })],
+      deps,
+    );
 
     expect(changed).toBe(true);
     expect(session.notifications).toEqual([
       expect.objectContaining({
         id: "n-1",
         category: "review",
-        summary: "Thread ready: q-1539 | quest complete",
+        // The preview skips status marker lines.
+        summary: "Answer in q-1539 | The fix landed on jiayi.",
         threadKey: "q-1539",
         questId: "q-1539",
-        messageId: "ready-message",
+        messageId: "answer-message",
+        unreadReason: "answer",
         done: false,
       }),
     ]);
     expect(session.attentionReason).toBe("review");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
-      expect.objectContaining({
-        type: "notification_update",
-        notifications: [
-          expect.objectContaining({
-            category: "review",
-            threadKey: "q-1539",
-          }),
-        ],
-      }),
+      expect.objectContaining({ type: "notification_update" }),
     );
     expect(deps.scheduleNotification).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
-  it("does not create unread notifications for Thread Waiting markers", () => {
+  it("counts an answer shown in several threads only where it was written", () => {
+    // An answer written in q-7 for a request asked in Main also shows in Main;
+    // the user reads it once, in q-7, so Main gets no unread of its own.
     const session = makeSession({ state: { isOrchestrator: true } });
-    const deps = makeDeps();
+    recordAnswerUnreadNotifications(session, [leaderAnswer({ threadKey: "q-7", alsoShownIn: ["main"] })], makeDeps());
 
-    const changed = recordThreadReadyUnreadNotifications(
+    expect(session.notifications).toEqual([expect.objectContaining({ threadKey: "q-7", unreadReason: "answer" })]);
+  });
+
+  it("leaves a needs-input context answer to its prompt's own attention", () => {
+    const session = makeSession({
+      state: { isOrchestrator: true },
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Pick one",
+          timestamp: 900,
+          messageId: "context-message",
+          contextMessageId: "context-message",
+          done: false,
+        },
+      ],
+      notificationCounter: 1,
+    });
+
+    const changed = recordAnswerUnreadNotifications(
       session,
-      [threadStatus({ kind: "waiting", threadKey: "q-1539" })],
-      deps,
+      [leaderAnswer({ messageId: "context-message" })],
+      makeDeps(),
     );
 
     expect(changed).toBe(false);
-    expect(session.notifications).toEqual([]);
-    expect(session.attentionReason).toBeNull();
-    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
-    expect(deps.persistSession).not.toHaveBeenCalled();
+    expect(session.notifications).toHaveLength(1);
   });
 
-  it("deduplicates replayed Thread Ready markers and preserves active needs-input priority", () => {
+  it("deduplicates replayed answers and preserves active needs-input priority", () => {
     const session = makeSession({ state: { isOrchestrator: true }, attentionReason: "action" });
     const deps = makeDeps();
-    const ready = threadStatus({ kind: "ready", threadKey: "q-1539", summary: "quest complete" });
+    const answer = leaderAnswer();
 
-    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(true);
-    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(false);
+    expect(recordAnswerUnreadNotifications(session, [answer], deps)).toBe(true);
+    expect(recordAnswerUnreadNotifications(session, [answer], deps)).toBe(false);
 
     expect(session.notifications).toHaveLength(1);
     expect(session.attentionReason).toBe("action");
+  });
+
+  it("records a quest completion as unread in its thread, once per completion", () => {
+    const session = makeSession({
+      state: { isOrchestrator: true },
+      messageHistory: [
+        leaderAnswer({ threadKey: "q-9", messageId: "q9-earlier" }),
+        leaderAnswer({ threadKey: "q-10", messageId: "q10-latest" }),
+      ],
+    });
+    const deps = makeDeps();
+    const completion = { questId: "q-9", summary: "q-9 ready for review: Fix paste", completedAt: 5000 };
+
+    expect(recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(true);
+    expect(recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(false);
+    // Completing the quest again later counts again.
+    expect(recordQuestCompletionUnreadNotification(session, { ...completion, completedAt: 9000 }, deps)).toBe(true);
+
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        category: "review",
+        summary: "q-9 ready for review: Fix paste",
+        threadKey: "q-9",
+        // Anchored on the quest thread's latest message, not another thread's.
+        messageId: "q9-earlier",
+        timestamp: 5000,
+        unreadReason: "quest-complete",
+      }),
+      expect.objectContaining({ threadKey: "q-9", timestamp: 9000, unreadReason: "quest-complete" }),
+    ]);
+    expect(session.attentionReason).toBe("review");
+    expect(deps.scheduleNotification).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,6 @@ import type {
   NeedsInputNotificationQuestion,
   SessionNotification,
 } from "../session-types.js";
-import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import {
   applyLeaderServerCandidateThreadTabEvent,
   canServerCandidateOpenThread,
@@ -112,7 +111,7 @@ type NotificationMuteDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
 };
 
-type ThreadReadyUnreadDeps = PersistNotificationDeps & {
+type LeaderUnreadDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
 };
 
@@ -521,94 +520,141 @@ export function notifyUserBySessionId(
   return notifyUser(session, category, summary, deps, options);
 }
 
-function threadReadyUnreadSummary(record: LeaderThreadStatus): string {
-  const label = record.questId ?? record.threadKey;
-  return `Thread ready: ${label}${record.summary ? ` | ${record.summary}` : ""}`;
-}
+type LeaderAnswerEntry = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 
-function hasThreadReadyUnreadNotification(session: SessionLike, record: LeaderThreadStatus, summary: string): boolean {
-  const route = normalizeThreadRoute(record.threadKey, record.questId) ?? { threadKey: "main" };
-  return (session.notifications ?? []).some((notification: SessionNotification) => {
-    if (notification.category !== "review") return false;
-    if (notification.messageId !== record.messageId) return false;
-    if (notification.summary !== summary) return false;
-    const notificationRoute = normalizeThreadRoute(notification.threadKey, notification.questId) ?? {
-      threadKey: "main",
-    };
-    return sameThreadRoute(notificationRoute, route);
-  });
-}
-
-export function recordThreadReadyUnreadNotifications(
+/**
+ * Make a leader thread unread for each newly settled answer, because an answer
+ * is what the user needs to read; a Thread Ready mark alone no longer does.
+ * An answer shown in several threads is unread only in the thread it was written
+ * in. A needs-input context answer is skipped: its prompt already asks for attention.
+ */
+export function recordAnswerUnreadNotifications(
   session: SessionLike,
-  records: ReadonlyArray<LeaderThreadStatus>,
-  deps: ThreadReadyUnreadDeps,
+  answers: ReadonlyArray<LeaderAnswerEntry>,
+  deps: LeaderUnreadDeps,
 ): boolean {
-  const readyRecords = records.filter((record) => record.kind === "ready");
-  if (readyRecords.length === 0) return false;
-
-  session.notifications ??= [];
   let changed = false;
-  for (const record of readyRecords) {
-    const threadRoute = normalizeThreadRoute(record.threadKey, record.questId) ?? { threadKey: "main" };
-    const summary = threadReadyUnreadSummary(record);
-    if (hasThreadReadyUnreadNotification(session, record, summary)) continue;
-    if (isUnreadOnlyInPrimaryThread(session, record.messageId, threadRoute.threadKey, readyRecords)) continue;
+  for (const answer of answers) {
+    const messageId = answer.message.id;
+    if (!messageId || hasUnreadNotificationForMessage(session, messageId)) continue;
+    if (isNeedsInputContextMessage(session, messageId)) continue;
+    const threadKey = leaderMessageThreadKey(answer);
+    const preview = answerPreview(answer);
+    const label = threadKey === "main" ? "Main" : threadKey;
+    const timestamp = typeof answer.timestamp === "number" ? answer.timestamp : Date.now();
+    addLeaderUnreadNotification(session, {
+      reason: "answer",
+      threadKey,
+      summary: `Answer in ${label}${preview ? ` | ${preview}` : ""}`,
+      timestamp,
+      messageId,
+      deps,
+    });
+    deps.promoteLeaderThreadTabForAttention?.(session.id, threadKey, timestamp, "review");
+    changed = true;
+  }
+  if (changed) publishLeaderUnread(session, deps);
+  return changed;
+}
 
-    const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
-    session.notificationCounter = nextNotificationCounter;
-    const notification: SessionNotification = withThreadRoute(
+/**
+ * Make a completed quest's leader thread unread. The thread's Quest complete card
+ * shows the result, so this does not depend on the leader writing an answer, which
+ * it cannot do for work another leader handed over. Recompleting a quest counts again.
+ */
+export function recordQuestCompletionUnreadNotification(
+  session: SessionLike,
+  completion: { questId: string; summary: string; completedAt: number },
+  deps: LeaderUnreadDeps,
+): boolean {
+  const threadKey = normalizeLeaderThreadKey(completion.questId);
+  const alreadyRecorded = (session.notifications ?? []).some(
+    (notification: SessionNotification) =>
+      notification.unreadReason === "quest-complete" &&
+      notification.timestamp === completion.completedAt &&
+      sameThreadRoute(notification, { threadKey }),
+  );
+  if (alreadyRecorded) return false;
+  const anchorIndex = findLastNotificationAnchorIndex(session, { preferredThreadRoute: { threadKey } });
+  const anchor = anchorIndex !== undefined ? getNotificationAnchor(session.messageHistory[anchorIndex]) : undefined;
+  addLeaderUnreadNotification(session, {
+    reason: "quest-complete",
+    threadKey,
+    summary: completion.summary,
+    timestamp: completion.completedAt,
+    messageId: anchor?.id ?? null,
+    deps,
+  });
+  publishLeaderUnread(session, deps);
+  return true;
+}
+
+function addLeaderUnreadNotification(
+  session: SessionLike,
+  input: {
+    reason: NonNullable<SessionNotification["unreadReason"]>;
+    threadKey: string;
+    summary: string;
+    timestamp: number;
+    messageId: string | null;
+    deps: LeaderUnreadDeps;
+  },
+): void {
+  session.notifications ??= [];
+  const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
+  session.notificationCounter = nextNotificationCounter;
+  const threadRoute = normalizeThreadRoute(input.threadKey) ?? { threadKey: "main" };
+  session.notifications.push(
+    withThreadRoute(
       {
         id: `n-${nextNotificationCounter}`,
         category: "review",
-        summary,
-        timestamp: record.timestamp,
-        messageId: record.messageId,
+        summary: input.summary,
+        timestamp: input.timestamp,
+        messageId: input.messageId,
+        unreadReason: input.reason,
         done: false,
       },
       threadRoute,
-    );
-    session.notifications.push(notification);
-    deps.promoteLeaderThreadTabForAttention?.(session.id, threadRoute.threadKey, record.timestamp, "review");
-    changed = true;
-  }
+    ),
+  );
+}
 
-  if (!changed) return false;
+function publishLeaderUnread(session: SessionLike, deps: LeaderUnreadDeps): void {
   touchNotificationStatus(session);
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   setAttention(session, "review", deps);
   deps.persistSession(session);
-  return true;
 }
 
-/**
- * A message shown in several threads counts as unread only in the thread it was
- * written in. When it carries a Ready result for that thread, a Ready result it
- * carries for another thread that also shows it adds no unread there; otherwise
- * the user reads the same message once per tab to clear them. Without the
- * primary thread's result, every result still counts where it was marked.
- */
-function isUnreadOnlyInPrimaryThread(
-  session: SessionLike,
-  messageId: string,
-  threadKey: string,
-  readyRecords: ReadonlyArray<LeaderThreadStatus>,
-): boolean {
-  const message = (session.messageHistory as BrowserIncomingMessage[] | undefined)?.findLast(
-    (entry) => entry.type === "assistant" && entry.message.id === messageId,
-  ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
-  if (!message) return false;
-  const primaryThreadKey = leaderMessageThreadKey(message);
-  if (threadKey === primaryThreadKey || !leaderResponseMessageIsAssociatedWithThread(message, threadKey)) return false;
-  const isPrimary = (route: { threadKey?: string; questId?: string | null }) =>
-    (normalizeThreadRoute(route.threadKey, route.questId)?.threadKey ?? "main") === primaryThreadKey;
-  return (
-    readyRecords.some((record) => record.messageId === messageId && isPrimary(record)) ||
-    (session.notifications as SessionNotification[]).some(
-      (notification) =>
-        notification.category === "review" && notification.messageId === messageId && isPrimary(notification),
-    )
+function hasUnreadNotificationForMessage(session: SessionLike, messageId: string): boolean {
+  return (session.notifications ?? []).some(
+    (notification: SessionNotification) => notification.category === "review" && notification.messageId === messageId,
   );
+}
+
+function isNeedsInputContextMessage(session: SessionLike, messageId: string): boolean {
+  return (session.notifications ?? []).some(
+    (notification: SessionNotification) =>
+      notification.category === "needs-input" && notification.contextMessageId === messageId,
+  );
+}
+
+const ANSWER_PREVIEW_MAX_CHARS = 80;
+
+function answerPreview(answer: LeaderAnswerEntry): string {
+  const content = answer.message.content;
+  const text = Array.isArray(content)
+    ? content.map((block) => (block.type === "text" ? block.text : "")).join("\n")
+    : String(content ?? "");
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .find((line) => line && !line.startsWith("{[("));
+  if (!firstLine) return "";
+  return firstLine.length > ANSWER_PREVIEW_MAX_CHARS
+    ? `${firstLine.slice(0, ANSWER_PREVIEW_MAX_CHARS - 1).trimEnd()}…`
+    : firstLine;
 }
 
 function surfaceCreatedNeedsInputThreadTab(

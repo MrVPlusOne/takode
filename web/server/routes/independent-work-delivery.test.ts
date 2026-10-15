@@ -194,7 +194,6 @@ beforeEach(async () => {
         },
         broadcastAttentionRecords: () => {},
         persistSession: () => {},
-        notifyReview: () => {},
       } as never,
       buildBoardRowSessionStatuses: async () => ({}),
       resolveSessionDeps: () => [],

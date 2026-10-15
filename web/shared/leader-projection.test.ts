@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLeaderThreadRowsFromSummaries,
+  buildProjectionAttentionRecords,
   collectLeaderThreadSummaries,
   mergeLeaderThreadSummaries,
 } from "./leader-projection.js";
@@ -331,5 +332,43 @@ describe("leader projection summaries", () => {
     expect(snapshot.threadSummaries).toHaveLength(25);
     expect(snapshot.threadRows).toHaveLength(25);
     expect(JSON.stringify(snapshot)).not.toContain("work item 2499");
+  });
+});
+
+describe("buildProjectionAttentionRecords", () => {
+  it("gives Takode-made unread no feed row, unlike an agent's review notification", () => {
+    // Answer unread points at the answer itself, which the feed already shows,
+    // so its attention record must not render as an extra ledger row.
+    const records = buildProjectionAttentionRecords({
+      leaderSessionId: "leader",
+      notifications: [
+        {
+          id: "n-1",
+          category: "review",
+          summary: "Answer in q-7 | It landed.",
+          timestamp: 10,
+          messageId: "answer",
+          threadKey: "q-7",
+          questId: "q-7",
+          unreadReason: "answer",
+          done: false,
+        },
+        {
+          id: "n-2",
+          category: "review",
+          summary: "Please review the draft",
+          timestamp: 20,
+          messageId: "note",
+          threadKey: "q-7",
+          questId: "q-7",
+          done: false,
+        },
+      ],
+    });
+
+    expect(records.map((record) => [record.source.id, record.ledgerEligible])).toEqual([
+      ["n-1", false],
+      ["n-2", true],
+    ]);
   });
 });

@@ -895,11 +895,11 @@ export function createQuestRoutes(ctx: RouteContext) {
   const syncDoneQuestBoardState = (questId: string, quest: QuestmasterTask): void => {
     if (quest.status !== "done" || isDirectCodexOwnedQuest(quest)) return;
     const boardBridge = wsBridge as {
-      completeDoneBoardRowsForQuest?: (questId: string) => string[];
+      completeDoneBoardRowsForQuest?: (questId: string, options?: { cancelled?: boolean }) => string[];
       completeQueuedBoardRowsForQuest?: (questId: string) => string[];
     };
     if (boardBridge.completeDoneBoardRowsForQuest) {
-      boardBridge.completeDoneBoardRowsForQuest(questId);
+      boardBridge.completeDoneBoardRowsForQuest(questId, { cancelled: quest.cancelled === true });
       return;
     }
     boardBridge.completeQueuedBoardRowsForQuest?.(questId);

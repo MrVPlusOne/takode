@@ -191,7 +191,6 @@ describe("landing hand-off through the real board routes", () => {
         },
         broadcastAttentionRecords: () => {},
         persistSession: () => {},
-        notifyReview: () => {},
       } as never,
       buildBoardRowSessionStatuses: async () => ({}),
       resolveSessionDeps: () => [],

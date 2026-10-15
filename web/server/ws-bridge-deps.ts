@@ -132,6 +132,7 @@ import {
   removeBoardRowFromAllSessions as removeBoardRowFromAllSessionsController,
   sweepBoardDispatchableWarnings as sweepBoardDispatchableWarningsController,
   sweepBoardStallWarnings as sweepBoardStallWarningsController,
+  type QuestCompletionUnread,
 } from "./bridge/board-watchdog-controller.js";
 import {
   backendAttached as backendAttachedController,
@@ -156,8 +157,8 @@ import {
   markAllNotificationsDoneBySessionId as markAllNotificationsDoneBySessionIdController,
   markCodexAutoRecoveryFailed as markCodexAutoRecoveryFailedController,
   markNotificationDoneBySessionId as markNotificationDoneBySessionIdController,
-  notifyUserBySessionId as notifyUserBySessionIdController,
   prepareSessionForRevert as prepareSessionForRevertController,
+  recordQuestCompletionUnreadNotification as recordQuestCompletionUnreadNotificationController,
   reconcileCodexQuestToolResult as reconcileCodexQuestToolResultController,
   restorePersistedSessions as restorePersistedSessionsController,
   removeSession as removeSessionController,
@@ -1297,8 +1298,39 @@ export function getWorkBoardStateDeps(host: any) {
         attentionRecords,
       }),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
-    notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) =>
-      void notifyUserBySessionIdController(host.sessions, sessionId, "review", summary, notificationDeps, options),
+    recordQuestCompletionUnread: (targetSession: unknown, completion: QuestCompletionUnread) =>
+      void recordQuestCompletionUnreadNotificationController(targetSession as Session, completion, notificationDeps),
+  };
+}
+
+/** Deps for moving a done quest's board rows to the completed board in every leader session. */
+export function getQuestBoardCompletionDeps(host: any) {
+  const broadcastBoard = (targetSession: unknown, board: BoardRow[], completedBoard: BoardRow[]) =>
+    host.broadcastToBrowsers(targetSession as Session, {
+      type: "board_updated",
+      board,
+      completedBoard,
+      rowSessionStatuses: host.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+    });
+  const persistSession = (targetSession: unknown) => host.persistSession(targetSession as Session);
+  return {
+    broadcastBoard,
+    persistSession,
+    invalidateLeaderThreadTabsForQuestIds: (questIds: readonly string[]) =>
+      host.invalidateLeaderThreadTabsForQuestIds(questIds),
+    recordQuestCompletionUnread: (targetSession: unknown, completion: QuestCompletionUnread) =>
+      void recordQuestCompletionUnreadNotificationController(
+        targetSession as Session,
+        completion,
+        host.getSessionNotificationDeps(),
+      ),
+    markNotificationDone: (sessionId: string, notifId: string, done: boolean) =>
+      markNotificationDoneBySessionIdController(host.sessions, sessionId, notifId, done, {
+        broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
+          host.broadcastToBrowsers(targetSession as Session, msg),
+        broadcastBoard,
+        persistSession,
+      }),
   };
 }
 

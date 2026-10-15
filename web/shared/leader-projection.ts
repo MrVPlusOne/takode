@@ -544,7 +544,9 @@ function attentionRecordFromNotification(
       : {}),
     route,
     chipEligible: !isJourneyFinished,
-    ledgerEligible: !hasExplicitFinishedRecords && state !== "muted",
+    // Takode-made unread points at content the feed already shows (an answer or the
+    // Quest complete card), so it never adds its own feed row.
+    ledgerEligible: !hasExplicitFinishedRecords && state !== "muted" && !notification.unreadReason,
     dedupeKey: `notification:${notification.id}`,
   };
 }

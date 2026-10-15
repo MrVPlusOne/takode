@@ -29,6 +29,7 @@ import {
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
   notifyUser as notifyUserController,
+  recordQuestCompletionUnreadNotification,
   summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
 import {
@@ -256,10 +257,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
         attentionRecords,
       } as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
-    notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) => {
-      const session = wsBridge.getSession(sessionId);
-      if (session) notifyUserController(session, "review", summary, notificationRouteDeps, options);
-    },
+    recordQuestCompletionUnread: (
+      session: BridgeSession,
+      completion: import("../bridge/board-watchdog-controller.js").QuestCompletionUnread,
+    ) => void recordQuestCompletionUnreadNotification(session, completion, notificationRouteDeps),
   };
   const getSessionGitDeps = () => bridgeAny.getSessionGitStateDeps?.();
   const setDiffBaseBranch = (sessionId: string, branch: string): boolean => {

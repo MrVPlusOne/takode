@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   notifyUser as notifyUserController,
-  recordThreadReadyUnreadNotifications,
+  recordAnswerUnreadNotifications,
 } from "./bridge/session-registry-controller.js";
 import { SessionStore } from "./session-store.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
@@ -95,7 +95,7 @@ describe("notification status fanout", () => {
     expect(globalStatus.session.notifications).toBeUndefined();
   });
 
-  it("fans later Thread Ready count changes through compact summary and scoped projection", async () => {
+  it("fans later answer unread count changes through compact summary and scoped projection", async () => {
     const bridge = new WsBridge();
     bridge.store = new SessionStore(mkdtempSync(join(tmpdir(), "thread-ready-status-")));
 
@@ -121,25 +121,26 @@ describe("notification status fanout", () => {
     const session = bridge.getSession("worker")!;
     session.state.isOrchestrator = true;
     const deps = getNotificationTestDeps(bridge);
-    const ready = (questId: string, timestamp: number) => ({
-      kind: "ready" as const,
-      label: "Thread Ready" as const,
-      threadKey: questId,
-      questId,
-      summary: `${questId} complete`,
-      messageId: `message-${questId}`,
-      timestamp,
-      updatedAt: timestamp,
-    });
+    // A settled leader answer authored in the quest thread.
+    const answer = (questId: string, timestamp: number) =>
+      ({
+        type: "assistant",
+        message: { id: `message-${questId}`, content: [{ type: "text", text: `${questId} complete` }] },
+        parent_tool_use_id: null,
+        timestamp,
+        threadKey: questId,
+        questId,
+        threadAnswer: { version: 2, answerUserMessageIds: ["u1"], authoredThreadKey: questId },
+      }) as any;
 
-    expect(recordThreadReadyUnreadNotifications(session, [ready("q-1977", 11_000)], deps)).toBe(true);
+    expect(recordAnswerUnreadNotifications(session, [answer("q-1977", 11_000)], deps)).toBe(true);
     await bridge.getSyncedProjectionController().flushForTest();
     workerBrowser.send.mockClear();
     leaderBrowser.send.mockClear();
 
     // attentionReason is already "review", so only the notification-status
     // change can carry the second unread count to the other browser socket.
-    expect(recordThreadReadyUnreadNotifications(session, [ready("q-1978", 12_000)], deps)).toBe(true);
+    expect(recordAnswerUnreadNotifications(session, [answer("q-1978", 12_000)], deps)).toBe(true);
     await bridge.getSyncedProjectionController().flushForTest();
 
     const workerMessages = sentMessages(workerBrowser);

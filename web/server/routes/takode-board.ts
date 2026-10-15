@@ -342,13 +342,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
   registerWorkDeliveryRoutes(api, { launcher, wsBridge, authenticateTakodeCaller, acquireWorkEvidenceMutationLock });
   wsBridge.landingHandoff = createLandingQuestHandoff({ launcher, wsBridge, workBoardStateDeps });
 
-  function syncDoneQuestBoardState(questId: string): void {
+  function syncDoneQuestBoardState(questId: string, cancelled: boolean): void {
     const boardBridge = wsBridge as {
-      completeDoneBoardRowsForQuest?: (questId: string) => string[];
+      completeDoneBoardRowsForQuest?: (questId: string, options?: { cancelled?: boolean }) => string[];
       completeQueuedBoardRowsForQuest?: (questId: string) => string[];
     };
     if (boardBridge.completeDoneBoardRowsForQuest) {
-      boardBridge.completeDoneBoardRowsForQuest(questId);
+      boardBridge.completeDoneBoardRowsForQuest(questId, { cancelled });
       return;
     }
     boardBridge.completeQueuedBoardRowsForQuest?.(questId);
@@ -359,7 +359,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     for (const questId of activeQuestIds) {
       const quest = await questStore.getQuest(questId).catch(() => null);
       if (quest?.status !== "done") continue;
-      syncDoneQuestBoardState(questId);
+      syncDoneQuestBoardState(questId, quest.cancelled === true);
     }
   }
 
@@ -1605,7 +1605,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (mergedIsQueued) {
       const quest = await questStore.getQuest(questId).catch(() => null);
       if (quest?.status === "done") {
-        syncDoneQuestBoardState(questId);
+        syncDoneQuestBoardState(questId, quest.cancelled === true);
         return c.json({ error: `Cannot queue ${questId}: quest is already done.` }, 409);
       }
     }

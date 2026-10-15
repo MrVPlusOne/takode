@@ -61,7 +61,6 @@ function boardDeps(bridge: WsBridge) {
         completedBoard,
       } as BrowserIncomingMessage),
     persistSession: (session: any) => bridge.persistSessionById(session.id),
-    notifyReview: vi.fn(),
   };
 }
 

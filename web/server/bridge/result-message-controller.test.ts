@@ -600,6 +600,34 @@ describe("result-message-controller", () => {
     ).toEqual(["u2"]);
   });
 
+  it("makes the thread unread when an answer settles, not when commentary is marked Ready", () => {
+    // Unread follows content the user must read: a settled answer. A Ready mark on
+    // commentary sets the thread's status but adds no unread, since the collapsed
+    // turn would show nothing new for it.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "u1", { threadKey: "q-7" }));
+    session.messageHistory.push(routedFinal("settled-answer", 1, { threadKey: "q-7", text: "It landed." }));
+    session.userMessageIdsThisTurn = [0];
+    handleResultMessage(session, makeResult({ uuid: "answer-result" }), makeDeps());
+
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        category: "review",
+        threadKey: "q-7",
+        messageId: "settled-answer",
+        summary: "Answer in q-7 | It landed.",
+        unreadReason: "answer",
+      }),
+    ]);
+
+    session.messageHistory.push(routedFinal("status-only", 3, { role: "commentary", ready: true, threadKey: "q-7" }));
+    session.userMessageIdsThisTurn = [];
+    handleResultMessage(session, makeResult({ uuid: "status-result" }), makeDeps());
+
+    expect(session.state.leaderThreadStatuses?.["q-7"]).toMatchObject({ kind: "ready", messageId: "status-only" });
+    expect(session.notifications).toHaveLength(1);
+  });
+
   it("rejects a commentary Ready attempt and forwards the target to the pending-response validator", () => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"));

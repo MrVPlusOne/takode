@@ -9,6 +9,7 @@ import {
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 import { isInjectedEventMessage } from "../utils/injected-event-message.js";
+import { isSessionSentSourceId } from "../../shared/injected-event-message.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
@@ -666,9 +667,13 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
 }
 
 function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
-  // Only split at user messages. Deprecated assistant suffix tags are treated
-  // as literal text and do not affect turn boundaries.
-  return isUserBoundaryEntry(entry);
+  // Split at the user's messages and at other leaders' messages, so a leader's
+  // message and the reply under it are not hidden inside an older collapsed turn.
+  // Deprecated assistant suffix tags are literal text and never split turns.
+  if (isUserBoundaryEntry(entry)) return true;
+  return (
+    entry.kind === "message" && entry.msg.role === "user" && isSessionSentSourceId(entry.msg.agentSource?.sessionId)
+  );
 }
 
 function entryIsCollapsedVisible(
@@ -1328,8 +1333,9 @@ function makeTurn(
 }
 
 /** Group flat feed entries into turns.
- *  Leader mode splits only on real human user boundaries. Injected user-shaped
- *  updates carry agentSource and remain inside the current agent turn. */
+ *  Leader mode splits on the user's messages and on other leaders' messages.
+ *  Takode-injected user-shaped updates (herd events, timers, reminders) carry
+ *  agentSource and remain inside the current agent turn. */
 export function groupIntoTurns(
   entries: FeedEntry[],
   leaderMode = false,

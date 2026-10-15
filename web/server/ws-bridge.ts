@@ -328,6 +328,7 @@ import {
   getCodexAdapterBrowserMessageDeps as getCodexAdapterBrowserMessageDepsController,
   getCodexAttachLifecycleDeps as getCodexAttachLifecycleDepsController,
   getWorkBoardStateDeps as getWorkBoardStateDepsController,
+  getQuestBoardCompletionDeps as getQuestBoardCompletionDepsController,
   getBoardWatchdogDeps as getBoardWatchdogDepsController,
   getBrowserRoutingDeps as getBrowserRoutingDepsController,
   getCodexRecoveryOrchestratorDeps as getCodexRecoveryOrchestratorDepsController,
@@ -1291,37 +1292,17 @@ export class WsBridge {
     return this.completeBoardRowsForQuest(questId, completeQueuedBoardRowsForQuestInAllSessionsController);
   }
 
-  completeDoneBoardRowsForQuest(questId: string): string[] {
-    return this.completeBoardRowsForQuest(questId, completeDoneBoardRowsForQuestInAllSessionsController);
+  completeDoneBoardRowsForQuest(questId: string, options: { cancelled?: boolean } = {}): string[] {
+    return this.completeBoardRowsForQuest(questId, (sessions, id, deps) =>
+      completeDoneBoardRowsForQuestInAllSessionsController(sessions, id, deps, options),
+    );
   }
 
   private completeBoardRowsForQuest(
     questId: string,
     completeRows: typeof completeQueuedBoardRowsForQuestInAllSessionsController,
   ): string[] {
-    return completeRows(this.sessions, questId, {
-      broadcastBoard: (targetSession, board, completedBoard) =>
-        this.broadcastToBrowsers(targetSession as Session, {
-          type: "board_updated",
-          board,
-          completedBoard,
-          rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
-        }),
-      persistSession: (targetSession) => this.persistSession(targetSession as Session),
-      invalidateLeaderThreadTabsForQuestIds: (questIds) => this.invalidateLeaderThreadTabsForQuestIds(questIds),
-      markNotificationDone: (sessionId, notifId, done) =>
-        markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
-          broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),
-          broadcastBoard: (targetSession, board, completedBoard) =>
-            this.broadcastToBrowsers(targetSession as Session, {
-              type: "board_updated",
-              board,
-              completedBoard,
-              rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
-            }),
-          persistSession: (targetSession) => this.persistSession(targetSession as Session),
-        }),
-    });
+    return completeRows(this.sessions, questId, getQuestBoardCompletionDepsController(this));
   }
 
   private sweepBoardStallWarnings(now: number): void {

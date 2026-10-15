@@ -60,7 +60,7 @@ function testDeps(): WorkBoardStateDeps {
     markNotificationDone: vi.fn(() => true),
     broadcastBoard: vi.fn(),
     persistSession: vi.fn(),
-    notifyReview: vi.fn(),
+    recordQuestCompletionUnread: vi.fn(),
   };
 }
 

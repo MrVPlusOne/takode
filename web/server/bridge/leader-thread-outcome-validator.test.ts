@@ -183,6 +183,22 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(1);
   });
 
+  it("does not count the unread Takode adds for an answer as the leader's outcome", () => {
+    // Answer unread is created at turn settlement, before this check runs. It is
+    // not a marker the leader chose, so the thread still needs a Ready or Waiting.
+    const session = {
+      id: "leader",
+      messageHistory: [assistantMessage({ id: "a1", text: "Here is the answer", timestamp: 20 })],
+      notifications: [{ ...notification({ category: "review", timestamp: 25 }), unreadReason: "answer" as const }],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toMatchObject({ checked: true, missing: ["main"], injected: true });
+  });
+
   it("accepts a same-thread needs-input notification as the user-blocking outcome", () => {
     const session = {
       id: "leader",

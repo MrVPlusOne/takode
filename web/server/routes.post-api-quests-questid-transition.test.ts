@@ -573,7 +573,7 @@ describe("POST /api/quests/:questId/transition", () => {
       claimedQuestTitle: undefined,
       claimedQuestStatus: undefined,
     });
-    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1", { cancelled: false });
   });
 
   // A debrief is stamped with the machine of the session that wrote it; a
@@ -847,7 +847,7 @@ describe("POST /api/quests/:questId/transition", () => {
         }),
       }),
     );
-    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1", { cancelled: false });
   });
 
   it("rejects non-leader forced completion recovery before mutation", async () => {

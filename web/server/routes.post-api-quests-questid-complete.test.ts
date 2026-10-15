@@ -411,7 +411,7 @@ describe("POST /api/quests/:questId/complete", () => {
       debrief: "Completed the accepted work and final Memory closure.",
       debriefTldr: "Accepted work is complete with final Memory closure.",
     });
-    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1", { cancelled: false });
     expect(bridge._sessions["worker-1"].messageHistory).toEqual([
       expect.objectContaining({ type: "quest_lifecycle_event", kind: "submitted", questId: "q-1" }),
     ]);
@@ -953,7 +953,7 @@ describe("POST /api/quests/:questId/complete", () => {
       commitShas: undefined,
       sessionId: "worker-1",
     });
-    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1", { cancelled: false });
   });
 
   it("resolves numeric completion sessionId before leader authorization and lookup", async () => {

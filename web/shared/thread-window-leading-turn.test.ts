@@ -83,6 +83,15 @@ describe("selected thread leading-turn identity", () => {
     expect(windowFor(history, 0, 101).window.leading_turn_id).toBe("human-request");
   });
 
+  it("starts the leading turn at another leader's message, like the browser's turn grouping", () => {
+    // A later window must name the same turn the browser builds: the peer
+    // leader's message (a session UUID source) opens a turn; herd events do not.
+    const peerLeader = "3a2e4ef0-ecaf-4a5c-b65b-d2f5128d9f58";
+    const history = [user("human-request"), assistant("reply"), ...injectedHistory([user("peer-note", peerLeader)])];
+
+    expect(windowFor(history, 61, 30).window.leading_turn_id).toBe("peer-note");
+  });
+
   it("uses a stable full-source prefix when the thread has no human boundary", () => {
     const kickoff = { ...user("source-kickoff"), content: LEADER_KICKOFF_PREFIX };
     const history = injectedHistory([kickoff]);

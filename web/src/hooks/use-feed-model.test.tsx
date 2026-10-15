@@ -272,6 +272,28 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(entryIds(model.turns[0].allEntries)).toContain("h2");
   });
 
+  it("starts a leader turn at another leader's message, but not at Takode-injected input", () => {
+    // Another leader's message (sent with takode send, so its source is that
+    // leader's session UUID) and the reply under it must not hide inside an
+    // older collapsed turn. Herd events and timers keep the current turn.
+    const peerLeader = "3a2e4ef0-ecaf-4a5c-b65b-d2f5128d9f58";
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "plan the run", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Planned.", timestamp: 2 }),
+      makeHerdEvent("h1", "#5 | turn_end | ✓ 5s", 3),
+      makeInjectedUserMessage("t1", "[⏰ Timer t1 reminder] Check", 4, "timer:t1"),
+      makeInjectedUserMessage("l1", "Use top_p 0.97 for PRF.", 5, peerLeader, "#2957 Daily Leader"),
+      makeMessage({ id: "a2", role: "assistant", content: "Recorded the top_p finding.", timestamp: 6 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+
+    expect(model.turns.map((turn) => (turn.userEntry as { msg: ChatMessage } | null)?.msg.id)).toEqual(["u1", "l1"]);
+    expect(entryIds(model.turns[0].allEntries)).toEqual(expect.arrayContaining(["h1", "t1"]));
+    // With no answer in the new turn, the collapsed turn shows the reply.
+    expect(model.turns[1].lastMessageEntry?.msg.id).toBe("a2");
+  });
+
   it("counts structured events inside one herd batch instead of counting only the wrapper message", () => {
     const batch = makeHerdEvent("h-batch", "3 events from 2 sessions", 2);
     batch.takodeHerdEvents = [

@@ -17,7 +17,11 @@ import {
 import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
 import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "./leader-answer-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
-import { isCodexLeaderRecoveryDiagnosticSourceId, isLeaderKickoffPrompt } from "./injected-event-message.js";
+import {
+  isCodexLeaderRecoveryDiagnosticSourceId,
+  isLeaderKickoffPrompt,
+  isSessionSentSourceId,
+} from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
 import { currentThreadContinuationId } from "./thread-continuation.js";
 import {
@@ -659,10 +663,8 @@ function questQuizSourceBoundarySupportItems(
     const message = messages[historyIndex];
     if (
       !message ||
-      message.type !== "user_message" ||
+      !isLeaderTurnBoundary(message) ||
       message.codexSubagent != null ||
-      message.agentSource?.sessionId != null ||
-      isLeaderKickoffPrompt(message.content) ||
       !messageHasThreadRef(message, threadKey)
     )
       continue;
@@ -743,20 +745,23 @@ function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boole
   return true;
 }
 
-function isHumanTurnBoundary(
+function isLeaderTurnBoundary(
   message: BrowserIncomingMessage,
 ): message is Extract<BrowserIncomingMessage, { type: "user_message" }> {
-  // Leader feed turns ignore every sourced input and the legacy source-less kickoff.
-  return (
-    message.type === "user_message" && message.agentSource?.sessionId == null && !isLeaderKickoffPrompt(message.content)
-  );
+  // Leader feed turns start at the user's messages and other leaders' messages
+  // (matching the browser's turn grouping), never at Takode-injected input or the
+  // legacy source-less kickoff.
+  if (message.type !== "user_message") return false;
+  const sourceId = message.agentSource?.sessionId;
+  if (sourceId == null) return !isLeaderKickoffPrompt(message.content);
+  return isSessionSentSourceId(sourceId);
 }
 
 function deriveLeadingTurnId(items: FeedItem[], entries: ThreadWindowEntry[]): string | undefined {
   const leadingKeys = new Set<string>();
   for (const entry of entries) {
     if (!threadWindowEntryRendersChatRow(entry.message)) continue;
-    if (leadingKeys.size > 0 && isHumanTurnBoundary(entry.message)) break;
+    if (leadingKeys.size > 0 && isLeaderTurnBoundary(entry.message)) break;
     leadingKeys.add(entryKey(entry));
   }
   if (leadingKeys.size === 0) return undefined;
@@ -774,7 +779,7 @@ function deriveLeadingTurnId(items: FeedItem[], entries: ThreadWindowEntry[]): s
         : message.type === "assistant"
           ? message.message.id
           : undefined;
-    if (isHumanTurnBoundary(message)) {
+    if (isLeaderTurnBoundary(message)) {
       currentTurn = { id: messageId, startIndex: historyIndex };
     } else {
       // System-row normalization has distinct ids. Leave an unproven prefix

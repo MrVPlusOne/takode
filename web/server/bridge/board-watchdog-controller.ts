@@ -111,7 +111,14 @@ export interface WorkBoardStateDeps {
   promoteLeaderThreadTabForQuest?: (questId: string, eventAt: number, sourceSessionId: string) => void;
   broadcastAttentionRecords?: (session: SessionLike, attentionRecords: SessionAttentionRecord[]) => void;
   persistSession: (session: SessionLike) => void;
-  notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) => void;
+  /** Makes each completed quest's leader thread unread (see recordQuestCompletionUnreadNotification). */
+  recordQuestCompletionUnread?: (session: SessionLike, completion: QuestCompletionUnread) => void;
+}
+
+export interface QuestCompletionUnread {
+  questId: string;
+  summary: string;
+  completedAt: number;
 }
 
 export interface AdvanceBoardRowOptions {
@@ -359,12 +366,18 @@ export function getBoardWorkerSlotUsage(
   };
 }
 
-export function buildBoardCompletionSummary(rows: BoardRow[]): string {
-  if (rows.length === 1) {
-    const [row] = rows;
-    return row.title ? `${row.questId} ready for review: ${row.title}` : `${row.questId} ready for review`;
+function recordQuestCompletionsUnread(
+  session: SessionLike,
+  rows: readonly BoardRow[],
+  deps: Pick<WorkBoardStateDeps, "recordQuestCompletionUnread">,
+): void {
+  for (const row of rows) {
+    deps.recordQuestCompletionUnread?.(session, {
+      questId: row.questId,
+      summary: row.title ? `${row.questId} ready for review: ${row.title}` : `${row.questId} ready for review`,
+      completedAt: row.completedAt ?? Date.now(),
+    });
   }
-  return `${rows.length} quests ready for review: ${rows.map((row) => row.questId).join(", ")}`;
 }
 
 function getBoardRowPhaseIds(row: Pick<BoardRow, "journey" | "noCode">, status?: string): QuestJourneyPhaseId[] {
@@ -647,11 +660,7 @@ function completeBoardRow(
     deps.markNotificationDone(session.id, notificationId, true);
   }
   const board = commitBoard(session, deps, [questId]);
-  if (completed) {
-    deps.notifyReview(session.id, buildBoardCompletionSummary([completed]), {
-      suppressThreadTabPromotion: true,
-    });
-  }
+  if (completed) recordQuestCompletionsUnread(session, [completed], deps);
   return { board, completed };
 }
 
@@ -660,7 +669,11 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
   questId: string,
   deps: Pick<
     WorkBoardStateDeps,
-    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+    | "broadcastBoard"
+    | "persistSession"
+    | "markNotificationDone"
+    | "invalidateLeaderThreadTabsForQuestIds"
+    | "recordQuestCompletionUnread"
   >,
 ): string[] {
   return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: true });
@@ -671,10 +684,18 @@ export function completeDoneBoardRowsForQuestInAllSessions(
   questId: string,
   deps: Pick<
     WorkBoardStateDeps,
-    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+    | "broadcastBoard"
+    | "persistSession"
+    | "markNotificationDone"
+    | "invalidateLeaderThreadTabsForQuestIds"
+    | "recordQuestCompletionUnread"
   >,
+  options: { cancelled?: boolean } = {},
 ): string[] {
-  return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: false });
+  return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, {
+    queuedOnly: false,
+    cancelled: options.cancelled === true,
+  });
 }
 
 function completeBoardRowsForQuestInAllSessions(
@@ -682,9 +703,13 @@ function completeBoardRowsForQuestInAllSessions(
   questId: string,
   deps: Pick<
     WorkBoardStateDeps,
-    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+    | "broadcastBoard"
+    | "persistSession"
+    | "markNotificationDone"
+    | "invalidateLeaderThreadTabsForQuestIds"
+    | "recordQuestCompletionUnread"
   >,
-  options: { queuedOnly: boolean },
+  options: { queuedOnly: boolean; cancelled?: boolean },
 ): string[] {
   const completedInSessions: string[] = [];
   const syncedSessionIds = new Set<string>();
@@ -718,10 +743,12 @@ function completeBoardRowsForQuestInAllSessions(
     } else {
       row.waitFor = undefined;
       row.waitForInput = undefined;
-      moveBoardRowToCompleted(session, boardQuestId);
+      const completed = moveBoardRowToCompleted(session, boardQuestId);
       if (completedEntry && completedEntry[0] !== boardQuestId) {
         session.completedBoard.delete(completedEntry[0]);
       }
+      // A cancelled quest shows no Quest complete card, so there is nothing new to read.
+      if (completed && !options.cancelled) recordQuestCompletionsUnread(session, [completed], deps);
     }
     clearResolvedQuestWaitFor(session, [boardQuestId]);
 
@@ -999,11 +1026,7 @@ export function removeBoardRows(session: SessionLike, questIds: string[], deps: 
     deps.markNotificationDone(session.id, notificationId, true);
   }
   const board = commitBoard(session, deps, questIds);
-  if (completedRows.length > 0) {
-    deps.notifyReview(session.id, buildBoardCompletionSummary(completedRows), {
-      suppressThreadTabPromotion: true,
-    });
-  }
+  recordQuestCompletionsUnread(session, completedRows, deps);
   return board;
 }
 

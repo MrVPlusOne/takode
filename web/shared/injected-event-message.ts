@@ -90,6 +90,19 @@ export function isSystemSourceId(sourceId: string | undefined): boolean {
   return sourceId === "system" || sourceId?.startsWith("system:") === true;
 }
 
+const SESSION_SOURCE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a user-shaped message was sent by another session with `takode send`, not
+ * injected by Takode itself: Takode's own sources (herd events, timers, reminders,
+ * the landing queue) use fixed names, while a sending session is identified by its
+ * UUID. Only a leader may send to a leader, so in a leader session this is another
+ * leader's message, which starts its own feed turn like the user's.
+ */
+export function isSessionSentSourceId(sourceId: string | undefined): boolean {
+  return sourceId !== undefined && SESSION_SOURCE_ID_RE.test(sourceId);
+}
+
 export function isCodexLeaderRecoveryDiagnosticSourceId(sourceId: string | undefined): boolean {
   return sourceId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID;
 }

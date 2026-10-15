@@ -9,7 +9,6 @@ const workBoardStateDeps = {
   markNotificationDone: () => false,
   broadcastBoard: () => undefined,
   persistSession: () => undefined,
-  notifyReview: () => undefined,
 };
 
 type TestSession = {

@@ -88,7 +88,6 @@ function createRouteApp(): Hono {
       broadcastBoard,
       broadcastAttentionRecords: vi.fn(),
       persistSession: vi.fn(),
-      notifyReview: vi.fn(),
     },
     buildBoardRowSessionStatuses: vi.fn(async () => ({})),
     resolveSessionDeps: vi.fn(() => []),
