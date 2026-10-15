@@ -490,6 +490,37 @@ describe("NewSessionModal", () => {
     expect(await within(modal).findByText("Default (gpt-5.5)")).toBeInTheDocument();
   });
 
+  it("sends a chosen session name and leaves it out when the field is empty", async () => {
+    // A typed name is sent trimmed as fixedName so the server keeps it like a
+    // manual rename; an empty field keeps automatic naming (no fixedName).
+    const user = userEvent.setup();
+    const { rerender } = render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Session name" }), "  Release notes  ");
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalledTimes(1));
+    expect(latestQueuedCreateOpts().fixedName).toBe("Release notes");
+
+    // Reopening starts with an empty name again.
+    rerender(<NewSessionModal open={false} onClose={() => {}} />);
+    rerender(<NewSessionModal open={true} onClose={() => {}} />);
+    expect(await screen.findByRole("textbox", { name: "Session name" })).toHaveValue("");
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalledTimes(2));
+    expect(latestQueuedCreateOpts().fixedName).toBeUndefined();
+  });
+
+  it("creates the session when Enter is pressed in the name field", async () => {
+    const user = userEvent.setup();
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    // Enter only creates once the folder check allows it, like the button.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create Session" })).toBeEnabled());
+    await user.type(screen.getByRole("textbox", { name: "Session name" }), "Planning{Enter}");
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalledTimes(1));
+    expect(latestQueuedCreateOpts().fixedName).toBe("Planning");
+  });
+
   it("uses saved Codex settings defaults on initial open without sending stale local defaults", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({

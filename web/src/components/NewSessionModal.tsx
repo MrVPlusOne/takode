@@ -137,6 +137,8 @@ export function NewSessionModal({
   const [cwd, setCwd] = useState(() => groupCwd || defaults.cwd || getRecentDirs(defaultsKey)[0] || "");
   const cwdRef = useRef(cwd);
   const cwdUserEditedRef = useRef(false);
+  /** Optional name; empty means automatic naming. */
+  const [sessionName, setSessionName] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [dynamicModels, setDynamicModels] = useState<ModelOption[] | null>(null);
@@ -314,6 +316,7 @@ export function NewSessionModal({
     setSelectedBranch("");
     setBranches([]);
     setIsNewBranch(false);
+    setSessionName("");
     setError("");
     setSending(false);
     setResumeMode(false);
@@ -694,6 +697,7 @@ export function NewSessionModal({
 
     // Build creation opts (stored in pending session for retry)
     const createOpts = {
+      fixedName: sessionName.trim() || undefined,
       model: resolveModelOverrideForCreate(),
       permissionMode,
       cwd: cwdSnapshot || undefined,
@@ -1090,6 +1094,21 @@ export function NewSessionModal({
             <>
               {/* Config selectors */}
               <div className="px-5 py-4 space-y-4">
+                <NewSessionField label="Name">
+                  <input
+                    type="text"
+                    value={sessionName}
+                    aria-label="Session name"
+                    onChange={(e) => setSessionName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleCreate();
+                    }}
+                    placeholder="Automatic"
+                    enterKeyHint="go"
+                    className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
+                  />
+                </NewSessionField>
+
                 <NewSessionConfigSection title="Engine">
                   <div className="flex flex-wrap items-end gap-2">
                     {backends.length > 1 && (

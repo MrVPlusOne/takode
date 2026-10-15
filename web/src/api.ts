@@ -313,6 +313,8 @@ export interface CreateSessionOpts {
   container?: ContainerCreateOpts;
   assistantMode?: boolean;
   askPermission?: boolean;
+  /** Name chosen at creation; kept like a manual rename. Omit for automatic naming. */
+  fixedName?: string;
   /** Session role: "orchestrator" gets TAKODE_ROLE + TAKODE_API_PORT env vars */
   role?: "worker" | "orchestrator";
   /** Server-side session group assignment for durable group membership. */

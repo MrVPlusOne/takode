@@ -296,6 +296,33 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(screen.getByText("claude-sonnet-4-5-20250929").closest("button")).toHaveClass("bg-cc-active");
   });
 
+  it("labels a session still being created with its chosen name, else its folder", () => {
+    // A name typed in the New Session dialog should show right away, before
+    // the server has created the session; without one, the folder name shows.
+    const pending = (id: string, createdAt: number, fixedName?: string) => ({
+      id,
+      backend: "claude",
+      createOpts: { cwd: "/repo/takode", ...(fixedName ? { fixedName } : {}) },
+      progress: [],
+      error: null,
+      status: "creating",
+      realSessionId: null,
+      cwd: "/repo/takode",
+      createdAt,
+    });
+    mockState = createMockState({
+      pendingSessions: new Map([
+        ["pending-1", pending("pending-1", 2, "Release notes")],
+        ["pending-2", pending("pending-2", 1)],
+      ]),
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByText("Release notes")).toBeInTheDocument();
+    expect(screen.getByText("takode")).toBeInTheDocument();
+  });
+
   it("auto-scrolls the sidebar to keep the active session row visible", () => {
     const session1 = makeSession("s1", { model: "Session One" });
     const session2 = makeSession("s2", { model: "Session Two" });

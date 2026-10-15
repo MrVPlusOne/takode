@@ -94,6 +94,7 @@ vi.mock("./session-names.js", () => ({
   getAllNames: vi.fn(() => ({})),
   removeName: vi.fn(),
   getNextLeaderNumber: vi.fn(() => 1),
+  setUserNamed: vi.fn(),
   _resetForTest: vi.fn(),
 }));
 
@@ -1490,6 +1491,47 @@ describe("POST /api/sessions/create", () => {
     expect(removeSpy).toHaveBeenCalled();
     // CLI should NOT have been launched
     expect(launcher.launch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a name chosen at creation like a manual rename", async () => {
+    // The New Session dialog sends fixedName. The session must start with that
+    // name and be marked user-named so the auto-namer never replaces it.
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", fixedName: "  Release notes  " }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(sessionNames.setName).toHaveBeenCalledWith("session-1", "Release notes");
+    expect(sessionNames.setUserNamed).toHaveBeenCalledWith("session-1");
+  });
+
+  it("uses a name chosen at creation for a leader instead of the Leader N default", async () => {
+    // Leaders normally get "Leader N" from a persisted counter; a chosen name
+    // replaces it and does not consume a counter value.
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend: "claude", cwd: "/test", role: "orchestrator", fixedName: "Planning" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(sessionNames.setName).toHaveBeenCalledWith("session-1", "Planning");
+    expect(sessionNames.setUserNamed).toHaveBeenCalledWith("session-1");
+    expect(sessionNames.getNextLeaderNumber).not.toHaveBeenCalled();
+  });
+
+  it("names a session automatically when no name is given", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", fixedName: "   " }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(sessionNames.setName).toHaveBeenCalledWith("session-1", expect.any(String));
+    expect(sessionNames.setUserNamed).not.toHaveBeenCalled();
   });
 
   it("stores reviewerOf on the session when provided in request body", async () => {

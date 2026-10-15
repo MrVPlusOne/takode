@@ -1264,7 +1264,7 @@ function PendingSessionItem({
   onSelect: () => void;
   onCancel: () => void;
 }) {
-  const folderName = pending.cwd?.split("/").pop() || "New session";
+  const label = pending.createOpts.fixedName || pending.cwd?.split("/").pop() || "New session";
   const logoSrc = pending.backend === "codex" ? "/logo-codex.svg" : "/logo.png";
   const hasError = pending.status === "error";
   const isCreating = pending.status === "creating";
@@ -1304,7 +1304,7 @@ function PendingSessionItem({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <img src={logoSrc} alt="" className="w-3 h-3 opacity-60" />
-          <span className="text-xs font-medium text-cc-fg truncate">{folderName}</span>
+          <span className="text-xs font-medium text-cc-fg truncate">{label}</span>
         </div>
         <span className={`text-[10px] leading-tight truncate block ${hasError ? "text-cc-error" : "text-cc-muted"}`}>
           {hasError ? "Creation failed" : isCreating ? "Creating session..." : "Ready"}

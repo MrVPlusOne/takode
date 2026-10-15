@@ -394,10 +394,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     if (sessionConfig.isAssistantMode) {
       sessionNames.setName(session.sessionId, "Takode");
+    } else if (sessionConfig.fixedName) {
+      // A name chosen at creation is kept like a manual rename, for leaders too.
+      sessionNames.setName(session.sessionId, sessionConfig.fixedName);
+      sessionNames.setUserNamed(session.sessionId);
     } else if (sessionConfig.isOrchestrator) {
       sessionNames.setName(session.sessionId, `Leader ${sessionNames.getNextLeaderNumber()}`);
-    } else if (sessionConfig.fixedName) {
-      sessionNames.setName(session.sessionId, sessionConfig.fixedName);
     } else {
       const existingNames = new Set(Object.values(sessionNames.getAllNames()));
       sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
