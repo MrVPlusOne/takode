@@ -48,10 +48,17 @@ describe("changelog routes", () => {
   });
 
   it("keeps the repository changelog bounded to the Takode baseline", async () => {
+    // Older history moves to archive files linked from the live changelog to keep it
+    // under the file size limit; together they still start at the Takode baseline
+    // and never bring back inherited upstream Companion release entries.
     const markdown = await readFile(new URL("../../../CHANGELOG.md", import.meta.url), "utf8");
+    const archive = await readFile(new URL("../../../docs/changelog/2026-04-to-06.md", import.meta.url), "utf8");
 
-    expect(markdown).toContain("## 2026-04-10");
-    expect(markdown).not.toContain("## [0.46.0]");
-    expect(markdown).not.toContain("the-companion-v0");
+    expect(markdown).toContain("(docs/changelog/2026-04-to-06.md)");
+    expect(archive).toContain("## 2026-04-10");
+    for (const text of [markdown, archive]) {
+      expect(text).not.toContain("## [0.46.0]");
+      expect(text).not.toContain("the-companion-v0");
+    }
   });
 });
