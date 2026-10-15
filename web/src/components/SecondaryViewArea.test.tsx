@@ -31,6 +31,14 @@ describe("SecondaryViewArea", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  // A page's absolutely positioned bits (such as sr-only labels) sit outside its own scroller.
+  // Unclipped, they made the whole app scrollable past the end of the page; `clip` (unlike
+  // `hidden`) also can't be scrolled by scrollIntoView.
+  it("clips its content so a page can never make the app itself scrollable", () => {
+    renderArea();
+    expect(screen.getByTestId("secondary-view-pane")).toHaveClass("overflow-clip");
+  });
+
   it("stays mounted but hidden while empty, so viewers keep a stable place to render", () => {
     renderArea({ open: false, title: undefined });
     expect(screen.getByTestId("secondary-view-pane")).toHaveClass("hidden");

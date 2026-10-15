@@ -56,10 +56,13 @@ export function SecondaryViewArea({
           data-testid="secondary-view-scrim"
         />
       )}
+      {/* Clipped, not just hidden: a page's absolutely positioned bits (such as sr-only labels)
+          sit outside its own scroller, and unclipped they made the whole app scrollable; clip
+          also keeps scrollIntoView from scrolling the area itself. */}
       <aside
         ref={areaRef}
         tabIndex={-1}
-        className={`${open ? "flex" : "hidden"} secondary-view-enter absolute right-0 top-0 z-50 h-full flex-col border-l border-cc-border bg-cc-bg shadow-2xl outline-none`}
+        className={`${open ? "flex" : "hidden"} secondary-view-enter absolute right-0 top-0 z-50 h-full flex-col overflow-clip border-l border-cc-border bg-cc-bg shadow-2xl outline-none`}
         style={{ width }}
         data-testid="secondary-view-pane"
       >
