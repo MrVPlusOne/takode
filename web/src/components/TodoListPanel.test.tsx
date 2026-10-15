@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createTodoItem: vi.fn(),
   editTodoItem: vi.fn(),
   setTodoItemStatus: vi.fn(),
+  setTodoItemDue: vi.fn(),
   undoTodoCompletion: vi.fn(),
   moveTodoItem: vi.fn(),
   archiveTodoItem: vi.fn(),
@@ -142,6 +143,46 @@ describe("TodoListPanel", () => {
     fireEvent.click(within(chips).getByRole("link", { name: /q-7/ }));
     expect(useStore.getState().questOverlayId).toBe("q-7");
     expect(screen.queryByLabelText("Edit Review result", { selector: "textarea" })).not.toBeInTheDocument();
+  });
+
+  it("shows due dates, marks only overdue current rows, and sets a due date from the row menu", async () => {
+    // td-1 is long overdue, td-2 is due far in the future, and the Done td-3 is past its date but never overdue.
+    const state = makeState();
+    state.items[0] = { ...state.items[0]!, due: "2020-01-02" };
+    state.items[1] = { ...state.items[1]!, due: "2999-01-02T09:30" };
+    state.items[2] = { ...state.items[2]!, due: "2020-01-02" };
+    mocks.getTodoState.mockResolvedValue(state);
+    const { container } = render(<TodoListPanel />);
+    await screen.findByText("Reply to **Alice**");
+
+    const overdueRow = container.querySelector('[data-todo-id="td-1"]')!;
+    expect(overdueRow).toHaveAttribute("data-overdue", "true");
+    expect(within(overdueRow as HTMLElement).getByTestId("todo-due-label")).toHaveTextContent(
+      /Overdue, due Jan 2, 2020/,
+    );
+    const futureRow = container.querySelector('[data-todo-id="td-2"]')!;
+    expect(futureRow).not.toHaveAttribute("data-overdue");
+    expect(within(futureRow as HTMLElement).getByTestId("todo-due-label")).toHaveTextContent(/Jan 2, 2999/);
+    expect(container.querySelector('[data-todo-id="td-3"] [data-testid="todo-due-label"]')).toBeNull();
+
+    // Picking a date and time saves only on Set, with the date and time joined in local wall-clock form.
+    const next = makeState(2);
+    next.items[0] = { ...next.items[0]!, due: "2026-11-03T16:45" };
+    mocks.setTodoItemDue.mockResolvedValue({ state: next });
+    const menu = within(overdueRow as HTMLElement);
+    fireEvent.change(menu.getByLabelText("Due date"), { target: { value: "2026-11-03" } });
+    fireEvent.change(menu.getByLabelText("Due time (optional)"), { target: { value: "16:45" } });
+    expect(mocks.setTodoItemDue).not.toHaveBeenCalled();
+    fireEvent.click(menu.getByRole("button", { name: "Change due date" }));
+    await waitFor(() => expect(mocks.setTodoItemDue).toHaveBeenCalledWith("td-1", "2026-11-03T16:45"));
+    await waitFor(() => expect(container.querySelector('[data-todo-id="td-1"]')).not.toHaveAttribute("data-overdue"));
+
+    // Clear removes it.
+    mocks.setTodoItemDue.mockResolvedValue({ state: makeState(3) });
+    fireEvent.click(
+      within(container.querySelector('[data-todo-id="td-1"]') as HTMLElement).getByRole("button", { name: "Clear" }),
+    );
+    await waitFor(() => expect(mocks.setTodoItemDue).toHaveBeenLastCalledWith("td-1", null));
   });
 
   it("renders the lightweight category outline and one collapsed Done history with visible category labels", async () => {

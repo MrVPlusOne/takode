@@ -1,11 +1,11 @@
 /**
- * Follow-up phone reminders for questions the user has left waiting.
+ * Follow-up phone reminders for questions and overdue to-dos the user has left waiting.
  *
- * Each needs-input question already gets one phone alert when it is asked. If the
- * user then stays away from Takode, this sends one summary of every waiting
- * question after a stretch of inactivity, repeating with doubling gaps, capped
- * per local day and held back during quiet hours. Any user activity starts the
- * cycle over.
+ * Each needs-input question already gets one phone alert when it is asked, and each
+ * overdue to-do one when it passes its due date. If the user then stays away from
+ * Takode, this sends one summary of everything still waiting after a stretch of
+ * inactivity, repeating with doubling gaps, capped per local day and held back
+ * during quiet hours. Any user activity starts the cycle over.
  *
  * Activity means something the user did: a message or answer in any session
  * (known to the server), or a tap or key press in a Takode window (reported by
@@ -22,6 +22,15 @@ export interface WaitingQuestion {
   askedAt: number;
 }
 
+/** A current to-do past its due date (see `todo-overdue-alerts.ts`). */
+export interface OverdueTodo {
+  id: string;
+  /** Its due date, in the to-do store's format. */
+  due: string;
+  /** Plain-text title for alerts. */
+  title: string;
+}
+
 export interface ReminderAlert {
   title: string;
   body: string;
@@ -32,6 +41,8 @@ export interface ReminderAlert {
 export interface NeedsInputRemindersDeps<Q extends WaitingQuestion> {
   getSettings: () => NeedsInputReminderSettings;
   getWaitingQuestions: () => Q[];
+  /** Overdue to-dos that already had their own alert. */
+  getOverdueTodos: () => Promise<OverdueTodo[]>;
   /** The user's latest message or answer in any session. */
   getLastUserMessageAt: () => number;
   /** Short name for the summary, such as the quest title; resolved only when a reminder is sent. */
@@ -42,6 +53,8 @@ export interface NeedsInputRemindersDeps<Q extends WaitingQuestion> {
 
 /** Opens the top bar's attention list (see `ATTENTION_LIST_HASH` in the frontend routing). */
 export const ATTENTION_LIST_PATH = "/#/attention";
+/** Opens the To-dos & Timers page. */
+export const TODOS_PAGE_PATH = "/#/scheduled";
 
 const CHECK_INTERVAL_MS = 60_000;
 const MAX_NAMES = 5;
@@ -88,19 +101,21 @@ export class NeedsInputReminders<Q extends WaitingQuestion = WaitingQuestion> {
     if (!settings.enabled) return false;
     const now = this.now();
     const questions = this.deps.getWaitingQuestions();
-    this.trackFirstSeen(questions, now);
+    const todos = await this.deps.getOverdueTodos();
+    const keys = [...questions.map((q) => q.key), ...todos.map((todo) => `todo:${todo.id}:${todo.due}`)];
+    this.trackFirstSeen(keys, now);
 
     const activityAt = Math.max(this.lastBrowserActivityAt, this.deps.getLastUserMessageAt());
-    if (questions.length === 0 || activityAt > this.cycle.activityAt) {
+    if (keys.length === 0 || activityAt > this.cycle.activityAt) {
       this.cycle = { activityAt, sent: 0, lastSentAt: 0 };
     }
-    if (questions.length === 0) return false;
+    if (keys.length === 0) return false;
 
-    // The first reminder also waits out the newest question, which just had its own alert.
+    // The first reminder also waits out the newest item, which just had its own alert.
     const inactivityMs = settings.inactivityMinutes * 60_000;
     const dueAt =
       this.cycle.sent === 0
-        ? Math.max(activityAt, ...questions.map((q) => this.firstSeenAt.get(q.key) ?? now)) + inactivityMs
+        ? Math.max(activityAt, ...keys.map((key) => this.firstSeenAt.get(key) ?? now)) + inactivityMs
         : this.cycle.lastSentAt + inactivityMs * 2 ** this.cycle.sent;
     if (now < dueAt || isQuietHour(now, settings)) return false;
 
@@ -112,12 +127,12 @@ export class NeedsInputReminders<Q extends WaitingQuestion = WaitingQuestion> {
     this.cycle.sent++;
     this.cycle.lastSentAt = now;
     this.day.sent++;
-    this.deps.send(await this.buildAlert(questions, now));
+    this.deps.send(await this.buildAlert(questions, todos, now));
     return true;
   }
 
-  private trackFirstSeen(questions: Q[], now: number): void {
-    const waiting = new Set(questions.map((q) => q.key));
+  private trackFirstSeen(keys: string[], now: number): void {
+    const waiting = new Set(keys);
     for (const key of this.firstSeenAt.keys()) {
       if (!waiting.has(key)) this.firstSeenAt.delete(key);
     }
@@ -126,18 +141,32 @@ export class NeedsInputReminders<Q extends WaitingQuestion = WaitingQuestion> {
     }
   }
 
-  /** "3 questions waiting for you (oldest 5h)", naming them oldest first. */
-  private async buildAlert(questions: Q[], now: number): Promise<ReminderAlert> {
+  /**
+   * "3 questions waiting for you (oldest 5h)", naming them oldest first, and the overdue to-dos:
+   * "2 questions waiting for you (oldest 3h), 1 overdue to-do". It opens the attention list, or the
+   * To-dos page when only to-dos are waiting.
+   */
+  private async buildAlert(questions: Q[], todos: OverdueTodo[], now: number): Promise<ReminderAlert> {
+    const todoTitles = todos.map((todo) => todo.title);
+    const overdue = todos.length ? `${todos.length} overdue ${todos.length === 1 ? "to-do" : "to-dos"}` : "";
+    if (questions.length === 0) return { title: overdue, body: nameList(todoTitles), path: TODOS_PAGE_PATH };
+
     const oldestFirst = [...questions].sort((a, b) => a.askedAt - b.askedAt);
     const names = [...new Set(await Promise.all(oldestFirst.map((q) => this.deps.describe(q))))];
-    const shown = names.slice(0, MAX_NAMES).join(", ");
     const count = questions.length;
+    const waiting = `${count} ${count === 1 ? "question" : "questions"} waiting for you (oldest ${formatAge(now - oldestFirst[0]!.askedAt)})`;
     return {
-      title: `${count} ${count === 1 ? "question" : "questions"} waiting for you (oldest ${formatAge(now - oldestFirst[0]!.askedAt)})`,
-      body: names.length > MAX_NAMES ? `${shown}, and ${names.length - MAX_NAMES} more` : shown,
+      title: overdue ? `${waiting}, ${overdue}` : waiting,
+      body: overdue ? `${nameList(names)}. Overdue: ${nameList(todoTitles)}` : nameList(names),
       path: ATTENTION_LIST_PATH,
     };
   }
+}
+
+/** Up to five names, then how many more. */
+export function nameList(names: string[]): string {
+  const shown = names.slice(0, MAX_NAMES).join(", ");
+  return names.length > MAX_NAMES ? `${shown}, and ${names.length - MAX_NAMES} more` : shown;
 }
 
 /** Whether `at` falls in quiet hours, which may wrap past midnight (23 to 9). */

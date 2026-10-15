@@ -67,6 +67,7 @@ import {
 import { getShortcutTitle } from "../shortcuts.js";
 import { formatDocumentTitle, getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
+import { TodoOverdueBadge } from "./TodoOverdueBadge.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -1136,20 +1137,23 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
               isScheduledPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
             }`}
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              className="w-4 h-4"
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="4" />
-              <path d="m7 8 1.5 1.5L11 7" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M7 14h4" strokeLinecap="round" />
-              <circle cx="16" cy="15" r="3" />
-              <path d="M16 13.5V15l1 1" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <span className="relative flex">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                className="w-4 h-4"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="4" />
+                <path d="m7 8 1.5 1.5L11 7" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M7 14h4" strokeLinecap="round" />
+                <circle cx="16" cy="15" r="3" />
+                <path d="M16 13.5V15l1 1" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <TodoOverdueBadge />
+            </span>
           </button>
           <button
             title="Memory"

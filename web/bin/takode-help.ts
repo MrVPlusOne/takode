@@ -426,22 +426,26 @@ Read commands:
 
 Mutation commands:
   add [markdown] [--markdown-file <path|->] [--category <id|name>]
-      [--status todo|doing|done] [--before <td-id>|--after <td-id>]
+      [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>]
       [--authorized-by <human-message-index>] [--json]
   edit <td-id> [--markdown <text> | --markdown-file <path|->] [--authorized-by <index>] [--json]
   status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
+  due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [--authorized-by <index>] [--json]
   move <td-id> [category] [--before <td-id>|--after <td-id>] [--authorized-by <index>] [--json]
   archive|restore <td-id> [--authorized-by <index>] [--json]
   link|unlink <td-id> <q-id>... [--authorized-by <index>] [--json]
   category create|rename|archive|restore ... [--authorized-by <index>] [--json]
-  propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status ...] [--before|--after <td-id>]
+  propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status ...] [--due ...] [--before|--after <td-id>]
   proposal approve|reject <tp-id> [--authorized-by <index>] [--json]
   grant create --principal-kind session|cron --principal <id> --actions <csv>
       [--categories <csv>|--all-categories] [--authorized-by <index>] [--json]
   grant revoke <tg-id> [--authorized-by <index>] [--json]
 
 Authorization:
-  Reads are open to authenticated Takode sessions. Low-risk changes, which cannot make the user lose track of anything, need no approval: edits that only add text (the title stays and every existing line is kept), linking or unlinking quests, setting status to todo or doing, and restoring an archived item or category. Every other change needs the user's approval: describe it to them, linking the to-do, and pass their reply's message index with --authorized-by; a matching session/cron workflow grant also authorizes it. New to-dos can instead be proposed with \`takode todo propose add\`, which the user approves from the proposal's preview; proposals only add new to-dos. UI actions are user-authorized. Unauthorized commands fail closed.
+  Reads are open to authenticated Takode sessions. Low-risk changes, which cannot make the user lose track of anything, need no approval: edits that only add text (the title stays and every existing line is kept), giving a to-do its first due date, linking or unlinking quests, setting status to todo or doing, and restoring an archived item or category. Every other change needs the user's approval: describe it to them, linking the to-do, and pass their reply's message index with --authorized-by; a matching session/cron workflow grant also authorizes it. New to-dos can instead be proposed with \`takode todo propose add\`, which the user approves from the proposal's preview; proposals only add new to-dos. UI actions are user-authorized. Unauthorized commands fail closed.
+
+Due dates:
+  A due date, optionally with a time, is in the user's local time zone. Current Todo and Doing items past it are overdue: the UI highlights them and counts them on the To-dos button, and list/show mark them OVERDUE. A date without a time is overdue from the next day. Changing or clearing an existing due date needs approval.
 
 Links:
   Mention to-dos as \`[title](todo:td-12)\` and proposals as \`[summary](todo:tp-36)\`; both open a preview. add, show, propose and proposal show print ready-to-paste links.

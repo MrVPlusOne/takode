@@ -461,6 +461,31 @@ describe("TodoStore", () => {
     });
   });
 
+  it("keeps an optional due date through status changes, carries it on add proposals, and refuses bad stored ones", async () => {
+    // The due date is plain item metadata: completing and reopening keep it, setting null clears it.
+    const item = await store.createItem({ markdown: "Book flights", due: "2026-10-20" }, provenance(10));
+    expect(item.due).toBe("2026-10-20");
+    await store.setItemStatus(item.id, "done", provenance(20));
+    expect((await store.setItemStatus(item.id, "todo", provenance(30))).due).toBe("2026-10-20");
+    expect((await store.setItemDue(item.id, "2026-10-21T09:15", provenance(40))).due).toBe("2026-10-21T09:15");
+    expect((await store.setItemDue(item.id, null, provenance(50))).due).toBeUndefined();
+    await expect(store.setItemDue(item.id, "tomorrow", provenance(60))).rejects.toMatchObject({ code: "invalid" });
+
+    const proposal = await store.createProposal(
+      { action: "item:add", input: { markdown: "Renew passport", due: "2026-11-01" } },
+      { kind: "session", sessionId: "agent-1", label: "Worker" },
+    );
+    expect((await store.resolveProposal(proposal.id, "approve", provenance(70))).item?.due).toBe("2026-11-01");
+
+    // A hand-edited store with an impossible due date is refused rather than rewritten.
+    const state = JSON.parse(readFileSync(path, "utf-8"));
+    state.items[0].due = "2026-13-01";
+    const raw = JSON.stringify(state);
+    writeFileSync(path, raw, "utf-8");
+    await expect(new TodoStore(path).snapshot()).rejects.toMatchObject({ code: "corrupt_store" });
+    expect(readFileSync(path, "utf-8")).toBe(raw);
+  });
+
   it("keeps quest links as many-to-many metadata that never changes to-do status", async () => {
     // Links are loose metadata: a to-do can link several quests, a quest can be
     // linked from several to-dos, and linking leaves status untouched.

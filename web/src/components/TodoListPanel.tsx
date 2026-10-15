@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { isTodoOverdue } from "../../shared/todo-due.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import {
   TODO_STATUSES,
@@ -22,6 +23,8 @@ import { api } from "../api.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { TodoQuestChips } from "./TodoQuestChips.js";
+import { TodoDueEditor, TodoDueLabel } from "./TodoDueControls.js";
+import { useTodoDueNow } from "./todo-due-clock.js";
 import { activeTodoCategories, TodoManagementDrawer } from "./TodoManagementDrawer.js";
 import {
   filterTodoItems,
@@ -312,6 +315,14 @@ function TodoItemOverflow({
             </button>
           </>
         )}
+        {active && (
+          <TodoDueEditor
+            key={item.due ?? ""}
+            due={item.due}
+            busy={busy}
+            onSet={(due) => runAndClose(() => api.setTodoItemDue(item.id, due))}
+          />
+        )}
         {!item.archivedAt && (
           <label className="block text-[10px] font-medium uppercase tracking-wide text-cc-muted">
             Category
@@ -354,6 +365,7 @@ function TodoOutlineRow({
   siblings,
   categoryLabel,
   linkedQuests,
+  now,
   isDragging,
   dropBefore,
   onState,
@@ -370,6 +382,8 @@ function TodoOutlineRow({
   siblings: TodoItem[];
   categoryLabel?: string;
   linkedQuests: ReadonlyMap<string, TodoLinkedQuest>;
+  /** Current time for due dates, refreshed when one passes. */
+  now: number;
   isDragging: boolean;
   dropBefore?: boolean;
   onState: (state: TodoState) => void;
@@ -386,6 +400,7 @@ function TodoOutlineRow({
   const [busy, setBusy] = useState(false);
   const parts = useMemo(() => deriveTodoMarkdown(item.markdown), [item.markdown]);
   const active = !item.archivedAt && item.status !== "done";
+  const overdue = isTodoOverdue(item, now);
 
   const run = useCallback(
     (action: () => Promise<{ state: TodoState }>) => {
@@ -439,6 +454,7 @@ function TodoOutlineRow({
   return (
     <article
       data-todo-id={item.id}
+      data-overdue={overdue || undefined}
       className={`group relative flex items-start gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-cc-card/70 focus-within:bg-cc-card/70 ${item.archivedAt ? "opacity-65" : ""} ${isDragging ? "opacity-35" : ""}`}
       onDragOver={(event) => {
         if (!active) return;
@@ -454,6 +470,13 @@ function TodoOutlineRow({
         onDropItem(item, dropBefore ?? event.clientY < rect.top + rect.height / 2);
       }}
     >
+      {/* Overdue: a red bar on the row's edge, over the category line. */}
+      {overdue && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-1.5 -left-[13px] w-0.5 rounded-full bg-cc-error sm:-left-[17px]"
+        />
+      )}
       <button
         type="button"
         disabled={busy || editing || !!item.archivedAt}
@@ -513,6 +536,7 @@ function TodoOutlineRow({
               stopLinkPropagation
               className={`min-w-0 font-medium ${item.status === "done" ? "text-cc-muted line-through decoration-cc-muted/50" : ""}`}
             />
+            {item.due && active && <TodoDueLabel due={item.due} overdue={overdue} now={now} />}
           </div>
           {item.questIds?.length ? <TodoQuestChips questIds={item.questIds} linkedQuests={linkedQuests} /> : null}
           {parts.detailsMarkdown && expanded && (
@@ -601,6 +625,12 @@ export function TodoListPanel() {
   const [undoBusy, setUndoBusy] = useState(false);
 
   const [linkedQuests, setLinkedQuests] = useState<ReadonlyMap<string, TodoLinkedQuest>>(() => new Map());
+  const activeDues = useMemo(
+    () =>
+      state?.items.flatMap((item) => (item.due && item.status !== "done" && !item.archivedAt ? [item.due] : [])) ?? [],
+    [state],
+  );
+  const now = useTodoDueNow(activeDues);
 
   const applyState = useCallback((next: TodoState) => {
     setState((current) => (!current || next.revision >= current.revision ? next : current));
@@ -760,6 +790,7 @@ export function TodoListPanel() {
         siblings={siblings}
         categoryLabel={categoryLabel}
         linkedQuests={linkedQuests}
+        now={now}
         isDragging={draggedItemId === item.id}
         dropBefore={dropTarget?.itemId === item.id ? dropTarget.before : undefined}
         onState={applyState}

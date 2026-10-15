@@ -16,6 +16,8 @@ export interface PushoverEventFilters {
   review: boolean;
   notifyMe: boolean;
   error: boolean;
+  /** One alert when personal to-dos pass their due date (sent by `todo-overdue-alerts.ts`). */
+  overdueTodos: boolean;
 }
 
 export const DEFAULT_PUSHOVER_EVENT_FILTERS: Readonly<PushoverEventFilters> = {
@@ -23,6 +25,7 @@ export const DEFAULT_PUSHOVER_EVENT_FILTERS: Readonly<PushoverEventFilters> = {
   review: true,
   notifyMe: true,
   error: true,
+  overdueTodos: true,
 };
 
 export interface PushoverSettings {
@@ -149,6 +152,7 @@ export class PushoverNotifier {
       review: raw?.review ?? DEFAULT_PUSHOVER_EVENT_FILTERS.review,
       notifyMe: raw?.notifyMe ?? DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
       error: raw?.error ?? DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+      overdueTodos: raw?.overdueTodos ?? DEFAULT_PUSHOVER_EVENT_FILTERS.overdueTodos,
     };
   }
 

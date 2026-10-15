@@ -1,5 +1,6 @@
 import type {
   TodoGrantAction,
+  TodoDueDates,
   TodoItemCreateInput,
   TodoItemEditInput,
   TodoItemMoveInput,
@@ -32,6 +33,8 @@ export const todoApi = {
 
   getTodoProposalStatuses: () => request<TodoProposalStatuses>("/todos/proposal-statuses"),
 
+  getTodoDueDates: () => request<TodoDueDates>("/todos/due-dates"),
+
   getTodoLinkedQuests: () => request<{ quests: TodoLinkedQuest[]; revision: number }>("/todos/linked-quests"),
 
   listTodoPrincipals: () => request<{ principals: TodoPrincipal[] }>("/todos/principals"),
@@ -46,6 +49,13 @@ export const todoApi = {
     request<TodoStateMutationResponse>(`/todos/items/${encodeURIComponent(id)}/status`, {
       method: "POST",
       body: { status },
+    }),
+
+  /** Set a due date (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`, local time) or clear it with `null`. */
+  setTodoItemDue: (id: string, due: string | null) =>
+    request<TodoStateMutationResponse>(`/todos/items/${encodeURIComponent(id)}/due`, {
+      method: "POST",
+      body: { due },
     }),
 
   undoTodoCompletion: (id: string, token: string) =>

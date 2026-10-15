@@ -95,7 +95,9 @@ describe("PushoverNotifier", () => {
     notifier = new PushoverNotifier(
       makeOpts({
         getSettings: () =>
-          makeSettings({ pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true } }),
+          makeSettings({
+            pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true },
+          }),
       }),
     );
     notifier.scheduleNotification("sess-1", "completed");
@@ -105,14 +107,14 @@ describe("PushoverNotifier", () => {
   });
 
   it("re-checks filters before firing pending notifications", async () => {
-    let filters = { needsInput: true, review: true, notifyMe: true, error: true };
+    let filters = { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true };
     notifier = new PushoverNotifier(
       makeOpts({
         getSettings: () => makeSettings({ pushoverEventFilters: filters }),
       }),
     );
     notifier.scheduleNotification("sess-1", "completed");
-    filters = { needsInput: true, review: false, notifyMe: true, error: true };
+    filters = { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true };
 
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetch).not.toHaveBeenCalled();
@@ -128,7 +130,9 @@ describe("PushoverNotifier", () => {
     notifier = new PushoverNotifier(
       makeOpts({
         getSettings: () =>
-          makeSettings({ pushoverEventFilters: { needsInput: true, review: true, notifyMe: false, error: true } }),
+          makeSettings({
+            pushoverEventFilters: { needsInput: true, review: true, notifyMe: false, error: true, overdueTodos: true },
+          }),
       }),
     );
     notifier.scheduleNotification("sess-1", eventType);

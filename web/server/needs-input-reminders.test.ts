@@ -3,7 +3,9 @@ import { DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS } from "../shared/needs-input-rem
 import {
   ATTENTION_LIST_PATH,
   NeedsInputReminders,
+  TODOS_PAGE_PATH,
   isQuietHour,
+  type OverdueTodo,
   type WaitingQuestion,
 } from "./needs-input-reminders.js";
 
@@ -28,12 +30,14 @@ interface Question extends WaitingQuestion {
 function setup(options: { start: number; questions?: Question[]; lastMessageAt?: number }) {
   let now = options.start;
   let questions: Question[] = options.questions ?? [];
+  let todos: OverdueTodo[] = [];
   let lastMessageAt = options.lastMessageAt ?? 0;
   let settings = { ...DEFAULT_NEEDS_INPUT_REMINDER_SETTINGS };
   const send = vi.fn();
   const reminders = new NeedsInputReminders<Question>({
     getSettings: () => settings,
     getWaitingQuestions: () => questions,
+    getOverdueTodos: async () => todos,
     getLastUserMessageAt: () => lastMessageAt,
     describe: async (q) => q.name,
     send,
@@ -44,6 +48,7 @@ function setup(options: { start: number; questions?: Question[]; lastMessageAt?:
     send,
     setNow: (value: number) => (now = value),
     setQuestions: (value: Question[]) => (questions = value),
+    setTodos: (value: OverdueTodo[]) => (todos = value),
     setLastMessageAt: (value: number) => (lastMessageAt = value),
     setSettings: (patch: Partial<typeof settings>) => (settings = { ...settings, ...patch }),
     /** Run the per-minute check from now until `end`, returning the times a reminder was sent. */
@@ -134,6 +139,28 @@ describe("NeedsInputReminders", () => {
     expect(t.send).toHaveBeenCalledWith({
       title: "3 questions waiting for you (oldest 7h)",
       body: "Phone reminders, Quest view redesign",
+      path: ATTENTION_LIST_PATH,
+    });
+  });
+
+  it("reminds about overdue to-dos alone, 2 hours after their own alert, opening the To-dos page", async () => {
+    // Away since 6 AM; a to-do turns overdue (and gets its own alert) at 9 AM, with no question waiting.
+    const t = setup({ start: at(9), lastMessageAt: at(6) });
+    t.setTodos([{ id: "td-1", due: "2026-10-14T09:00", title: "Send the report" }]);
+    expect(await t.runUntil(at(11, 30))).toEqual([at(11)]);
+    expect(t.send).toHaveBeenCalledWith({ title: "1 overdue to-do", body: "Send the report", path: TODOS_PAGE_PATH });
+  });
+
+  it("names overdue to-dos alongside waiting questions and links to the attention list", async () => {
+    const t = setup({ start: at(9), questions: [question("s1:n-1", at(8), "Phone reminders")], lastMessageAt: at(9) });
+    t.setTodos([
+      { id: "td-1", due: "2026-10-13", title: "Send the report" },
+      { id: "td-2", due: "2026-10-14T08:00", title: "Book flights" },
+    ]);
+    await t.runUntil(at(11));
+    expect(t.send).toHaveBeenCalledWith({
+      title: "1 question waiting for you (oldest 3h), 2 overdue to-dos",
+      body: "Phone reminders. Overdue: Send the report, Book flights",
       path: ATTENTION_LIST_PATH,
     });
   });

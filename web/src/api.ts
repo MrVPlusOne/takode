@@ -716,6 +716,7 @@ export interface PushoverEventFilters {
   review: boolean;
   notifyMe: boolean;
   error: boolean;
+  overdueTodos: boolean;
 }
 
 export type QuestmasterViewMode = "cards" | "compact";

@@ -13,6 +13,7 @@ import type {
 } from "../shared/todo-types.js";
 import { TODO_GRANT_ACTIONS, TODO_STATUSES } from "../shared/todo-types.js";
 import { formatTodoMarkdownLink } from "../shared/todo-link.js";
+import { isTodoOverdue, isValidTodoDue } from "../shared/todo-due.js";
 import {
   apiGet,
   apiPatch,
@@ -24,7 +25,9 @@ import {
   resolveStringFlag,
 } from "./takode-core.js";
 
-const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|move|archive|restore|link|unlink|category|propose|proposal|grant> ...`;
+const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|due|move|archive|restore|link|unlink|category|propose|proposal|grant> ...`;
+const DUE_USAGE =
+  "Usage: takode todo due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [--authorized-by <message-index>] [--json]";
 const BOOL_FLAGS = new Set(["json", "include-archived", "all-categories"]);
 
 function parseArgs(args: string[]): { positionals: string[]; flags: Record<string, string | boolean> } {
@@ -144,6 +147,26 @@ function validStatus(value: string | undefined): TodoStatus | undefined {
   return value as TodoStatus;
 }
 
+/** A due date from `YYYY-MM-DD`, `YYYY-MM-DD HH:MM` or `YYYY-MM-DDTHH:MM`, in the user's local time. */
+function parseDue(date: string, time?: string): string {
+  const due = time ? `${date}T${time}` : date.replace(" ", "T");
+  if (!isValidTodoDue(due)) {
+    err(`Due must be YYYY-MM-DD with an optional HH:MM time, got: ${time ? `${date} ${time}` : date}`);
+  }
+  return due;
+}
+
+function dueFlag(flags: Record<string, string | boolean>): { due?: string } {
+  const value = resolveStringFlag(flags, "due", "due date");
+  return value ? { due: parseDue(value) } : {};
+}
+
+/** Due date for text output, in the user's local time. */
+function dueText(item: Pick<TodoItem, "due" | "status" | "archivedAt">): string {
+  if (!item.due) return "";
+  return `${item.due.replace("T", " ")}${isTodoOverdue(item) ? " OVERDUE" : ""}`;
+}
+
 /** Quest IDs from positional arguments, each of which may be a comma-separated list. */
 function questIdArgs(values: string[]): string[] {
   return values.flatMap((value) => value.split(",").map((entry) => entry.trim())).filter(Boolean);
@@ -159,8 +182,9 @@ function printItems(items: TodoCompactItem[]): void {
     const quests = item.linkedQuests?.length
       ? `  ↳ ${item.linkedQuests.map((quest) => `${quest.questId} ${quest.status}`).join(", ")}`
       : "";
+    const due = item.due ? `  (due ${dueText(item)})` : "";
     console.log(
-      `${item.id.padEnd(7)} [${item.status}${archived}] ${item.categoryName.padEnd(14)} ${titleText(item.titleMarkdown)}${quests}`,
+      `${item.id.padEnd(7)} [${item.status}${archived}] ${item.categoryName.padEnd(14)} ${titleText(item.titleMarkdown)}${due}${quests}`,
     );
   }
   const counts = Object.fromEntries(
@@ -180,6 +204,7 @@ function printItem(item: TodoItem, category: TodoCategory | null, quests: TodoLi
   console.log(`${item.id}  ${item.status.toUpperCase()}${item.archivedAt ? "  ARCHIVED" : ""}`);
   console.log(itemLink(item));
   console.log(`Category: ${category?.name ?? item.categoryId} (${item.categoryId})`);
+  if (item.due) console.log(`Due: ${dueText(item)} (local time)`);
   if (quests.length) {
     console.log("Linked quests:");
     for (const quest of quests)
@@ -273,12 +298,13 @@ async function handleAdd(
       "details-file",
       "category",
       "status",
+      "due",
       "before",
       "after",
       "authorized-by",
       "json",
     ]),
-    "Usage: takode todo add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--before <td-id>|--after <td-id>] [--authorized-by <message-index>] [--json]",
+    "Usage: takode todo add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>] [--authorized-by <message-index>] [--json]",
   );
   const input = await readItemInput(flags, positionalMarkdown, { requireMarkdown: true });
   const category = resolveStringFlag(flags, "category", "category");
@@ -291,6 +317,7 @@ async function handleAdd(
     ...input,
     ...(categoryId ? { categoryId } : {}),
     ...(status ? { status } : {}),
+    ...dueFlag(flags),
     ...(beforeItemId ? { beforeItemId } : {}),
     ...(afterItemId ? { afterItemId } : {}),
     ...authorizationBody(flags),
@@ -355,6 +382,24 @@ async function simpleItemMutation(
   console.log(
     `${action === "status" ? "Set" : action === "move" ? "Moved" : action === "archive" ? "Archived" : "Restored"} ${id}${action === "status" ? ` to ${response.item!.status}` : ""}.`,
   );
+}
+
+async function handleDue(
+  base: string,
+  id: string | undefined,
+  values: string[],
+  flags: Record<string, string | boolean>,
+) {
+  const [date, time] = values;
+  if (!id || !date || values.length > 2) err(DUE_USAGE);
+  assertKnownFlags(flags, new Set(["authorized-by", "json"]), DUE_USAGE);
+  const clear = date === "clear" && !time;
+  const response = (await apiPost(base, `/todos/items/${encodeURIComponent(id)}/due`, {
+    due: clear ? null : parseDue(date, time),
+    ...authorizationBody(flags),
+  })) as TodoStateMutationResponse;
+  if (jsonOutput(flags, response.item)) return;
+  console.log(response.item!.due ? `Set ${id} due ${dueText(response.item!)}.` : `Cleared the due date of ${id}.`);
 }
 
 async function handleLink(
@@ -508,6 +553,7 @@ async function buildProposalMutation(
         ...(validStatus(resolveStringFlag(flags, "status", "status"))
           ? { status: validStatus(resolveStringFlag(flags, "status", "status")) }
           : {}),
+        ...dueFlag(flags),
         ...(beforeItemId ? { beforeItemId } : {}),
         ...(afterItemId ? { afterItemId } : {}),
       },
@@ -572,11 +618,12 @@ async function handleProposal(
       "details-file",
       "category",
       "status",
+      "due",
       "before",
       "after",
       "json",
     ]),
-    "Usage: takode todo propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--before <td-id>|--after <td-id>] [--json]",
+    "Usage: takode todo propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>] [--json]",
   );
   const mutation = await buildProposalMutation(base, action, rest, flags);
   const response = (await apiPost(base, "/todos/proposals", { mutation })) as TodoStateMutationResponse;
@@ -711,6 +758,13 @@ export async function handleTodo(base: string, rawArgs: string[]): Promise<void>
       return handleEdit(base, first, flags);
     case "status":
       return simpleItemMutation(base, "status", first, second, flags);
+    case "due":
+      return handleDue(
+        base,
+        first,
+        [second, ...rest].filter((value): value is string => !!value),
+        flags,
+      );
     case "move":
       return simpleItemMutation(base, "move", first, second, flags);
     case "archive":

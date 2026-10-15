@@ -472,4 +472,39 @@ describe("to-do routes", () => {
       "Review PR 98888\nAsked by Junhong\nWeights question answered",
     );
   });
+
+  it("sets, changes and clears due dates; agents may only give a to-do its first one", async () => {
+    // A due date can come with the new to-do, or be set later; it shows in compact lists.
+    const dated = (
+      await (await jsonRequest("/todos/items", "POST", { markdown: "Book flights", due: "2026-10-20" })).json()
+    ).item;
+    expect(dated.due).toBe("2026-10-20");
+    const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Send the report" })).json()).item;
+    expect((await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due: "2026-02-30" })).status).toBe(400);
+    expect((await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due: "2026-10-16T25:00" })).status).toBe(400);
+
+    optionalCaller = caller();
+    // First due date: low-risk, made on the agent's own judgment.
+    const first = await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due: "2026-10-16T14:30" });
+    expect(first.status).toBe(200);
+    const firstItem = (await first.json()).item;
+    expect(firstItem.due).toBe("2026-10-16T14:30");
+    expect(firstItem.lastModifiedBy.authorization.kind).toBe("agent_direct");
+    // Changing or clearing a deadline could lose it, so it needs the user's approval.
+    for (const due of ["2026-10-17", null]) {
+      const response = await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due });
+      expect(response.status, String(due)).toBe(403);
+    }
+
+    optionalCaller = null;
+    const list = await (await jsonRequest("/todos/items")).json();
+    expect(list.items.find((entry: { id: string }) => entry.id === item.id).due).toBe("2026-10-16T14:30");
+    // The To-dos button's count reads only the due dates of current items.
+    await jsonRequest(`/todos/items/${dated.id}/status`, "POST", { status: "done" });
+    expect(await (await jsonRequest("/todos/due-dates")).json()).toMatchObject({ dues: ["2026-10-16T14:30"] });
+
+    const cleared = await (await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due: null })).json();
+    expect(cleared.item.due).toBeUndefined();
+    expect((await (await jsonRequest("/todos/due-dates")).json()).dues).toEqual([]);
+  });
 });

@@ -105,7 +105,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
     pushoverBaseUrl: "",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
@@ -135,7 +135,13 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
     pushoverEnabled: patch.pushoverEnabled ?? true,
-    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, notifyMe: true, error: true },
+    pushoverEventFilters: patch.pushoverEventFilters ?? {
+      needsInput: true,
+      review: true,
+      notifyMe: true,
+      error: true,
+      overdueTodos: true,
+    },
     pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
     maxKeepAlive: patch.maxKeepAlive ?? 0,
     heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
@@ -544,7 +550,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       pushoverBaseUrl: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
@@ -598,7 +604,7 @@ describe("PUT /api/settings", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "",
       maxKeepAlive: 0,
@@ -634,7 +640,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true },
       pushoverBaseUrl: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
@@ -666,7 +672,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: undefined,
       pushoverDelaySeconds: undefined,
       pushoverEnabled: undefined,
-      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true },
       pushoverBaseUrl: undefined,
       maxKeepAlive: undefined,
       heavyRepoModeEnabled: undefined,
@@ -716,7 +722,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       pushoverBaseUrl: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
@@ -774,7 +780,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       pushoverBaseUrl: "",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
@@ -969,7 +975,7 @@ describe("PUT /api/settings", () => {
   ])("merges the event filter patch %j without resetting other saved filters", async (patch) => {
     // A partial save of another event must retain an explicit Notify Me opt-out.
     const current = settingsManager.getSettings();
-    const filters = { needsInput: false, review: false, notifyMe: false, error: true };
+    const filters = { needsInput: false, review: false, notifyMe: false, error: true, overdueTodos: true };
     await vi.mocked(settingsManager.getSettings).withImplementation(
       () => ({ ...current, pushoverEventFilters: filters }),
       async () => {

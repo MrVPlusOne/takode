@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import type {
   TodoCompactItem,
+  TodoDueDates,
   TodoGrantAction,
   TodoItem,
   TodoItemListFilters,
@@ -79,6 +80,7 @@ function compactItem(item: TodoItem, state: TodoState, quests: QuestLookup): Tod
     statusChangedAt: item.statusChangedAt,
     ...(item.completedAt ? { completedAt: item.completedAt } : {}),
     ...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
+    ...(item.due ? { due: item.due } : {}),
     ...(item.questIds?.length ? { linkedQuests: linkedQuests(item.questIds, quests, false) } : {}),
   };
 }
@@ -202,6 +204,22 @@ export function createTodoRoutes(
       const quests = await questLookupFor(state.items, listQuests);
       const questIds = [...new Set(state.items.flatMap((item) => item.questIds ?? []))];
       return c.json({ quests: linkedQuests(questIds, quests, true), revision: state.revision });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  /**
+   * Due dates of current Todo and Doing items, for the overdue count on the To-dos button. The
+   * browser decides which are overdue in the user's time zone, so the count stays right as time passes.
+   */
+  api.get("/todos/due-dates", async (c) => {
+    try {
+      const state = await store.snapshot();
+      const dues = state.items.flatMap((item) =>
+        item.due && item.status !== "done" && !item.archivedAt ? [item.due] : [],
+      );
+      return c.json({ dues, revision: state.revision } satisfies TodoDueDates);
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -373,6 +391,7 @@ export function createTodoRoutes(
                 : {}),
               categoryId,
               status: body.status,
+              due: body.due,
               beforeItemId: body.beforeItemId,
               afterItemId: body.afterItemId,
             },
@@ -492,6 +511,22 @@ export function createTodoRoutes(
           { categoryId, beforeItemId: body.beforeItemId, afterItemId: body.afterItemId },
           auth.provenance,
         ),
+      }));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  api.post("/todos/items/:id/due", async (c) => {
+    try {
+      const body = await requestBody(c);
+      const item = await store.getItem(c.req.param("id"));
+      // Giving a to-do its first due date only adds; changing or clearing one could lose a deadline.
+      const lowRisk = !item.due && typeof body.due === "string" && !!body.due;
+      const auth = await authorize(c, ctx, store, body, "item:edit", [item.categoryId], { lowRisk });
+      if (!auth.ok) return auth.response;
+      return withMutation(c, ctx, store, async () => ({
+        item: await store.setItemDue(item.id, body.due ?? null, auth.provenance),
       }));
     } catch (error) {
       return errorResponse(c, error);

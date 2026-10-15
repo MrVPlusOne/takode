@@ -1010,6 +1010,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
       review: typeof raw.review === "boolean" ? raw.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
       notifyMe: typeof raw.notifyMe === "boolean" ? raw.notifyMe : DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
       error: typeof raw.error === "boolean" ? raw.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+      overdueTodos:
+        typeof raw.overdueTodos === "boolean" ? raw.overdueTodos : DEFAULT_PUSHOVER_EVENT_FILTERS.overdueTodos,
     };
   }
 
@@ -1020,6 +1022,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       review: typeof raw.review === "boolean" ? raw.review : current.review,
       notifyMe: typeof raw.notifyMe === "boolean" ? raw.notifyMe : current.notifyMe,
       error: typeof raw.error === "boolean" ? raw.error : current.error,
+      overdueTodos: typeof raw.overdueTodos === "boolean" ? raw.overdueTodos : current.overdueTodos,
     };
   }
 

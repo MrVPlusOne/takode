@@ -48,7 +48,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       needsInputReminders: { enabled: true, inactivityMinutes: 120, quietStartHour: 23, quietEndHour: 9, dailyMax: 3 },
       pushoverBaseUrl: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
@@ -144,13 +144,25 @@ describe("settings-manager", () => {
 
   it("normalizes and persists pushover event filters", async () => {
     const updated = updateSettings({
-      pushoverEventFilters: { needsInput: false, review: true, notifyMe: true, error: false },
+      pushoverEventFilters: { needsInput: false, review: true, notifyMe: true, error: false, overdueTodos: true },
     });
-    expect(updated.pushoverEventFilters).toEqual({ needsInput: false, review: true, notifyMe: true, error: false });
+    expect(updated.pushoverEventFilters).toEqual({
+      needsInput: false,
+      review: true,
+      notifyMe: true,
+      error: false,
+      overdueTodos: true,
+    });
 
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, notifyMe: true, error: false });
+    expect(saved.pushoverEventFilters).toEqual({
+      needsInput: false,
+      review: true,
+      notifyMe: true,
+      error: false,
+      overdueTodos: true,
+    });
   });
 
   it("persists follow-up reminder settings and replaces invalid stored fields with defaults", async () => {
@@ -636,7 +648,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true },
       needsInputReminders: { enabled: true, inactivityMinutes: 120, quietStartHour: 23, quietEndHour: 9, dailyMax: 3 },
       pushoverBaseUrl: "",
       codexLeaderContextWindowOverrideTokens: 1_000_000,

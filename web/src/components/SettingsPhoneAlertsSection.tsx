@@ -12,6 +12,7 @@ const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
   review: true,
   notifyMe: true,
   error: true,
+  overdueTodos: true,
 };
 
 const EVENT_TYPE_OPTIONS: Array<{
@@ -38,6 +39,11 @@ const EVENT_TYPE_OPTIONS: Array<{
     key: "error",
     label: "Errors",
     description: "Turn failures that require attention.",
+  },
+  {
+    key: "overdueTodos",
+    label: "Overdue to-dos",
+    description: "Personal to-dos passing their due date, once each.",
   },
 ];
 
@@ -178,7 +184,7 @@ export function SettingsFollowUpReminders({
   return (
     <SettingsSubsection
       title="Follow-up Reminders"
-      description="If questions stay unanswered while you are away from Takode, send one reminder listing them. Taps, typing and messages count as activity; an open screen does not."
+      description="If questions stay unanswered or to-dos overdue while you are away from Takode, send one reminder listing them. Taps, typing and messages count as activity; an open screen does not."
       hidden={hidden}
     >
       <SettingsToggle
@@ -203,7 +209,7 @@ export function SettingsFollowUpReminders({
           onChange={(hours) => void save({ inactivityMinutes: Math.round(hours * 60) })}
         />
       </SettingsRow>
-      <SettingsRow label="Quiet hours" description="A reminder due then waits until they end.">
+      <SettingsRow label="Quiet hours" description="A reminder or overdue to-do alert due then waits until they end.">
         <span className="flex items-center gap-1.5 text-xs text-cc-muted">
           <select
             aria-label="Quiet hours start"

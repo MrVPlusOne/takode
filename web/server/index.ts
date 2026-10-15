@@ -59,7 +59,9 @@ import {
   initWithPort,
 } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
-import { NeedsInputReminders } from "./needs-input-reminders.js";
+import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
+import { todoStore } from "./todo-store.js";
+import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
 import { createUserActivityRoutes } from "./routes/user-activity.js";
@@ -560,9 +562,17 @@ wsBridge.sessionStoredNameGetter = (sessionId) => sessionNames.getName(sessionId
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
 
-// ── Follow-up phone reminders for questions left waiting ─────────────────────
+// ── Phone alerts for overdue to-dos, and follow-up reminders for questions and to-dos left waiting ──
+const reminderSettings = () => normalizeNeedsInputReminderSettings(getSettings().needsInputReminders);
+const todoOverdueAlerts = new TodoOverdueAlerts({
+  listOverdueTodos: async () => overdueTodosIn((await todoStore.snapshot()).items, Date.now()),
+  isQuietHour: (at) => isQuietHour(at, reminderSettings()),
+  isEnabled: () => getSettings().pushoverEventFilters?.overdueTodos !== false,
+  send: (alert) => void pushoverNotifier.sendReminder(alert),
+});
+todoOverdueAlerts.start();
 const needsInputReminders = new NeedsInputReminders({
-  getSettings: () => normalizeNeedsInputReminderSettings(getSettings().needsInputReminders),
+  getSettings: reminderSettings,
   getWaitingQuestions: () =>
     listWaitingUserQuestions(bridgeAny.sessions.values(), (sessionId) => {
       const info = launcher.getSession(sessionId);
@@ -574,6 +584,7 @@ const needsInputReminders = new NeedsInputReminders({
     (question.questId && (await getQuest(question.questId))?.title) ||
     sessionNames.getName(question.sessionId) ||
     question.sessionId.slice(0, 8),
+  getOverdueTodos: () => todoOverdueAlerts.listAlerted(),
   send: (alert) => void pushoverNotifier.sendReminder(alert),
 });
 needsInputReminders.start();
@@ -1635,6 +1646,7 @@ const shutdown = new ServerShutdown({
     sleepInhibitor.stop();
     pushoverNotifier.destroy();
     needsInputReminders.destroy();
+    todoOverdueAlerts.destroy();
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);

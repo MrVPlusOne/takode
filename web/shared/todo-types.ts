@@ -87,6 +87,8 @@ export interface TodoItem {
    * informational: quest progress never changes the to-do's status.
    */
   questIds?: string[];
+  /** Optional due date, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`, in the user's local time (see `shared/todo-due.ts`). */
+  due?: string;
   createdBy: TodoMutationProvenance;
   lastModifiedBy: TodoMutationProvenance;
 }
@@ -114,6 +116,8 @@ export interface TodoItemCreateInput {
   detailsMarkdown?: string | null;
   categoryId?: string;
   status?: TodoStatus;
+  /** Optional due date in the `TodoItem.due` format. */
+  due?: string;
   beforeItemId?: string;
   afterItemId?: string;
 }
@@ -178,6 +182,12 @@ export interface TodoProposalStatuses {
   revision: number;
 }
 
+/** `GET /todos/due-dates`: the due dates of current Todo and Doing items, without the rest of the list. */
+export interface TodoDueDates {
+  dues: string[];
+  revision: number;
+}
+
 export interface TodoState {
   schemaVersion: 2;
   revision: number;
@@ -222,6 +232,7 @@ export interface TodoCompactItem {
   statusChangedAt: number;
   completedAt?: number;
   archivedAt?: number;
+  due?: string;
   /** Present only when the to-do links quests. */
   linkedQuests?: TodoLinkedQuest[];
 }

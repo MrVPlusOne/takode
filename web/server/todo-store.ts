@@ -25,6 +25,7 @@ import {
   type TodoStatus,
 } from "../shared/todo-types.js";
 import { combineLegacyTodoMarkdown, deriveTodoMarkdown, findTodoTitleBounds } from "../shared/todo-markdown.js";
+import { isValidTodoDue } from "../shared/todo-due.js";
 
 const DEFAULT_FILE = join(homedir(), ".companion", "todos", "todo-list.json");
 const INBOX_ID = "cat-inbox";
@@ -169,6 +170,13 @@ function normalizeQuestIds(value: unknown, label: string): string[] {
   const invalid = ids.find((id) => !QUEST_ID_PATTERN.test(id));
   if (invalid !== undefined) throw new TodoStoreError(`Invalid quest ID: ${invalid || "(empty)"}`, "invalid");
   return [...new Set(ids)];
+}
+
+/** A due date to store, or undefined for none. */
+function normalizeDue(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  if (!isValidTodoDue(value)) throw new TodoStoreError("Due must be YYYY-MM-DD or YYYY-MM-DDTHH:MM", "invalid");
+  return value;
 }
 
 function normalizeLinkInput(input: TodoItemLinkInput): Required<TodoItemLinkInput> {
@@ -579,6 +587,9 @@ function normalizeLoadedState(value: unknown): { state: TodoState; migrated: boo
     requireFiniteNumber(rawItem.statusChangedAt, `items[${index}].statusChangedAt`);
     if (rawItem.completedAt != null) requireFiniteNumber(rawItem.completedAt, `items[${index}].completedAt`);
     if (rawItem.archivedAt != null) requireFiniteNumber(rawItem.archivedAt, `items[${index}].archivedAt`);
+    if (rawItem.due != null && !isValidTodoDue(rawItem.due)) {
+      throw new TodoStoreError(`items[${index}].due is invalid`, "corrupt_store");
+    }
     if (rawItem.questIds != null) {
       try {
         normalizeQuestIds(rawItem.questIds, `items[${index}].questIds`);
@@ -784,6 +795,7 @@ export class TodoStore {
     const now = provenance.at;
     const categoryId = this.resolveCreateCategory(state, input);
     const status = normalizeStatus(input.status);
+    const due = normalizeDue(input.due);
     const item: TodoItem = {
       id: `td-${state.nextItemId++}`,
       markdown: resolveCreateMarkdown(input),
@@ -794,6 +806,7 @@ export class TodoStore {
       updatedAt: now,
       statusChangedAt: now,
       ...(status === "done" ? { completedAt: now } : {}),
+      ...(due ? { due } : {}),
       createdBy: provenance,
       lastModifiedBy: provenance,
     };
@@ -843,6 +856,21 @@ export class TodoStore {
   ): Promise<TodoItem> {
     return this.mutate((state) => {
       const item = this.linkItemQuestsInState(state, itemId, input, provenance);
+      touchState(state, provenance.at);
+      return item;
+    });
+  }
+
+  /** Set or clear (`null`) a to-do's due date. */
+  async setItemDue(itemId: string, dueValue: unknown, provenance: TodoMutationProvenance): Promise<TodoItem> {
+    return this.mutate((state) => {
+      const item = itemById(state, itemId);
+      const due = normalizeDue(dueValue);
+      if (due === item.due) return item;
+      if (due) item.due = due;
+      else delete item.due;
+      item.updatedAt = provenance.at;
+      item.lastModifiedBy = provenance;
       touchState(state, provenance.at);
       return item;
     });
@@ -1204,6 +1232,7 @@ export class TodoStore {
         const categoryId = this.resolveCreateCategory(state, mutation.input);
         const status = normalizeStatus(mutation.input.status);
         const markdown = resolveCreateMarkdown(mutation.input);
+        const due = normalizeDue(mutation.input.due);
         const probe: TodoItem = {
           id: "proposal-preview",
           markdown,
@@ -1224,6 +1253,7 @@ export class TodoStore {
             markdown,
             categoryId,
             status,
+            ...(due ? { due } : {}),
             ...(mutation.input.beforeItemId ? { beforeItemId: mutation.input.beforeItemId } : {}),
             ...(mutation.input.afterItemId ? { afterItemId: mutation.input.afterItemId } : {}),
           },

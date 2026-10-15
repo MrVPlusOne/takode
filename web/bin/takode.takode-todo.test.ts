@@ -217,6 +217,65 @@ describe("takode todo", () => {
     }
   });
 
+  it("sets and clears due dates, sends --due on add, and marks overdue items in list output", async () => {
+    const received: Array<[string, JsonObject]> = [];
+    const server = createServer(async (req, res) => {
+      if (req.url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      }
+      if (req.method === "POST" && (req.url === "/api/todos/items/td-1/due" || req.url === "/api/todos/items")) {
+        const body = await readJson(req);
+        received.push([req.url, body]);
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(
+          JSON.stringify({ state: snapshot(), item: { ...item(), ...(body.due ? { due: body.due } : {}) } }),
+        );
+      }
+      if (req.url === "/api/todos/items") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            items: [
+              { ...item(), titleMarkdown: "Old task", categoryName: "Inbox", due: "2020-01-02" },
+              { ...item(), id: "td-2", titleMarkdown: "Later task", categoryName: "Inbox", due: "2999-01-02T09:30" },
+            ],
+          }),
+        );
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      // A date and an optional time, as two arguments, become one local wall-clock value.
+      const set = await runTakode(["todo", "due", "td-1", "2026-10-20", "14:30"], port);
+      expect(set.status).toBe(0);
+      expect(set.stdout).toContain("Set td-1 due 2026-10-20 14:30.");
+      const clear = await runTakode(["todo", "due", "td-1", "clear", "--authorized-by", "42"], port);
+      expect(clear.status).toBe(0);
+      expect(clear.stdout).toContain("Cleared the due date of td-1.");
+      const add = await runTakode(["todo", "add", "Book flights", "--due", "2026-10-21"], port);
+      expect(add.status).toBe(0);
+      expect(received).toEqual([
+        ["/api/todos/items/td-1/due", { due: "2026-10-20T14:30" }],
+        ["/api/todos/items/td-1/due", { due: null, authorizedBy: 42 }],
+        ["/api/todos/items", { markdown: "Book flights", due: "2026-10-21" }],
+      ]);
+      // An impossible date fails before reaching the server.
+      const bad = await runTakode(["todo", "due", "td-1", "2026-02-30"], port);
+      expect(bad.status).toBe(1);
+      expect(received).toHaveLength(3);
+
+      const list = await runTakode(["todo", "list"], port);
+      expect(list.stdout).toContain("Old task  (due 2020-01-02 OVERDUE)");
+      expect(list.stdout).toContain("Later task  (due 2999-01-02 09:30)");
+    } finally {
+      server.close();
+    }
+  });
+
   it("surfaces fail-closed authorization errors instead of silently mutating", async () => {
     const server = createServer((req, res) => {
       if (req.url === "/api/takode/me") {
