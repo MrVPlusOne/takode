@@ -121,6 +121,21 @@ describe("to-do and proposal links", () => {
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Approved");
   });
 
+  it("marks an add proposal done from its preview", async () => {
+    // The to-do may already be done by the time the user reads the proposal: one tap approves it
+    // and records it as done, and the receipt says so.
+    const resolve = vi.fn(async () => ({
+      state: todoState([proposal({ status: "approved", markedDone: true, resolvedAt: Date.now() })], 6),
+    }));
+    renderLink({ loadState: async () => todoState([proposal()]), resolve });
+    fingerTap(screen.getByRole("link", { name: "PR 98888 review" }));
+
+    fireEvent.click(await screen.findByTestId("todo-proposal-mark-done"));
+    expect(resolve).toHaveBeenCalledWith("tp-36", "mark-done");
+    await waitFor(() => expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Marked done"));
+    expect(screen.queryByTestId("todo-proposal-mark-done")).toBeNull();
+  });
+
   it("shows the current text next to an edit proposal and rejects without approving", async () => {
     // Approval replaces whatever the to-do says now, so the preview must show that alongside the proposal.
     const edit = proposal({
@@ -134,6 +149,8 @@ describe("to-do and proposal links", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("Current");
     expect(dialog.textContent).toContain("Old detail");
+    // An edit adds no new to-do, so there is nothing to mark done.
+    expect(screen.queryByTestId("todo-proposal-mark-done")).toBeNull();
 
     fireEvent.click(screen.getByTestId("todo-proposal-reject"));
     expect(resolve).toHaveBeenCalledWith("tp-36", "reject");

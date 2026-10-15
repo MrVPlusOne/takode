@@ -622,8 +622,8 @@ export function createTodoRoutes(
     }
   });
 
-  for (const decision of ["approved", "rejected"] as const) {
-    api.post(`/todos/proposals/:id/${decision === "approved" ? "approve" : "reject"}`, async (c) => {
+  for (const decision of ["approve", "reject", "mark-done"] as const) {
+    api.post(`/todos/proposals/:id/${decision}`, async (c) => {
       try {
         const body = await requestBody(c);
         const auth = await authorize(c, ctx, store, body, "item:edit", [], { allowGrant: false });

@@ -162,7 +162,15 @@ export interface TodoProposal {
   resolvedAt?: number;
   requestedBy: TodoActor;
   resolution?: TodoMutationProvenance;
+  /** Approved with the new to-do marked done in the same step: it was already done when reviewed. */
+  markedDone?: boolean;
 }
+
+/**
+ * How the user resolves a proposal. `mark-done` approves a proposal that adds a to-do and marks
+ * that to-do done at once, for an obligation that was real but finished before it was reviewed.
+ */
+export type TodoProposalDecision = "approve" | "reject" | "mark-done";
 
 /** `GET /todos/proposal-statuses`: every proposal's status by ID, without the rest of the list. */
 export interface TodoProposalStatuses {

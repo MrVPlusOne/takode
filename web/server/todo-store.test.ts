@@ -451,7 +451,7 @@ describe("TodoStore", () => {
       action: "item:add",
       input: { markdown: "[Review result](quest:q-42)\nContext" },
     });
-    const resolved = await store.resolveProposal(proposal.id, "approved", provenance(100));
+    const resolved = await store.resolveProposal(proposal.id, "approve", provenance(100));
 
     expect(resolved.proposal.status).toBe("approved");
     expect(resolved.item?.markdown).toBe("[Review result](quest:q-42)\nContext");
@@ -506,9 +506,24 @@ describe("TodoStore", () => {
     });
     expect((await store.getItem(item.id)).questIds).toBeUndefined();
 
-    const resolved = await store.resolveProposal(proposal.id, "approved", provenance(100));
+    const resolved = await store.resolveProposal(proposal.id, "approve", provenance(100));
     expect(resolved.item?.questIds).toEqual(["q-3"]);
     expect(resolved.item?.lastModifiedBy.authorization).toMatchObject({ kind: "proposal_approval" });
+  });
+
+  it("marks done only proposals that add a to-do, leaving others pending", async () => {
+    // Legacy edit/status/link proposals change an existing to-do, so there is nothing new to mark done.
+    const item = await store.createItem({ markdown: "Follow up" }, provenance(10));
+    const proposal = await store.createProposal(
+      { action: "item:link", itemId: item.id, addQuestIds: ["q-3"] },
+      { kind: "session", sessionId: "agent-1", label: "Worker" },
+    );
+    await expect(store.resolveProposal(proposal.id, "mark-done", provenance(100))).rejects.toMatchObject({
+      code: "invalid",
+    });
+    const state = await store.snapshot();
+    expect(state.proposals.find((candidate) => candidate.id === proposal.id)?.status).toBe("pending");
+    expect(state.items.find((candidate) => candidate.id === item.id)?.questIds).toBeUndefined();
   });
 
   it("refuses to overwrite structurally corrupt schema-v2 state", async () => {

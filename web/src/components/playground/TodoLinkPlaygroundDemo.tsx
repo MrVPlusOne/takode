@@ -113,7 +113,12 @@ export function PlaygroundTodoLinkDemo() {
           revision: current.revision + 1,
           proposals: current.proposals.map((proposal) =>
             proposal.id === proposalId
-              ? { ...proposal, status: decision === "approve" ? "approved" : "rejected", resolvedAt: Date.now() }
+              ? {
+                  ...proposal,
+                  status: decision === "reject" ? "rejected" : "approved",
+                  ...(decision === "mark-done" ? { markedDone: true } : {}),
+                  resolvedAt: Date.now(),
+                }
               : proposal,
           ),
         };

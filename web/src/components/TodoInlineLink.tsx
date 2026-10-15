@@ -4,6 +4,7 @@ import type { TodoLinkTarget } from "../../shared/todo-link.js";
 import type {
   TodoItem,
   TodoProposal,
+  TodoProposalDecision,
   TodoState,
   TodoStateMutationResponse,
   TodoStatus,
@@ -31,7 +32,7 @@ import {
  */
 export interface TodoLinkSource extends TodoProposalStatusSource {
   loadState: () => Promise<TodoState>;
-  resolve: (proposalId: string, decision: "approve" | "reject") => Promise<TodoStateMutationResponse>;
+  resolve: (proposalId: string, decision: TodoProposalDecision) => Promise<TodoStateMutationResponse>;
 }
 
 const SERVER_TODO_LINK_SOURCE: TodoLinkSource = {
@@ -58,8 +59,8 @@ const STATUS_LABELS: Record<TodoStatus, string> = { todo: "Todo", doing: "Doing"
  * Inline link for `todo:td-<n>` (item) and `todo:tp-<n>` (proposal) hrefs. A small leading marker
  * sets it apart from web links; a proposal's marker also shows whether it is pending, approved or
  * rejected. Clicking or tapping it opens a preview, a bottom sheet on phones and a centered dialog
- * on wider screens; a pending proposal can be approved or rejected there. The href falls back to
- * the to-dos page for new tabs.
+ * on wider screens; a pending proposal can be approved, rejected or, when it adds a to-do, marked
+ * done there. The href falls back to the to-dos page for new tabs.
  */
 export function TodoInlineLink({
   target,
@@ -163,7 +164,7 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
   const source = useContext(TodoLinkSourceContext);
   const [state, setState] = useState<TodoState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [decision, setDecision] = useState<"approve" | "reject" | null>(null);
+  const [decision, setDecision] = useState<TodoProposalDecision | null>(null);
   const action = usePendingAction("Could not update the proposal.");
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -208,7 +209,7 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
   const proposal =
     target.kind === "proposal" ? (state?.proposals.find((candidate) => candidate.id === target.id) ?? null) : null;
   const item = target.kind === "item" ? (state?.items.find((candidate) => candidate.id === target.id) ?? null) : null;
-  const resolve = (next: "approve" | "reject") => {
+  const resolve = (next: TodoProposalDecision) => {
     setDecision(next);
     void action.run(async () => applyState((await source.resolve(target.id, next)).state));
   };
@@ -284,6 +285,19 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
                 >
                   Reject
                 </button>
+                {/* For a to-do that was already done by the time the user read the proposal. */}
+                {proposal.mutation.action === "item:add" && proposal.mutation.input.status !== "done" && (
+                  <button
+                    type="button"
+                    onClick={() => resolve("mark-done")}
+                    disabled={action.pending}
+                    aria-busy={action.pending && decision === "mark-done"}
+                    className="inline-flex min-h-11 items-center rounded-lg border border-cc-border px-4 text-sm text-cc-fg hover:bg-cc-hover disabled:opacity-60"
+                    data-testid="todo-proposal-mark-done"
+                  >
+                    Mark as done
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => resolve("approve")}
@@ -297,7 +311,7 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
               </div>
             ) : (
               <PreviewFooter onClose={onClose} bare>
-                {proposal.status === "approved" ? "Approved" : "Rejected"}
+                {proposal.status === "rejected" ? "Rejected" : proposal.markedDone ? "Marked done" : "Approved"}
                 {proposal.resolvedAt ? ` ${timeAgo(proposal.resolvedAt)}` : ""}
               </PreviewFooter>
             )}

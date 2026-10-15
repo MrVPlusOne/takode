@@ -5,6 +5,7 @@ import type {
   TodoItemMoveInput,
   TodoLinkedQuest,
   TodoPrincipal,
+  TodoProposalDecision,
   TodoProposalStatuses,
   TodoState,
   TodoStateMutationResponse,
@@ -92,7 +93,7 @@ export const todoApi = {
       body: {},
     }),
 
-  resolveTodoProposal: (id: string, decision: "approve" | "reject") =>
+  resolveTodoProposal: (id: string, decision: TodoProposalDecision) =>
     request<TodoStateMutationResponse>(`/todos/proposals/${encodeURIComponent(id)}/${decision}`, {
       method: "POST",
       body: {},

@@ -264,6 +264,31 @@ describe("to-do routes", () => {
     });
   });
 
+  it("approves an add proposal as already done in one step", async () => {
+    // For a to-do the user finished before reading the proposal: it is recorded as a done to-do
+    // with a completion time, not discarded like a rejection.
+    requiredCaller = caller();
+    const proposal = (
+      await (
+        await jsonRequest("/todos/proposals", "POST", {
+          mutation: { action: "item:add", input: { markdown: "Shadow the tech screen" } },
+        })
+      ).json()
+    ).proposal;
+
+    optionalCaller = null;
+    const response = await jsonRequest(`/todos/proposals/${proposal.id}/mark-done`, "POST", {});
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.proposal).toMatchObject({ status: "approved", markedDone: true });
+    expect(body.item).toMatchObject({ markdown: "Shadow the tech screen", status: "done" });
+    expect(body.item.completedAt).toBe(body.proposal.resolvedAt);
+    // The agent proposed the to-do; the user completed it.
+    expect(body.item.createdBy.authorization).toMatchObject({ kind: "proposal_approval" });
+    expect(body.item.lastModifiedBy.authorization).toEqual({ kind: "ui" });
+    expect((await store.snapshot()).items.map((item) => item.status)).toEqual(["done"]);
+  });
+
   it("lists each proposal's status alone for the markers on proposal links", async () => {
     // Messages mark every proposal link with its status, so this read stays small: no mutations or bodies.
     requiredCaller = caller();

@@ -19,6 +19,7 @@ import {
   type TodoMutationProvenance,
   type TodoPrincipal,
   type TodoProposal,
+  type TodoProposalDecision,
   type TodoProposalMutation,
   type TodoState,
   type TodoStatus,
@@ -1302,22 +1303,30 @@ export class TodoStore {
 
   async resolveProposal(
     proposalId: string,
-    decision: "approved" | "rejected",
+    decision: TodoProposalDecision,
     provenance: TodoMutationProvenance,
   ): Promise<{ proposal: TodoProposal; item?: TodoItem; category?: TodoCategory }> {
     return this.mutate((state) => {
       const proposal = state.proposals.find((candidate) => candidate.id === proposalId);
       if (!proposal) throw new TodoStoreError(`Proposal not found: ${proposalId}`, "not_found");
       if (proposal.status !== "pending") throw new TodoStoreError(`Proposal is already ${proposal.status}`, "conflict");
+      if (decision === "mark-done" && proposal.mutation.action !== "item:add") {
+        throw new TodoStoreError("Only a proposal that adds a to-do can be marked done", "invalid");
+      }
       const appliedProvenance: TodoMutationProvenance = {
         actor: proposal.requestedBy,
         authorization: { ...provenance.authorization, kind: "proposal_approval", proposalId },
         at: provenance.at,
       };
       let result: { item?: TodoItem; category?: TodoCategory } = {};
-      if (decision === "approved")
+      if (decision !== "reject")
         result = this.applyProposalMutationInState(state, proposal.mutation, appliedProvenance);
-      proposal.status = decision;
+      if (decision === "mark-done" && result.item) {
+        // The agent proposed the to-do; completing it is the user's own change.
+        result.item = this.setItemStatusInState(state, result.item.id, "done", provenance);
+        proposal.markedDone = true;
+      }
+      proposal.status = decision === "reject" ? "rejected" : "approved";
       proposal.updatedAt = provenance.at;
       proposal.resolvedAt = provenance.at;
       proposal.resolution = provenance;
