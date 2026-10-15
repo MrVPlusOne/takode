@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
 import { machineNameError, type ThisMachine } from "../machine-identity.js";
+import { defaultWorktreesBase, WORKTREES_BASE } from "../git-utils.js";
 
 /**
  * Remote host management. Registering a host returns its token once; the
@@ -23,17 +24,25 @@ export function createHostRoutes(
     // `build` is this server's commit, which each host's `build` is compared with.
     // `local` is this machine, which runs sessions without a host under its
     // own node (so they outlive server restarts).
+    // `defaultWorktreeRoot` is where a machine puts session worktrees when its
+    // folder setting is empty, resolved from the home directory the host
+    // reports; null for a host that has not connected since this server started.
     return c.json({
-      hosts: hosts.map((host) => ({
-        ...host,
-        ...links.status(host.id),
-        settings: registry.machineSettings(host.id),
-      })),
+      hosts: hosts.map((host) => {
+        const home = links.homeDir(host.id);
+        return {
+          ...host,
+          ...links.status(host.id),
+          settings: registry.machineSettings(host.id),
+          defaultWorktreeRoot: home ? defaultWorktreesBase(home) : null,
+        };
+      }),
       build: links.build,
       local: {
         id: LOCAL_HOST_ID,
         name: thisMachine.name,
         settings: registry.machineSettings(LOCAL_HOST_ID),
+        defaultWorktreeRoot: WORKTREES_BASE,
         node: links.status(LOCAL_HOST_ID),
       },
     });

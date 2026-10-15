@@ -19,6 +19,7 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
     updateError: null,
     updateWaitingFor: null,
     settings: { claudeBinary: "", codexBinary: "" },
+    defaultWorktreeRoot: "/home/agent/.companion/worktrees",
     commandOverrides: {},
     ...overrides,
   };
@@ -72,7 +73,13 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         JSON.stringify({
           hosts,
           build: SERVER_BUILD,
-          local: { id: "local", name: localName, settings: localSettings, node: localNode },
+          local: {
+            id: "local",
+            name: localName,
+            settings: localSettings,
+            defaultWorktreeRoot: "/Users/me/.companion/worktrees",
+            node: localNode,
+          },
         }),
       );
     }),
@@ -169,11 +176,25 @@ describe("SettingsHostsSection", () => {
 
   // A host can keep session worktrees in a folder on storage that outlives the
   // machine, so uncommitted work survives the host moving to another machine.
+  // Empty, the field shows the folder the machine really uses: its own home
+  // directory can be elsewhere (node-local disk on a cluster), which `~` hides.
   it("edits a machine's worktree folder", async () => {
-    const requests = serveHostRoutes([hostRow({ id: "h1", name: "slurm-node" })]);
+    const requests = serveHostRoutes([
+      hostRow({
+        id: "h1",
+        name: "slurm-node",
+        defaultWorktreeRoot: "/var/tmp/agent-takode-host/home/.companion/worktrees",
+      }),
+    ]);
     render(<SettingsHostsSection />);
     const folder = await screen.findByLabelText("Worktree folder", { selector: "#h1-worktree-root" });
-    expect((folder as HTMLInputElement).placeholder).toBe("~/.companion/worktrees");
+    expect((folder as HTMLInputElement).placeholder).toBe("/var/tmp/agent-takode-host/home/.companion/worktrees");
+    const localFolder = screen.getByLabelText("Worktree folder", { selector: "#local-worktree-root" });
+    expect((localFolder as HTMLInputElement).placeholder).toBe("/Users/me/.companion/worktrees");
+    // The placeholder is cut off on a phone, so the hint below spells it out.
+    expect(screen.getByTestId("h1-worktree-root-default").textContent).toContain(
+      "Empty uses /var/tmp/agent-takode-host/home/.companion/worktrees.",
+    );
 
     fireEvent.focus(folder);
     fireEvent.change(folder, { target: { value: " /shared/takode-worktrees " } });
@@ -181,6 +202,19 @@ describe("SettingsHostsSection", () => {
     await waitFor(() => expect(requests).toContain("PUT /api/hosts/h1/settings"));
     // The value shown is the one the server saved.
     await waitFor(() => expect((folder as HTMLInputElement).value).toBe("/shared/takode-worktrees"));
+    // With a folder set, the default is no longer what applies.
+    expect(screen.queryByTestId("h1-worktree-root-default")).toBeNull();
+  });
+
+  // A host that has not connected since the server started has not reported
+  // its home directory, so the field says where the default is and that the
+  // full path appears once it connects.
+  it("explains the default worktree folder of a host that has not reported it", async () => {
+    serveHostRoutes([hostRow({ id: "h1", name: "slurm-node", online: false, defaultWorktreeRoot: null })]);
+    render(<SettingsHostsSection />);
+    const folder = await screen.findByLabelText("Worktree folder", { selector: "#h1-worktree-root" });
+    expect((folder as HTMLInputElement).placeholder).toBe("~/.companion/worktrees");
+    expect(screen.getByTestId("h1-worktree-root-default").textContent).toContain("once the host connects");
   });
 
   // This machine's sessions always run under its node, so its card shows how

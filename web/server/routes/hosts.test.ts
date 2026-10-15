@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { HostLinkManager } from "../remote-host/host-link-manager.js";
@@ -74,6 +74,26 @@ describe("host routes", () => {
     });
     // Clearing it returns to the default folder.
     expect((await (await put(host.id, { worktreeRoot: "" })).json()).settings.worktreeRoot).toBe("");
+  });
+
+  // Empty, a machine's worktree folder is ~/.companion/worktrees in that
+  // machine's own home, which can be elsewhere (node-local disk on a cluster).
+  // The list resolves it from the home directory the host reported, and has
+  // none for a host that has not connected since this server started.
+  it("reports each machine's resolved default worktree folder", async () => {
+    const { host: reported } = await registry.register("slurm-node");
+    const { host: unseen } = await registry.register("laptop");
+    vi.spyOn(links, "homeDir").mockImplementation((id) =>
+      id === reported.id ? "/var/tmp/agent-takode-host/home" : null,
+    );
+    const listed = (await (await app.request("/api/hosts")).json()) as {
+      hosts: Array<{ id: string; defaultWorktreeRoot: string | null }>;
+      local: { defaultWorktreeRoot: string };
+    };
+    const byId = new Map(listed.hosts.map((host) => [host.id, host.defaultWorktreeRoot]));
+    expect(byId.get(reported.id)).toBe("/var/tmp/agent-takode-host/home/.companion/worktrees");
+    expect(byId.get(unseen.id)).toBeNull();
+    expect(listed.local.defaultWorktreeRoot).toBe(join(homedir(), ".companion", "worktrees"));
   });
 
   it("rejects non-string settings and unknown hosts", async () => {

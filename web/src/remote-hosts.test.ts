@@ -15,6 +15,7 @@ function host(overrides: Partial<RemoteHost>): RemoteHost {
     updateError: null,
     updateWaitingFor: null,
     settings: { claudeBinary: "", codexBinary: "" },
+    defaultWorktreeRoot: null,
     commandOverrides: {},
     ...overrides,
   };

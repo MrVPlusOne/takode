@@ -68,7 +68,12 @@ export function SettingsHostsSection() {
             <div className="mt-0.5 text-cc-muted" data-testid="settings-local-node">
               {localNodeDescription(local.node, serverBuild)}
             </div>
-            <HostCliSettings hostId={local.id} settings={local.settings} local />
+            <HostCliSettings
+              hostId={local.id}
+              settings={local.settings}
+              defaultWorktreeRoot={local.defaultWorktreeRoot}
+              local
+            />
           </li>
         )}
         {hosts.map((host) => (
@@ -103,7 +108,12 @@ export function SettingsHostsSection() {
                 {confirmingRemove === host.id ? "Confirm remove" : "Remove"}
               </button>
             </div>
-            <HostCliSettings hostId={host.id} settings={host.settings} overrides={host.commandOverrides} />
+            <HostCliSettings
+              hostId={host.id}
+              settings={host.settings}
+              defaultWorktreeRoot={host.defaultWorktreeRoot}
+              overrides={host.commandOverrides}
+            />
           </li>
         ))}
       </ul>

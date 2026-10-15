@@ -49,7 +49,12 @@ export interface WorktreeCreateResult {
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-export const WORKTREES_BASE = join(homedir(), ".companion", "worktrees");
+/** A machine's default folder for session worktrees, given its home directory. */
+export function defaultWorktreesBase(home: string): string {
+  return join(home, ".companion", "worktrees");
+}
+
+export const WORKTREES_BASE = defaultWorktreesBase(homedir());
 
 function sanitizeBranch(branch: string): string {
   return branch.replace(/\//g, "--");

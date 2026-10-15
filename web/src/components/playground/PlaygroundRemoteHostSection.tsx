@@ -19,6 +19,7 @@ function mockHost(overrides: Partial<RemoteHost>): RemoteHost {
     updateError: null,
     updateWaitingFor: null,
     settings: { claudeBinary: "", codexBinary: "" },
+    defaultWorktreeRoot: "/home/agent/.companion/worktrees",
     commandOverrides: {},
     ...overrides,
   };

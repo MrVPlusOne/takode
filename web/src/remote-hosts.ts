@@ -6,7 +6,7 @@ export interface MachineSettings {
   claudeBinary: string;
   /** Codex program; empty means `codex` on that machine's PATH. */
   codexBinary: string;
-  /** Absolute folder for session worktrees on that machine; empty or missing means `~/.companion/worktrees`. */
+  /** Absolute folder for session worktrees on that machine; empty or missing means the machine's default. */
   worktreeRoot?: string;
 }
 
@@ -32,6 +32,8 @@ export interface RemoteHost {
   /** What a pending auto-update waits for, worded to follow "It updates once"; null when nothing holds it. */
   updateWaitingFor: string | null;
   settings: MachineSettings;
+  /** Where the host puts session worktrees when `settings.worktreeRoot` is empty; null until it connects. */
+  defaultWorktreeRoot: string | null;
   /** Programs the host's `takode node` was started with (`--claude`, `--codex`); they win over `settings`. */
   commandOverrides: { claude?: string; codex?: string };
 }
@@ -42,11 +44,13 @@ export interface LocalHost {
   /** The machine's own name, which stays with it if another machine becomes the server. */
   name: string;
   settings: MachineSettings;
+  /** Where this machine puts session worktrees when `settings.worktreeRoot` is empty. */
+  defaultWorktreeRoot: string;
   /**
    * This machine's own `takode node`, which runs these sessions so they
    * outlive server restarts. Carries the same link status as a remote host.
    */
-  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "commandOverrides">;
+  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "defaultWorktreeRoot" | "commandOverrides">;
 }
 
 const POLL_MS = 10_000;

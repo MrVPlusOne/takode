@@ -19,11 +19,14 @@ const PROGRAMS: Array<{ program: Program; label: string; field: "claudeBinary" |
 export function HostCliSettings({
   hostId,
   settings,
+  defaultWorktreeRoot,
   overrides = {},
   local = false,
 }: {
   hostId: string;
   settings: MachineSettings;
+  /** The machine's own default worktree folder; null while a host has not reported it. */
+  defaultWorktreeRoot: string | null;
   /** Programs the host's `takode node` was started with, which win over these settings. */
   overrides?: { claude?: string; codex?: string };
   local?: boolean;
@@ -42,7 +45,7 @@ export function HostCliSettings({
           local={local}
         />
       ))}
-      <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} />
+      <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} defaultRoot={defaultWorktreeRoot} />
     </div>
   );
 }
@@ -51,8 +54,18 @@ export function HostCliSettings({
  * Where the machine keeps session worktrees. A folder on storage that outlives
  * the machine (a shared file system) keeps uncommitted work when the host is
  * moved to another machine; it only applies to worktrees created from now on.
+ * Empty, it shows the machine's real default folder, so a home directory moved
+ * elsewhere (such as node-local disk on a cluster) is visible.
  */
-function WorktreeFolderField({ hostId, value }: { hostId: string; value: string }) {
+function WorktreeFolderField({
+  hostId,
+  value,
+  defaultRoot,
+}: {
+  hostId: string;
+  value: string;
+  defaultRoot: string | null;
+}) {
   const field = useSavedField(hostId, "worktreeRoot", value);
   const inputId = `${hostId}-worktree-root`;
   return (
@@ -64,10 +77,22 @@ function WorktreeFolderField({ hostId, value }: { hostId: string; value: string 
         id={inputId}
         type="text"
         {...field.inputProps}
-        placeholder="~/.companion/worktrees"
+        placeholder={defaultRoot ?? "~/.companion/worktrees"}
         className={INPUT_CLASS}
       />
       <p className="mt-1 text-[11px] text-cc-muted">
+        {/* The placeholder is cut off on a phone, so the full default is spelled out here too. */}
+        {!field.draft.trim() && (
+          <span data-testid={`${hostId}-worktree-root-default`}>
+            {defaultRoot ? (
+              <>
+                Empty uses <span className="font-mono-code break-all text-cc-fg">{defaultRoot}</span>.{" "}
+              </>
+            ) : (
+              <>Empty uses ~/.companion/worktrees in the host's home; its full path shows once the host connects. </>
+            )}
+          </span>
+        )}
         An absolute path on this machine. On storage that outlives the machine, uncommitted work in session worktrees
         survives a move to another machine. Applies to worktrees created from now on.
       </p>
