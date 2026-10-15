@@ -183,7 +183,10 @@ describe("WaitingWorkerPreview", () => {
     setLeaderState();
     render(<FeedFooterHost />);
 
-    const lines = await screen.findByTestId("waiting-worker-preview-lines");
+    // The lines list renders "No activity yet" until the fetched preview arrives, so wait for the
+    // fetched text itself; finding the list alone raced the fetch on loaded CI runners.
+    await screen.findByText("Checking the composer layout.");
+    const lines = screen.getByTestId("waiting-worker-preview-lines");
     expect(lines).toHaveTextContent("Checking the composer layout.");
     expect(lines).toHaveTextContent("Run focused tests");
     // A working worker is shown by its pulsing dot alone, without a "working" pill.
