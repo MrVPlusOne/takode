@@ -1,0 +1,1370 @@
+import { vi, describe, it, expect, beforeEach } from "vitest";
+
+// Mock env-manager and git-utils modules before any imports
+vi.mock("./env-manager.js", () => ({
+  listEnvs: vi.fn(() => Promise.resolve([])),
+  getEnv: vi.fn(() => Promise.resolve(null)),
+  getEffectiveImage: vi.fn(() => Promise.resolve(null)),
+  createEnv: vi.fn(() => Promise.resolve(undefined)),
+  updateEnv: vi.fn(() => Promise.resolve(undefined)),
+  deleteEnv: vi.fn(() => Promise.resolve(undefined)),
+}));
+
+vi.mock("node:child_process", () => {
+  const execSyncMock = vi.fn((_cmd?: string) => "" as any);
+  // exec mock: callback-based, delegates to execSync for consistent test behavior.
+  // Attaches stdout/stderr to the error object so promisify(exec) can find them,
+  // matching Node's custom exec promisify behavior.
+  const execMock = vi.fn((...args: any[]) => {
+    const cmd = args[0] as string;
+    const callback = typeof args[1] === "function" ? args[1] : args[2];
+    try {
+      const result = execSyncMock(cmd);
+      if (callback) callback(null, { stdout: result ?? "", stderr: "" });
+    } catch (err) {
+      const e = err as any;
+      if (e.stdout === undefined) e.stdout = "";
+      if (e.stderr === undefined) e.stderr = "";
+      if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
+    }
+  });
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = args.find((arg) => typeof arg === "function");
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
+});
+
+const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
+const mockExpandTilde = vi.hoisted(() => vi.fn((p: string) => p)); // pass-through by default
+const mockCaptureUserShellEnv = vi.hoisted(() => vi.fn((_varNames: string[]) => ({}) as Record<string, string>));
+vi.mock("./path-resolver.js", () => ({
+  resolveBinary: mockResolveBinary,
+  expandTilde: mockExpandTilde,
+  captureUserShellEnv: mockCaptureUserShellEnv,
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => true),
+    readFileSync: vi.fn(() => ""),
+  };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    readFile: vi.fn((...args: Parameters<typeof actual.readFile>) => actual.readFile(...args)),
+    stat: vi.fn((...args: Parameters<typeof actual.stat>) => actual.stat(...args)),
+    access: vi.fn(async () => {}), // default: file exists (no throw)
+  };
+});
+
+vi.mock("./git-utils.js", () => ({
+  getRepoInfo: vi.fn(() => null),
+  getRepoInfoAsync: vi.fn(async () => null),
+  listBranches: vi.fn(() => []),
+  listBranchesAsync: vi.fn(async () => []),
+  listWorktrees: vi.fn(() => []),
+  listWorktreesAsync: vi.fn(async () => []),
+  ensureWorktree: vi.fn(),
+  ensureWorktreeAsync: vi.fn(),
+  gitFetch: vi.fn(() => ({ success: true, output: "" })),
+  gitFetchAsync: vi.fn(async () => ({ success: true, output: "" })),
+  gitPull: vi.fn(() => ({ success: true, output: "" })),
+  gitPullAsync: vi.fn(async () => ({ success: true, output: "" })),
+  checkoutBranch: vi.fn(),
+  checkoutBranchAsync: vi.fn(async () => {}),
+  removeWorktree: vi.fn(),
+  removeWorktreeAsync: vi.fn(async () => ({ removed: true })),
+  isWorktreeDirty: vi.fn(() => false),
+  isWorktreeDirtyAsync: vi.fn(async () => false),
+  archiveBranchAsync: vi.fn(async () => true),
+  resolveDefaultBranch: vi.fn(() => "main"),
+  getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
+  deleteArchivedRefAsync: vi.fn(async () => {}),
+}));
+
+vi.mock("./session-names.js", () => ({
+  getName: vi.fn(() => undefined),
+  setName: vi.fn(),
+  getAllNames: vi.fn(() => ({})),
+  removeName: vi.fn(),
+  getNextLeaderNumber: vi.fn(() => 1),
+  _resetForTest: vi.fn(),
+}));
+
+vi.mock("./settings-manager.js", () => ({
+  getSettings: vi.fn(() => ({
+    serverName: "",
+    serverId: "",
+    pushoverUserKey: "",
+    pushoverApiToken: "",
+    pushoverDelaySeconds: 30,
+    pushoverEnabled: true,
+    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverBaseUrl: "",
+    maxKeepAlive: 0,
+    heavyRepoModeEnabled: false,
+    namerConfig: { backend: "claude" },
+    autoNamerEnabled: true,
+    transcriptionConfig: {
+      apiKey: "",
+      baseUrl: "https://api.openai.com/v1",
+      enhancementEnabled: true,
+      enhancementModel: "gpt-5-mini",
+    },
+    editorConfig: { editor: "none" },
+    sleepInhibitorEnabled: false,
+    sleepInhibitorDurationMinutes: 5,
+    questmasterViewMode: "cards",
+    updatedAt: 0,
+  })),
+  updateSettings: vi.fn((patch) => ({
+    serverName: "",
+    serverId: "",
+    pushoverUserKey: patch.pushoverUserKey ?? "",
+    pushoverApiToken: patch.pushoverApiToken ?? "",
+    pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
+    pushoverEnabled: patch.pushoverEnabled ?? true,
+    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, error: true },
+    pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
+    maxKeepAlive: patch.maxKeepAlive ?? 0,
+    heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
+    namerConfig: patch.namerConfig ?? { backend: "claude" },
+    autoNamerEnabled: patch.autoNamerEnabled ?? true,
+    transcriptionConfig: patch.transcriptionConfig ?? {
+      apiKey: "",
+      baseUrl: "https://api.openai.com/v1",
+      enhancementEnabled: true,
+      enhancementModel: "gpt-5-mini",
+    },
+    editorConfig: patch.editorConfig ?? { editor: "none" },
+    sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
+    sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
+    questmasterViewMode: patch.questmasterViewMode ?? "cards",
+    updatedAt: Date.now(),
+  })),
+  getServerName: vi.fn(() => ""),
+  setServerName: vi.fn(),
+  getServerId: vi.fn(() => "test-server-id"),
+  getClaudeUserDefaultModel: vi.fn(async () => ""),
+}));
+
+const mockGetUsageLimits = vi.hoisted(() => vi.fn());
+vi.mock("./usage-limits.js", () => ({
+  getUsageLimits: mockGetUsageLimits,
+}));
+
+import { Hono } from "hono";
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
+import { _resetModelCache } from "./routes/system.js";
+import { trafficStats } from "./traffic-stats.js";
+import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
+import * as serverLoggerModule from "./server-logger.js";
+import * as envManager from "./env-manager.js";
+import * as gitUtils from "./git-utils.js";
+import * as questStore from "./quest-store.js";
+import * as sessionNames from "./session-names.js";
+import * as settingsManager from "./settings-manager.js";
+import * as transcriptionEnhancer from "./transcription-enhancer.js";
+import { containerManager } from "./container-manager.js";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../shared/thread-outcome-reminder.js";
+
+// ─── Mock factories ──────────────────────────────────────────────────────────
+
+function createMockLauncher() {
+  return {
+    launch: vi.fn(() => ({
+      sessionId: "session-1",
+      state: "starting",
+      cwd: "/test",
+      createdAt: Date.now(),
+    })),
+    kill: vi.fn(async () => true),
+    isAlive: vi.fn(() => true),
+    relaunch: vi.fn(async () => ({ ok: true })),
+    relaunchWithResumeAt: vi.fn(async () => ({ ok: true })),
+    listSessions: vi.fn(() => []),
+    getSession: vi.fn(),
+    setArchived: vi.fn(),
+    setWorktreeCleanupState: vi.fn(),
+    updateWorktree: vi.fn(),
+    removeSession: vi.fn(),
+    getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
+    getPort: vi.fn(() => 3456),
+    verifySessionAuthToken: vi.fn(() => true),
+    herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [], reassigned: [], leaders: [] })),
+    unherdSession: vi.fn(() => false),
+    getHerdedSessions: vi.fn(() => []),
+    // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
+    resolveSessionId: vi.fn((id: string) => id),
+    getSessionNum: vi.fn(() => undefined),
+  } as any;
+}
+
+function createMockBridge() {
+  return {
+    _sessions: {} as Record<string, any>,
+    _vscodeSelectionState: null as any,
+    _vscodeWindows: [] as any[],
+    closeSession: vi.fn(),
+    getSession: vi.fn(function (this: any, sessionId: string) {
+      if (sessionId in this._sessions) return this._sessions[sessionId];
+      const stateEntries = this.getAllSessions();
+      const stateEntry = Array.isArray(stateEntries)
+        ? stateEntries.find((entry: any) => entry?.session_id === sessionId || entry?.sessionId === sessionId)
+        : null;
+      const messageHistory = this.getMessageHistory(sessionId) ?? [];
+      if (!stateEntry && messageHistory.length === 0) {
+        return null;
+      }
+      return {
+        id: sessionId,
+        state: stateEntry?.state ?? stateEntry ?? {},
+        messageHistory,
+        notifications: [],
+        pendingPermissions: new Map(),
+        taskHistory: [],
+        keywords: [],
+        lastReadAt: 0,
+        attentionReason: null,
+        isGenerating: false,
+      };
+    }),
+    getOrCreateSession: vi.fn(),
+    getAllSessions: vi.fn(() => []),
+    refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
+    getLastUserMessage: vi.fn(() => undefined),
+    isBackendConnected: vi.fn(() => false),
+    markWorktree: vi.fn(),
+    applyInitialSessionState: vi.fn(),
+    setDiffBaseBranch: vi.fn(() => true),
+    refreshGitInfoPublic: vi.fn(async () => true),
+    onSessionArchived: vi.fn(),
+    onSessionUnarchived: vi.fn(),
+    persistSessionById: vi.fn(),
+    broadcastToSession: vi.fn(),
+    broadcastGlobal: vi.fn(),
+    getVsCodeSelectionState: vi.fn(function (this: any) {
+      return this._vscodeSelectionState;
+    }),
+    updateVsCodeSelectionState: vi.fn(function (this: any, state: any) {
+      this._vscodeSelectionState = state;
+      return true;
+    }),
+    getVsCodeWindowStates: vi.fn(function (this: any) {
+      return this._vscodeWindows;
+    }),
+    upsertVsCodeWindowState: vi.fn(function (this: any, state: any) {
+      const next = {
+        ...state,
+        workspaceRoots: [...(state.workspaceRoots ?? [])],
+        lastSeenAt: 9999,
+      };
+      this._vscodeWindows = [...this._vscodeWindows.filter((window: any) => window.sourceId !== state.sourceId), next];
+      return next;
+    }),
+    pollVsCodeOpenFileCommands: vi.fn(() => []),
+    resolveVsCodeOpenFileResult: vi.fn(() => true),
+    requestVsCodeOpenFile: vi.fn(async () => ({ sourceId: "window-a", commandId: "cmd-1" })),
+    addTaskEntry: vi.fn(),
+    updateQuestTaskEntries: vi.fn(),
+    removeBoardRowFromAll: vi.fn(),
+    prepareSessionForRevert: vi.fn(
+      (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
+        const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
+        if (!session) return null;
+        session.messageHistory = session.messageHistory.slice(0, truncateIdx);
+        session.frozenCount = Math.min(session.frozenCount ?? 0, session.messageHistory.length);
+        session.assistantAccumulator?.clear?.();
+        session.pendingMessages = [];
+        session.lastOutboundUserNdjson = null;
+        session.userMessageIdsThisTurn = [];
+        session.queuedTurnStarts = 0;
+        session.queuedTurnReasons = [];
+        session.queuedTurnUserMessageIds = [];
+        session.queuedTurnInterruptSources = [];
+        session.interruptedDuringTurn = false;
+        session.interruptSourceDuringTurn = null;
+        session.isGenerating = false;
+        session.generationStartedAt = null;
+        session.disconnectWasGenerating = false;
+        session.seamlessReconnect = false;
+        session.toolStartTimes?.clear?.();
+        session.toolProgressOutput?.clear?.();
+        session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
+        session.pendingPermissions?.clear?.();
+        session.eventBuffer = [];
+        session.awaitingCompactSummary = false;
+        session.claudeCompactBoundarySeen = false;
+        session.compactedDuringTurn = false;
+        session.forceCompactPending = false;
+        if (session.state) session.state.is_compacting = false;
+        if (options?.clearCodexState) {
+          session.pendingCodexTurns = [];
+          session.pendingCodexInputs = [];
+          session.pendingCodexRollback = null;
+          session.pendingCodexRollbackError = null;
+          if (session.optimisticRunningTimer) session.optimisticRunningTimer = null;
+          bridge.broadcastToSession(sessionId, { type: "codex_pending_inputs", inputs: [] });
+        }
+        bridge.broadcastToSession(sessionId, { type: "permissions_cleared" });
+        return session;
+      },
+    ),
+    beginCodexRollback: vi.fn(
+      (sessionId: string, plan: { numTurns: number; truncateIdx: number; clearCodexState: boolean }) => {
+        const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
+        const adapter = session?.codexAdapter;
+        if (adapter?.isConnected?.() && adapter.rollbackTurns) {
+          return {
+            promise: adapter.rollbackTurns(plan.numTurns).then(() => {
+              const reverted = bridge.prepareSessionForRevert(sessionId, plan.truncateIdx, {
+                clearCodexState: plan.clearCodexState,
+              });
+              bridge.persistSessionSync(sessionId);
+              bridge.broadcastToSession(sessionId, { type: "message_history", messages: reverted.messageHistory });
+              bridge.broadcastToSession(sessionId, { type: "status_change", status: "idle" });
+            }),
+            requiresRelaunch: false,
+          };
+        }
+        return { promise: Promise.resolve(), requiresRelaunch: true };
+      },
+    ),
+    persistSessionSync: vi.fn(),
+    getMessageHistory: vi.fn(() => []),
+    getToolResult: vi.fn(() => null),
+    injectUserMessage: vi.fn(() => "sent" as const),
+    emitTakodeEvent: vi.fn(),
+    subscribeTakodeEvents: vi.fn(() => () => {}),
+    routeExternalPermissionResponse: vi.fn(),
+    routeExternalInterrupt: vi.fn(async () => {}),
+    routeBrowserMessage: vi.fn(function (this: any, session: any, msg: any) {
+      if (msg?.type === "permission_response") {
+        return this.routeExternalPermissionResponse(
+          session,
+          {
+            type: "permission_response",
+            request_id: msg.request_id,
+            behavior: msg.behavior,
+            ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
+            ...(msg.message ? { message: msg.message } : {}),
+          },
+          msg.actorSessionId,
+        );
+      }
+      if (msg?.type === "interrupt") {
+        return this.routeExternalInterrupt(session, msg.interruptSource);
+      }
+      return undefined;
+    }),
+    getTrafficStatsSnapshot: vi.fn(() => ({
+      windowStartedAt: 1000,
+      capturedAt: 2000,
+      totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
+      buckets: [],
+      sessions: {},
+      historySyncBreakdown: {
+        totals: {
+          requests: 0,
+          frozenDeltaBytes: 0,
+          hotMessagesBytes: 0,
+          frozenDeltaMessages: 0,
+          hotMessagesCount: 0,
+        },
+        sessions: {},
+      },
+      toolResultFetches: {
+        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+        sessions: {},
+        topRepeated: [],
+      },
+    })),
+    resetTrafficStats: vi.fn(),
+  } as any;
+}
+
+function ensureBridgeSession(
+  bridge: ReturnType<typeof createMockBridge>,
+  sessionId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return (bridge._sessions[sessionId] = {
+    id: sessionId,
+    state: {},
+    browserSockets: new Set(),
+    messageHistory: [],
+    notifications: [],
+    pendingPermissions: new Map(),
+    taskHistory: [],
+    keywords: [],
+    lastReadAt: 0,
+    attentionReason: null,
+    isGenerating: false,
+    ...overrides,
+  });
+}
+
+function createMockStore() {
+  return {
+    setArchived: vi.fn(async () => true),
+    flushAll: vi.fn(async () => {}),
+  } as any;
+}
+
+function createMockRecorder() {
+  return {
+    getRecordingsDir: vi.fn(() => "/tmp/companion-recordings"),
+    isGloballyEnabled: vi.fn(() => true),
+    getMaxLines: vi.fn(() => 500000),
+    isRecording: vi.fn(() => true),
+    getRecordingStatus: vi.fn(() => ({ filePath: "/tmp/companion-recordings/session-1.jsonl" })),
+    enableForSession: vi.fn(),
+    disableForSession: vi.fn(),
+    listRecordings: vi.fn(async () => []),
+  } as any;
+}
+
+function createMockTimerManager() {
+  return {
+    createTimer: vi.fn(),
+    listTimers: vi.fn(() => []),
+    cancelTimer: vi.fn(async () => true),
+    cancelAllTimers: vi.fn(async () => {}),
+  } as any;
+}
+
+function createMockTracker() {
+  return {
+    addMapping: vi.fn(),
+    getBySession: vi.fn(() => null),
+    removeBySession: vi.fn(),
+    isWorktreeInUse: vi.fn(() => false),
+  } as any;
+}
+
+// ─── Test setup ──────────────────────────────────────────────────────────────
+
+let app: Hono;
+let launcher: ReturnType<typeof createMockLauncher>;
+let bridge: ReturnType<typeof createMockBridge>;
+let sessionStore: ReturnType<typeof createMockStore>;
+let tracker: ReturnType<typeof createMockTracker>;
+let recorder: ReturnType<typeof createMockRecorder>;
+let timerManager: ReturnType<typeof createMockTimerManager>;
+let pushoverNotifier: { scheduleNotification: ReturnType<typeof vi.fn>; cancelNotification: ReturnType<typeof vi.fn> };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  trafficStats.reset();
+  _resetServerLoggerForTest();
+  // Reset the LiteLLM model cache so each test starts clean.
+  _resetModelCache();
+  // Stub global fetch to prevent LiteLLM proxy calls in tests.
+  // Model endpoint tests exercise the fallback path (models_cache.json).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.reject(new Error("no proxy in tests"))),
+  );
+  launcher = createMockLauncher();
+  bridge = createMockBridge();
+  sessionStore = createMockStore();
+  tracker = createMockTracker();
+  recorder = createMockRecorder();
+  timerManager = createMockTimerManager();
+  pushoverNotifier = { scheduleNotification: vi.fn(), cancelNotification: vi.fn() };
+  app = new Hono();
+  const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
+  app.route(
+    "/api",
+    createRoutes(
+      launcher,
+      bridge,
+      sessionStore,
+      tracker,
+      terminalManager,
+      undefined,
+      recorder,
+      undefined,
+      timerManager,
+      undefined,
+      pushoverNotifier as any,
+    ),
+  );
+
+  // Default no-op mocks for container workspace isolation (called during container session creation)
+  vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
+  vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
+});
+
+// ─── Sessions ────────────────────────────────────────────────────────────────
+
+// ─── SSE Session Creation Streaming ──────────────────────────────────────────
+/** Parse an SSE response body into an array of {event, data} objects */
+async function parseSSE(res: Response): Promise<{ event: string; data: string }[]> {
+  const text = await res.text();
+  const events: { event: string; data: string }[] = [];
+  // SSE frames are separated by double newlines
+  for (const block of text.split("\n\n")) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    let event = "message";
+    let data = "";
+    for (const line of trimmed.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) data = line.slice(5).trim();
+    }
+    if (data) events.push({ event, data });
+  }
+  return events;
+}
+
+describe("Takode notify endpoint", () => {
+  function authHeaders(sessionId: string, token: string): Record<string, string> {
+    return {
+      "x-companion-session-id": sessionId,
+      "x-companion-auth-token": token,
+      "Content-Type": "application/json",
+    };
+  }
+
+  function setupTakodeSessions() {
+    const sessions: Record<string, any> = {
+      "orch-1": {
+        sessionId: "orch-1",
+        state: "running",
+        cwd: "/repo",
+        createdAt: Date.now(),
+        isOrchestrator: true,
+      },
+      "worker-1": {
+        sessionId: "worker-1",
+        state: "running",
+        cwd: "/repo/w1",
+        createdAt: Date.now(),
+        herdedBy: "orch-1",
+      },
+      "worker-2": {
+        sessionId: "worker-2",
+        state: "running",
+        cwd: "/repo/w2",
+        createdAt: Date.now(),
+      },
+    };
+    launcher.getSession.mockImplementation((id: string) => sessions[id]);
+    launcher.listSessions.mockReturnValue(Object.values(sessions));
+    launcher.resolveSessionId.mockImplementation((id: string) => (sessions[id] ? id : null));
+    launcher.verifySessionAuthToken.mockImplementation(
+      (id: string, token: string) => id === "orch-1" && token === "tok-1",
+    );
+    bridge._sessions = Object.fromEntries(
+      Object.keys(sessions).map((sessionId) => [
+        sessionId,
+        {
+          id: sessionId,
+          state: {},
+          board: new Map(),
+          completedBoard: new Map(),
+          boardDispatchStates: new Map(),
+          messageHistory: [],
+          notifications: [],
+          pendingPermissions: new Map(),
+          taskHistory: [],
+          keywords: [],
+          lastReadAt: 0,
+          attentionReason: null,
+          isGenerating: false,
+        },
+      ]),
+    );
+    bridge.getSession.mockImplementation((sessionId: string) => bridge._sessions[sessionId] ?? null);
+    return sessions;
+  }
+
+  // ── Notify endpoint ──────────────────────────────────────────────────────
+
+  it("rejects notification without summary", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review" }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("summary is required");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("passes summary string through to notifyUser", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Need decision on auth approach" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      category: "needs-input",
+      notificationId: 1,
+      rawNotificationId: "n-1",
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      { category: "needs-input", summary: "Need decision on auth approach", done: false },
+    ]);
+  });
+
+  it("uses the current routed notify turn instead of a stale quest-thread assistant anchor", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].activeTurnRoute = { threadKey: "main" };
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "stale-quest-anchor", content: [{ type: "text", text: "Completed unrelated thread work." }] },
+      timestamp: 1000,
+      threadKey: "q-777",
+      questId: "q-777",
+      threadRefs: [{ threadKey: "q-777", questId: "q-777", source: "explicit" }],
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Approve previous-user-message navigation quest",
+        suggestedAnswers: ["approve", "correct"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      category: "needs-input",
+      notificationId: 1,
+      rawNotificationId: "n-1",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toBeUndefined();
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Approve previous-user-message navigation quest",
+      messageId: expect.stringMatching(/^leader-needs-input-/),
+      threadKey: "main",
+      done: false,
+    });
+    expect(bridge._sessions["orch-1"].notifications[0].questId).toBeUndefined();
+    expect(bridge._sessions["orch-1"].notifications[0].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[1]).toMatchObject({
+      type: "leader_user_message",
+      threadKey: "main",
+      notification: expect.objectContaining({ id: "n-1", threadKey: "main" }),
+    });
+  });
+
+  it("honors an explicit notify thread route when creating needs-input ownership metadata", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "quest-plan", content: [{ type: "text", text: "Approve the owner-thread plan." }] },
+      timestamp: 1000,
+      threadKey: "q-983",
+      questId: "q-983",
+      threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }],
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Approve owner-thread plan",
+        threadKey: "q-983",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Approve owner-thread plan",
+      messageId: "quest-plan",
+      threadKey: "q-983",
+      questId: "q-983",
+      threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }],
+      done: false,
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      threadKey: "q-983",
+      questId: "q-983",
+    });
+  });
+
+  it("marks an intervening Thread Outcome Reminder satisfied when needs-input anchors to the prompted message", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push(
+      {
+        type: "assistant",
+        message: { id: "approval-plan", content: [{ type: "text", text: "Approve the plan?" }] },
+        parent_tool_use_id: null,
+        timestamp: 1000,
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "thread-outcome-reminder",
+        content: "Thread outcome reminder",
+        timestamp: 1500,
+        agentSource: {
+          sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+        },
+        threadKey: "main",
+      },
+    );
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Approve the plan",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      messageId: "approval-plan",
+      threadKey: "main",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadOutcomeReminder).toMatchObject({
+      status: "satisfied",
+      notificationId: "n-1",
+      notificationSummary: "Approve the plan",
+    });
+  });
+
+  it("prefers the visible leader prompt over a later notify tool-use retry anchor", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push(
+      {
+        type: "assistant",
+        message: {
+          id: "approval-plan",
+          content: [{ type: "text", text: "Proposed quest:\n\nPlease confirm or correct." }],
+        },
+        parent_tool_use_id: null,
+        timestamp: 1000,
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+      {
+        type: "user_message",
+        id: "thread-outcome-reminder",
+        content: "Thread outcome reminder",
+        timestamp: 1500,
+        agentSource: {
+          sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+        },
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+      {
+        type: "assistant",
+        message: {
+          id: "notify-retry-tool-only",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool-notify",
+              name: "Bash",
+              input: { command: "takode notify needs-input 'Approve q-1616'" },
+            },
+          ],
+        },
+        parent_tool_use_id: null,
+        timestamp: 2000,
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+    );
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve q-1616", threadKey: "q-1616" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, rawNotificationId: "n-1", anchoredMessageId: "approval-plan" });
+    expect(bridge._sessions["orch-1"].notifications).toHaveLength(1);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      id: "n-1",
+      messageId: "approval-plan",
+      threadKey: "q-1616",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({ id: "n-1" });
+    expect(bridge._sessions["orch-1"].messageHistory[2].notification).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadOutcomeReminder).toMatchObject({
+      status: "satisfied",
+      notificationId: "n-1",
+    });
+  });
+
+  it("reuses exact duplicate unresolved needs-input retries while preserving distinct prompts", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "approval-plan", content: [{ type: "text", text: "Decision needed: ship?" }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "main",
+    });
+
+    const first = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+    const duplicate = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+    const distinct = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve rollback", suggestedAnswers: ["yes", "no"] }),
+    });
+    bridge._sessions["orch-1"].notifications[0].timestamp = Date.now() - 6 * 60 * 1000;
+    const laterSameWording = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ rawNotificationId: "n-1" });
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ rawNotificationId: "n-1", reused: true });
+    expect(distinct.status).toBe(200);
+    expect(await distinct.json()).toMatchObject({ rawNotificationId: "n-2" });
+    expect(laterSameWording.status).toBe(200);
+    expect(await laterSameWording.json()).toMatchObject({ rawNotificationId: "n-3" });
+    expect(bridge._sessions["orch-1"].notifications.map((notification: any) => notification.id)).toEqual([
+      "n-1",
+      "n-2",
+      "n-3",
+    ]);
+  });
+
+  it("does not reuse a muted parked needs-input prompt for an exact retry", async () => {
+    setupTakodeSessions();
+    const questions = [{ prompt: "Ship now?", suggestedAnswers: ["yes", "no"] }];
+    bridge._sessions["orch-1"].notificationCounter = 1;
+    bridge._sessions["orch-1"].notifications = [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Approve ship",
+        questions,
+        timestamp: Date.now(),
+        messageId: "muted-prompt",
+        threadKey: "q-1616",
+        questId: "q-1616",
+        done: false,
+        muted: true,
+      },
+    ];
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "fresh-prompt", content: [{ type: "text", text: "Decision needed: ship now?" }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "q-1616",
+      questId: "q-1616",
+      threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", threadKey: "q-1616", questions }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ rawNotificationId: "n-2" });
+    expect(bridge._sessions["orch-1"].notifications).toHaveLength(2);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ id: "n-1", muted: true, done: false });
+    expect(bridge._sessions["orch-1"].notifications[1]).toMatchObject({
+      id: "n-2",
+      summary: "Approve ship",
+      questions,
+      done: false,
+    });
+    expect(bridge._sessions["orch-1"].notifications[1].muted).toBeUndefined();
+  });
+
+  it("preserves the standard notify response delivery path", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "visible-prompt", content: [{ type: "text", text: "Please answer this prompt." }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "main",
+    });
+
+    const notifyRes = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Need answer", suggestedAnswers: ["received"] }),
+    });
+    expect(notifyRes.status).toBe(200);
+    expect(await notifyRes.json()).toMatchObject({ rawNotificationId: "n-1", anchoredMessageId: "visible-prompt" });
+
+    const responseRes = await app.request("/api/sessions/orch-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "received" }),
+    });
+
+    expect(responseRes.status).toBe(200);
+    expect(await responseRes.json()).toMatchObject({ ok: true, delivery: "sent", changed: true });
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "orch-1",
+      "received",
+      undefined,
+      undefined,
+      { threadKey: "main" },
+      expect.objectContaining({
+        deliveryContent: "[reply] Need answer\n\nreceived",
+        replyContext: { messageId: "visible-prompt", notificationId: "n-1", previewText: "Need answer" },
+        sessionId: "orch-1",
+        bypassPause: true,
+      }),
+    );
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ id: "n-1", done: true });
+  });
+
+  it("accepts waiting as a transient status marker without creating a persistent notification", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting for reviewer slot" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      category: "waiting",
+      transient: true,
+      anchoredMessageId: null,
+      notificationId: null,
+      rawNotificationId: null,
+    });
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+    expect(bridge._sessions["orch-1"].notificationCounter ?? 0).toBe(0);
+    expect(bridge._sessions["orch-1"].messageHistory).toEqual([]);
+  });
+
+  it("stores normalized suggested answers for needs-input notifications", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need approval" }] },
+      timestamp: 1000,
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need deployment approval",
+        suggestedAnswers: ["  yes  ", "not  yet", "after smoke", "rollback"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      {
+        category: "needs-input",
+        summary: "Need deployment approval",
+        suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
+        done: false,
+      },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Need deployment approval",
+      suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
+    });
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "notification_anchored",
+        messageId: "asst-1",
+        notification: expect.objectContaining({
+          id: "n-1",
+          suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
+        }),
+      }),
+    );
+  });
+
+  it("stores normalized per-question prompts for needs-input notifications", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need choices" }] },
+      timestamp: 1000,
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need deployment choices",
+        questions: [
+          { prompt: " Which rollout? ", suggestedAnswers: [" staged ", "full", "pause", "rollback"] },
+          { prompt: "When should it start?", suggestedAnswers: ["now", "after  review"] },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const expectedQuestions = [
+      { prompt: "Which rollout?", suggestedAnswers: ["staged", "full", "pause", "rollback"] },
+      { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+    ];
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      questions: expectedQuestions,
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      {
+        category: "needs-input",
+        summary: "Need deployment choices",
+        questions: expectedQuestions,
+        done: false,
+      },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      questions: expectedQuestions,
+    });
+  });
+
+  it("writes needs-input context as a routed feed message that anchors a question-only card", async () => {
+    // The context is shown as ordinary assistant text before the card, so it must
+    // be a real root history message on the prompt's thread, and the card itself
+    // carries only the question. A leader's named messages make it an answer that
+    // the normal turn-end settlement later proves.
+    setupTakodeSessions();
+    const history = bridge._sessions["orch-1"].messageHistory;
+    history.push({ type: "user_message", content: "Propose a plan", id: "user-1", timestamp: 900 });
+    bridge._sessions["orch-1"].userMessageIdsThisTurn = [0];
+    history.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+    });
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Approve?",
+        context: "  **Plan:** ship it.\n",
+        answers: ["u1"],
+        threadKey: "q-7",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ anchoredMessageId: "needs-input-context-n-1" });
+    const contextMessage = history[2];
+    expect(contextMessage).toMatchObject({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "needs-input-context-n-1", content: [{ type: "text", text: "**Plan:** ship it." }] },
+      threadKey: "q-7",
+      questId: "q-7",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      leaderAnswerObservedHistoryLength: 1,
+      notification: { id: "n-1", questionOnly: true },
+    });
+    expect(contextMessage.notification.body).toBeUndefined();
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      messageId: "needs-input-context-n-1",
+      contextMessageId: "needs-input-context-n-1",
+      questionOnly: true,
+      threadKey: "q-7",
+    });
+    expect(bridge._sessions["orch-1"].notifications[0].body).toBeUndefined();
+  });
+
+  it("routes context without named answers as leader commentary", async () => {
+    setupTakodeSessions();
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Pick one", context: "A is faster." }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].messageHistory[0]).toMatchObject({
+      message: { content: [{ type: "text", text: "A is faster." }] },
+      threadKey: "main",
+      leaderThreadRole: "commentary",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].leaderAnswerUserMessageIds).toBeUndefined();
+  });
+
+  it("rejects invalid needs-input context and answers", async () => {
+    const sessions = setupTakodeSessions();
+    const post = (payload: Record<string, unknown>) =>
+      app.request("/api/sessions/orch-1/notify", {
+        method: "POST",
+        headers: authHeaders("orch-1", "tok-1"),
+        body: JSON.stringify({ summary: "Ask", ...payload }),
+      });
+
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ category: "review", context: "context" }, "context is only supported for needs-input notifications"],
+      [{ category: "needs-input", context: "   " }, "context must be nonempty when provided"],
+      [{ category: "needs-input", context: 42 }, "context must be a string"],
+      [{ category: "needs-input", context: "x".repeat(20_001) }, "context must be 20000 characters or less"],
+      [{ category: "needs-input", answers: ["u1"] }, "answers requires context: the context is the answer"],
+      [
+        { category: "needs-input", context: "c", answers: ["msg-1"] },
+        "answers must be a nonempty list of message IDs such as u12 or timer-m3",
+      ],
+      [{ category: "needs-input", context: "c", answers: ["u1", "u1"] }, "answers must not repeat an ID"],
+    ];
+    for (const [payload, error] of cases) {
+      const res = await post(payload);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe(error);
+    }
+
+    // Workers have no answer coverage, so naming answered messages is leader-only.
+    sessions["orch-1"].isOrchestrator = false;
+    const workerRes = await post({ category: "needs-input", context: "c", answers: ["u1"] });
+    expect(workerRes.status).toBe(400);
+    expect((await workerRes.json()).error).toBe("answers is only supported for leader sessions");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+    expect(bridge._sessions["orch-1"].messageHistory).toEqual([]);
+  });
+
+  it("rejects suggested answers outside needs-input notifications", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "Ready", suggestedAnswers: ["ok"] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("suggestedAnswers are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects per-question prompts outside needs-input notifications", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "Ready", questions: [{ prompt: "Ship?" }] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("questions are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects suggested answers and questions for waiting notifications", async () => {
+    setupTakodeSessions();
+
+    const suggested = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting", suggestedAnswers: ["ok"] }),
+    });
+    const questioned = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting", questions: [{ prompt: "Ship?" }] }),
+    });
+
+    expect(suggested.status).toBe(400);
+    expect((await suggested.json()).error).toBe("suggestedAnswers are only supported for needs-input notifications");
+    expect(questioned.status).toBe(400);
+    expect((await questioned.json()).error).toBe("questions are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects mixed legacy and per-question suggestions", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["yes"],
+        questions: [{ prompt: "Ship?", suggestedAnswers: ["ship"] }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "Use per-question suggestedAnswers inside questions when questions are provided",
+    );
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects invalid suggested answer sets", async () => {
+    setupTakodeSessions();
+
+    const duplicate = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["yes", "YES"],
+      }),
+    });
+    expect(duplicate.status).toBe(400);
+    expect((await duplicate.json()).error).toBe("suggestedAnswers entries must be unique");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("retains protective validation for oversized needs-input quick replies and question batches", async () => {
+    setupTakodeSessions();
+
+    const longAnswer = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["this answer is longer than thirty two characters"],
+      }),
+    });
+    expect(longAnswer.status).toBe(400);
+    expect((await longAnswer.json()).error).toBe("suggestedAnswers entries must be 32 characters or less");
+
+    const tooManyQuestions = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need several decisions",
+        questions: [
+          { prompt: "Question 1?" },
+          { prompt: "Question 2?" },
+          { prompt: "Question 3?" },
+          { prompt: "Question 4?" },
+          { prompt: "Question 5?" },
+          { prompt: "Question 6?" },
+        ],
+      }),
+    });
+    expect(tooManyQuestions.status).toBe(400);
+    expect((await tooManyQuestions.json()).error).toBe("questions may include at most 5 prompts");
+
+    const longPrompt = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        questions: [{ prompt: "x".repeat(241) }],
+      }),
+    });
+    expect(longPrompt.status).toBe(400);
+    expect((await longPrompt.json()).error).toBe("questions prompts must be 240 characters or less");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects whitespace-only summary", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "   " }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("summary is required");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects notify with invalid category", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "invalid" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('category must be "needs-input", "review", or "waiting"');
+  });
+
+  it("rejects cross-session notify calls", async () => {
+    setupTakodeSessions();
+
+    // orch-1 tries to notify as worker-1
+    const res = await app.request("/api/sessions/worker-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review" }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+});
