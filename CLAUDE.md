@@ -147,6 +147,7 @@ cd web && bun --no-install run format:check
 - If a change would push a file over 2000 lines, split the file before committing instead of extending it further.
 - Do not try to satisfy the file-size limit with superficial line-count tricks such as collapsing formatting, removing useful whitespace/comments, or otherwise making the file harder to read. When a file is over the limit, reduce it with a real refactor or extraction that improves structure.
 - The pre-commit limit is enforced against staged file contents only, so exactly 2000 lines is allowed and anything over 2000 lines fails the commit.
+- Not every commit runs that hook, so the test suite also checks every tracked file (`web/scripts/tracked-file-line-limit.test.ts`). The landing gate and CI therefore reject a change, or a combination of landed changes, that leaves any file over 2000 lines, naming the file.
 
 ## Verification
 

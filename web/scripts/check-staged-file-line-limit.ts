@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -66,18 +68,43 @@ export async function findOversizedStagedFiles(repoRoot: string): Promise<Oversi
   const oversizedFiles: OversizedFile[] = [];
 
   for (const filePath of stagedFiles) {
-    const contents = await readStagedFile(repoRoot, filePath);
-    if (isProbablyBinary(contents)) {
-      continue;
-    }
-
-    const lineCount = countLines(contents);
-    if (lineCount > MAX_FILE_LINES) {
-      oversizedFiles.push({ path: filePath, lineCount });
-    }
+    const oversized = checkFile(filePath, await readStagedFile(repoRoot, filePath));
+    if (oversized) oversizedFiles.push(oversized);
   }
 
   return oversizedFiles;
+}
+
+/**
+ * Tracked regular files in the working tree that are over the limit. The pre-commit
+ * check does not cover every way a commit is made (hooks may not be installed, and
+ * changes are stacked when they land), so the test suite runs this over the whole
+ * tree, and the landing gate rejects a change that leaves any file over the limit.
+ */
+export async function findOversizedTrackedFiles(repoRoot: string): Promise<OversizedFile[]> {
+  // `--stage` gives each entry's mode, which leaves out symlinks and submodules.
+  const entries = parseNullDelimitedPaths(await runGit(["ls-files", "--stage", "-z"], repoRoot));
+  const oversizedFiles: OversizedFile[] = [];
+
+  for (const entry of entries) {
+    const [info, filePath] = entry.split("\t");
+    if (!info.startsWith("100") || !filePath) continue;
+    const contents = await readFile(path.join(repoRoot, filePath)).catch((error: NodeJS.ErrnoException) => {
+      // A tracked file deleted in the working tree is not part of the tree being checked.
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    const oversized = contents && checkFile(filePath, contents);
+    if (oversized) oversizedFiles.push(oversized);
+  }
+
+  return oversizedFiles;
+}
+
+function checkFile(filePath: string, contents: Buffer): OversizedFile | null {
+  if (isProbablyBinary(contents)) return null;
+  const lineCount = countLines(contents);
+  return lineCount > MAX_FILE_LINES ? { path: filePath, lineCount } : null;
 }
 
 function formatFailureMessage(oversizedFiles: OversizedFile[]): string {
