@@ -158,6 +158,8 @@ describe("takode timers", () => {
         ...(threadKey ? { threadKey } : {}),
       });
       expect(result.stdout).toContain('Created timer t1 (delay): "Check build health"');
+      // The fire time carries its date when not today and the time left, not just a clock time.
+      expect(result.stdout).toMatch(/next fire at .*\(in (29|30)m\)/);
       expect(result.stdout).toContain("Description: Inspect the latest failing shard if the build is red.");
       if (threadKey) expect(result.stdout).toContain(`Thread: ${threadKey}`);
       else expect(result.stdout).not.toContain("Thread:");
@@ -170,6 +172,8 @@ describe("takode timers", () => {
   it("inspects timers for another session", async () => {
     // Verifies the cross-session inspection command renders timer schedule,
     // next fire time, and recurrence metadata without relying on the current session.
+    // t1 was created with "--in 152h" days ago and fires in about 13 hours: its row must
+    // show the time left, not the creation spec, which read like a countdown.
     const server = createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
@@ -191,9 +195,9 @@ describe("takode timers", () => {
                 title: "Check build health",
                 description: "Inspect the latest failing shard if the build is red.",
                 type: "delay",
-                originalSpec: "30m",
-                nextFireAt: Date.now() + 30 * 60 * 1000,
-                createdAt: Date.now(),
+                originalSpec: "152h",
+                nextFireAt: Date.now() + (13 * 60 + 18) * 60 * 1000,
+                createdAt: Date.now() - (138 * 60 + 42) * 60 * 1000,
                 fireCount: 0,
               },
               {
@@ -232,8 +236,11 @@ describe("takode timers", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Pending timers for worker-77 (2):");
-      expect(result.stdout).toContain("t1  in 30m");
+      expect(result.stdout).toContain("t1  once");
+      expect(result.stdout).toMatch(/t1 .* next=.*\(in 13h 1[78]m\)/);
+      expect(result.stdout).not.toContain("152h");
       expect(result.stdout).toContain("t2  every 10m");
+      expect(result.stdout).toMatch(/t2 .* next=.*\(in (9|10)m\)/);
       expect(result.stdout).toContain("last=");
       expect(result.stdout).toContain("thread=q-42");
       expect(result.stdout).toContain('"Refresh context"');

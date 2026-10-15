@@ -38,8 +38,8 @@ function formatCompactRelativeTime(epochMs: number): string {
   }
   const totalHours = Math.floor(totalMinutes / 60);
   if (totalHours < 24) return `${totalHours}h`;
-  const totalDays = Math.ceil(totalHours / 24);
-  return `${totalDays}d`;
+  // Round down like the hour form: the chip shows whole units left, never more time than remains.
+  return `${Math.floor(totalHours / 24)}d`;
 }
 
 // ─── Shared hooks ────────────────────────────────────────────────────────────

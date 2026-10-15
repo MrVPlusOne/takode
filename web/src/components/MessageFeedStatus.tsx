@@ -19,6 +19,7 @@ import { MessageBubble } from "./MessageBubble.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
+import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 import { formatReplyContentForPreview } from "../utils/reply-context.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
@@ -591,6 +592,7 @@ export function FeedStatusPill({
   const leftStackRef = useRef<HTMLDivElement>(null);
   const rightStackRef = useRef<HTMLDivElement>(null);
   const [activityVisibleHeight, setActivityVisibleHeight] = useState(0);
+  const composerOverlayLift = useComposerOverlayLift();
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange && !onRunwayHeightChange) return;
@@ -623,6 +625,7 @@ export function FeedStatusPill({
         ref={leftStackRef}
         data-testid="feed-status-pill-left"
         data-feed-floating-stack="left"
+        style={composerOverlayLift}
         className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100vw-1rem)] flex-col items-start gap-1.5 sm:bottom-3 sm:left-3"
       >
         <CodexTurnRecoveryChip
@@ -645,6 +648,7 @@ export function FeedStatusPill({
         ref={rightStackRef}
         data-testid="feed-status-pill-right"
         data-feed-floating-stack="right"
+        style={composerOverlayLift}
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
         <TimerChip sessionId={sessionId} />

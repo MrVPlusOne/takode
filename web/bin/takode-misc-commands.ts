@@ -9,6 +9,7 @@ import {
   parseFlags,
   readOptionTextFile,
   printTimerRows,
+  formatTimerNextFire,
   TIMER_CREATE_GUIDANCE,
   type SessionTimerDetail,
 } from "./takode-core.js";
@@ -174,8 +175,9 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
         timer: SessionTimerDetail;
       };
       const t = result.timer;
-      const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
-      console.log(`Created timer ${t.id} (${t.type}): "${formatInlineText(t.title)}" -- next fire at ${fireAt}`);
+      console.log(
+        `Created timer ${t.id} (${t.type}): "${formatInlineText(t.title)}" -- next fire at ${formatTimerNextFire(t.nextFireAt)}`,
+      );
       if (t.threadKey) console.log(`Thread: ${t.threadKey}`);
       if (t.description) console.log(`Description: ${formatInlineText(t.description)}`);
       break;

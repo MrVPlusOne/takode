@@ -169,6 +169,7 @@ export function MessageFeed({
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
   const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
   const {
+    composerOverlayLift,
     feedEndScrollSlack,
     feedEndSlackProps,
     reserveTargetScrollSpace,
@@ -1945,7 +1946,10 @@ export function MessageFeed({
         )}
 
         {showLatestPill && latestIndicatorMode !== "external" && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4">
+          <div
+            style={composerOverlayLift}
+            className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4"
+          >
             <button
               type="button"
               onClick={handleScrollToBottomClick}

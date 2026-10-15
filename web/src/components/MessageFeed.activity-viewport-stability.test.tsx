@@ -103,6 +103,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionTimers: mockStoreValues.sessionTimers ?? new Map(),
       sessionSearch: new Map(),
       threadWindows: mockStoreValues.threadWindows ?? new Map(),
       threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
@@ -172,6 +173,7 @@ beforeEach(() => {
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.activeTurnRoutes = new Map();
   mockStoreValues.sessionNotifications = new Map();
+  mockStoreValues.sessionTimers = new Map();
   mockStoreValues.connectionStatus = new Map();
   mockStoreValues.cliConnected = new Map();
   mockStoreValues.cliEverConnected = new Map();
@@ -1391,6 +1393,78 @@ describe("composer overlay scroll reachability", () => {
       setProducerWindow(sid, otherThread);
       view.rerender(fixture(false, otherThread));
       expect(geometry.slack).toBe(12);
+    } finally {
+      view.unmount();
+      offsetHeight.mockRestore();
+      geometry.restore();
+      resize.restore();
+    }
+  });
+
+  it("keeps the floating chips visible above an expanded desktop composer", async () => {
+    // Desktop expansion covers the feed's bottom edge instead of resizing it. The
+    // timer chip (and the other floating chips) sat at that edge and disappeared
+    // under the composer, though the session still had a scheduled timer.
+    const sid = "composer-lift";
+    const selected = setProducerWindow(sid, "q-4091");
+    setConnectedLeaderSession(sid);
+    mockStoreValues.sessionTimers = new Map([
+      [
+        sid,
+        [
+          {
+            id: "t4",
+            sessionId: sid,
+            threadKey: "main",
+            title: "Recheck the relay",
+            description: "",
+            type: "delay",
+            originalSpec: "152h",
+            nextFireAt: Date.now() + 13 * 3_600_000,
+            createdAt: Date.now() - 139 * 3_600_000,
+            fireCount: 0,
+          },
+        ],
+      ],
+    ]);
+    const resize = installControlledResizeObserver();
+    const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+    let composerHeight = 70;
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === "composer-minimizer") return composerHeight;
+      return this.classList.contains("composer-dock") ? 70 : 0;
+    });
+    const fixture = (expanded: boolean) => (
+      <ComposerFeedLayout>
+        <MessageFeed sessionId={sid} threadKey="q-4091" />
+        <ComposerMinimizer destination={`${sid}:q-4091`} expanded={expanded} onExpandedChange={() => {}} overlay>
+          <textarea defaultValue="" />
+        </ComposerMinimizer>
+      </ComposerFeedLayout>
+    );
+    const view = render(fixture(false));
+    try {
+      const boundary = screen.getByTestId("composer-minimizer");
+      const right = screen.getByTestId("feed-status-pill-right");
+      const left = screen.getByTestId("feed-status-pill-left");
+      expect(right.textContent).toContain("1 ⏰ in 13h");
+      expect(right.style.transform).toBe("");
+
+      composerHeight = 310;
+      view.rerender(fixture(true));
+      act(() => resize.triggerElement(boundary));
+      expect(right.style.transform).toBe("translateY(-240px)");
+      expect(left.style.transform).toBe("translateY(-240px)");
+      // The lifted chip row stacks on the composer, so the scroll runway covers both.
+      await waitFor(() => expect(geometry.slack).toBe(240 + 27 + 4));
+
+      composerHeight = 70;
+      view.rerender(fixture(false));
+      act(() => resize.triggerElement(boundary));
+      expect(right.style.transform).toBe("");
+      expect(left.style.transform).toBe("");
     } finally {
       view.unmount();
       offsetHeight.mockRestore();

@@ -5,7 +5,7 @@ import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
 import type { MessageFeedEndSlackProps } from "./MessageFeedEndSlack.js";
-import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
+import { useComposerOverlayLift, useComposerScrollSpace } from "./ComposerFeedLayout.js";
 import { useWaitingWorkerPreviewTarget } from "./WaitingWorkerPreview.js";
 
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
@@ -32,6 +32,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const normalizedThreadKey = normalizeThreadKey(currentThreadKey);
   const statusScope = `${sessionId}:${normalizedThreadKey}`;
   const composerScrollSpace = useComposerScrollSpace(statusScope);
+  const composerOverlayLift = useComposerOverlayLift();
   const currentThreadStatuses = useStore((state) => selectLeaderThreadStatuses(state, sessionId));
   const visibleThreadStatuses = useMemo(
     () => getVisibleCurrentThreadStatuses(currentThreadStatuses, normalizedThreadKey),
@@ -146,10 +147,11 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
       ? FLOATING_STATUS_MOBILE_BOTTOM_PX + floatingStatusHeight + MOBILE_NAV_STATUS_CLEARANCE_GAP_PX
       : 0,
   );
+  // The floating status stacks ride above an expanded desktop composer, so their runway adds to its space.
   const overlayRunwayHeight = Math.max(
     FEED_EXTRA_SCROLL_SLACK_PX,
-    composerScrollSpace,
-    floatingStatusRunwayHeight > 0 ? floatingStatusRunwayHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0,
+    composerScrollSpace +
+      (floatingStatusRunwayHeight > 0 ? floatingStatusRunwayHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0),
   );
   const centeredFeedStatusClearancePx =
     floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
@@ -164,6 +166,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const threadStatusLayoutKey = `${visibleThreadStatusSignature}\u0000${currentThreadStatusHeight}\u0000${threadStatusCompensation}`;
 
   return {
+    composerOverlayLift,
     feedEndScrollSlack,
     feedEndSlackProps,
     reserveTargetScrollSpace,

@@ -894,12 +894,30 @@ export const TIMER_CREATE_GUIDANCE =
   "For recurring timers, keep the description general so it does not go stale across repeated firings. " +
   "Leader timers use the current active thread; pass --thread main|q-N when no active thread is known or to choose another destination.";
 
+/** A delay timer's spec ("in 152h") counts from its creation, so it is shown as "once" to avoid reading as a countdown. */
 export function formatTimerScheduleLabel(timer: Pick<SessionTimerDetail, "type" | "originalSpec">): string {
   return timer.type === "recurring"
     ? `every ${timer.originalSpec}`
     : timer.type === "delay"
-      ? `in ${timer.originalSpec}`
+      ? "once"
       : `at ${timer.originalSpec}`;
+}
+
+/** Time left until a timer fires, e.g. "in 45s", "in 29m", "in 13h 18m", "in 6d 8h". */
+export function formatTimeUntil(epoch: number): string {
+  const seconds = Math.floor((epoch - Date.now()) / 1000);
+  if (seconds <= 0) return "due now";
+  if (seconds < 60) return `in ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours}h ${minutes % 60}m`;
+  return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+/** Absolute fire time plus the time left, so a row never needs the creation spec to be read as a countdown. */
+export function formatTimerNextFire(epoch: number): string {
+  return `${formatTimestampCompact(epoch)} (${formatTimeUntil(epoch)})`;
 }
 
 export function printTimerRows(timers: SessionTimerDetail[]): void {
@@ -908,7 +926,7 @@ export function printTimerRows(timers: SessionTimerDetail[]): void {
       `  ${timer.id}`,
       formatTimerScheduleLabel(timer),
       `fires=${timer.fireCount}`,
-      `next=${formatTimestampCompact(timer.nextFireAt)}`,
+      `next=${formatTimerNextFire(timer.nextFireAt)}`,
     ];
     if (timer.threadKey) parts.push(`thread=${timer.threadKey}`);
     if (timer.lastFiredAt) parts.push(`last=${formatTimestampCompact(timer.lastFiredAt)}`);

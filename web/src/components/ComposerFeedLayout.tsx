@@ -1,4 +1,12 @@
-import { createContext, useContext, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 const OverlayHeightContext = createContext(0);
 const ReportOverlayHeightContext = createContext<((height: number) => void) | null>(null);
@@ -33,6 +41,15 @@ export function useComposerOverlayMeasurement(root: RefObject<HTMLDivElement | n
       reportHeight(0);
     };
   }, [overlay, reportHeight, root]);
+}
+
+/**
+ * Lift for controls floating at the feed's bottom edge: an expanded desktop composer covers
+ * that edge, which would hide them. Zero while the composer stays inside its dock.
+ */
+export function useComposerOverlayLift(): CSSProperties | undefined {
+  const height = useContext(OverlayHeightContext);
+  return height > 0 ? { transform: `translateY(-${height}px)` } : undefined;
 }
 
 /** Keep one measured maximum per viewed destination so collapse cannot clamp a manual scroll. */

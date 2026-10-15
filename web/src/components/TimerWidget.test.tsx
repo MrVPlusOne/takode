@@ -138,6 +138,17 @@ describe("TimerChip", () => {
     expect(screen.queryByText(/2d 0h/)).toBeNull();
   });
 
+  it("rounds a partial day down like the hour label", () => {
+    // 1 day 23 hours left reads "1d", not "2d": the chip never shows more time than remains.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-15T09:00:00Z"));
+    resetStore({
+      sessionTimers: new Map([["s1", [makeTimer({ nextFireAt: Date.now() + 47 * 3_600_000 })]]]),
+    });
+    render(<TimerChip sessionId="s1" />);
+    expect(screen.getByText(/1 ⏰ in 1d/)).toBeInTheDocument();
+  });
+
   it("keeps sub-24-hour waits in the hour bucket instead of rounding up to a day", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-15T09:00:00Z"));

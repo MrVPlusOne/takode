@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { type ScrollActivity, useIsScrolling } from "./message-feed-scroll-activity.js";
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
+import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 
 const DESKTOP_NAV_STACK_BOTTOM_CLASS = "bottom-16";
 
@@ -54,6 +55,7 @@ export function MessageFeedNavigationControls({
   onScrollToBottom,
 }: MessageFeedNavigationControlsProps) {
   const isScrolling = useIsScrolling(scrollActivity);
+  const composerOverlayLift = useComposerOverlayLift();
   if (!showScrollButton) return null;
   const visibilityClassName =
     isTouch && scrollActivity ? (isScrolling ? "opacity-60" : "opacity-0 pointer-events-none") : "";
@@ -61,7 +63,7 @@ export function MessageFeedNavigationControls({
     <div
       data-testid="message-feed-nav-fabs"
       className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName} ${visibilityClassName}`}
-      style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
+      style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : composerOverlayLift}
     >
       <button onClick={onScrollToTop} className={navFabButtonClassName} title="Go to top" aria-label="Go to top">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
