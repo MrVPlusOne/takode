@@ -761,20 +761,22 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
   });
 
-  it("keeps Journey lifecycle rows hidden while expanded approval details remain available", () => {
-    // Expanding a turn restores ordinary approval detail, but does not bypass
-    // the lifecycle-row projection policy.
-    const sid = "test-expanded-approval-notices-visible";
+  it("keeps Journey lifecycle rows and resolved quest-thread approvals out of an expanded Main turn", () => {
+    // Expanding a turn does not bypass the lifecycle-row projection policy, and
+    // answered approvals that belong to quest threads have no Main row at all:
+    // they stay history of their owner threads.
+    const sid = "test-expanded-approval-notices-hidden";
     seedAttentionNoticeTurn(sid);
     setStoreTurnOverrides(sid, [["u1", true]]);
 
     render(<MessageFeed sessionId={sid} />);
 
+    expect(screen.getByText("Collapsed turn final response")).toBeTruthy();
     expect(screen.queryByText("Journey started")).toBeNull();
     expect(screen.queryByText("Journey finished")).toBeNull();
-    expect(screen.getByText("approve q-1268 latency instrumentation rework plan")).toBeTruthy();
-    expect(screen.getByText("approve q-1210 thread-title voice context rework plan")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);
+    expect(screen.queryByText("approve q-1268 latency instrumentation rework plan")).toBeNull();
+    expect(screen.queryByText("approve q-1210 thread-title voice context rework plan")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
   });
 
   it("compacts producer-shaped selected-thread herd and work-board event chips around leader prose", () => {

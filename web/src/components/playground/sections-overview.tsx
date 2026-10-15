@@ -534,7 +534,7 @@ export function PlaygroundOverviewSections() {
           <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
             <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />
           </div>
-          <Card label="Sparse selected Main (historical reminder filtered)">
+          <Card label="Sparse selected Main (resolved reminder and answered quest prompt filtered)">
             <div
               className="h-[360px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
               data-testid="playground-resolved-reminder-main-projection"

@@ -134,7 +134,7 @@ vi.mock("../store.js", () => {
   };
 });
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { MessageFeed } from "./MessageFeed.js";
 
@@ -408,9 +408,11 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.getAllByText("Pick the dispatch order")).toHaveLength(1);
   });
 
-  it("hides a resolved historical reminder row from Main without removing the needs-input card", () => {
+  it("hides a resolved historical reminder row and the quest thread's resolved prompt from Main", () => {
     // The persisted reminder is a separate producer row from the authoritative
-    // notification card. Main hides only the former after resolution.
+    // notification. Once resolved, the reminder leaves Main, and so does the
+    // prompt itself because it belongs to a quest thread (its owner thread keeps
+    // the completed card).
     const sid = "test-main-resolved-historical-reminder";
     const timestamp = Date.now();
     setStoreMessages(sid, [
@@ -446,10 +448,8 @@ describe("MessageFeed duplicate rendering regression", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
-    const decisionCard = screen.getByTestId("attention-ledger-row");
-    expect(decisionCard.getAttribute("data-attention-type")).toBe("needs_input");
-    expect(decisionCard.textContent).toContain("Choose rollout scope");
-    expect(within(decisionCard).getByRole("button", { name: "Answer" })).toBeTruthy();
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Choose rollout scope")).toBeNull();
   });
 
   it("keeps a Main needs-input source message visible when selected history windows would otherwise omit it", () => {

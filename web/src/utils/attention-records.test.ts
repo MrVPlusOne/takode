@@ -127,14 +127,29 @@ describe("attention records", () => {
     });
   });
 
-  it("keeps resolved notifications in the ledger but removes them from active chips", () => {
+  it("keeps resolved quest-thread prompts out of Main and out of active chips", () => {
+    // The user decided Main should not list answered prompts that belong to a
+    // quest thread: the row only repeats the question with an Answer button.
+    // The owner thread keeps its own completed decision card.
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
       notifications: [notification({ done: true })],
     });
 
+    expect(records[0]).toMatchObject({ state: "resolved", resolvedAt: 100, threadKey: "q-983" });
+    expect(selectMainLedgerRecords(records)).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "main")).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-983")).toHaveLength(1);
+    expect(selectAttentionChipRecords(records)).toHaveLength(0);
+  });
+
+  it("keeps a resolved Main prompt in the Main ledger when its source message is not loaded", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [notification({ done: true, threadKey: "main", questId: undefined })],
+    });
+
     expect(selectMainLedgerRecords(records)).toHaveLength(1);
-    expect(records[0]).toMatchObject({ state: "resolved", resolvedAt: 100 });
     expect(selectAttentionChipRecords(records)).toHaveLength(0);
   });
 

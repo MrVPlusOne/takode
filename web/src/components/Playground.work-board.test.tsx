@@ -28,15 +28,14 @@ installPlaygroundTestEnvironment();
 // A full-catalog render costs about 4-8 s of CPU on its own, so several concurrent
 // suite runs need more than the default 10 s; tests with larger needs set their own.
 describe("Playground", { timeout: 30_000 }, () => {
-  it("documents resolved reminder suppression while retaining the needs-input card in Main", () => {
+  it("documents that Main shows neither the resolved reminder nor the quest thread's answered prompt", () => {
     render(<Playground />);
 
+    // The fixture prompt belongs to a quest thread, so once answered it has no Main row.
     const mainProjection = screen.getByTestId("playground-resolved-reminder-main-projection");
     expect(within(mainProjection).queryByText("Historical needs-input reminder")).toBeNull();
-    const decisionCard = within(mainProjection).getByTestId("attention-ledger-row");
-    expect(decisionCard).toHaveAttribute("data-attention-type", "needs_input");
-    expect(decisionCard).toHaveTextContent("Choose the retained implementation scope");
-    expect(within(decisionCard).getByRole("button", { name: "Answer" })).toBeTruthy();
+    expect(within(mainProjection).queryByTestId("attention-ledger-row")).toBeNull();
+    expect(within(mainProjection).queryByText("Choose the retained implementation scope")).toBeNull();
   });
 
   it("documents Journey lifecycle rows as audit-only while banners retain status", () => {

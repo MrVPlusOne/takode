@@ -391,6 +391,7 @@ describe("feed render model builders", () => {
   it("hides a fully resolved producer-shaped reminder from leader Main while retaining its decision record", () => {
     // The reminder is durable history, but ordinary Main should show only the
     // real resolved needs-input record. All Threads must retain the raw row.
+    // The prompt belongs to Main: a quest thread's resolved prompt has no Main row.
     const timestamp = 100;
     const reminder = normalizeRawUserMessage(
       makeRawNeedsInputReminder({
@@ -405,8 +406,7 @@ describe("feed render model builders", () => {
       messageId: null,
       timestamp,
       summary: "Choose rollout scope",
-      threadKey: "q-2028",
-      questId: "q-2028",
+      threadKey: "main",
       done: true,
     });
 

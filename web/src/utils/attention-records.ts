@@ -70,6 +70,7 @@ export function selectMainLedgerRecords(
         !isJourneyLifecycleFeedRecord(record) &&
         record.type !== "quest_thread_created" &&
         !isThreadReadyReviewRecord(record) &&
+        !isResolvedQuestThreadNeedsInput(record) &&
         !isRedundantNotification(record, options.availableMessageIds),
     )
     .sort(compareAttentionRecordsChronologically);
@@ -100,16 +101,27 @@ export function isNeedsInputNotificationTabCandidate(record: AttentionRecord): b
   );
 }
 
+/** An answered prompt that belongs to a quest thread stays that thread's history: Main
+ *  shows nothing for it (the user's Main-noise decision), since a resolved row there
+ *  only repeats the question with a dead Answer button. */
+function isResolvedQuestThreadNeedsInput(record: AttentionRecord): boolean {
+  return (
+    isNeedsInputNotificationRecord(record) &&
+    record.state === "resolved" &&
+    normalizeThreadKey(record.route.threadKey || record.threadKey) !== MAIN_THREAD_KEY
+  );
+}
+
+function isNeedsInputNotificationRecord(record: AttentionRecord): boolean {
+  return record.source.kind === "notification" && record.type === "needs_input" && record.priority === "needs_input";
+}
+
 function isRedundantNotification(record: AttentionRecord, availableMessageIds?: ReadonlySet<string>): boolean {
   if (record.source.kind !== "notification") return false;
-  const needsInput = record.priority === "needs_input" && record.type === "needs_input";
+  const needsInput = isNeedsInputNotificationRecord(record);
   if (isAttentionRecordActive(record)) {
     if (needsInput) return true;
-  } else if (
-    !needsInput ||
-    record.state !== "resolved" ||
-    normalizeThreadKey(record.route.threadKey || record.threadKey) !== MAIN_THREAD_KEY
-  ) {
+  } else if (!needsInput || record.state !== "resolved") {
     return false;
   }
 
