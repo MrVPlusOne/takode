@@ -63,6 +63,14 @@ export function registerSessionMessageSearchRoute(api: Hono, deps: SessionMessag
       offset: parseInteger(c.req.query("offset")),
     });
 
+    // The message navigator re-reads this index on every session or thread
+    // switch. Validate it without the timing field, which differs on every
+    // run, so an unchanged index is a bodyless 304 for the browser's copy.
+    const { tookMs: _tookMs, ...results } = response;
+    const etag = `W/"search-${Bun.hash(JSON.stringify(results)).toString(36)}"`;
+    c.header("ETag", etag);
+    c.header("Cache-Control", "private, no-cache");
+    if (c.req.header("if-none-match") === etag) return c.body(null, 304);
     return c.json(response);
   });
 }

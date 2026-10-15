@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendStateSnapshot, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import type { BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import { sendStateSnapshot } from "./browser-subscribe-snapshots.js";
 
 describe("state snapshot Codex reasoning projection", () => {
   it("projects retained per-thread rows while idle", () => {

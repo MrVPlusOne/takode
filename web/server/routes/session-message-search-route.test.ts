@@ -75,6 +75,28 @@ describe("GET /sessions/:id/message-search", () => {
     });
   });
 
+  // The navigator re-reads this index on every switch; its timing field differs
+  // on every run, so the validator must ignore it for an unchanged index to be a 304.
+  it("answers an unchanged index with a 304 despite a different run time", async () => {
+    const history = [user("old", "first request", 10)];
+    const app = makeRoute(history);
+    const url = "/sessions/123/message-search?scope=current_thread&includeUser=true";
+    const first = await app.request(url);
+    const etag = first.headers.get("etag")!;
+    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValueOnce(1_000).mockReturnValueOnce(1_250);
+    const again = await app.request(url, { headers: { "if-none-match": etag } });
+    now.mockRestore();
+    expect(again.status).toBe(304);
+
+    history.push(user("new", "second request", 20));
+    const changed = await app.request(url, { headers: { "if-none-match": etag } });
+    expect(changed.status).toBe(200);
+    expect((await changed.json()).totalMatches).toBe(2);
+  });
+
   it("returns 404 for unknown sessions", async () => {
     const app = makeRoute([]);
 

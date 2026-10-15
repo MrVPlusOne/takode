@@ -12,6 +12,7 @@ import { getFeedViewportKey, readLeaderSelectedThreadKey, readLeaderViewportPosi
 import {
   applyPushedViewportHandoffState,
   clearPushedViewportHandoffState,
+  getViewportHandoffEntryCorrection,
   getViewportHandoffBaselineState,
   getViewportHandoffSessionEntryState,
   getViewportHandoffThreadEntryRecord,
@@ -137,9 +138,73 @@ describe("viewport handoff client", () => {
     await loadViewportHandoffThread("session-1", "q-2035", { entryId: "second-entry" });
     expect(getViewportHandoffThreadEntryRecord("session-1", "q-2035")?.position.anchorMessageId).toBe("pushed-anchor");
 
+    // Leaving the session keeps the state held, so a revisit still enters without a read.
     clearPushedViewportHandoffState("session-1");
     await loadViewportHandoffThread("session-1", "q-2035", { entryId: "after-disconnect" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getViewportHandoffThreadEntryStatus("session-1", "q-2035", "after-disconnect")).toBe("ready");
+  });
+
+  // A revisit enters from held state at once. If the next push shows another
+  // browser left that thread later, the handoff contract says resume there, so
+  // the entry is corrected; this tab's own departures and later pushes after
+  // the user scrolled are not.
+  it("corrects a held entry when another browser left the thread later", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    applyPushedViewportHandoffState("session-1", state(3, "main", [record("q-2035", 3, "held-anchor")]), 5_100);
+    clearPushedViewportHandoffState("session-1");
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "revisit" });
+    expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("held-anchor");
+    expect(getViewportHandoffEntryCorrection("session-1", "q-2035")).toBe(0);
+
+    applyPushedViewportHandoffState("session-1", state(4, "main", [record("q-2035", 4, "phone-anchor")]), 5_200);
+
+    expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("phone-anchor");
+    expect(getViewportHandoffEntryCorrection("session-1", "q-2035")).toBe(1);
+  });
+
+  // The departure written while the socket moves to another session is never
+  // pushed back to this tab; entering from held state must still use it (the
+  // write response's newer baseline), or a revisit would restore the position
+  // from before the visit.
+  it("holds this tab's own departure for the next revisit", async () => {
+    const departed = record("main", 5, "my-departure-anchor");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({ status: "accepted", state: state(5, "main", [departed]), record: departed, serverNow: 5_300 }),
+        ),
+      ),
+    );
+    applyPushedViewportHandoffState("session-1", state(3, "main", [record("main", 3, "old-anchor")]), 5_100);
+    await loadViewportHandoffThread("session-1", "main", { entryId: "first-visit" });
+    clearPushedViewportHandoffState("session-1");
+    await publishViewportHandoff({
+      sessionId: "session-1",
+      threadKey: "main",
+      selectedThreadKey: "main",
+      position: position("my-departure-anchor"),
+    });
+
+    await loadViewportHandoffThread("session-1", "main", { entryId: "revisit" });
+
+    expect(getViewportHandoffThreadEntryRecord("session-1", "main")?.position.anchorMessageId).toBe(
+      "my-departure-anchor",
+    );
+  });
+
+  it("keeps a held entry when the user already scrolled it", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    applyPushedViewportHandoffState("session-1", state(3, "main", [record("q-2035", 3, "held-anchor")]), 5_100);
+    clearPushedViewportHandoffState("session-1");
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "revisit" });
+    noteViewportDeliberateActivity("session-1", "q-2035", Date.now() + 1);
+
+    applyPushedViewportHandoffState("session-1", state(4, "main", [record("q-2035", 4, "phone-anchor")]), 5_200);
+
+    expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("held-anchor");
+    expect(getViewportHandoffEntryCorrection("session-1", "q-2035")).toBe(0);
   });
 
   // Entering a session starts a read while its socket subscribes; on a busy

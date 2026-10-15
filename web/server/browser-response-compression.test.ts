@@ -108,3 +108,74 @@ describe("compressApiJson", () => {
     expect(JSON.parse(new TextDecoder().decode(decoded))).toEqual(LARGE);
   });
 });
+
+// Re-reads on a slow link should cost a round trip, not the body: browser GETs
+// of JSON without a route-set validator get an ETag and private no-cache, and
+// a matching If-None-Match is a bodyless 304. Routes that set their own cache
+// policy (such as the no-store session list) and agent CLIs are left alone.
+describe("browser JSON revalidation", () => {
+  const browser = { "accept-encoding": "gzip", "sec-fetch-mode": "cors" };
+
+  function revalidatingApp(): Hono {
+    let version = 1;
+    const app = new Hono();
+    app.use("/api/*", compressApiJson);
+    app.get("/api/titles", (c) => c.json({ version, ...LARGE }));
+    app.get("/api/small", (c) => c.json({ version }));
+    app.post("/api/bump", (c) => {
+      version += 1;
+      return c.json({ version });
+    });
+    app.get("/api/own-policy", (c) => {
+      c.header("Cache-Control", "no-store");
+      return c.json(LARGE);
+    });
+    return app;
+  }
+
+  it("answers an unchanged re-read with a 304 and a changed one with the new body", async () => {
+    const app = revalidatingApp();
+    const first = await app.request("/api/titles", { headers: browser });
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/"/);
+    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+    expect(first.headers.get("content-encoding")).toBe("gzip");
+
+    const again = await app.request("/api/titles", { headers: { ...browser, "if-none-match": etag! } });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe("");
+    expect(again.headers.get("etag")).toBe(etag);
+
+    await app.request("/api/bump", { method: "POST", headers: browser });
+    const changed = await app.request("/api/titles", { headers: { ...browser, "if-none-match": etag! } });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get("etag")).not.toBe(etag);
+    expect(
+      JSON.parse(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await changed.arrayBuffer())))),
+    ).toMatchObject({
+      version: 2,
+    });
+  });
+
+  it("revalidates small bodies too, which stay uncompressed", async () => {
+    const app = revalidatingApp();
+    const first = await app.request("/api/small", { headers: browser });
+    expect(first.headers.get("content-encoding")).toBeNull();
+    expect(await first.json()).toEqual({ version: 1 });
+    const again = await app.request("/api/small", {
+      headers: { ...browser, "if-none-match": first.headers.get("etag")! },
+    });
+    expect(again.status).toBe(304);
+  });
+
+  it("leaves routes with their own cache policy, non-GETs and agent CLIs without a validator", async () => {
+    const app = revalidatingApp();
+    const own = await app.request("/api/own-policy", { headers: browser });
+    expect(own.headers.get("etag")).toBeNull();
+    expect(own.headers.get("cache-control")).toBe("no-store");
+    const post = await app.request("/api/bump", { method: "POST", headers: browser });
+    expect(post.headers.get("etag")).toBeNull();
+    const cli = await app.request("/api/titles", { headers: { "accept-encoding": "gzip" } });
+    expect(cli.headers.get("etag")).toBeNull();
+  });
+});

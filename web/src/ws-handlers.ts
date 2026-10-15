@@ -694,7 +694,8 @@ function applyFeedAttention(
       { authoritativeStatus: true },
     );
   }
-  useStore.getState().setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+  // A state snapshot leaves both out when the feed attention snapshot already sent them.
+  if (data.attentionRecords) useStore.getState().setSessionAttentionRecords(sessionId, data.attentionRecords);
 }
 
 function resetAuthoritativeHistoryState(

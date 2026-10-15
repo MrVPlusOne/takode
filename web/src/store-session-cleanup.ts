@@ -6,6 +6,38 @@ function syncedProjectionEntryBelongsToKey(entryId: string, key: string): boolea
   return separator >= 0 && entryId.slice(separator + 1) === key;
 }
 
+/**
+ * Drop a session's held conversation (messages and history or thread windows)
+ * while keeping everything the session list and notifications need. The next
+ * visit loads the conversation like a first visit.
+ */
+export function releaseSessionConversationState(s: AppState, sessionId: string): Partial<AppState> {
+  const without = <K, V>(map: Map<K, V>) => {
+    if (!map.has(sessionId as K)) return map;
+    const next = new Map(map);
+    next.delete(sessionId as K);
+    return next;
+  };
+  const historyDelivered = new Set(s.historyDelivered);
+  historyDelivered.delete(sessionId);
+  return {
+    messages: without(s.messages),
+    messageFrozenCounts: without(s.messageFrozenCounts),
+    messageFrozenHashes: without(s.messageFrozenHashes),
+    messageFrozenRevisions: without(s.messageFrozenRevisions),
+    historyLoading: without(s.historyLoading),
+    historyDelivered,
+    historyWindows: without(s.historyWindows),
+    threadWindows: without(s.threadWindows),
+    threadWindowMessages: without(s.threadWindowMessages),
+    threadWindowResponseStates: without(s.threadWindowResponseStates),
+    threadWindowRefreshRevisions: without(s.threadWindowRefreshRevisions),
+    threadWindowAppliedRevisions: without(s.threadWindowAppliedRevisions),
+    pendingThreadWindowRequests: without(s.pendingThreadWindowRequests),
+    leaderProjections: without(s.leaderProjections),
+  };
+}
+
 export function removeSessionState(s: AppState, sessionId: string): Partial<AppState> {
   const sessions = new Map(s.sessions);
   sessions.delete(sessionId);

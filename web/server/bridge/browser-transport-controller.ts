@@ -1,7 +1,6 @@
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
-import { getSessionDraftsSnapshot, type DraftSession } from "./session-drafts-controller.js";
 import {
   acknowledgeBrowserConnection,
   receiveBrowserLoadReport,
@@ -20,7 +19,6 @@ import {
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { getLeaderMessageVisualInputs } from "../leader-thread-tabs-projection.js";
 import { buildLeaderThreadResponseState } from "../leader-thread-response.js";
-import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
   buildThreadWindowSync,
@@ -38,6 +36,12 @@ import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
 import {
+  sendFeedAttentionSnapshot,
+  sendInitialTreeGroupState,
+  sendStateSnapshot,
+  type SubscribeSnapshotSocketData,
+} from "./browser-subscribe-snapshots.js";
+import {
   completeSyncedProjectionSessionSubscribe,
   handleLeaderThreadTabsUpdate,
   handleSyncedProjectionProtocolMessage,
@@ -47,7 +51,6 @@ import {
   type SyncedProjectionSubscriptions,
 } from "./browser-synced-projection-coordinator.js";
 export { isHistoryBackedEvent } from "./replay-buffer-policy.js";
-import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import {
   prepareBoundedConversationSubscribe,
   boundedConversationSyncComplete,
@@ -64,10 +67,6 @@ import {
   unownedRecoveryLinks,
   type BrowserIngressOwnershipResult,
 } from "./browser-ingress-ownership.js";
-import {
-  getNotificationStatusSnapshot,
-  getUserVisibleSessionNotifications,
-} from "./session-notification-controller.js";
 import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safety.js";
 import { isCodexAutoPauseRecoverySummaryFinal } from "../codex-auto-pause-types.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
@@ -82,7 +81,6 @@ import {
 } from "../session-pause.js";
 import {
   buildCodexAutoPauseDiagnostic,
-  getCodexAutoPauseRecoveryProgress,
   getActiveCodexResultErrorAutoPause,
   isAutomaticCodexAutoPauseInput,
   queueCodexAutoPausedInput,
@@ -118,11 +116,11 @@ type AgentSource = { sessionId: string; sessionLabel?: string };
 type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
 type BrowserTransportSocketData = BrowserConversationWindowSocketData &
-  SyncedProjectionSocketData & {
+  SyncedProjectionSocketData &
+  SubscribeSnapshotSocketData & {
     sessionId?: string;
     subscribed?: boolean;
     lastAckSeq?: number;
-    initialTreeGroupState?: Promise<BrowserTransportTreeGroupState | null>;
   };
 
 export interface ProgrammaticUserMessageOptions {
@@ -597,6 +595,7 @@ export function handleBrowserProtocolMessage(
     return true;
   }
   if (msg.type === "session_subscribe") {
+    if (ws) ((ws.data ??= {}) as BrowserTransportSocketData).knownSnapshotParts = msg.known_snapshot_parts;
     const observingInitialSubscribe = ws && beginBrowserConnectionSubscribe(ws, msg.last_seq, msg.full_history_sync);
     return handleSessionSubscribe(
       session,
@@ -1032,54 +1031,6 @@ export function sendLeaderProjectionSnapshot(
   } as BrowserIncomingMessage);
 }
 
-/** Notifications and attention records go ahead of the conversation window: the
- *  feed places chips and rows from them, so arriving after it (the state snapshot
- *  comes last) they would push the first rendered messages around. */
-function sendFeedAttentionSnapshot(session: BrowserTransportSessionLike, ws: BrowserTransportSocketLike): void {
-  sendToBrowser(ws, {
-    type: "feed_attention_snapshot",
-    notifications: getUserVisibleSessionNotifications(session),
-    attentionRecords: session.attentionRecords ?? [],
-    ...getNotificationStatusSnapshot(session),
-  } as BrowserIncomingMessage);
-}
-
-export function sendStateSnapshot(
-  session: BrowserTransportSessionLike,
-  ws: BrowserTransportSocketLike,
-  deps: BrowserTransportDeps,
-): void {
-  const board = deps.getBoard(session.id) as BoardRow[];
-  const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
-  const notificationStatus = getNotificationStatusSnapshot(session);
-  const sessionStatus = deriveSessionStatus(session, deps);
-  sendToBrowser(ws, {
-    type: "state_snapshot",
-    sessionStatus,
-    permissionMode: session.state.permissionMode,
-    ...buildBackendStateSnapshot(session, deps),
-    uiMode: session.state.uiMode ?? null,
-    askPermission: session.state.askPermission ?? true,
-    generationStartedAt: session.generationStartedAt ?? null,
-    activeTurnRoute: deriveActiveTurnRoute(session),
-    ...codexReasoningSnapshotFields(session),
-    codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-    board,
-    completedBoard,
-    rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
-    notifications: getUserVisibleSessionNotifications(session),
-    drafts: getSessionDraftsSnapshot(session as DraftSession),
-    attentionRecords: session.attentionRecords,
-    notificationUrgency: notificationStatus.notificationUrgency,
-    activeNotificationCount: notificationStatus.activeNotificationCount,
-    activeNeedsInputNotificationCount: notificationStatus.activeNeedsInputNotificationCount,
-    activeReviewNotificationCount: notificationStatus.activeReviewNotificationCount,
-    mutedNeedsInputNotificationCount: notificationStatus.mutedNeedsInputNotificationCount,
-    notificationStatusVersion: notificationStatus.notificationStatusVersion,
-    notificationStatusUpdatedAt: notificationStatus.notificationStatusUpdatedAt,
-  } as BrowserIncomingMessage);
-}
-
 /** Yield so large history hashing does not monopolize the event loop. */
 async function yieldToEventLoop(): Promise<void> {
   await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
@@ -1359,25 +1310,6 @@ export function refreshBrowserConversationViews(session: BrowserConversationRefr
     } catch {
       session.browserSockets.delete(ws);
     }
-  }
-}
-
-async function sendInitialTreeGroupState(ws: BrowserTransportSocketLike): Promise<void> {
-  const data = (ws.data ??= {}) as BrowserTransportSocketData;
-  const pending = data.initialTreeGroupState;
-  delete data.initialTreeGroupState;
-  if (!pending) return;
-  try {
-    const treeGroups = await pending;
-    if (!treeGroups) return;
-    sendToBrowser(ws, {
-      type: "tree_groups_update",
-      treeGroups: treeGroups.groups,
-      treeAssignments: treeGroups.assignments,
-      treeNodeOrder: treeGroups.nodeOrder,
-    } as BrowserIncomingMessage);
-  } catch {
-    // Preparation already records the failure; socket cleanup is handled elsewhere.
   }
 }
 

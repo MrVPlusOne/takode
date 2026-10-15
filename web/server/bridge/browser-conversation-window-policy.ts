@@ -239,9 +239,8 @@ export function normalizeInitialThreadWindowRequest(
     item_count: Math.max(1, Math.floor(request.item_count)),
     section_item_count: Math.max(1, Math.floor(request.section_item_count)),
     visible_item_count: Math.max(1, Math.floor(request.visible_item_count)),
-    ...(cachedWindowHash && !targetMessageId && targetHistoryIndex === undefined
-      ? { cached_window_hash: cachedWindowHash }
-      : {}),
+    // Kept for a target-centered window too: equal content still validates as a cache hit.
+    ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
     ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
     ...(targetHistoryIndex === undefined ? {} : { target_history_index: targetHistoryIndex }),
   };

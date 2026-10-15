@@ -121,7 +121,12 @@ const PENDING_DEPARTURE_MAX_AGE_MS = 5 * 60_000;
 const ENTRY_PENDING_WRITE_WAIT_MS = 750;
 const sessionStates = new Map<string, SessionClientState>();
 /** Handoff state the server pushes over a session's live socket, keyed like sessionStates. */
-const pushedStates = new Map<string, { state: ViewportHandoffSessionState; serverNow: number }>();
+const pushedStates = new Map<string, { state: ViewportHandoffSessionState; serverNow: number; live: boolean }>();
+/** Thread entries settled from held (not live) state, checked against the next push. */
+const heldEntries = new Map<string, { threadKey: string; revision: number | null; enteredAt: number }>();
+/** Per session and thread, how often a held entry was corrected; the entry gate remounts on a change. */
+const entryCorrections = new Map<string, number>();
+const HELD_ENTRY_CORRECTION_WINDOW_MS = 5_000;
 /** Reads in flight per session that a pushed state may settle first. */
 const pushWaiters = new Map<string, Set<() => void>>();
 const pageIds = new Map<string, string>();
@@ -665,16 +670,67 @@ export function applyPushedViewportHandoffState(sessionId: string, value: unknow
   const scope = currentServerScope();
   const key = sessionCacheKey(scope, sessionId);
   const current = pushedStates.get(key);
-  if (current && current.state.revision > incoming.revision) return;
-  pushedStates.set(key, { state: incoming, serverNow });
+  if (current && current.state.revision > incoming.revision) {
+    pushedStates.set(key, { ...current, live: true });
+    return;
+  }
+  pushedStates.set(key, { state: incoming, serverNow, live: true });
   const clientState = getSessionClientState(sessionId, scope);
   clientState.baselineState = newerBaselineState(clientState.baselineState, incoming);
+  correctHeldEntry(scope, sessionId, incoming, serverNow);
   for (const settleWithPush of [...(pushWaiters.get(key) ?? [])]) settleWithPush();
 }
 
-/** Forget pushed state once the session's socket stops receiving its changes. */
+/**
+ * Keep the session's pushed state as held, not live, once its socket stops
+ * receiving changes. Revisiting the session then enters straight from it
+ * instead of waiting a round trip; the next push confirms or corrects it.
+ */
 export function clearPushedViewportHandoffState(sessionId: string): void {
-  pushedStates.delete(sessionCacheKey(currentServerScope(), sessionId));
+  const key = sessionCacheKey(currentServerScope(), sessionId);
+  const held = pushedStates.get(key);
+  if (held) pushedStates.set(key, { ...held, live: false });
+}
+
+/** Forget a session's held state, such as when its held conversation data is evicted. */
+export function forgetHeldViewportHandoffState(sessionId: string): void {
+  const key = sessionCacheKey(currentServerScope(), sessionId);
+  pushedStates.delete(key);
+  heldEntries.delete(key);
+}
+
+/** Changes when a held thread entry was corrected, so the gate shows the corrected position. */
+export function getViewportHandoffEntryCorrection(sessionId: string, threadKey: string): number {
+  const normalizedThreadKey = normalizeViewportHandoffThreadKey(threadKey);
+  if (!normalizedThreadKey) return 0;
+  return entryCorrections.get(`${sessionCacheKey(currentServerScope(), sessionId)}\u0000${normalizedThreadKey}`) ?? 0;
+}
+
+/**
+ * A thread entered from held state uses this tab's last known position at
+ * once. If the live state shows another browser left that thread more recently,
+ * the handoff says to resume there: apply it, unless the user has already
+ * started scrolling or the entry is no longer fresh.
+ */
+function correctHeldEntry(
+  scope: string,
+  sessionId: string,
+  live: ViewportHandoffSessionState,
+  serverNow: number,
+): void {
+  const key = sessionCacheKey(scope, sessionId);
+  const entry = heldEntries.get(key);
+  if (!entry) return;
+  heldEntries.delete(key);
+  const record = live.handoffs[entry.threadKey];
+  if (!record || record.revision <= (entry.revision ?? 0) || record.sourceId === getSourceId(scope)) return;
+  if (Date.now() - entry.enteredAt > HELD_ENTRY_CORRECTION_WINDOW_MS) return;
+  const activity = getSessionClientState(sessionId, scope).deliberateActivity.get(entry.threadKey);
+  if (activity && activity.localAt >= entry.enteredAt) return;
+  hydrateEntryState(scope, sessionId, { state: live, serverNow, threadKey: entry.threadKey, record }, entry.threadKey);
+  const correctionKey = `${key}\u0000${entry.threadKey}`;
+  entryCorrections.set(correctionKey, (entryCorrections.get(correctionKey) ?? 0) + 1);
+  emitChange();
 }
 
 /**
@@ -689,8 +745,13 @@ function readOrReceivePushed(
   read: () => Promise<ViewportHandoffReadResponse>,
 ): Promise<{ response: ViewportHandoffReadResponse; startedAt: number | null }> {
   const pushed = pushedReadResponse(scope, sessionId, threadKey);
-  if (pushed) return Promise.resolve({ response: pushed, startedAt: null });
   const key = sessionCacheKey(scope, sessionId);
+  if (pushed) {
+    if (threadKey && !pushedStates.get(key)?.live) {
+      heldEntries.set(key, { threadKey, revision: pushed.record?.revision ?? null, enteredAt: Date.now() });
+    }
+    return Promise.resolve({ response: pushed, startedAt: null });
+  }
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const waiters = pushWaiters.get(key) ?? new Set<() => void>();
@@ -1152,6 +1213,8 @@ export function resetViewportHandoffClientForTest(
   sessionStates.clear();
   pushedStates.clear();
   pushWaiters.clear();
+  heldEntries.clear();
+  entryCorrections.clear();
   pageIds.clear();
   fallbackBrowserIds.clear();
   clockEstimates.clear();

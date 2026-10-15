@@ -288,6 +288,8 @@ export interface AppState {
   updateSession: (sessionId: string, updates: Partial<SessionState>) => void;
   updateSdkSession: (sessionId: string, updates: Partial<SdkSessionInfo>) => void;
   removeSession: (sessionId: string) => void;
+  /** Drop a session's held conversation data, keeping its list, notification and attention state. */
+  releaseSessionConversation: (sessionId: string) => void;
   setSdkSessions: (sessions: SdkSessionInfo[]) => void;
   appendMessage: (sessionId: string, msg: ChatMessage) => void;
   setMessages: (

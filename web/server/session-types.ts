@@ -702,6 +702,8 @@ export type BrowserOutgoingMessage =
       initial_thread_window?: InitialThreadWindowRequest;
       full_history_sync?: boolean;
       synced_projection_subscriptions?: SyncedProjectionSubscription[];
+      /** Large snapshot parts the browser holds, by hash; the server leaves out those still identical. */
+      known_snapshot_parts?: import("../shared/snapshot-part-hash.js").KnownSnapshotParts;
     }
   | SyncedProjectionSubscribeMessage
   | SyncedProjectionResyncMessage

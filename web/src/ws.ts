@@ -1,4 +1,6 @@
 import { clearPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
+import { heldSnapshotParts } from "./utils/held-snapshot-parts.js";
+import { noteSessionConversationViewed } from "./session-conversation-retention.js";
 import { useStore } from "./store.js";
 import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
@@ -77,16 +79,17 @@ function getInitialLeaderThreadWindow(
     (savedViewport?.isAtBottom ? null : (savedViewport?.anchorMessageId ?? savedViewport?.anchorTurnId ?? null));
   const targetHistoryIndex = store.pendingScrollToMessageIndex.get(sessionId);
   const hasTarget = Boolean(targetMessageId) || typeof targetHistoryIndex === "number";
-  const cachedWindowHash =
-    existingWindow && !hasTarget
-      ? getCachedThreadWindowHash(sessionId, {
-          threadKey,
-          fromItem: existingWindow.from_item,
-          itemCount,
-          sectionItemCount,
-          visibleItemCount,
-        })
-      : undefined;
+  // Named even for a target-centered window: when the window around the target is
+  // the one already held, the server answers with a small cache hit, not the window.
+  const cachedWindowHash = existingWindow
+    ? getCachedThreadWindowHash(sessionId, {
+        threadKey,
+        fromItem: existingWindow.from_item,
+        itemCount,
+        sectionItemCount,
+        visibleItemCount,
+      })
+    : undefined;
 
   return {
     thread_key: threadKey,
@@ -170,6 +173,7 @@ const transport = createWsTransport({
   },
   getInitialThreadWindow: getInitialLeaderThreadWindow,
   getSyncedProjectionSubscriptions,
+  getKnownSnapshotParts: heldSnapshotParts,
   onConnecting: (sessionId) => {
     const store = useStore.getState();
     const initialThreadWindow = getInitialLeaderThreadWindow(sessionId);
@@ -229,6 +233,7 @@ export function connectSession(sessionId: string) {
   if ((!existingMessages || existingMessages.length === 0) && !store.historyDelivered.has(sessionId)) {
     store.setHistoryLoading(sessionId, true);
   }
+  noteSessionConversationViewed(sessionId, transport.hasSocket);
   transport.connectSession(sessionId);
 }
 

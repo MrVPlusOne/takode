@@ -162,6 +162,14 @@ export function resolveCachedThreadWindowEntries(
   return entry?.entries ?? null;
 }
 
+/** Forget every cached history and thread window of a session. */
+export function forgetSessionWindowCaches(sessionId: string): void {
+  historyCacheBySession.delete(sessionId);
+  for (const key of threadCacheByKey.keys()) {
+    if (key.startsWith(`${sessionId}:`)) threadCacheByKey.delete(key);
+  }
+}
+
 export function resetHistoryWindowCacheForTests(): void {
   historyCacheBySession.clear();
   threadCacheByKey.clear();

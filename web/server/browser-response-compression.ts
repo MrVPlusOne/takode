@@ -21,6 +21,28 @@ function acceptsGzip(header: string | undefined): boolean {
   return wildcard;
 }
 
+/**
+ * A browser GET whose JSON the route left without its own validator or cache
+ * policy. Such reads get an ETag of the body and `private, no-cache`, so the
+ * browser keeps the last copy and revalidates it on every read: an unchanged
+ * body comes back as a bodyless 304, which on a slow link turns re-reads (the
+ * message navigator's index, quest titles, delivery records on every session
+ * switch) into a round trip. The server still builds the full body to hash it.
+ */
+function isRevalidatableBrowserRead(c: Context, res: Response): boolean {
+  return (
+    c.req.method === "GET" &&
+    res.status === 200 &&
+    !!c.req.header("sec-fetch-mode") &&
+    !res.headers.has("ETag") &&
+    !res.headers.has("Cache-Control")
+  );
+}
+
+function ifNoneMatchIncludes(header: string | undefined, etag: string): boolean {
+  return !!header && header.split(",").some((part) => part.trim() === etag);
+}
+
 async function gzipJsonResponse(c: Context, next: () => Promise<void>): Promise<void> {
   await next();
   const res = c.res;
@@ -38,9 +60,25 @@ async function gzipJsonResponse(c: Context, next: () => Promise<void>): Promise<
   if (vary !== "*" && !/(?:^|,)\s*accept-encoding\s*(?:,|$)/i.test(vary ?? "")) {
     res.headers.set("Vary", vary ? `${vary}, Accept-Encoding` : "Accept-Encoding");
   }
-  if (!acceptsGzip(c.req.header("accept-encoding"))) return;
+  const revalidate = isRevalidatableBrowserRead(c, res);
+  if (!revalidate && !acceptsGzip(c.req.header("accept-encoding"))) return;
 
   const raw = new Uint8Array(await res.arrayBuffer());
+  if (revalidate) {
+    const etag = `W/"${Bun.hash(raw).toString(36)}"`;
+    res.headers.set("ETag", etag);
+    res.headers.set("Cache-Control", "private, no-cache");
+    if (ifNoneMatchIncludes(c.req.header("if-none-match"), etag)) {
+      c.res = new Response(null, { status: 304, headers: res.headers });
+      c.res.headers.delete("Content-Type");
+      c.res.headers.delete("Content-Length");
+      return;
+    }
+    if (!acceptsGzip(c.req.header("accept-encoding"))) {
+      c.res = new Response(raw, res);
+      return;
+    }
+  }
   const compress = raw.byteLength >= COMPRESS_MIN_BYTES;
   const body = compress ? await gzip(raw) : raw;
   c.res = new Response(body, res);

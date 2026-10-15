@@ -56,7 +56,7 @@ import {
   getInitialZoomLevel,
 } from "./store-initial.js";
 import type { AppState, PendingSession } from "./store-types.js";
-import { removeSessionState } from "./store-session-cleanup.js";
+import { releaseSessionConversationState, removeSessionState } from "./store-session-cleanup.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
 import {
   createChatDisplaySettingsHydrator,
@@ -547,6 +547,8 @@ export const useStore = create<AppState>((set, get) => ({
     releaseSessionLocalImagePreviewUrls(sessionId);
     set((s) => removeSessionState(s, sessionId));
   },
+
+  releaseSessionConversation: (sessionId) => set((s) => releaseSessionConversationState(s, sessionId)),
 
   setSdkSessions: (sessions) =>
     set((s) => {

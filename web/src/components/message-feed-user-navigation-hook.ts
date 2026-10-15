@@ -18,6 +18,13 @@ type ElementRef<T> = { current: T | null };
 const USER_NAVIGATION_SEARCH_LIMIT = 200;
 const USER_NAVIGATION_SEARCH_MAX_RESULTS = 1000;
 
+// The index read in flight. A refetch for the same session and thread, including
+// one from a remounted feed, lets it finish instead of aborting it: an aborted
+// read can drop the browser's cached copy, so the next read re-downloads the
+// whole index instead of getting a 304. A read for another session or thread
+// aborts it, so a switch does not wait behind the index it left.
+let inFlightNavigationRead: { key: string; controller: AbortController } | null = null;
+
 export function useMessageFeedUserNavigationTargets({
   allMessages,
   herdingLeaderSessionId,
@@ -59,7 +66,10 @@ export function useMessageFeedUserNavigationTargets({
       return;
     }
 
+    const requestKey = `${sessionId}\u0000${normalizedThreadKey}`;
+    if (inFlightNavigationRead && inFlightNavigationRead.key !== requestKey) inFlightNavigationRead.controller.abort();
     const controller = new AbortController();
+    inFlightNavigationRead = { key: requestKey, controller };
     let cancelled = false;
 
     async function loadTargets() {
@@ -83,6 +93,7 @@ export function useMessageFeedUserNavigationTargets({
         if (!cancelled && !controller.signal.aborted) {
           setServerUserNavigationTargets(searchResultsToUserNavigationTargets(results));
         }
+        if (inFlightNavigationRead?.controller === controller) inFlightNavigationRead = null;
       } catch (err) {
         if (cancelled || controller.signal.aborted) return;
         console.warn("[message-feed] user-message navigation metadata failed:", err);
@@ -93,7 +104,6 @@ export function useMessageFeedUserNavigationTargets({
     void loadTargets();
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [
     isLeaderSession,

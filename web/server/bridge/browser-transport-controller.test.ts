@@ -22,11 +22,11 @@ import {
   injectUserMessage,
   refreshBrowserConversationViews,
   sendLeaderProjectionSnapshot,
-  sendStateSnapshot,
   sendHistoryWindowSync,
   sendThreadWindowSync,
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
+import { sendStateSnapshot } from "./browser-subscribe-snapshots.js";
 import type { BackendType, BrowserIncomingMessage, ReplayableBrowserIncomingMessage } from "../session-types.js";
 import { RecorderManager } from "../recorder.js";
 

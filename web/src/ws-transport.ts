@@ -18,6 +18,7 @@ import {
   recordFrontendPerfEntry,
 } from "./utils/frontend-perf-recorder.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
+import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
 import {
   isValidSyncedProjectionIdentity,
   syncedProjectionEntryId,
@@ -82,6 +83,8 @@ export interface WsTransportCallbacks {
   getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
   /** Undefined means this socket is not the selected projection carrier. */
   getSyncedProjectionSubscriptions?: (sessionId: string) => SyncedProjectionSubscription[] | undefined;
+  /** Hashes of large snapshot parts the browser holds, for the server to leave out when unchanged. */
+  getKnownSnapshotParts?: (sessionId: string) => KnownSnapshotParts;
   onMessage: (sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void;
   onConnecting?: (sessionId: string) => void;
   onConnected?: (sessionId: string) => void;
@@ -378,12 +381,17 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const freshWindow = callbacks.getFreshHistoryWindow(sessionId);
     const initialThreadWindow = callbacks.getInitialThreadWindow?.(sessionId) ?? null;
     const syncedProjectionSubscriptions = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
+    // A full-history resync asks for everything again.
+    const knownSnapshotParts = forceFullHistory ? undefined : callbacks.getKnownSnapshotParts?.(sessionId);
     ws.send(
       JSON.stringify({
         type: "session_subscribe",
         last_seq: lastSeq,
         known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
         ...(knownFrozenHash ? { known_frozen_hash: knownFrozenHash } : {}),
+        ...(knownSnapshotParts && Object.keys(knownSnapshotParts).length > 0
+          ? { known_snapshot_parts: knownSnapshotParts }
+          : {}),
         ...(forceFullHistory ? { full_history_sync: true } : {}),
         ...(syncedProjectionSubscriptions !== undefined
           ? { synced_projection_subscriptions: syncedProjectionSubscriptions }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import {
   configureBoundedConversationSubscribe,
+  normalizeInitialThreadWindowRequest,
   prepareBoundedConversationSubscribe,
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
@@ -285,5 +286,27 @@ describe("bounded browser conversation delivery", () => {
     } as BrowserIncomingMessage;
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: history }, preview, threadSocket("q-1"))).toBe(true);
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: history }, preview, threadSocket("q-2"))).toBe(false);
+  });
+});
+
+// A revisit restores a saved reading position by centering the window on its
+// anchor. The held window's hash must survive normalization, so an unchanged
+// window comes back as a small cache hit rather than in full.
+describe("normalizeInitialThreadWindowRequest", () => {
+  it("keeps the held window hash for a target-centered window", () => {
+    expect(
+      normalizeInitialThreadWindowRequest(
+        {
+          thread_key: "main",
+          from_item: -1,
+          item_count: 30,
+          section_item_count: 10,
+          visible_item_count: 3,
+          target_message_id: "u7",
+          cached_window_hash: "held-hash",
+        },
+        true,
+      ),
+    ).toMatchObject({ target_message_id: "u7", cached_window_hash: "held-hash" });
   });
 });

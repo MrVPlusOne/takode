@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Fragment, useSyncExternalStore, type ReactNode } from "react";
+import { getViewportHandoffEntryCorrection, subscribeViewportHandoffClient } from "../utils/viewport-handoff-client.js";
 import {
   useViewportHandoffSessionEntryReady,
   useViewportHandoffThreadEntryReady,
@@ -33,5 +34,9 @@ export function ViewportHandoffThreadEntryGate({
   children: ReactNode;
 }) {
   const ready = useViewportHandoffThreadEntryReady(sessionId, threadKey, { entryId });
-  return ready ? children : fallback;
+  // A corrected held entry remounts the conversation so it restores the corrected position.
+  const correction = useSyncExternalStore(subscribeViewportHandoffClient, () =>
+    sessionId && threadKey ? getViewportHandoffEntryCorrection(sessionId, threadKey) : 0,
+  );
+  return ready ? <Fragment key={correction}>{children}</Fragment> : fallback;
 }

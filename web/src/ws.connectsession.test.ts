@@ -355,6 +355,40 @@ describe("connectSession", () => {
     });
   });
 
+  // A revisit restores a saved reading position, which centers the window on
+  // its anchor. The held window's hash still goes along, so an unchanged window
+  // comes back as a small cache hit instead of being downloaded again.
+  it("names the held window hash with a target-centered revisit window", async () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    const window = {
+      thread_key: "main",
+      from_item: 7,
+      item_count: 12,
+      total_items: 20,
+      has_older_items: true,
+      has_newer_items: true,
+      source_history_length: 100,
+      section_item_count: 4,
+      visible_item_count: 3,
+      window_hash: "window-hash",
+    };
+    useStore.getState().setThreadWindow("s1", "main", window, []);
+    const { cacheThreadWindow } = await import("./utils/history-window-cache.js");
+    cacheThreadWindow("s1", window, [
+      { history_index: 7, message: { type: "user_message", id: "u7", content: "cached", timestamp: 7 } },
+    ] as any);
+    useStore.getState().setPendingScrollToMessageId("s1", "u7");
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(JSON.parse(lastWs.send.mock.calls[0][0]).initial_thread_window).toMatchObject({
+      from_item: -1,
+      target_message_id: "u7",
+      cached_window_hash: "window-hash",
+    });
+  });
+
   it("keeps a pending legacy message-index scroll on the bounded history subscribe", () => {
     useStore.getState().setPendingScrollToMessageIndex("s1", 42);
     wsModule.connectSession("s1");
