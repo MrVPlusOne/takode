@@ -267,6 +267,16 @@ function touchState(state: TodoState, now: number): void {
   state.updatedAt = now;
 }
 
+/**
+ * Record a change to an item. Callers skip this for a change that leaves the item as it was, so a
+ * no-op never shows up as someone's change in its provenance.
+ */
+function recordItemChange(state: TodoState, item: TodoItem, provenance: TodoMutationProvenance): void {
+  item.updatedAt = provenance.at;
+  item.lastModifiedBy = provenance;
+  touchState(state, provenance.at);
+}
+
 function orderSection(item: Pick<TodoItem, "categoryId" | "status" | "archivedAt">): string {
   return `${item.categoryId}:${item.archivedAt ? "archived" : item.status === "done" ? "done" : "active"}`;
 }
@@ -719,9 +729,10 @@ export class TodoStore {
     provenance: TodoMutationProvenance,
   ): TodoItem {
     const item = itemById(state, itemId);
-    item.markdown = resolveEditMarkdown(item.markdown, input);
-    item.updatedAt = provenance.at;
-    item.lastModifiedBy = provenance;
+    const markdown = resolveEditMarkdown(item.markdown, input);
+    if (markdown === item.markdown) return item;
+    item.markdown = markdown;
+    recordItemChange(state, item, provenance);
     return item;
   }
 
@@ -740,8 +751,7 @@ export class TodoStore {
     if (next.length === current.length && next.every((id, index) => id === current[index])) return item;
     if (next.length) item.questIds = next;
     else delete item.questIds;
-    item.updatedAt = provenance.at;
-    item.lastModifiedBy = provenance;
+    recordItemChange(state, item, provenance);
     return item;
   }
 
@@ -750,11 +760,7 @@ export class TodoStore {
     input: TodoItemLinkInput,
     provenance: TodoMutationProvenance,
   ): Promise<TodoItem> {
-    return this.mutate((state) => {
-      const item = this.linkItemQuestsInState(state, itemId, input, provenance);
-      touchState(state, provenance.at);
-      return item;
-    });
+    return this.mutate((state) => this.linkItemQuestsInState(state, itemId, input, provenance));
   }
 
   /** Set or clear (`null`) a to-do's due date. */
@@ -765,19 +771,13 @@ export class TodoStore {
       if (due === item.due) return item;
       if (due) item.due = due;
       else delete item.due;
-      item.updatedAt = provenance.at;
-      item.lastModifiedBy = provenance;
-      touchState(state, provenance.at);
+      recordItemChange(state, item, provenance);
       return item;
     });
   }
 
   async editItem(itemId: string, input: TodoItemEditInput, provenance: TodoMutationProvenance): Promise<TodoItem> {
-    return this.mutate((state) => {
-      const item = this.editItemInState(state, itemId, input, provenance);
-      touchState(state, provenance.at);
-      return item;
-    });
+    return this.mutate((state) => this.editItemInState(state, itemId, input, provenance));
   }
 
   private setItemStatusInState(
@@ -788,28 +788,22 @@ export class TodoStore {
   ): TodoItem {
     const item = itemById(state, itemId);
     const status = normalizeStatus(statusValue);
-    if (item.status !== status) {
-      const previous = clone(item);
-      item.status = status;
-      item.statusChangedAt = provenance.at;
-      if (status === "done") item.completedAt = provenance.at;
-      else delete item.completedAt;
-      if (orderSection(previous) !== orderSection(item)) {
-        reindexSection(state, previous);
-        placeItem(state, item, {});
-      }
+    if (item.status === status) return item;
+    const previous = clone(item);
+    item.status = status;
+    item.statusChangedAt = provenance.at;
+    if (status === "done") item.completedAt = provenance.at;
+    else delete item.completedAt;
+    if (orderSection(previous) !== orderSection(item)) {
+      reindexSection(state, previous);
+      placeItem(state, item, {});
     }
-    item.updatedAt = provenance.at;
-    item.lastModifiedBy = provenance;
+    recordItemChange(state, item, provenance);
     return item;
   }
 
   async setItemStatus(itemId: string, statusValue: unknown, provenance: TodoMutationProvenance): Promise<TodoItem> {
-    return this.mutate((state) => {
-      const item = this.setItemStatusInState(state, itemId, statusValue, provenance);
-      touchState(state, provenance.at);
-      return item;
-    });
+    return this.mutate((state) => this.setItemStatusInState(state, itemId, statusValue, provenance));
   }
 
   async setItemStatusWithCompletionUndo(
@@ -825,7 +819,6 @@ export class TodoStore {
         ? sectionItems(state, before).map(({ id, rank }) => ({ id, rank }))
         : [];
       const item = this.setItemStatusInState(state, itemId, status, provenance);
-      touchState(state, provenance.at);
       if (!canUndoCompletion || !item.completedAt) return { item };
       return {
         item,
@@ -955,6 +948,7 @@ export class TodoStore {
     provenance: TodoMutationProvenance,
   ): TodoItem {
     const item = itemById(state, itemId);
+    if (archived === !!item.archivedAt) return item;
     const previous = clone(item);
     if (archived) item.archivedAt = provenance.at;
     else {
@@ -965,17 +959,12 @@ export class TodoStore {
       reindexSection(state, previous);
       placeItem(state, item, {});
     }
-    item.updatedAt = provenance.at;
-    item.lastModifiedBy = provenance;
+    recordItemChange(state, item, provenance);
     return item;
   }
 
   async setItemArchived(itemId: string, archived: boolean, provenance: TodoMutationProvenance): Promise<TodoItem> {
-    return this.mutate((state) => {
-      const item = this.setItemArchivedInState(state, itemId, archived, provenance);
-      touchState(state, provenance.at);
-      return item;
-    });
+    return this.mutate((state) => this.setItemArchivedInState(state, itemId, archived, provenance));
   }
 
   async createCategory(input: TodoCategoryCreateInput, provenance: TodoMutationProvenance): Promise<TodoCategory> {

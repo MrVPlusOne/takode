@@ -36,8 +36,12 @@ export class TodoOverdueAlerts {
   private readonly deps: TodoOverdueAlertsDeps;
   private readonly filePath: string;
   private readonly now: () => number;
-  /** The due date each overdue to-do was alerted for, by to-do ID; `null` until read from disk. */
-  private alerted: Map<string, string> | null = null;
+  /**
+   * The due date each overdue to-do was alerted for, by to-do ID; `null` until first read. One shared
+   * read: the follow-up reminders ask on the same tick as the first check, and a second read would
+   * replace the record that check just added to, repeating its alert a minute later.
+   */
+  private alerted: Promise<Map<string, string>> | null = null;
   private checking = false;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -97,22 +101,25 @@ export class TodoOverdueAlerts {
     return (await this.deps.listOverdueTodos()).filter((todo) => alerted.get(todo.id) === todo.due);
   }
 
-  private async loadAlerted(): Promise<Map<string, string>> {
-    if (this.alerted) return this.alerted;
+  private loadAlerted(): Promise<Map<string, string>> {
+    this.alerted ??= this.readAlerted();
+    return this.alerted;
+  }
+
+  private async readAlerted(): Promise<Map<string, string>> {
     try {
       const raw = JSON.parse(await readFile(this.filePath, "utf-8")) as { alerted?: Record<string, unknown> };
       const entries = Object.entries(raw.alerted ?? {}).filter((entry): entry is [string, string] => {
         return typeof entry[1] === "string";
       });
-      this.alerted = new Map(entries);
+      return new Map(entries);
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
         // Starting over can repeat an alert once; refusing to alert at all would be worse.
         console.error("[todo-overdue-alerts] Unreadable alert record, starting over:", error);
       }
-      this.alerted = new Map();
+      return new Map();
     }
-    return this.alerted;
   }
 
   private async saveAlerted(alerted: Map<string, string>): Promise<void> {

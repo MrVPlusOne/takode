@@ -302,6 +302,28 @@ describe("TodoStore", () => {
     expect((await store.listItems())[0]?.id).toBe(created.id);
   });
 
+  it("records nothing for a change that leaves the item as it was", async () => {
+    // Provenance shows the last change and who made it. A no-op (the same text, the status it
+    // already has, restoring a to-do that is not archived) must not show up as an agent's change.
+    const created = await store.createItem({ markdown: "Book flights\n\nAisle seat" }, provenance(100));
+    const agent = provenance(200, "agent_direct");
+    const before = await store.snapshot();
+
+    await store.editItem(created.id, { markdown: "Book flights\n\nAisle seat" }, agent);
+    await store.setItemStatus(created.id, "todo", agent);
+    await store.setItemStatusWithCompletionUndo(created.id, "todo", agent);
+    await store.setItemArchived(created.id, false, agent);
+    await store.linkItemQuests(created.id, { removeQuestIds: ["q-7"] }, agent);
+    await store.setItemDue(created.id, null, agent);
+
+    expect(await store.snapshot()).toEqual(before);
+
+    // A real change is still recorded.
+    const edited = await store.editItem(created.id, { markdown: "Book flights\n\nAisle seat, Friday" }, agent);
+    expect(edited).toMatchObject({ updatedAt: 200, lastModifiedBy: agent });
+    expect((await store.snapshot()).revision).toBe(before.revision + 1);
+  });
+
   it("atomically restores the exact active status, category, and ranks from a completion receipt", async () => {
     const first = await store.createItem({ markdown: "First" }, provenance(10));
     const second = await store.createItem({ markdown: "Second", status: "doing" }, provenance(20));

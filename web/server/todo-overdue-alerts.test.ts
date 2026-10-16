@@ -160,6 +160,20 @@ describe("TodoOverdueAlerts", () => {
     expect(t.send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "To-do overdue", body: "td-2" }));
   });
 
+  it("does not repeat the first alert after a start when the follow-up reminders read the record too", async () => {
+    // Both minute timers start together, so the first check and the reminders' listAlerted read the
+    // record at the same moment. Regression: the second read replaced the record the check had just
+    // added to, and the next minute's check sent the same alert again.
+    const t = setup(at(14));
+    t.setOverdue([todo("td-1", "2026-10-14T14:00"), todo("td-2", "2026-10-14T14:00")]);
+    await Promise.all([t.alerts.check(), t.alerts.listAlerted()]);
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    t.setNow(at(14, 1));
+    expect(await t.alerts.check()).toBe(false);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
   it("starts over from an unreadable record instead of never alerting", async () => {
     await writeFile(join(dir, "overdue-alerts.json"), "{ not json", "utf-8");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
