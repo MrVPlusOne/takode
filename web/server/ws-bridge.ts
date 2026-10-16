@@ -944,7 +944,7 @@ export class WsBridge {
     return rest;
   }
 
-  private getSessionNotificationDeps() {
+  getSessionNotificationDeps() {
     return getSessionNotificationDepsController(this);
   }
 

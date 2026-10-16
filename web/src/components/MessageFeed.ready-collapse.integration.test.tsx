@@ -349,4 +349,41 @@ describe("MessageFeed Ready auto-collapse", () => {
     expect(within(turn).getByText("Three new emails overnight.")).toBeInTheDocument();
     expect(within(turn).getByText("The briefing is the report just above.")).toBeInTheDocument();
   });
+
+  it("collapses to an answer nobody asked for, as when relaying a worker-scheduled briefing", () => {
+    // The daily briefing as it arrives today: the worker's own timer produced it, so
+    // the leader's turn starts at a herd event with no request to answer. The leader
+    // publishes the report, presents it with [thread:q-N:A], and later marks Ready on
+    // a bookkeeping note. The collapsed turn shows the report and the answer.
+    const history: BrowserIncomingMessage[] = [];
+    herdEvent(history, "herd-briefing");
+    history.push({
+      type: "markdown_report",
+      id: "report-1",
+      timestamp: timestampAt(history.length),
+      content: "# Daily briefing\n\nThree new emails overnight.",
+      threadKey: QUEST_ID,
+      questId: QUEST_ID,
+      source: { sessionId: SESSION_ID, reportId: "report-1", sourcePath: "/tmp/briefing.md", sha256: "abc" },
+    });
+    const answer = assistant(history, "briefing-answer", "Today's briefing is the report above.");
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = [];
+    answer.leaderAnswerObservedHistoryLength = history.length - 1;
+    expect(finalizeRoutedLeaderResponseMessage({ id: SESSION_ID, messageHistory: history }, answer).finalized).toBe(
+      true,
+    );
+    herdEvent(history, "herd-bookkeeping");
+    assistant(history, "bookkeeping", "The worker filed today's Work note.", { marker: "ready" });
+
+    deliver(history, latestStatus(history));
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = latestTurn(view.container);
+    expect(within(turn).getByRole("button", { name: /Show turn activity/ })).toBeInTheDocument();
+    expect(within(turn).getByText("Three new emails overnight.")).toBeInTheDocument();
+    expect(within(turn).getByText("Today's briefing is the report above.")).toBeInTheDocument();
+    expect(within(turn).queryByText("The worker filed today's Work note.")).not.toBeInTheDocument();
+    // An answer that names no messages has no "Answers N messages" chip.
+    expect(within(turn).queryByText(/Answers \d+ message/)).not.toBeInTheDocument();
+  });
 });

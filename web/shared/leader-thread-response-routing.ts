@@ -127,13 +127,21 @@ export function leaderResponseExactAnswerThreadKey(fields: LeaderResponseThreadR
   return leaderResponseOwnerThreadKey(fields) === threadKey ? threadKey : null;
 }
 
-/** Decode exact per-prompt owner proof; older answers retain their single source owner. */
+/**
+ * Decode exact per-prompt owner proof; older answers retain their single source owner.
+ * An answer that names no messages has no owners and no owner groups.
+ */
 export function leaderResponseAnswerOwnerThreadKeys(
   answer: { answerUserMessageIds: readonly string[]; ownerGroups?: unknown },
   sourceThreadKey: string,
 ): Map<string, string> | null {
   const ids = answer.answerUserMessageIds;
-  if (ids.length === 0 || ids.some((id) => !isCanonicalLeaderAnswerMessageId(id)) || new Set(ids).size !== ids.length) {
+  if (ids.length === 0) {
+    const noGroups =
+      answer.ownerGroups === undefined || (Array.isArray(answer.ownerGroups) && answer.ownerGroups.length === 0);
+    return noGroups && validThreadKey(sourceThreadKey) ? new Map() : null;
+  }
+  if (ids.some((id) => !isCanonicalLeaderAnswerMessageId(id)) || new Set(ids).size !== ids.length) {
     return null;
   }
   const source = validThreadKey(sourceThreadKey);

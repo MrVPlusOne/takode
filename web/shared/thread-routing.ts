@@ -22,10 +22,12 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
+// An answer marker may list the user-message or timer-firing IDs it answers, or
+// none for a result presented on the leader's own initiative ([thread:q-N:A]).
 const TEXT_THREAD_MARKER_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:A:((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
+  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
 const TEXT_THREAD_MARKER_AT_LINE_START_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:A:((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?\]/i;
+  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?)?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
@@ -84,13 +86,14 @@ export function formatThreadMarker(
 ): string {
   if (role === "answer") {
     if (
-      answerUserMessageIds.length === 0 ||
       answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
       new Set(answerUserMessageIds).size !== answerUserMessageIds.length
     ) {
-      throw new Error("Answer thread markers require one or more canonical user or timer-firing IDs.");
+      throw new Error("Answer thread markers accept only unique canonical user or timer-firing IDs.");
     }
-    return `[thread:${threadKey}:A:${answerUserMessageIds.join(",")}]`;
+    return answerUserMessageIds.length === 0
+      ? `[thread:${threadKey}:A]`
+      : `[thread:${threadKey}:A:${answerUserMessageIds.join(",")}]`;
   }
   const suffix = role === "commentary" ? ":C" : "";
   return `[thread:${threadKey}${suffix}]`;
@@ -126,8 +129,8 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
   const role = normalizeThreadTextRole(match[2], match[3]);
-  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3]);
-  if (match[3] && !answerUserMessageIds) {
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[4]);
+  if (match[4] && !answerUserMessageIds) {
     return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(candidate), body: text };
   }
   return {
@@ -157,8 +160,8 @@ export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseRe
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
   const role = normalizeThreadTextRole(match[2], match[3]);
-  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3]);
-  if (match[3] && !answerUserMessageIds) {
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[4]);
+  if (match[4] && !answerUserMessageIds) {
     return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(text), body: text };
   }
   return {
@@ -172,14 +175,19 @@ export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseRe
 
 function normalizeThreadTextRole(
   commentaryMarker: string | undefined,
-  answerIds: string | undefined,
+  answerMarker: string | undefined,
 ): LeaderThreadTextRole | undefined {
-  if (answerIds) return "answer";
+  if (answerMarker) return "answer";
   return commentaryMarker?.toUpperCase() === "C" ? "commentary" : undefined;
 }
 
-function normalizeAnswerUserMessageIds(value: string | undefined): string[] | undefined {
-  if (!value) return undefined;
+/** An answer's IDs; an empty list for an answer that names none. */
+function normalizeAnswerUserMessageIds(
+  answerMarker: string | undefined,
+  value: string | undefined,
+): string[] | undefined {
+  if (!answerMarker) return undefined;
+  if (!value) return [];
   const ids = value.toLowerCase().split(",");
   return new Set(ids).size === ids.length ? ids : undefined;
 }

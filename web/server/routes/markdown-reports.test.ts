@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createMarkdownReportRoutes } from "./markdown-reports.js";
 import type { RouteContext } from "./context.js";
-import type { BrowserIncomingMessage } from "../session-types.js";
+import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 import { SessionStore, type PersistedSession } from "../session-store.js";
 import { readMarkdownReportFile } from "../../bin/markdown-report-file.js";
 import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-report.js";
@@ -25,8 +25,13 @@ function harness() {
     ["report-worker", { sessionId: "report-worker", isOrchestrator: false, archived: false, herdedBy: "report-host" }],
   ]);
   const history: BrowserIncomingMessage[] = [];
-  const host = { id: "report-host", messageHistory: history };
+  const host = { id: "report-host", messageHistory: history, state: {}, notifications: [] as SessionNotification[] };
   const persist = vi.fn();
+  const notificationDeps = {
+    broadcastToBrowsers: vi.fn(),
+    persistSession: vi.fn(),
+    promoteLeaderThreadTabForAttention: vi.fn(),
+  };
   const ctx = {
     authenticateTakodeCaller: (c: any) =>
       c.req.header("x-agent") === "valid"
@@ -39,6 +44,7 @@ function harness() {
       persistSessionById: persist,
       broadcastToSession: vi.fn(),
       refreshSessionConversation: vi.fn(),
+      getSessionNotificationDeps: () => notificationDeps,
     },
   } as unknown as RouteContext;
   const api = createMarkdownReportRoutes(ctx);
@@ -48,7 +54,7 @@ function harness() {
       headers: { "content-type": "application/json", ...(agent ? { "x-agent": "valid" } : {}) },
       body: JSON.stringify(body),
     });
-  return { ctx, host, sessions, persist, post };
+  return { ctx, host, sessions, persist, post, notificationDeps };
 }
 
 describe("Markdown report publication and human comments", () => {
@@ -174,6 +180,38 @@ describe("Markdown report publication and human comments", () => {
     expect((await h.post("/takode/reports", { ...body, responsibleWorkerId: "report-worker" }, true)).status).toBe(403);
     // A valid upload succeeds even when the server has no such path: this API never reads it.
     expect((await h.post("/takode/reports", body, true)).status).toBe(201);
+  });
+
+  it("makes a leader's report thread unread, and only a leader's", async () => {
+    // A report is written for the user to read even when nothing asked for it, such as
+    // a briefing a worker produced on its own schedule, so publishing it makes its
+    // thread unread, anchored on the report. A worker's own session gets no unread.
+    const h = harness();
+    const body = { content: "# Daily briefing: Friday\n\nNews", sourcePath: "/briefing.md", threadKey: "q-42" };
+    const response = await h.post("/takode/reports", body, true);
+    const { reportId } = await response.json();
+    expect(h.host.notifications).toEqual([
+      expect.objectContaining({
+        category: "review",
+        unreadReason: "report",
+        messageId: reportId,
+        threadKey: "q-42",
+        questId: "q-42",
+        summary: "Report in q-42 | Daily briefing: Friday",
+        done: false,
+      }),
+    ]);
+    expect(h.notificationDeps.promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(
+      "report-host",
+      "q-42",
+      expect.any(Number),
+      "review",
+    );
+
+    h.sessions.get("report-host")!.isOrchestrator = false;
+    await h.post("/takode/reports", body, true);
+    expect(h.host.messageHistory).toHaveLength(2);
+    expect(h.host.notifications).toHaveLength(1);
   });
 
   it("delivers a report comment as ordinary composer input that names the report to read", () => {

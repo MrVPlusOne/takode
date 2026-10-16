@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { leaderAnswerThreadAuthority, finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
+import {
+  buildLeaderThreadResponseState,
+  finalizeRoutedLeaderResponseMessage,
+  isCurrentValidRoutedLeaderResponseMessage,
+  leaderAnswerThreadAuthority,
+} from "../leader-thread-response.js";
 import { displayOnlyLeaderAnswerThreads } from "./leader-answer-ready-authority.js";
 
 type AssistantEntry = Extract<BrowserIncomingMessage, { type: "assistant" }>;
@@ -115,10 +120,12 @@ describe("automatic answer Ready authority", () => {
     const later = answer(session, "quest-complement", ["u1"], "q-42");
 
     expect(leaderAnswerThreadAuthority(session, earlier)).toEqual({
+      unrequested: false,
       ownerThreadKeys: [],
       visibleThreadKeys: ["main", "q-42"],
     });
     expect(leaderAnswerThreadAuthority(session, later)).toEqual({
+      unrequested: false,
       ownerThreadKeys: ["q-42"],
       visibleThreadKeys: ["q-42"],
     });
@@ -128,6 +135,34 @@ describe("automatic answer Ready authority", () => {
     expect(displayOnlyLeaderAnswerThreads(restored, restored.messageHistory.slice(1) as AssistantEntry[])).toEqual(
       new Set(["main"]),
     );
+  });
+
+  it("settles an answer that names no messages without granting, blocking or covering anything", () => {
+    // A leader presents a result nobody asked for, like a worker-scheduled report,
+    // with [thread:q-N:A]. It is a valid current answer shown only where it was
+    // written; it must not mark its own thread display-only (that would block Ready
+    // there), and a pending request in the same thread stays pending.
+    const session = {
+      id: "leader",
+      messageHistory: [request("u1", "q-42")] as BrowserIncomingMessage[],
+    };
+    const unrequested = answer(session, "briefing", [], "q-42");
+
+    expect(unrequested.threadAnswer).toMatchObject({ answerUserMessageIds: [], ownerGroups: [] });
+    expect(leaderAnswerThreadAuthority(session, unrequested)).toEqual({
+      unrequested: true,
+      ownerThreadKeys: [],
+      visibleThreadKeys: ["q-42"],
+    });
+    expect(isCurrentValidRoutedLeaderResponseMessage(session, unrequested)).toBe(true);
+    expect(displayOnlyLeaderAnswerThreads(session, [unrequested])).toEqual(new Set());
+    const { projection } = buildLeaderThreadResponseState(session, "q-42");
+    expect(projection.pendingMessages.map((pending) => pending.userMessageId)).toEqual(["u1"]);
+    expect(projection.currentAnswers).toMatchObject([
+      { currentMessageId: "briefing", answerUserMessageIds: [], coveredUserMessageIds: [] },
+    ]);
+    // The answer is not visible in another thread.
+    expect(buildLeaderThreadResponseState(session, "main").projection.currentAnswers).toEqual([]);
   });
 
   it("reconstructs display-only authority on replay and rejects stale owner proof", () => {
@@ -145,6 +180,7 @@ describe("automatic answer Ready authority", () => {
     const reassigned = replayed.messageHistory[0] as UserEntry;
     reassigned.threadRefs?.push({ threadKey: "q-43", questId: "q-43", source: "explicit", attachedAt: 20 });
     expect(leaderAnswerThreadAuthority(replayed, replayedAnswer)).toEqual({
+      unrequested: false,
       ownerThreadKeys: [],
       visibleThreadKeys: [],
     });

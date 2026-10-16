@@ -44,7 +44,7 @@ import {
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
 const THREAD_ROUTING_EXPECTED =
-  "Start visible leader text with [thread:main:C], [thread:q-N:C], or an explicit answer marker such as [thread:main:A:u1] / [thread:q-N:A:u1,u2]. Bash commands must start with # thread:main or # thread:q-N.";
+  "Start visible leader text with [thread:main:C], [thread:q-N:C], or an answer marker such as [thread:main:A:u1] / [thread:q-N:A:u1,u2] (or [thread:q-N:A] for a result nobody asked for). Bash commands must start with # thread:main or # thread:q-N.";
 const QUEST_QUIZ_DIRECTIVE_LINE_RE = /^\s*\{\[\(Quest Quiz:\s*q-\d+\)\]\}\s*$/i;
 
 export interface LeaderAssistantRouteResult {
@@ -108,7 +108,7 @@ export function leaderAssistantControlMetadata(
     routed.leaderThreadRole === "answer" && hasStableMessageId ? leaderTurnObservedHistoryLength(session) : undefined;
   return {
     ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
-    ...(routed.leaderAnswerUserMessageIds?.length
+    ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUserMessageIds
       ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
       : {}),
     ...(observedHistoryLength !== undefined ? { leaderAnswerObservedHistoryLength: observedHistoryLength } : {}),
@@ -384,7 +384,7 @@ export function normalizeLeaderAssistantRouting(
       ...(parsed.target.questId ? { questId: parsed.target.questId } : {}),
       ...(refs ? { threadRefs: refs } : {}),
       ...(parsed.role ? { leaderThreadRole: parsed.role } : {}),
-      ...(parsed.answerUserMessageIds?.length ? { leaderAnswerUserMessageIds: parsed.answerUserMessageIds } : {}),
+      ...(parsed.answerUserMessageIds ? { leaderAnswerUserMessageIds: parsed.answerUserMessageIds } : {}),
       ...(!parsed.role
         ? { threadRoutingError: threadRoutingErrorForMissingRole(formatThreadMarker(parsed.target.threadKey), content) }
         : {}),

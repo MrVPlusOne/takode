@@ -7,6 +7,7 @@ import {
   validateMarkdownReportContent,
   type MarkdownReportMessage,
 } from "../../shared/markdown-report.js";
+import { recordReportUnreadNotification } from "../bridge/session-notification-controller.js";
 import type { RouteContext } from "./context.js";
 
 /** Publication accepts bytes already read by the authenticated agent; it never reads a server path. */
@@ -52,6 +53,9 @@ export function createMarkdownReportRoutes(ctx: RouteContext) {
       ctx.wsBridge.persistSessionById(session.id);
       ctx.wsBridge.broadcastToSession(session.id, message);
       ctx.wsBridge.refreshSessionConversation(session.id);
+      if (ctx.launcher.getSession(session.id)?.isOrchestrator) {
+        recordReportUnreadNotification(session, message, ctx.wsBridge.getSessionNotificationDeps());
+      }
       return c.json(
         {
           reportId: id,

@@ -288,7 +288,7 @@ function reconcileCompletedRecoveredAssistantControls(
   // roleless commentary instead of promoting replay into fresh authority.
   if (
     routed.leaderThreadRole === "answer" &&
-    routed.leaderAnswerUserMessageIds?.length &&
+    routed.leaderAnswerUserMessageIds &&
     answerObservationHistoryLength !== undefined &&
     !isCurrentValidRoutedLeaderResponseMessage({ id: session.id ?? "", messageHistory: session.messageHistory }, entry)
   ) {
@@ -503,7 +503,7 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
         ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
         ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
         ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
-        ...(routed.leaderAnswerUserMessageIds?.length
+        ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUserMessageIds
           ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
           : {}),
         ...(routed.leaderThreadRole === "answer" && responseObservationHistoryLength !== undefined

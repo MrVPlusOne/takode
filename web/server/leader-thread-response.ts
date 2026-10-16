@@ -479,7 +479,6 @@ function validAnswerMetadata(value: unknown): value is LeaderThreadAnswerMetadat
   return (
     candidate.version === LEADER_THREAD_RESPONSE_VERSION &&
     Array.isArray(candidate.answerUserMessageIds) &&
-    candidate.answerUserMessageIds.length > 0 &&
     candidate.answerUserMessageIds.every(isCanonicalLeaderAnswerMessageId) &&
     new Set(candidate.answerUserMessageIds).size === candidate.answerUserMessageIds.length &&
     (candidate.authoredThreadKey === undefined ||
@@ -868,7 +867,11 @@ function buildLeaderThreadResponseStateAt(
   const projection: LeaderThreadResponseProjection = {
     version: LEADER_THREAD_RESPONSE_VERSION,
     threadKey,
-    cutoverHistoryIndex: projectedMessages[0]?.historyIndex ?? session.messageHistory.length,
+    // Answers nobody asked for have no request to anchor the cutover, so they anchor it themselves.
+    cutoverHistoryIndex: Math.min(
+      projectedMessages[0]?.historyIndex ?? session.messageHistory.length,
+      ...currentAnswers.map((answer) => answer.currentHistoryIndex),
+    ),
     pendingMessageCount: pendingMessages.length,
     pendingMessages,
     currentAnswers,
@@ -906,12 +909,16 @@ function otherStoredAnswerUsesMessageId(
   });
 }
 
-/** Separate retained answer visibility from current per-request completion authority. */
+/**
+ * Separate retained answer visibility from current per-request completion authority.
+ * `unrequested` marks a current answer that names no messages: it owns nothing, so
+ * it is valid without owners and shows only in the thread it was written in.
+ */
 export function leaderAnswerThreadAuthority(
   session: LeaderThreadResponseSession,
   message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
-): { ownerThreadKeys: string[]; visibleThreadKeys: string[] } {
-  const empty = { ownerThreadKeys: [], visibleThreadKeys: [] };
+): { unrequested: boolean; ownerThreadKeys: string[]; visibleThreadKeys: string[] } {
+  const empty = { unrequested: false, ownerThreadKeys: [], visibleThreadKeys: [] };
   const historyIndex = session.messageHistory.indexOf(message);
   if (historyIndex < 0 || !validAnswerMetadata(message.threadAnswer)) return empty;
   const evaluation = evaluateResponses(session);
@@ -922,6 +929,7 @@ export function leaderAnswerThreadAuthority(
   const covered = new Set(answer.coveredUserMessageIds);
   const referenced = new Set(answer.referencedUserMessageIds);
   return {
+    unrequested: answer.answerUserMessageIds.length === 0,
     ownerThreadKeys: [
       ...new Set(
         evaluation.answerTargets.filter((entry) => covered.has(entry.historyMessageId)).map((entry) => entry.threadKey),
@@ -942,7 +950,8 @@ export function isCurrentValidRoutedLeaderResponseMessage(
   session: LeaderThreadResponseSession,
   message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
 ): boolean {
-  return leaderAnswerThreadAuthority(session, message).ownerThreadKeys.length > 0;
+  const authority = leaderAnswerThreadAuthority(session, message);
+  return authority.unrequested || authority.ownerThreadKeys.length > 0;
 }
 
 export function finalizeRoutedLeaderResponseMessage(
@@ -972,7 +981,6 @@ export function finalizeRoutedLeaderResponseMessage(
   }
   if (
     !Array.isArray(answerUserMessageIds) ||
-    answerUserMessageIds.length === 0 ||
     answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
     new Set(answerUserMessageIds).size !== answerUserMessageIds.length
   ) {
@@ -1018,7 +1026,9 @@ export function finalizeRoutedLeaderResponseMessage(
   // share this exact row through visibility-only refs.
   const anchorThreadKey = visibleThreadKeys.includes("main")
     ? "main"
-    : (ownerGroups.find((group) => group.threadKey === selectedThreadKey)?.threadKey ?? ownerGroups[0]!.threadKey);
+    : (ownerGroups.find((group) => group.threadKey === selectedThreadKey)?.threadKey ??
+      ownerGroups[0]?.threadKey ??
+      selectedThreadKey);
   const routeSnapshot = answerRouteSnapshot(message);
   canonicalizeAnswerRoute(message, anchorThreadKey, visibleThreadKeys);
 

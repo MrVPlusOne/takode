@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { buildThreadRoutingReminderForCompletedTurn } from "./thread-routing-reminder.js";
+import {
+  buildThreadRoutingReminderForCompletedTurn,
+  leaderAssistantControlMetadata,
+  normalizeLeaderAssistantRouting,
+} from "./thread-routing-reminder.js";
 
 function semanticRejectedAnswer(): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
@@ -49,5 +53,38 @@ describe("semantic answer-route reminder ownership", () => {
     };
 
     expect(buildThreadRoutingReminderForCompletedTurn(session)).toBeNull();
+  });
+});
+
+describe("leader answer marker routing", () => {
+  it("carries an answer that names no messages to settlement with an empty ID list", () => {
+    // Both backends route live leader text through these two steps. A bare
+    // [thread:q-N:A] must reach turn settlement as an answer with an explicit empty
+    // list, not as an answer missing its IDs (which settlement would reject).
+    const routed = normalizeLeaderAssistantRouting(
+      true,
+      [{ type: "text", text: "[thread:q-7:A]\nToday's briefing." }],
+      null,
+    );
+    expect(routed).toMatchObject({
+      threadKey: "q-7",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: [],
+      content: [{ type: "text", text: "Today's briefing." }],
+    });
+    expect(routed.threadRoutingError).toBeUndefined();
+    const session = { messageHistory: [] as BrowserIncomingMessage[], messageCountAtTurnStart: 0 };
+    expect(leaderAssistantControlMetadata(session, routed, true)).toEqual({
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: [],
+      leaderAnswerObservedHistoryLength: 0,
+    });
+    // Commentary still carries no answer IDs.
+    const commentary = normalizeLeaderAssistantRouting(
+      true,
+      [{ type: "text", text: "[thread:q-7:C] Progress." }],
+      null,
+    );
+    expect(leaderAssistantControlMetadata(session, commentary, true)).toEqual({ leaderThreadRole: "commentary" });
   });
 });

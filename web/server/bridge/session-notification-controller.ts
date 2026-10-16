@@ -592,6 +592,32 @@ export function recordQuestCompletionUnreadNotification(
   return true;
 }
 
+/**
+ * Make a leader thread unread for a newly published report: a report is written for
+ * the user to read, whether or not anything asked for it. Its row always stays visible
+ * in a collapsed turn, so the unread points at something on screen.
+ */
+export function recordReportUnreadNotification(
+  session: SessionLike,
+  report: { id: string; threadKey: string; content: string; timestamp: number },
+  deps: LeaderUnreadDeps,
+): boolean {
+  if (hasUnreadNotificationForMessage(session, report.id)) return false;
+  const threadKey = normalizeLeaderThreadKey(report.threadKey);
+  const preview = firstLinePreview(report.content);
+  addLeaderUnreadNotification(session, {
+    reason: "report",
+    threadKey,
+    summary: `Report in ${threadKey === "main" ? "Main" : threadKey}${preview ? ` | ${preview}` : ""}`,
+    timestamp: report.timestamp,
+    messageId: report.id,
+    deps,
+  });
+  deps.promoteLeaderThreadTabForAttention?.(session.id, threadKey, report.timestamp, "review");
+  publishLeaderUnread(session, deps);
+  return true;
+}
+
 function addLeaderUnreadNotification(
   session: SessionLike,
   input: {
@@ -647,12 +673,22 @@ const ANSWER_PREVIEW_MAX_CHARS = 80;
 
 function answerPreview(answer: LeaderAnswerEntry): string {
   const content = answer.message.content;
-  const text = Array.isArray(content)
-    ? content.map((block) => (block.type === "text" ? block.text : "")).join("\n")
-    : String(content ?? "");
+  return firstLinePreview(
+    Array.isArray(content)
+      ? content.map((block) => (block.type === "text" ? block.text : "")).join("\n")
+      : String(content ?? ""),
+  );
+}
+
+function firstLinePreview(text: string): string {
   const firstLine = text
     .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
+    .map((line) =>
+      line
+        .replace(/^#+\s+/, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .find((line) => line && !line.startsWith("{[("));
   if (!firstLine) return "";
   return firstLine.length > ANSWER_PREVIEW_MAX_CHARS

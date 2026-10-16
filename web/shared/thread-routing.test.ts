@@ -53,6 +53,16 @@ describe("thread-routing", () => {
       answerUserMessageIds: ["u1", "u2"],
       body: "Final answer",
     });
+    // An answer that names no messages is a result presented on the leader's own
+    // initiative; it parses as an answer with an empty ID list and round-trips.
+    expect(formatThreadMarker("q-941", "answer")).toBe("[thread:q-941:A]");
+    expect(parseThreadTextPrefix("[thread:q-941:A]\nToday's briefing")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      role: "answer",
+      answerUserMessageIds: [],
+      body: "Today's briefing",
+    });
     expect(parseThreadTextPrefix("[thread:q-941:C] Progress update")).toEqual({
       ok: true,
       target: { threadKey: "q-941", questId: "q-941" },
@@ -65,7 +75,7 @@ describe("thread-routing", () => {
     });
     for (const invalid of [
       "[thread:q-941:F] Retired role",
-      "[thread:q-941:A] Missing IDs",
+      "[thread:q-941:A:] Empty ID list",
       "[thread:q-941:A:u1,] Trailing comma",
       "[thread:q-941:A:u01] Leading zero",
       "[thread:q-941:A:u1,u1] Duplicate",

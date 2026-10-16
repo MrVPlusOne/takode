@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildFeedModel } from "../hooks/use-feed-model.js";
 import type { ChatMessage, LeaderThreadResponseProjection, LeaderThreadResponseState } from "../types.js";
 import { buildFeedSections } from "./message-feed-sections.js";
-import { resolveThreadResponses } from "./thread-response-presentation.js";
+import { readyThreadResponseAppliesToTurn, resolveThreadResponses } from "./thread-response-presentation.js";
 
 const THREAD_KEY = "q-2024";
 
@@ -126,6 +126,46 @@ describe("explicit answer presentation", () => {
     expect(result?.currentResponses[1]?.collapsedMessageEntry).not.toBe(result?.currentResponses[1]?.messageEntry);
     expect(result?.currentResponses[1]?.messageEntry.msg.content).toContain("{[(Quest Quiz: q-2024)]}");
     expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
+  });
+
+  it("presents an answer that names no messages in its turn, even before any request", () => {
+    // A leader relays a worker-scheduled report with [thread:q-N:A]: the thread has no
+    // request, and the turn starts at the worker's herd event, before the answer. The
+    // answer must still resolve and own its turn so a Ready collapse shows it.
+    const herd: ChatMessage = {
+      id: "herd-1",
+      role: "user",
+      content: "1 event from 1 session",
+      timestamp: 5,
+      historyIndex: 5,
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      metadata: { threadKey: THREAD_KEY, questId: THREAD_KEY },
+    };
+    const unrequested = answer({ id: "briefing", answerIds: [], historyIndex: 7, content: "Today's briefing" });
+    unrequested.metadata!.threadAnswer = {
+      ...unrequested.metadata!.threadAnswer!,
+      authoredThreadKey: THREAD_KEY,
+      ownerGroups: [],
+    };
+    const feedSections = sections([herd, unrequested]);
+    const result = resolveThreadResponses(
+      feedSections,
+      projection({
+        cutoverHistoryIndex: 7,
+        currentAnswers: [answerState({ id: "briefing", answerIds: [], referencedIds: [], historyIndex: 7 })],
+      }),
+      THREAD_KEY,
+    );
+
+    expect(result?.currentResponses).toHaveLength(1);
+    const item = result!.currentResponses[0]!;
+    expect(item.response.currentMessageId).toBe("briefing");
+    expect(item.referencedUserMessages).toEqual([]);
+    const turn = feedSections
+      .flatMap((section) => section.turns)
+      .find((candidate) => candidate.id === item.sourceTurnId);
+    expect(turn).toBeDefined();
+    expect(readyThreadResponseAppliesToTurn(turn!, result!)).toBe(true);
   });
 
   it("carries comments from a comment-only covered message into its preview", () => {

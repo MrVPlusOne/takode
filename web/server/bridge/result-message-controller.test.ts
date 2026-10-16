@@ -628,6 +628,55 @@ describe("result-message-controller", () => {
     expect(session.notifications).toHaveLength(1);
   });
 
+  it("settles an answer that names no messages as unread without covering pending requests", () => {
+    // A worker's own timer produced a report: the leader's turn has no request or
+    // timer firing to answer, so it presents the result with [thread:q-7:A]. That
+    // makes q-7 unread and can carry its Ready, but covers nothing: Main's pending
+    // request stays pending, and a pending request in q-7 still blocks q-7's Ready.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "u1", { threadKey: "main" }));
+    const briefing = routedFinal("briefing", 1, {
+      threadKey: "q-7",
+      answerIds: [],
+      ready: true,
+      readyThreadKey: "q-7",
+      text: "# Daily briefing\n\nNews.",
+    });
+    session.messageHistory.push(briefing);
+    session.userMessageIdsThisTurn = [];
+    handleResultMessage(session, makeResult({ uuid: "briefing-result" }), makeDeps());
+
+    expect(briefing.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: [],
+      observedHistoryLength: 1,
+      authoredThreadKey: "q-7",
+      ownerGroups: [],
+    });
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        threadKey: "q-7",
+        messageId: "briefing",
+        summary: "Answer in q-7 | Daily briefing",
+        unreadReason: "answer",
+      }),
+    ]);
+    expect(session.state.leaderThreadStatuses?.["q-7"]).toMatchObject({ kind: "ready", messageId: "briefing" });
+    expect(buildLeaderThreadResponseState(session, "main").projection.pendingMessageCount).toBe(1);
+
+    session.messageHistory.push({ type: "result", data: makeResult({ uuid: "briefing-result" }) });
+    session.messageHistory.push(directUser("u2", "u2", { threadKey: "q-7" }));
+    session.messageHistory.push(
+      routedFinal("alert", 4, { threadKey: "q-7", answerIds: [], ready: true, readyThreadKey: "q-7", text: "Alert." }),
+    );
+    session.userMessageIdsThisTurn = [];
+    handleResultMessage(session, makeResult({ uuid: "alert-result" }), makeDeps());
+
+    expect(session.notifications).toHaveLength(2);
+    expect(buildLeaderThreadResponseState(session, "q-7").projection.pendingMessageCount).toBe(1);
+    expect(session.state.leaderThreadStatuses?.["q-7"]).toBeUndefined();
+  });
+
   it("rejects a commentary Ready attempt and forwards the target to the pending-response validator", () => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"));

@@ -149,6 +149,9 @@ export function threadResponsePresentationTouchesTurn(turn: Turn, presentation: 
 }
 
 export function readyThreadResponseAppliesToTurn(turn: Turn, presentation: ThreadResponsePresentation): boolean {
+  // A turn holding a current answer is answer-presented even when it began before
+  // the thread's first request, as when it only holds answers nobody asked for.
+  if (presentation.currentResponses.some((item) => item.sourceTurnId === turn.id)) return true;
   const boundaryHistoryIndex = entryHistoryIndex(turn.userEntry);
   if (boundaryHistoryIndex != null) return boundaryHistoryIndex >= presentation.cutoverHistoryIndex;
 
@@ -366,7 +369,8 @@ export function resolveThreadResponses(
     if (
       (responseThreadKey !== "main" && !/^q-\d+$/.test(responseThreadKey)) ||
       (associationProjection && response.source !== "explicit") ||
-      response.referencedUserMessageIds.length === 0 ||
+      // Only an explicit answer may name no messages (a result nobody asked for).
+      (response.referencedUserMessageIds.length === 0 && response.source !== "explicit") ||
       response.referencedUserMessageIds.length !== response.answerUserMessageIds.length ||
       response.coveredUserMessageIds.length !== response.coveredAnswerUserMessageIds.length ||
       (response.coveredUserMessageIds.length === 0 && response.source !== "explicit") ||

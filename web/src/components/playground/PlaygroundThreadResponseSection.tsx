@@ -555,6 +555,51 @@ const REPORT_ANSWER_PRESENTATION: ThreadResponsePresentation = {
   layoutSignature: "playground-report-answer",
 };
 
+// A worker produced the report on its own schedule, so no message asked for it: the
+// leader presents it with an answer that names no messages ([thread:q-N:A]), which
+// shows without an "Answers N messages" chip.
+const UNREQUESTED_ANSWER = {
+  ...REPORT_ANSWER,
+  msg: {
+    ...REPORT_ANSWER.msg,
+    id: "playground-unrequested-answer",
+    content: "Today's 10 AM briefing is the report above. The card payment is the one thing due today.",
+    metadata: {
+      ...REPORT_ANSWER.msg.metadata,
+      threadAnswer: { version: 2 as const, answerUserMessageIds: [], observedHistoryLength: 1, ownerGroups: [] },
+    },
+  },
+};
+const UNREQUESTED_ANSWER_TURN: Turn = {
+  ...REPORT_ANSWER_TURN,
+  id: "playground-unrequested-answer-turn",
+  allEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
+  presentationEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
+  notificationEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
+};
+const UNREQUESTED_ANSWER_PRESENTATION: ThreadResponsePresentation = {
+  ...REPORT_ANSWER_PRESENTATION,
+  currentResponses: [
+    {
+      ...REPORT_ANSWER_PRESENTATION.currentResponses[0]!,
+      response: {
+        ...REPORT_ANSWER_PRESENTATION.currentResponses[0]!.response,
+        currentMessageId: UNREQUESTED_ANSWER.msg.id,
+        answerUserMessageIds: [],
+        referencedUserMessageIds: [],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
+      },
+      sourceTurnId: UNREQUESTED_ANSWER_TURN.id,
+      messageEntry: UNREQUESTED_ANSWER,
+      collapsedMessageEntry: UNREQUESTED_ANSWER,
+      referencedUserMessages: [],
+    },
+  ],
+  currentResponseMessageIds: new Set([UNREQUESTED_ANSWER.msg.id]),
+  layoutSignature: "playground-unrequested-answer",
+};
+
 const EXPANDED_ENTRIES: FeedEntry[] = [
   assistantEntry("playground-response-old", "Earlier answer wording for the same requests.", "answer"),
   INTERMEDIATE,
@@ -807,6 +852,28 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={REPORT_ANSWER_TURN}
                 presentation={REPORT_ANSWER_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed answer nobody asked for · worker-scheduled report">
+            <div
+              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-unrequested-answer"
+            >
+              <TurnActivityDisclosure
+                stats={UNREQUESTED_ANSWER_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
+              <ReadyThreadResponseRows
+                turn={UNREQUESTED_ANSWER_TURN}
+                presentation={UNREQUESTED_ANSWER_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"

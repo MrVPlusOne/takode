@@ -1718,10 +1718,11 @@ export interface SessionNotification {
   threadRefs?: ThreadRef[];
   done: boolean;
   /**
-   * Why Takode itself made a leader thread unread: a newly settled answer or a completed quest.
+   * Why Takode itself made a leader thread unread: a newly settled answer, a published report
+   * or a completed quest.
    * Absent on notifications an agent sent, and on older Thread Ready unread records.
    */
-  unreadReason?: "answer" | "quest-complete";
+  unreadReason?: "answer" | "quest-complete" | "report";
   /** When the notification was last marked done (answered, read or dismissed); absent while open. */
   doneAt?: number;
   /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */

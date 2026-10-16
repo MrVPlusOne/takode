@@ -13,6 +13,9 @@ export function displayOnlyLeaderAnswerThreads(
   for (const entry of turnEntries) {
     if (!entry.threadAnswer) continue;
     const authority = leaderAnswerThreadAuthority(session, entry);
+    // An answer nobody asked for shows only where it was written and owns nothing,
+    // so it neither grants nor blocks Ready anywhere.
+    if (authority.unrequested) continue;
     authority.ownerThreadKeys.forEach((threadKey) => ownerThreads.add(threadKey));
     authority.visibleThreadKeys.forEach((threadKey) => visibleThreads.add(threadKey));
   }

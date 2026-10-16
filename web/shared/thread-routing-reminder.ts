@@ -207,7 +207,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       return [
         THREAD_ROUTING_REMINDER_HEADER,
         `${reason} on visible leader text. The text may remain routed for audit, but it cannot satisfy a pending user-answer requirement.`,
-        "Use `[thread:main:C]` or `[thread:q-N:C]` for commentary and `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]` for an answer to explicit user-message IDs; a substantive timer report may use `[thread:main:A:timer-m1]` or mixed `[thread:q-N:A:u1,timer-m2]`. Timer progress remains commentary.",
+        "Use `[thread:main:C]` or `[thread:q-N:C]` for commentary and `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]` for an answer to explicit user-message IDs; a substantive timer report may use `[thread:main:A:timer-m1]` or mixed `[thread:q-N:A:u1,timer-m2]`, and `[thread:q-N:A]` with no IDs presents a new result nobody asked for. Timer progress remains commentary.",
         "One answer shared across tabs needs only one marker. For distinct content or roles, keep the first compact marker, then put a standalone `---` line immediately before each later role-bearing marker.",
         "Leader shell commands remain commentary and use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
       ].join("\n");
