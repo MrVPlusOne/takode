@@ -547,6 +547,67 @@ describe("POST /api/quests/:questId/complete", () => {
     });
   });
 
+  describe("with a second row left on another leader's board", () => {
+    // A leader that handed the quest over can be left at an obsolete checkpoint.
+    // Once it is paused or archived it cannot clean up, so its row must not block.
+    function addOtherLeaderRow(stopped: "paused" | "archived" | "running") {
+      bridge._sessions["other-leader"] = {
+        id: "other-leader",
+        state: { pause: stopped === "paused" ? { pausedAt: 5, queuedMessages: [{}] } : null },
+        board: new Map([
+          [
+            "q-1",
+            {
+              questId: "q-1",
+              worker: "old-worker",
+              status: "USER_CHECKPOINTING",
+              journey: { phaseIds: ["work", "user-checkpoint", "work", "memory"], activePhaseIndex: 1 },
+              waitForInput: ["n-3"],
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        ]),
+      };
+      if (stopped !== "archived") return;
+      const getSession = launcher.getSession.getMockImplementation()!;
+      launcher.getSession.mockImplementation((sid: string) =>
+        sid === "other-leader" ? { ...getSession(sid), archived: true } : getSession(sid),
+      );
+    }
+
+    it.each(["paused", "archived"] as const)("completes when that leader is %s", async (stopped) => {
+      const auth = installV2MemoryFixture();
+      addOtherLeaderRow(stopped);
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(questStore.completeQuest).toHaveBeenCalledOnce();
+    });
+
+    it("still asks for the board to be reconciled when that leader is running", async () => {
+      const auth = installV2MemoryFixture();
+      addOtherLeaderRow("running");
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("Multiple active v2 board rows") });
+    });
+
+    it("keeps the v2 Memory guards when a paused leader holds the only row", async () => {
+      // Its worker may still finish Memory while it is paused; that row still governs completion.
+      const auth = installV2MemoryFixture();
+      bridge._sessions["leader-1"].state = { pause: { pausedAt: 5, queuedMessages: [] } };
+
+      const res = await postV2Complete({ debrief: "" }, auth);
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("Final debrief") });
+    });
+  });
+
   it.each([
     ["wrong worker", { callerId: "other-worker", callerToken: "tok" }, {}, 403],
     ["reviewer caller", { callerId: "worker-1", callerToken: "tok" }, { callerReviewerOf: 7 }, 403],

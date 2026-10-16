@@ -522,6 +522,7 @@ takode board detail q-12
 takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker]
 takode board advance <quest-id>
 takode board rm <quest-id> [<quest-id> ...]
+takode board rm <quest-id> --leader <session> --reason "<why>"   # stale row on a paused/archived leader
 ```
 
 For queued rows, `--wait-for` accepts one comma-separated value containing multiple blockers, such as `--wait-for q-1143,q-1139` or `--wait-for q-1143,#12,free-worker`. Use that directly when multiple quest, session, or capacity blockers apply.

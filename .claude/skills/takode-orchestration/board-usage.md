@@ -119,6 +119,10 @@ The authenticated assigned worker may run it only on the active `WORKING` occurr
 
 Existing legacy rows are preserved as stored for compatibility: their phase IDs, notes, timings, statuses, and ownership remain readable and can finish their recorded Journey. New or materially revised rows must use active v2 phases only.
 
+## Stale Rows On Stopped Leaders
+
+A quest handed to another leader can leave a row behind on the old leader's board. While that leader is paused or archived, its rows are ignored whenever a running leader also has a row for the quest, so they never block completion, `--wait-for` dependents or phase notes. Its only row for a quest still counts. To clear an obsolete one, run `takode board rm q-N --leader <session> --reason "<why>"`: the row moves to that leader's board history with your reason, and its pause and held input stay as they are. A running leader's board can only be changed by that leader.
+
 ## Independent delivery targets
 
 `takode board approve-delivery-target q-N --target-file <path|->` records an already-authorized independent published target, scoped to the assigned leader, worker and active Work occurrence. `takode board delivery-targets q-N` lists saved IDs; `--target <id>` reveals the full descriptor. The worker supplies `--delivery-target <id>` with the exact approved commits on `record-work-delivery` or `work-to-memory`, without `--preparation` or `--no-code`.

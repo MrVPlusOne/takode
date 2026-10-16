@@ -267,6 +267,7 @@ import {
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
 import { stopClaudeNetworkWait } from "./bridge/claude-network-wait.js";
+import { isBoardLeaderStopped, preferRowsOnRunningLeaders } from "./bridge/board-stale-rows.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -1351,13 +1352,15 @@ export function getBoardWatchdogDeps(host: any) {
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
     getBoardRowsForQuest: (questId: string) => {
       const normalizedQuestId = questId.toLowerCase();
-      const rows: BoardRow[] = [];
+      const rows: Array<{ leaderSessionId: string; row: BoardRow }> = [];
       for (const targetSession of host.sessions.values() as Iterable<Session>) {
         for (const row of targetSession.board.values() as Iterable<BoardRow>) {
-          if (row.questId.toLowerCase() === normalizedQuestId) rows.push(row);
+          if (row.questId.toLowerCase() === normalizedQuestId) rows.push({ leaderSessionId: targetSession.id, row });
         }
       }
-      return rows;
+      return preferRowsOnRunningLeaders(rows, (leaderSessionId) =>
+        isBoardLeaderStopped(host.launcher?.getSession?.(leaderSessionId), host.sessions.get(leaderSessionId)),
+      ).map(({ row }) => row);
     },
     getCompletedBoardRowsForQuest: (questId: string) => {
       const normalizedQuestId = questId.toLowerCase();

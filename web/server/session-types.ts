@@ -872,6 +872,16 @@ export interface BoardRow {
   completedAt?: number;
   /** The landing-queue change the quest waits for, from Work -> Memory until it lands. */
   landing?: BoardRowLanding;
+  /** Set when another leader removed this stale row from a paused or archived leader's board. */
+  staleRemoval?: BoardRowStaleRemoval;
+}
+
+/** Why a row left a stopped leader's board without its quest finishing there (kept in its board history). */
+export interface BoardRowStaleRemoval {
+  reason: string;
+  /** The leader that removed it. */
+  removedBy: string;
+  removedAt: number;
 }
 
 export interface BoardRowAutoCheckpoint {

@@ -13,6 +13,7 @@ import {
   readOptionalRichTextOption,
 } from "./takode-core.js";
 import { handleRecordDelivery } from "./takode-record-delivery.js";
+import { handleStaleBoardRowRemoval } from "./takode-board-stale-rows.js";
 import { handleDeliveryTarget, deliveryTargetFlag, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import type { QuestDeliveryView } from "../shared/quest-delivery.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
@@ -65,7 +66,7 @@ Subcommands:
   replace-work-evidence <quest-id>
                           Audited correction of invalid Work commit evidence
   advance <quest-id>      Move through non-Work Journey boundaries
-  rm <quest-id> [...]     Remove quests from the active board
+  rm <quest-id> [...]     Remove quests from the active board (--leader: another stopped leader's stale row)
 
 Examples:
   takode board show
@@ -166,10 +167,7 @@ export const BOARD_REPLACE_WORK_EVIDENCE_HELP = `Usage: takode board replace-wor
 Authenticated worker-owned correction for invalid structured Work code commit evidence. The expected list must exactly match the currently stored ordered list, the replacement cannot contain fewer commits, and each list is limited to ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS} unique commits. Replacement commits are resolved to full SHAs and must be reachable from the configured selected-target checkout. This command does not advance the Journey; refresh the current Work note and use the ordinary guarded Work -> Memory transition afterward.
 `;
 
-export const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
-
-Remove one or more quests from the active board.
-`;
+export { BOARD_RM_HELP } from "./takode-board-stale-rows.js";
 
 interface BoardRow {
   questId: string;
@@ -181,6 +179,7 @@ interface BoardRow {
   waitFor?: string[];
   waitForInput?: string[];
   openQuestions?: string[];
+  staleRemoval?: { reason: string; removedBy: string; removedAt: number };
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -525,6 +524,10 @@ function printBoardDetailText(
   console.log(`worker/reviewer: ${formatBoardWorkerReviewerSummary(row, rowStatus)}`);
   console.log(`wait-for: ${formatBoardRowWaitForState(row, context)}`);
   console.log(`action: ${formatBoardRowNextAction(row, context)}`);
+  if (row.staleRemoval) {
+    const removedAt = formatTimestampCompact(row.staleRemoval.removedAt);
+    console.log(`removed as stale by another leader (${removedAt}): ${row.staleRemoval.reason}`);
+  }
   if (journeyPathLine) console.log(journeyPathLine);
   if (noteLines.length > 0) {
     console.log("notes:");
@@ -652,9 +655,11 @@ function printBoardText(
         `${"".padEnd(qCol)} ${"".padEnd(tCol)} ${"".padEnd(ownerCol)} ${"".padEnd(sCol)} ${"".padEnd(waitCol)} ${journeyPathLine}`,
       );
     }
-    for (const noteLine of formatBoardPhaseNoteLines(row)) {
+    const detailLines = [...formatBoardPhaseNoteLines(row)];
+    if (row.staleRemoval) detailLines.push(`Removed as stale by another leader: ${row.staleRemoval.reason}`);
+    for (const detailLine of detailLines) {
       console.log(
-        `${"".padEnd(qCol)} ${"".padEnd(tCol)} ${"".padEnd(ownerCol)} ${"".padEnd(sCol)} ${"".padEnd(waitCol)} ${noteLine}`,
+        `${"".padEnd(qCol)} ${"".padEnd(tCol)} ${"".padEnd(ownerCol)} ${"".padEnd(sCol)} ${"".padEnd(waitCol)} ${detailLine}`,
       );
     }
   }
@@ -1467,6 +1472,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   }
 
   if (sub === "rm") {
+    if (args.includes("--leader")) return handleStaleBoardRowRemoval(base, args.slice(1));
     const questIds = args.slice(1).filter((a) => !a.startsWith("--"));
     if (questIds.length === 0) err("Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]");
     const invalid = questIds.filter((id) => !isValidQuestId(id));

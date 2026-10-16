@@ -62,6 +62,7 @@ import { formatLeaderRecoveryWarning, QUEST_LEADER_RECOVERY_WARNING_HEADER } fro
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
+import { isBoardLeaderStopped, preferRowsOnRunningLeaders } from "../bridge/board-stale-rows.js";
 import {
   getPreviousQuestOwners,
   getQuestDisplayOwner,
@@ -361,7 +362,15 @@ function findActiveV2BoardRowsForQuest(
     );
     if (row) rows.push({ leaderSessionId: bridgeSession.id, row });
   }
-  return rows;
+  return preferRowsOnRunningLeaders(rows, leaderStoppedCheck(launcher, wsBridge));
+}
+
+function leaderStoppedCheck(
+  launcher: RouteContext["launcher"],
+  wsBridge: RouteContext["wsBridge"],
+): (leaderSessionId: string) => boolean {
+  return (leaderSessionId) =>
+    isBoardLeaderStopped(launcher.getSession(leaderSessionId), wsBridge.getSession(leaderSessionId));
 }
 
 function countFinalMemoryStatements(
@@ -676,7 +685,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       const row = wsBridge.getSession(leaderSessionId)?.board?.get(quest.questId);
       if (row) candidates.push({ leaderSessionId, row });
     }
-    return candidates;
+    return preferRowsOnRunningLeaders(candidates, leaderStoppedCheck(launcher, wsBridge));
   };
 
   const boardAssignsQuestToWorker = (quest: QuestmasterTask, workerSessionId: string): boolean =>

@@ -59,6 +59,7 @@ import {
   type ActiveWorkPhaseContext,
 } from "./work-evidence-context.js";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
+import { registerStaleBoardRowRoutes } from "./takode-board-stale-rows.js";
 import {
   boardRowLanding,
   createLandingQuestHandoff,
@@ -340,6 +341,14 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
   };
 
   registerWorkDeliveryRoutes(api, { launcher, wsBridge, authenticateTakodeCaller, acquireWorkEvidenceMutationLock });
+  registerStaleBoardRowRoutes(api, {
+    launcher,
+    wsBridge,
+    authenticateTakodeCaller,
+    resolveId,
+    workBoardStateDeps,
+    isWorkEvidenceMutationLocked,
+  });
   wsBridge.landingHandoff = createLandingQuestHandoff({ launcher, wsBridge, workBoardStateDeps });
 
   function syncDoneQuestBoardState(questId: string, cancelled: boolean): void {

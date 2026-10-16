@@ -37,7 +37,7 @@ export interface ProgrammaticPauseMessageInput {
 }
 
 export function isSessionPaused(session: PauseableSession | null | undefined): boolean {
-  return !!session?.state.pause?.pausedAt;
+  return !!session?.state?.pause?.pausedAt;
 }
 
 export function getPauseState(session: PauseableSession | null | undefined): SessionPauseState | null {
