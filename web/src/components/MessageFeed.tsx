@@ -351,6 +351,7 @@ export function MessageFeed({
     leaderMode: collapseLeaderThreadActivity,
     leadingTurnId: selectedFeedWindow?.leading_turn_id,
     leaderSessionMode: isLeaderSession && isCodexSession,
+    peerLeaderTurns: isLeaderSession,
     frozenRevision,
     sessionNotifications: feedMessageModel.displayNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,

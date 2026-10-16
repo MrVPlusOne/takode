@@ -563,6 +563,30 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("Leader activity")).toBeNull();
   });
 
+  it.each(["main", "all"])("starts a turn at another leader's message in a leader's %s view", (threadKey) => {
+    // Regression: only selected quest threads split at other leaders' messages, so
+    // in Main and All a `takode send` from another leader hid inside the previous
+    // collapsed turn. The peer message's source is the sending leader's session UUID.
+    const sid = `test-leader-peer-turn-${threadKey}`;
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Push the deadlines to Monday" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Done, the to-dos now assume Monday." }),
+      makeMessage({
+        id: "peer-1",
+        role: "user",
+        content: "From DevBox leader #2851: leader instructions changed today.",
+        agentSource: { sessionId: "188a55a7-7eb4-4ca0-a351-b8986242948f", sessionLabel: "#2851 DevBox takode" },
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "Noted the new routing rules." }),
+    ]);
+
+    const { container } = render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+
+    const turnIds = [...container.querySelectorAll("[data-turn-id]")].map((el) => el.getAttribute("data-turn-id"));
+    expect(turnIds).toEqual(["u1", "peer-1"]);
+  });
+
   it("keeps the latest dense selected quest-thread turn expanded for leader sessions", () => {
     // Generated multi-thread activity must not collapse the active leader turn
     // before a later real human user message bounds it.

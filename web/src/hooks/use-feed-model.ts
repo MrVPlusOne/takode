@@ -666,11 +666,10 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
   return subConclusions;
 }
 
-function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
-  // Split at the user's messages and at other leaders' messages, so a leader's
-  // message and the reply under it are not hidden inside an older collapsed turn.
-  // Deprecated assistant suffix tags are literal text and never split turns.
-  if (isUserBoundaryEntry(entry)) return true;
+function isPeerLeaderMessageEntry(entry: FeedEntry): boolean {
+  // In a leader session, a message another session sent is another leader's, and
+  // it starts its own turn so it and the reply under it are not hidden inside an
+  // older collapsed turn. Deprecated assistant suffix tags never split turns.
   return (
     entry.kind === "message" && entry.msg.role === "user" && isSessionSentSourceId(entry.msg.agentSource?.sessionId)
   );
@@ -1333,7 +1332,8 @@ function makeTurn(
 }
 
 /** Group flat feed entries into turns.
- *  Leader mode splits on the user's messages and on other leaders' messages.
+ *  Turns start at the user's messages and, with `peerLeaderTurns` (every view of
+ *  a leader session: Main, All and quest threads), at other leaders' messages.
  *  Takode-injected user-shaped updates (herd events, timers, reminders) carry
  *  agentSource and remain inside the current agent turn. */
 export function groupIntoTurns(
@@ -1344,15 +1344,15 @@ export function groupIntoTurns(
   userBoundarySourceSessionId?: string | null,
   visibleAssistantChildMessageIds?: ReadonlySet<string>,
   leaderSessionMode = leaderMode,
+  peerLeaderTurns = leaderMode,
 ): Turn[] {
   const turns: Turn[] = [];
   let currentUser: FeedEntry | null = null;
   let currentEntries: FeedEntry[] = [];
 
   for (const entry of entries) {
-    const isBoundary = leaderMode
-      ? isLeaderBoundaryEntry(entry)
-      : isUserBoundaryEntry(entry, userBoundarySourceSessionId);
+    const isBoundary =
+      isUserBoundaryEntry(entry, userBoundarySourceSessionId) || (peerLeaderTurns && isPeerLeaderMessageEntry(entry));
     if (isBoundary) {
       // Flush previous turn
       if (currentUser !== null || currentEntries.length > 0) {
@@ -1401,6 +1401,7 @@ export function buildFeedModel(
   userBoundarySourceSessionId?: string | null,
   visibleAssistantChildMessageIds?: ReadonlySet<string> | readonly string[],
   leaderSessionMode = leaderMode,
+  peerLeaderTurns = leaderMode,
 ): FeedModel {
   const anchoredIds =
     anchoredNotificationMessageIds instanceof Set
@@ -1419,6 +1420,7 @@ export function buildFeedModel(
     userBoundarySourceSessionId,
     visibleChildIds,
     leaderSessionMode,
+    peerLeaderTurns,
   );
   return { entries, turns };
 }
@@ -1492,6 +1494,8 @@ export function useFeedModel(
   config?: {
     leaderMode?: boolean;
     leaderSessionMode?: boolean;
+    /** Start a turn at each message another leader sent; on in every view of a leader session. */
+    peerLeaderTurns?: boolean;
     frozenCount?: number;
     frozenRevision?: number;
     anchoredNotificationMessageIds?: readonly string[];
@@ -1504,6 +1508,7 @@ export function useFeedModel(
 ): FeedModel {
   const leaderMode = config?.leaderMode ?? false;
   const leaderSessionMode = config?.leaderSessionMode ?? leaderMode;
+  const peerLeaderTurns = config?.peerLeaderTurns ?? leaderMode;
   const frozenCount = Math.max(0, Math.min(config?.frozenCount ?? 0, messages.length));
   const frozenRevision = config?.frozenRevision ?? 0;
   const anchoredNotificationMessageIds = config?.anchoredNotificationMessageIds ?? [];
@@ -1517,6 +1522,7 @@ export function useFeedModel(
   const cacheRef = useRef<{
     leaderMode: boolean;
     leaderSessionMode: boolean;
+    peerLeaderTurns: boolean;
     frozenCount: number;
     frozenRevision: number;
     anchoredNotificationSignature: string;
@@ -1536,6 +1542,7 @@ export function useFeedModel(
       cached &&
       cached.leaderMode === leaderMode &&
       cached.leaderSessionMode === leaderSessionMode &&
+      cached.peerLeaderTurns === peerLeaderTurns &&
       cached.frozenCount === frozenCount &&
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
@@ -1548,6 +1555,7 @@ export function useFeedModel(
       cached &&
       cached.leaderMode === leaderMode &&
       cached.leaderSessionMode === leaderSessionMode &&
+      cached.peerLeaderTurns === peerLeaderTurns &&
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
       cached.userBoundarySourceSessionId === userBoundarySourceSessionId &&
@@ -1564,6 +1572,7 @@ export function useFeedModel(
         userBoundarySourceSessionId,
         visibleAssistantChildMessageIds,
         leaderSessionMode,
+        peerLeaderTurns,
       );
       frozenModel = concatFeedModels(
         cached.frozenModel,
@@ -1583,12 +1592,14 @@ export function useFeedModel(
         userBoundarySourceSessionId,
         visibleAssistantChildMessageIds,
         leaderSessionMode,
+        peerLeaderTurns,
       );
     }
 
     cacheRef.current = {
       leaderMode,
       leaderSessionMode,
+      peerLeaderTurns,
       frozenCount,
       frozenRevision,
       anchoredNotificationSignature,
@@ -1606,6 +1617,7 @@ export function useFeedModel(
       userBoundarySourceSessionId,
       visibleAssistantChildMessageIds,
       leaderSessionMode,
+      peerLeaderTurns,
     );
     const combined = concatFeedModels(
       frozenModel,
@@ -1627,6 +1639,7 @@ export function useFeedModel(
     messages,
     leaderMode,
     leaderSessionMode,
+    peerLeaderTurns,
     frozenCount,
     frozenRevision,
     anchoredNotificationMessageIds,

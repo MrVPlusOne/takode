@@ -91,6 +91,7 @@ describe("selected-window leading turn identity", () => {
           isCodexSession: true,
           leaderMode: true,
           leaderSessionMode: true,
+          peerLeaderTurns: true,
           sessionNotifications: undefined,
           userBoundarySourceSessionId: null,
           leadingTurnId: window.leading_turn_id,
@@ -138,6 +139,72 @@ describe("selected-window leading turn identity", () => {
     expect(result.current.turns[0]?.id).toBe("human-second");
     rerender({ leadingTurnId: undefined });
     expect(result.current.turns[0]?.id).toBe("turn-a-injected-start");
+  });
+
+  it("starts a turn at another leader's message in a Claude leader's Main thread, in the server window and the browser", () => {
+    // Regression: Main and All views split turns only at the user's messages, so
+    // a peer leader's message hid inside the previous collapsed turn while the
+    // server's Main window already started a turn there. The peer message is the
+    // exact shape `takode send` from another leader stores.
+    const human: BrowserIncomingMessage = {
+      type: "user_message",
+      id: "user-1792178000000-1",
+      content: "Push the to-do deadlines to Monday afternoon.",
+      timestamp: 1,
+      threadKey: "main",
+    };
+    const peerLeaderMessage: BrowserIncomingMessage = {
+      type: "user_message",
+      content: "From DevBox leader #2851, at Jiayi's request: Takode's leader instructions changed today.",
+      timestamp: 1792183179045,
+      id: "user-1792183179045-6",
+      agentSource: { sessionId: "188a55a7-7eb4-4ca0-a351-b8986242948f", sessionLabel: "#2851 DevBox takode" },
+      threadKey: "main",
+    };
+    const mainAssistant = (id: string, timestamp: number): BrowserIncomingMessage => ({
+      ...assistant(id, timestamp),
+      threadKey: "main",
+      questId: undefined,
+      threadRefs: undefined,
+    });
+    const history = [human, mainAssistant("answer", 2), peerLeaderMessage, mainAssistant("reply", 4)];
+    const mainWindow = (fromItem: number, itemCount: number) =>
+      buildThreadWindowSync({
+        messageHistory: history,
+        threadKey: "main",
+        fromItem,
+        itemCount,
+        sectionItemCount: 2,
+        visibleItemCount: 3,
+      });
+    const full = mainWindow(0, 4);
+    const tail = mainWindow(full.window.total_items - 1, 1);
+    expect(tail.window.leading_turn_id).toBe(peerLeaderMessage.id);
+
+    const { result, rerender } = renderHook(
+      ({ window }) =>
+        useCodexSafeFeedModel({
+          messages: normalizedMessages(window),
+          frozenCount: 0,
+          frozenRevision: 0,
+          isCodexSession: false,
+          leaderMode: false,
+          leaderSessionMode: false,
+          peerLeaderTurns: true,
+          sessionNotifications: undefined,
+          userBoundarySourceSessionId: null,
+          leadingTurnId: window.window.leading_turn_id,
+          perf: { sessionId: SESSION_ID, threadKey: "main" },
+        }),
+      { initialProps: { window: full } },
+    );
+
+    expect(result.current.turns.map((turn) => turn.id)).toEqual([human.id, peerLeaderMessage.id]);
+    // The peer message heads its own turn, so collapsing the earlier turn keeps it
+    // and the reply under it visible.
+    expect(result.current.turns[1]?.lastMessageEntry?.msg.id).toBe("reply");
+    rerender({ window: tail });
+    expect(result.current.turns.map((turn) => turn.id)).toEqual([peerLeaderMessage.id]);
   });
 
   it("preserves loaded human boundaries and all later turn identities", () => {
