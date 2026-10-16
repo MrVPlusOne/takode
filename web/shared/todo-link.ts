@@ -1,3 +1,5 @@
+import type { TodoItemSummaries, TodoItemSummary, TodoState } from "./todo-types.js";
+
 /**
  * Takode link syntax for personal to-dos: `[title](todo:td-12)`. Users never see to-do IDs, so the
  * visible label stays human-readable. The link opens a preview.
@@ -19,6 +21,28 @@ export function parseTodoLinkHref(href?: string): TodoLinkTarget | null {
   if (!match) return null;
   const prefix = match[1]!.toLowerCase();
   return { kind: prefix === "td" ? "item" : "proposal", id: `${prefix}-${Number.parseInt(match[2]!, 10)}` };
+}
+
+/** The compact summaries of a to-do list, as `GET /todos/item-summaries` returns them. */
+export function summarizeTodoItems(state: Pick<TodoState, "items" | "revision">): TodoItemSummaries {
+  const items: TodoItemSummaries["items"] = {};
+  const proposalItems: TodoItemSummaries["proposalItems"] = {};
+  for (const item of state.items) {
+    items[item.id] = {
+      status: item.status,
+      ...(item.due ? { due: item.due } : {}),
+      ...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
+    };
+    const proposalId = item.createdBy.authorization.proposalId;
+    if (proposalId) proposalItems[proposalId] = item.id;
+  }
+  return { items, proposalItems, revision: state.revision };
+}
+
+/** The to-do a link names, or for a retired proposal's link the to-do it created; null when there is none. */
+export function todoLinkSummary(summaries: TodoItemSummaries, target: TodoLinkTarget): TodoItemSummary | null {
+  const itemId = target.kind === "item" ? target.id : summaries.proposalItems[target.id];
+  return (itemId && summaries.items[itemId]) || null;
 }
 
 /** Build a ready-to-paste Markdown link to a to-do, e.g. `[Review PR 98888](todo:td-36)`. */

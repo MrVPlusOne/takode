@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { summarizeTodoItems } from "../../../shared/todo-link.js";
 import type { TodoItem, TodoMutationProvenance, TodoState, TodoStatus } from "../../../shared/todo-types.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { type TodoLinkSource, TodoLinkSourceContext } from "../TodoInlineLink.js";
@@ -44,7 +45,7 @@ function demoState(): TodoState {
     schemaVersion: 3,
     revision: 1,
     updatedAt: 1,
-    nextItemId: 34,
+    nextItemId: 35,
     nextCategoryId: 2,
     categories: [
       { id: "cat-inbox", name: "Inbox", createdAt: 1, updatedAt: 1, createdBy: SYSTEM, lastModifiedBy: SYSTEM },
@@ -103,14 +104,28 @@ function demoState(): TodoState {
         createdBy: FROM_PROPOSAL,
         lastModifiedBy: FROM_PROPOSAL,
       },
+      {
+        id: "td-34",
+        markdown: "Book the team dinner",
+        rank: 5120,
+        categoryId: "cat-inbox",
+        status: "todo",
+        archivedAt: HOURS_AGO(2),
+        createdAt: 1,
+        updatedAt: HOURS_AGO(2),
+        statusChangedAt: 1,
+        createdBy: SYSTEM,
+        lastModifiedBy: SYSTEM,
+      },
     ],
   };
 }
 
 /**
- * To-do links in prose: tapping one opens its preview, where the to-do can be changed and an
- * agent-added one shows who added it, from where, and on what authority it was last changed. Links
- * to retired proposals from older messages open the to-do the proposal created, or say it never was.
+ * To-do links in prose, each marked with its to-do's status (Todo, Doing, Done, overdue, archived,
+ * not found): tapping one opens its preview, where the to-do can be changed and an agent-added one
+ * shows who added it, from where, and on what authority it was last changed. Links to retired
+ * proposals from older messages stand for the to-do the proposal created, or say it never was.
  */
 export function PlaygroundTodoLinkDemo() {
   // Changes affect only this demo's in-memory copy, never the real list.
@@ -136,6 +151,7 @@ export function PlaygroundTodoLinkDemo() {
       };
     };
     return {
+      itemSummaries: { load: async () => summarizeTodoItems(stateRef.current) },
       loadState: async () => stateRef.current,
       setItemStatus: async (itemId, status) => {
         const previous = stateRef.current.items.find((item) => item.id === itemId)?.status;
@@ -158,7 +174,7 @@ export function PlaygroundTodoLinkDemo() {
 
   return (
     <TodoLinkSourceContext.Provider value={source}>
-      <MarkdownContent text="To-dos: [Ship the export feature](todo:td-31) (doing, linked quest), [Reply to Alice about the offsite](todo:td-30) and [Check Junhong's QA-grading PR](todo:td-32) (added by an agent, marked done under a standing approval). Older proposal links: [PR 98888 review](todo:tp-36) (opens the to-do it created) and [file the September expense report](todo:tp-35) (never added)." />
+      <MarkdownContent text="To-dos: [Ship the export feature](todo:td-31) (doing, linked quest), [Reply to Alice about the offsite](todo:td-30) (overdue), [Check Junhong's QA-grading PR](todo:td-32) (added by an agent, marked done under a standing approval) and [Book the team dinner](todo:td-34) (archived). Older proposal links: [PR 98888 review](todo:tp-36) (opens the to-do it created) and [file the September expense report](todo:tp-35) (never added)." />
     </TodoLinkSourceContext.Provider>
   );
 }

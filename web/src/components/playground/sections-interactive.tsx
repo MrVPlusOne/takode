@@ -1681,7 +1681,7 @@ export function PlaygroundInteractiveSections() {
           <Card label="Needs-input notification links show the prompt and its status">
             <PlaygroundNotificationLinkDemo />
           </Card>
-          <Card label="To-do links carry a marker and open a preview with who added the to-do; old proposal links open the to-do they created">
+          <Card label="To-do links show the to-do's status and open a preview with who added it; old proposal links stand for the to-do they created">
             <PlaygroundTodoLinkDemo />
           </Card>
         </div>

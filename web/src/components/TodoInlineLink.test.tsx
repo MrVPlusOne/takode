@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { TodoItem, TodoMutationProvenance, TodoState } from "../../shared/todo-types.js";
+import { summarizeTodoItems } from "../../shared/todo-link.js";
+import type { TodoItem, TodoItemSummaries, TodoMutationProvenance, TodoState } from "../../shared/todo-types.js";
 import { useStore } from "../store.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
@@ -64,14 +65,20 @@ function withItem(overrides: Partial<TodoItem>, revision = 5): TodoState {
   return state;
 }
 
+/** The status marker at the start of the link named `name`. */
+const markerOf = (name: string) =>
+  screen.getByRole("link", { name }).querySelector<SVGElement>('[data-testid="todo-link-marker"]')!;
+
 const statusButton = (name: string) =>
   within(screen.getByRole("group", { name: "Status" })).getByRole("button", { name });
 
-// Each test supplies only the to-do changes it exercises.
+// Each test supplies only the to-do changes it exercises. Link markers read the default list unless
+// a test supplies its own summaries.
 type PreviewSource = Pick<TodoLinkSource, "loadState"> & Partial<TodoLinkSource>;
 
 function renderLink(source: PreviewSource, text = "Ready to [reply to Alice](todo:td-1)?") {
   const full: TodoLinkSource = {
+    itemSummaries: { load: async () => summarizeTodoItems(todoState()) },
     setItemStatus: vi.fn(),
     editItem: vi.fn(),
     setItemDue: vi.fn(),
@@ -171,16 +178,14 @@ describe("to-do links", () => {
   });
 
   it("opens a link to a retired proposal as the to-do it created, or says it was never added", async () => {
-    // Older messages still hold proposal links. Every to-do link carries the same checklist marker,
-    // and an approved proposal's link opens the to-do its approval created.
+    // Older messages still hold proposal links. An approved proposal's link stands for the to-do its
+    // approval created, marker included; one that never created a to-do is marked as not found.
     renderLink(
       { loadState: async () => todoState() },
       "The [PR 98888 review](todo:tp-36) may only need the stamp; [the expense report](todo:tp-35) was rejected.",
     );
-    for (const name of ["PR 98888 review", "the expense report"]) {
-      const marker = screen.getByRole("link", { name }).querySelector<SVGElement>('[data-testid="todo-link-marker"]');
-      expect(marker?.dataset.marker).toBe("item");
-    }
+    await waitFor(() => expect(markerOf("PR 98888 review").dataset.status).toBe("todo"));
+    expect(markerOf("the expense report").dataset.status).toBe("missing");
 
     fingerTap(screen.getByRole("link", { name: "PR 98888 review" }));
     const dialog = await screen.findByRole("dialog", { name: "To-do" });
@@ -192,6 +197,100 @@ describe("to-do links", () => {
     fingerTap(screen.getByRole("link", { name: "the expense report" }));
     await screen.findByText(/a feature Takode no longer has\. It wasn't added to your list\./);
     expect(screen.queryByRole("group", { name: "Status" })).toBeNull();
+  });
+
+  it("shows each to-do's current status on its link, invisible until the statuses load", async () => {
+    // The marker follows the To-dos page: Todo, Doing and Done, red once overdue, plus archived and
+    // missing to-dos. Until the statuses load it keeps its place but stays invisible, so it never
+    // shows a wrong state and nothing shifts when they arrive.
+    let finishLoad!: (summaries: TodoItemSummaries) => void;
+    const load = vi.fn(() => new Promise<TodoItemSummaries>((resolve) => (finishLoad = resolve)));
+    renderLink(
+      { loadState: vi.fn(), itemSummaries: { load } },
+      "[open](todo:td-1), [started](todo:td-2), [finished](todo:td-3), [parked](todo:td-4), [late](todo:td-5), " +
+        "[late and started](todo:td-6), [due later](todo:td-7), [old done](todo:td-8), [proposed](todo:tp-36), " +
+        "[gone](todo:td-9), [never added](todo:tp-35)",
+    );
+    const open = markerOf("open");
+    expect(open.dataset.status).toBe("loading");
+    expect(open.getAttribute("class")).toContain("invisible");
+    expect(screen.getByRole("link", { name: "open" }).getAttribute("title")).toBe("Preview to-do");
+    // Every link shares one load.
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+
+    await act(async () =>
+      finishLoad({
+        items: {
+          "td-1": { status: "todo" },
+          "td-2": { status: "doing" },
+          "td-3": { status: "done" },
+          "td-4": { status: "todo", archivedAt: 1 },
+          "td-5": { status: "todo", due: "2020-01-02" },
+          "td-6": { status: "doing", due: "2020-01-02T09:00" },
+          "td-7": { status: "todo", due: "2999-01-01" },
+          // A Done or archived to-do is never overdue.
+          "td-8": { status: "done", due: "2020-01-02" },
+          "td-10": { status: "doing" },
+        },
+        proposalItems: { "tp-36": "td-10" },
+        revision: 3,
+      }),
+    );
+    // The same element changes state in place rather than being replaced.
+    expect(markerOf("open")).toBe(open);
+    expect(open.dataset.status).toBe("todo");
+    expect(open.getAttribute("class")).not.toContain("invisible");
+    const statuses = Object.fromEntries(
+      ["started", "finished", "parked", "late", "late and started", "due later", "old done", "proposed", "gone"].map(
+        (name) => [name, markerOf(name).dataset.status],
+      ),
+    );
+    expect(statuses).toEqual({
+      started: "doing",
+      finished: "done",
+      parked: "archived",
+      late: "overdue-todo",
+      "late and started": "overdue-doing",
+      "due later": "todo",
+      "old done": "done",
+      proposed: "doing",
+      gone: "missing",
+    });
+    expect(markerOf("never added").dataset.status).toBe("missing");
+    // The marker is hidden from screen readers; hovering the link names the status.
+    expect(screen.getByRole("link", { name: "late and started" }).getAttribute("title")).toBe(
+      "Preview to-do · Doing, overdue",
+    );
+  });
+
+  it("gives links shown later their status at once and keeps statuses current", async () => {
+    // Scrolling or switching threads remounts links; they must render their final marker from the
+    // shared statuses, not load and change in front of the user.
+    const load = vi
+      .fn<() => Promise<TodoItemSummaries>>()
+      .mockResolvedValueOnce(summarizeTodoItems(withItem({ status: "doing" }, 5)))
+      .mockResolvedValueOnce(summarizeTodoItems(withItem({ status: "todo" }, 8)))
+      .mockResolvedValueOnce(summarizeTodoItems(withItem({ status: "doing" }, 7)));
+    const setItemStatus = vi.fn(async () => ({ state: withItem({ status: "done", completedAt: Date.now() }, 6) }));
+    const source = { itemSummaries: { load }, loadState: async () => withItem({ status: "doing" }, 5), setItemStatus };
+    const first = renderLink(source);
+    await waitFor(() => expect(markerOf("reply to Alice").dataset.status).toBe("doing"));
+    first.unmount();
+
+    renderLink(source);
+    expect(markerOf("reply to Alice").dataset.status).toBe("doing");
+
+    // Marking it done in the preview updates the link right away, before any reload.
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    await waitFor(() => expect(markerOf("reply to Alice").dataset.status).toBe("done"));
+
+    // A change elsewhere reloads the statuses; an answer older than what the page has is ignored.
+    await act(async () => window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT)));
+    await waitFor(() => expect(markerOf("reply to Alice").dataset.status).toBe("todo"));
+    await act(async () => window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT)));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    expect(markerOf("reply to Alice").dataset.status).toBe("todo");
   });
 
   it("moves a to-do to Done from its preview and offers the To-dos page's Undo", async () => {

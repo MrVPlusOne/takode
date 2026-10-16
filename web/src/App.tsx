@@ -50,6 +50,7 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
+import { SERVER_TODO_ITEM_SUMMARIES, watchTodoItemSummaries } from "./components/todo-item-summaries.js";
 import { ATTENTION_NEXT_EVENT } from "./components/GlobalAttentionMenu.js";
 import { EmptyState } from "./components/EmptyState.js";
 import {
@@ -490,6 +491,10 @@ export default function App() {
       shell.inert = false;
     };
   }, [isMobileSidebarHidden]);
+
+  // Load to-do statuses at app start, so to-do links in the first messages shown already have
+  // their status marker instead of gaining it a moment later.
+  useEffect(() => watchTodoItemSummaries(SERVER_TODO_ITEM_SUMMARIES), []);
 
   useEffect(() => {
     const el = document.documentElement;

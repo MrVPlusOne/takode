@@ -123,9 +123,17 @@ export interface TodoCategoryCreateInput {
   name: string;
 }
 
-/** `GET /todos/due-dates`: the due dates of current Todo and Doing items, without the rest of the list. */
-export interface TodoDueDates {
-  dues: string[];
+/** What to-do links and the overdue count need to know about one to-do. */
+export type TodoItemSummary = Pick<TodoItem, "status" | "due" | "archivedAt">;
+
+/**
+ * `GET /todos/item-summaries`: every to-do's status, due date and archive time, without the rest
+ * of the list, for the status markers on to-do links and the overdue count on the To-dos button.
+ */
+export interface TodoItemSummaries {
+  items: Record<string, TodoItemSummary>;
+  /** The to-do each retired proposal created, for `todo:tp-N` links in older messages. */
+  proposalItems: Record<string, string>;
   revision: number;
 }
 

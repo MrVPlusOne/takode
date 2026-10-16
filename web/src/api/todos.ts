@@ -1,8 +1,8 @@
 import type {
-  TodoDueDates,
   TodoItemCreateInput,
   TodoItemEditInput,
   TodoItemMoveInput,
+  TodoItemSummaries,
   TodoLinkedQuest,
   TodoState,
   TodoStateMutationResponse,
@@ -27,7 +27,7 @@ async function request<T>(path: string, options?: { method?: "GET" | "POST" | "P
 export const todoApi = {
   getTodoState: () => request<TodoState>("/todos"),
 
-  getTodoDueDates: () => request<TodoDueDates>("/todos/due-dates"),
+  getTodoItemSummaries: () => request<TodoItemSummaries>("/todos/item-summaries"),
 
   getTodoLinkedQuests: () => request<{ quests: TodoLinkedQuest[]; revision: number }>("/todos/linked-quests"),
 

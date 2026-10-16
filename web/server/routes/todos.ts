@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import type {
   TodoCompactItem,
-  TodoDueDates,
   TodoItem,
   TodoItemListFilters,
   TodoLinkedQuest,
@@ -10,6 +9,7 @@ import type {
   TodoStatus,
 } from "../../shared/todo-types.js";
 import { TODO_STATUSES } from "../../shared/todo-types.js";
+import { summarizeTodoItems } from "../../shared/todo-link.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import * as questStore from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
@@ -195,16 +195,13 @@ export function createTodoRoutes(
   });
 
   /**
-   * Due dates of current Todo and Doing items, for the overdue count on the To-dos button. The
-   * browser decides which are overdue in the user's time zone, so the count stays right as time passes.
+   * Each to-do's status, due date and archive time alone, for the status markers on to-do links
+   * and the overdue count on the To-dos button. The browser decides which are overdue in the user's
+   * time zone, so markers and the count stay right as time passes.
    */
-  api.get("/todos/due-dates", async (c) => {
+  api.get("/todos/item-summaries", async (c) => {
     try {
-      const state = await store.snapshot();
-      const dues = state.items.flatMap((item) =>
-        item.due && item.status !== "done" && !item.archivedAt ? [item.due] : [],
-      );
-      return c.json({ dues, revision: state.revision } satisfies TodoDueDates);
+      return c.json(summarizeTodoItems(await store.snapshot()));
     } catch (error) {
       return errorResponse(c, error);
     }

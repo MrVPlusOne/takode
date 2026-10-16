@@ -443,12 +443,16 @@ describe("to-do routes", () => {
     optionalCaller = null;
     const list = await (await jsonRequest("/todos/items")).json();
     expect(list.items.find((entry: { id: string }) => entry.id === item.id).due).toBe("2026-10-16T14:30");
-    // The To-dos button's count reads only the due dates of current items.
+    // The To-dos button's count and to-do link markers read only each to-do's status, due date
+    // and archive time; the browser decides which are overdue.
     await jsonRequest(`/todos/items/${dated.id}/status`, "POST", { status: "done" });
-    expect(await (await jsonRequest("/todos/due-dates")).json()).toMatchObject({ dues: ["2026-10-16T14:30"] });
+    const summaries = await (await jsonRequest("/todos/item-summaries")).json();
+    expect(summaries.items[dated.id]).toEqual({ status: "done", due: "2026-10-20" });
+    expect(summaries.items[item.id]).toEqual({ status: "todo", due: "2026-10-16T14:30" });
+    expect(summaries.revision).toBe((await store.snapshot()).revision);
 
     const cleared = await (await jsonRequest(`/todos/items/${item.id}/due`, "POST", { due: null })).json();
     expect(cleared.item.due).toBeUndefined();
-    expect((await (await jsonRequest("/todos/due-dates")).json()).dues).toEqual([]);
+    expect((await (await jsonRequest("/todos/item-summaries")).json()).items[item.id]).toEqual({ status: "todo" });
   });
 });

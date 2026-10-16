@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { TodoLinkTarget } from "../../shared/todo-link.js";
+import { summarizeTodoItems, todoLinkSummary, type TodoLinkTarget } from "../../shared/todo-link.js";
 import { isTodoOverdue } from "../../shared/todo-due.js";
 import {
   TODO_STATUSES,
@@ -19,10 +19,18 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { CalendarIcon, formatTodoDue, TodoDueEditor } from "./TodoDueControls.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
+import {
+  applyTodoItemSummaries,
+  SERVER_TODO_ITEM_SUMMARIES,
+  type TodoItemSummarySource,
+  useTodoItemSummaries,
+} from "./todo-item-summaries.js";
 import { TodoProvenance } from "./TodoProvenance.js";
 
-/** Where to-do links read the list and change a to-do; the Playground swaps in mock data. */
+/** Where to-do links read statuses and the list and change a to-do; the Playground swaps in mock data. */
 export interface TodoLinkSource {
+  /** Every to-do's status for the markers, shared with the overdue count. */
+  itemSummaries: TodoItemSummarySource;
   loadState: () => Promise<TodoState>;
   setItemStatus: (itemId: string, status: TodoStatus) => Promise<TodoStateMutationResponse>;
   editItem: (itemId: string, markdown: string) => Promise<TodoStateMutationResponse>;
@@ -32,6 +40,7 @@ export interface TodoLinkSource {
 }
 
 const SERVER_TODO_LINK_SOURCE: TodoLinkSource = {
+  itemSummaries: SERVER_TODO_ITEM_SUMMARIES,
   loadState: () => api.getTodoState(),
   setItemStatus: (itemId, status) => api.setTodoItemStatus(itemId, status),
   editItem: (itemId, markdown) => api.editTodoItem(itemId, { markdown }),
@@ -46,10 +55,11 @@ const STATUS_LABELS: Record<TodoStatus, string> = { todo: "Todo", doing: "Doing"
 
 /**
  * Inline link for `todo:td-<n>` hrefs, and for `todo:tp-<n>` links to retired to-do proposals in
- * older messages. A small leading marker sets it apart from web links. Clicking or tapping it opens
- * a preview, a bottom sheet on phones and a centered dialog on wider screens, where the to-do can be
- * edited, moved between Todo, Doing and Done and given a due date. A proposal link previews the
- * to-do its approval created, if any. The href falls back to the to-dos page for new tabs.
+ * older messages. A small leading marker shows the to-do's current status and sets the link apart
+ * from web links. Clicking or tapping it opens a preview, a bottom sheet on phones and a centered
+ * dialog on wider screens, where the to-do can be edited, moved between Todo, Doing and Done and
+ * given a due date. A proposal link stands for the to-do its approval created, if any. The href
+ * falls back to the to-dos page for new tabs.
  */
 export function TodoInlineLink({
   target,
@@ -64,6 +74,7 @@ export function TodoInlineLink({
 }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
+  const status = useTodoLinkStatus(target);
   return (
     <>
       <a
@@ -75,10 +86,10 @@ export function TodoInlineLink({
           setOpen(true);
         }}
         className={className ?? "text-cc-primary hover:underline"}
-        title="Preview to-do"
+        title={status ? `Preview to-do · ${LINK_STATUS_LABELS[status]}` : "Preview to-do"}
         data-testid="todo-inline-link"
       >
-        <TodoItemMarker />
+        <TodoLinkMarker status={status} />
         {children}
       </a>
       {open && <TodoPreview target={target} onClose={close} />}
@@ -86,8 +97,38 @@ export function TodoInlineLink({
   );
 }
 
-/** A small checklist: this link is one of the user's to-dos. */
-function TodoItemMarker() {
+/** What a to-do link's marker shows; `null` until the statuses first load. */
+type TodoLinkStatus = TodoStatus | "overdue-todo" | "overdue-doing" | "archived" | "missing";
+
+const LINK_STATUS_LABELS: Record<TodoLinkStatus, string> = {
+  ...STATUS_LABELS,
+  "overdue-todo": "Overdue",
+  "overdue-doing": "Doing, overdue",
+  archived: "Archived",
+  missing: "Not found",
+};
+
+function useTodoLinkStatus(target: TodoLinkTarget): TodoLinkStatus | null {
+  const summaries = useTodoItemSummaries(useContext(TodoLinkSourceContext).itemSummaries);
+  const item = summaries && todoLinkSummary(summaries, target);
+  // Only a current to-do with a due date needs the clock, to turn overdue the moment it passes.
+  const now = useTodoDueNow(item?.due && item.status !== "done" && !item.archivedAt ? [item.due] : []);
+  if (!summaries) return null;
+  if (!item) return "missing";
+  if (item.archivedAt) return "archived";
+  if (isTodoOverdue(item, now)) return item.status === "doing" ? "overdue-doing" : "overdue-todo";
+  return item.status;
+}
+
+/**
+ * A text-sized circle in the To-dos page's colors: an empty ring for Todo, an amber ring with a dot
+ * for Doing, a filled green check for Done, the ring or dot in red once overdue. An archived to-do
+ * gets a muted box, a missing one a muted dashed ring. Every state has the same box, and until the
+ * statuses first load the marker is invisible but keeps its space, so nothing moves or shows a
+ * wrong state.
+ */
+function TodoLinkMarker({ status }: { status: TodoLinkStatus | null }) {
+  const shape = status ?? "todo";
   return (
     <svg
       viewBox="0 0 16 16"
@@ -95,17 +136,43 @@ function TodoItemMarker() {
       stroke="currentColor"
       strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
-      className="mr-[0.2em] inline-block h-[1em] w-[1em] align-[-0.15em]"
+      className={`mr-[0.2em] inline-block h-[1em] w-[1em] align-[-0.15em] ${status ? MARKER_COLORS[status] : "invisible"}`}
       data-testid="todo-link-marker"
-      data-marker="item"
+      data-status={status ?? "loading"}
     >
-      <rect x="1.75" y="2.25" width="4.5" height="4.5" rx="1" />
-      <rect x="1.75" y="9.25" width="4.5" height="4.5" rx="1" />
-      <path d="M9 4.5h5.25M9 11.5h5.25" />
+      {shape === "archived" ? (
+        <>
+          <rect x="2" y="3" width="12" height="3.25" rx="0.75" />
+          <path d="M3.25 6.25v6a1 1 0 0 0 1 1h7.5a1 1 0 0 0 1-1v-6M6.5 9h3" />
+        </>
+      ) : shape === "done" ? (
+        <>
+          <circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="none" />
+          <path d="M5.25 8.25l1.9 1.9 3.6-4" stroke="white" strokeWidth="1.75" />
+        </>
+      ) : (
+        <>
+          <circle cx="8" cy="8" r="6.25" pathLength={40} strokeDasharray={shape === "missing" ? "3 2" : undefined} />
+          {(shape === "doing" || shape === "overdue-doing") && (
+            <circle cx="8" cy="8" r="2.5" fill="currentColor" stroke="none" />
+          )}
+        </>
+      )}
     </svg>
   );
 }
+
+const MARKER_COLORS: Record<TodoLinkStatus, string> = {
+  todo: "text-cc-muted",
+  doing: "text-amber-500",
+  done: "text-emerald-500",
+  "overdue-todo": "text-cc-error",
+  "overdue-doing": "text-cc-error",
+  archived: "text-cc-muted",
+  missing: "text-cc-muted",
+};
 
 function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () => void }) {
   const source = useContext(TodoLinkSourceContext);
@@ -115,9 +182,14 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
   const [editing, setEditing] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const applyState = useCallback((next: TodoState) => {
-    setState((current) => (!current || next.revision >= current.revision ? next : current));
-  }, []);
+  const applyState = useCallback(
+    (next: TodoState) => {
+      setState((current) => (!current || next.revision >= current.revision ? next : current));
+      // Keep link markers and the overdue count in step with the preview, e.g. right after marking it done.
+      applyTodoItemSummaries(source.itemSummaries, summarizeTodoItems(next));
+    },
+    [source],
+  );
 
   useEffect(() => {
     // Keep the preview current while it is open, e.g. when the to-do changes elsewhere.

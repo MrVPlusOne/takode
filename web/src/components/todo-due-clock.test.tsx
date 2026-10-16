@@ -3,13 +3,19 @@ import { act, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getTodoDueDates: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getTodoItemSummaries: vi.fn() }));
 vi.mock("../api.js", () => ({ api: mocks }));
 
+import type { TodoItemSummaries, TodoItemSummary } from "../../shared/todo-types.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { formatTodoDue } from "./TodoDueControls.js";
 import { TodoOverdueBadge } from "./TodoOverdueBadge.js";
 import { nextTodoDueChange } from "./todo-due-clock.js";
+
+/** Item summaries as `GET /todos/item-summaries` returns them. */
+function summaries(items: Record<string, TodoItemSummary>, revision: number): TodoItemSummaries {
+  return { items, proposalItems: {}, revision };
+}
 
 /** Local times on Thu Oct 15, 2026; due dates are read in the local zone. */
 function at(hour: number, minute = 0, day = 15): number {
@@ -47,9 +53,22 @@ describe("nextTodoDueChange", () => {
 describe("TodoOverdueBadge", () => {
   it("counts overdue to-dos from their due dates, turning over when a due time passes", async () => {
     // Fake time starts just before 2 PM: one to-do is already overdue and one turns overdue at 2 PM.
+    // Done and archived to-dos are never overdue, whatever their date.
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(at(13, 59));
-    mocks.getTodoDueDates.mockResolvedValue({ dues: ["2026-10-14", "2026-10-15T14:00", "2026-10-20"], revision: 1 });
+    mocks.getTodoItemSummaries.mockResolvedValue(
+      summaries(
+        {
+          "td-1": { status: "todo", due: "2026-10-14" },
+          "td-2": { status: "doing", due: "2026-10-15T14:00" },
+          "td-3": { status: "todo", due: "2026-10-20" },
+          "td-4": { status: "done", due: "2026-10-01" },
+          "td-5": { status: "todo", due: "2026-10-01", archivedAt: 1 },
+          "td-6": { status: "todo" },
+        },
+        1,
+      ),
+    );
     render(<TodoOverdueBadge />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -62,7 +81,7 @@ describe("TodoOverdueBadge", () => {
     expect(screen.getByTestId("todo-overdue-badge")).toHaveTextContent("2");
 
     // A list change reloads the due dates: with none overdue, the badge goes away.
-    mocks.getTodoDueDates.mockResolvedValue({ dues: ["2026-10-20"], revision: 2 });
+    mocks.getTodoItemSummaries.mockResolvedValue(summaries({ "td-3": { status: "todo", due: "2026-10-20" } }, 2));
     await act(async () => {
       window.dispatchEvent(new Event(TODO_STATE_UPDATED_EVENT));
       await vi.advanceTimersByTimeAsync(0);
