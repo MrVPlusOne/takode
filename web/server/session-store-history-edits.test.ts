@@ -234,3 +234,45 @@ it("restores unpersisted handoffs in a chunked-format history, such as offline-c
   expect(reloaded.messageHistory).toEqual(restored.messageHistory);
   expect(console.warn).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  ["frozen-log", false],
+  ["chunked", true],
+])("drops retired timer IDs from a stored mixed answer on restore (%s history) and persists the repair", async (_format, large) => {
+  // Regression: answers stored as [u1, timer-m1] before timer answer IDs were
+  // retired failed validation as a whole after the change, so u1 showed as
+  // pending again. Restore keeps the u1 coverage and drops only the timer ID.
+  const root = await tempRoot();
+  const session = leaderWithCompletedRequest();
+  if (large) makeLarge(session);
+  session.messageHistory.push(
+    assistant("mixed", "Yes, the upgrade is done and the scheduled check passed.", {
+      leaderThreadRole: "answer",
+      threadAnswer: {
+        version: 2,
+        answerUserMessageIds: ["u1", "timer-m1"],
+        observedHistoryLength: 3,
+        authoredThreadKey: "main",
+        ownerGroups: [{ threadKey: "main", userMessageIds: ["u1", "timer-m1"] }],
+      },
+    }),
+    result(),
+  );
+  await new SessionStore(root).saveSync(session);
+  expect(pending(session, "main")).toEqual(["u1"]);
+
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const restoringStore = new SessionStore(root);
+  const restored = (await restoringStore.load(session.id))!;
+  await restoringStore.flushAll();
+  expect((restored.messageHistory[3] as Assistant).threadAnswer).toMatchObject({
+    answerUserMessageIds: ["u1"],
+    ownerGroups: [{ threadKey: "main", userMessageIds: ["u1"] }],
+  });
+  expect(pending(restored, "main")).toEqual([]);
+
+  // The repair is written back, so the next restart reads it without repairing again.
+  const reloaded = (await new SessionStore(root).load(session.id))!;
+  expect(reloaded.messageHistory).toEqual(restored.messageHistory);
+  expect(console.warn).toHaveBeenCalledTimes(1);
+});

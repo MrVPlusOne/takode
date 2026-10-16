@@ -885,6 +885,44 @@ export function buildLeaderThreadResponseState(
   return buildLeaderThreadResponseStateAt(session, requestedThreadKey, session.messageHistory.length);
 }
 
+const RETIRED_TIMER_ANSWER_ID_RE = /^timer-m[1-9]\d*$/;
+
+/**
+ * Keep the user coverage of answers stored with retired timer-firing IDs
+ * (`timer-mN`). An answer naming only firings stays an ordinary message, but one
+ * that also named user requests would fail validation as a whole and leave those
+ * requests pending again. Restore drops just the firing IDs from such answers.
+ * Returns the number of answers repaired.
+ */
+export function dropRetiredTimerAnswerIds(history: BrowserIncomingMessage[]): number {
+  let repaired = 0;
+  for (const message of history) {
+    if (message.type !== "assistant" || !Array.isArray(message.threadAnswer?.answerUserMessageIds)) continue;
+    const answer = message.threadAnswer;
+    const kept = answer.answerUserMessageIds.filter((id) => !RETIRED_TIMER_ANSWER_ID_RE.test(id));
+    if (kept.length === 0 || kept.length === answer.answerUserMessageIds.length) continue;
+    const keptIds = new Set(kept);
+    message.threadAnswer = {
+      ...answer,
+      answerUserMessageIds: kept,
+      ...(Array.isArray(answer.ownerGroups)
+        ? {
+            // Malformed groups stay as they are and keep failing validation.
+            ownerGroups: answer.ownerGroups
+              .map((group) =>
+                Array.isArray(group?.userMessageIds)
+                  ? { ...group, userMessageIds: group.userMessageIds.filter((id) => keptIds.has(id)) }
+                  : group,
+              )
+              .filter((group) => !Array.isArray(group?.userMessageIds) || group.userMessageIds.length > 0),
+          }
+        : {}),
+    };
+    repaired += 1;
+  }
+  return repaired;
+}
+
 export type FinalizeRoutedLeaderResponseResult =
   | {
       finalized: true;

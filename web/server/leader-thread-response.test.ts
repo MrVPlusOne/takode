@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import {
   buildLeaderThreadResponseState,
+  dropRetiredTimerAnswerIds,
   finalizeRoutedLeaderResponseMessage,
   isCurrentValidRoutedLeaderResponseMessage,
   leaderThreadResponseContentHash,
@@ -141,8 +142,8 @@ describe("explicit routed leader answers", () => {
   it("gives timer firings no answer authority, and drops stored timer answers", () => {
     // Timer firings carry no answer ID: a scheduled report is an answer that names
     // no request. Answers citing a firing are rejected, and answers stored before
-    // the change that cite one (even mixed with a user request) no longer count,
-    // so the request they named stays pending.
+    // the change that cite one do not validate as stored, so the request they named
+    // stays pending until restore repairs mixed answers (next test).
     const target = session();
     target.messageHistory.push(human("u1", 1), timerFiring("raw-firing", 2));
     expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
@@ -159,6 +160,40 @@ describe("explicit routed leader answers", () => {
       expect(projection.currentAnswers).toEqual([]);
       expect(projection.pendingMessages.map((pending) => pending.userMessageId)).toEqual(["u1"]);
     }
+  });
+
+  it("keeps the user coverage of stored mixed user and timer answers once their timer IDs are dropped", () => {
+    // Regression: an answer stored as [u1, timer-m1] before timer answer IDs were
+    // retired stopped covering u1 too. Restore drops only the timer IDs (from the
+    // references and the sealed owner groups), so u1 is answered again, while an
+    // answer that named only firings stays an ordinary message.
+    const mixed = routedAssistant("mixed", "Upgrade finished and the scheduled check passed.", [], 2);
+    mixed.threadAnswer = {
+      version: 2,
+      answerUserMessageIds: ["u1", "timer-m1"],
+      observedHistoryLength: 2,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1", "timer-m1"] }],
+    };
+    const timerOnly = routedAssistant("timer-only", "Earlier scheduled report.", [], 3);
+    timerOnly.threadAnswer = { version: 2, answerUserMessageIds: ["timer-m2"], observedHistoryLength: 3 };
+    const target = session();
+    target.messageHistory.push(human("u1", 1), timerFiring("raw-firing", 2), mixed, timerOnly);
+
+    expect(dropRetiredTimerAnswerIds(target.messageHistory)).toBe(1);
+    expect(mixed.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 2,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1"] }],
+    });
+    expect(timerOnly.threadAnswer?.answerUserMessageIds).toEqual(["timer-m2"]);
+    const { projection } = buildLeaderThreadResponseState(target, "main");
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.currentAnswers.map((answer) => answer.currentMessageId)).toEqual(["mixed"]);
+    // A second pass finds nothing left to repair.
+    expect(dropRetiredTimerAnswerIds(target.messageHistory)).toBe(0);
   });
 
   it("ignores pre-cutover history and projects concise pending IDs", () => {

@@ -25,6 +25,7 @@ import { deriveCodexNativeSubagentSnapshot } from "./codex-native-subagent-state
 import { repairRestoredCodexNativeSubagentAuthority } from "./codex-native-subagent-ownership-repair.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { restoreUnpersistedHandoffRefs } from "./leader-thread-handoff.js";
+import { dropRetiredTimerAnswerIds } from "./leader-thread-response.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -1077,12 +1078,8 @@ export class SessionStore {
         _frozenCount: hot._historyRef.frozenCount,
         _frozenToolResultCount: hot._historyRef.frozenToolCount,
       });
-      // Offline-converted histories can predate persisted handoff edits.
-      const restoredHandoffRefs = restoreUnpersistedHandoffRefs(restored.session.messageHistory);
-      if (restoredHandoffRefs > 0) {
-        console.warn(`[session-store] Restored ${restoredHandoffRefs} unpersisted handoff ref(s) for ${sessionId}`);
-      }
-      if (sanitizedBuffer.changed || restored.changed || restoredHandoffRefs > 0) {
+      const answerRepairs = this.repairLeaderAnswers(sessionId, restored.session.messageHistory);
+      if (sanitizedBuffer.changed || restored.changed || answerRepairs > 0) {
         try {
           await this.writeSnapshot(restored.session, hot._historyRef.frozenCount);
         } catch (error) {
@@ -1167,14 +1164,11 @@ export class SessionStore {
     };
     const authorityRepair = repairRestoredCodexAuthority(restored);
     restored = authorityRepair.session;
-    const restoredHandoffRefs = restoreUnpersistedHandoffRefs(restored.messageHistory);
-    if (restoredHandoffRefs > 0) {
-      console.warn(`[session-store] Restored ${restoredHandoffRefs} unpersisted handoff ref(s) for ${sessionId}`);
-    }
+    const answerRepairs = this.repairLeaderAnswers(sessionId, restored.messageHistory);
 
     this.frozenCounts.set(sessionId, actualFrozenMsgs);
     this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
-    if (authorityRepair.changed || restoredHandoffRefs > 0) {
+    if (authorityRepair.changed || answerRepairs > 0) {
       try {
         await this.writeSnapshot(restored, actualFrozenMsgs);
       } catch (error) {
@@ -1196,6 +1190,23 @@ export class SessionStore {
       restoreMetrics.restoredToolResults += mergedToolResults.length;
     }
     return restored;
+  }
+
+  /**
+   * Bring leader answer state saved by older servers up to date, in place.
+   * Returns the number of repairs, which the caller persists.
+   */
+  private repairLeaderAnswers(sessionId: string, history: BrowserIncomingMessage[]): number {
+    const timerAnswers = dropRetiredTimerAnswerIds(history);
+    if (timerAnswers > 0) {
+      console.warn(`[session-store] Dropped retired timer IDs from ${timerAnswers} answer(s) for ${sessionId}`);
+    }
+    // Offline-converted histories can predate persisted handoff edits.
+    const handoffRefs = restoreUnpersistedHandoffRefs(history);
+    if (handoffRefs > 0) {
+      console.warn(`[session-store] Restored ${handoffRefs} unpersisted handoff ref(s) for ${sessionId}`);
+    }
+    return timerAnswers + handoffRefs;
   }
 
   /** Load only search-relevant data for an archived session (skips JSONL frozen log). */
