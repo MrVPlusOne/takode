@@ -40,9 +40,10 @@ export function QuestCommitDiffHeader({
             testId="quest-commit-diff-stats-overall"
           />
         )}
-        <div className="quest-commit-navigation">
+        <div className={`quest-commit-navigation${commitEntries.length <= 1 ? " quest-commit-navigation-single" : ""}`}>
           <button
             type="button"
+            className="quest-commit-step"
             aria-label="Previous"
             title="Previous commit"
             disabled={activeCommitIndex <= 0}
@@ -50,11 +51,12 @@ export function QuestCommitDiffHeader({
           >
             <span aria-hidden="true">‹</span>
           </button>
-          <span className="text-[10px] text-cc-muted" aria-label="Commit position">
+          <span className="quest-commit-step text-[10px] text-cc-muted" aria-label="Commit position">
             {entry ? activeCommitIndex + 1 : 0}/{commitEntries.length}
           </span>
           <button
             type="button"
+            className="quest-commit-step"
             aria-label="Next"
             title="Next commit"
             disabled={!entry || activeCommitIndex >= commitEntries.length - 1}
@@ -63,7 +65,13 @@ export function QuestCommitDiffHeader({
             <span aria-hidden="true">›</span>
           </button>
           {onClose && (
-            <button type="button" onClick={onClose} aria-label="Close commit modal" title="Close">
+            <button
+              type="button"
+              className="quest-commit-close"
+              onClick={onClose}
+              aria-label="Close commit modal"
+              title="Close"
+            >
               <svg
                 viewBox="0 0 16 16"
                 width="14"

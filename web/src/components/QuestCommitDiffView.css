@@ -95,12 +95,34 @@
   border-radius: 0;
 }
 
+.quest-commit-wrap { display: none; }
+
+/* Phones: finger-sized controls, the title on its own row, and wrapped code lines by default. */
 @media (max-width: 600px) {
-  .quest-commit-header-main { gap: 6px; padding-left: 8px; }
-  .quest-commit-header-context { gap: 6px 10px; padding-left: 8px; }
-  .quest-commit-label { max-width: 65px; font-size: 9px; }
-  .quest-commit-title { font-size: 12px; }
-  .quest-commit-navigation button { width: 24px; }
+  .quest-commit-header-main { flex-wrap: wrap; gap: 0 8px; padding: 2px 4px 0 10px; }
+  .quest-commit-title { order: 1; flex-basis: 100%; padding-bottom: 6px; font-size: 15px; }
+  .quest-commit-navigation { margin-left: auto; }
+  .quest-commit-navigation button { width: 40px; height: 40px; }
+  .quest-commit-navigation-single .quest-commit-step { display: none; }
+  .quest-commit-navigation .quest-commit-close { width: 44px; height: 44px; }
+  .quest-commit-close svg { width: 20px; height: 20px; }
+  .quest-commit-header-context { gap: 6px 10px; padding: 0 10px 8px; }
+  /* Line break between the commit facts and the controls row. */
+  .quest-commit-header-spacer { flex-basis: 100%; }
+  .quest-commit-header-context :is(button, select) { min-height: 36px; font-size: 13px; }
+  /* The title row already names the commit; keep the picker from crowding out the facts beside it. */
+  .quest-commit-header .quest-commit-select { max-width: 40vw; }
+  .quest-commit-wrap { display: block; }
+  .quest-commit-wrap[aria-pressed="true"] { border-color: var(--color-cc-primary); color: var(--color-cc-primary); }
+
+  .quest-commit-diff-wrap .diff-file-body { width: 100%; }
+  .quest-commit-diff-wrap .diff-line { align-items: flex-start; }
+  .quest-commit-diff-wrap .diff-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 
 .quest-commit-header select { max-width: min(240px, 70vw); }

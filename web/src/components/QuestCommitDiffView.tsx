@@ -9,6 +9,7 @@ import { commitLookupKey, sortedCommitEntries, type QuestCommitEntry } from "./Q
 
 const EMPTY_CODE_COMMIT_SHAS: string[] = [];
 const BACKGROUND_COMMIT_METADATA_CONCURRENCY = 2;
+const WRAP_LINES_KEY = "cc-diff-wrap-lines";
 const questCodeCommitDetailFetches = new Map<string, Promise<QuestmasterTask | null>>();
 
 export function buildCodeCommitEntries(commitShas: readonly string[] | undefined): QuestCommitEntry[] {
@@ -355,6 +356,12 @@ export function QuestCommitDiffView({
   emptyMessage?: string;
 }) {
   const [fileNavigationTarget, setFileNavigationTarget] = useState<HTMLSpanElement | null>(null);
+  // Phones only (see QuestCommitDiffView.css): wide screens keep long lines on one row and hide the toggle.
+  const [wrapLines, setWrapLines] = useState(() => localStorage.getItem(WRAP_LINES_KEY) !== "false");
+  const toggleWrapLines = () => {
+    localStorage.setItem(WRAP_LINES_KEY, String(!wrapLines));
+    setWrapLines(!wrapLines);
+  };
   const {
     commitEntries,
     activeCommitEntry,
@@ -369,10 +376,21 @@ export function QuestCommitDiffView({
         state={state}
         onClose={onClose}
         commitLabel={commitLabel}
-        context={headerContext}
+        context={
+          <>
+            <button type="button" className="quest-commit-wrap" aria-pressed={wrapLines} onClick={toggleWrapLines}>
+              Wrap
+            </button>
+            {headerContext}
+          </>
+        }
         fileNavigationRef={setFileNavigationTarget}
       />
-      <div className="quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40">
+      <div
+        className={`quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40${
+          wrapLines ? " quest-commit-diff-wrap" : ""
+        }`}
+      >
         {children ??
           (commitEntries.length === 0 ? (
             <div

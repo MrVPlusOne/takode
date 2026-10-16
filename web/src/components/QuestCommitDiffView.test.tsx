@@ -230,4 +230,39 @@ describe("QuestCodeCommitDiffPanel", () => {
     expect(await screen.findByTestId("diff-viewer")).toHaveTextContent("+second");
     expect(screen.queryByText("Commit A exploded")).not.toBeInTheDocument();
   });
+
+  // The phone Wrap toggle (shown only on narrow screens by CSS) wraps code by default and
+  // remembers an explicit choice across opens. A lone commit also marks its navigation so
+  // phones can drop the dead previous/next arrows.
+  it("wraps code lines by default and remembers turning wrapping off", async () => {
+    localStorage.removeItem("cc-diff-wrap-lines");
+    useStore.setState({ quests: [questFixture({ commitShas: ["abc1234def5678"] }) as never] });
+    mockGetQuestCommit.mockResolvedValue({
+      sha: "abc1234def5678",
+      shortSha: "abc1234",
+      message: "Only commit",
+      available: true,
+      additions: 1,
+      deletions: 1,
+      diff: "@@ -1 +1 @@\n-old\n+new\n",
+    });
+
+    const first = render(<QuestCodeCommitDiffPanel questId="q-42" />);
+    await screen.findByTestId("diff-viewer");
+    const scroll = () => first.container.querySelector(".quest-commit-diff-scroll");
+    const wrap = screen.getByRole("button", { name: "Wrap" });
+    expect(wrap).toHaveAttribute("aria-pressed", "true");
+    expect(scroll()).toHaveClass("quest-commit-diff-wrap");
+    expect(first.container.querySelector(".quest-commit-navigation")).toHaveClass("quest-commit-navigation-single");
+
+    fireEvent.click(wrap);
+    expect(wrap).toHaveAttribute("aria-pressed", "false");
+    expect(scroll()).not.toHaveClass("quest-commit-diff-wrap");
+    expect(localStorage.getItem("cc-diff-wrap-lines")).toBe("false");
+    first.unmount();
+
+    render(<QuestCodeCommitDiffPanel questId="q-42" />);
+    expect(await screen.findByRole("button", { name: "Wrap" })).toHaveAttribute("aria-pressed", "false");
+    localStorage.removeItem("cc-diff-wrap-lines");
+  });
 });

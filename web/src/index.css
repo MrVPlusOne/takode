@@ -1211,6 +1211,18 @@ select {
   white-space: pre;
   padding-right: 12px;
 }
+/* Phones: narrower line-number gutters leave more width for the code itself. */
+@media (max-width: 600px) {
+  .diff-full .diff-gutter {
+    width: 30px;
+    padding: 0 3px;
+    font-size: 10px;
+    line-height: 18px;
+  }
+  .diff-full .diff-marker {
+    width: 12px;
+  }
+}
 .diff-compact .diff-line {
   align-items: flex-start;
   white-space: pre-wrap;
