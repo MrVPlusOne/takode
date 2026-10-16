@@ -34,8 +34,21 @@ describe("listWaitingUserQuestions", () => {
     const waiting = listWaitingUserQuestions(sessions, (sessionId) => sessionId !== "worker");
 
     expect(waiting).toEqual([
-      { key: "leader:n-1", sessionId: "leader", questId: "q-7", askedAt: 2000 },
-      { key: "plain:n-9", sessionId: "plain", questId: undefined, askedAt: 500 },
+      {
+        key: "leader:n-1",
+        sessionId: "leader",
+        questId: "q-7",
+        askedAt: 2000,
+        // A reminder naming only questions is cleared from the phone once each subject is settled.
+        subject: { kind: "question", sessionId: "leader", notificationId: "n-1" },
+      },
+      {
+        key: "plain:n-9",
+        sessionId: "plain",
+        questId: undefined,
+        askedAt: 500,
+        subject: { kind: "question", sessionId: "plain", notificationId: "n-9" },
+      },
     ]);
   });
 });

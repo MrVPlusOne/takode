@@ -61,6 +61,15 @@ describe("web push routes", () => {
     expect((await send("POST", "/web-push/presence", { endpoint: "https://web.push.apple.com/x" })).status).toBe(400);
   });
 
+  // The service worker posts the subjects of every alert still shown when one is tapped.
+  it("answers a tapped alert's check of the alerts still shown", async () => {
+    const spy = vi.spyOn(channel, "checkShownAlerts").mockReturnValue({ outdated: [true, false], badge: 3 });
+    const res = await send("POST", "/web-push/shown-alerts", { alerts: [[{ kind: "question" }], null] });
+    expect(await res.json()).toEqual({ outdated: [true, false], badge: 3 });
+    expect(spy).toHaveBeenCalledWith([[{ kind: "question" }], null]);
+    expect((await send("POST", "/web-push/shown-alerts", { alerts: "nope" })).status).toBe(400);
+  });
+
   it("reports Web Push as unavailable when the server could not load its store", async () => {
     const unavailable = createWebPushRoutes(undefined);
     expect(await (await unavailable.request("/web-push")).json()).toEqual({

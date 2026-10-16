@@ -165,6 +165,23 @@ describe("NeedsInputReminders", () => {
     });
   });
 
+  // A tap on any later alert closes a reminder once everything it names is settled. Overdue to-dos
+  // have no such check, so a reminder that names any stays on the phone.
+  it("names its questions' subjects only when it is about questions alone", async () => {
+    const withSubject = (key: string, notificationId: string): Question => ({
+      ...question(key, at(8), "Phone reminders"),
+      subject: { kind: "question", sessionId: "s1", notificationId },
+    });
+    const t = setup({ start: at(9), questions: [withSubject("s1:n-1", "n-1")], lastMessageAt: at(9) });
+    await t.runUntil(at(11));
+    expect(t.send.mock.lastCall![0].subjects).toEqual([{ kind: "question", sessionId: "s1", notificationId: "n-1" }]);
+
+    t.setTodos([{ id: "td-1", due: "2026-10-13", title: "Send the report" }]);
+    await t.runUntil(at(15));
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.send.mock.lastCall![0]).not.toHaveProperty("subjects");
+  });
+
   it("checks once a minute after start and stops on destroy", async () => {
     vi.useFakeTimers();
     try {

@@ -841,6 +841,7 @@ export function getClaudeMessageHandlers(host: any) {
           notificationId: `monitor:${threadKey}:${result.id}`,
           monitoredResult: {
             threadKey,
+            resultId: result.id,
             isPending: () =>
               host.sessions.get(session.id) === session &&
               !readLauncherSession(host, session.id)?.archived &&

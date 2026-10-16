@@ -66,6 +66,7 @@ import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-remin
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
 import { createUserActivityRoutes } from "./routes/user-activity.js";
 import { WebPushChannel } from "./web-push.js";
+import { isPhoneAlertOutdated } from "./phone-alert-status.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
@@ -479,6 +480,12 @@ void refreshCodexModelCatalogOnStartup()
 const webPush = new WebPushChannel({
   filePath: join(homedir(), ".companion", "web-push", `${serverId}.json`),
   getSubject: () => webPushSubject(getSettings().pushoverBaseUrl),
+  getBadge: () => waitingUserQuestions().length,
+  isAlertOutdated: (subjects) =>
+    isPhoneAlertOutdated(subjects, {
+      getSession: (id) => wsBridge.getSession(id),
+      isArchived: (id) => !!launcher.getSession(id)?.archived,
+    }),
 });
 const webPushAvailable = await webPush.load().then(
   () => true,
@@ -573,11 +580,7 @@ const todoOverdueAlerts = new TodoOverdueAlerts({
 todoOverdueAlerts.start();
 const needsInputReminders = new NeedsInputReminders({
   getSettings: reminderSettings,
-  getWaitingQuestions: () =>
-    listWaitingUserQuestions(bridgeAny.sessions.values(), (sessionId) => {
-      const info = launcher.getSession(sessionId);
-      return !!info && !info.archived && !info.herdedBy;
-    }),
+  getWaitingQuestions: waitingUserQuestions,
   getLastUserMessageAt: () =>
     launcher.listSessions().reduce((latest, info) => Math.max(latest, info.lastUserMessageAt ?? 0), 0),
   describe: async (question) =>
@@ -588,6 +591,14 @@ const needsInputReminders = new NeedsInputReminders({
   send: (alert) => void pushoverNotifier.sendReminder(alert),
 });
 needsInputReminders.start();
+
+/** Open, unmuted questions waiting for the user: the app-icon badge and the amber attention chip count. */
+function waitingUserQuestions() {
+  return listWaitingUserQuestions(bridgeAny.sessions.values(), (sessionId) => {
+    const info = launcher.getSession(sessionId);
+    return !!info && !info.archived && !info.herdedBy;
+  });
+}
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
 launcher.setEnvResolver(async (slug) => {

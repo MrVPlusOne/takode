@@ -139,10 +139,58 @@ describe("PushoverNotifier with Web Push", () => {
   it("links a Notify Me alert to its thread", async () => {
     makeNotifier().scheduleNotification("sess-1", "monitored-result", "Result", undefined, {
       notificationId: "monitor:q-1:r1",
-      monitoredResult: { threadKey: "q-1", isPending: () => true },
+      monitoredResult: { threadKey: "q-1", resultId: "r1", isPending: () => true },
     });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-1");
+  });
+
+  // Each alert names what it is about, so tapping any later alert can close it once that
+  // is settled (phone-alert-status.ts judges the subjects). A batch names every item still
+  // in it; an alert with nothing to answer is settled by reading the session after it.
+  describe("alert subjects", () => {
+    it("names each question and permission request still in the batch", async () => {
+      makeNotifier();
+      notifier.scheduleNotification("sess-1", "question", "First", undefined, { notificationId: "n-1" });
+      notifier.scheduleNotification("sess-1", "question", "Second", undefined, { notificationId: "n-2" });
+      notifier.scheduleNotification("sess-1", "question", "AskUserQuestion", "req-1");
+      notifier.cancelNotification("sess-1", "n-1");
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(webPush.alerts[0]!.subjects).toEqual([
+        { kind: "permission", sessionId: "sess-1", requestId: "req-1" },
+        { kind: "question", sessionId: "sess-1", notificationId: "n-2" },
+      ]);
+    });
+
+    it("names the Notify Me result by thread and result ID", async () => {
+      makeNotifier().scheduleNotification("sess-1", "monitored-result", "Result", undefined, {
+        notificationId: "monitor:q-1:r1",
+        monitoredResult: { threadKey: "q-1", resultId: "r1", isPending: () => true },
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(webPush.alerts[0]!.subjects).toEqual([
+        { kind: "notify-me", sessionId: "sess-1", threadKey: "q-1", resultId: "r1" },
+      ]);
+    });
+
+    it("settles a finished-turn alert by a read after the event", async () => {
+      makeNotifier();
+      const scheduledAt = Date.now();
+      notifier.scheduleNotification("sess-1", "completed");
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(webPush.alerts[0]!.subjects).toEqual([{ kind: "unread", sessionId: "sess-1", since: scheduledAt }]);
+    });
+
+    it("passes a reminder's subjects through", async () => {
+      makeNotifier();
+      const subjects = [{ kind: "question" as const, sessionId: "sess-1", notificationId: "n-1" }];
+      await notifier.sendReminder({ title: "1 question waiting", body: "A", path: "/#/attention", subjects });
+
+      expect(webPush.alerts[0]!.subjects).toEqual(subjects);
+    });
   });
 
   // A bare session link reopens whichever tab the app last showed, so an alert from a

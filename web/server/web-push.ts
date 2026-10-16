@@ -9,12 +9,15 @@
  *
  * Delivered alerts are never retracted: on iOS a service worker handling a push could
  * not close an already-shown notification (seen on a real iPhone), and every iOS push
- * must show something, so a retraction push would only add a notification.
+ * must show something, so a retraction push would only add a notification. Instead each
+ * alert names its subjects, and tapping any alert closes the outdated ones
+ * (`phone-alert-status.ts`). Every alert also carries the app-icon badge.
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import webpush from "web-push";
+import type { PhoneAlertSubject } from "./phone-alert-status.js";
 
 export interface WebPushSubscriptionRecord {
   endpoint: string;
@@ -29,6 +32,10 @@ export interface WebPushAlert {
   body: string;
   /** Same-origin path the notification opens, e.g. `/#/session/<id>?thread=q-7`. */
   url: string;
+  /** What the alert is about; once none of it waits for the user, a tap on any alert closes this one. */
+  subjects?: PhoneAlertSubject[];
+  /** App-icon badge: questions waiting for the user. Filled in by the channel at send time. */
+  badge?: number;
 }
 
 /** The delivery surface the phone-alert scheduler depends on. */
@@ -51,6 +58,8 @@ const MESSAGE_TTL_SECONDS = 6 * 60 * 60;
 /** Apple asks senders not to mint VAPID JWTs more often than hourly. */
 const VAPID_HEADER_REUSE_MS = 60 * 60 * 1000;
 const VAPID_JWT_LIFETIME_SECONDS = 12 * 60 * 60;
+/** Push services accept about 4 KB of encrypted payload; past this, subjects are left out. */
+const MAX_PAYLOAD_BYTES = 3_000;
 
 export class WebPushChannel implements WebPushDelivery {
   private store: WebPushStoreFile | null = null;
@@ -63,6 +72,10 @@ export class WebPushChannel implements WebPushDelivery {
       filePath: string;
       /** VAPID `sub` claim; Apple requires an https URL or mailto. */
       getSubject: () => string;
+      /** Questions waiting for the user, the same count as the app's amber attention chip. */
+      getBadge?: () => number;
+      /** Whether nothing an alert's subjects name still waits for the user. */
+      isAlertOutdated?: (subjects: unknown) => boolean;
       now?: () => number;
     },
   ) {}
@@ -119,7 +132,22 @@ export class WebPushChannel implements WebPushDelivery {
 
   async sendAlert(alert: WebPushAlert): Promise<void> {
     const targets = (this.store?.subscriptions ?? []).filter((s) => !this.isViewing(s.endpoint));
-    await Promise.all(targets.map((s) => this.send(s, alert)));
+    if (targets.length === 0) return;
+    const payload = { ...alert, badge: this.opts.getBadge?.() };
+    // A lost subject list only means the alert stays after it is outdated; an oversized push is lost.
+    if (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD_BYTES) delete payload.subjects;
+    await Promise.all(targets.map((s) => this.send(s, payload)));
+  }
+
+  /**
+   * For a tapped alert: which of the alerts still shown on the phone (given by their
+   * subjects) are outdated, and the current badge.
+   */
+  checkShownAlerts(alerts: unknown[]): { outdated: boolean[]; badge?: number } {
+    return {
+      outdated: alerts.map((subjects) => this.opts.isAlertOutdated?.(subjects) ?? false),
+      badge: this.opts.getBadge?.(),
+    };
   }
 
   /** Sends a test alert to one device regardless of presence. */

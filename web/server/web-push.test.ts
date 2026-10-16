@@ -118,6 +118,63 @@ describe("WebPushChannel", () => {
     });
   });
 
+  // The badge is the number of questions waiting, read at send time, so every alert (including
+  // reminders and to-do alerts) leaves the icon showing the current count rather than an alert tally.
+  it("sends the alert's subjects and the current waiting-question count as the badge", async () => {
+    let waiting = 2;
+    const channel = new WebPushChannel({
+      filePath,
+      getSubject: () => "mailto:test@example.com",
+      getBadge: () => waiting,
+      now: () => now,
+    });
+    await channel.load();
+    const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
+    await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
+    const subjects = [{ kind: "question" as const, sessionId: "s1", notificationId: "n-1" }];
+
+    await channel.sendAlert({ title: "t", body: "b", url: "/", subjects });
+    waiting = 0;
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
+
+    const [first, second] = fetchCallsTo(APPLE_ENDPOINT_A).map(([, init]) => device.decrypt(init!.body as Uint8Array));
+    expect(first).toEqual({ title: "t", body: "b", url: "/", subjects, badge: 2 });
+    expect(second).toEqual({ title: "t", body: "b", url: "/", badge: 0 });
+  });
+
+  it("leaves out subjects that would push the payload past the push service's size limit", async () => {
+    // Without subjects the alert merely stays on the phone once outdated; an oversized push is never delivered.
+    const channel = makeChannel();
+    await channel.load();
+    const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
+    await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
+    const subjects = Array.from({ length: 60 }, (_, i) => ({
+      kind: "question" as const,
+      sessionId: "00000000-0000-0000-0000-000000000000",
+      notificationId: `n-${i}`,
+    }));
+
+    await channel.sendAlert({ title: "60 questions", body: "b", url: "/#/attention", subjects });
+
+    const [, init] = fetchCallsTo(APPLE_ENDPOINT_A)[0]!;
+    expect(device.decrypt(init!.body as Uint8Array)).toEqual({ title: "60 questions", body: "b", url: "/#/attention" });
+  });
+
+  it("reports which shown alerts are outdated, with the current badge", async () => {
+    const channel = new WebPushChannel({
+      filePath,
+      getSubject: () => "mailto:test@example.com",
+      getBadge: () => 1,
+      isAlertOutdated: (subjects) => Array.isArray(subjects) && subjects[0] === "answered",
+    });
+    await channel.load();
+
+    expect(channel.checkShownAlerts([["answered"], ["waiting"], null])).toEqual({
+      outdated: [true, false, false],
+      badge: 1,
+    });
+  });
+
   it("skips devices whose app is on screen, until their visible heartbeat goes stale", async () => {
     // The user requirement: no phone alert while Takode is open on that phone, but other
     // devices (and a phone whose app went to the background) still get it.

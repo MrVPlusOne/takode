@@ -66,6 +66,7 @@ import {
 } from "../utils/sidebar-group-overflow.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { formatDocumentTitle, getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
+import { showAppBadge } from "../utils/web-push.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
 import { TodoOverdueBadge } from "./TodoOverdueBadge.js";
 
@@ -271,7 +272,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       .catch(() => {});
   }, []);
 
-  // Keep the browser-tab prefix aligned with the active global needs-input bell.
+  // Keep the browser-tab prefix and the app-icon badge aligned with the active global needs-input bell.
   useEffect(() => {
     const needsInputCount = getDocumentTitleAttentionCount({
       sdkSessions,
@@ -280,6 +281,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     const suffix = import.meta.env.DEV ? "[DEV] Takode" : "Takode";
     const base = serverName ? `${serverName} — ${suffix}` : suffix;
     document.title = formatDocumentTitle(base, needsInputCount);
+    showAppBadge(needsInputCount);
   }, [serverName, sessionNotifications, sdkSessions]);
 
   useEffect(() => {

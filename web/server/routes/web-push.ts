@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { WebPushChannel } from "../web-push.js";
 
-/** Browser-facing Web Push endpoints: subscription management, presence heartbeats, and tests. */
+/** Browser-facing Web Push endpoints: subscription management, presence heartbeats, tapped-alert checks and tests. */
 export function createWebPushRoutes(webPush: WebPushChannel | undefined) {
   const api = new Hono();
 
@@ -47,6 +47,14 @@ export function createWebPushRoutes(webPush: WebPushChannel | undefined) {
     }
     webPush.reportPresence(endpoint, body.visible);
     return c.json({ ok: true });
+  });
+
+  // Called by the service worker when an alert is tapped: `alerts` holds the subjects of each alert still shown.
+  api.post("/web-push/shown-alerts", async (c) => {
+    if (!webPush) return c.json({ error: "Web Push is not available on this server" }, 503);
+    const alerts = (await c.req.json().catch(() => null))?.alerts;
+    if (!Array.isArray(alerts)) return c.json({ error: "alerts must be an array" }, 400);
+    return c.json(webPush.checkShownAlerts(alerts));
   });
 
   api.post("/web-push/test", async (c) => {

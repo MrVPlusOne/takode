@@ -77,6 +77,18 @@ export async function resumeWebPushOnThisDevice(): Promise<void> {
   startWebPushPresence(subscription.endpoint);
 }
 
+/**
+ * Shows the number of questions waiting for the user on the app icon (the Home Screen app on
+ * iPhone, or an installed app), the same count as the amber attention chip. Pushes keep it
+ * current while the app is closed (`public/sw.js`). Browsers without app badges ignore it.
+ */
+export function showAppBadge(count: number): void {
+  if (!("setAppBadge" in navigator)) return;
+  const update = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();
+  // Rejected when notifications are not allowed, which is normal outside the phone app.
+  update.catch((err: unknown) => console.debug("App badge not updated", err));
+}
+
 function startWebPushPresence(endpoint: string): void {
   if (presence?.endpoint === endpoint) return;
   stopWebPushPresence();

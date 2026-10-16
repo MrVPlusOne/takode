@@ -30,6 +30,7 @@ import {
   leaderResponseMessageIsAssociatedWithThread,
 } from "../../shared/leader-thread-response-routing.js";
 import { randomUUID } from "node:crypto";
+import type { PhoneAlertSubject } from "../phone-alert-status.js";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 
@@ -943,7 +944,7 @@ export function wakeDueSnoozedNotifications(
 export function listWaitingUserQuestions(
   sessions: Iterable<SessionLike>,
   isAddressedToUser: (sessionId: string) => boolean,
-): Array<{ key: string; sessionId: string; questId?: string; askedAt: number }> {
+): Array<{ key: string; sessionId: string; questId?: string; askedAt: number; subject: PhoneAlertSubject }> {
   const waiting = [];
   for (const session of sessions) {
     if (!isAddressedToUser(session.id)) continue;
@@ -954,6 +955,7 @@ export function listWaitingUserQuestions(
         sessionId: session.id as string,
         questId: notif.questId,
         askedAt: notif.timestamp,
+        subject: { kind: "question" as const, sessionId: session.id as string, notificationId: notif.id },
       });
     }
   }

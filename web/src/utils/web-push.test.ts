@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ATTENTION_OPEN_EVENT } from "./routing.js";
-import { resumeWebPushOnThisDevice } from "./web-push.js";
+import { resumeWebPushOnThisDevice, showAppBadge } from "./web-push.js";
 
 vi.mock("../api.js", () => ({ api: { subscribeWebPush: vi.fn() } }));
 
@@ -54,5 +54,33 @@ describe("phone alert taps while Takode is open", () => {
     expect(opened).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe("#/session/other");
     window.removeEventListener(ATTENTION_OPEN_EVENT, opened);
+  });
+});
+
+/**
+ * The app-icon badge counts questions waiting for the user, not delivered alerts:
+ * the app sets it to the amber attention chip's count, clearing it at zero.
+ */
+describe("app-icon badge", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "setAppBadge");
+    Reflect.deleteProperty(navigator, "clearAppBadge");
+  });
+
+  it("shows the waiting count and clears it when nothing waits", () => {
+    const setAppBadge = vi.fn(async () => undefined);
+    const clearAppBadge = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "setAppBadge", { configurable: true, value: setAppBadge });
+    Object.defineProperty(navigator, "clearAppBadge", { configurable: true, value: clearAppBadge });
+
+    showAppBadge(3);
+    showAppBadge(0);
+
+    expect(setAppBadge).toHaveBeenCalledWith(3);
+    expect(clearAppBadge).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing where app badges are not supported", () => {
+    expect(() => showAppBadge(2)).not.toThrow();
   });
 });

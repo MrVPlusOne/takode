@@ -13,6 +13,7 @@
  */
 
 import type { NeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
+import type { PhoneAlertSubject } from "./phone-alert-status.js";
 
 /** One open, unmuted question addressed to the user. */
 export interface WaitingQuestion {
@@ -20,6 +21,8 @@ export interface WaitingQuestion {
   key: string;
   /** When it was asked. */
   askedAt: number;
+  /** What settles it, so a reminder about only questions can be cleared once they are all answered. */
+  subject?: PhoneAlertSubject;
 }
 
 /** A current to-do past its due date (see `todo-overdue-alerts.ts`). */
@@ -36,6 +39,8 @@ export interface ReminderAlert {
   body: string;
   /** App path the alert opens. */
   path: string;
+  /** Set when the reminder is about questions alone: it is outdated once they are all settled. */
+  subjects?: PhoneAlertSubject[];
 }
 
 export interface NeedsInputRemindersDeps<Q extends WaitingQuestion> {
@@ -155,10 +160,13 @@ export class NeedsInputReminders<Q extends WaitingQuestion = WaitingQuestion> {
     const names = [...new Set(await Promise.all(oldestFirst.map((q) => this.deps.describe(q))))];
     const count = questions.length;
     const waiting = `${count} ${count === 1 ? "question" : "questions"} waiting for you (oldest ${formatAge(now - oldestFirst[0]!.askedAt)})`;
+    const subjects = questions.map((q) => q.subject).filter((subject) => subject !== undefined);
     return {
       title: overdue ? `${waiting}, ${overdue}` : waiting,
       body: overdue ? `${nameList(names)}. Overdue: ${nameList(todoTitles)}` : nameList(names),
       path: ATTENTION_LIST_PATH,
+      // Overdue to-dos have no settled check, so a reminder naming them stays.
+      ...(!overdue && subjects.length === questions.length ? { subjects } : {}),
     };
   }
 }

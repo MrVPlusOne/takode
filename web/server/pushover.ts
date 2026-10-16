@@ -6,6 +6,7 @@
  * and per-session rate limiting.
  */
 
+import type { PhoneAlertSubject } from "./phone-alert-status.js";
 import type { WebPushDelivery } from "./web-push.js";
 
 export type PushoverEventType = "permission" | "question" | "completed" | "error" | "monitored-result";
@@ -56,7 +57,7 @@ export interface PushoverScheduleOptions {
   /** Leader thread (`main` or `q-N`) the alert came from; tapping the alert opens that tab. */
   threadKey?: string;
   /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
-  monitoredResult?: { threadKey: string; isPending: () => boolean };
+  monitoredResult?: { threadKey: string; resultId: string; isPending: () => boolean };
 }
 
 interface PendingNotification {
@@ -287,10 +288,20 @@ export class PushoverNotifier {
    * to no single session, so the delay, event filters and per-session limits do not apply;
    * Web Push still skips devices that are viewing Takode.
    */
-  async sendReminder(alert: { title: string; body: string; path: string }): Promise<void> {
+  async sendReminder(alert: {
+    title: string;
+    body: string;
+    path: string;
+    subjects?: PhoneAlertSubject[];
+  }): Promise<void> {
     console.log(`[pushover] Sending reminder: ${alert.title}`);
     if (this.opts.webPush?.hasSubscriptions()) {
-      void this.opts.webPush.sendAlert({ title: alert.title, body: alert.body, url: alert.path });
+      void this.opts.webPush.sendAlert({
+        title: alert.title,
+        body: alert.body,
+        url: alert.path,
+        subjects: alert.subjects,
+      });
     }
     if (this.isPushoverConfigured()) {
       const url = this.opts.getBaseUrl().replace(/\/+$/, "") + alert.path;
@@ -394,7 +405,9 @@ export class PushoverNotifier {
     const path = this.buildDeepLinkPath(sessionId, this.getDeepLinkThreadKey(pending));
 
     console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
-    if (this.opts.webPush?.hasSubscriptions()) void this.opts.webPush.sendAlert({ title, body: message, url: path });
+    if (this.opts.webPush?.hasSubscriptions()) {
+      void this.opts.webPush.sendAlert({ title, body: message, url: path, subjects: this.getAlertSubjects(pending) });
+    }
     if (this.isPushoverConfigured()) {
       const url = this.opts.getBaseUrl().replace(/\/+$/, "") + path;
       await this.sendToApi(settings, title, message, EVENT_PRIORITY[eventType], url, !pending.monitoredResult);
@@ -490,6 +503,22 @@ export class PushoverNotifier {
       if (threadKey) return threadKey;
     }
     return pending.threadKey;
+  }
+
+  /** What the alert is about, so tapping a later alert can close this one once it is outdated. */
+  private getAlertSubjects(pending: PendingNotification): PhoneAlertSubject[] {
+    const { sessionId, monitoredResult } = pending;
+    if (monitoredResult) {
+      return [
+        { kind: "notify-me", sessionId, threadKey: monitoredResult.threadKey, resultId: monitoredResult.resultId },
+      ];
+    }
+    const subjects: PhoneAlertSubject[] = [
+      ...pending.requestIds.map((requestId) => ({ kind: "permission" as const, sessionId, requestId })),
+      ...pending.notificationIds.map((notificationId) => ({ kind: "question" as const, sessionId, notificationId })),
+    ];
+    // Finished turns, reviews and errors have no item to answer; reading the session settles them.
+    return subjects.length > 0 ? subjects : [{ kind: "unread", sessionId, since: pending.createdAt }];
   }
 
   private buildDeepLinkPath(sessionId: string, threadKey?: string): string {
