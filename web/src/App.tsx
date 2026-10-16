@@ -50,7 +50,6 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
-import { preloadTodoProposalStatuses } from "./components/TodoInlineLink.js";
 import { ATTENTION_NEXT_EVENT } from "./components/GlobalAttentionMenu.js";
 import { EmptyState } from "./components/EmptyState.js";
 import {
@@ -491,8 +490,6 @@ export default function App() {
       shell.inert = false;
     };
   }, [isMobileSidebarHidden]);
-
-  useEffect(() => preloadTodoProposalStatuses(), []);
 
   useEffect(() => {
     const el = document.documentElement;

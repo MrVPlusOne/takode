@@ -3,24 +3,19 @@ import { Hono, type Context } from "hono";
 import type {
   TodoCompactItem,
   TodoDueDates,
-  TodoGrantAction,
   TodoItem,
   TodoItemListFilters,
   TodoLinkedQuest,
   TodoState,
-  TodoProposalMutation,
-  TodoProposalStatuses,
   TodoStatus,
 } from "../../shared/todo-types.js";
 import { TODO_STATUSES } from "../../shared/todo-types.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
-import * as cronStore from "../cron-store.js";
 import * as questStore from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
-import { authorizeTodoMutation, isAdditiveTodoEdit, todoProposalActor } from "../todo-authorization.js";
+import { authorizeTodoMutation, isAdditiveTodoEdit, MAX_CITATION_LENGTH } from "../todo-authorization.js";
 import {
   resolveEditMarkdown,
-  TODO_INBOX_CATEGORY_ID,
   TodoStoreError,
   todoStore,
   type TodoCompletionUndoSnapshot,
@@ -139,20 +134,10 @@ async function withMutation<T>(
   }
 }
 
-async function authorize(
-  c: Context,
-  ctx: RouteContext,
-  store: TodoStore,
-  body: Record<string, any>,
-  action: TodoGrantAction,
-  categoryIds: string[],
-  { allowGrant = true, lowRisk = false }: { allowGrant?: boolean; lowRisk?: boolean } = {},
-) {
-  return authorizeTodoMutation(c, ctx, store, {
-    action,
-    categoryIds,
+function authorize(c: Context, ctx: RouteContext, body: Record<string, any>, { lowRisk = false } = {}) {
+  return authorizeTodoMutation(c, ctx, {
     authorizedBy: body.authorizedBy,
-    allowGrant,
+    standingApproval: body.standingApproval,
     lowRisk,
   });
 }
@@ -225,19 +210,6 @@ export function createTodoRoutes(
     }
   });
 
-  api.get("/todos/principals", async (c) => {
-    const sessions = ctx.launcher
-      .listSessions()
-      .filter((session) => !session.archived && !session.hidden)
-      .map((session) => ({
-        kind: "session" as const,
-        id: session.sessionId,
-        label: `${session.sessionNum != null ? `#${session.sessionNum} ` : ""}${session.name || session.sessionId.slice(0, 8)}`,
-      }));
-    const jobs = (await cronStore.listJobs()).map((job) => ({ kind: "cron" as const, id: job.id, label: job.name }));
-    return c.json({ principals: [...jobs, ...sessions] });
-  });
-
   api.get("/todos/categories", async (c) => {
     try {
       const state = await store.snapshot();
@@ -248,68 +220,6 @@ export function createTodoRoutes(
         })),
         revision: state.revision,
       });
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.get("/todos/proposals", async (c) => {
-    try {
-      const state = await store.snapshot();
-      const requestedStatus = c.req.query("status");
-      return c.json({
-        proposals: requestedStatus
-          ? state.proposals.filter((proposal) => proposal.status === requestedStatus)
-          : state.proposals,
-        revision: state.revision,
-      });
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  /** Each proposal's status alone, for the markers on `todo:tp-N` links in messages. */
-  api.get("/todos/proposal-statuses", async (c) => {
-    try {
-      const state = await store.snapshot();
-      const statuses: TodoProposalStatuses["statuses"] = {};
-      for (const proposal of state.proposals) statuses[proposal.id] = proposal.status;
-      return c.json({ statuses, revision: state.revision } satisfies TodoProposalStatuses);
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.get("/todos/proposals/:id", async (c) => {
-    try {
-      const state = await store.snapshot();
-      const proposal = state.proposals.find((candidate) => candidate.id === c.req.param("id"));
-      if (!proposal) throw new TodoStoreError(`Proposal not found: ${c.req.param("id")}`, "not_found");
-      return c.json({ proposal });
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.get("/todos/grants", async (c) => {
-    try {
-      const state = await store.snapshot();
-      const includeRevoked = c.req.query("includeRevoked") === "true";
-      return c.json({
-        grants: state.grants.filter((grant) => includeRevoked || !grant.revokedAt),
-        revision: state.revision,
-      });
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.get("/todos/grants/:id", async (c) => {
-    try {
-      const state = await store.snapshot();
-      const grant = state.grants.find((candidate) => candidate.id === c.req.param("id"));
-      if (!grant) throw new TodoStoreError(`Grant not found: ${c.req.param("id")}`, "not_found");
-      return c.json({ grant });
     } catch (error) {
       return errorResponse(c, error);
     }
@@ -364,19 +274,24 @@ export function createTodoRoutes(
   api.post("/todos/items", async (c) => {
     try {
       const body = await requestBody(c);
-      const referenceId =
-        typeof body.beforeItemId === "string" && body.beforeItemId.trim()
-          ? body.beforeItemId.trim()
-          : typeof body.afterItemId === "string" && body.afterItemId.trim()
-            ? body.afterItemId.trim()
-            : "";
-      const reference = referenceId ? await store.getItem(referenceId) : null;
-      const categoryId =
-        typeof body.categoryId === "string" && body.categoryId.trim()
-          ? body.categoryId.trim()
-          : (reference?.categoryId ?? TODO_INBOX_CATEGORY_ID);
-      const auth = await authorize(c, ctx, store, body, "item:add", [categoryId]);
+      // Adding cannot make the user lose track of anything, so agents may add on their own judgment,
+      // but must say where the to-do came from.
+      const auth = await authorize(c, ctx, body, { lowRisk: true });
       if (!auth.ok) return auth.response;
+      const source = typeof body.source === "string" ? body.source.trim() : "";
+      if (source.length > MAX_CITATION_LENGTH) {
+        return c.json({ error: `--source must be at most ${MAX_CITATION_LENGTH} characters` }, 400);
+      }
+      if (!source && auth.provenance.authorization.kind === "agent_direct") {
+        return c.json(
+          {
+            error:
+              "Say where this to-do came from with --source (e.g. the Slack thread or message), so the user can see why it was added.",
+          },
+          400,
+        );
+      }
+      const provenance = source ? { ...auth.provenance, source } : auth.provenance;
       return withMutation(
         c,
         ctx,
@@ -389,13 +304,13 @@ export function createTodoRoutes(
               ...(Object.prototype.hasOwnProperty.call(body, "detailsMarkdown")
                 ? { detailsMarkdown: body.detailsMarkdown }
                 : {}),
-              categoryId,
+              categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
               status: body.status,
               due: body.due,
               beforeItemId: body.beforeItemId,
               afterItemId: body.afterItemId,
             },
-            auth.provenance,
+            provenance,
           ),
         }),
         201,
@@ -410,7 +325,7 @@ export function createTodoRoutes(
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
       const lowRisk = isAdditiveTodoEdit(item.markdown, resolveEditMarkdown(item.markdown, body));
-      const auth = await authorize(c, ctx, store, body, "item:edit", [item.categoryId], { lowRisk });
+      const auth = await authorize(c, ctx, body, { lowRisk });
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         item: await store.editItem(
@@ -435,7 +350,7 @@ export function createTodoRoutes(
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
       // Marking a to-do Done drops it from the active list; starting or reopening one does not.
-      const auth = await authorize(c, ctx, store, body, "item:status", [item.categoryId], {
+      const auth = await authorize(c, ctx, body, {
         lowRisk: body.status !== "done",
       });
       if (!auth.ok) return auth.response;
@@ -464,7 +379,7 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
-      const auth = await authorize(c, ctx, store, body, "item:status", [item.categoryId], { allowGrant: false });
+      const auth = await authorize(c, ctx, body);
       if (!auth.ok) return auth.response;
       if (auth.provenance.authorization.kind !== "ui") {
         return c.json(
@@ -492,23 +407,16 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
-      const referenceId =
-        typeof body.beforeItemId === "string" && body.beforeItemId.trim()
-          ? body.beforeItemId.trim()
-          : typeof body.afterItemId === "string" && body.afterItemId.trim()
-            ? body.afterItemId.trim()
-            : "";
-      const reference = referenceId ? await store.getItem(referenceId) : null;
-      const categoryId =
-        typeof body.categoryId === "string" && body.categoryId.trim()
-          ? body.categoryId.trim()
-          : (reference?.categoryId ?? item.categoryId);
-      const auth = await authorize(c, ctx, store, body, "item:move", [item.categoryId, categoryId]);
+      const auth = await authorize(c, ctx, body);
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         item: await store.moveItem(
           item.id,
-          { categoryId, beforeItemId: body.beforeItemId, afterItemId: body.afterItemId },
+          {
+            categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
+            beforeItemId: body.beforeItemId,
+            afterItemId: body.afterItemId,
+          },
           auth.provenance,
         ),
       }));
@@ -523,7 +431,7 @@ export function createTodoRoutes(
       const item = await store.getItem(c.req.param("id"));
       // Giving a to-do its first due date only adds; changing or clearing one could lose a deadline.
       const lowRisk = !item.due && typeof body.due === "string" && !!body.due;
-      const auth = await authorize(c, ctx, store, body, "item:edit", [item.categoryId], { lowRisk });
+      const auth = await authorize(c, ctx, body, { lowRisk });
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         item: await store.setItemDue(item.id, body.due ?? null, auth.provenance),
@@ -537,7 +445,7 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
-      const auth = await authorize(c, ctx, store, body, "item:link", [item.categoryId], { lowRisk: true });
+      const auth = await authorize(c, ctx, body, { lowRisk: true });
       if (!auth.ok) return auth.response;
       await requireQuestsExist(body.addQuestIds);
       return withMutation(c, ctx, store, async () => ({
@@ -552,16 +460,16 @@ export function createTodoRoutes(
     }
   });
 
-  for (const [path, archived, action] of [
-    ["archive", true, "item:archive"],
-    ["restore", false, "item:restore"],
+  for (const [path, archived] of [
+    ["archive", true],
+    ["restore", false],
   ] as const) {
     api.post(`/todos/items/:id/${path}`, async (c) => {
       try {
         const body = await requestBody(c);
         const item = await store.getItem(c.req.param("id"));
         // Archiving hides a to-do; restoring brings one back.
-        const auth = await authorize(c, ctx, store, body, action, [item.categoryId], { lowRisk: !archived });
+        const auth = await authorize(c, ctx, body, { lowRisk: !archived });
         if (!auth.ok) return auth.response;
         return withMutation(c, ctx, store, async () => ({
           item: await store.setItemArchived(item.id, archived, auth.provenance),
@@ -575,7 +483,7 @@ export function createTodoRoutes(
   api.post("/todos/categories", async (c) => {
     try {
       const body = await requestBody(c);
-      const auth = await authorize(c, ctx, store, body, "category:create", []);
+      const auth = await authorize(c, ctx, body);
       if (!auth.ok) return auth.response;
       return withMutation(
         c,
@@ -595,7 +503,7 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const categoryId = c.req.param("id");
-      const auth = await authorize(c, ctx, store, body, "category:rename", [categoryId]);
+      const auth = await authorize(c, ctx, body);
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         category: await store.renameCategory(categoryId, body.name, auth.provenance),
@@ -609,7 +517,7 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const categoryId = c.req.param("id");
-      const auth = await authorize(c, ctx, store, body, "category:archive", [categoryId]);
+      const auth = await authorize(c, ctx, body);
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         category: await store.archiveCategory(categoryId, auth.provenance),
@@ -623,84 +531,10 @@ export function createTodoRoutes(
     try {
       const body = await requestBody(c);
       const categoryId = c.req.param("id");
-      const auth = await authorize(c, ctx, store, body, "category:restore", [categoryId], { lowRisk: true });
+      const auth = await authorize(c, ctx, body, { lowRisk: true });
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
         category: await store.restoreCategory(categoryId, auth.provenance),
-      }));
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.post("/todos/proposals", async (c) => {
-    try {
-      const auth = ctx.authenticateTakodeCaller(c);
-      if ("response" in auth) return auth.response;
-      const body = await requestBody(c);
-      const mutation = body.mutation as TodoProposalMutation;
-      // Other changes are low-risk enough for agents to make, or approved by the user's reply.
-      if (mutation?.action !== "item:add") {
-        return c.json(
-          {
-            error:
-              "Proposals only add new to-dos. For other changes, describe the change to the user, linking the to-do, and rerun the command with --authorized-by <their reply's message index>.",
-          },
-          400,
-        );
-      }
-      const proposal = await store.createProposal(mutation, todoProposalActor(auth));
-      await broadcastTodoState(ctx, store);
-      return c.json({ proposal, state: await store.snapshot() }, 201);
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  for (const decision of ["approve", "reject", "mark-done"] as const) {
-    api.post(`/todos/proposals/:id/${decision}`, async (c) => {
-      try {
-        const body = await requestBody(c);
-        const auth = await authorize(c, ctx, store, body, "item:edit", [], { allowGrant: false });
-        if (!auth.ok) return auth.response;
-        return withMutation(c, ctx, store, async () =>
-          store.resolveProposal(c.req.param("id"), decision, auth.provenance),
-        );
-      } catch (error) {
-        return errorResponse(c, error);
-      }
-    });
-  }
-
-  api.post("/todos/grants", async (c) => {
-    try {
-      const body = await requestBody(c);
-      const auth = await authorize(c, ctx, store, body, "item:edit", [], { allowGrant: false });
-      if (!auth.ok) return auth.response;
-      return withMutation(
-        c,
-        ctx,
-        store,
-        async () => ({
-          grant: await store.createGrant(
-            { principal: body.principal, actions: body.actions, categoryIds: body.categoryIds },
-            auth.provenance,
-          ),
-        }),
-        201,
-      );
-    } catch (error) {
-      return errorResponse(c, error);
-    }
-  });
-
-  api.post("/todos/grants/:id/revoke", async (c) => {
-    try {
-      const body = await requestBody(c);
-      const auth = await authorize(c, ctx, store, body, "item:edit", [], { allowGrant: false });
-      if (!auth.ok) return auth.response;
-      return withMutation(c, ctx, store, async () => ({
-        grant: await store.revokeGrant(c.req.param("id"), auth.provenance),
       }));
     } catch (error) {
       return errorResponse(c, error);

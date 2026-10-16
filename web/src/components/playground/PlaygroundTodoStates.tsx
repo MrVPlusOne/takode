@@ -102,36 +102,6 @@ export function PlaygroundTodoStates() {
             </div>
           </div>
         </Card>
-        <Card label="Advanced management drawer">
-          <div className="grid gap-3 p-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-cc-border bg-cc-bg/60 p-3">
-              <p className="text-xs font-medium text-cc-fg">
-                Agent proposals <span className="text-cc-primary">1</span>
-              </p>
-              <p className="mt-2 text-[11px] text-cc-muted">Add “Read the important result”</p>
-              <div className="mt-3 flex gap-2">
-                <button type="button" className="rounded-lg bg-cc-primary px-3 py-1.5 text-xs font-medium text-white">
-                  Approve
-                </button>
-                <button type="button" className="rounded-lg border border-cc-border px-3 py-1.5 text-xs text-cc-muted">
-                  Reject
-                </button>
-              </div>
-            </div>
-            <div className="rounded-xl border border-cc-border bg-cc-bg/60 p-3">
-              <p className="text-xs font-medium text-cc-fg">Workflow grant · Slack sweep</p>
-              <p className="mt-2 text-[11px] leading-relaxed text-cc-muted">
-                Add, edit, order, or complete items in the Slack category.
-              </p>
-              <button
-                type="button"
-                className="mt-3 rounded-lg border border-cc-border px-3 py-1.5 text-xs text-cc-muted"
-              >
-                Revoke
-              </button>
-            </div>
-          </div>
-        </Card>
       </div>
     </Section>
   );

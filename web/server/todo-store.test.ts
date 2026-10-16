@@ -116,23 +116,15 @@ describe("TodoStore", () => {
     writeFileSync(path, raw, "utf-8");
 
     const migrated = await new TodoStore(path).snapshot();
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.items[0]?.markdown).toBe("  **Preserve me**  \n  detail line\nsecond line  ");
     expect(migrated.items[1]?.markdown).toBe("   \nDerived title\nremaining detail");
     expect(migrated.items.map((item) => item.rank)).toEqual([2048, 1024]);
-    expect(migrated.proposals[0]?.mutation).toEqual({
-      action: "item:edit",
-      itemId: "td-1",
-      input: { markdown: "  **Preserve me**  \nreplacement" },
-    });
-    expect(migrated.proposals[1]?.mutation).toEqual({
-      action: "item:edit",
-      itemId: "td-2",
-      input: { markdown: "   \nDerived title\nremaining detail" },
-    });
+    // Retired proposals survive only in the recovery copy.
+    expect(migrated).not.toHaveProperty("proposals");
     expect(readFileSync(`${path}.schema-v1.backup`, "utf-8")).toBe(raw);
     const persisted = JSON.parse(readFileSync(path, "utf-8"));
-    expect(persisted.schemaVersion).toBe(2);
+    expect(persisted.schemaVersion).toBe(3);
     expect(persisted.items[0].titleMarkdown).toBeUndefined();
     expect(persisted.items[0].detailsMarkdown).toBeUndefined();
   });
@@ -424,44 +416,7 @@ describe("TodoStore", () => {
     });
   });
 
-  it("matches grants only for the server-derived principal, action, and full category scope", async () => {
-    const slack = await store.createCategory({ name: "Slack" }, provenance(10));
-    const grant = await store.createGrant(
-      {
-        principal: { kind: "cron", id: "slack-sweep", label: "Slack sweep" },
-        actions: ["item:add", "item:status"],
-        categoryIds: [slack.id],
-      },
-      provenance(20),
-    );
-
-    expect(await store.matchingGrant([{ kind: "cron", id: "slack-sweep" }], "item:add", [slack.id])).toMatchObject({
-      id: grant.id,
-    });
-    expect(await store.matchingGrant([{ kind: "cron", id: "other" }], "item:add", [slack.id])).toBeNull();
-    expect(await store.matchingGrant([{ kind: "cron", id: "slack-sweep" }], "item:move", [slack.id])).toBeNull();
-  });
-
-  it("canonicalizes approved proposals to one Markdown body while preserving provenance", async () => {
-    const proposal = await store.createProposal(
-      { action: "item:add", input: { titleMarkdown: "[Review result](quest:q-42)", detailsMarkdown: "Context" } },
-      { kind: "session", sessionId: "agent-1", label: "Worker" },
-    );
-    expect(proposal.mutation).toMatchObject({
-      action: "item:add",
-      input: { markdown: "[Review result](quest:q-42)\nContext" },
-    });
-    const resolved = await store.resolveProposal(proposal.id, "approve", provenance(100));
-
-    expect(resolved.proposal.status).toBe("approved");
-    expect(resolved.item?.markdown).toBe("[Review result](quest:q-42)\nContext");
-    expect(resolved.item?.createdBy).toMatchObject({
-      actor: { kind: "session", sessionId: "agent-1" },
-      authorization: { kind: "proposal_approval", proposalId: proposal.id },
-    });
-  });
-
-  it("keeps an optional due date through status changes, carries it on add proposals, and refuses bad stored ones", async () => {
+  it("keeps an optional due date through status changes and refuses bad stored ones", async () => {
     // The due date is plain item metadata: completing and reopening keep it, setting null clears it.
     const item = await store.createItem({ markdown: "Book flights", due: "2026-10-20" }, provenance(10));
     expect(item.due).toBe("2026-10-20");
@@ -470,12 +425,6 @@ describe("TodoStore", () => {
     expect((await store.setItemDue(item.id, "2026-10-21T09:15", provenance(40))).due).toBe("2026-10-21T09:15");
     expect((await store.setItemDue(item.id, null, provenance(50))).due).toBeUndefined();
     await expect(store.setItemDue(item.id, "tomorrow", provenance(60))).rejects.toMatchObject({ code: "invalid" });
-
-    const proposal = await store.createProposal(
-      { action: "item:add", input: { markdown: "Renew passport", due: "2026-11-01" } },
-      { kind: "session", sessionId: "agent-1", label: "Worker" },
-    );
-    expect((await store.resolveProposal(proposal.id, "approve", provenance(70))).item?.due).toBe("2026-11-01");
 
     // A hand-edited store with an impossible due date is refused rather than rewritten.
     const state = JSON.parse(readFileSync(path, "utf-8"));
@@ -517,38 +466,91 @@ describe("TodoStore", () => {
     await expect(store.linkItemQuests(release.id, {}, provenance(60))).rejects.toMatchObject({ code: "invalid" });
   });
 
-  it("applies quest link proposals only after approval", async () => {
-    const item = await store.createItem({ markdown: "Follow up" }, provenance(10));
-    const proposal = await store.createProposal(
-      { action: "item:link", itemId: item.id, addQuestIds: [" q-3 "] },
-      { kind: "session", sessionId: "agent-1", label: "Worker" },
-    );
-    expect(proposal.mutation).toEqual({
-      action: "item:link",
-      itemId: item.id,
-      addQuestIds: ["q-3"],
-      removeQuestIds: [],
-    });
-    expect((await store.getItem(item.id)).questIds).toBeUndefined();
+  it("drops retired proposals and grants from a schema-v2 list after keeping an exact copy", async () => {
+    // Proposals and grants are retired. Loading a v2 list backs up the original file before the
+    // first write, then keeps every item, category and its provenance, including changes made
+    // through a proposal or grant, and nothing else.
+    const fromProposal = {
+      actor: { kind: "session", sessionId: "agent-1", label: "Briefing" },
+      authorization: { kind: "proposal_approval", proposalId: "tp-3" },
+      at: 30,
+    };
+    const v2 = {
+      schemaVersion: 2,
+      revision: 9,
+      updatedAt: 90,
+      nextItemId: 2,
+      nextCategoryId: 1,
+      nextProposalId: 5,
+      nextGrantId: 2,
+      categories: [
+        {
+          id: "cat-inbox",
+          name: "Inbox",
+          createdAt: 1,
+          updatedAt: 1,
+          createdBy: provenance(1, "bootstrap"),
+          lastModifiedBy: provenance(1, "bootstrap"),
+        },
+      ],
+      items: [
+        {
+          id: "td-1",
+          markdown: "Review the PR",
+          rank: 1024,
+          categoryId: "cat-inbox",
+          status: "todo",
+          createdAt: 30,
+          updatedAt: 30,
+          statusChangedAt: 30,
+          createdBy: fromProposal,
+          lastModifiedBy: fromProposal,
+        },
+      ],
+      proposals: [
+        {
+          id: "tp-4",
+          mutation: { action: "item:add", input: { markdown: "Stale ask" } },
+          status: "pending",
+          createdAt: 40,
+          updatedAt: 40,
+          requestedBy: { kind: "session", sessionId: "agent-1" },
+        },
+      ],
+      grants: [
+        {
+          id: "tg-1",
+          principal: { kind: "session", id: "agent-1" },
+          actions: ["item:status"],
+          categoryIds: ["cat-inbox"],
+          createdAt: 20,
+          updatedAt: 20,
+          createdBy: provenance(20),
+          lastModifiedBy: provenance(20),
+        },
+      ],
+    };
+    const raw = JSON.stringify(v2, null, 2);
+    writeFileSync(path, raw, "utf-8");
 
-    const resolved = await store.resolveProposal(proposal.id, "approve", provenance(100));
-    expect(resolved.item?.questIds).toEqual(["q-3"]);
-    expect(resolved.item?.lastModifiedBy.authorization).toMatchObject({ kind: "proposal_approval" });
-  });
-
-  it("marks done only proposals that add a to-do, leaving others pending", async () => {
-    // Legacy edit/status/link proposals change an existing to-do, so there is nothing new to mark done.
-    const item = await store.createItem({ markdown: "Follow up" }, provenance(10));
-    const proposal = await store.createProposal(
-      { action: "item:link", itemId: item.id, addQuestIds: ["q-3"] },
-      { kind: "session", sessionId: "agent-1", label: "Worker" },
-    );
-    await expect(store.resolveProposal(proposal.id, "mark-done", provenance(100))).rejects.toMatchObject({
-      code: "invalid",
+    const migrated = await new TodoStore(path).snapshot();
+    expect(migrated).toEqual({
+      schemaVersion: 3,
+      revision: 9,
+      updatedAt: 90,
+      nextItemId: 2,
+      nextCategoryId: 1,
+      categories: v2.categories,
+      items: v2.items,
     });
-    const state = await store.snapshot();
-    expect(state.proposals.find((candidate) => candidate.id === proposal.id)?.status).toBe("pending");
-    expect(state.items.find((candidate) => candidate.id === item.id)?.questIds).toBeUndefined();
+    expect(readFileSync(`${path}.schema-v2.backup`, "utf-8")).toBe(raw);
+    expect(JSON.parse(readFileSync(path, "utf-8"))).toEqual(migrated);
+
+    // A different copy already in the backup's place is never overwritten, and neither is the list.
+    writeFileSync(path, raw.replace("Review the PR", "Review the other PR"), "utf-8");
+    await expect(new TodoStore(path).snapshot()).rejects.toMatchObject({ code: "corrupt_store" });
+    expect(readFileSync(`${path}.schema-v2.backup`, "utf-8")).toBe(raw);
+    expect(readFileSync(path, "utf-8")).toContain("Review the other PR");
   });
 
   it("refuses to overwrite structurally corrupt schema-v2 state", async () => {

@@ -1,13 +1,10 @@
 import type { Context } from "hono";
-import type {
-  TodoActor,
-  TodoGrantAction,
-  TodoMutationProvenance,
-  TodoPrincipal,
-  TodoUserMessageProvenance,
-} from "../shared/todo-types.js";
+import type { TodoActor, TodoMutationProvenance, TodoUserMessageProvenance } from "../shared/todo-types.js";
 import type { RouteContext } from "./routes/context.js";
-import { hashTodoAuthorizationContent, type TodoStore } from "./todo-store.js";
+import { hashTodoAuthorizationContent } from "./todo-store.js";
+
+/** Longest standing-approval citation or to-do source kept with a change. */
+export const MAX_CITATION_LENGTH = 500;
 
 export type TodoAuthorizationResult =
   | { ok: true; provenance: TodoMutationProvenance }
@@ -26,26 +23,6 @@ function callerActor(
     };
   }
   return { kind: "session", sessionId: auth.callerId, label };
-}
-
-export function principalsForTodoCaller(
-  auth: Exclude<ReturnType<RouteContext["authenticateCompanionCallerOptional"]>, null | { response: Response }>,
-): TodoPrincipal[] {
-  const principals: TodoPrincipal[] = [
-    {
-      kind: "session",
-      id: auth.callerId,
-      label: auth.caller.name?.trim() || auth.caller.sessionNum?.toString() || auth.callerId.slice(0, 8),
-    },
-  ];
-  if (auth.caller.cronJobId) {
-    principals.push({
-      kind: "cron",
-      id: auth.caller.cronJobId,
-      label: auth.caller.cronJobName?.trim() || auth.caller.cronJobId,
-    });
-  }
-  return principals;
 }
 
 function directUserMessageProvenance(
@@ -70,20 +47,21 @@ function directUserMessageProvenance(
   };
 }
 
+/**
+ * Decide whether the caller may make a to-do change, and record how it was authorized.
+ *
+ * Browser UI requests are the user's own. An agent may make a change when the user approved it in
+ * this session (`authorizedBy`, the index of their reply), when it cites a written standing approval
+ * (`standingApproval`, recorded as given; Takode cannot check it), or when the change is low-risk.
+ * Everything else is refused: the default is fail-closed.
+ */
 export async function authorizeTodoMutation(
   c: Context,
   ctx: RouteContext,
-  store: TodoStore,
   options: {
-    action: TodoGrantAction;
-    categoryIds: string[];
     authorizedBy?: unknown;
-    allowGrant?: boolean;
-    /**
-     * The change cannot make the user lose track of something, so an agent may make it on its own
-     * judgment. Everything else needs the user's approval (`--authorized-by` naming their reply to
-     * the agent's description of the change) or a matching grant; new to-dos can also be proposed.
-     */
+    standingApproval?: unknown;
+    /** The change cannot make the user lose track of something, so an agent may make it on its own judgment. */
     lowRisk?: boolean;
   },
 ): Promise<TodoAuthorizationResult> {
@@ -114,7 +92,6 @@ export async function authorizeTodoMutation(
           {
             error:
               "--authorized-by must reference a direct human user message in this same session; injected or missing messages cannot authorize a to-do mutation",
-            canPropose: true,
           },
           403,
         ),
@@ -130,35 +107,39 @@ export async function authorizeTodoMutation(
     };
   }
 
-  if (options.allowGrant !== false) {
-    const grant = await store.matchingGrant(principalsForTodoCaller(auth), options.action, options.categoryIds);
-    if (grant) {
+  if (options.standingApproval !== undefined) {
+    const standingApproval = typeof options.standingApproval === "string" ? options.standingApproval.trim() : "";
+    if (!standingApproval || standingApproval.length > MAX_CITATION_LENGTH) {
       return {
-        ok: true,
-        provenance: {
-          actor: callerActor(auth),
-          authorization: { kind: "grant", grantId: grant.id },
-          at: now,
-        },
+        ok: false,
+        response: c.json(
+          {
+            error: `--standing-approval must cite where the approval is written and what it allows, in at most ${MAX_CITATION_LENGTH} characters`,
+          },
+          400,
+        ),
       };
     }
+    return {
+      ok: true,
+      provenance: {
+        actor: callerActor(auth),
+        authorization: { kind: "standing_approval", standingApproval },
+        at: now,
+      },
+    };
   }
 
   if (options.lowRisk) {
     return { ok: true, provenance: { actor: callerActor(auth), authorization: { kind: "agent_direct" }, at: now } };
   }
 
-  const canPropose = options.action === "item:add";
   return {
     ok: false,
     response: c.json(
       {
-        error: canPropose
-          ? "Adding a to-do needs the user's approval. Propose it with `takode todo propose add`, or describe it to the user and rerun with --authorized-by <their reply's message index>."
-          : "This to-do change needs the user's approval. Describe it to the user, linking the to-do, and rerun with --authorized-by <their reply's message index>.",
-        canPropose,
-        requiredAction: options.action,
-        requiredCategoryIds: options.categoryIds,
+        error:
+          "This to-do change needs the user's approval. Describe it to the user, linking the to-do, and rerun with --authorized-by <their reply's message index>, or cite a written standing approval that covers it with --standing-approval.",
       },
       403,
     ),
@@ -181,10 +162,4 @@ export function isAdditiveTodoEdit(before: string, after: string): boolean {
   let matched = 0;
   for (const line of next) if (line === kept[matched]) matched += 1;
   return matched === kept.length;
-}
-
-export function todoProposalActor(
-  auth: Exclude<ReturnType<RouteContext["authenticateTakodeCaller"]>, { response: Response }>,
-): TodoActor {
-  return callerActor(auth);
 }

@@ -22,6 +22,7 @@ import {
 import { api } from "../api.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { TodoProvenance } from "./TodoProvenance.js";
 import { TodoQuestChips } from "./TodoQuestChips.js";
 import { TodoDueEditor, TodoDueLabel } from "./TodoDueControls.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
@@ -351,9 +352,12 @@ function TodoItemOverflow({
         >
           {item.archivedAt ? "Restore item" : "Archive item"}
         </button>
-        <p className="border-t border-cc-border pt-2 text-[10px] text-cc-muted">
-          {item.id} · Updated {new Date(item.updatedAt).toLocaleString()}
-        </p>
+        <div className="space-y-1 border-t border-cc-border pt-2 text-[10px] text-cc-muted">
+          <p>
+            {item.id} · Updated {new Date(item.updatedAt).toLocaleString()}
+          </p>
+          <TodoProvenance item={item} className="space-y-1" />
+        </div>
       </div>
     </details>
   );
@@ -771,7 +775,6 @@ export function TodoListPanel() {
     return <ErrorBanner message={error || "Unable to load personal to-dos."} onDismiss={() => setError("")} />;
 
   const categories = activeTodoCategories(state);
-  const pendingCount = state.proposals.filter((proposal) => proposal.status === "pending").length;
   const activeGroupByCategory = new Map(activeGroups.map((group) => [group.categoryId, group]));
   const shownCategories = categories.filter(
     (category) =>
@@ -876,7 +879,7 @@ export function TodoListPanel() {
               onClick={() => setManageOpen((value) => !value)}
               className={`rounded-lg border px-2.5 py-1 text-[11px] ${manageOpen ? "border-cc-primary/40 bg-cc-primary/10 text-cc-primary" : "border-cc-border text-cc-muted hover:text-cc-fg"}`}
             >
-              Manage{pendingCount ? ` · ${pendingCount}` : ""}
+              Manage
             </button>
           </div>
         </div>

@@ -1,13 +1,9 @@
 import type {
-  TodoGrantAction,
   TodoDueDates,
   TodoItemCreateInput,
   TodoItemEditInput,
   TodoItemMoveInput,
   TodoLinkedQuest,
-  TodoPrincipal,
-  TodoProposalDecision,
-  TodoProposalStatuses,
   TodoState,
   TodoStateMutationResponse,
   TodoStatus,
@@ -31,13 +27,9 @@ async function request<T>(path: string, options?: { method?: "GET" | "POST" | "P
 export const todoApi = {
   getTodoState: () => request<TodoState>("/todos"),
 
-  getTodoProposalStatuses: () => request<TodoProposalStatuses>("/todos/proposal-statuses"),
-
   getTodoDueDates: () => request<TodoDueDates>("/todos/due-dates"),
 
   getTodoLinkedQuests: () => request<{ quests: TodoLinkedQuest[]; revision: number }>("/todos/linked-quests"),
-
-  listTodoPrincipals: () => request<{ principals: TodoPrincipal[] }>("/todos/principals"),
 
   createTodoItem: (input: TodoItemCreateInput) =>
     request<TodoStateMutationResponse>("/todos/items", { method: "POST", body: input }),
@@ -99,21 +91,6 @@ export const todoApi = {
 
   restoreTodoCategory: (id: string) =>
     request<TodoStateMutationResponse>(`/todos/categories/${encodeURIComponent(id)}/restore`, {
-      method: "POST",
-      body: {},
-    }),
-
-  resolveTodoProposal: (id: string, decision: TodoProposalDecision) =>
-    request<TodoStateMutationResponse>(`/todos/proposals/${encodeURIComponent(id)}/${decision}`, {
-      method: "POST",
-      body: {},
-    }),
-
-  createTodoGrant: (input: { principal: TodoPrincipal; actions: TodoGrantAction[]; categoryIds: string[] | null }) =>
-    request<TodoStateMutationResponse>("/todos/grants", { method: "POST", body: input }),
-
-  revokeTodoGrant: (id: string) =>
-    request<TodoStateMutationResponse>(`/todos/grants/${encodeURIComponent(id)}/revoke`, {
       method: "POST",
       body: {},
     }),

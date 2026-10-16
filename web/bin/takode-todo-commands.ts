@@ -1,17 +1,14 @@
 import type {
+  TodoActor,
   TodoCategory,
   TodoCompactItem,
-  TodoGrant,
-  TodoGrantAction,
   TodoItem,
   TodoLinkedQuest,
-  TodoProposal,
-  TodoProposalMutation,
   TodoState,
   TodoStateMutationResponse,
   TodoStatus,
 } from "../shared/todo-types.js";
-import { TODO_GRANT_ACTIONS, TODO_STATUSES } from "../shared/todo-types.js";
+import { TODO_STATUSES } from "../shared/todo-types.js";
 import { formatTodoMarkdownLink } from "../shared/todo-link.js";
 import { isTodoOverdue, isValidTodoDue } from "../shared/todo-due.js";
 import {
@@ -25,10 +22,10 @@ import {
   resolveStringFlag,
 } from "./takode-core.js";
 
-const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|due|move|archive|restore|link|unlink|category|propose|proposal|grant> ...`;
+const TODO_USAGE = `Usage: takode todo <list|show|find|add|edit|status|due|move|archive|restore|link|unlink|category> ...`;
 const DUE_USAGE =
-  "Usage: takode todo due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [--authorized-by <message-index>] [--json]";
-const BOOL_FLAGS = new Set(["json", "include-archived", "all-categories"]);
+  "Usage: takode todo due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [--authorized-by <message-index> | --standing-approval <citation>] [--json]";
+const BOOL_FLAGS = new Set(["json", "include-archived"]);
 
 function parseArgs(args: string[]): { positionals: string[]; flags: Record<string, string | boolean> } {
   const positionals: string[] = [];
@@ -99,9 +96,16 @@ async function resolveCategoryId(base: string, raw: string | undefined): Promise
   err(`Category not found: ${raw}`);
 }
 
-function authorizationBody(flags: Record<string, string | boolean>): { authorizedBy?: number } {
+function authorizationBody(flags: Record<string, string | boolean>): {
+  authorizedBy?: number;
+  standingApproval?: string;
+} {
   const authorizedBy = parseIntegerFlag(flags, "authorized-by", "human message index");
-  return authorizedBy === undefined ? {} : { authorizedBy };
+  const standingApproval = resolveStringFlag(flags, "standing-approval", "standing approval citation");
+  return {
+    ...(authorizedBy === undefined ? {} : { authorizedBy }),
+    ...(standingApproval === undefined ? {} : { standingApproval }),
+  };
 }
 
 async function readItemInput(
@@ -216,17 +220,19 @@ ${item.markdown}`);
   console.log(
     `Timestamps: created=${new Date(item.createdAt).toISOString()} updated=${new Date(item.updatedAt).toISOString()} statusChanged=${new Date(item.statusChangedAt).toISOString()}${item.completedAt ? ` completed=${new Date(item.completedAt).toISOString()}` : ""}${item.archivedAt ? ` archived=${new Date(item.archivedAt).toISOString()}` : ""}`,
   );
-  console.log(
-    `Last actor: ${item.lastModifiedBy.actor.kind}${item.lastModifiedBy.actor.label ? ` (${item.lastModifiedBy.actor.label})` : ""}`,
-  );
-  console.log(`Authorization: ${item.lastModifiedBy.authorization.kind}`);
-  if (item.lastModifiedBy.authorization.userMessage) {
-    const source = item.lastModifiedBy.authorization.userMessage;
-    console.log(`Authorized by: session=${source.sessionId} message=${source.historyIndex}`);
+  const added = item.createdBy;
+  console.log(`Added by: ${actorText(added.actor)}${added.source ? `, from ${added.source}` : ""}`);
+  const last = item.lastModifiedBy;
+  console.log(`Last change: ${actorText(last.actor)}, ${last.authorization.kind.replace(/_/g, " ")}`);
+  if (last.authorization.userMessage) {
+    const message = last.authorization.userMessage;
+    console.log(`Authorized by: session=${message.sessionId} message=${message.historyIndex}`);
   }
-  if (item.lastModifiedBy.authorization.grantId) console.log(`Grant: ${item.lastModifiedBy.authorization.grantId}`);
-  if (item.lastModifiedBy.authorization.proposalId)
-    console.log(`Proposal: ${item.lastModifiedBy.authorization.proposalId}`);
+  if (last.authorization.standingApproval) console.log(`Standing approval: ${last.authorization.standingApproval}`);
+}
+
+function actorText(actor: TodoActor): string {
+  return `${actor.kind}${actor.label ? ` (${actor.label})` : ""}`;
 }
 
 async function handleList(base: string, flags: Record<string, string | boolean>) {
@@ -301,10 +307,11 @@ async function handleAdd(
       "due",
       "before",
       "after",
+      "source",
       "authorized-by",
       "json",
     ]),
-    "Usage: takode todo add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>] [--authorized-by <message-index>] [--json]",
+    "Usage: takode todo add [markdown] [--markdown-file <path|->] [--source <where it came from>] [--category <id|name>] [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>] [--authorized-by <message-index>] [--json]",
   );
   const input = await readItemInput(flags, positionalMarkdown, { requireMarkdown: true });
   const category = resolveStringFlag(flags, "category", "category");
@@ -313,6 +320,7 @@ async function handleAdd(
   const beforeItemId = resolveStringFlag(flags, "before", "before item id");
   const afterItemId = resolveStringFlag(flags, "after", "after item id");
   if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
+  const source = resolveStringFlag(flags, "source", "where the to-do came from");
   const response = (await apiPost(base, "/todos/items", {
     ...input,
     ...(categoryId ? { categoryId } : {}),
@@ -320,6 +328,7 @@ async function handleAdd(
     ...dueFlag(flags),
     ...(beforeItemId ? { beforeItemId } : {}),
     ...(afterItemId ? { afterItemId } : {}),
+    ...(source ? { source } : {}),
     ...authorizationBody(flags),
   })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
@@ -331,12 +340,22 @@ async function handleAdd(
 async function handleEdit(base: string, id: string | undefined, flags: Record<string, string | boolean>) {
   if (!id)
     err(
-      "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index>] [--json]",
+      "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
     );
   assertKnownFlags(
     flags,
-    new Set(["markdown", "markdown-file", "title", "title-file", "details", "details-file", "authorized-by", "json"]),
-    "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index>] [--json]",
+    new Set([
+      "markdown",
+      "markdown-file",
+      "title",
+      "title-file",
+      "details",
+      "details-file",
+      "authorized-by",
+      "standing-approval",
+      "json",
+    ]),
+    "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
   );
   const input = await readItemInput(flags);
   if (Object.keys(input).length === 0) err("Provide --markdown/--markdown-file or a legacy --title/--details input.");
@@ -357,11 +376,13 @@ async function simpleItemMutation(
 ) {
   if (!id)
     err(
-      `Usage: takode todo ${action} <td-id>${action === "status" ? " <todo|doing|done>" : action === "move" ? " [category] [--before <td-id>|--after <td-id>]" : ""} [--authorized-by <message-index>] [--json]`,
+      `Usage: takode todo ${action} <td-id>${action === "status" ? " <todo|doing|done>" : action === "move" ? " [category] [--before <td-id>|--after <td-id>]" : ""} [--authorized-by <message-index> | --standing-approval <citation>] [--json]`,
     );
   assertKnownFlags(
     flags,
-    action === "move" ? new Set(["before", "after", "authorized-by", "json"]) : new Set(["authorized-by", "json"]),
+    action === "move"
+      ? new Set(["before", "after", "authorized-by", "standing-approval", "json"])
+      : new Set(["authorized-by", "standing-approval", "json"]),
     TODO_USAGE,
   );
   const path = `/todos/items/${encodeURIComponent(id)}/${action}`;
@@ -392,7 +413,7 @@ async function handleDue(
 ) {
   const [date, time] = values;
   if (!id || !date || values.length > 2) err(DUE_USAGE);
-  assertKnownFlags(flags, new Set(["authorized-by", "json"]), DUE_USAGE);
+  assertKnownFlags(flags, new Set(["authorized-by", "standing-approval", "json"]), DUE_USAGE);
   const clear = date === "clear" && !time;
   const response = (await apiPost(base, `/todos/items/${encodeURIComponent(id)}/due`, {
     due: clear ? null : parseDue(date, time),
@@ -409,13 +430,12 @@ async function handleLink(
   questArgs: string[],
   flags: Record<string, string | boolean>,
 ) {
-  const usage = `Usage: takode todo ${action} <td-id> <q-id>... [--authorized-by <message-index>] [--json]`;
+  const usage = `Usage: takode todo ${action} <td-id> <q-id>... [--json]`;
   const questIds = questIdArgs(questArgs);
   if (!id || questIds.length === 0) err(usage);
-  assertKnownFlags(flags, new Set(["authorized-by", "json"]), usage);
+  assertKnownFlags(flags, new Set(["json"]), usage);
   const response = (await apiPost(base, `/todos/items/${encodeURIComponent(id)}/links`, {
     [action === "link" ? "addQuestIds" : "removeQuestIds"]: questIds,
-    ...authorizationBody(flags),
   })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
   const linked = response.item!.questIds ?? [];
@@ -446,26 +466,34 @@ async function handleCategory(base: string, args: string[], flags: Record<string
   }
   assertKnownFlags(
     flags,
-    new Set(["authorized-by", "json"]),
-    "Usage: takode todo category <create|rename|archive|restore> ... [--authorized-by <message-index>] [--json]",
+    new Set(["authorized-by", "standing-approval", "json"]),
+    "Usage: takode todo category <create|rename|archive|restore> ... [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
   );
   let response: TodoStateMutationResponse;
   if (action === "create") {
-    if (!first) err("Usage: takode todo category create <name> [--authorized-by <message-index>] [--json]");
+    if (!first)
+      err(
+        "Usage: takode todo category create <name> [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
+      );
     response = (await apiPost(base, "/todos/categories", {
       name: first,
       ...authorizationBody(flags),
     })) as TodoStateMutationResponse;
   } else if (action === "rename") {
     if (!first || !second)
-      err("Usage: takode todo category rename <category> <new-name> [--authorized-by <message-index>] [--json]");
+      err(
+        "Usage: takode todo category rename <category> <new-name> [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
+      );
     const id = await resolveCategoryId(base, first);
     response = (await apiPatch(base, `/todos/categories/${encodeURIComponent(id)}`, {
       name: second,
       ...authorizationBody(flags),
     })) as TodoStateMutationResponse;
   } else if (action === "archive" || action === "restore") {
-    if (!first) err(`Usage: takode todo category ${action} <category> [--authorized-by <message-index>] [--json]`);
+    if (!first)
+      err(
+        `Usage: takode todo category ${action} <category> [--authorized-by <message-index> | --standing-approval <citation>] [--json]`,
+      );
     let id: string;
     if (action === "restore") {
       const categories = ((await apiGet(base, "/todos/categories")) as { categories: TodoCategory[] }).categories;
@@ -489,256 +517,6 @@ async function handleCategory(base: string, args: string[], flags: Record<string
   console.log(
     `${response!.category!.id}: ${response!.category!.name}${response!.category!.archivedAt ? " (archived)" : ""}`,
   );
-}
-
-/** A ready-to-paste `[label](todo:tp-N)` link, so agents can point the user at the proposal's preview. */
-function proposalLink(proposal: TodoProposal): string {
-  const mutation = proposal.mutation;
-  const label =
-    mutation.action === "item:add"
-      ? titleText(derivedTitle(mutation.input.markdown ?? mutation.input.titleMarkdown ?? ""))
-      : proposalSummary(proposal);
-  return `Link: ${formatTodoMarkdownLink(proposal.id, label)}`;
-}
-
-function proposalSummary(proposal: TodoProposal): string {
-  const mutation = proposal.mutation;
-  switch (mutation.action) {
-    case "item:add":
-      return `add ${titleText(derivedTitle(mutation.input.markdown ?? mutation.input.titleMarkdown ?? ""))}`;
-    case "item:edit":
-      return `edit ${mutation.itemId}`;
-    case "item:status":
-      return `set ${mutation.itemId} ${mutation.status}`;
-    case "item:move":
-      return mutation.categoryId ? `move ${mutation.itemId} to ${mutation.categoryId}` : `reorder ${mutation.itemId}`;
-    case "item:archive":
-    case "item:restore":
-      return `${mutation.action.split(":")[1]} ${mutation.itemId}`;
-    case "item:link":
-      return [
-        mutation.addQuestIds?.length ? `link ${mutation.itemId} to ${mutation.addQuestIds.join(", ")}` : "",
-        mutation.removeQuestIds?.length ? `unlink ${mutation.itemId} from ${mutation.removeQuestIds.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("; ");
-    case "category:create":
-      return `create category ${mutation.input.name}`;
-    case "category:rename":
-      return `rename ${mutation.categoryId} to ${mutation.name}`;
-    case "category:archive":
-      return `archive category ${mutation.categoryId}`;
-    case "category:restore":
-      return `restore category ${mutation.categoryId}`;
-  }
-}
-
-async function buildProposalMutation(
-  base: string,
-  action: string,
-  args: string[],
-  flags: Record<string, string | boolean>,
-): Promise<TodoProposalMutation> {
-  if (action === "add") {
-    const input = await readItemInput(flags, args[0], { requireMarkdown: true });
-    const category = resolveStringFlag(flags, "category", "category");
-    const beforeItemId = resolveStringFlag(flags, "before", "before item id");
-    const afterItemId = resolveStringFlag(flags, "after", "after item id");
-    if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
-    return {
-      action: "item:add",
-      input: {
-        ...input,
-        ...(category ? { categoryId: await resolveCategoryId(base, category) } : {}),
-        ...(validStatus(resolveStringFlag(flags, "status", "status"))
-          ? { status: validStatus(resolveStringFlag(flags, "status", "status")) }
-          : {}),
-        ...dueFlag(flags),
-        ...(beforeItemId ? { beforeItemId } : {}),
-        ...(afterItemId ? { afterItemId } : {}),
-      },
-    };
-  }
-  err(
-    `Proposals only add new to-dos (takode todo propose add ...). For other changes, describe the change to the user, linking the to-do, and rerun the command with --authorized-by <their reply's message index>.`,
-  );
-}
-
-async function handleProposal(
-  base: string,
-  args: string[],
-  flags: Record<string, string | boolean>,
-  directAlias = false,
-) {
-  const [subcommand, ...rest] = args;
-  const action = directAlias ? subcommand : subcommand;
-  if (!action || action === "list") {
-    assertKnownFlags(flags, new Set(["json"]), "Usage: takode todo proposal list [--json]");
-    const proposals = ((await apiGet(base, "/todos/proposals?status=pending")) as { proposals: TodoProposal[] })
-      .proposals;
-    if (jsonOutput(flags, proposals)) return;
-    if (proposals.length === 0) return console.log("No pending to-do proposals.");
-    for (const proposal of proposals) console.log(`${proposal.id.padEnd(7)} ${proposalSummary(proposal)}`);
-    return;
-  }
-  if (action === "show") {
-    const id = rest[0];
-    if (!id) err("Usage: takode todo proposal show <tp-id> [--json]");
-    assertKnownFlags(flags, new Set(["json"]), "Usage: takode todo proposal show <tp-id> [--json]");
-    const proposal = ((await apiGet(base, `/todos/proposals/${encodeURIComponent(id)}`)) as { proposal: TodoProposal })
-      .proposal;
-    if (jsonOutput(flags, proposal)) return;
-    console.log(
-      `${proposal.id}  ${proposal.status}\n${proposalSummary(proposal)}\nRequested by: ${proposal.requestedBy.kind}${proposal.requestedBy.label ? ` (${proposal.requestedBy.label})` : ""}\n${proposalLink(proposal)}`,
-    );
-    return;
-  }
-  if (action === "approve" || action === "reject") {
-    const id = rest[0];
-    if (!id) err(`Usage: takode todo proposal ${action} <tp-id> [--authorized-by <message-index>] [--json]`);
-    assertKnownFlags(flags, new Set(["authorized-by", "json"]), TODO_USAGE);
-    const response = (await apiPost(
-      base,
-      `/todos/proposals/${encodeURIComponent(id)}/${action}`,
-      authorizationBody(flags),
-    )) as TodoStateMutationResponse;
-    if (jsonOutput(flags, response.proposal)) return;
-    console.log(`${action === "approve" ? "Approved" : "Rejected"} ${id}.`);
-    return;
-  }
-
-  assertKnownFlags(
-    flags,
-    new Set([
-      "markdown",
-      "markdown-file",
-      "title",
-      "title-file",
-      "details",
-      "details-file",
-      "category",
-      "status",
-      "due",
-      "before",
-      "after",
-      "json",
-    ]),
-    "Usage: takode todo propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>] [--json]",
-  );
-  const mutation = await buildProposalMutation(base, action, rest, flags);
-  const response = (await apiPost(base, "/todos/proposals", { mutation })) as TodoStateMutationResponse;
-  if (jsonOutput(flags, response.proposal)) return;
-  console.log(
-    `Proposed ${response.proposal!.id}: ${proposalSummary(response.proposal!)}\n${proposalLink(response.proposal!)}`,
-  );
-}
-
-function grantSummary(grant: TodoGrant, categories: Map<string, TodoCategory>): string {
-  const scope =
-    grant.categoryIds === null
-      ? "all categories"
-      : grant.categoryIds.map((id) => categories.get(id)?.name ?? id).join(", ");
-  return `${grant.principal.kind}:${grant.principal.id}  ${grant.actions.join(",")}  [${scope}]${grant.revokedAt ? " revoked" : ""}`;
-}
-
-async function handleGrant(base: string, args: string[], flags: Record<string, string | boolean>) {
-  const [action, id] = args;
-  if (!action || action === "list") {
-    assertKnownFlags(
-      flags,
-      new Set(["json", "include-archived"]),
-      "Usage: takode todo grant list [--include-archived] [--json]",
-    );
-    const grants = (
-      (await apiGet(base, `/todos/grants${flags["include-archived"] === true ? "?includeRevoked=true" : ""}`)) as {
-        grants: TodoGrant[];
-      }
-    ).grants;
-    const categoryList = ((await apiGet(base, "/todos/categories")) as { categories: TodoCategory[] }).categories;
-    if (jsonOutput(flags, grants)) return;
-    if (grants.length === 0) return console.log("No active to-do workflow grants.");
-    const categories = new Map(categoryList.map((category) => [category.id, category]));
-    for (const grant of grants) console.log(`${grant.id.padEnd(7)} ${grantSummary(grant, categories)}`);
-    return;
-  }
-  if (action === "show") {
-    if (!id) err("Usage: takode todo grant show <tg-id> [--json]");
-    assertKnownFlags(flags, new Set(["json"]), "Usage: takode todo grant show <tg-id> [--json]");
-    const grant = ((await apiGet(base, `/todos/grants/${encodeURIComponent(id)}`)) as { grant: TodoGrant }).grant;
-    const categoryList = ((await apiGet(base, "/todos/categories")) as { categories: TodoCategory[] }).categories;
-    if (jsonOutput(flags, grant)) return;
-    console.log(
-      `${grant.id}\n${grantSummary(grant, new Map(categoryList.map((category) => [category.id, category])))}`,
-    );
-    return;
-  }
-  if (action === "create") {
-    assertKnownFlags(
-      flags,
-      new Set([
-        "principal-kind",
-        "principal",
-        "label",
-        "actions",
-        "categories",
-        "all-categories",
-        "authorized-by",
-        "json",
-      ]),
-      TODO_USAGE,
-    );
-    const kind = resolveStringFlag(flags, "principal-kind", "principal kind");
-    if (kind !== "session" && kind !== "cron") err("--principal-kind must be session or cron.");
-    const principalId = resolveStringFlag(flags, "principal", "principal id");
-    const actionsRaw = resolveStringFlag(flags, "actions", "grant actions");
-    if (!principalId || !actionsRaw) err("Grant create requires --principal and --actions.");
-    const actions = [
-      ...new Set(
-        actionsRaw
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter(Boolean),
-      ),
-    ];
-    for (const grantAction of actions) {
-      if (!TODO_GRANT_ACTIONS.includes(grantAction as TodoGrantAction)) err(`Unsupported grant action: ${grantAction}`);
-    }
-    if (flags["all-categories"] === true && flags.categories !== undefined)
-      err("Use --all-categories or --categories, not both.");
-    const categoriesRaw = resolveStringFlag(flags, "categories", "category list");
-    const categoryIds =
-      flags["all-categories"] === true || !categoriesRaw
-        ? null
-        : await Promise.all(categoriesRaw.split(",").map((entry) => resolveCategoryId(base, entry.trim())));
-    const response = (await apiPost(base, "/todos/grants", {
-      principal: {
-        kind,
-        id: principalId,
-        ...(resolveStringFlag(flags, "label", "principal label")
-          ? { label: resolveStringFlag(flags, "label", "principal label") }
-          : {}),
-      },
-      actions,
-      categoryIds,
-      ...authorizationBody(flags),
-    })) as TodoStateMutationResponse;
-    if (jsonOutput(flags, response.grant)) return;
-    console.log(`Created ${response.grant!.id}: ${grantSummary(response.grant!, categoryMap(response.state))}`);
-    return;
-  }
-  if (action === "revoke") {
-    if (!id) err("Usage: takode todo grant revoke <tg-id> [--authorized-by <message-index>] [--json]");
-    assertKnownFlags(flags, new Set(["authorized-by", "json"]), TODO_USAGE);
-    const response = (await apiPost(
-      base,
-      `/todos/grants/${encodeURIComponent(id)}/revoke`,
-      authorizationBody(flags),
-    )) as TodoStateMutationResponse;
-    if (jsonOutput(flags, response.grant)) return;
-    console.log(`Revoked ${id}.`);
-    return;
-  }
-  err(`Unknown todo grant action: ${action}`);
 }
 
 export async function handleTodo(base: string, rawArgs: string[]): Promise<void> {
@@ -782,25 +560,6 @@ export async function handleTodo(base: string, rawArgs: string[]): Promise<void>
       );
     case "category":
       return handleCategory(
-        base,
-        [first, second, ...rest].filter((value): value is string => !!value),
-        flags,
-      );
-    case "propose":
-      return handleProposal(
-        base,
-        [first, second, ...rest].filter((value): value is string => !!value),
-        flags,
-        true,
-      );
-    case "proposal":
-      return handleProposal(
-        base,
-        [first, second, ...rest].filter((value): value is string => !!value),
-        flags,
-      );
-    case "grant":
-      return handleGrant(
         base,
         [first, second, ...rest].filter((value): value is string => !!value),
         flags,

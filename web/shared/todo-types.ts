@@ -1,25 +1,6 @@
 export const TODO_STATUSES = ["todo", "doing", "done"] as const;
 export type TodoStatus = (typeof TODO_STATUSES)[number];
 
-export const TODO_GRANT_ACTIONS = [
-  "item:add",
-  "item:edit",
-  "item:status",
-  "item:move",
-  "item:archive",
-  "item:restore",
-  "item:link",
-  "category:create",
-  "category:rename",
-  "category:archive",
-  "category:restore",
-] as const;
-export type TodoGrantAction = (typeof TODO_GRANT_ACTIONS)[number];
-
-export type TodoPrincipal =
-  | { kind: "session"; id: string; label?: string }
-  | { kind: "cron"; id: string; label?: string };
-
 export interface TodoActor {
   kind: "user" | "session" | "workflow" | "system";
   /** Session provider when the actor is an agent session. */
@@ -40,8 +21,17 @@ export interface TodoUserMessageProvenance {
 }
 
 export interface TodoAuthorization {
-  kind: "ui" | "direct_message" | "grant" | "proposal_approval" | "agent_direct" | "bootstrap";
+  /**
+   * `grant` and `proposal_approval` are retired: Takode no longer has to-do grants or proposals, but
+   * changes made through them keep that record.
+   */
+  kind: "ui" | "direct_message" | "standing_approval" | "agent_direct" | "bootstrap" | "grant" | "proposal_approval";
   userMessage?: TodoUserMessageProvenance;
+  /**
+   * The written standing approval the agent relied on, as it cited it: where it is written and the
+   * rule. Takode records the citation but cannot check it.
+   */
+  standingApproval?: string;
   grantId?: string;
   proposalId?: string;
 }
@@ -50,6 +40,8 @@ export interface TodoMutationProvenance {
   actor: TodoActor;
   authorization: TodoAuthorization;
   at: number;
+  /** Where an agent found the to-do it added, e.g. "Slack group chat with Junhong, Oct 4". */
+  source?: string;
 }
 
 export interface TodoCategory {
@@ -93,19 +85,6 @@ export interface TodoItem {
   lastModifiedBy: TodoMutationProvenance;
 }
 
-export interface TodoGrant {
-  id: string;
-  principal: TodoPrincipal;
-  actions: TodoGrantAction[];
-  /** null means every active category. */
-  categoryIds: string[] | null;
-  createdAt: number;
-  updatedAt: number;
-  revokedAt?: number;
-  createdBy: TodoMutationProvenance;
-  lastModifiedBy: TodoMutationProvenance;
-}
-
 /**
  * Canonical callers send `markdown`. The split fields remain accepted only as
  * compatibility input for pre-v2 CLI/API clients and are never persisted.
@@ -144,44 +123,6 @@ export interface TodoCategoryCreateInput {
   name: string;
 }
 
-export type TodoProposalMutation =
-  | { action: "item:add"; input: TodoItemCreateInput }
-  | { action: "item:edit"; itemId: string; input: TodoItemEditInput }
-  | { action: "item:status"; itemId: string; status: TodoStatus }
-  | ({ action: "item:move"; itemId: string } & TodoItemMoveInput)
-  | { action: "item:archive"; itemId: string }
-  | { action: "item:restore"; itemId: string }
-  | ({ action: "item:link"; itemId: string } & TodoItemLinkInput)
-  | { action: "category:create"; input: TodoCategoryCreateInput }
-  | { action: "category:rename"; categoryId: string; name: string }
-  | { action: "category:archive"; categoryId: string }
-  | { action: "category:restore"; categoryId: string };
-
-export interface TodoProposal {
-  id: string;
-  mutation: TodoProposalMutation;
-  status: "pending" | "approved" | "rejected";
-  createdAt: number;
-  updatedAt: number;
-  resolvedAt?: number;
-  requestedBy: TodoActor;
-  resolution?: TodoMutationProvenance;
-  /** Approved with the new to-do marked done in the same step: it was already done when reviewed. */
-  markedDone?: boolean;
-}
-
-/**
- * How the user resolves a proposal. `mark-done` approves a proposal that adds a to-do and marks
- * that to-do done at once, for an obligation that was real but finished before it was reviewed.
- */
-export type TodoProposalDecision = "approve" | "reject" | "mark-done";
-
-/** `GET /todos/proposal-statuses`: every proposal's status by ID, without the rest of the list. */
-export interface TodoProposalStatuses {
-  statuses: Record<string, TodoProposal["status"]>;
-  revision: number;
-}
-
 /** `GET /todos/due-dates`: the due dates of current Todo and Doing items, without the rest of the list. */
 export interface TodoDueDates {
   dues: string[];
@@ -189,17 +130,13 @@ export interface TodoDueDates {
 }
 
 export interface TodoState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   revision: number;
   updatedAt: number;
   nextItemId: number;
   nextCategoryId: number;
-  nextProposalId: number;
-  nextGrantId: number;
   categories: TodoCategory[];
   items: TodoItem[];
-  proposals: TodoProposal[];
-  grants: TodoGrant[];
 }
 
 export interface TodoItemListFilters {
@@ -247,8 +184,6 @@ export interface TodoStateMutationResponse {
   state: TodoState;
   item?: TodoItem;
   category?: TodoCategory;
-  proposal?: TodoProposal;
-  grant?: TodoGrant;
   /** Opaque, short-lived receipt for undoing the immediately preceding UI completion. */
   completionUndo?: TodoCompletionUndoHandle;
 }

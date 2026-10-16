@@ -3,13 +3,9 @@ import { constants, copyFile, mkdir, readFile, rename, writeFile } from "node:fs
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  TODO_GRANT_ACTIONS,
   TODO_STATUSES,
-  type TodoActor,
   type TodoCategory,
   type TodoCategoryCreateInput,
-  type TodoGrant,
-  type TodoGrantAction,
   type TodoItem,
   type TodoItemCreateInput,
   type TodoItemEditInput,
@@ -17,10 +13,6 @@ import {
   type TodoItemListFilters,
   type TodoItemMoveInput,
   type TodoMutationProvenance,
-  type TodoPrincipal,
-  type TodoProposal,
-  type TodoProposalDecision,
-  type TodoProposalMutation,
   type TodoState,
   type TodoStatus,
 } from "../shared/todo-types.js";
@@ -33,10 +25,8 @@ const MAX_TITLE_LENGTH = 500;
 const MAX_LEGACY_DETAILS_LENGTH = 50_000;
 const MAX_MARKDOWN_LENGTH = MAX_TITLE_LENGTH + 1 + MAX_LEGACY_DETAILS_LENGTH;
 const MAX_CATEGORY_NAME_LENGTH = 120;
-const MAX_PROPOSALS = 1_000;
 const RANK_STEP = 1_024;
 const QUEST_ID_PATTERN = /^q-\d+$/;
-const LEGACY_BACKUP_SUFFIX = ".schema-v1.backup";
 
 interface TodoRankSnapshot {
   id: string;
@@ -86,13 +76,11 @@ function bootstrapProvenance(at: number): TodoMutationProvenance {
 function emptyState(now = Date.now()): TodoState {
   const provenance = bootstrapProvenance(now);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision: 0,
     updatedAt: now,
     nextItemId: 1,
     nextCategoryId: 1,
-    nextProposalId: 1,
-    nextGrantId: 1,
     categories: [
       {
         id: INBOX_ID,
@@ -104,8 +92,6 @@ function emptyState(now = Date.now()): TodoState {
       },
     ],
     items: [],
-    proposals: [],
-    grants: [],
   };
 }
 
@@ -254,31 +240,6 @@ function normalizeStatus(value: unknown, fallback: TodoStatus = "todo"): TodoSta
   throw new TodoStoreError("Status must be todo, doing, or done", "invalid");
 }
 
-function normalizeGrantActions(value: unknown): TodoGrantAction[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new TodoStoreError("At least one grant action is required", "invalid");
-  }
-  const actions = [...new Set(value.map(String))];
-  for (const action of actions) {
-    if (!TODO_GRANT_ACTIONS.includes(action as TodoGrantAction)) {
-      throw new TodoStoreError(`Unsupported grant action: ${action}`, "invalid");
-    }
-  }
-  return actions as TodoGrantAction[];
-}
-
-function normalizePrincipal(value: unknown): TodoPrincipal {
-  const raw = requireObject(value, "Grant principal");
-  const kind = raw.kind;
-  if (kind !== "session" && kind !== "cron") {
-    throw new TodoStoreError("Grant principal kind must be session or cron", "invalid");
-  }
-  const id = typeof raw.id === "string" ? raw.id.trim() : "";
-  if (!id) throw new TodoStoreError("Grant principal id is required", "invalid");
-  const label = typeof raw.label === "string" ? raw.label.trim() : "";
-  return { kind, id, ...(label ? { label } : {}) };
-}
-
 function categoryById(state: TodoState, categoryId: string, options?: { allowArchived?: boolean }): TodoCategory {
   const category = state.categories.find((candidate) => candidate.id === categoryId);
   if (!category) throw new TodoStoreError(`Category not found: ${categoryId}`, "not_found");
@@ -391,67 +352,6 @@ function formatDateInTimeZone(epochMs: number, timeZone?: string): string {
   }
 }
 
-function migrateLegacyProposal(proposal: unknown, items: TodoItem[]): TodoProposal {
-  const raw = requireObject(proposal, "proposal");
-  const mutation = requireObject(raw.mutation, "proposal mutation");
-  const action = mutation.action;
-  let migratedMutation: TodoProposalMutation;
-  if (action === "item:add") {
-    const input = requireObject(mutation.input, "proposal add input");
-    const title = input.titleMarkdown;
-    const details = input.detailsMarkdown;
-    if (typeof title !== "string" || (details != null && typeof details !== "string")) {
-      throw new TodoStoreError("Legacy add proposal Markdown is invalid", "corrupt_store");
-    }
-    migratedMutation = {
-      action,
-      input: {
-        markdown: normalizeMarkdown(combineLegacyTodoMarkdown(title, details as string | null | undefined)),
-        ...(typeof input.categoryId === "string" ? { categoryId: input.categoryId } : {}),
-        ...(typeof input.status === "string" ? { status: normalizeStatus(input.status) } : {}),
-      },
-    };
-  } else if (action === "item:edit") {
-    if (typeof mutation.itemId !== "string")
-      throw new TodoStoreError("Legacy edit proposal item is invalid", "corrupt_store");
-    const item = items.find((candidate) => candidate.id === mutation.itemId);
-    if (!item) throw new TodoStoreError(`Legacy proposal item not found: ${mutation.itemId}`, "corrupt_store");
-    const input = requireObject(mutation.input, "proposal edit input");
-    const legacyEdit: TodoItemEditInput = {
-      ...(typeof input.titleMarkdown === "string" ? { titleMarkdown: input.titleMarkdown } : {}),
-      ...(hasOwn(input, "detailsMarkdown")
-        ? { detailsMarkdown: input.detailsMarkdown as string | null | undefined }
-        : {}),
-    };
-    migratedMutation = {
-      action,
-      itemId: item.id,
-      input: {
-        markdown: Object.keys(legacyEdit).length
-          ? applyLegacyTodoMarkdownEdit(item.markdown, legacyEdit)
-          : item.markdown,
-      },
-    };
-  } else if (
-    typeof action === "string" &&
-    [
-      "item:status",
-      "item:move",
-      "item:archive",
-      "item:restore",
-      "category:create",
-      "category:rename",
-      "category:archive",
-      "category:restore",
-    ].includes(action)
-  ) {
-    migratedMutation = clone(mutation) as unknown as TodoProposalMutation;
-  } else {
-    throw new TodoStoreError(`Unsupported legacy proposal action: ${String(action)}`, "corrupt_store");
-  }
-  return { ...(clone(raw) as unknown as TodoProposal), mutation: migratedMutation };
-}
-
 function migrateV1State(raw: Record<string, unknown>): TodoState {
   const categories = requireArray<TodoCategory>(raw.categories, "categories");
   const categoryIds = new Set<string>();
@@ -511,43 +411,39 @@ function migrateV1State(raw: Record<string, unknown>): TodoState {
   });
   assignLegacyRanks(items);
 
+  // Proposals and grants are retired; they survive only in the pre-migration backup.
   const state = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     revision: requireFiniteNumber(raw.revision, "revision"),
     updatedAt: requireFiniteNumber(raw.updatedAt, "updatedAt"),
     nextItemId: requireFiniteNumber(raw.nextItemId, "nextItemId"),
     nextCategoryId: requireFiniteNumber(raw.nextCategoryId, "nextCategoryId"),
-    nextProposalId: requireFiniteNumber(raw.nextProposalId, "nextProposalId"),
-    nextGrantId: requireFiniteNumber(raw.nextGrantId, "nextGrantId"),
     categories,
     items,
-    proposals: requireArray<unknown>(raw.proposals, "proposals").map((proposal) =>
-      migrateLegacyProposal(proposal, items),
-    ),
-    grants: requireArray<TodoGrant>(raw.grants, "grants"),
   } satisfies TodoState;
   return state;
 }
 
-function normalizeLoadedState(value: unknown): { state: TodoState; migrated: boolean } {
+/**
+ * Load a stored list, migrating older schemas. `migratedFrom` names the schema a migrated file had,
+ * so its original is backed up before the new form replaces it. Schema 2 differs from 3 only by the
+ * retired proposals and grants, which are dropped.
+ */
+function normalizeLoadedState(value: unknown): { state: TodoState; migratedFrom?: 1 | 2 } {
   const raw = requireObject(value, "To-do store");
-  if (raw.schemaVersion === 1) return { state: migrateV1State(raw), migrated: true };
-  if (raw.schemaVersion !== 2) {
+  if (raw.schemaVersion === 1) return { state: migrateV1State(raw), migratedFrom: 1 };
+  if (raw.schemaVersion !== 2 && raw.schemaVersion !== 3) {
     throw new TodoStoreError(`Unsupported to-do schema version: ${String(raw.schemaVersion)}`, "unsupported_schema");
   }
 
   const state = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     revision: requireFiniteNumber(raw.revision, "revision"),
     updatedAt: requireFiniteNumber(raw.updatedAt, "updatedAt"),
     nextItemId: requireFiniteNumber(raw.nextItemId, "nextItemId"),
     nextCategoryId: requireFiniteNumber(raw.nextCategoryId, "nextCategoryId"),
-    nextProposalId: requireFiniteNumber(raw.nextProposalId, "nextProposalId"),
-    nextGrantId: requireFiniteNumber(raw.nextGrantId, "nextGrantId"),
     categories: requireArray<TodoCategory>(raw.categories, "categories"),
     items: requireArray<TodoItem>(raw.items, "items"),
-    proposals: requireArray<TodoProposal>(raw.proposals, "proposals"),
-    grants: requireArray<TodoGrant>(raw.grants, "grants"),
   } satisfies TodoState;
 
   const categoryIds = new Set<string>();
@@ -598,7 +494,7 @@ function normalizeLoadedState(value: unknown): { state: TodoState; migrated: boo
       }
     }
   }
-  return { state, migrated: false };
+  return { state, ...(raw.schemaVersion === 2 ? { migratedFrom: 2 as const } : {}) };
 }
 
 export function extractMarkdownLinkDestinations(markdown: string): string[] {
@@ -639,8 +535,9 @@ export class TodoStore {
 
   constructor(private filePath = DEFAULT_FILE) {}
 
-  private async ensureLegacyBackup(rawText: string): Promise<void> {
-    const backupPath = `${this.filePath}${LEGACY_BACKUP_SUFFIX}`;
+  /** Keep an immutable copy of a file before migrating it; refuse if a different copy is already there. */
+  private async ensureLegacyBackup(rawText: string, schemaVersion: number): Promise<void> {
+    const backupPath = `${this.filePath}.schema-v${schemaVersion}.backup`;
     try {
       await copyFile(this.filePath, backupPath, constants.COPYFILE_EXCL);
     } catch (error) {
@@ -662,8 +559,8 @@ export class TodoStore {
         try {
           const rawText = await readFile(this.filePath, "utf-8");
           const loaded = normalizeLoadedState(JSON.parse(rawText));
-          if (loaded.migrated) {
-            await this.ensureLegacyBackup(rawText);
+          if (loaded.migratedFrom) {
+            await this.ensureLegacyBackup(rawText, loaded.migratedFrom);
             await this.persist(loaded.state);
           }
           this.state = loaded.state;
@@ -790,7 +687,6 @@ export class TodoStore {
     state: TodoState,
     input: TodoItemCreateInput,
     provenance: TodoMutationProvenance,
-    touch = true,
   ): TodoItem {
     const now = provenance.at;
     const categoryId = this.resolveCreateCategory(state, input);
@@ -812,7 +708,7 @@ export class TodoStore {
     };
     state.items.push(item);
     placeItem(state, item, input);
-    if (touch) touchState(state, now);
+    touchState(state, now);
     return item;
   }
 
@@ -1090,7 +986,6 @@ export class TodoStore {
     state: TodoState,
     input: TodoCategoryCreateInput,
     provenance: TodoMutationProvenance,
-    touch = true,
   ): TodoCategory {
     const name = normalizeCategoryName(input.name);
     ensureUniqueCategoryName(state, name);
@@ -1103,7 +998,7 @@ export class TodoStore {
       lastModifiedBy: provenance,
     };
     state.categories.push(category);
-    if (touch) touchState(state, provenance.at);
+    touchState(state, provenance.at);
     return category;
   }
 
@@ -1149,272 +1044,6 @@ export class TodoStore {
       touchState(state, provenance.at);
       return category;
     });
-  }
-
-  async createGrant(
-    input: { principal: unknown; actions: unknown; categoryIds?: unknown },
-    provenance: TodoMutationProvenance,
-  ): Promise<TodoGrant> {
-    return this.mutate((state) => {
-      const principal = normalizePrincipal(input.principal);
-      const actions = normalizeGrantActions(input.actions);
-      let categoryIds: string[] | null = null;
-      if (Array.isArray(input.categoryIds)) {
-        categoryIds = [
-          ...new Set(
-            input.categoryIds
-              .map(String)
-              .map((value) => value.trim())
-              .filter(Boolean),
-          ),
-        ];
-        for (const categoryId of categoryIds) categoryById(state, categoryId);
-      } else if (input.categoryIds != null) {
-        throw new TodoStoreError("Grant categoryIds must be an array or null", "invalid");
-      }
-      const duplicate = state.grants.find(
-        (grant) => !grant.revokedAt && grant.principal.kind === principal.kind && grant.principal.id === principal.id,
-      );
-      if (duplicate) throw new TodoStoreError(`An active grant already exists for this ${principal.kind}`, "conflict");
-      const grant: TodoGrant = {
-        id: `tg-${state.nextGrantId++}`,
-        principal,
-        actions,
-        categoryIds,
-        createdAt: provenance.at,
-        updatedAt: provenance.at,
-        createdBy: provenance,
-        lastModifiedBy: provenance,
-      };
-      state.grants.push(grant);
-      touchState(state, provenance.at);
-      return grant;
-    });
-  }
-
-  async revokeGrant(grantId: string, provenance: TodoMutationProvenance): Promise<TodoGrant> {
-    return this.mutate((state) => {
-      const grant = state.grants.find((candidate) => candidate.id === grantId);
-      if (!grant) throw new TodoStoreError(`Grant not found: ${grantId}`, "not_found");
-      grant.revokedAt = provenance.at;
-      grant.updatedAt = provenance.at;
-      grant.lastModifiedBy = provenance;
-      touchState(state, provenance.at);
-      return grant;
-    });
-  }
-
-  async matchingGrant(
-    principals: TodoPrincipal[],
-    action: TodoGrantAction,
-    categoryIds: string[],
-  ): Promise<TodoGrant | null> {
-    const state = await this.snapshot();
-    return (
-      state.grants.find((grant) => {
-        if (grant.revokedAt || !grant.actions.includes(action)) return false;
-        if (
-          !principals.some(
-            (principal) => principal.kind === grant.principal.kind && principal.id === grant.principal.id,
-          )
-        ) {
-          return false;
-        }
-        if (grant.categoryIds === null) return true;
-        return categoryIds.every((categoryId) => grant.categoryIds!.includes(categoryId));
-      }) ?? null
-    );
-  }
-
-  private normalizeProposalMutation(state: TodoState, mutation: TodoProposalMutation): TodoProposalMutation {
-    switch (mutation.action) {
-      case "item:add": {
-        const categoryId = this.resolveCreateCategory(state, mutation.input);
-        const status = normalizeStatus(mutation.input.status);
-        const markdown = resolveCreateMarkdown(mutation.input);
-        const due = normalizeDue(mutation.input.due);
-        const probe: TodoItem = {
-          id: "proposal-preview",
-          markdown,
-          rank: 0,
-          categoryId,
-          status,
-          createdAt: 0,
-          updatedAt: 0,
-          statusChangedAt: 0,
-          ...(status === "done" ? { completedAt: 0 } : {}),
-          createdBy: bootstrapProvenance(0),
-          lastModifiedBy: bootstrapProvenance(0),
-        };
-        if (mutation.input.beforeItemId || mutation.input.afterItemId) placeItem(clone(state), probe, mutation.input);
-        return {
-          action: "item:add",
-          input: {
-            markdown,
-            categoryId,
-            status,
-            ...(due ? { due } : {}),
-            ...(mutation.input.beforeItemId ? { beforeItemId: mutation.input.beforeItemId } : {}),
-            ...(mutation.input.afterItemId ? { afterItemId: mutation.input.afterItemId } : {}),
-          },
-        };
-      }
-      case "item:edit": {
-        const item = itemById(state, mutation.itemId);
-        return {
-          action: "item:edit",
-          itemId: item.id,
-          input: { markdown: resolveEditMarkdown(item.markdown, mutation.input) },
-        };
-      }
-      case "item:status":
-        itemById(state, mutation.itemId);
-        return { ...mutation, status: normalizeStatus(mutation.status) };
-      case "item:move": {
-        const draft = clone(state);
-        const item = this.moveItemInState(draft, mutation.itemId, mutation, bootstrapProvenance(0));
-        return {
-          action: "item:move",
-          itemId: item.id,
-          categoryId: item.categoryId,
-          ...(mutation.beforeItemId ? { beforeItemId: mutation.beforeItemId } : {}),
-          ...(mutation.afterItemId ? { afterItemId: mutation.afterItemId } : {}),
-        };
-      }
-      case "item:archive":
-      case "item:restore":
-        itemById(state, mutation.itemId);
-        return clone(mutation);
-      case "item:link":
-        itemById(state, mutation.itemId);
-        return { action: "item:link", itemId: mutation.itemId, ...normalizeLinkInput(mutation) };
-      case "category:create":
-        normalizeCategoryName(mutation.input.name);
-        return clone(mutation);
-      case "category:rename":
-        categoryById(state, mutation.categoryId);
-        normalizeCategoryName(mutation.name);
-        return clone(mutation);
-      case "category:archive":
-        categoryById(state, mutation.categoryId);
-        return clone(mutation);
-      case "category:restore":
-        categoryById(state, mutation.categoryId, { allowArchived: true });
-        return clone(mutation);
-    }
-  }
-
-  async createProposal(mutation: TodoProposalMutation, requestedBy: TodoActor): Promise<TodoProposal> {
-    return this.mutate((state) => {
-      const normalizedMutation = this.normalizeProposalMutation(state, mutation);
-      const now = Date.now();
-      const proposal: TodoProposal = {
-        id: `tp-${state.nextProposalId++}`,
-        mutation: normalizedMutation,
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-        requestedBy,
-      };
-      state.proposals.push(proposal);
-      if (state.proposals.length > MAX_PROPOSALS) {
-        const removable = state.proposals
-          .filter((candidate) => candidate.status !== "pending")
-          .sort((a, b) => a.updatedAt - b.updatedAt);
-        while (state.proposals.length > MAX_PROPOSALS && removable.length > 0) {
-          const next = removable.shift()!;
-          state.proposals = state.proposals.filter((candidate) => candidate.id !== next.id);
-        }
-      }
-      touchState(state, now);
-      return proposal;
-    });
-  }
-
-  async resolveProposal(
-    proposalId: string,
-    decision: TodoProposalDecision,
-    provenance: TodoMutationProvenance,
-  ): Promise<{ proposal: TodoProposal; item?: TodoItem; category?: TodoCategory }> {
-    return this.mutate((state) => {
-      const proposal = state.proposals.find((candidate) => candidate.id === proposalId);
-      if (!proposal) throw new TodoStoreError(`Proposal not found: ${proposalId}`, "not_found");
-      if (proposal.status !== "pending") throw new TodoStoreError(`Proposal is already ${proposal.status}`, "conflict");
-      if (decision === "mark-done" && proposal.mutation.action !== "item:add") {
-        throw new TodoStoreError("Only a proposal that adds a to-do can be marked done", "invalid");
-      }
-      const appliedProvenance: TodoMutationProvenance = {
-        actor: proposal.requestedBy,
-        authorization: { ...provenance.authorization, kind: "proposal_approval", proposalId },
-        at: provenance.at,
-      };
-      let result: { item?: TodoItem; category?: TodoCategory } = {};
-      if (decision !== "reject")
-        result = this.applyProposalMutationInState(state, proposal.mutation, appliedProvenance);
-      if (decision === "mark-done" && result.item) {
-        // The agent proposed the to-do; completing it is the user's own change.
-        result.item = this.setItemStatusInState(state, result.item.id, "done", provenance);
-        proposal.markedDone = true;
-      }
-      proposal.status = decision === "reject" ? "rejected" : "approved";
-      proposal.updatedAt = provenance.at;
-      proposal.resolvedAt = provenance.at;
-      proposal.resolution = provenance;
-      touchState(state, provenance.at);
-      return { proposal, ...result };
-    });
-  }
-
-  private applyProposalMutationInState(
-    state: TodoState,
-    mutation: TodoProposalMutation,
-    provenance: TodoMutationProvenance,
-  ): { item?: TodoItem; category?: TodoCategory } {
-    switch (mutation.action) {
-      case "item:add":
-        return { item: this.createItemInState(state, mutation.input, provenance, false) };
-      case "item:edit":
-        return { item: this.editItemInState(state, mutation.itemId, mutation.input, provenance) };
-      case "item:status":
-        return { item: this.setItemStatusInState(state, mutation.itemId, mutation.status, provenance) };
-      case "item:move":
-        return { item: this.moveItemInState(state, mutation.itemId, mutation, provenance) };
-      case "item:archive":
-        return { item: this.setItemArchivedInState(state, mutation.itemId, true, provenance) };
-      case "item:restore":
-        return { item: this.setItemArchivedInState(state, mutation.itemId, false, provenance) };
-      case "item:link":
-        return { item: this.linkItemQuestsInState(state, mutation.itemId, mutation, provenance) };
-      case "category:create":
-        return { category: this.createCategoryInState(state, mutation.input, provenance, false) };
-      case "category:rename": {
-        const category = categoryById(state, mutation.categoryId);
-        const name = normalizeCategoryName(mutation.name);
-        ensureUniqueCategoryName(state, name, category.id);
-        category.name = name;
-        category.updatedAt = provenance.at;
-        category.lastModifiedBy = provenance;
-        return { category };
-      }
-      case "category:archive": {
-        if (mutation.categoryId === INBOX_ID) throw new TodoStoreError("Inbox cannot be archived", "conflict");
-        const category = categoryById(state, mutation.categoryId);
-        if (state.items.some((item) => item.categoryId === category.id && !item.archivedAt)) {
-          throw new TodoStoreError("Move or archive active items before archiving this category", "conflict");
-        }
-        category.archivedAt = provenance.at;
-        category.updatedAt = provenance.at;
-        category.lastModifiedBy = provenance;
-        return { category };
-      }
-      case "category:restore": {
-        const category = categoryById(state, mutation.categoryId, { allowArchived: true });
-        delete category.archivedAt;
-        category.updatedAt = provenance.at;
-        category.lastModifiedBy = provenance;
-        return { category };
-      }
-    }
   }
 
   async flushForTest(): Promise<void> {

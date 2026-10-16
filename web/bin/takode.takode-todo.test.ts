@@ -32,13 +32,11 @@ async function runTakode(args: string[], port: number, stdin?: string) {
 
 function snapshot() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision: 2,
     updatedAt: 200,
     nextItemId: 2,
     nextCategoryId: 1,
-    nextProposalId: 1,
-    nextGrantId: 1,
     categories: [
       {
         id: "cat-inbox",
@@ -50,8 +48,6 @@ function snapshot() {
       },
     ],
     items: [],
-    proposals: [],
-    grants: [],
   };
 }
 
@@ -124,7 +120,7 @@ describe("takode todo", () => {
       const show = await runTakode(["todo", "show", "td-1"], port);
       expect(show.stdout).toContain("Markdown:\n[Reply to Alice]");
       expect(show.stdout).toContain("Private full detail");
-      expect(show.stdout).toContain("Authorization: direct_message");
+      expect(show.stdout).toContain("Last change: session, direct message");
       // Users never see td-N IDs, so show prints a ready-to-paste link with the plain-text title.
       expect(show.stdout).toContain("Link: [Reply to Alice](todo:td-1)");
     } finally {
@@ -282,12 +278,12 @@ describe("takode todo", () => {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
       }
-      if (req.method === "POST" && req.url === "/api/todos/items") {
+      if (req.method === "POST" && req.url === "/api/todos/items/td-1/status") {
         res.writeHead(403, { "content-type": "application/json" });
         return res.end(
           JSON.stringify({
             error:
-              "This to-do mutation is not authorized. Use --authorized-by <human-message-index>, run under a matching workflow grant, or create a proposal instead.",
+              "This to-do change needs the user's approval. Describe it to the user, linking the to-do, and rerun with --authorized-by <their reply's message index>, or cite a written standing approval that covers it with --standing-approval.",
           }),
         );
       }
@@ -297,10 +293,10 @@ describe("takode todo", () => {
     await once(server, "listening");
     const port = (server.address() as AddressInfo).port;
     try {
-      const result = await runTakode(["todo", "add", "Unapproved"], port);
+      const result = await runTakode(["todo", "status", "td-1", "done"], port);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("not authorized");
-      expect(result.stderr).toContain("create a proposal instead");
+      expect(result.stderr).toContain("needs the user's approval");
+      expect(result.stderr).toContain("--standing-approval");
     } finally {
       server.close();
     }
@@ -355,12 +351,12 @@ describe("takode todo", () => {
     const port = (server.address() as AddressInfo).port;
     try {
       // Several quest IDs may be given as separate arguments or comma lists.
-      const link = await runTakode(["todo", "link", "td-1", "q-7,q-9", "--authorized-by", "42"], port);
+      const link = await runTakode(["todo", "link", "td-1", "q-7,q-9"], port);
       expect(link.status).toBe(0);
       expect(link.stdout).toContain("Linked quests: q-7, q-9");
       const unlink = await runTakode(["todo", "unlink", "td-1", "q-3", "q-4"], port);
       expect(unlink.status).toBe(0);
-      expect(received).toEqual([{ addQuestIds: ["q-7", "q-9"], authorizedBy: 42 }, { removeQuestIds: ["q-3", "q-4"] }]);
+      expect(received).toEqual([{ addQuestIds: ["q-7", "q-9"] }, { removeQuestIds: ["q-3", "q-4"] }]);
 
       const list = await runTakode(["todo", "list"], port);
       expect(list.stdout).toContain("Ship export  ↳ q-7 done, q-9 in_progress");
@@ -372,29 +368,38 @@ describe("takode todo", () => {
     }
   });
 
-  it("prints a ready-to-paste proposal link after proposing and in proposal show", async () => {
-    // Users never see tp-N IDs, so agents need a `[label](todo:tp-N)` link that opens the
-    // proposal preview. An add proposal is labelled by its plain-text to-do title.
-    const proposal = {
-      id: "tp-7",
-      mutation: { action: "item:add", input: { markdown: "Review **PR 98888**\nDetails stay out of the label" } },
-      status: "pending",
-      createdAt: 100,
-      updatedAt: 100,
-      requestedBy: { kind: "session", sessionId: "worker-1", label: "2978" },
+  it("sends where an added to-do came from and the standing approval behind a change, and shows both", async () => {
+    // Agents add to-dos on their own with --source, and cite a written standing approval for changes
+    // that otherwise need the user's reply. show prints both so agents and the user can audit them.
+    const received: Array<[string, JsonObject]> = [];
+    const changed = {
+      ...item(),
+      status: "done",
+      completedAt: 300,
+      createdBy: {
+        actor: { kind: "session", label: "Daily briefing" },
+        authorization: { kind: "agent_direct" },
+        at: 100,
+        source: "Slack DM from Junhong",
+      },
+      lastModifiedBy: {
+        actor: { kind: "session", label: "Daily briefing" },
+        authorization: { kind: "standing_approval", standingApproval: "daily-briefing skill, To-do hygiene" },
+        at: 300,
+      },
     };
     const server = createServer(async (req, res) => {
       res.setHeader("content-type", "application/json");
       if (req.url === "/api/takode/me") {
         return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
       }
-      if (req.method === "POST" && req.url === "/api/todos/proposals") {
-        await readJson(req);
-        res.writeHead(201);
-        return res.end(JSON.stringify({ state: snapshot(), proposal }));
+      if (req.method === "POST" && (req.url === "/api/todos/items" || req.url === "/api/todos/items/td-1/status")) {
+        received.push([req.url, await readJson(req)]);
+        res.writeHead(req.url === "/api/todos/items" ? 201 : 200);
+        return res.end(JSON.stringify({ state: snapshot(), item: changed }));
       }
-      if (req.url === "/api/todos/proposals/tp-7") {
-        return res.end(JSON.stringify({ proposal }));
+      if (req.url === "/api/todos/items/td-1") {
+        return res.end(JSON.stringify({ item: changed, category: snapshot().categories[0], linkedQuests: [] }));
       }
       res.writeHead(404).end();
     });
@@ -402,17 +407,28 @@ describe("takode todo", () => {
     await once(server, "listening");
     const port = (server.address() as AddressInfo).port;
     try {
-      const proposed = await runTakode(["todo", "propose", "add", "Review PR 98888"], port);
-      expect(proposed.status).toBe(0);
-      expect(proposed.stdout).toContain("Link: [Review PR 98888](todo:tp-7)");
+      const add = await runTakode(["todo", "add", "Review PR 98888", "--source", "Slack DM from Junhong"], port);
+      expect(add.status).toBe(0);
+      expect(add.stdout).toContain("Link: [Reply to Alice](todo:td-1)");
+      const done = await runTakode(
+        ["todo", "status", "td-1", "done", "--standing-approval", "daily-briefing skill, To-do hygiene"],
+        port,
+      );
+      expect(done.status).toBe(0);
+      expect(received).toEqual([
+        ["/api/todos/items", { markdown: "Review PR 98888", source: "Slack DM from Junhong" }],
+        ["/api/todos/items/td-1/status", { status: "done", standingApproval: "daily-briefing skill, To-do hygiene" }],
+      ]);
 
-      const show = await runTakode(["todo", "proposal", "show", "tp-7"], port);
-      expect(show.stdout).toContain("Link: [Review PR 98888](todo:tp-7)");
+      const show = await runTakode(["todo", "show", "td-1"], port);
+      expect(show.stdout).toContain("Added by: session (Daily briefing), from Slack DM from Junhong");
+      expect(show.stdout).toContain("Last change: session (Daily briefing), standing approval");
+      expect(show.stdout).toContain("Standing approval: daily-briefing skill, To-do hygiene");
 
-      // Proposals only add new to-dos; other changes are described to the user for approval instead.
-      const retired = await runTakode(["todo", "propose", "status", "td-1", "done"], port);
-      expect(retired.status).toBe(1);
-      expect(retired.stderr).toContain("Proposals only add new to-dos");
+      // Proposals are retired.
+      const propose = await runTakode(["todo", "propose", "add", "Review PR 98888"], port);
+      expect(propose.status).toBe(1);
+      expect(propose.stderr).toContain("Unknown todo command: propose");
     } finally {
       server.close();
     }

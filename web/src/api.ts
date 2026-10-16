@@ -112,13 +112,7 @@ export type {
   ServerInterruptResultItem,
 } from "./api/server-restart.js";
 
-export type {
-  TodoState,
-  TodoStatus,
-  TodoPrincipal,
-  TodoGrantAction,
-  TodoProposalMutation,
-} from "../shared/todo-types.js";
+export type { TodoState, TodoStatus } from "../shared/todo-types.js";
 
 export type {
   VoiceTranscriptionMode,

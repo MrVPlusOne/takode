@@ -19,7 +19,7 @@ These are three different systems. Do NOT confuse them.
 | **Lifecycle** | idea → refined → in_progress → done, with Quest Journey and review metadata | Todo → Doing → Done, custom categories, reversible archive | pending → in_progress → completed |
 | **Visibility** | Questmaster UI, shared across sessions | To-dos & Timers UI, shared across sessions | Only visible in the current model conversation |
 | **Purpose** | Work assigned to agents and tracked through delivery | Things the user personally needs to remember or do, even when an agent records them | Breaking down the model's immediate execution steps |
-| **Mutation authority** | Questmaster workflow rules | Reads and low-risk changes are open; changes that could lose track of something require the user's approving reply, a scoped grant, or (for new to-dos) an approved proposal | Self-managed by the model |
+| **Mutation authority** | Questmaster workflow rules | Reads and low-risk changes, including adding, are open; changes that could lose track of something require the user's approving reply or a written standing approval from the user | Self-managed by the model |
 
 **Rule of thumb**: Explicit Questmaster, quest, project-work, or agent-delivery requests use `quest`. Explicit personal-list, reminder-list, or `takode todo` requests use `takode todo`. Use TodoWrite only for your own ephemeral execution checklist. For genuinely ambiguous generic wording such as “my tasks” or “my todos,” use the surrounding context or ask which durable system the user means instead of silently choosing one.
 

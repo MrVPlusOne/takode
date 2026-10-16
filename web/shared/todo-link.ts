@@ -1,9 +1,9 @@
 /**
- * Takode link syntax for personal to-dos: `[title](todo:td-12)` for an item and
- * `[short summary](todo:tp-36)` for a proposal to add one.
+ * Takode link syntax for personal to-dos: `[title](todo:td-12)`. Users never see to-do IDs, so the
+ * visible label stays human-readable. The link opens a preview.
  *
- * Users never see to-do or proposal IDs, so the visible label stays human-readable.
- * The link opens a preview; a pending proposal can be approved or rejected there.
+ * Older messages may also hold `todo:tp-36` links to to-do proposals, which Takode no longer has;
+ * they still parse so their preview can show the to-do the proposal created.
  */
 export interface TodoLinkTarget {
   kind: "item" | "proposal";
@@ -21,13 +21,9 @@ export function parseTodoLinkHref(href?: string): TodoLinkTarget | null {
   return { kind: prefix === "td" ? "item" : "proposal", id: `${prefix}-${Number.parseInt(match[2]!, 10)}` };
 }
 
-/** Build a ready-to-paste Markdown link to an item or proposal, e.g. `[Review PR 98888](todo:tp-36)`. */
+/** Build a ready-to-paste Markdown link to a to-do, e.g. `[Review PR 98888](todo:td-36)`. */
 export function formatTodoMarkdownLink(id: string, label: string): string {
   const singleLine = label.replace(/\s+/g, " ").trim();
-  const safeLabel = singleLine
-    ? singleLine.replace(/[\\[\]]/g, "\\$&")
-    : id.startsWith("tp-")
-      ? "to-do proposal"
-      : "to-do";
+  const safeLabel = singleLine ? singleLine.replace(/[\\[\]]/g, "\\$&") : "to-do";
   return `[${safeLabel}](todo:${id})`;
 }

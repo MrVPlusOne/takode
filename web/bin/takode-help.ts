@@ -421,34 +421,30 @@ Read commands:
   show <td-id> [--json]
   find (--link <url> | --quest <q-id>) [--include-archived] [--json]
   category list [--include-archived] [--json]
-  proposal list|show <tp-id> [--json]
-  grant list|show <tg-id> [--include-archived] [--json]
 
 Mutation commands:
-  add [markdown] [--markdown-file <path|->] [--category <id|name>]
+  add [markdown] [--markdown-file <path|->] [--source <where it came from>] [--category <id|name>]
       [--status todo|doing|done] [--due <YYYY-MM-DD[THH:MM]>] [--before <td-id>|--after <td-id>]
       [--authorized-by <human-message-index>] [--json]
-  edit <td-id> [--markdown <text> | --markdown-file <path|->] [--authorized-by <index>] [--json]
-  status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
-  due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [--authorized-by <index>] [--json]
-  move <td-id> [category] [--before <td-id>|--after <td-id>] [--authorized-by <index>] [--json]
-  archive|restore <td-id> [--authorized-by <index>] [--json]
-  link|unlink <td-id> <q-id>... [--authorized-by <index>] [--json]
-  category create|rename|archive|restore ... [--authorized-by <index>] [--json]
-  propose add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status ...] [--due ...] [--before|--after <td-id>]
-  proposal approve|reject <tp-id> [--authorized-by <index>] [--json]
-  grant create --principal-kind session|cron --principal <id> --actions <csv>
-      [--categories <csv>|--all-categories] [--authorized-by <index>] [--json]
-  grant revoke <tg-id> [--authorized-by <index>] [--json]
+  edit <td-id> [--markdown <text> | --markdown-file <path|->] [<approval>] [--json]
+  status <td-id> <todo|doing|done> [<approval>] [--json]
+  due <td-id> (<YYYY-MM-DD> [HH:MM] | clear) [<approval>] [--json]
+  move <td-id> [category] [--before <td-id>|--after <td-id>] [<approval>] [--json]
+  archive|restore <td-id> [<approval>] [--json]
+  link|unlink <td-id> <q-id>... [--json]
+  category create|rename|archive|restore ... [<approval>] [--json]
+
+  <approval> is --authorized-by <human-message-index> or --standing-approval "<where it is written>: <the rule>".
 
 Authorization:
-  Reads are open to authenticated Takode sessions. Low-risk changes, which cannot make the user lose track of anything, need no approval: edits that only add text (the title stays and every existing line is kept), giving a to-do its first due date, linking or unlinking quests, setting status to todo or doing, and restoring an archived item or category. Every other change needs the user's approval: describe it to them, linking the to-do, and pass their reply's message index with --authorized-by; a matching session/cron workflow grant also authorizes it. New to-dos can instead be proposed with \`takode todo propose add\`, which the user approves from the proposal's preview; proposals only add new to-dos. UI actions are user-authorized. Unauthorized commands fail closed.
+  Reads are open to authenticated Takode sessions. Low-risk changes, which cannot make the user lose track of anything, need no approval: adding a to-do, edits that only add text (the title stays and every existing line is kept), giving a to-do its first due date, linking or unlinking quests, setting status to todo or doing, and restoring an archived item or category. An agent adding a to-do on its own must say where it came from with --source, mention it in its report with the printed link, and first check the list, including archived items, so it neither duplicates one nor re-adds one the user archived.
+  Every other change is refused unless the user approved it: describe it to them, linking the to-do, and pass their reply's message index with --authorized-by; or, when a written standing approval from the user covers it (in your skill, the user's instructions, or a memory note recording the user's decision), cite it with --standing-approval and mention the change and the approval in your report. Cite only text the user wrote or explicitly approved, never infer one, and never write or widen a standing approval yourself. The citation is recorded with the change and shown to the user. UI actions are user-authorized.
 
 Due dates:
   A due date, optionally with a time, is in the user's local time zone. Current Todo and Doing items past it are overdue: the UI highlights them and counts them on the To-dos button, and list/show mark them OVERDUE. A date without a time is overdue from the next day. Changing or clearing an existing due date needs approval.
 
 Links:
-  Mention to-dos as \`[title](todo:td-12)\` and proposals as \`[summary](todo:tp-36)\`; both open a preview. add, show, propose and proposal show print ready-to-paste links.
+  Mention to-dos as \`[title](todo:td-12)\`; the link opens a preview. add and show print ready-to-paste links.
 
 Quest links:
   A to-do can link related quests as metadata (many-to-many). Links are informational only: a quest's progress never changes a to-do's status, so judge whether the to-do is done and change it yourself when authorized. list shows each linked quest's current status, show adds titles, \`find --quest\` lists the to-dos linked to a quest, and \`quest show\` lists them too. Linking and unlinking are low-risk changes an agent may make on its own judgment.
@@ -774,7 +770,7 @@ Commands:
   worker-stream  Stream a worker/reviewer checkpoint to the leader
   phases        List Quest Journey phases and exact phase brief paths
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
-  todo           Personal durable to-dos (read, propose, or mutate with user/grant authorization)
+  todo           Personal durable to-dos (read, add, or change with the user's approval)
   timer          Session-scoped timers (create, list, cancel)
   lease          Resource pools (configure, acquire, status, renew, release, wait)
   permission     Inspect or update session permission modes

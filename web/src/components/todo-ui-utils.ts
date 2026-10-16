@@ -1,5 +1,4 @@
-import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
-import type { TodoCategory, TodoItem, TodoProposal, TodoStatus } from "../../shared/todo-types.js";
+import type { TodoCategory, TodoItem, TodoStatus } from "../../shared/todo-types.js";
 
 export type TodoStatusFilter = "active" | TodoStatus | "all" | "archived";
 
@@ -87,37 +86,4 @@ export function groupDoneItemsByLocalDate(items: TodoItem[]) {
         (a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt) || compareRank(a, b),
       ),
     }));
-}
-
-export function todoProposalSummary(proposal: TodoProposal): string {
-  const mutation = proposal.mutation;
-  switch (mutation.action) {
-    case "item:add":
-      return `Add “${deriveTodoMarkdown(mutation.input.markdown ?? mutation.input.titleMarkdown ?? "").titleMarkdown}”`;
-    case "item:edit":
-      return `Edit ${mutation.itemId}`;
-    case "item:status":
-      return `Move ${mutation.itemId} to ${mutation.status}`;
-    case "item:move":
-      return mutation.categoryId ? `Move ${mutation.itemId} to ${mutation.categoryId}` : `Reorder ${mutation.itemId}`;
-    case "item:archive":
-      return `Archive ${mutation.itemId}`;
-    case "item:restore":
-      return `Restore ${mutation.itemId}`;
-    case "item:link":
-      return [
-        mutation.addQuestIds?.length ? `Link ${mutation.itemId} to ${mutation.addQuestIds.join(", ")}` : "",
-        mutation.removeQuestIds?.length ? `Unlink ${mutation.itemId} from ${mutation.removeQuestIds.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("; ");
-    case "category:create":
-      return `Create category “${mutation.input.name}”`;
-    case "category:rename":
-      return `Rename ${mutation.categoryId} to “${mutation.name}”`;
-    case "category:archive":
-      return `Archive category ${mutation.categoryId}`;
-    case "category:restore":
-      return `Restore category ${mutation.categoryId}`;
-  }
 }

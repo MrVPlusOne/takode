@@ -9,7 +9,6 @@ import { useStore } from "../store.js";
 const mocks = vi.hoisted(() => ({
   getTodoState: vi.fn(),
   getTodoLinkedQuests: vi.fn(),
-  listTodoPrincipals: vi.fn(),
   createTodoItem: vi.fn(),
   editTodoItem: vi.fn(),
   setTodoItemStatus: vi.fn(),
@@ -22,9 +21,6 @@ const mocks = vi.hoisted(() => ({
   renameTodoCategory: vi.fn(),
   archiveTodoCategory: vi.fn(),
   restoreTodoCategory: vi.fn(),
-  resolveTodoProposal: vi.fn(),
-  createTodoGrant: vi.fn(),
-  revokeTodoGrant: vi.fn(),
 }));
 
 vi.mock("../api.js", () => ({ api: mocks }));
@@ -42,13 +38,11 @@ const provenance = {
 
 function makeState(revision = 1): TodoState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision,
     updatedAt: revision * 100,
     nextItemId: 4,
     nextCategoryId: 2,
-    nextProposalId: 2,
-    nextGrantId: 1,
     categories: [
       { id: "cat-inbox", name: "Inbox", createdAt: 1, updatedAt: 1, createdBy: provenance, lastModifiedBy: provenance },
       { id: "cat-1", name: "Slack", createdAt: 1, updatedAt: 1, createdBy: provenance, lastModifiedBy: provenance },
@@ -92,17 +86,6 @@ function makeState(revision = 1): TodoState {
         lastModifiedBy: provenance,
       },
     ],
-    proposals: [
-      {
-        id: "tp-1",
-        mutation: { action: "item:add", input: { markdown: "Read the result\nAgent context" } },
-        status: "pending",
-        createdAt: 100,
-        updatedAt: 100,
-        requestedBy: { kind: "session", sessionId: "s2", label: "Worker #2" },
-      },
-    ],
-    grants: [],
   };
 }
 
@@ -110,7 +93,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getTodoState.mockResolvedValue(makeState());
   mocks.getTodoLinkedQuests.mockResolvedValue({ quests: [], revision: 1 });
-  mocks.listTodoPrincipals.mockResolvedValue({ principals: [] });
 });
 
 describe("TodoListPanel", () => {
@@ -219,7 +201,7 @@ describe("TodoListPanel", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
     fireEvent.change(editor, { target: { value: "Updated title\nUpdated detail" } });
-    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage · 1" }) });
+    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage" }) });
 
     await waitFor(() =>
       expect(mocks.editTodoItem).toHaveBeenCalledWith("td-1", { markdown: "Updated title\nUpdated detail" }),
@@ -239,7 +221,7 @@ describe("TodoListPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit Reply to **Alice**" }));
     const editor = screen.getByLabelText("Edit Reply to **Alice**");
     fireEvent.change(editor, { target: { value: "Recovered draft" } });
-    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage · 1" }) });
+    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage" }) });
 
     expect(await screen.findByText(/Save failed; your draft is still here/)).toBeInTheDocument();
     expect(screen.getByLabelText("Edit Reply to **Alice**")).toHaveValue("Recovered draft");
@@ -265,7 +247,7 @@ describe("TodoListPanel", () => {
     fireEvent.keyDown(row, { key: "Enter", altKey: true });
     const editor = screen.getByLabelText("New to-do Markdown");
     fireEvent.change(editor, { target: { value: "New reminder\nContext" } });
-    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage · 1" }) });
+    fireEvent.blur(editor, { relatedTarget: screen.getByRole("button", { name: "Manage" }) });
 
     await waitFor(() =>
       expect(mocks.createTodoItem).toHaveBeenCalledWith({
@@ -365,20 +347,42 @@ describe("TodoListPanel", () => {
     expect(mocks.getTodoState).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps proposals and category administration behind the compact management drawer", async () => {
-    mocks.resolveTodoProposal.mockResolvedValue({ state: { ...makeState(2), proposals: [] } });
+  it("keeps category administration behind the compact management drawer", async () => {
     render(<TodoListPanel />);
     await screen.findByText("Personal To-dos");
 
-    fireEvent.click(screen.getByRole("button", { name: "Manage · 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     expect(screen.getByTestId("todo-management-drawer")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "proposals (1)" }));
-    expect(screen.getByText("Add “Read the result”")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    await waitFor(() => expect(mocks.resolveTodoProposal).toHaveBeenCalledWith("tp-1", "approve"));
-
-    fireEvent.click(screen.getByRole("button", { name: "categories" }));
     const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
     expect(archiveButtons.some((button) => button.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("says in an agent-added to-do's menu who added it and where it came from", async () => {
+    // The user dismisses unwanted agent additions by archiving, so the menu with Archive also
+    // shows which agent added the to-do and from where. The user's own to-dos show no such line.
+    const state = makeState();
+    state.items[1] = {
+      ...state.items[1]!,
+      createdBy: {
+        actor: { kind: "workflow", workflowId: "briefing", label: "Daily briefing" },
+        authorization: { kind: "agent_direct" },
+        at: Date.now() - 2 * 3_600_000,
+        source: "Slack DM from Junhong",
+      },
+    };
+    mocks.getTodoState.mockResolvedValue(state);
+    render(<TodoListPanel />);
+
+    const more = await screen.findByLabelText("More actions for Review result");
+    fireEvent.click(more);
+    expect(within(more.parentElement!).getByTestId("todo-provenance")).toHaveTextContent(
+      "Added by Daily briefing 2h ago · from Slack DM from Junhong",
+    );
+    fireEvent.click(screen.getByLabelText("More actions for Reply to **Alice**"));
+    expect(
+      within(screen.getByLabelText("More actions for Reply to **Alice**").parentElement!).queryByTestId(
+        "todo-provenance",
+      ),
+    ).toBeNull();
   });
 });

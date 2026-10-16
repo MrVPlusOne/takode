@@ -11,7 +11,6 @@ let dir: string;
 let store: TodoStore;
 let app: Hono;
 let optionalCaller: any = null;
-let requiredCaller: any = null;
 let bridgeSession: any;
 const broadcastGlobal = vi.fn();
 // Quest lookups read this fixture, never the real Questmaster store.
@@ -33,10 +32,8 @@ function caller(overrides: Record<string, unknown> = {}) {
 
 function makeContext(): RouteContext {
   const ctx = {
-    launcher: { listSessions: () => [] },
     wsBridge: { getSession: () => bridgeSession, broadcastGlobal },
     authenticateCompanionCallerOptional: () => optionalCaller,
-    authenticateTakodeCaller: () => requiredCaller ?? { response: new Response("forbidden", { status: 403 }) },
   };
   return ctx as unknown as RouteContext;
 }
@@ -54,7 +51,6 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "takode-todo-routes-test-"));
   store = new TodoStore(join(dir, "todo-list.json"));
   optionalCaller = null;
-  requiredCaller = null;
   bridgeSession = { messageHistory: [] };
   broadcastGlobal.mockReset();
   quests = [];
@@ -84,7 +80,7 @@ describe("to-do routes", () => {
       markdown: "[Review result](quest:q-42)\nFull context",
     });
     expect(body.item.createdBy.authorization.kind).toBe("ui");
-    expect(body.state.schemaVersion).toBe(2);
+    expect(body.state.schemaVersion).toBe(3);
     expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "todo_state_updated", revision: 1 }));
   });
 
@@ -103,13 +99,33 @@ describe("to-do routes", () => {
     expect((await edited.json()).item.markdown).toBe("Updated title\nLegacy details");
   });
 
-  it("fails closed for an agent mutation without a direct user message or matching grant", async () => {
+  it("lets an agent add a to-do on its own only when it says where the to-do came from", async () => {
+    // Adding cannot make the user lose track of anything, but the user should see why it was added.
     optionalCaller = caller();
-
-    const response = await jsonRequest("/todos/items", "POST", { markdown: "Unapproved reminder" });
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ canPropose: true, requiredAction: "item:add" });
+    const unsourced = await jsonRequest("/todos/items", "POST", { markdown: "Unexplained reminder" });
+    expect(unsourced.status).toBe(400);
+    expect((await unsourced.json()).error).toContain("--source");
     expect((await store.snapshot()).items).toEqual([]);
+
+    const added = await jsonRequest("/todos/items", "POST", {
+      markdown: "Review PR 98888",
+      source: " Slack group chat with Junhong, Oct 4 ",
+    });
+    expect(added.status).toBe(201);
+    expect((await added.json()).item.createdBy).toMatchObject({
+      actor: { kind: "session", sessionId: "session-1", label: "Worker 7" },
+      authorization: { kind: "agent_direct" },
+      source: "Slack group chat with Junhong, Oct 4",
+    });
+
+    // A scheduled workflow is recorded as the workflow, from the server's own caller record.
+    optionalCaller = caller({ cronJobId: "slack-sweep", cronJobName: "Slack sweep" });
+    const fromWorkflow = await jsonRequest("/todos/items", "POST", { markdown: "Reply", source: "Slack DM" });
+    expect((await fromWorkflow.json()).item.createdBy.actor).toMatchObject({
+      kind: "workflow",
+      workflowId: "slack-sweep",
+      label: "Slack sweep",
+    });
   });
 
   it("accepts only direct human same-session message provenance", async () => {
@@ -143,28 +159,34 @@ describe("to-do routes", () => {
     });
   });
 
-  it("uses the authenticated cronJobId as a trustworthy scoped workflow principal", async () => {
-    const category = (await (await jsonRequest("/todos/categories", "POST", { name: "Slack" })).json()).category;
-    const grantResponse = await jsonRequest("/todos/grants", "POST", {
-      principal: { kind: "cron", id: "slack-sweep", label: "Slack sweep" },
-      actions: ["item:add"],
-      categoryIds: [category.id],
-    });
-    expect(grantResponse.status).toBe(201);
+  it("records the standing approval an agent cites for a change that otherwise needs the user's reply", async () => {
+    const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Reply to Junhong" })).json()).item;
+    optionalCaller = caller();
 
-    optionalCaller = caller({ cronJobId: "slack-sweep", cronJobName: "Slack sweep" });
-    const accepted = await jsonRequest("/todos/items", "POST", {
-      markdown: "[Reply to thread](https://example.slack.com/thread)",
-      categoryId: category.id,
-    });
-    expect(accepted.status).toBe(201);
-    expect((await accepted.json()).item.createdBy).toMatchObject({
-      actor: { kind: "workflow", workflowId: "slack-sweep" },
-      authorization: { kind: "grant", grantId: "tg-1" },
-    });
+    // Without the user's reply or a cited standing approval, the change is refused.
+    const refused = await jsonRequest(`/todos/items/${item.id}/status`, "POST", { status: "done" });
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toContain("--standing-approval");
+    // A citation must say something, and stay short enough to show.
+    for (const standingApproval of ["  ", "x".repeat(501)]) {
+      const invalid = await jsonRequest(`/todos/items/${item.id}/status`, "POST", { status: "done", standingApproval });
+      expect(invalid.status).toBe(400);
+    }
+    expect((await store.getItem(item.id)).status).toBe("todo");
 
-    const denied = await jsonRequest("/todos/items", "POST", { markdown: "Out of scope", categoryId: "cat-inbox" });
-    expect(denied.status).toBe(403);
+    const citation = "daily-briefing skill, To-do hygiene: mark Done Slack to-dos whose obligation is fulfilled";
+    const done = await jsonRequest(`/todos/items/${item.id}/status`, "POST", {
+      status: "done",
+      standingApproval: ` ${citation} `,
+    });
+    expect(done.status).toBe(200);
+    expect((await done.json()).item).toMatchObject({
+      status: "done",
+      lastModifiedBy: {
+        actor: { kind: "session", sessionId: "session-1" },
+        authorization: { kind: "standing_approval", standingApproval: citation },
+      },
+    });
   });
 
   it("supports server-authoritative insertion and active cross-category ordering", async () => {
@@ -241,75 +263,6 @@ describe("to-do routes", () => {
         })
       ).status,
     ).toBe(409);
-  });
-
-  it("lets agents create canonical proposals without mutating the real list until user approval", async () => {
-    requiredCaller = caller();
-    const proposed = await jsonRequest("/todos/proposals", "POST", {
-      mutation: { action: "item:add", input: { titleMarkdown: "Read the important result" } },
-    });
-    expect(proposed.status).toBe(201);
-    const proposal = (await proposed.json()).proposal;
-    expect(proposal.mutation.input).toMatchObject({ markdown: "Read the important result" });
-    expect((await store.snapshot()).items).toEqual([]);
-
-    optionalCaller = null;
-    const approved = await jsonRequest(`/todos/proposals/${proposal.id}/approve`, "POST", {});
-    expect(approved.status).toBe(200);
-    const body = await approved.json();
-    expect(body.item.markdown).toBe("Read the important result");
-    expect(body.item.createdBy.authorization).toMatchObject({
-      kind: "proposal_approval",
-      proposalId: proposal.id,
-    });
-  });
-
-  it("approves an add proposal as already done in one step", async () => {
-    // For a to-do the user finished before reading the proposal: it is recorded as a done to-do
-    // with a completion time, not discarded like a rejection.
-    requiredCaller = caller();
-    const proposal = (
-      await (
-        await jsonRequest("/todos/proposals", "POST", {
-          mutation: { action: "item:add", input: { markdown: "Shadow the tech screen" } },
-        })
-      ).json()
-    ).proposal;
-
-    optionalCaller = null;
-    const response = await jsonRequest(`/todos/proposals/${proposal.id}/mark-done`, "POST", {});
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.proposal).toMatchObject({ status: "approved", markedDone: true });
-    expect(body.item).toMatchObject({ markdown: "Shadow the tech screen", status: "done" });
-    expect(body.item.completedAt).toBe(body.proposal.resolvedAt);
-    // The agent proposed the to-do; the user completed it.
-    expect(body.item.createdBy.authorization).toMatchObject({ kind: "proposal_approval" });
-    expect(body.item.lastModifiedBy.authorization).toEqual({ kind: "ui" });
-    expect((await store.snapshot()).items.map((item) => item.status)).toEqual(["done"]);
-  });
-
-  it("lists each proposal's status alone for the markers on proposal links", async () => {
-    // Messages mark every proposal link with its status, so this read stays small: no mutations or bodies.
-    requiredCaller = caller();
-    const propose = async (title: string) =>
-      (
-        await (
-          await jsonRequest("/todos/proposals", "POST", {
-            mutation: { action: "item:add", input: { markdown: title } },
-          })
-        ).json()
-      ).proposal.id as string;
-    const pending = await propose("Pending one");
-    const approved = await propose("Approved one");
-    await jsonRequest(`/todos/proposals/${approved}/approve`, "POST", {});
-
-    const response = await jsonRequest("/todos/proposal-statuses");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      statuses: { [pending]: "pending", [approved]: "approved" },
-      revision: (await store.snapshot()).revision,
-    });
   });
 
   it("keeps category archival reversible and refuses silent item loss", async () => {
@@ -395,7 +348,7 @@ describe("to-do routes", () => {
     expect((await unlinked.json()).item.questIds).toEqual(["q-7", "q-8"]);
   });
 
-  it("lets agents link quests on their own judgment, and refuses link proposals", async () => {
+  it("lets agents link quests on their own judgment", async () => {
     // Quest links are informational metadata, so they cannot make the user lose track of anything.
     quests = [{ questId: "q-7", title: "Build the export", status: "done" }];
     const item = (await (await jsonRequest("/todos/items", "POST", { markdown: "Ship export" })).json()).item;
@@ -409,14 +362,6 @@ describe("to-do routes", () => {
       actor: { kind: "session", sessionId: "session-1" },
       authorization: { kind: "agent_direct" },
     });
-
-    // Proposals only add new to-dos now; other changes go through the user's reply.
-    requiredCaller = caller();
-    const proposal = await jsonRequest("/todos/proposals", "POST", {
-      mutation: { action: "item:link", itemId: item.id, removeQuestIds: ["q-7"] },
-    });
-    expect(proposal.status).toBe(400);
-    expect((await proposal.json()).error).toContain("Proposals only add new to-dos");
     expect((await store.getItem(item.id)).questIds).toEqual(["q-7"]);
   });
 
@@ -459,7 +404,6 @@ describe("to-do routes", () => {
       [`/todos/items/${item.id}/status`, "POST", { status: "done" }],
       [`/todos/items/${item.id}/archive`, "POST", {}],
       [`/todos/items/${item.id}/move`, "POST", { beforeItemId: done.id }],
-      ["/todos/items", "POST", { markdown: "New reminder" }],
       ["/todos/categories", "POST", { name: "New category" }],
       ["/todos/categories/cat-inbox", "PATCH", { name: "Renamed" }],
     ];

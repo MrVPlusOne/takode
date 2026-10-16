@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TodoCategory, TodoItem, TodoMutationProvenance, TodoProposal } from "../../shared/todo-types.js";
+import type { TodoCategory, TodoItem, TodoMutationProvenance } from "../../shared/todo-types.js";
 import {
   filterTodoItems,
   groupActiveItemsByCategory,
   groupDoneItemsByLocalDate,
   localDateLabel,
-  todoProposalSummary,
 } from "./todo-ui-utils.js";
 
 const provenance: TodoMutationProvenance = {
@@ -90,18 +89,5 @@ describe("todo UI grouping", () => {
     expect(groups[0]?.items.map((entry) => entry.id)).toEqual(["today-slack", "today-inbox"]);
     expect(localDateLabel(groups[0]!.dateKey)).toBe("Today");
     vi.useRealTimers();
-  });
-
-  it("summarizes canonical proposal Markdown without rendering full details", () => {
-    expect(
-      todoProposalSummary({
-        id: "tp-1",
-        status: "pending",
-        mutation: { action: "item:add", input: { markdown: "Read the result\nPrivate details" } },
-        createdAt: 1,
-        updatedAt: 1,
-        requestedBy: { kind: "session" },
-      } satisfies TodoProposal),
-    ).toBe("Add “Read the result”");
   });
 });
