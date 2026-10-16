@@ -1173,7 +1173,7 @@ describe("Takode notify endpoint", () => {
       [{ category: "needs-input", answers: ["u1"] }, "answers requires context: the context is the answer"],
       [
         { category: "needs-input", context: "c", answers: ["msg-1"] },
-        "answers must be a nonempty list of message IDs such as u12 or timer-m3",
+        "answers must be a nonempty list of user-message IDs such as u12",
       ],
       [{ category: "needs-input", context: "c", answers: ["u1", "u1"] }, "answers must not repeat an ID"],
     ];

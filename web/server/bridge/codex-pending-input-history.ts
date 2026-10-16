@@ -489,7 +489,6 @@ function commitPendingCodexInput(
       ? { leaderResponseCoverageVersion: pending.leaderResponseCoverageVersion }
       : {}),
     ...(pending.leaderUserMessageId ? { leaderUserMessageId: pending.leaderUserMessageId } : {}),
-    ...(pending.leaderTimerMessageId ? { leaderTimerMessageId: pending.leaderTimerMessageId } : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
@@ -504,7 +503,7 @@ function commitPendingCodexInput(
   if (isActualHumanUserMessage(userHistoryEntry)) deps.touchUserMessage(session.id, pending.timestamp);
   deps.broadcastToBrowsers(session, userHistoryEntry);
   appendPendingInputHistoryFollowUps(session, pending, userHistoryEntry, deps);
-  if (userHistoryEntry.leaderResponseCoverageVersion === 1 || userHistoryEntry.leaderTimerMessageId) {
+  if (userHistoryEntry.leaderResponseCoverageVersion === 1) {
     deps.refreshBrowserConversationViews?.(session);
   }
   deps.broadcastPendingCodexInputs(session);

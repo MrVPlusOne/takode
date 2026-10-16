@@ -4,7 +4,6 @@ import {
   projectCancelledCodexInputForBrowser,
 } from "./codex-pending-input-safety.js";
 import type { PendingCodexInput } from "./session-types.js";
-import { isLeaderTimerAnswerTarget } from "../shared/leader-answer-message-id.js";
 
 const ORIGINAL_PREVIEW_LIMIT = process.env.TAKODE_CODEX_PENDING_INPUT_BROWSER_PREVIEW_BYTES;
 
@@ -34,17 +33,12 @@ function recoveryInput(overrides: Partial<PendingCodexInput> = {}): PendingCodex
 }
 
 describe("Codex pending input browser projection", () => {
-  it.each([
-    { messageId: "timer-m1", answerable: true },
-    { messageId: "f1", answerable: false },
-  ])("projects raw $messageId without timer provenance or additional answer authority", ({ messageId, answerable }) => {
-    // Projection leaves raw IDs intact; unsupported IDs stay ineligible even
-    // when all other timer-source fields match a genuine reminder.
+  it("projects a timer input without its server-only timer provenance", () => {
+    // Browsers never see timer-manager provenance; the server keeps it for delivery.
     const input = recoveryInput({
       content: "[⏰ Timer t1 reminder] Report",
       agentSource: { sessionId: "timer:t1" },
-      leaderTimerMessageId: messageId,
-      timerFiring: { timerId: "t1", scheduledFireAt: 1, messageId },
+      timerFiring: { timerId: "t1", scheduledFireAt: 1 },
     });
 
     for (const projected of [
@@ -52,10 +46,8 @@ describe("Codex pending input browser projection", () => {
       projectCancelledCodexInputForBrowser(input),
     ]) {
       expect(projected).not.toHaveProperty("timerFiring");
-      expect(projected.leaderTimerMessageId).toBe(messageId);
-      expect(isLeaderTimerAnswerTarget(projected)).toBe(answerable);
     }
-    expect(input.timerFiring?.messageId).toBe(messageId);
+    expect(input.timerFiring).toEqual({ timerId: "t1", scheduledFireAt: 1 });
   });
 
   it("omits delivery-only recovery instructions and FIFO policy from ordinary snapshots", () => {

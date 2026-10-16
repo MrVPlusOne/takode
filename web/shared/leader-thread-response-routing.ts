@@ -1,4 +1,4 @@
-import { isCanonicalLeaderAnswerMessageId } from "./leader-answer-message-id.js";
+import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
 
 export interface LeaderResponseThreadRouteFields {
   threadKey?: string;
@@ -141,7 +141,7 @@ export function leaderResponseAnswerOwnerThreadKeys(
       answer.ownerGroups === undefined || (Array.isArray(answer.ownerGroups) && answer.ownerGroups.length === 0);
     return noGroups && validThreadKey(sourceThreadKey) ? new Map() : null;
   }
-  if (ids.some((id) => !isCanonicalLeaderAnswerMessageId(id)) || new Set(ids).size !== ids.length) {
+  if (ids.some((id) => !isCanonicalLeaderUserMessageId(id)) || new Set(ids).size !== ids.length) {
     return null;
   }
   const source = validThreadKey(sourceThreadKey);
@@ -165,7 +165,7 @@ export function leaderResponseAnswerOwnerThreadKeys(
     }
     seenThreads.add(threadKey);
     for (const id of group.userMessageIds) {
-      if (!isCanonicalLeaderAnswerMessageId(id) || !referenced.has(id) || owners.has(id)) return null;
+      if (!isCanonicalLeaderUserMessageId(id) || !referenced.has(id) || owners.has(id)) return null;
       owners.set(id, threadKey);
     }
   }

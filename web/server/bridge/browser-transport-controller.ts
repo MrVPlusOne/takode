@@ -563,8 +563,8 @@ export function handleBrowserMessage(
     return { messageType: "invalid_json", completion: null };
   }
 
-  // Browser JSON cannot mint timer-firing authority. Internal ingress also
-  // resumes server-owned paused/recovery payloads and must retain their proof.
+  // Only the server marks timer firings. Internal ingress also resumes
+  // server-owned paused/recovery payloads and keeps their provenance.
   if (msg.type === "user_message") delete msg.timerFiring;
 
   trafficStats.record({

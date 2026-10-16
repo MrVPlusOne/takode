@@ -2,34 +2,22 @@ import { describe, expect, it } from "vitest";
 import { buildThreadRoutingReminderContent, isLeaderAnswerRouteDiagnostic } from "./thread-routing-reminder.js";
 
 describe("buildThreadRoutingReminderContent", () => {
-  it("accepts timer and mixed answer diagnostics while rejecting recurring timer IDs", () => {
-    // The same compact reference grammar is used by parsed answers and their
-    // persisted rejection diagnostics; timer IDs are not firing identities.
+  it("rejects timer firing and schedule IDs in answer diagnostics", () => {
+    // Answers name only user-message IDs, so a persisted diagnostic naming a
+    // timer reference is not a valid diagnostic to explain.
     const diagnostic = {
       reason: "invalid_ids",
       selectedThreadKey: "main",
-      answerUserMessageIds: ["u1", "timer-m2"],
+      answerUserMessageIds: ["u1"],
       ownerGroups: [],
     };
     expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(true);
-    expect(isLeaderAnswerRouteDiagnostic({ ...diagnostic, answerUserMessageIds: ["t2"] })).toBe(false);
-    const content = buildThreadRoutingReminderContent({
-      reason: "invalid_answer_route",
-      answerRouteDiagnostic: {
-        reason: "invalid_ids",
-        selectedThreadKey: "main",
-        answerUserMessageIds: ["timer-m2"],
-        ownerGroups: [],
-      },
-    });
-    expect(content).toContain("timer-firing `timer-mN` IDs");
-    expect(content).toContain("Never use recurring timer `tN`");
-    const routing = buildThreadRoutingReminderContent({ reason: "missing", source: "visible_text" });
-    expect(routing).toContain("[thread:main:A:timer-m1]");
-    expect(routing).toContain("Timer progress remains commentary");
+    for (const answerUserMessageIds of [["u1", "timer-m2"], ["timer-m2"], ["t2"]]) {
+      expect(isLeaderAnswerRouteDiagnostic({ ...diagnostic, answerUserMessageIds })).toBe(false);
+    }
   });
 
-  it("rejects unsupported timer reference syntax in answer diagnostics", () => {
+  it("rejects the retired fN reference syntax in answer diagnostics", () => {
     // The removed timer prefix cannot become supported syntax through a
     // persisted diagnostic; the fallback teaches only current references.
     const diagnostic = {
@@ -44,7 +32,6 @@ describe("buildThreadRoutingReminderContent", () => {
       answerRouteDiagnostic: diagnostic,
     });
     expect(content).toContain("could not validate the answer references");
-    expect(content).toContain("timer-firing `timer-mN` IDs");
     expect(content).not.toContain("f2");
     expect(content).not.toContain("`fN`");
   });
@@ -153,7 +140,6 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("answer metadata or message shape is invalid: u7");
-    expect(content).toContain("Use the supplied earlier human `uN` or timer-firing `timer-mN` IDs");
     expect(content).toContain("did not gain coverage");
   });
 

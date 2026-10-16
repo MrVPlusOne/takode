@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { isCanonicalLeaderAnswerMessageId } from "../shared/leader-answer-message-id.js";
 import {
   leaderResponseAssociatedThreadKeys,
   leaderResponseAnswerOwnerThreadKeys,
@@ -19,7 +18,6 @@ import {
   type LeaderUserMessageIdentity,
 } from "./leader-user-message-id.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
-import { buildLeaderTimerMessageIdentities } from "./leader-timer-message-id.js";
 import type {
   BrowserIncomingMessage,
   LeaderThreadAnswerMetadata,
@@ -239,7 +237,7 @@ function collectAnswerTargets(
   history: ReadonlyArray<BrowserIncomingMessage>,
   historyLimit: number,
 ): AnswerTargetMessage[] {
-  return [...buildLeaderUserMessageIdentities(history), ...buildLeaderTimerMessageIdentities(history)]
+  return buildLeaderUserMessageIdentities(history)
     .filter((entry) => entry.historyIndex < historyLimit)
     .sort((left, right) => left.historyIndex - right.historyIndex)
     .flatMap((entry) => {
@@ -479,7 +477,7 @@ function validAnswerMetadata(value: unknown): value is LeaderThreadAnswerMetadat
   return (
     candidate.version === LEADER_THREAD_RESPONSE_VERSION &&
     Array.isArray(candidate.answerUserMessageIds) &&
-    candidate.answerUserMessageIds.every(isCanonicalLeaderAnswerMessageId) &&
+    candidate.answerUserMessageIds.every(isCanonicalLeaderUserMessageId) &&
     new Set(candidate.answerUserMessageIds).size === candidate.answerUserMessageIds.length &&
     (candidate.authoredThreadKey === undefined ||
       candidate.authoredThreadKey === "main" ||
@@ -609,7 +607,7 @@ function canonicalizeAnswerRoute(
 }
 
 const ANSWER_ROUTE_EXPECTED =
-  "Use the supplied IDs of earlier direct user requests or delivered timer firings. Their proven owners determine coverage, and their associated tabs receive the same answer automatically.";
+  "Use the supplied IDs of earlier direct user requests. Their proven owners determine coverage, and their associated tabs receive the same answer automatically.";
 
 function selectedThreadKeyForDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
   const value = message.threadKey?.trim().toLowerCase();
@@ -620,7 +618,7 @@ function validDiagnosticAnswerIds(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(isCanonicalLeaderAnswerMessageId) &&
+    value.every(isCanonicalLeaderUserMessageId) &&
     new Set(value).size === value.length
   );
 }
@@ -981,7 +979,7 @@ export function finalizeRoutedLeaderResponseMessage(
   }
   if (
     !Array.isArray(answerUserMessageIds) ||
-    answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
+    answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
     new Set(answerUserMessageIds).size !== answerUserMessageIds.length
   ) {
     return rejectAnswerRoute(message, "invalid_ids", { selectedThreadKey });

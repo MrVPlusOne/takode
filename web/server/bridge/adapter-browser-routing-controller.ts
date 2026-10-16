@@ -63,7 +63,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { nextLeaderUserMessageId } from "../leader-user-message-id.js";
-import { isTimerReminderFiring, leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
+import { isTimerReminderFiring } from "./adapter-browser-routing-timer.js";
 import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
@@ -750,9 +750,6 @@ export function ingestUserMessage(
       if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
         deps.invalidateLeaderThreadTabsForSession?.(session.id);
       }
-    } else if (isLeaderSession) {
-      const firingId = leaderTimerMessageIdForDelivery(session, msg);
-      if (firingId) userHistoryEntry.leaderTimerMessageId = firingId;
     }
     let userMsgHistoryIdx = -1;
     if (commit) {
@@ -783,7 +780,7 @@ export function ingestUserMessage(
       }
       deps.broadcastToBrowsers(session, userHistoryEntry);
       appendProgrammaticHistoryFollowUps(session, msg.historyFollowUps, userHistoryEntry, ts, deps);
-      if (userHistoryEntry.leaderResponseCoverageVersion === 1 || userHistoryEntry.leaderTimerMessageId) {
+      if (userHistoryEntry.leaderResponseCoverageVersion === 1) {
         deps.refreshBrowserConversationViews?.(session);
       }
       emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
@@ -1219,9 +1216,6 @@ export function routeAdapterBrowserMessage(
             : {}),
           ...(ingested.historyEntry.leaderUserMessageId
             ? { leaderUserMessageId: ingested.historyEntry.leaderUserMessageId }
-            : {}),
-          ...(ingested.historyEntry.leaderTimerMessageId
-            ? { leaderTimerMessageId: ingested.historyEntry.leaderTimerMessageId }
             : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),

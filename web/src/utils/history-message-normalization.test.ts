@@ -198,13 +198,9 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(user.metadata).toMatchObject({ leaderResponseCoverageVersion: 1, leaderUserMessageId: "u7" });
   });
 
-  it.each([
-    "timer-m7",
-    "timer-m17",
-  ])("retains exact timer identity %s through authoritative history normalization", (id) => {
-    // Selected windows and full history use the same row normalization. A
-    // firing keeps its timer source without becoming a human obligation or
-    // rewriting the exact reference retained by a historical row.
+  it("keeps a timer firing's source without making it a human obligation", () => {
+    // Selected windows and full history use the same row normalization. A firing
+    // keeps its timer source and gets no user-message ID or coverage marker.
     const [timer] = normalizeHistoryMessageToChatMessages(
       {
         type: "user_message",
@@ -212,12 +208,11 @@ describe("normalizeHistoryMessageToChatMessages", () => {
         timestamp: 200,
         content: "[⏰ Timer t2 reminder] Build report",
         agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
-        leaderTimerMessageId: id,
         threadKey: "main",
       },
       7,
     );
-    expect(timer.metadata).toMatchObject({ leaderTimerMessageId: id, threadKey: "main" });
+    expect(timer.metadata).toMatchObject({ threadKey: "main" });
     expect(timer.agentSource?.sessionId).toBe("timer:t2");
     expect(timer.metadata?.leaderResponseCoverageVersion).toBeUndefined();
     expect(timer.metadata?.leaderUserMessageId).toBeUndefined();

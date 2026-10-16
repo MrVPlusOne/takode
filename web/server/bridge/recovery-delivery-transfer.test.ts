@@ -6,7 +6,6 @@ import { SessionStore, type PersistedSession } from "../session-store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import { buildProgrammaticUserMessage } from "../session-pause.js";
-import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
 import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
 import { routeAdapterBrowserMessage } from "./adapter-browser-routing-controller.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
@@ -254,27 +253,19 @@ function persisted(session: RecoveryDeliveryTransferSessionLike): PersistedSessi
 }
 
 describe("recovery delivery transfer ownership", () => {
-  it.each([
-    false,
-    true,
-  ])("keeps timer-m1 through pending, hold, restart, transfer, and re-admission (assigned=%s)", async (assigned) => {
+  it("keeps one model envelope for a timer firing through pending, hold, restart, transfer, and re-admission", async () => {
     // Exercise the real adapter admission on both sides of a persisted hold.
     // Frozen delivery prevents this isolated fixture from starting a backend.
     const session = makeSession([]);
     session.messageHistory = [];
-    const messageId = "timer-m1";
     const firing = buildProgrammaticUserMessage({
       content: "[⏰ Timer t1 reminder] Report",
       agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
       threadRoute: { threadKey: "q-42", questId: "q-42" },
       options: {
-        timerFiring: { timerId: "t1", scheduledFireAt: 1, ...(assigned ? { messageId } : {}) },
+        timerFiring: { timerId: "t1", scheduledFireAt: 1 },
       },
     });
-    if (assigned) {
-      // An already assigned delivery keeps its model envelope and exact identity.
-      firing.deliveryContent = "[Timer reminder earlier id:timer-m1] [thread:q-42] " + firing.content;
-    }
     let nextId = 0;
     const routingDeps = {
       getLauncherSessionInfo: () => ({ isOrchestrator: true, state: "starting" }),
@@ -300,13 +291,13 @@ describe("recovery delivery transfer ownership", () => {
       routingDeps,
     );
     const admitted = session.pendingCodexInputs[0]!;
-    expect(admitted).toMatchObject({ leaderTimerMessageId: messageId, timerFiring: firing.timerFiring });
-    expect(admitted.deliveryContent).toContain(`id:${messageId}] [thread:q-42]`);
+    expect(admitted).toMatchObject({ timerFiring: firing.timerFiring });
+    expect(admitted.deliveryContent).toMatch(/^\[Timer reminder [^\]]+\] \[thread:q-42\] /);
 
     expect(sweepCodexAutoPausedQueuedBacklog(session, 30).heldInputIds).toEqual([admitted.id]);
     expect(session.pendingCodexInputs).toEqual([]);
     expect(session.state.codex_result_error_auto_pause!.heldInputs[0].message).toMatchObject({
-      timerFiring: { ...firing.timerFiring, messageId },
+      timerFiring: firing.timerFiring,
       deliveryContent: admitted.deliveryContent,
     });
     const dir = mkdtempSync(join(tmpdir(), "takode-timer-held-delivery-"));
@@ -318,8 +309,6 @@ describe("recovery delivery transfer ownership", () => {
     restored.state = saved.state;
     restored.messageHistory = saved.messageHistory;
     restored.pendingCodexInputs = saved.pendingCodexInputs ?? [];
-    const nextFiring = { ...firing, deliveryContent: undefined, timerFiring: { timerId: "t1", scheduledFireAt: 2 } };
-    expect(leaderTimerMessageIdForDelivery(restored, nextFiring)).toBe("timer-m2");
 
     const route = vi.fn(async (target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
       await routeAdapterBrowserMessage(
@@ -344,23 +333,21 @@ describe("recovery delivery transfer ownership", () => {
       {},
       deps,
     );
-    expect(leaderTimerMessageIdForDelivery(restored, nextFiring)).toBe("timer-m2");
     await deliverRecoveryDeliveryTransfer(restored, restored.recoveryDeliveryTransfers[0].id, deps);
 
     expect(restored.pendingCodexInputs).toHaveLength(1);
     expect(restored.pendingCodexInputs[0]).toMatchObject({
-      leaderTimerMessageId: messageId,
-      timerFiring: { ...firing.timerFiring, messageId },
+      timerFiring: firing.timerFiring,
       deliveryContent: admitted.deliveryContent,
       content: firing.content,
       threadKey: "q-42",
     });
-    expect(restored.pendingCodexInputs[0].deliveryContent?.split(`id:${messageId}]`)).toHaveLength(2);
+    expect(restored.pendingCodexInputs[0].deliveryContent?.split("[Timer reminder ")).toHaveLength(2);
     expect(restored.recoveryDeliveryTransfers).toEqual([]);
   });
 
-  it("retains timer firing proof through persisted automatic-recovery transfer delivery", async () => {
-    // Recovery's exact-payload trust check and firing identity both depend on
+  it("retains timer firing provenance through persisted automatic-recovery transfer delivery", async () => {
+    // Recovery's exact-payload trust check and timer recognition both depend on
     // retaining the server-owned metadata through internal ingress.
     const session = makeSession();
     session.state.codex_result_error_auto_pause!.heldInputs[0]!.message = {
@@ -382,7 +369,6 @@ describe("recovery delivery transfer ownership", () => {
         cancelable: true,
         threadKey: routed.threadKey,
         autoPauseRecoveries: routed.autoPauseRecoveries,
-        leaderTimerMessageId: leaderTimerMessageIdForDelivery(target, routed),
       });
     });
     const deps = makeDeps([], route);
@@ -401,7 +387,7 @@ describe("recovery delivery transfer ownership", () => {
       }),
       undefined,
     );
-    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "timer-m1", threadKey: "q-42" });
+    expect(session.pendingCodexInputs[0]).toMatchObject({ threadKey: "q-42" });
     expect(session.recoveryDeliveryTransfers).toEqual([]);
     expectOwnedOrTerminal(session);
   });

@@ -56,9 +56,7 @@ export interface PendingCodexInput {
   recentAskBoundaryBefore?: "visible_response";
   leaderResponseCoverageVersion?: 1;
   leaderUserMessageId?: string;
-  /** Retains the same firing reference through queueing, receipt, and recovery. */
-  leaderTimerMessageId?: string;
-  /** Original server-only occurrence proof, including any retained firing reference. */
+  /** Original server-only timer-firing provenance. */
   timerFiring?: TimerFiring;
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;

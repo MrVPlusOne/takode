@@ -176,12 +176,10 @@ Examples:
   takode peek 1 --detail --turns 3
 `;
 
-const READ_HELP = `Usage: takode read <session> <history-index|uN|timer-mN> [--offset N] [--limit N] [--thread main|q-N] [--json]
+const READ_HELP = `Usage: takode read <session> <history-index|uN> [--offset N] [--limit N] [--thread main|q-N] [--json]
 
 Read one full message from a session. Leader source-envelope IDs such as u12
-(human request) or timer-m3 (individual timer firing) require the leader session
-argument because they are session-scoped. A recurring timer ID such as t1
-identifies the schedule and cannot select an individual firing.
+(human request) require the leader session argument because they are session-scoped.
 `;
 
 const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]

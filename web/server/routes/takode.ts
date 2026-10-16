@@ -23,8 +23,6 @@ import {
 } from "../takode-messages.js";
 import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
 import { findLeaderUserMessageById, isCanonicalLeaderUserMessageId } from "../leader-user-message-id.js";
-import { buildLeaderTimerMessageIdentities } from "../leader-timer-message-id.js";
-import { isCanonicalLeaderAnswerMessageId } from "../../shared/leader-answer-message-id.js";
 import {
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
@@ -385,8 +383,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
     isLeader: boolean,
   ): { ok: true; answers: string[] } | { ok: false; error: string } => {
     if (value === undefined || value === null) return { ok: true, answers: [] };
-    if (!Array.isArray(value) || value.length === 0 || !value.every(isCanonicalLeaderAnswerMessageId)) {
-      return { ok: false, error: "answers must be a nonempty list of message IDs such as u12 or timer-m3" };
+    if (!Array.isArray(value) || value.length === 0 || !value.every(isCanonicalLeaderUserMessageId)) {
+      return { ok: false, error: "answers must be a nonempty list of user-message IDs such as u12" };
     }
     if (new Set(value).size !== value.length) return { ok: false, error: "answers must not repeat an ID" };
     if (!isLeader) return { ok: false, error: "answers is only supported for leader sessions" };
@@ -869,20 +867,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
     let idx: number;
     if (/^\d+$/.test(messageRef)) {
       idx = Number(messageRef);
-    } else if (isCanonicalLeaderAnswerMessageId(messageRef)) {
+    } else if (isCanonicalLeaderUserMessageId(messageRef)) {
       if (launcher.getSession(sessionId)?.isOrchestrator !== true) {
         return c.json({ error: "Session is not a leader session" }, 400);
       }
-      const resolved = isCanonicalLeaderUserMessageId(messageRef)
-        ? findLeaderUserMessageById(history, messageRef)
-        : buildLeaderTimerMessageIdentities(history).find((entry) => entry.userMessageId === messageRef);
+      const resolved = findLeaderUserMessageById(history, messageRef);
       if (!resolved) return c.json({ error: `Message ${messageRef} not found in leader session` }, 404);
       idx = resolved.historyIndex;
     } else {
-      return c.json(
-        { error: "Message reference must be a history index or session-scoped ID like u12 or timer-m3" },
-        400,
-      );
+      return c.json({ error: "Message reference must be a history index or session-scoped ID like u12" }, 400);
     }
 
     const result = buildReadResponse(

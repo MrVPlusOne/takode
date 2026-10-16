@@ -7,7 +7,6 @@ import { buildProgrammaticUserMessage, queuePausedUserMessage } from "../session
 import type { BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import { unpauseSessionForDelivery } from "./session-pause-delivery.js";
-import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
 
 const tempDirs: string[] = [];
 
@@ -197,7 +196,6 @@ describe("manual pause recovery-link transfer", () => {
         timestamp: 120,
         cancelable: true,
         threadKey: routed.threadKey,
-        leaderTimerMessageId: leaderTimerMessageIdForDelivery(target, routed),
       });
     });
 
@@ -212,7 +210,7 @@ describe("manual pause recovery-link transfer", () => {
       }),
       undefined,
     );
-    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "timer-m1", threadKey: "q-42" });
+    expect(session.pendingCodexInputs[0]).toMatchObject({ threadKey: "q-42" });
   });
 
   it("transfers a released link into normal pending delivery", async () => {

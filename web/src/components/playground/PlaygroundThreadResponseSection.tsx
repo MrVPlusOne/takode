@@ -441,70 +441,10 @@ const MULTI_OWNER_PRESENTATION: ThreadResponsePresentation = {
   layoutSignature: "playground-shared-answer",
 };
 
-const TIMER_REPORT_ENTRIES = [1, 2].map((ordinal) => {
-  const entry = assistantEntry(
-    `playground-timer-report-${ordinal}`,
-    ordinal === 1
-      ? "The scheduled build checks passed. The release candidate is ready for its review."
-      : "The next scheduled check found one new test failure in the release candidate.",
-    "answer",
-  );
-  return {
-    ...entry,
-    msg: {
-      ...entry.msg,
-      historyIndex: ordinal * 2,
-      metadata: {
-        ...entry.msg.metadata,
-        threadKey: "q-2042",
-        threadAnswer: {
-          version: 2 as const,
-          answerUserMessageIds: [`timer-m${ordinal}`],
-          observedHistoryLength: ordinal * 2,
-        },
-      },
-    },
-  };
-});
-const TIMER_REPORT_TURN: Turn = {
-  ...ANSWER_ONLY_TURN,
-  id: "playground-timer-report-turn",
-  userEntry: null,
-  allEntries: TIMER_REPORT_ENTRIES,
-  presentationEntries: TIMER_REPORT_ENTRIES,
-  notificationEntries: TIMER_REPORT_ENTRIES,
-  responseEntry: null,
-};
-const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
-  ...ACTIVE_PRESENTATION,
-  currentResponses: TIMER_REPORT_ENTRIES.map((entry, index) => ({
-    response: {
-      ...PRESENTATION.currentResponses[0]!.response,
-      answerUserMessageIds: [`timer-m${index + 1}`],
-      referencedUserMessageIds: [`playground-timer-firing-${index + 1}`],
-      coveredAnswerUserMessageIds: [`timer-m${index + 1}`],
-      coveredUserMessageIds: [`playground-timer-firing-${index + 1}`],
-      currentMessageId: entry.msg.id,
-      currentHistoryIndex: entry.msg.historyIndex!,
-    },
-    sourceTurnId: TIMER_REPORT_TURN.id,
-    messageEntry: entry,
-    collapsedMessageEntry: entry,
-    referencedUserMessages: [
-      {
-        historyMessageId: `playground-timer-firing-${index + 1}`,
-        userMessageId: `timer-m${index + 1}`,
-        content: "[⏰ Timer t2 reminder] Check build health\n\nInspect the latest failing shard if the build is red.",
-      },
-    ],
-  })),
-  currentResponseMessageIds: new Set(TIMER_REPORT_ENTRIES.map((entry) => entry.msg.id)),
-  quizGroups: [],
-  layoutSignature: "playground-timer-reports",
-};
-
-// A leader publishes a report with `takode report`, then answers pointing at it.
-// The collapsed turn keeps the report on screen above the answer, clipped with a toggle.
+// A worker produced a report on its own schedule and the leader published it with
+// `takode report`, then presented it with an answer that names no request
+// ([thread:q-N:A]), which shows without an "Answers N messages" chip. The collapsed
+// turn keeps the report on screen above the answer, clipped with a toggle.
 const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
   kind: "message",
   msg: {
@@ -525,79 +465,54 @@ const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
     },
   },
 };
+const REPORT_ANSWER_BASE = assistantEntry(
+  "playground-report-answer",
+  "Today's 10 AM briefing is the report above. The card payment is the one thing due today.",
+  "answer",
+);
 const REPORT_ANSWER = {
-  ...TIMER_REPORT_ENTRIES[0]!,
+  ...REPORT_ANSWER_BASE,
   msg: {
-    ...TIMER_REPORT_ENTRIES[0]!.msg,
-    id: "playground-report-answer",
-    content: "Today's briefing is the report just above. One email made it in: the card payment due Monday.",
+    ...REPORT_ANSWER_BASE.msg,
+    historyIndex: 2,
+    metadata: {
+      ...REPORT_ANSWER_BASE.msg.metadata,
+      threadKey: "q-2042",
+      threadAnswer: { version: 2 as const, answerUserMessageIds: [], observedHistoryLength: 2, ownerGroups: [] },
+    },
   },
 };
 const REPORT_ANSWER_TURN: Turn = {
-  ...TIMER_REPORT_TURN,
+  ...ANSWER_ONLY_TURN,
   id: "playground-report-answer-turn",
+  userEntry: null,
   allEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
   presentationEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
   notificationEntries: [PUBLISHED_REPORT, REPORT_ANSWER],
+  responseEntry: null,
 };
 const REPORT_ANSWER_PRESENTATION: ThreadResponsePresentation = {
-  ...TIMER_REPORT_PRESENTATION,
+  ...ACTIVE_PRESENTATION,
   currentResponses: [
     {
-      ...TIMER_REPORT_PRESENTATION.currentResponses[0]!,
-      response: { ...TIMER_REPORT_PRESENTATION.currentResponses[0]!.response, currentMessageId: REPORT_ANSWER.msg.id },
-      sourceTurnId: REPORT_ANSWER_TURN.id,
-      messageEntry: REPORT_ANSWER,
-      collapsedMessageEntry: REPORT_ANSWER,
-    },
-  ],
-  currentResponseMessageIds: new Set([REPORT_ANSWER.msg.id]),
-  layoutSignature: "playground-report-answer",
-};
-
-// A worker produced the report on its own schedule, so no message asked for it: the
-// leader presents it with an answer that names no messages ([thread:q-N:A]), which
-// shows without an "Answers N messages" chip.
-const UNREQUESTED_ANSWER = {
-  ...REPORT_ANSWER,
-  msg: {
-    ...REPORT_ANSWER.msg,
-    id: "playground-unrequested-answer",
-    content: "Today's 10 AM briefing is the report above. The card payment is the one thing due today.",
-    metadata: {
-      ...REPORT_ANSWER.msg.metadata,
-      threadAnswer: { version: 2 as const, answerUserMessageIds: [], observedHistoryLength: 1, ownerGroups: [] },
-    },
-  },
-};
-const UNREQUESTED_ANSWER_TURN: Turn = {
-  ...REPORT_ANSWER_TURN,
-  id: "playground-unrequested-answer-turn",
-  allEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
-  presentationEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
-  notificationEntries: [PUBLISHED_REPORT, UNREQUESTED_ANSWER],
-};
-const UNREQUESTED_ANSWER_PRESENTATION: ThreadResponsePresentation = {
-  ...REPORT_ANSWER_PRESENTATION,
-  currentResponses: [
-    {
-      ...REPORT_ANSWER_PRESENTATION.currentResponses[0]!,
       response: {
-        ...REPORT_ANSWER_PRESENTATION.currentResponses[0]!.response,
-        currentMessageId: UNREQUESTED_ANSWER.msg.id,
+        ...PRESENTATION.currentResponses[0]!.response,
         answerUserMessageIds: [],
         referencedUserMessageIds: [],
         coveredAnswerUserMessageIds: [],
         coveredUserMessageIds: [],
+        currentMessageId: REPORT_ANSWER.msg.id,
+        currentHistoryIndex: REPORT_ANSWER.msg.historyIndex,
       },
-      sourceTurnId: UNREQUESTED_ANSWER_TURN.id,
-      messageEntry: UNREQUESTED_ANSWER,
-      collapsedMessageEntry: UNREQUESTED_ANSWER,
+      sourceTurnId: REPORT_ANSWER_TURN.id,
+      messageEntry: REPORT_ANSWER,
+      collapsedMessageEntry: REPORT_ANSWER,
       referencedUserMessages: [],
     },
   ],
-  currentResponseMessageIds: new Set([UNREQUESTED_ANSWER.msg.id]),
-  layoutSignature: "playground-unrequested-answer",
+  currentResponseMessageIds: new Set([REPORT_ANSWER.msg.id]),
+  quizGroups: [],
+  layoutSignature: "playground-report-answer",
 };
 
 const EXPANDED_ENTRIES: FeedEntry[] = [
@@ -816,29 +731,7 @@ export function PlaygroundThreadResponseSection() {
               />
             </div>
           </Card>
-          <Card label="Recurring timer reports · unrelated user request pending">
-            <div
-              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
-              data-testid="playground-timer-answer-reports"
-            >
-              <TurnActivityDisclosure
-                stats={TIMER_REPORT_TURN.stats}
-                durationMs={null}
-                expanded={false}
-                onToggle={NOOP}
-              />
-              <ReadyThreadResponseRows
-                turn={TIMER_REPORT_TURN}
-                presentation={TIMER_REPORT_PRESENTATION}
-                renderEntry={renderEntry}
-                sessionId={SESSION_ID}
-                currentThreadKey="q-2042"
-                onSelectThread={NOOP}
-                questLinkSurface="chat-feed"
-              />
-            </div>
-          </Card>
-          <Card label="Collapsed answer · published report above it">
+          <Card label="Collapsed answer nobody asked for · published report above it">
             <div
               className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-report-answer"
@@ -852,28 +745,6 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={REPORT_ANSWER_TURN}
                 presentation={REPORT_ANSWER_PRESENTATION}
-                renderEntry={renderEntry}
-                sessionId={SESSION_ID}
-                currentThreadKey="q-2042"
-                onSelectThread={NOOP}
-                questLinkSurface="chat-feed"
-              />
-            </div>
-          </Card>
-          <Card label="Collapsed answer nobody asked for · worker-scheduled report">
-            <div
-              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
-              data-testid="playground-unrequested-answer"
-            >
-              <TurnActivityDisclosure
-                stats={UNREQUESTED_ANSWER_TURN.stats}
-                durationMs={null}
-                expanded={false}
-                onToggle={NOOP}
-              />
-              <ReadyThreadResponseRows
-                turn={UNREQUESTED_ANSWER_TURN}
-                presentation={UNREQUESTED_ANSWER_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"

@@ -624,7 +624,6 @@ describe("Codex active-turn steering", () => {
     const session = bridge.getSession(sid)!;
     const manager = new TimerManager(bridge);
     const firingIds: string[] = [];
-    const leaderIds: Array<string | undefined> = [];
     const fireTimes: number[] = [];
     try {
       const timer = await manager.createTimer(sid, {
@@ -650,7 +649,6 @@ describe("Codex active-turn steering", () => {
           timerFiring: { timerId: timer.id, scheduledFireAt },
         });
         firingIds.push(pending.id);
-        leaderIds.push(pending.leaderTimerMessageId);
         expect(session.messageHistory.some((entry) => entry.type === "user_message" && entry.id === pending.id)).toBe(
           false,
         );
@@ -679,7 +677,6 @@ describe("Codex active-turn steering", () => {
         ).toBe(false);
       }
       expect(new Set(firingIds).size).toBe(firingIds.length);
-      if (leader) expect(leaderIds).toEqual(recurring ? ["timer-m1", "timer-m2"] : ["timer-m1"]);
       if (recurring) {
         expect(fireTimes[1] - fireTimes[0]).toBe(60_000);
         adapter.sendBrowserMessage.mockClear();

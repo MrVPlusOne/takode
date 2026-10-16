@@ -167,8 +167,8 @@ describe("agentSource propagation", () => {
     });
   });
 
-  it("preserves live timer firing references without assigning human coverage", () => {
-    // Live delivery must expose the same distinct firing identity as history replay.
+  it("keeps a live timer firing's source without assigning human coverage", () => {
+    // Live delivery must match history replay: a firing is sourced input, not a request.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
@@ -177,11 +177,10 @@ describe("agentSource propagation", () => {
       timestamp: 1000,
       content: "[⏰ Timer t2 reminder] Build report",
       threadKey: "main",
-      leaderTimerMessageId: "timer-m7",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
     });
     const message = useStore.getState().messages.get("s1")![0];
-    expect(message.metadata).toMatchObject({ leaderTimerMessageId: "timer-m7", threadKey: "main" });
+    expect(message.metadata).toMatchObject({ threadKey: "main" });
     expect(message.agentSource?.sessionId).toBe("timer:t2");
     expect(message.metadata?.leaderResponseCoverageVersion).toBeUndefined();
     expect(message.metadata?.leaderUserMessageId).toBeUndefined();

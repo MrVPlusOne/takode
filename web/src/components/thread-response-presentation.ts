@@ -1,5 +1,4 @@
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
-import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "../../shared/leader-answer-message-id.js";
 import {
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
@@ -255,34 +254,6 @@ export function resolveThreadResponses(
       }
       for (const entry of presentationEntries(turn)) {
         if (entry.kind !== "message") continue;
-        const message = entry.msg;
-        const timerFields = { ...message.metadata, agentSource: message.agentSource, content: message.content };
-        if (
-          message.role === "user" &&
-          !message.metadata?.codexSubagent &&
-          message.parentToolUseId == null &&
-          isLeaderTimerAnswerTarget(timerFields)
-        ) {
-          const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(message.metadata ?? {});
-          const timerMessageId = message.metadata!.leaderTimerMessageId!;
-          const projectedId = projectedUserMessageIds.get(message.id);
-          if (projectedId && projectedId !== timerMessageId) invalidVisibleDirectUser = true;
-          if (
-            ownerThreadKey &&
-            leaderResponseMessageIsAssociatedWithThread(message.metadata ?? {}, normalizedThreadKey)
-          ) {
-            if (visibleTargets.has(message.id)) duplicateVisibleDirectUser = true;
-            if (Number.isInteger(message.historyIndex))
-              visibleTargets.set(message.id, {
-                turnId: turn.id,
-                order,
-                historyIndex: message.historyIndex!,
-                userMessageId: timerMessageId,
-                ownerThreadKey,
-                message,
-              });
-          }
-        }
         if (responseEntries.has(entry.msg.id)) duplicateResponseEntryIds.add(entry.msg.id);
         responseEntries.set(entry.msg.id, { turnId: turn.id, entry });
       }
@@ -305,19 +276,13 @@ export function resolveThreadResponses(
     seenProofIds.add(message.id);
     const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(message.metadata ?? {});
     const projectedId = projectedUserMessageIds.get(message.id)!;
-    const timerTarget = isLeaderTimerAnswerTarget({
-      ...message.metadata,
-      agentSource: message.agentSource,
-      content: message.content,
-    });
-    const persistedId = timerTarget ? message.metadata?.leaderTimerMessageId : message.metadata?.leaderUserMessageId;
+    const persistedId = message.metadata?.leaderUserMessageId;
     if (
       message.role !== "user" ||
-      (message.agentSource != null && !timerTarget) ||
+      message.agentSource != null ||
       message.metadata?.codexSubagent ||
       message.parentToolUseId != null ||
-      (!timerTarget &&
-        (message.metadata?.leaderResponseCoverageVersion !== 1 || isCanonicalLeaderTimerMessageId(projectedId))) ||
+      message.metadata?.leaderResponseCoverageVersion !== 1 ||
       !Number.isInteger(message.historyIndex) ||
       !ownerThreadKey ||
       (persistedId && persistedId !== projectedId)

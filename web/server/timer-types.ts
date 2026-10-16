@@ -54,6 +54,4 @@ export interface TimerCreateInput {
 export interface TimerFiring {
   timerId: string;
   scheduledFireAt: number;
-  /** Assigned firing reference when an admitted input is held and delivered again. */
-  messageId?: string;
 }

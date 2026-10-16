@@ -3,6 +3,7 @@ import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from
 import type { BrowserUserMessage, IngestedUserMessage } from "./adapter-browser-routing-message-types.js";
 import { isSystemSourceTag, isTimerReminderContent, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
 import { formatCompactAgentLabel } from "../../shared/takode-constants.js";
+import { isTimerReminderFiring, timerReminderMatchesSource } from "./adapter-browser-routing-timer.js";
 
 function localDateKey(ts: number): string {
   const date = new Date(ts);
@@ -22,7 +23,6 @@ export function buildAdapterUserMessageSourcePrefix(
   content?: string,
   sourceThreadKey?: string,
   leaderUserMessageId?: string,
-  leaderTimerMessageId?: string,
 ): string {
   const date = new Date(ts);
   const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -36,9 +36,9 @@ export function buildAdapterUserMessageSourcePrefix(
   const sessionInfo = getLauncherSessionInfo(session.id);
   const threadTag = sessionInfo?.isOrchestrator && sourceThreadKey ? `${formatThreadMarker(sourceThreadKey)} ` : "";
   if (isTimerSourceTag(agentSource)) {
-    const idTag = sessionInfo?.isOrchestrator && leaderTimerMessageId ? ` id:${leaderTimerMessageId}` : "";
-    return idTag || isTimerReminderContent(content)
-      ? `[Timer reminder ${timeWithDate}${idTag}] ${threadTag}`
+    // A coalesced held firing keeps its pause wrapper ahead of the reminder line.
+    return isTimerReminderContent(content) || timerReminderMatchesSource(content, agentSource?.sessionId)
+      ? `[Timer reminder ${timeWithDate}] ${threadTag}`
       : `[Timer event ${timeWithDate}] ${threadTag}`;
   }
   if (sessionInfo?.isOrchestrator) {
@@ -59,7 +59,7 @@ export function buildAdapterUserMessageSourcePrefix(
   return `[User ${timeWithDate}] `;
 }
 
-/** Build a model envelope once, retaining the original envelope on an identified firing retry. */
+/** Build a model envelope once, retaining the original envelope when a held firing is delivered again. */
 export function buildUserMessageDeliveryPrefix(
   session: AdapterBrowserRoutingSessionLike,
   ingested: IngestedUserMessage,
@@ -67,13 +67,9 @@ export function buildUserMessageDeliveryPrefix(
   contentPreview: string | undefined,
   deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo">,
 ): string {
-  if (
-    msg.deliveryContent &&
-    msg.timerFiring?.messageId &&
-    msg.timerFiring.messageId === ingested.historyEntry.leaderTimerMessageId
-  ) {
-    return "";
-  }
+  // Held firings keep their delivered content, which already starts with the
+  // envelope; a reminder's own text starts with "[⏰ Timer", never "[Timer ".
+  if (isTimerReminderFiring(msg) && msg.deliveryContent?.startsWith("[Timer ")) return "";
   return buildAdapterUserMessageSourcePrefix(
     session,
     ingested.timestamp,
@@ -82,6 +78,5 @@ export function buildUserMessageDeliveryPrefix(
     contentPreview,
     ingested.historyEntry.threadKey,
     ingested.historyEntry.leaderUserMessageId,
-    ingested.historyEntry.leaderTimerMessageId,
   );
 }

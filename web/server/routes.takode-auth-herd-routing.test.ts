@@ -697,63 +697,27 @@ describe("Takode server-authoritative auth", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("reads exact timer firings by leader-scoped ID and fails ambiguous or ineligible sources closed", async () => {
-    // Two firings of one schedule are individually addressable, while raw
-    // duplicate/cancellation/child rows cannot acquire source authority.
-    launcher.getSession.mockImplementation((id: string) => ({ sessionId: id, isOrchestrator: id !== "worker" }));
-    const firing = (id: string, leaderTimerMessageId: string, title: string) => ({
-      type: "user_message",
-      id,
-      leaderTimerMessageId,
-      content: `[⏰ Timer t1 reminder] ${title}`,
-      agentSource: { sessionId: "timer:t1" },
-      timestamp: 10,
-      threadKey: "q-2",
-      questId: "q-2",
-      threadRefs: [{ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 10 }],
-    });
-    const first = firing("first", "timer-m1", "First firing");
-    const second = firing("second", "timer-m2", "Second firing");
-    bridge._sessions["leader-a"] = { id: "leader-a", messageHistory: [first, second] };
-    bridge._sessions["leader-b"] = { id: "leader-b", messageHistory: [firing("other", "timer-m1", "Other leader")] };
-    bridge._sessions.worker = { id: "worker", messageHistory: [first] };
-
-    for (const [leader, firingId, content] of [
-      ["leader-a", "timer-m1", first.content],
-      ["leader-a", "timer-m2", second.content],
-      ["leader-b", "timer-m1", "[⏰ Timer t1 reminder] Other leader"],
-    ]) {
-      const response = await app.request(`/api/sessions/${leader}/messages/${firingId}?threadKey=q-2`);
-      expect(response.status).toBe(200);
-      expect((await response.json()).content).toBe(content);
-    }
-    expect((await app.request("/api/sessions/worker/messages/timer-m1")).status).toBe(400);
-    expect((await app.request("/api/sessions/leader-a/messages/timer-m3")).status).toBe(404);
-    // The removed short syntax is invalid, not a fallback spelling.
-    expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(400);
-    expect((await app.request("/api/sessions/leader-a/messages/f2")).status).toBe(400);
-    expect((await app.request("/api/sessions/leader-a/messages/timer-m1?threadKey=q-3")).status).toBe(404);
-    for (const invalid of ["t1", "timer-m0", "timer-m01", "f0", "f01"]) {
-      expect((await app.request(`/api/sessions/leader-a/messages/${invalid}`)).status).toBe(400);
-    }
-    const unsupported = firing("unsupported", "f1", "Unsupported source");
-    bridge._sessions["leader-a"].messageHistory = [unsupported];
+  it("rejects timer firing and retired references in leader message reads", async () => {
+    // Timer firings have no session-scoped ID; read them by history index. Firing,
+    // schedule and retired short references are invalid, not fallback spellings.
+    launcher.getSession.mockImplementation((id: string) => ({ sessionId: id, isOrchestrator: true }));
+    bridge._sessions["leader-a"] = {
+      id: "leader-a",
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "firing",
+          content: "[⏰ Timer t1 reminder] First firing",
+          agentSource: { sessionId: "timer:t1" },
+          timestamp: 10,
+        },
+      ],
+    };
     const rawRead = await app.request("/api/sessions/leader-a/messages/0");
     expect(rawRead.status).toBe(200);
-    expect((await rawRead.json()).content).toBe(unsupported.content);
-    expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(400);
-    expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
-    expect(bridge._sessions["leader-a"].messageHistory).toEqual([unsupported]);
-    for (const invalidHistory of [
-      [first, { ...second, leaderTimerMessageId: "timer-m1" }],
-      [first, { ...second, id: "first" }],
-      [{ ...first, content: "[⏰ Timer t1 cancelled] First firing" }],
-      [{ ...first, leaderTimerMessageId: undefined }],
-      [{ ...first, agentSource: { sessionId: "system:other" } }],
-      [{ ...first, codexSubagent: { childId: "child-1", rootTurnId: "root" } }],
-    ]) {
-      bridge._sessions["leader-a"].messageHistory = invalidHistory;
-      expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
+    expect((await rawRead.json()).content).toBe("[⏰ Timer t1 reminder] First firing");
+    for (const invalid of ["timer-m1", "t1", "f1", "f0"]) {
+      expect((await app.request(`/api/sessions/leader-a/messages/${invalid}`)).status).toBe(400);
     }
   });
 

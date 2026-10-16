@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
 import { createCodexHistoryIncorporation } from "./codex-history-incorporation.js";
-import { buildLeaderTimerMessageIdentities } from "../leader-timer-message-id.js";
 import {
   commitPendingCodexInputs,
   recordCodexHistoryReceiptObservation,
@@ -13,12 +12,8 @@ import type {
 } from "./codex-recovery-orchestrator.js";
 
 describe("Codex pending-input thread response coverage", () => {
-  it.each([
-    { messageId: "timer-m7", answerable: true },
-    { messageId: "f7", answerable: false },
-  ])("preserves raw $messageId receipts with answerable=$answerable", ({ messageId, answerable }) => {
-    // Receipt handling preserves stored data without assigning a new identity.
-    // Unsupported raw references cannot become timer answer targets.
+  it("commits a timer firing receipt once without making it a human request", () => {
+    // A firing carries no answer ID; committing it twice must not duplicate it.
     const input: PendingCodexInput = {
       id: "timer-occurrence",
       content: "[⏰ Timer t3 reminder] Report",
@@ -27,9 +22,8 @@ describe("Codex pending-input thread response coverage", () => {
       agentSource: { sessionId: "timer:t3", sessionLabel: "Timer t3" },
       threadKey: "q-42",
       questId: "q-42",
-      leaderTimerMessageId: messageId,
-      deliveryContent: `[Timer reminder earlier id:${messageId}] [thread:q-42] [⏰ Timer t3 reminder] Report`,
-      timerFiring: { timerId: "t3", scheduledFireAt: 1, messageId },
+      deliveryContent: "[Timer reminder earlier] [thread:q-42] [⏰ Timer t3 reminder] Report",
+      timerFiring: { timerId: "t3", scheduledFireAt: 1 },
       threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
     };
     const session = {
@@ -54,16 +48,11 @@ describe("Codex pending-input thread response coverage", () => {
     expect(session.messageHistory[0]).toMatchObject({
       id: input.id,
       content: input.content,
-      leaderTimerMessageId: messageId,
       threadKey: "q-42",
     });
     expect(session.messageHistory[0]).not.toHaveProperty("leaderResponseCoverageVersion");
     expect(session.messageHistory[0]).not.toHaveProperty("leaderUserMessageId");
-    expect(buildLeaderTimerMessageIdentities(session.messageHistory).map((identity) => identity.userMessageId)).toEqual(
-      answerable ? [messageId] : [],
-    );
     expect(deps.touchUserMessage).not.toHaveBeenCalled();
-    expect(deps.refreshBrowserConversationViews).toHaveBeenCalledWith(session);
   });
 
   it("preserves coverage and invalidates stale Ready when delayed human input commits", () => {

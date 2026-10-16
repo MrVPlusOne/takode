@@ -79,7 +79,7 @@ type NotifyUserDeps = PersistNotificationDeps & {
 type NotifyUserOptions = {
   /** Needs-input decision context, written to the feed as an ordinary assistant message before the card. */
   context?: string;
-  /** Leader-only: direct-user (or timer firing) IDs the context answers, settled like an explicit answer. */
+  /** Leader-only: direct-user IDs the context answers, settled like an explicit answer. */
   answerUserMessageIds?: string[];
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];

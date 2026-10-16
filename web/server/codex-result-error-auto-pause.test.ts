@@ -384,14 +384,10 @@ describe("Codex result-error auto-pause", () => {
     ]);
   });
 
-  it.each([
-    ["timer-m1", "timer-m2"],
-    ["timer-m1", "timer-m10"],
-    ["timer-m9", "timer-m10"],
-  ])("keeps %s and %s distinct while preserving unassigned timer coalescing", (first, second) => {
-    // Exact admitted identities cannot share a held representative, including
-    // references whose numeric suffixes share a prefix or cross a digit boundary.
-    // Timers held before admission retain the existing content-based policy.
+  it("coalesces held timer reminders while keeping the latest firing's provenance", () => {
+    // Timer firings carry no identity of their own, so identical held reminders
+    // coalesce like other automatic inputs. The drained message keeps timer
+    // provenance so Codex still treats it as a firing.
     const target = session();
     noteCodexResultForAutoPause(target, copilotAuthRefreshResult(), turn("automatic"), 100);
     const message = {
@@ -401,17 +397,6 @@ describe("Codex result-error auto-pause", () => {
       threadKey: "q-42",
       timerFiring: { timerId: "t1", scheduledFireAt: 1 },
     };
-    for (const messageId of [first, second]) {
-      queueCodexAutoPausedInput(
-        target,
-        "programmatic",
-        {
-          ...message,
-          timerFiring: { ...message.timerFiring, messageId },
-        },
-        200,
-      );
-    }
     queueCodexAutoPausedInput(target, "programmatic", message, 210);
     queueCodexAutoPausedInput(
       target,
@@ -424,20 +409,13 @@ describe("Codex result-error auto-pause", () => {
     );
 
     const held = target.state.codex_result_error_auto_pause!.heldInputs;
-    expect(held.map((item) => [item.count, item.message.timerFiring?.messageId])).toEqual([
-      [1, first],
-      [1, second],
-      [2, undefined],
-    ]);
+    expect(held.map((item) => item.count)).toEqual([2]);
     const drained = materializeCodexAutoPausedInputsForDrain(held);
-    expect(drained.map((item) => item.timerFiring?.messageId)).toEqual([first, second, undefined]);
-    expect(drained[0].content).toBe(message.content);
-    expect(drained[1].content).toBe(message.content);
-    expect(drained[2].content).toBe(
+    expect(drained[0].content).toBe(
       "[Takode auto-pause resumed: 2 similar automatic inputs were coalesced while delivery was paused.]\n\n" +
         message.content,
     );
-    expect(drained[2].timerFiring).toEqual({ timerId: "t1", scheduledFireAt: 2 });
+    expect(drained[0].timerFiring).toEqual({ timerId: "t1", scheduledFireAt: 2 });
   });
 
   it("treats only composer and explicit manual overrides as manual while background sources are automatic", () => {

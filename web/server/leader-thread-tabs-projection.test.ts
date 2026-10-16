@@ -1579,7 +1579,7 @@ describe("leader thread tab chat times", () => {
         assistantMessage({ threadKey: "q-4", questId: "q-4" }, 800),
         assistantMessage({ threadKey: "q-4", questId: "q-4" }, 800, {
           version: 2,
-          answerUserMessageIds: ["timer-m1"],
+          answerUserMessageIds: [],
           observedHistoryLength: 6,
           authoredThreadKey: "q-4",
         }),

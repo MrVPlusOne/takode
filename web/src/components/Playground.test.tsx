@@ -256,25 +256,6 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(pinnedDecision.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     expect(pinnedDecision.getByText("Choose whether the follow-up should remain parked.")).toBeVisible();
     expect(pinnedDecision.getByText("Choose the follow-up boundary")).toBeVisible();
-    // Each recurring firing keeps its own report and exact firing reference,
-    // even though both previews name the same recurring timer schedule.
-    const timerReports = within(routedFinalStates.getByTestId("playground-timer-answer-reports"));
-    expect(
-      timerReports.getByText("The scheduled build checks passed. The release candidate is ready for its review."),
-    ).toBeVisible();
-    expect(
-      timerReports.getByText("The next scheduled check found one new test failure in the release candidate."),
-    ).toBeVisible();
-    const timerCoverage = timerReports.getAllByTestId("thread-response-answer-count");
-    expect(timerCoverage).toHaveLength(2);
-    for (const [index, badge] of timerCoverage.entries()) {
-      expect(badge).toHaveTextContent("Answers 1 message");
-      fireEvent.click(badge);
-      const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
-      expect(within(preview).getByText(`timer-m${index + 1}`)).toBeVisible();
-      expect(preview).toHaveTextContent("[⏰ Timer t2 reminder] Check build health");
-      fireEvent.click(badge);
-    }
     // A request sent only as a comment keeps a previewable answer label showing the comment.
     const commentOnly = within(routedFinalStates.getByTestId("playground-comment-only-answer"));
     const commentBadge = commentOnly.getByTestId("thread-response-answer-count");
@@ -288,12 +269,15 @@ describe("Playground", { timeout: 30_000 }, () => {
     // A report published before the answer stays visible in the collapsed turn.
     const reportAnswer = within(routedFinalStates.getByTestId("playground-report-answer"));
     expect(reportAnswer.getByTestId("thread-response-report")).toHaveTextContent("Daily briefing: Tuesday");
+    // The leader's answer presenting the report names no request, so it has no answer-count chip.
+    expect(reportAnswer.getByText(/Today's 10 AM briefing is the report above/)).toBeVisible();
+    expect(reportAnswer.queryByTestId("thread-response-answer-count")).not.toBeInTheDocument();
     // An answered decision stays visible, with its context, after the turn's answer.
     const answeredDecision = within(routedFinalStates.getByTestId("playground-collapsed-answered-decision"));
     expect(answeredDecision.getByTestId("thread-response-needs-input-prompt")).toHaveTextContent(
       "Writing it to shared storage needs your go-ahead.",
     );
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(14);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(11);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

@@ -9,29 +9,18 @@ import {
 } from "./thread-routing.js";
 
 describe("thread-routing", () => {
-  it("round-trips individual timer firings and mixed human/firing answer references", () => {
-    // Timer schedule IDs are intentionally different from answerable delivery IDs.
-    for (const ids of [["timer-m1"], ["u1", "timer-m2"], ["timer-m1", "timer-m2"]]) {
-      const marker = formatThreadMarker("q-941", "answer", ids);
-      for (const parse of [parseThreadTextPrefix, parseThreadTextLineStartMarker]) {
-        expect(parse(`${marker}\nTimer result`)).toMatchObject({
-          ok: true,
-          role: "answer",
-          answerUserMessageIds: ids,
-          body: "Timer result",
-        });
-      }
-    }
+  it("rejects timer firing, schedule and retired references in answer markers", () => {
+    // Answers name only user-message IDs; a scheduled report is an answer that
+    // names no request ([thread:q-N:A]), so timer-firing IDs are no longer valid.
     for (const ids of [
+      ["timer-m1"],
+      ["u1", "timer-m2"],
       ["t1"],
-      ["timer-m0"],
-      ["timer-m01"],
-      ["timer-m1", "timer-m1"],
-      ["f0"],
-      ["f01"],
-      ["f1", "f1"],
       ["f1"],
       ["f1", "timer-m2"],
+      ["u0"],
+      ["u01"],
+      ["u1", "u1"],
     ]) {
       expect(() => formatThreadMarker("main", "answer", ids)).toThrow();
       for (const parse of [parseThreadTextPrefix, parseThreadTextLineStartMarker]) {

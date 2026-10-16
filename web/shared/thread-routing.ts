@@ -1,4 +1,4 @@
-import { isCanonicalLeaderAnswerMessageId } from "./leader-answer-message-id.js";
+import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
 
 export type ThreadRouteTarget = {
   threadKey: string;
@@ -22,12 +22,11 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
-// An answer marker may list the user-message or timer-firing IDs it answers, or
-// none for a result presented on the leader's own initiative ([thread:q-N:A]).
+// An answer marker may list the user-message IDs it answers, or none for a
+// result presented on the leader's own initiative ([thread:q-N:A]).
 const TEXT_THREAD_MARKER_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::((?:u|timer-m)[1-9]\d*(?:,(?:u|timer-m)[1-9]\d*)*))?)?\]/i;
+  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
@@ -86,10 +85,10 @@ export function formatThreadMarker(
 ): string {
   if (role === "answer") {
     if (
-      answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
+      answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
       new Set(answerUserMessageIds).size !== answerUserMessageIds.length
     ) {
-      throw new Error("Answer thread markers accept only unique canonical user or timer-firing IDs.");
+      throw new Error("Answer thread markers accept only unique canonical user-message IDs.");
     }
     return answerUserMessageIds.length === 0
       ? `[thread:${threadKey}:A]`

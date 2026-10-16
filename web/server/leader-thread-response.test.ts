@@ -65,14 +65,13 @@ function routedAssistant(
 }
 
 function timerFiring(
-  firingId: string,
+  id: string,
   timestamp: number,
   threadKey = "main",
 ): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   return {
     type: "user_message",
-    id: `raw-${firingId}`,
-    leaderTimerMessageId: firingId,
+    id,
     content: "[⏰ Timer t1 reminder] Check progress",
     agentSource: { sessionId: "timer:t1" },
     timestamp,
@@ -139,154 +138,27 @@ function legacyResponse(
 }
 
 describe("explicit routed leader answers", () => {
-  it("preserves sealed timer-message answers and complementary references after restoration", () => {
-    // New deliveries and complementary answers retain the original source
-    // and owner proof of previously settled timer-message answers.
-    const original = session();
-    original.messageHistory.push(timerFiring("timer-m4", 1));
-    appendAnswer(original, "earlier-report", ["timer-m4"], "Earlier timed check completed.", 1);
-    const saved = JSON.stringify(original.messageHistory);
-    const restored = JSON.parse(JSON.stringify(original)) as ReturnType<typeof session>;
-    restored.messageHistory.push(timerFiring("timer-m5", 3));
-    appendAnswer(restored, "new-report", ["timer-m5"], "New timed check completed.", 3);
-    appendAnswer(restored, "combined-detail", ["timer-m4", "timer-m5"], "Both checks have supporting details.", 4);
-
-    expect(JSON.stringify(restored.messageHistory.slice(0, 2))).toBe(saved);
-    expect(
-      buildLeaderThreadResponseState(restored, "main").projection.currentAnswers.map(
-        (answer) => answer.answerUserMessageIds,
-      ),
-    ).toEqual([["timer-m4"], ["timer-m5"], ["timer-m4", "timer-m5"]]);
-  });
-
-  it.each([
-    ["f1", "timer-m1"],
-    ["timer-m1", "f1"],
-    ["f1", "f1"],
-  ])("rejects unsupported or unmatched references from stored %s to answer %s", (storedId, wrongId) => {
-    // Raw unsupported history is retained without granting answer authority
-    // or treating the removed prefix as an alias for a readable reference.
+  it("gives timer firings no answer authority, and drops stored timer answers", () => {
+    // Timer firings carry no answer ID: a scheduled report is an answer that names
+    // no request. Answers citing a firing are rejected, and answers stored before
+    // the change that cite one (even mixed with a user request) no longer count,
+    // so the request they named stays pending.
     const target = session();
-    target.messageHistory.push(timerFiring(storedId, 1));
-    const rawSource = JSON.stringify(target.messageHistory[0]);
-    const response = routedAssistant("wrong-spelling", "Unproven result.", [wrongId], 1);
-    target.messageHistory.push(response);
-    expect(finalizeRoutedLeaderResponseMessage(target, response)).toMatchObject({ finalized: false });
-    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
-    expect(JSON.stringify(target.messageHistory[0])).toBe(rawSource);
-  });
+    target.messageHistory.push(human("u1", 1), timerFiring("raw-firing", 2));
+    expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
+    const cited = routedAssistant("cites-firing", "Scheduled check completed.", ["timer-m1"], 2);
+    target.messageHistory.push(cited);
+    expect(finalizeRoutedLeaderResponseMessage(target, cited)).toMatchObject({ finalized: false });
 
-  it("retains timer answers without making each firing a pending human obligation", () => {
-    // A recurring timer's deliveries are separate optional targets; adding a
-    // later firing neither supersedes an earlier result nor prevents Ready.
-    const target = session();
-    target.messageHistory.push(timerFiring("timer-m1", 1));
-    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
-      pendingMessageCount: 0,
-      ready: true,
-    });
-    const first = appendAnswer(target, "first-result", ["timer-m1"], "First check completed.", 1);
-    target.messageHistory.push(timerFiring("timer-m2", 2));
-    appendAnswer(target, "second-result", ["timer-m2"], "Second check completed.", 3);
-    appendAnswer(target, "first-detail", ["timer-m1"], "Additional first-check detail.", 4);
-    const { projection } = buildLeaderThreadResponseState(target, "main");
-    expect(projection).toMatchObject({ pendingMessageCount: 0, ready: true });
-    expect(
-      projection.currentAnswers.map((answer) => [answer.currentMessageId, answer.coveredAnswerUserMessageIds]),
-    ).toEqual([
-      ["first-result", []],
-      ["second-result", ["timer-m2"]],
-      ["first-detail", ["timer-m1"]],
-    ]);
-    expect(isCurrentValidRoutedLeaderResponseMessage(target, first)).toBe(false);
-    expect(buildLeaderThreadResponseState(JSON.parse(JSON.stringify(target)), "main")).toEqual(
-      buildLeaderThreadResponseState(target, "main"),
-    );
-  });
-
-  it("routes a mixed human and firing answer while unrelated human work remains pending", () => {
-    // Coverage is per referenced prompt, not per generating turn or authored tab.
-    const target = session();
-    target.messageHistory.push(human("u1", 1, "q-1"), timerFiring("timer-m1", 2, "q-2"), human("u2", 3));
-    appendAnswer(
-      target,
-      "mixed-result",
-      ["u1", "timer-m1"],
-      "The requested work and timed check are complete.",
-      3,
-      "q-3",
-    );
-    for (const threadKey of ["q-1", "q-2", "q-3"]) {
-      expect(buildLeaderThreadResponseState(target, threadKey).projection).toMatchObject({
-        pendingMessageCount: 0,
-        ready: true,
-        currentAnswers: [{ currentMessageId: "mixed-result", answerUserMessageIds: ["u1", "timer-m1"] }],
-      });
+    for (const answerUserMessageIds of [["timer-m1"], ["u1", "timer-m1"]]) {
+      const stored = routedAssistant("stored-timer-answer", "Earlier scheduled report.", [], 2);
+      stored.threadAnswer = { version: 2, answerUserMessageIds, observedHistoryLength: 2, authoredThreadKey: "main" };
+      const history = session();
+      history.messageHistory.push(human("u1", 1), timerFiring("raw-firing", 2), stored);
+      const { projection } = buildLeaderThreadResponseState(history, "main");
+      expect(projection.currentAnswers).toEqual([]);
+      expect(projection.pendingMessages.map((pending) => pending.userMessageId)).toEqual(["u1"]);
     }
-    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
-      pendingMessageCount: 1,
-      pendingMessages: [{ userMessageId: "u2" }],
-      ready: false,
-      currentAnswers: [],
-    });
-  });
-
-  it("rejects unknown, future, cancelled, child, and ambiguous firing targets atomically", () => {
-    // Pair each invalid firing with a real request: rejection must not partially
-    // consume the user's unrelated pending obligation.
-    for (const invalidFiring of [
-      undefined,
-      { ...timerFiring("timer-m1", 2), content: "[⏰ Timer t1 cancelled] Check progress" },
-      { ...timerFiring("timer-m1", 2), agentSource: { sessionId: "system:reminder" } },
-      { ...timerFiring("timer-m1", 2), codexSubagent: { childId: "child-1", rootTurnId: "root" } },
-      { ...timerFiring("timer-m1", 2), leaderTimerMessageId: undefined },
-    ]) {
-      const target = session();
-      target.messageHistory.push(human("u1", 1));
-      if (invalidFiring) target.messageHistory.push(invalidFiring);
-      const answer = routedAssistant("invalid", "Attempted result.", ["u1", "timer-m1"], target.messageHistory.length);
-      target.messageHistory.push(answer);
-      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
-      expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
-    }
-    for (const observedLength of [0, 1]) {
-      const target = session();
-      target.messageHistory.push(human("u1", 1), timerFiring("timer-m1", 2));
-      const answer = routedAssistant("future", "Attempted unseen result.", ["timer-m1"], observedLength);
-      target.messageHistory.push(answer);
-      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
-    }
-    for (const duplicate of [
-      { ...timerFiring("timer-m1", 2), id: "other-raw" },
-      { ...timerFiring("timer-m2", 2), id: "raw-timer-m1" },
-    ]) {
-      const target = session();
-      target.messageHistory.push(timerFiring("timer-m1", 1), duplicate);
-      const answer = routedAssistant("duplicate", "Attempted ambiguous result.", ["timer-m1"], 2);
-      target.messageHistory.push(answer);
-      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
-    }
-  });
-
-  it("invalidates stored timer proof after owner reassignment and keeps legacy revisions human-only", () => {
-    // Replay reevaluates the same exact owner snapshot used for human answers.
-    const target = session();
-    const firing = timerFiring("timer-m1", 1, "q-1");
-    target.messageHistory.push(firing);
-    const answer = appendAnswer(target, "result", ["timer-m1"], "Timed check completed.", 1, "q-1");
-    firing.threadRefs!.push({ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 2 });
-    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
-    expect(buildLeaderThreadResponseState(target, "q-1").projection.currentAnswers).toEqual([]);
-    expect(buildLeaderThreadResponseState(target, "q-2").projection).toMatchObject({
-      pendingMessageCount: 0,
-      ready: true,
-      currentAnswers: [],
-    });
-
-    const legacyTarget = session();
-    legacyTarget.messageHistory.push(timerFiring("timer-m1", 1));
-    legacyTarget.messageHistory.push(legacyResponse(legacyTarget, "legacy", "Old answer.", ["raw-timer-m1"], 1));
-    expect(buildLeaderThreadResponseState(legacyTarget, "main").projection.currentAnswers).toEqual([]);
   });
 
   it("ignores pre-cutover history and projects concise pending IDs", () => {

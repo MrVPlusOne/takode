@@ -22,157 +22,41 @@ describe("leader timer firing ingestion", () => {
     timerFiring: { timerId: "t4", scheduledFireAt: 1_000 },
   };
 
-  it("supplies one firing reference without turning the timer into a human request", async () => {
-    // The model receives an exact source reference; stored reminder prose is unchanged.
+  it("delivers a firing as a timer reminder that is not a human request and has no answer ID", async () => {
+    // A leader reports a firing's result with an answer that names no request, so
+    // the firing needs no ID; stored reminder prose is unchanged.
     const target = session();
     const runtime = deps();
     const ingested = await ingestUserMessage(target, firing, runtime);
-    expect(ingested.historyEntry).toMatchObject({
-      content: firing.content,
-      leaderTimerMessageId: "timer-m1",
-      threadKey: "q-42",
-      questId: "q-42",
-    });
+    expect(ingested.historyEntry).toMatchObject({ content: firing.content, threadKey: "q-42", questId: "q-42" });
     expect(ingested.historyEntry).not.toHaveProperty("leaderUserMessageId");
     expect(ingested.historyEntry).not.toHaveProperty("leaderResponseCoverageVersion");
     expect(runtime.touchUserMessage).not.toHaveBeenCalled();
-    expect(runtime.refreshBrowserConversationViews).toHaveBeenCalledWith(target);
-    const prefix = buildAdapterUserMessageSourcePrefix(
-      target,
-      ingested.timestamp,
-      runtime.getLauncherSessionInfo,
-      firing.agentSource,
-      firing.content,
-      "q-42",
-      undefined,
-      ingested.historyEntry.leaderTimerMessageId,
+    expect(buildUserMessageDeliveryPrefix(target, ingested, firing, firing.content, runtime)).toMatch(
+      /^\[Timer reminder [^\]]+\] \[thread:q-42\] $/,
     );
-    expect(prefix).toMatch(/^\[Timer reminder .* id:timer-m1\] \[thread:q-42\] $/);
   });
 
-  it("reserves references for queued recurring firings before either commits", async () => {
-    // Concurrent queued occurrences must not both be assigned the next history ordinal.
+  it("keeps a held firing's original model envelope when it is delivered again", async () => {
+    // Auto-pause and recovery transfers redeliver the stored delivery content,
+    // which already carries the envelope; adding another would duplicate it.
     const target = session();
     const runtime = deps();
-    const first = await ingestUserMessage(target, firing, runtime, { commit: false });
-    target.pendingCodexInputs.push({
-      id: first.historyEntry.id!,
-      content: firing.content,
-      timestamp: first.timestamp,
-      cancelable: true,
-      leaderTimerMessageId: first.historyEntry.leaderTimerMessageId,
-    });
-    const second = await ingestUserMessage(target, firing, runtime, { commit: false });
-    expect(first.historyEntry.leaderTimerMessageId).toBe("timer-m1");
-    expect(second.historyEntry.leaderTimerMessageId).toBe("timer-m2");
-    expect(target.messageHistory).toEqual([]);
-  });
-
-  it.each([
-    "manual pause",
-    "auto-pause",
-    "recovery transfer",
-  ])("reserves assigned references retained in %s", async (owner) => {
-    // A removed pending input still owns its firing ID while another durable
-    // delivery state holds it, including after process restart.
-    const target = session();
-    const message = { ...firing, timerFiring: { ...firing.timerFiring, messageId: "timer-m7" } };
-    if (owner === "manual pause") {
-      target.state.pause = {
-        pausedAt: 1,
-        queuedMessages: [{ id: "held", queuedAt: 2, source: "programmatic", message }],
-      };
-    } else if (owner === "auto-pause") {
-      target.state.codex_result_error_auto_pause = {
-        family: "model_not_supported",
-        fingerprint: "model_not_supported:selected_model",
-        streak: 1,
-        threshold: 1,
-        pausedAt: 1,
-        lastError: "unsupported model",
-        lastErrorAt: 1,
-        lastSourceKind: "automatic",
-        totalMatchingErrors: 1,
-        heldInputs: [{ id: "held", queuedAt: 2, lastQueuedAt: 2, source: "programmatic", count: 1, message }],
-      };
-    } else {
-      target.recoveryDeliveryTransfers = [
-        {
-          id: "recovery-transfer-held",
-          createdAt: 2,
-          sourceOwnerKind: "auto_pause",
-          sourceOwnerId: "held",
-          sourceOwnerCount: 1,
-          payloadBytes: 200,
-          message,
-        },
-      ];
-    }
-
-    const ingested = await ingestUserMessage(target, firing, deps(), { commit: false });
-
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m8");
-    expect(target.messageHistory).toEqual([]);
-  });
-
-  it("reuses a held firing reference without duplicating its model source envelope", async () => {
-    const target = session();
-    const runtime = deps();
-    const deliveryContent = "[Timer reminder earlier id:timer-m7] [thread:q-42] " + firing.content;
-    const message = { ...firing, deliveryContent, timerFiring: { ...firing.timerFiring, messageId: "timer-m7" } };
-
+    const deliveryContent = "[Timer reminder earlier] [thread:q-42] " + firing.content;
+    const message = { ...firing, deliveryContent };
     const ingested = await ingestUserMessage(target, message, runtime, { commit: false });
-
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m7");
     expect(buildUserMessageDeliveryPrefix(target, ingested, message, deliveryContent, runtime)).toBe("");
-    expect(message.deliveryContent).toBe(deliveryContent);
+    // Delivery content without an envelope, such as a memory catalog prelude added
+    // to a firing's first delivery, still gets one.
+    const prelude = { ...firing, deliveryContent: firing.content + "\n\n[Memory catalog]" };
+    expect(buildUserMessageDeliveryPrefix(target, ingested, prelude, prelude.deliveryContent, runtime)).toMatch(
+      /^\[Timer reminder /,
+    );
   });
 
-  it.each([
-    "f1",
-    "f99",
-  ])("rejects unsupported %s without rewriting held input or reserving an ordinal", async (messageId) => {
-    // Unsupported references cannot alias a current owner or affect allocation;
-    // their raw stored payload remains available for inspection after rejection.
-    const target = session();
-    const runtime = deps();
-    const readable = await ingestUserMessage(target, firing, runtime, { commit: false });
-    target.pendingCodexInputs.push({
-      id: "readable-input",
-      content: firing.content,
-      timestamp: readable.timestamp,
-      cancelable: true,
-      leaderTimerMessageId: readable.historyEntry.leaderTimerMessageId,
-    });
-    const unsupported = JSON.parse(
-      JSON.stringify({
-        ...firing,
-        deliveryContent: `[Timer reminder earlier id:${messageId}] [thread:q-42] ` + firing.content,
-        timerFiring: { ...firing.timerFiring, messageId },
-      }),
-    );
-    target.state.pause = {
-      pausedAt: 1,
-      queuedMessages: [{ id: "unsupported-held", queuedAt: 2, source: "programmatic", message: unsupported }],
-    };
-    const unsupportedBefore = structuredClone(unsupported);
-    const pendingBefore = structuredClone(target.pendingCodexInputs);
-
-    expect(() => ingestUserMessage(target, unsupported, runtime, { commit: false })).toThrow(
-      "Retained timer firing reference is invalid",
-    );
-    const next = await ingestUserMessage(target, firing, runtime, { commit: false });
-
-    expect(readable.historyEntry.leaderTimerMessageId).toBe("timer-m1");
-    expect(next.historyEntry.leaderTimerMessageId).toBe("timer-m2");
-    expect(target.state.pause.queuedMessages[0].message).toEqual(unsupportedBefore);
-    expect(target.pendingCodexInputs).toEqual(pendingBefore);
-    expect(target.messageHistory).toEqual([]);
-  });
-
-  it("keeps the firing reference in a wrapped timer's model envelope without rewriting raw content", async () => {
-    // Materialized auto-pause groups retain their existing wrapper and one
-    // representative; the wrapper must not downgrade a genuine firing to an event.
+  it("keeps a coalesced firing a timer reminder in the model envelope without rewriting raw content", async () => {
+    // Materialized auto-pause groups retain their wrapper; it must not downgrade a
+    // genuine firing to a timer event.
     const target = session();
     const runtime = deps();
     const message = {
@@ -182,63 +66,10 @@ describe("leader timer firing ingestion", () => {
         firing.content,
     };
     const ingested = await ingestUserMessage(target, message, runtime);
-
     expect(ingested.historyEntry.content).toBe(message.content);
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m1");
     expect(buildUserMessageDeliveryPrefix(target, ingested, message, message.content, runtime)).toMatch(
-      /id:timer-m1\]/,
+      /^\[Timer reminder /,
     );
-  });
-
-  it.each([
-    "committed",
-    "pending",
-    "malformed ID",
-    "malformed provenance",
-  ])("rejects retained identity with %s evidence before mutation", async (kind) => {
-    const target = session();
-    const runtime = deps();
-    if (kind === "committed") await ingestUserMessage(target, firing, runtime);
-    if (kind === "pending")
-      target.pendingCodexInputs.push({
-        id: "prior-input",
-        content: firing.content,
-        timestamp: 1,
-        cancelable: true,
-        leaderTimerMessageId: "timer-m1",
-      });
-    const message = {
-      ...firing,
-      deliveryContent: "[Timer reminder earlier id:timer-m1] " + firing.content,
-      timerFiring: {
-        ...firing.timerFiring,
-        messageId: kind === "malformed ID" ? "u1" : "timer-m1",
-        ...(kind === "malformed provenance" ? { scheduledFireAt: -1 } : {}),
-      },
-    };
-    const historyBefore = structuredClone(target.messageHistory);
-    const pendingBefore = structuredClone(target.pendingCodexInputs);
-
-    expect(() => ingestUserMessage(target, message, runtime)).toThrow(/Retained timer firing/);
-    expect(target.messageHistory).toEqual(historyBefore);
-    expect(target.pendingCodexInputs).toEqual(pendingBefore);
-  });
-
-  it.each([
-    { name: "unproven injected reminder", message: { ...firing, timerFiring: undefined } },
-    { name: "cancellation", message: { ...firing, content: "[⏰ Timer t4 cancelled] Daily report" } },
-    { name: "different source", message: { ...firing, agentSource: { sessionId: "timer:t5" } } },
-    { name: "invalid schedule", message: { ...firing, timerFiring: { timerId: "t4", scheduledFireAt: NaN } } },
-  ])("does not assign answer authority to $name", async ({ message }) => {
-    const ingested = await ingestUserMessage(session(), message, deps());
-    expect(ingested.historyEntry).not.toHaveProperty("leaderTimerMessageId");
-  });
-
-  it("keeps worker timer delivery outside the leader answer contract", async () => {
-    const runtime = deps();
-    vi.mocked(runtime.getLauncherSessionInfo).mockReturnValue({ isOrchestrator: false } as any);
-    const ingested = await ingestUserMessage(session(), firing, runtime);
-    expect(ingested.historyEntry).not.toHaveProperty("leaderTimerMessageId");
   });
 });
 

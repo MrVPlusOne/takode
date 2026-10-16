@@ -20,41 +20,27 @@ describe("leader answer ownership routing", () => {
     expect(leaderResponseOriginalThreadKey({ threadRefs: [{ threadKey: "main", source: "backfill" }] })).toBeNull();
   });
 
-  it("requires complete owner proof for mixed user requests and timer firings", () => {
-    // Owner partitions retain one answer identity across both target types.
-    const ownerGroups = [
-      { threadKey: "main", userMessageIds: ["u1"] },
-      { threadKey: "q-2", userMessageIds: ["timer-m1", "timer-m2"] },
-    ];
-    expect(
-      leaderResponseAnswerOwnerThreadKeys(
-        { answerUserMessageIds: ["timer-m1", "u1", "timer-m2"], ownerGroups },
-        "main",
-      ),
-    ).toEqual(
-      new Map([
-        ["u1", "main"],
-        ["timer-m1", "q-2"],
-        ["timer-m2", "q-2"],
-      ]),
-    );
-    expect(
-      leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["timer-m1", "u1"], ownerGroups }, "main"),
-    ).toBeNull();
+  it("refuses owner proof that names timer or retired references", () => {
+    // Answers own only user requests: a stored partition naming a timer firing
+    // (from before timer answer IDs were removed) or the retired fN syntax is invalid.
+    for (const [id, threadKey] of [
+      ["timer-m1", "q-2"],
+      ["f1", "q-2"],
+    ] as const) {
+      expect(
+        leaderResponseAnswerOwnerThreadKeys(
+          {
+            answerUserMessageIds: ["u1", id],
+            ownerGroups: [
+              { threadKey: "main", userMessageIds: ["u1"] },
+              { threadKey, userMessageIds: [id] },
+            ],
+          },
+          "main",
+        ),
+      ).toBeNull();
+    }
     expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["t1"] }, "main")).toBeNull();
-    // Even a complete owner partition cannot make the removed syntax valid.
-    expect(
-      leaderResponseAnswerOwnerThreadKeys(
-        {
-          answerUserMessageIds: ["u1", "f1"],
-          ownerGroups: [
-            { threadKey: "main", userMessageIds: ["u1"] },
-            { threadKey: "q-2", userMessageIds: ["f1"] },
-          ],
-        },
-        "main",
-      ),
-    ).toBeNull();
   });
 
   it("decodes an exact owner partition independently from authored order and source route", () => {
