@@ -33,9 +33,16 @@ export function formatTodoDue(due: string, now: number): string {
   return `${label} ${time}`;
 }
 
-function CalendarIcon() {
+export function CalendarIcon({ className = "h-3 w-3" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3" aria-hidden="true">
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      className={className}
+      aria-hidden="true"
+    >
       <rect x="2.5" y="3.5" width="11" height="10" rx="2" />
       <path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" strokeLinecap="round" />
     </svg>

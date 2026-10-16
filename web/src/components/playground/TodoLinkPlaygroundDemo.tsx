@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import type { TodoProposal, TodoState } from "../../../shared/todo-types.js";
+import type { TodoItem, TodoProposal, TodoState, TodoStatus } from "../../../shared/todo-types.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { type TodoLinkSource, TodoLinkSourceContext } from "../TodoInlineLink.js";
 
@@ -17,6 +17,13 @@ function demoProposal(id: string, mutation: TodoProposal["mutation"], status: To
     requestedBy: REQUESTER,
     ...(status === "pending" ? {} : { resolvedAt: Date.now() - 600_000 }),
   };
+}
+
+/** A local `YYYY-MM-DD` date `days` from today, for demo due dates. */
+function localDate(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function demoState(): TodoState {
@@ -39,6 +46,7 @@ function demoState(): TodoState {
         rank: 1024,
         categoryId: "cat-inbox",
         status: "todo",
+        due: `${localDate(-1)}T17:00`,
         createdAt: 1,
         updatedAt: 1,
         statusChangedAt: 1,
@@ -51,6 +59,7 @@ function demoState(): TodoState {
         rank: 2048,
         categoryId: "cat-work",
         status: "doing",
+        due: localDate(1),
         questIds: ["q-418"],
         createdAt: 1,
         updatedAt: Date.now() - 3 * 3_600_000,
@@ -94,13 +103,32 @@ function demoState(): TodoState {
 
 /**
  * To-do and proposal links in prose, each with its marker (a proposal's shows its status): tapping one
- * opens its preview, where a pending proposal can be decided.
+ * opens its preview, where a to-do can be changed and a pending proposal decided.
  */
 export function PlaygroundTodoLinkDemo() {
-  // Decisions change only this demo's in-memory copy, never the real list.
+  // Changes affect only this demo's in-memory copy, never the real list.
   const stateRef = useRef<TodoState>(demoState());
-  const source = useMemo<TodoLinkSource>(
-    () => ({
+  const statusBeforeDone = useRef(new Map<string, TodoStatus>());
+  const source = useMemo<TodoLinkSource>(() => {
+    const updateItem = (itemId: string, change: (item: TodoItem) => TodoItem) => {
+      const current = stateRef.current;
+      stateRef.current = {
+        ...current,
+        revision: current.revision + 1,
+        items: current.items.map((item) => (item.id === itemId ? { ...change(item), updatedAt: Date.now() } : item)),
+      };
+      return { state: stateRef.current };
+    };
+    const setStatus = (item: TodoItem, status: TodoStatus): TodoItem => {
+      const { completedAt: _completedAt, ...rest } = item;
+      return {
+        ...rest,
+        status,
+        statusChangedAt: Date.now(),
+        ...(status === "done" ? { completedAt: Date.now() } : {}),
+      };
+    };
+    return {
       loadProposalStatuses: async () => ({
         statuses: Object.fromEntries(stateRef.current.proposals.map((proposal) => [proposal.id, proposal.status])),
         revision: stateRef.current.revision,
@@ -124,9 +152,24 @@ export function PlaygroundTodoLinkDemo() {
         };
         return { state: stateRef.current };
       },
-    }),
-    [],
-  );
+      setItemStatus: async (itemId, status) => {
+        const previous = stateRef.current.items.find((item) => item.id === itemId)?.status;
+        if (status === "done" && previous) statusBeforeDone.current.set(itemId, previous);
+        const response = updateItem(itemId, (item) => setStatus(item, status));
+        return status === "done"
+          ? { ...response, completionUndo: { itemId, token: "demo", expiresAt: Date.now() + 30_000 } }
+          : response;
+      },
+      editItem: async (itemId, markdown) => updateItem(itemId, (item) => ({ ...item, markdown })),
+      setItemDue: async (itemId, due) =>
+        updateItem(itemId, (item) => {
+          const { due: _due, ...rest } = item;
+          return due ? { ...rest, due } : rest;
+        }),
+      undoCompletion: async (itemId) =>
+        updateItem(itemId, (item) => setStatus(item, statusBeforeDone.current.get(itemId) ?? "todo")),
+    };
+  }, []);
 
   return (
     <TodoLinkSourceContext.Provider value={source}>

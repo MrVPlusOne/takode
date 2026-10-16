@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { TodoProposal, TodoState } from "../../shared/todo-types.js";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { TodoItem, TodoProposal, TodoState } from "../../shared/todo-types.js";
 import { useStore } from "../store.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
@@ -59,15 +59,42 @@ function todoState(proposals: TodoProposal[], revision = 5): TodoState {
   };
 }
 
-// Preview tests don't care about the link markers, so their statuses default to an empty list.
-type PreviewSource = Omit<TodoLinkSource, "loadProposalStatuses"> & Partial<TodoLinkSource>;
+/** The list with its one to-do (td-1, "Reply to Alice") changed by `overrides`. */
+function withItem(overrides: Partial<TodoItem>, revision = 5): TodoState {
+  const state = todoState([], revision);
+  state.items[0] = { ...state.items[0]!, ...overrides };
+  return state;
+}
+
+const statusButton = (name: string) =>
+  within(screen.getByRole("group", { name: "Status" })).getByRole("button", { name });
+
+// Preview tests don't care about the link markers, so their statuses default to an empty list, and
+// each test supplies only the to-do changes it exercises.
+type PreviewSource = Pick<TodoLinkSource, "loadState" | "resolve"> & Partial<TodoLinkSource>;
+
+const fullSources = new WeakMap<PreviewSource, TodoLinkSource>();
+
+// The same partial source always gives the same full one: proposal statuses are cached per source.
+function fullSource(source: PreviewSource): TodoLinkSource {
+  const known = fullSources.get(source);
+  if (known) return known;
+  const full: TodoLinkSource = {
+    loadProposalStatuses: async () => ({ statuses: {}, revision: 0 }),
+    setItemStatus: vi.fn(),
+    editItem: vi.fn(),
+    setItemDue: vi.fn(),
+    undoCompletion: vi.fn(),
+    ...source,
+  };
+  fullSources.set(source, full);
+  fullSources.set(full, full);
+  return full;
+}
 
 function renderLink(source: PreviewSource, text = "The [PR 98888 review](todo:tp-36) may only need the stamp.") {
-  const fullSource: TodoLinkSource = source.loadProposalStatuses
-    ? (source as TodoLinkSource)
-    : { loadProposalStatuses: async () => ({ statuses: {}, revision: 0 }), ...source };
   return render(
-    <TodoLinkSourceContext.Provider value={fullSource}>
+    <TodoLinkSourceContext.Provider value={fullSource(source)}>
       <MarkdownContent text={text} />
     </TodoLinkSourceContext.Provider>,
   );
@@ -187,8 +214,11 @@ describe("to-do and proposal links", () => {
     expect(dialog.textContent).toContain("Old detail");
     expect(dialog.textContent).toContain("In Inbox");
     expect(screen.getByRole("link", { name: "q-7" }).getAttribute("href")).toContain("q-7");
-    expect(screen.getByTestId("todo-preview-status").textContent).toBe("Doing");
-    // An item has nothing to decide: no Approve/Reject, only the way on to the list.
+    // The status control at the bottom shows the status; there is no separate status chip.
+    expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true");
+    expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("todo-preview-status")).toBeNull();
+    // An item has nothing to decide: no Approve/Reject.
     expect(screen.queryByTestId("todo-proposal-approve")).toBeNull();
     expect(screen.getByRole("link", { name: "Open to-dos" }).getAttribute("href")).toBe("#/scheduled");
   });
@@ -201,7 +231,7 @@ describe("to-do and proposal links", () => {
       () =>
         new Promise<Awaited<ReturnType<TodoLinkSource["loadProposalStatuses"]>>>((resolve) => (finishLoad = resolve)),
     );
-    const source: TodoLinkSource = { loadProposalStatuses, loadState: vi.fn(), resolve: vi.fn() };
+    const source = fullSource({ loadProposalStatuses, loadState: vi.fn(), resolve: vi.fn() });
     renderLink(
       source,
       "[Reply](todo:td-1), [pending](todo:tp-1), [approved](todo:tp-2), [rejected](todo:tp-3), [gone](todo:tp-4)",
@@ -240,7 +270,7 @@ describe("to-do and proposal links", () => {
     const resolve = vi.fn(async () => ({
       state: todoState([proposal({ status: "approved", resolvedAt: Date.now() })], 6),
     }));
-    const source: TodoLinkSource = { loadProposalStatuses, loadState: async () => todoState([proposal()], 5), resolve };
+    const source = fullSource({ loadProposalStatuses, loadState: async () => todoState([proposal()], 5), resolve });
     const first = renderLink(source);
     const status = () => screen.getByRole("link", { name: "PR 98888 review" }).querySelector("svg")!.dataset.status;
     await waitFor(() => expect(status()).toBe("pending"));
@@ -260,6 +290,107 @@ describe("to-do and proposal links", () => {
     await act(async () => window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT)));
     expect(loadProposalStatuses).toHaveBeenCalledTimes(3);
     expect(status()).toBe("rejected");
+  });
+
+  it("moves a to-do to Done from its preview and offers the To-dos page's Undo", async () => {
+    // Marking a to-do done is the main reason to act on it from a link. The server's short-lived
+    // completion receipt gives the same Undo as the To-dos page, restoring the exact earlier status.
+    const setItemStatus = vi.fn(async () => ({
+      state: withItem({ status: "done", completedAt: Date.now() }, 6),
+      completionUndo: { itemId: "td-1", token: "undo-token", expiresAt: Date.now() + 30_000 },
+    }));
+    const undoCompletion = vi.fn(async () => ({ state: withItem({ status: "doing" }, 7) }));
+    renderLink(
+      { loadState: async () => withItem({ status: "doing" }), resolve: vi.fn(), setItemStatus, undoCompletion },
+      "[reply to Alice](todo:td-1)",
+    );
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    await screen.findByText("Reply to Alice");
+
+    fingerTap(statusButton("Done"));
+    await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
+    expect(setItemStatus).toHaveBeenCalledWith("td-1", "done");
+    expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Moved to Done");
+    // A Done to-do has no due date to change, as on the To-dos page.
+    expect(screen.queryByTestId("todo-preview-due")).toBeNull();
+
+    fingerTap(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));
+    expect(undoCompletion).toHaveBeenCalledWith("td-1", "undo-token");
+    expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Updated");
+  });
+
+  it("shows a failed change next to the controls and keeps the to-do as it was", async () => {
+    const setItemStatus = vi.fn(async () => {
+      throw new Error("Server unreachable");
+    });
+    renderLink({ loadState: async () => withItem({}), resolve: vi.fn(), setItemStatus }, "[reply to Alice](todo:td-1)");
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    await screen.findByText("Reply to Alice");
+
+    fingerTap(statusButton("Doing"));
+    expect((await screen.findByRole("alert")).textContent).toBe("Could not update the to-do. Server unreachable");
+    expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("edits the to-do text in the preview without losing the draft to a stray tap", async () => {
+    // Editing uses the To-dos page's rules: one Markdown body whose first line must stay non-empty.
+    const editItem = vi.fn(async (_itemId: string, markdown: string) => ({ state: withItem({ markdown }, 6) }));
+    renderLink({ loadState: async () => withItem({}), resolve: vi.fn(), editItem }, "[reply to Alice](todo:td-1)");
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    await screen.findByText("Reply to Alice");
+
+    fingerTap(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "To-do text" });
+    expect(editor.value).toBe("Reply to Alice\nOld detail");
+    fireEvent.change(editor, { target: { value: "Reply to Alice\nNew detail" } });
+    // A backdrop tap while editing keeps the preview, and the draft, open.
+    fireEvent.click(screen.getByTestId("todo-preview-backdrop"));
+    expect(screen.getByRole("textbox", { name: "To-do text" })).toBe(editor);
+    // Escape leaves the editor without closing the preview or saving.
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "To-do text" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "To-do" }).textContent).toContain("Old detail");
+    expect(editItem).not.toHaveBeenCalled();
+
+    fingerTap(screen.getByRole("button", { name: "Edit" }));
+    const second = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "To-do text" });
+    fireEvent.change(second, { target: { value: "\n" } });
+    expect(screen.getByTestId("todo-preview-save").hasAttribute("disabled")).toBe(true);
+    fireEvent.change(second, { target: { value: "Reply to Alice\nNew detail" } });
+    fingerTap(screen.getByTestId("todo-preview-save"));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "To-do text" })).toBeNull());
+    expect(editItem).toHaveBeenCalledWith("td-1", "Reply to Alice\nNew detail");
+    expect(screen.getByRole("dialog", { name: "To-do" }).textContent).toContain("New detail");
+  });
+
+  it("shows the due date, flagged once overdue, and sets or clears it from the preview", async () => {
+    const setItemDue = vi.fn(async (_itemId: string, due: string | null) => ({
+      state: withItem(due ? { due } : {}, setItemDue.mock.calls.length + 5),
+    }));
+    renderLink(
+      { loadState: async () => withItem({ due: "2020-01-02" }), resolve: vi.fn(), setItemDue },
+      "[reply to Alice](todo:td-1)",
+    );
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    const due = await screen.findByTestId("todo-preview-due");
+    expect(due.textContent).toMatch(/^Overdue /);
+    expect(due.className).toContain("text-cc-error");
+
+    // The due date is its own control: tapping it opens the same date and time inputs as the To-dos page.
+    fingerTap(due);
+    expect(screen.getByLabelText<HTMLInputElement>("Due date").value).toBe("2020-01-02");
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2099-05-01" } });
+    fingerTap(screen.getByRole("button", { name: "Change due date" }));
+    await waitFor(() => expect(screen.getByTestId("todo-preview-due").textContent).toMatch(/^Due /));
+    expect(setItemDue).toHaveBeenLastCalledWith("td-1", "2099-05-01");
+    expect(screen.getByTestId("todo-preview-due").className).not.toContain("text-cc-error");
+    expect(screen.queryByLabelText("Due date")).toBeNull();
+
+    fingerTap(screen.getByTestId("todo-preview-due"));
+    fingerTap(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.getByTestId("todo-preview-due").textContent).toBe("Add due date"));
+    expect(setItemDue).toHaveBeenLastCalledWith("td-1", null);
   });
 
   it("reports a missing proposal and closes on Escape or the backdrop", async () => {
