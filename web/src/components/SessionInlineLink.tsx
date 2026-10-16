@@ -101,7 +101,7 @@ export function SessionInlineLink({
     ? messageIndex != null
       ? `${sessionHash(routeSessionRef ?? resolvedSessionId)}?msg=${messageIndex}`
       : sessionThreadHash(routeSessionRef ?? resolvedSessionId, threadKey)
-    : "#";
+    : undefined; // No placeholder "#": copied elsewhere it would become a link to the app's root.
   const sessionLabel = resolvedSessionNum != null ? `#${resolvedSessionNum}` : "session";
   const defaultTitle = resolvedSessionId
     ? messageIndex != null

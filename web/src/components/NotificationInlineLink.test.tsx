@@ -105,7 +105,9 @@ describe("needs-input notification links", () => {
     seedSession();
     render(<MarkdownContent text="[lost question](session:99:notification:1)" />);
 
-    const link = screen.getByRole("link", { name: "lost question" });
+    // No placeholder href: copied into another app, `href="#"` became a link to the Takode server's root.
+    const link = screen.getByText("lost question").closest("a")!;
+    expect(link.hasAttribute("href")).toBe(false);
     expect(link.getAttribute("title")).toBe("Session #99 not found");
     expect(link.className).toContain("text-cc-muted");
   });

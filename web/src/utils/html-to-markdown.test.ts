@@ -8,7 +8,7 @@
 // Requires jsdom for DOM APIs (DOMParser, Range, document.createRange).
 
 import { describe, it, expect } from "vitest";
-import { htmlFragmentToMarkdown } from "./html-to-markdown.js";
+import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "./html-to-markdown.js";
 
 /**
  * Helper: creates a Range from an HTML string by parsing it into a document,
@@ -55,6 +55,13 @@ describe("htmlFragmentToMarkdown", () => {
   it("converts links", () => {
     const range = rangeFromHtml('<a href="https://example.com">click here</a>');
     expect(htmlFragmentToMarkdown(range)).toBe("[click here](https://example.com)");
+  });
+
+  it("keeps only the text of Takode-internal links, which mean nothing outside this server", () => {
+    // An unresolved `#98723` reference renders as an anchor without a usable target, a known session
+    // as a hash route on this app; neither should survive as a Markdown link.
+    const range = rangeFromHtml('PRs <a href="#">#98723</a> and <a href="#/session/12">#12</a>');
+    expect(htmlFragmentToMarkdown(range)).toBe("PRs #98723 and #12");
   });
 
   it("converts code blocks with language", () => {
@@ -153,5 +160,28 @@ describe("htmlFragmentToMarkdown", () => {
     const range = rangeFromHtml("Line one<br>Line two");
     const md = htmlFragmentToMarkdown(range);
     expect(md).toContain("Line one\nLine two");
+  });
+});
+
+describe("htmlFragmentToRichText", () => {
+  it("re-wraps selected list items in their list so pasted copies keep numbering", () => {
+    // A selection from the middle of item 2 through item 3 has the <ol> as its common ancestor; cloning
+    // it yields bare <li>s, which other apps paste as unnumbered lines.
+    const doc = new DOMParser().parseFromString(
+      '<body><ol start="2"><li>alpha</li><li>beta</li></ol></body>',
+      "text/html",
+    );
+    const items = doc.querySelectorAll("li");
+    const range = document.createRange();
+    range.setStart(items[0].firstChild!, 2);
+    range.setEnd(items[1].firstChild!, 4);
+    expect(htmlFragmentToRichText(range).html).toBe('<ol start="2"><li>pha</li><li>beta</li></ol>');
+  });
+
+  it("does not wrap selections within one paragraph", () => {
+    const doc = new DOMParser().parseFromString("<body><p>Hello <strong>bold</strong> world</p></body>", "text/html");
+    const range = document.createRange();
+    range.selectNodeContents(doc.querySelector("p")!);
+    expect(htmlFragmentToRichText(range).html).toBe("Hello <strong>bold</strong> world");
   });
 });

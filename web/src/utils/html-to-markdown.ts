@@ -6,6 +6,8 @@
  * HTML-to-markdown library.
  */
 
+import { portableLinkHref } from "./portable-links.js";
+
 /** Depth limit to prevent stack overflow on pathologically nested HTML. */
 const MAX_DEPTH = 50;
 
@@ -56,11 +58,30 @@ export function htmlFragmentToRichText(range: Range): { html: string; plainText:
   collapseMathForRichText(fragment);
 
   const container = document.createElement("div");
-  container.appendChild(fragment);
+  container.appendChild(wrapInStructuralAncestors(fragment, normalized.commonAncestorContainer));
   return {
     html: container.innerHTML,
     plainText: htmlFragmentToPlainText(normalized),
   };
+}
+
+/** Elements whose selected children (list items, table rows and cells, code lines) only make sense inside them. */
+const STRUCTURAL_ANCESTOR_TAGS = new Set(["OL", "UL", "TABLE", "THEAD", "TBODY", "TR", "PRE"]);
+
+/**
+ * A selection spanning list items or table cells clones only the items, so a pasted copy would lose its
+ * numbering or table. Re-wrap them in shallow copies of their list, table or code block, as browsers do.
+ */
+function wrapInStructuralAncestors(fragment: DocumentFragment, commonAncestor: Node): Node {
+  let wrapped: Node = fragment;
+  let ancestor = commonAncestor instanceof Element ? commonAncestor : null;
+  while (ancestor && STRUCTURAL_ANCESTOR_TAGS.has(ancestor.tagName)) {
+    const shell = ancestor.cloneNode(false);
+    shell.appendChild(wrapped);
+    wrapped = shell;
+    ancestor = ancestor.parentElement;
+  }
+  return wrapped;
 }
 
 function closestMathSource(node: Node | null): HTMLElement | null {
@@ -182,7 +203,7 @@ function processNode(node: Node, depth: number): string {
       return `\n\n\`\`\`${lang}\n${trimmedCode}\n\`\`\`\n\n`;
     }
     case "a": {
-      const href = node.getAttribute("href") ?? "";
+      const href = portableLinkHref(node.getAttribute("href"));
       const inner = processChildren(node, depth);
       return href ? `[${inner}](${href})` : inner;
     }

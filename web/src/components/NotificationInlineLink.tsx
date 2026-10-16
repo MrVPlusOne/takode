@@ -95,7 +95,7 @@ export function NotificationInlineLink({
   return (
     <>
       <a
-        href={sessionId ? sessionHash(sessionNum) : "#"}
+        href={sessionId ? sessionHash(sessionNum) : undefined}
         onClick={(e) => void handleClick(e)}
         onMouseEnter={hoverCardsSuppressed ? undefined : handleMouseEnter}
         onMouseLeave={hoverCardsSuppressed ? undefined : handleMouseLeave}

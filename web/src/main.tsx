@@ -10,12 +10,14 @@ import { installUiCrashDebugHooks } from "./utils/ui-crash-debug.js";
 import { installPressFeedback } from "./utils/press-feedback.js";
 import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
 import { installUserActivityReporter } from "./utils/user-activity.js";
+import { installPortableSelectionCopy } from "./utils/copy-utils.js";
 import "./index.css";
 
 installUiCrashDebugHooks();
 installLoginRequiredWatcher();
 installPressFeedback();
 installUserActivityReporter();
+installPortableSelectionCopy();
 if (import.meta.env.DEV) {
   installBrowserPerfDebugHooks();
 }

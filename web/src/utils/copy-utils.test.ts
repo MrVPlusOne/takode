@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getMessageMarkdown, getMessagePlainText, copyRichText } from "./copy-utils.js";
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { getMessageMarkdown, getMessagePlainText, copyRichText, installPortableSelectionCopy } from "./copy-utils.js";
 import type { ChatMessage } from "../types.js";
 
 function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
@@ -182,5 +183,60 @@ describe("copyRichText", () => {
     expect(mockWriteText).toHaveBeenCalledWith("Hello");
     // Restore
     (globalThis as any).ClipboardItem = origClipboardItem;
+  });
+});
+
+describe("installPortableSelectionCopy", () => {
+  // The browser's own copy turns every rendered link into an absolute URL, so a `#98723` session
+  // reference reached Slack as a link to http://localhost:3456/#. The listener rewrites only selections
+  // touching such internal links and leaves every other copy to the browser.
+  let uninstall: () => void;
+  beforeEach(() => {
+    uninstall = installPortableSelectionCopy();
+  });
+  afterEach(() => {
+    uninstall();
+    document.getSelection()?.removeAllRanges();
+    document.body.replaceChildren();
+  });
+
+  function copySelectionOf(html: string): {
+    event: Event;
+    data: Map<string, string>;
+  } {
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    document.body.replaceChildren(root);
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
+
+    const data = new Map<string, string>();
+    const event = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        setData: (type: string, value: string) => data.set(type, value),
+      },
+    });
+    root.dispatchEvent(event);
+    return { event, data };
+  }
+
+  it("copies internal links as their text and keeps outside links", () => {
+    const { event, data } = copySelectionOf(
+      '<p>Already on the branch: <a href="#">#98723</a> (commit check), see <a href="https://example.com/pr">the PR</a></p>',
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(data.get("text/html")).toBe(
+      '<p>Already on the branch: #98723 (commit check), see <a href="https://example.com/pr">the PR</a></p>',
+    );
+    expect(data.get("text/plain")).toBe("Already on the branch: #98723 (commit check), see the PR");
+  });
+
+  it("leaves selections without internal links to the browser", () => {
+    const { event, data } = copySelectionOf('<p>see <a href="https://example.com/pr">the PR</a></p>');
+    expect(event.defaultPrevented).toBe(false);
+    expect(data.size).toBe(0);
   });
 });

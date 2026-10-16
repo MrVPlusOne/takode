@@ -1,5 +1,7 @@
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import type { ChatMessage } from "../types.js";
+import { htmlFragmentToRichText } from "./html-to-markdown.js";
+import { rangeTouchesNonPortableLink, toPortableHtml } from "./portable-links.js";
 
 /**
  * Extract the raw markdown text from an assistant message.
@@ -232,7 +234,7 @@ export function writeClipboardText(text: string): Promise<void> {
 export async function copyRichText(html: string, plainText: string): Promise<void> {
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
-      "text/html": new Blob([html], { type: "text/html" }),
+      "text/html": new Blob([toPortableHtml(html)], { type: "text/html" }),
       "text/plain": new Blob([plainText], { type: "text/plain" }),
     });
     await navigator.clipboard.write([item]);
@@ -240,3 +242,26 @@ export async function copyRichText(html: string, plainText: string): Promise<voi
     await writeClipboardText(plainText);
   }
 }
+
+/**
+ * Keep the browser's own copy (Cmd+C, the phone's Copy) from carrying Takode-internal links, such as a
+ * `#123` session reference, into other apps as links back to this server. Only selections that touch such
+ * a link are rewritten, the same way as "Copy as Rich Text"; every other selection copies as usual.
+ */
+export function installPortableSelectionCopy(): () => void {
+  const onCopy = (event: ClipboardEvent) => {
+    const selection = document.getSelection();
+    if (event.defaultPrevented || !event.clipboardData || !selection || selection.isCollapsed) return;
+    if (event.target instanceof Element && event.target.closest(EDITABLE_SELECTOR)) return;
+    const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
+    if (!ranges.some(rangeTouchesNonPortableLink)) return;
+    const copies = ranges.map(htmlFragmentToRichText);
+    event.clipboardData.setData("text/html", toPortableHtml(copies.map((copy) => copy.html).join("")));
+    event.clipboardData.setData("text/plain", copies.map((copy) => copy.plainText).join("\n"));
+    event.preventDefault();
+  };
+  document.addEventListener("copy", onCopy);
+  return () => document.removeEventListener("copy", onCopy);
+}
+
+const EDITABLE_SELECTOR = 'input, textarea, [contenteditable]:not([contenteditable="false"])';

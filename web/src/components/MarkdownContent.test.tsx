@@ -353,12 +353,15 @@ describe("MarkdownContent quest links", () => {
   });
 
   it("does not auto-link plain references inside code or existing Markdown links", () => {
-    render(<MarkdownContent text="Keep `q-77` literal and leave [#123](session:123) explicit." />);
+    const { container } = render(
+      <MarkdownContent text="Keep `q-77` literal and leave [#123](session:123) explicit." />,
+    );
 
     expect(screen.getByText("q-77").tagName).toBe("CODE");
     expect(screen.queryByRole("link", { name: "q-77" })).toBeNull();
-    expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "#123" }).getAttribute("href")).toBe("#");
+    // Only the explicit session link renders as an anchor; session 123 is unknown, so it has no href.
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+    expect(screen.getByText("#123").closest("a")?.hasAttribute("href")).toBe(false);
   });
 
   it("shows QuestHoverCard content when hovering a quest link", async () => {
