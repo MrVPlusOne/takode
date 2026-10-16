@@ -260,7 +260,10 @@ The coordinator's own sessions survive its restarts the same way: the server
 starts a `takode node` on its own machine and runs the processes of sessions
 without a host under it. After a restart, the new server takes them over when
 that node reconnects: a turn in progress keeps running, its output arrives, and
-a pending permission prompt is asked again. When the restart brings new code,
+a pending permission prompt is asked again. A session whose instructions from
+Takode have changed since its process started is not taken over: its process is
+ended, and the session starts afresh with the new instructions on its next
+message. When the restart brings new code,
 the node is then updated right away (see [Updating Takode](#updating-takode)),
 which interrupts such turns and continues them on the new build. **Settings → Hosts** shows the
 node's status on the coordinator's own machine, the first entry. Sessions that start

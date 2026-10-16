@@ -84,12 +84,19 @@ describe("ClaudeSdkAdapter launch env", () => {
 
   it("keeps Claude Code's own system prompt and appends Takode's instructions", async () => {
     // query() starts from an empty system prompt unless given the preset;
-    // without it, Claude would lose its tool and coding instructions.
+    // without it, Claude would lose its tool and coding instructions. The
+    // prompt is not recorded: a recorded one would keep a relaunched session
+    // on the instructions of its first launch.
     const { options } = await launchOptions({ instructions: "Takode session #5" });
-    expect(options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Takode session #5" });
+    expect(options.systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      snapshot: false,
+      append: "Takode session #5",
+    });
 
     const { options: bare } = await launchOptions();
-    expect(bare.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
+    expect(bare.systemPrompt).toEqual({ type: "preset", preset: "claude_code", snapshot: false });
   });
 
   it("loads user, project and local settings and the session's plugins", async () => {

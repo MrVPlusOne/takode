@@ -182,12 +182,13 @@ describe("sessions on this machine's own node", () => {
 
   /** A coordinator that restored one Claude session without a host, saved with `saved`. */
   async function coordinatorWith(
-    saved: { hostProcId?: string; hostClaudeRequests?: string[] },
+    saved: { hostProcId?: string; hostClaudeRequests?: string[]; injectedSystemPrompt?: string },
     useLocalNode: () => boolean,
   ): Promise<CliLauncher> {
     store.saveLauncher([
       {
         sessionId: "s-1",
+        sessionNum: 7,
         ...saved,
         state: "connected",
         backendType: "claude-sdk",
@@ -280,5 +281,75 @@ describe("sessions on this machine's own node", () => {
     proc.stdin.write("still running\n");
     expect(await line).toBe("STILL RUNNING\n");
     proc.kill("SIGTERM");
+  });
+
+  /** The instructions this server builds for the saved session, from a fresh launch of it. */
+  async function currentInstructions(): Promise<string> {
+    const builder = await coordinatorWith({}, () => false);
+    await builder.relaunch("s-1");
+    sdkAdapterLaunches.length = 0;
+    return builder.getSession("s-1")!.injectedSystemPrompt!;
+  }
+
+  /** A process under the node that a previous server started with `instructions`, and the restored server. */
+  async function restartWithProcessRunning(instructions: string) {
+    const original = manager.spawn(LOCAL_HOST_ID, { command: process.execPath, args: ["-e", ECHO_PROGRAM], env: {} });
+    await waitFor(() => original.started);
+    manager = new HostLinkManager();
+    const launcher = await coordinatorWith(
+      { hostProcId: original.procId, injectedSystemPrompt: instructions },
+      () => false,
+    );
+    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    return launcher;
+  }
+
+  // Unchanged instructions: the session keeps its running process.
+  it("takes over a process that runs the current instructions", async () => {
+    const current = await currentInstructions();
+    expect(current).toContain("You are Takode session #7.");
+    const launcher = await restartWithProcessRunning(current);
+
+    link!.drop();
+    await waitFor(() => sdkAdapterLaunches.length === 1);
+    expect(sdkAdapterLaunches[0]!.options.reattach).toBe(true);
+    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
+  });
+
+  // A process keeps the instructions it started with (Claude no longer records
+  // them, but a running process cannot change them). When the server now
+  // builds other ones, the process is ended once the node connects instead of
+  // taken over, and the session is stopped like an idle one, so its next start
+  // gets the new instructions; Session Info never shows instructions the
+  // process does not run.
+  it("ends a process with outdated instructions and starts afresh on the next launch", async () => {
+    const current = await currentInstructions();
+    const launcher = await restartWithProcessRunning("instructions from before the restart");
+
+    link!.drop();
+    await waitFor(() => manager.status(LOCAL_HOST_ID).online);
+    await waitFor(() => launcher.getSession("s-1")?.state === "exited");
+    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(sdkAdapterLaunches).toHaveLength(0);
+    await waitFor(() => manager.status(LOCAL_HOST_ID).processes === 0);
+    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe("instructions from before the restart");
+
+    await launcher.relaunch("s-1");
+    expect(sdkAdapterLaunches).toHaveLength(1);
+    expect(sdkAdapterLaunches[0]!.options.reattach).toBeFalsy();
+    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
+  });
+
+  // A message can wake the session before its node is back; that launch
+  // starts a new process too rather than taking over the outdated one.
+  it("starts afresh when a launch is requested before the node is back", async () => {
+    const current = await currentInstructions();
+    const launcher = await restartWithProcessRunning("instructions from before the restart");
+
+    await launcher.relaunch("s-1");
+    expect(sdkAdapterLaunches).toHaveLength(1);
+    expect(sdkAdapterLaunches[0]!.options.reattach).toBeFalsy();
+    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
   });
 });

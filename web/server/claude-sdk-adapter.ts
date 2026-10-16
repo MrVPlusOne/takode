@@ -361,6 +361,10 @@ export class ClaudeSdkAdapter
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
+        // Claude Code otherwise records the conversation's first system prompt
+        // and ignores the instructions of every later launch until compaction,
+        // so a relaunched session would never get Takode's new instructions.
+        snapshot: false,
         ...(this.options.instructions ? { append: this.options.instructions } : {}),
       },
       ...(plugins.length > 0 ? { plugins } : {}),

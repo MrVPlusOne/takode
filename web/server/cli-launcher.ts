@@ -177,11 +177,74 @@ export class CliLauncher {
     this.remoteHosts = remoteHosts;
     remoteHosts.links.onStatusChange((status) => {
       if (!status.online) return;
-      for (const [sessionId] of this.hostReattach) {
+      for (const [sessionId, proc] of this.hostReattach) {
         const info = this.sessions.get(sessionId);
-        if (info && processHostOf(info) === status.hostId) void this.relaunch(sessionId);
+        if (!info || processHostOf(info) !== status.hostId) continue;
+        if (this.runsCurrentInstructions(info)) {
+          void this.relaunch(sessionId);
+          continue;
+        }
+        // Stopped like an idle session, so it starts afresh on its next message.
+        this.hostReattach.delete(sessionId);
+        this.endOutdatedHostProcess(sessionId, proc);
+        info.state = "exited";
+        info.exitCode = -1;
+        this.persistState();
       }
     });
+  }
+
+  /**
+   * Whether the session's still-running process was started with the
+   * instructions this server builds for it. A running process keeps the
+   * instructions it started with, so one with other instructions is ended
+   * rather than taken over, and the session gets the new ones when it next
+   * starts. A session saved without a record is taken over.
+   */
+  private runsCurrentInstructions(info: SdkSessionInfo): boolean {
+    if (info.injectedSystemPrompt === undefined) return true;
+    const backend = info.backendType ?? "claude-sdk";
+    return (
+      info.injectedSystemPrompt === this.buildInstructions(info, backend, this.relaunchExtraInstructions(info, backend))
+    );
+  }
+
+  private endOutdatedHostProcess(sessionId: string, proc: RemoteProcess): void {
+    console.log(
+      `[cli-launcher] Session ${sessionTag(sessionId)} runs outdated instructions; ending its process instead of taking it over`,
+    );
+    proc.kill("SIGTERM");
+  }
+
+  /** Takode's injected instructions for a launch of the session. */
+  private buildInstructions(info: SdkSessionInfo, backend: BackendType, extraInstructions: string | undefined): string {
+    return buildCompanionInstructions({
+      sessionNum: info.sessionNum,
+      ...(info.isWorktree && info.branch
+        ? {
+            worktree: {
+              branch: info.actualBranch || info.branch,
+              repoRoot: info.repoRoot || "",
+              parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
+              portTarget: info.worktreePortTarget,
+              ...(info.hostId ? { hostId: info.hostId } : {}),
+            },
+          }
+        : {}),
+      machine: machineContextForHost(info.hostId) ?? undefined,
+      extraInstructions,
+      backend,
+    });
+  }
+
+  /**
+   * Extra instructions of a relaunch. They are not persisted; leaders get the
+   * full orchestration prompt again from the isOrchestrator flag.
+   */
+  private relaunchExtraInstructions(info: SdkSessionInfo, backend: BackendType): string | undefined {
+    return info.isOrchestrator
+      ? this.getOrchestratorGuardrails(backend)
+      : (info.codexWorkerV2Cutover?.oneShotExtraInstructions ?? undefined);
   }
 
   /** Whether the session waits for its host to connect so it can take over its still-running process. */
@@ -834,8 +897,12 @@ export class CliLauncher {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
     // Taken now, before any await, so a second relaunch cannot take it as well.
-    const reattachHostProcess = this.hostReattach.get(sessionId);
+    let reattachHostProcess = this.hostReattach.get(sessionId);
     this.hostReattach.delete(sessionId);
+    if (reattachHostProcess && !this.runsCurrentInstructions(info)) {
+      this.endOutdatedHostProcess(sessionId, reattachHostProcess);
+      reattachHostProcess = undefined;
+    }
     const binSettings = this.settingsGetter?.() ?? {};
     const bt = info.backendType ?? "claude-sdk";
     if (bt === "codex") {
@@ -1003,12 +1070,7 @@ export class CliLauncher {
     try {
       const bt = info.backendType ?? "claude-sdk";
 
-      // Re-derive orchestrator guardrails for relaunched sessions.
-      // extraInstructions is not persisted; regenerate from the isOrchestrator flag
-      // so relaunched leaders retain the full orchestration system prompt.
-      const extraInstructions = info.isOrchestrator
-        ? this.getOrchestratorGuardrails(bt)
-        : (info.codexWorkerV2Cutover?.oneShotExtraInstructions ?? undefined);
+      const extraInstructions = this.relaunchExtraInstructions(info, bt);
 
       switch (bt) {
         case "codex":
@@ -1105,23 +1167,7 @@ export class CliLauncher {
     const { ClaudeSdkAdapter } = await import("./claude-sdk-adapter.js");
     // The user's instructions and skills, delivered to this machine before the process reads them.
     await userContentService.syncMachine(info.hostId, `launch of session ${sessionTag(sessionId)}`);
-    const sdkInstructions = buildCompanionInstructions({
-      sessionNum: info.sessionNum,
-      ...(info.isWorktree && info.branch
-        ? {
-            worktree: {
-              branch: info.actualBranch || info.branch,
-              repoRoot: info.repoRoot || "",
-              parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
-              portTarget: info.worktreePortTarget,
-              ...(info.hostId ? { hostId: info.hostId } : {}),
-            },
-          }
-        : {}),
-      machine: machineContextForHost(info.hostId) ?? undefined,
-      extraInstructions: options.extraInstructions,
-      backend: "claude-sdk",
-    });
+    const sdkInstructions = this.buildInstructions(info, "claude-sdk", options.extraInstructions);
     if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
     info.sdkDebugLogPath ||= getClaudeSdkDebugLogPath(this.port, sessionId);
     serverWorkAdmission.assertOpen();
@@ -1328,23 +1374,7 @@ export class CliLauncher {
 
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
-    const codexInstructions = buildCompanionInstructions({
-      sessionNum: info.sessionNum,
-      ...(info.isWorktree && info.branch
-        ? {
-            worktree: {
-              branch: info.actualBranch || info.branch,
-              repoRoot: info.repoRoot || "",
-              parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
-              portTarget: info.worktreePortTarget,
-              ...(info.hostId ? { hostId: info.hostId } : {}),
-            },
-          }
-        : {}),
-      machine: machineContextForHost(info.hostId) ?? undefined,
-      extraInstructions: options.extraInstructions,
-      backend: "codex",
-    });
+    const codexInstructions = this.buildInstructions(info, "codex", options.extraInstructions);
     if (codexInstructions) info.injectedSystemPrompt = codexInstructions;
     const adapter = new CodexAdapter(proc, sessionId, {
       model: options.model,
