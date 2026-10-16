@@ -110,7 +110,7 @@ export function PlaygroundThreadContinuationSection() {
               )}
               toggleTurn={() => setExpanded((value) => !value)}
               questLinkSurface="chat-feed"
-              activeNeedsInputAnchorMessageIds={EMPTY_IDS}
+              needsInputAnchorMessageIds={EMPTY_IDS}
               visibleThreadStatuses={[]}
             />
           </div>

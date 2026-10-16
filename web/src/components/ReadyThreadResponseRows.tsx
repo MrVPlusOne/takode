@@ -6,7 +6,7 @@ import { HidePawContext } from "./PawTrail.js";
 import { collapsedResponseEntry, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { AnsweredMessage, type AnswerChrome } from "./ThreadResponsePresentationChrome.js";
 import { CollapsedReportPreview } from "./CollapsedReportPreview.js";
-import { isBoardProposalMessage, isNeedsInputNotifyMessage } from "../utils/takode-tool-command.js";
+import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
 
 function presentationEntries(turn: Turn): readonly FeedEntry[] {
   return turn.presentationEntries ?? turn.allEntries;
@@ -14,20 +14,17 @@ function presentationEntries(turn: Turn): readonly FeedEntry[] {
 
 function sourceDecisionEntries(
   turn: Turn,
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string>,
+  needsInputAnchorMessageIds: ReadonlySet<string>,
   excludedMessageIds: ReadonlySet<string>,
 ): Array<{ entry: Extract<FeedEntry, { kind: "message" }>; order: number }> {
   const seenMessageIds = new Set<string>();
   return presentationEntries(turn).flatMap((entry, order) => {
     if (entry.kind !== "message") return [];
     const messageId = entry.msg.id;
-    // Structured decisions stay at their original source even after resolution.
-    // Ordinary resolved prose prompts still lose their active pin as before.
-    const hasSourceDecision =
-      isBoardProposalMessage(entry.msg) ||
-      (entry.msg.notification?.category === "needs-input" && isNeedsInputNotifyMessage(entry.msg));
+    // Decisions stay at their source after they are answered too: the user's
+    // next message usually answers them and reads poorly without them.
     if (
-      (!activeNeedsInputAnchorMessageIds.has(messageId) && !hasSourceDecision) ||
+      (!needsInputAnchorMessageIds.has(messageId) && !isBoardProposalMessage(entry.msg)) ||
       excludedMessageIds.has(messageId) ||
       seenMessageIds.has(messageId)
     ) {
@@ -51,21 +48,21 @@ function sourceReportEntries(turn: Turn): Array<Extract<FeedEntry, { kind: "mess
 export function readyThreadResponseTurnHasMessage(
   turn: Turn,
   presentation: ThreadResponsePresentation,
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
+  needsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
 ): boolean {
   return (
     presentation.currentResponses.some((item) => item.sourceTurnId === turn.id) ||
     sourceReportEntries(turn).length > 0 ||
-    sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
+    sourceDecisionEntries(turn, needsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
   );
 }
 
 export function readyThreadResponseTurnHasContent(
   turn: Turn,
   presentation: ThreadResponsePresentation,
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
+  needsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
 ): boolean {
-  if (readyThreadResponseTurnHasMessage(turn, presentation, activeNeedsInputAnchorMessageIds)) return true;
+  if (readyThreadResponseTurnHasMessage(turn, presentation, needsInputAnchorMessageIds)) return true;
   if (presentation.quizGroups.some((group) => group.hostTurnId === turn.id && group.questIds.length > 0)) return true;
   return false;
 }
@@ -88,12 +85,12 @@ export interface CollapsedTurnRow {
 export function readyThreadResponseRows(
   turn: Turn,
   presentation: ThreadResponsePresentation,
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string>,
+  needsInputAnchorMessageIds: ReadonlySet<string>,
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null,
 ): { rows: CollapsedTurnRow[]; quizQuestIds: readonly string[] } {
   const responses = presentation.currentResponses.filter((item) => item.sourceTurnId === turn.id);
   const responseMessageIds = new Set(responses.map((item) => item.response.currentMessageId));
-  const promptEntries = sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, responseMessageIds);
+  const promptEntries = sourceDecisionEntries(turn, needsInputAnchorMessageIds, responseMessageIds);
   const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
   const ordered = [
     ...responses.map((item, responseOrder) => ({
@@ -216,7 +213,7 @@ export function ReadyThreadResponseRows({
   currentThreadKey,
   onSelectThread,
   questLinkSurface,
-  activeNeedsInputAnchorMessageIds = new Set(),
+  needsInputAnchorMessageIds = new Set(),
   unansweredMessageEntry = null,
 }: {
   turn: Turn;
@@ -226,14 +223,14 @@ export function ReadyThreadResponseRows({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
-  activeNeedsInputAnchorMessageIds?: ReadonlySet<string>;
+  needsInputAnchorMessageIds?: ReadonlySet<string>;
   /** Shown only when the turn has no answer or decision row of its own. */
   unansweredMessageEntry?: Extract<FeedEntry, { kind: "message" }> | null;
 }) {
   const { rows, quizQuestIds } = readyThreadResponseRows(
     turn,
     presentation,
-    activeNeedsInputAnchorMessageIds,
+    needsInputAnchorMessageIds,
     unansweredMessageEntry,
   );
   return (

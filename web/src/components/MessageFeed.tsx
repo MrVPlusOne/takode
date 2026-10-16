@@ -226,8 +226,7 @@ export function MessageFeed({
     threadResponseState,
     additionalAttentionRecords,
   });
-  const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, activeNeedsInputAnchorMessageIds } =
-    feedMessageModel;
+  const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, needsInputAnchorMessageIds } = feedMessageModel;
   useMarkSharedResultsRead(sessionId, threadKey, feedMessageModel, markSharedResultsRead);
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
@@ -622,8 +621,8 @@ export function MessageFeed({
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
   );
-  const activeNeedsInputAnchorSignature = [...activeNeedsInputAnchorMessageIds].sort().join(",");
-  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${threadResponsePresentation?.layoutSignature ?? "no-responses"}::${activeNeedsInputAnchorSignature}`;
+  const needsInputAnchorSignature = [...needsInputAnchorMessageIds].sort().join(",");
+  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${threadResponsePresentation?.layoutSignature ?? "no-responses"}::${needsInputAnchorSignature}`;
 
   const markSectionLoadPending = useCallback((direction: "older" | "newer", key: string) => {
     if (pendingSectionLoadKeyRef.current === key) return false;
@@ -1881,7 +1880,7 @@ export function MessageFeed({
                     userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                     questLinkSurface="chat-feed"
                     threadResponsePresentation={threadResponsePresentation}
-                    activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                    needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                     visibleThreadStatuses={visibleThreadStatuses}
                     workerPreviewTarget={workerPreviewTarget}
                     onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}

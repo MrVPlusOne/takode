@@ -543,7 +543,7 @@ describe("feed render model builders", () => {
     expect(model.attentionLedgerMessages).toHaveLength(0);
   });
 
-  it("derives exact unresolved needs-input anchors from sanitized owner-local notification state", () => {
+  it("derives exact open and answered needs-input anchors from sanitized owner-local notification state", () => {
     const questPrompt = makeMessage({
       id: "q-prompt",
       role: "assistant",
@@ -629,9 +629,12 @@ describe("feed render model builders", () => {
       sessionNotifications: notifications,
     });
 
-    expect([...questModel.activeNeedsInputAnchorMessageIds]).toEqual([
+    // Answered prompts stay anchors (collapsed turns keep them), but only open
+    // ones are backfilled into the bounded window.
+    expect([...questModel.needsInputAnchorMessageIds]).toEqual([
       questPrompt.id,
       mutedQuestPrompt.id,
+      doneQuestPrompt.id,
       "missing-q-anchor",
     ]);
     expect(questModel.visibleBaseMessages.map((message) => message.id)).toEqual([
@@ -648,7 +651,7 @@ describe("feed render model builders", () => {
       sessionNotifications: notifications,
     });
 
-    expect([...mainModel.activeNeedsInputAnchorMessageIds]).toEqual([mainPrompt.id]);
+    expect([...mainModel.needsInputAnchorMessageIds]).toEqual([mainPrompt.id]);
     expect(mainModel.visibleBaseMessages.map((message) => message.id)).toEqual([mainPrompt.id]);
   });
 

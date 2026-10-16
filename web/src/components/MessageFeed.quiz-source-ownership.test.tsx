@@ -239,9 +239,9 @@ describe("MessageFeed Quiz source ownership", () => {
     fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     assertOneSource();
 
+    // Answering keeps the prompt and its card in the collapsed turn, still with one Quiz.
     act(() => handleMessage(SESSION_ID, notificationUpdate(true)));
-    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).queryByText(NOTIFICATION_SUMMARY)).not.toBeInTheDocument();
+    assertOneSource();
     expect(JSON.stringify(history)).toBe(rawBefore);
   });
 
@@ -342,7 +342,7 @@ describe("MessageFeed Quiz source ownership", () => {
         }}
         sessionId={SESSION_ID}
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={new Set([SOURCE_ID])}
+        needsInputAnchorMessageIds={new Set([SOURCE_ID])}
         renderEntry={renderEntry}
       />,
     );

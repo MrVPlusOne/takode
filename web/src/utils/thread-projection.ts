@@ -190,7 +190,11 @@ export function recoverRoutedNotificationSourceMessages(
   return changed ? recovered : messages;
 }
 
-export function collectActiveNeedsInputAnchorMessageIds(
+/**
+ * Messages that carry this thread's needs-input prompts, open or answered. Collapsed
+ * turns keep them visible: the user's next message usually answers that prompt.
+ */
+export function collectNeedsInputAnchorMessageIds(
   notifications: ReadonlyArray<SessionNotification> | undefined,
   threadKey: string,
 ): Set<string> {
@@ -199,7 +203,7 @@ export function collectActiveNeedsInputAnchorMessageIds(
   if (isAllThreadsKey(normalizedThreadKey) || !notifications?.length) return ids;
 
   for (const notification of notifications) {
-    if (notification.done || notification.category !== "needs-input" || !notification.messageId) continue;
+    if (notification.category !== "needs-input" || !notification.messageId) continue;
     const route = routeFromNotification(notification);
     const belongsToSelectedThread = isMainThreadKey(normalizedThreadKey)
       ? route === null

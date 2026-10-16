@@ -234,7 +234,7 @@ describe("ReadyThreadResponseRows", () => {
         presentation={current}
         sessionId="leader"
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={new Set(["prompt-first", "prompt-second"])}
+        needsInputAnchorMessageIds={new Set(["prompt-first", "prompt-second"])}
         renderEntry={(item) =>
           item.kind === "message" ? <div data-message-id={item.msg.id}>{item.msg.content}</div> : <div>activity</div>
         }
@@ -262,7 +262,7 @@ describe("ReadyThreadResponseRows", () => {
         presentation={current}
         sessionId="leader"
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={new Set(["response-current"])}
+        needsInputAnchorMessageIds={new Set(["response-current"])}
         renderEntry={(item) =>
           item.kind === "message" ? <div data-message-id={item.msg.id}>{item.msg.content}</div> : <div>activity</div>
         }
@@ -274,7 +274,7 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.getAllByTestId("thread-response-answer-count")).toHaveLength(1);
   });
 
-  it("releases special prompt pinning when the authoritative active-anchor set clears", () => {
+  it("releases the pin when the message no longer anchors one of the thread's needs-input prompts", () => {
     const current = presentation(["u2"]);
     const prompt = entry("prompt", "Decision no longer unresolved", 5);
     const targetTurn = turn([current.currentResponses[0]!.messageEntry, prompt]);
@@ -285,7 +285,7 @@ describe("ReadyThreadResponseRows", () => {
         presentation={current}
         sessionId="leader"
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={new Set(["prompt"])}
+        needsInputAnchorMessageIds={new Set(["prompt"])}
         renderEntry={renderEntry}
       />,
     );
@@ -297,7 +297,7 @@ describe("ReadyThreadResponseRows", () => {
         presentation={current}
         sessionId="leader"
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={new Set()}
+        needsInputAnchorMessageIds={new Set()}
         renderEntry={renderEntry}
       />,
     );

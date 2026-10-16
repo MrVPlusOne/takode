@@ -212,7 +212,7 @@ describe("Source-owned proposal and notification presentation", () => {
               presentation={presentation}
               sessionId={SESSION_ID}
               questLinkSurface="chat-feed"
-              activeNeedsInputAnchorMessageIds={model.activeNeedsInputAnchorMessageIds}
+              needsInputAnchorMessageIds={model.needsInputAnchorMessageIds}
               renderEntry={(entry) =>
                 entry.kind === "message" && (
                   <div data-source={entry.msg.id}>

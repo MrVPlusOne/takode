@@ -32,7 +32,7 @@ import {
   type AttentionBoardRowSource,
 } from "./attention-records.js";
 import {
-  collectActiveNeedsInputAnchorMessageIds,
+  collectNeedsInputAnchorMessageIds,
   collectMessageToolUseIds,
   collectRetainedNotificationSourceMessageIds,
   filterMessagesForThread,
@@ -86,7 +86,7 @@ export interface FeedMessageModel {
   attentionLedgerMessages: ChatMessage[];
   messages: ChatMessage[];
   visibleToolUseIds?: Set<string>;
-  activeNeedsInputAnchorMessageIds: Set<string>;
+  needsInputAnchorMessageIds: Set<string>;
   displayNotifications: ReadonlyArray<SessionNotification> | undefined;
 }
 
@@ -116,10 +116,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     sanitizedNotifications,
     displayNotifications,
   );
-  const activeNeedsInputAnchorMessageIds = collectActiveNeedsInputAnchorMessageIds(
-    displayNotifications,
-    input.threadKey,
-  );
+  const needsInputAnchorMessageIds = collectNeedsInputAnchorMessageIds(displayNotifications, input.threadKey);
   const messagesAvailableForProjection = recoverRoutedNotificationSourceMessages(
     messagesAvailableForDerivation,
     displayNotifications,
@@ -198,7 +195,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     attentionLedgerMessages,
     messages,
     visibleToolUseIds,
-    activeNeedsInputAnchorMessageIds,
+    needsInputAnchorMessageIds,
     displayNotifications,
   };
 }

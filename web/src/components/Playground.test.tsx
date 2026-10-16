@@ -288,7 +288,12 @@ describe("Playground", { timeout: 30_000 }, () => {
     // A report published before the answer stays visible in the collapsed turn.
     const reportAnswer = within(routedFinalStates.getByTestId("playground-report-answer"));
     expect(reportAnswer.getByTestId("thread-response-report")).toHaveTextContent("Daily briefing: Tuesday");
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(13);
+    // An answered decision stays visible, with its context, after the turn's answer.
+    const answeredDecision = within(routedFinalStates.getByTestId("playground-collapsed-answered-decision"));
+    expect(answeredDecision.getByTestId("thread-response-needs-input-prompt")).toHaveTextContent(
+      "Writing it to shared storage needs your go-ahead.",
+    );
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(14);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

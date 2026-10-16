@@ -147,7 +147,7 @@ function QuestThread({
           })
         }
         questLinkSurface="chat-feed"
-        activeNeedsInputAnchorMessageIds={EMPTY_IDS}
+        needsInputAnchorMessageIds={EMPTY_IDS}
         visibleThreadStatuses={[]}
       />
     </div>

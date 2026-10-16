@@ -130,7 +130,7 @@ function CollapsedTurnContent({
   onSelectThread,
   questLinkSurface,
   threadResponsePresentation,
-  activeNeedsInputAnchorMessageIds,
+  needsInputAnchorMessageIds,
   preserveHostQuestQuiz,
   unansweredMessageEntry,
 }: {
@@ -144,7 +144,7 @@ function CollapsedTurnContent({
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
+  needsInputAnchorMessageIds: ReadonlySet<string>;
   preserveHostQuestQuiz: boolean;
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
 }) {
@@ -175,12 +175,7 @@ function CollapsedTurnContent({
   // Both presentations render through the same row list, so a message keeps its
   // row (and its loaded images) when the answer presentation comes and goes.
   const { rows, quizQuestIds } = threadResponsePresentation
-    ? readyThreadResponseRows(
-        turn,
-        threadResponsePresentation,
-        activeNeedsInputAnchorMessageIds,
-        unansweredMessageEntry,
-      )
+    ? readyThreadResponseRows(turn, threadResponsePresentation, needsInputAnchorMessageIds, unansweredMessageEntry)
     : fallbackCollapsedRows(turn, preserveHostQuestQuiz, unansweredMessageEntry);
   return (
     <CollapsedTurnRows
@@ -314,7 +309,7 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId,
   questLinkSurface,
   threadResponsePresentation,
-  activeNeedsInputAnchorMessageIds,
+  needsInputAnchorMessageIds,
   visibleThreadStatuses,
   workerPreviewTarget = null,
   onThreadStatusLayoutContributionChange,
@@ -336,7 +331,7 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
-  activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
+  needsInputAnchorMessageIds: ReadonlySet<string>;
   visibleThreadStatuses: LeaderThreadStatus[];
   /** Worker the thread waits on; its live preview renders under the status footer. */
   workerPreviewTarget?: WaitingWorkerTarget | null;
@@ -428,11 +423,7 @@ export const TurnEntries = memo(function TurnEntries({
             ? turnResponsePresentation
             : null;
         const collapsedShowsMessage = collapsedThreadResponsePresentation
-          ? readyThreadResponseTurnHasMessage(
-              turn,
-              collapsedThreadResponsePresentation,
-              activeNeedsInputAnchorMessageIds,
-            )
+          ? readyThreadResponseTurnHasMessage(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
           : turn.subConclusions.length > 0 ||
             (turn.collapsedEntries?.some(
               (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
@@ -447,11 +438,7 @@ export const TurnEntries = memo(function TurnEntries({
         const hasCollapsedContent =
           unansweredMessageEntry !== null ||
           (collapsedThreadResponsePresentation
-            ? readyThreadResponseTurnHasContent(
-                turn,
-                collapsedThreadResponsePresentation,
-                activeNeedsInputAnchorMessageIds,
-              )
+            ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
             : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) || turn.subConclusions.length > 0);
         const hasCollapsedCurrentAnswer =
           collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ?? false;
@@ -580,7 +567,7 @@ export const TurnEntries = memo(function TurnEntries({
                             onSelectThread={onSelectThread}
                             questLinkSurface={questLinkSurface}
                             threadResponsePresentation={collapsedThreadResponsePresentation}
-                            activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                            needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                             preserveHostQuestQuiz={preserveHostQuestQuiz}
                             unansweredMessageEntry={unansweredMessageEntry}
                           />

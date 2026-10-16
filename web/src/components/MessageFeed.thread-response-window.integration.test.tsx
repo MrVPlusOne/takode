@@ -3,13 +3,25 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserIncomingMessage, QuestmasterTask, SessionState } from "../types.js";
+import type { BrowserIncomingMessage } from "../types.js";
 import { useStore } from "../store.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
 import {
   createLeaderThreadTabsProjectionEnvelope,
   createLeaderThreadTabsProjectionValue,
 } from "../test-fixtures/leader-thread-tabs-projection.js";
+import {
+  SESSION_ID,
+  QUEST_ID,
+  ASSOCIATED_MAIN_USER_ID,
+  leaderSession,
+  routedFields,
+  userMessage,
+  assistantMessage,
+  toolMessage,
+  responseMessage,
+  quest,
+} from "../test-fixtures/leader-thread-response-messages.js";
 import { MessageFeed } from "./MessageFeed.js";
 
 const apiMocks = vi.hoisted(() => ({
@@ -25,11 +37,7 @@ vi.mock("../utils/notification-sound.js", () => ({
   playReviewSound: vi.fn(),
 }));
 
-const SESSION_ID = "leader-response-window";
-const QUEST_ID = "q-2024";
 const UNRELATED_QUEST_ID = "q-9090";
-const THREAD_REF = { threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit" as const };
-const ASSOCIATED_MAIN_USER_ID = "user-main-attached";
 const ASSOCIATED_MAIN_ANSWER_ID = "answer-main-u25";
 const ASSOCIATED_MAIN_USER_TEXT = "Main request associated with q-2024";
 const ASSOCIATED_MAIN_ANSWER_TEXT = "The Main answer remains the representative in its associated quest.";
@@ -44,184 +52,6 @@ beforeAll(() => {
   });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
 });
-
-function leaderSession(): SessionState {
-  return {
-    session_id: SESSION_ID,
-    isOrchestrator: true,
-    backend_type: "claude-sdk",
-    model: "claude-opus-4-20250514",
-    cwd: "/tmp/takode",
-    tools: [],
-    permissionMode: "default",
-    claude_code_version: "2.1.0",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    total_cost_usd: 0,
-    num_turns: 0,
-    context_used_percent: 0,
-    is_compacting: false,
-    git_branch: "main",
-    is_worktree: false,
-    is_containerized: false,
-    repo_root: "/tmp/takode",
-    git_ahead: 0,
-    git_behind: 0,
-    total_lines_added: 0,
-    total_lines_removed: 0,
-  };
-}
-
-function routedFields() {
-  return { threadKey: QUEST_ID, questId: QUEST_ID, threadRefs: [THREAD_REF] };
-}
-
-function answerIdForRawUserMessage(id: string): string {
-  const ids: Record<string, string> = {
-    "user-first": "u1",
-    "user-second": "u2",
-    "user-third": "u3",
-    "user-live": "u4",
-    "user-quiz-owner": "u1",
-    "user-later": "u2",
-    "user-only": "u1",
-    "user-older-pending": "u1",
-    "user-later-answered": "u2",
-    [ASSOCIATED_MAIN_USER_ID]: "u25",
-  };
-  const answerId = ids[id];
-  if (!answerId) throw new Error(`Missing answer ID fixture for ${id}`);
-  return answerId;
-}
-
-function userMessage(id: string, text: string, timestamp: number, responseCoverage = true): BrowserIncomingMessage {
-  return {
-    type: "user_message",
-    id,
-    content: text,
-    timestamp,
-    ...(responseCoverage
-      ? { leaderResponseCoverageVersion: 1 as const, leaderUserMessageId: answerIdForRawUserMessage(id) }
-      : {}),
-    ...routedFields(),
-  };
-}
-
-function assistantMessage(
-  id: string,
-  text: string,
-  timestamp: number,
-  codexMessagePhase?: "commentary" | "final_answer",
-  leaderThreadRole?: "commentary" | "answer" | "response",
-): Extract<BrowserIncomingMessage, { type: "assistant" }> {
-  return {
-    type: "assistant",
-    timestamp,
-    parent_tool_use_id: null,
-    ...(codexMessagePhase ? { codexMessagePhase } : {}),
-    ...(leaderThreadRole ? { leaderThreadRole } : {}),
-    ...routedFields(),
-    message: {
-      id,
-      type: "message",
-      role: "assistant",
-      model: "claude-opus-4-20250514",
-      content: [{ type: "text", text }],
-      stop_reason: "end_turn",
-      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-    },
-  };
-}
-
-function toolMessage(
-  id: string,
-  toolUseId: string,
-  timestamp: number,
-): Extract<BrowserIncomingMessage, { type: "assistant" }> {
-  return {
-    type: "assistant",
-    timestamp,
-    parent_tool_use_id: null,
-    leaderThreadRole: "commentary",
-    ...routedFields(),
-    message: {
-      id,
-      type: "message",
-      role: "assistant",
-      model: "claude-opus-4-20250514",
-      content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: "quest show q-2024" } }],
-      stop_reason: "tool_use",
-      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-    },
-  };
-}
-
-function responseMessage(input: {
-  id: string;
-  coveredUserMessageIds: string[];
-  content: string;
-  timestamp: number;
-  observedHistoryLength?: number;
-}): Extract<BrowserIncomingMessage, { type: "assistant" }> {
-  return {
-    type: "assistant",
-    timestamp: input.timestamp,
-    parent_tool_use_id: null,
-    leaderThreadRole: "answer",
-    ...routedFields(),
-    threadAnswer: {
-      version: 2,
-      answerUserMessageIds: input.coveredUserMessageIds.map(answerIdForRawUserMessage),
-      observedHistoryLength:
-        input.observedHistoryLength ??
-        Math.max(
-          ...input.coveredUserMessageIds.map(
-            (id) =>
-              ({
-                "user-first": 41,
-                "user-second": 42,
-                "user-third": 45,
-                "user-quiz-owner": 41,
-                "user-later": 44,
-                "user-only": 41,
-              })[id] ?? 0,
-          ),
-        ),
-    },
-    message: {
-      id: input.id,
-      type: "message",
-      role: "assistant",
-      model: "claude-opus-4-20250514",
-      content: [{ type: "text", text: input.content }],
-      stop_reason: "end_turn",
-      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-    },
-  };
-}
-
-function quest(): QuestmasterTask {
-  return {
-    id: `${QUEST_ID}-v4`,
-    questId: QUEST_ID,
-    version: 4,
-    title: "Leader thread responses",
-    description: "Keep polished responses visible when Ready.",
-    status: "done",
-    createdAt: 1_700_000_000_000,
-    completedAt: 1_700_000_006_000,
-    verificationItems: [],
-    quizItems: [
-      {
-        id: "response-history",
-        question: "What remains available after a response is revised?",
-        answer: "The complete chronological thread history.",
-      },
-    ],
-  };
-}
 
 function responseState(
   ready = true,
@@ -726,153 +556,6 @@ function producerLaterAnswerWhileOlderPending(): Extract<BrowserIncomingMessage,
       ],
       ready: false,
     },
-  };
-}
-
-const UNRESOLVED_PROMPT_ONE_ID = "needs-input-prompt-one";
-const UNRESOLVED_PROMPT_TWO_ID = "needs-input-prompt-two";
-const STALE_EMBEDDED_PROMPT_ID = "stale-embedded-needs-input-prompt";
-const STALE_HERD_ANCHOR_ID = "stale-herd-anchor";
-
-function producerAnswerWithUnresolvedNeedsInputPrompts(): Extract<
-  BrowserIncomingMessage,
-  { type: "thread_window_sync" }
-> {
-  const currentAnswer = responseMessage({
-    id: "answer-before-needs-input",
-    observedHistoryLength: 43,
-    coveredUserMessageIds: ["user-later-answered"],
-    content: "The clarification is answered before the next decision.",
-    timestamp: 1_700_000_003_000,
-  });
-  const staleEmbeddedPrompt = assistantMessage(
-    STALE_EMBEDDED_PROMPT_ID,
-    "Stale embedded prompt must not override authoritative notification state.",
-    1_700_000_004_000,
-    undefined,
-    "commentary",
-  );
-  staleEmbeddedPrompt.notification = {
-    id: "n-stale-embedded",
-    category: "needs-input",
-    timestamp: 1_700_000_004_000,
-    summary: "Stale embedded decision",
-  };
-  const firstPrompt = assistantMessage(
-    UNRESOLVED_PROMPT_ONE_ID,
-    "Choose the deployment boundary.\n\nOption A keeps the current release; option B pauses for another review.",
-    1_700_000_005_000,
-    undefined,
-    "commentary",
-  );
-  firstPrompt.notification = {
-    id: "n-outdated-prompt-snapshot",
-    category: "needs-input",
-    timestamp: 1_700_000_004_500,
-    summary: "Outdated embedded prompt snapshot",
-  };
-  const secondPrompt = assistantMessage(
-    UNRESOLVED_PROMPT_TWO_ID,
-    "Confirm whether the follow-up should remain parked while the first choice is unresolved.",
-    1_700_000_007_000,
-    undefined,
-    "commentary",
-  );
-  const quiz = assistantMessage(
-    "needs-input-quiz",
-    `{[(Quest Quiz: ${QUEST_ID})]}`,
-    1_700_000_008_000,
-    undefined,
-    "commentary",
-  );
-  const staleHerdAnchor: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
-    type: "user_message",
-    id: STALE_HERD_ANCHOR_ID,
-    content: "1 event from 1 session\n\n#2594 | turn_end | complete",
-    timestamp: 1_700_000_009_000,
-    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    ...routedFields(),
-  };
-  const entries = [
-    {
-      history_index: 40,
-      message: userMessage("user-older-pending", "Older implementation request", 1_700_000_001_000),
-    },
-    { history_index: 41, message: userMessage("user-later-answered", "Later clarification", 1_700_000_002_000) },
-    { history_index: 42, message: currentAnswer },
-    { history_index: 43, message: staleEmbeddedPrompt },
-    { history_index: 44, message: firstPrompt },
-    { history_index: 45, message: toolMessage("needs-input-tool", "needs-input-tool-use", 1_700_000_006_000) },
-    { history_index: 46, message: secondPrompt },
-    { history_index: 47, message: quiz },
-    { history_index: 48, message: staleHerdAnchor },
-  ];
-  return {
-    type: "thread_window_sync",
-    thread_key: QUEST_ID,
-    entries,
-    window: {
-      thread_key: QUEST_ID,
-      from_item: 0,
-      item_count: entries.length,
-      total_items: entries.length,
-      has_older_items: false,
-      has_newer_items: false,
-      source_history_length: 49,
-      section_item_count: 30,
-      visible_item_count: entries.length,
-    },
-    response_state: {
-      version: 2,
-      threadKey: QUEST_ID,
-      cutoverHistoryIndex: 40,
-      pendingMessageCount: 1,
-      pendingMessages: [
-        { userMessageId: "u1", historyMessageId: "user-older-pending", historyIndex: 40, askedAt: 1_700_000_001_000 },
-      ],
-      currentAnswers: [
-        {
-          version: 2,
-          threadKey: QUEST_ID,
-          questId: QUEST_ID,
-          answerUserMessageIds: ["u2"],
-          referencedUserMessageIds: ["user-later-answered"],
-          coveredAnswerUserMessageIds: ["u2"],
-          coveredUserMessageIds: ["user-later-answered"],
-          currentMessageId: "answer-before-needs-input",
-          currentHistoryIndex: 42,
-          createdAt: 1_700_000_003_000,
-          updatedAt: 1_700_000_003_000,
-          source: "explicit",
-        },
-      ],
-      ready: false,
-    },
-  };
-}
-
-function needsInputNotificationUpdate(
-  notifications: Array<{
-    id: string;
-    messageId: string | null;
-    summary: string;
-    done?: boolean;
-    muted?: boolean;
-    threadKey?: string;
-  }>,
-): Extract<BrowserIncomingMessage, { type: "notification_update" }> {
-  return {
-    type: "notification_update",
-    notifications: notifications.map((notification, index) => ({
-      category: "needs-input",
-      timestamp: 1_700_000_010_000 + index,
-      done: false,
-      threadKey: QUEST_ID,
-      questId: QUEST_ID,
-      ...notification,
-      ...(notification.threadKey === "main" ? { questId: undefined } : {}),
-    })),
-    notificationStatusVersion: 10,
   };
 }
 
@@ -1702,138 +1385,6 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
-  });
-
-  it("keeps exact unresolved needs-input prompts beside a current answer and Quiz until resolution", () => {
-    act(() => {
-      useStore.getState().reset();
-      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
-      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
-      handleMessage(SESSION_ID, producerAnswerWithUnresolvedNeedsInputPrompts());
-      handleMessage(
-        SESSION_ID,
-        needsInputNotificationUpdate([
-          { id: "n-prompt-one", messageId: UNRESOLVED_PROMPT_ONE_ID, summary: "Choose deployment boundary" },
-          {
-            id: "n-prompt-two",
-            messageId: UNRESOLVED_PROMPT_TWO_ID,
-            summary: "Confirm follow-up state",
-            muted: true,
-          },
-        ]),
-      );
-    });
-    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
-    const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
-
-    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
-
-    const answer = within(turn).getByText("The clarification is answered before the next decision.");
-    const firstPrompt = within(turn).getByText(/Choose the deployment boundary/);
-    const secondPrompt = within(turn).getByText(/Confirm whether the follow-up should remain parked/);
-    expect(turn.textContent?.indexOf(answer.textContent ?? "")).toBeLessThan(
-      turn.textContent?.indexOf(firstPrompt.textContent ?? "") ?? -1,
-    );
-    expect(turn.textContent?.indexOf(firstPrompt.textContent ?? "")).toBeLessThan(
-      turn.textContent?.indexOf(secondPrompt.textContent ?? "") ?? -1,
-    );
-    expect(view.container.querySelectorAll('[data-message-id="answer-before-needs-input"]')).toHaveLength(1);
-    expect(view.container.querySelectorAll(`[data-message-id="${UNRESOLVED_PROMPT_ONE_ID}"]`)).toHaveLength(1);
-    expect(view.container.querySelectorAll(`[data-message-id="${UNRESOLVED_PROMPT_TWO_ID}"]`)).toHaveLength(1);
-    expect(within(turn).queryByText(/Stale embedded prompt/)).not.toBeInTheDocument();
-    expect(within(turn).getAllByTestId("thread-response-needs-input-prompt")).toHaveLength(2);
-    expect(within(turn).getAllByTestId("thread-response-answer-count")).toHaveLength(1);
-    expect(within(turn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
-    expect(within(turn).getByText("Choose deployment boundary")).toBeVisible();
-    expect(within(turn).queryByText("Outdated embedded prompt snapshot")).not.toBeInTheDocument();
-    expect(within(turn).getByText("Confirm follow-up state")).toBeVisible();
-    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
-    expect(within(turn).queryByLabelText(/Thread Ready/)).not.toBeInTheDocument();
-
-    act(() => {
-      handleMessage(
-        SESSION_ID,
-        needsInputNotificationUpdate([
-          {
-            id: "n-prompt-one",
-            messageId: UNRESOLVED_PROMPT_ONE_ID,
-            summary: "Choose deployment boundary",
-            done: true,
-          },
-          {
-            id: "n-prompt-two",
-            messageId: UNRESOLVED_PROMPT_TWO_ID,
-            summary: "Confirm follow-up state",
-            muted: true,
-          },
-        ]),
-      );
-    });
-    expect(within(turn).queryByText(/Choose the deployment boundary/)).not.toBeInTheDocument();
-    expect(within(turn).getByText(/Confirm whether the follow-up should remain parked/)).toBeVisible();
-
-    act(() => {
-      handleMessage(
-        SESSION_ID,
-        needsInputNotificationUpdate([
-          {
-            id: "n-prompt-one",
-            messageId: UNRESOLVED_PROMPT_ONE_ID,
-            summary: "Choose deployment boundary",
-            done: true,
-          },
-          {
-            id: "n-prompt-two",
-            messageId: UNRESOLVED_PROMPT_TWO_ID,
-            summary: "Confirm follow-up state",
-            muted: true,
-            done: true,
-          },
-        ]),
-      );
-    });
-    expect(within(turn).queryByText(/Choose the deployment boundary/)).not.toBeInTheDocument();
-    expect(within(turn).queryByText(/Confirm whether the follow-up should remain parked/)).not.toBeInTheDocument();
-    expect(within(turn).getByText("The clarification is answered before the next decision.")).toBeVisible();
-    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
-  });
-
-  it("fails closed for wrong-thread, missing, and stale herd needs-input anchor targets", () => {
-    act(() => {
-      useStore.getState().reset();
-      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
-      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
-      handleMessage(SESSION_ID, producerAnswerWithUnresolvedNeedsInputPrompts());
-      handleMessage(
-        SESSION_ID,
-        needsInputNotificationUpdate([
-          {
-            id: "n-wrong-thread",
-            messageId: UNRESOLVED_PROMPT_ONE_ID,
-            summary: "Wrong owner",
-            threadKey: "main",
-          },
-          { id: "n-missing", messageId: "missing-anchor", summary: "Missing source" },
-          { id: "n-stale-herd", messageId: STALE_HERD_ANCHOR_ID, summary: "Stale herd source" },
-        ]),
-      );
-    });
-    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
-    const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
-
-    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
-
-    expect(within(turn).getByText("The clarification is answered before the next decision.")).toBeVisible();
-    expect(within(turn).queryByText(/Choose the deployment boundary/)).not.toBeInTheDocument();
-    expect(within(turn).queryByText(/Confirm whether the follow-up should remain parked/)).not.toBeInTheDocument();
-    expect(within(turn).queryByText(/Stale embedded prompt/)).not.toBeInTheDocument();
-    expect(view.container.querySelectorAll(`[data-message-id="${STALE_HERD_ANCHOR_ID}"]`)).toHaveLength(0);
-    expect(within(turn).queryByTestId("thread-response-needs-input-prompt")).not.toBeInTheDocument();
-    expect(within(turn).getAllByTestId("thread-response-answer-count")).toHaveLength(1);
-    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
   });
 
   it("keeps a later clarification answer visible while an older request remains pending", () => {

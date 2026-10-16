@@ -91,7 +91,7 @@ export function PlaygroundChronologicalAnswers() {
             }
             questLinkSurface="chat-feed"
             threadResponsePresentation={presentation}
-            activeNeedsInputAnchorMessageIds={EMPTY_IDS}
+            needsInputAnchorMessageIds={EMPTY_IDS}
             visibleThreadStatuses={[]}
           />
         </div>

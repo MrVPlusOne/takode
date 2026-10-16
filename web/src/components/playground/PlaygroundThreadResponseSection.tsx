@@ -6,6 +6,7 @@ import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
+import { PlaygroundCollapsedAnsweredDecision } from "./PlaygroundCollapsedAnsweredDecision.js";
 import { PlaygroundQuestCompletionSummary, PlaygroundQuestDescriptionSummary } from "./PlaygroundQuestSummaryCards.js";
 
 const SESSION_ID = "playground-thread-responses";
@@ -720,7 +721,7 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={QUIZ_PROMPT_TURN}
                 presentation={ACTIVE_PRESENTATION}
-                activeNeedsInputAnchorMessageIds={new Set([QUIZ_PROMPT.msg.id])}
+                needsInputAnchorMessageIds={new Set([QUIZ_PROMPT.msg.id])}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"
@@ -729,6 +730,7 @@ export function PlaygroundThreadResponseSection() {
               />
             </div>
           </Card>
+          <PlaygroundCollapsedAnsweredDecision />
           <Card label="Collapsed quest projection · associated Main answer">
             <div
               className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"

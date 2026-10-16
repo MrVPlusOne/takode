@@ -69,18 +69,3 @@ export function isBoardProposalMessage(message: ChatMessage): boolean {
     )
   );
 }
-
-/** Match a root notify source whose retained receipt can carry its historical decision card. */
-export function isNeedsInputNotifyMessage(message: ChatMessage): boolean {
-  return (
-    message.role === "assistant" &&
-    message.parentToolUseId == null &&
-    !message.metadata?.codexSubagent &&
-    (message.contentBlocks ?? []).some(
-      (block) =>
-        block.type === "tool_use" &&
-        block.name === "Bash" &&
-        parseTakodeNotifyCommand(String(block.input.command ?? ""))?.category === "needs-input",
-    )
-  );
-}
