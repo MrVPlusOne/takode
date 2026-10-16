@@ -25,7 +25,7 @@ import {
   isTimedChatMessage,
 } from "./message-feed-utils.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
-import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
+import { PawTrailAvatar } from "./PawTrail.js";
 import {
   formatThreadAttachmentMarkerDetail,
   isAllThreadsKey,
@@ -953,19 +953,21 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            {currentResponse ? (
-              <ExpandedCurrentThreadResponse
-                message={entry.msg}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-                messageCount={currentResponse.response.answerUserMessageIds.length}
-                referencedMessages={currentResponse.referencedUserMessages}
-              >
-                <HidePawContext.Provider value={true}>{bubble}</HidePawContext.Provider>
-              </ExpandedCurrentThreadResponse>
-            ) : (
-              bubble
-            )}
+            <ExpandedCurrentThreadResponse
+              answer={
+                currentResponse
+                  ? {
+                      message: entry.msg,
+                      messageCount: currentResponse.response.answerUserMessageIds.length,
+                      referencedMessages: currentResponse.referencedUserMessages,
+                    }
+                  : null
+              }
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            >
+              {bubble}
+            </ExpandedCurrentThreadResponse>
           </div>,
         );
       }

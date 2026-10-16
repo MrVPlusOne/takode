@@ -5,7 +5,7 @@ import { getEntryId, isUserBoundaryEntry, type FeedEntry, type Turn } from "../h
 import { FeedEntries, isCompactableHerdEventEntry } from "./MessageFeedEntries.js";
 import { CodexSubagentTurnSegment } from "./CodexSubagentTurnSegment.js";
 import { TurnActivityDisclosure } from "./TurnActivitySummary.js";
-import { AssistantQuestQuizContent, extractQuestQuizMarkerIds } from "./AssistantQuestQuizContent.js";
+import { extractQuestQuizMarkerIds } from "./AssistantQuestQuizContent.js";
 import {
   appendTimedMessagesFromEntries,
   buildMinuteBoundaryLabelMap,
@@ -23,9 +23,11 @@ import {
   type ThreadResponsePresentation,
 } from "./thread-response-presentation.js";
 import {
-  ReadyThreadResponseRows,
+  CollapsedTurnRows,
+  readyThreadResponseRows,
   readyThreadResponseTurnHasContent,
   readyThreadResponseTurnHasMessage,
+  type CollapsedTurnRow,
 } from "./ReadyThreadResponseRows.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
@@ -117,7 +119,7 @@ function questCompletionSummaryHost(
   return { turnId: turns[nextIndex - 1].id, withQuiz: false };
 }
 
-function CollapsedTurnRows({
+function CollapsedTurnContent({
   turn,
   sessionId,
   currentThreadKey,
@@ -146,90 +148,89 @@ function CollapsedTurnRows({
   preserveHostQuestQuiz: boolean;
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
 }) {
-  const collapsedEntries = turn.collapsedEntries ?? [];
-  const renderEntry = (entry: FeedEntry) => (
-    <FeedEntries
-      entries={[entry]}
+  const renderEntry = (entry: FeedEntry) =>
+    isCompactableHerdEventEntry(entry) ? (
+      <CompactFeedActivity
+        segments={[{ kind: "worker_event", messages: [entry.msg] }]}
+        sessionId={sessionId}
+        isCodexSession={isCodexSession}
+        activeCodexTerminalIds={activeCodexTerminalIds}
+        onOpenCodexTerminal={onOpenCodexTerminal}
+        questLinkSurface={questLinkSurface}
+      />
+    ) : (
+      <FeedEntries
+        entries={[entry]}
+        sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
+        minuteBoundaryLabels={minuteBoundaryLabels}
+        isCodexSession={isCodexSession}
+        activeCodexTerminalIds={activeCodexTerminalIds}
+        onOpenCodexTerminal={onOpenCodexTerminal}
+        onSelectThread={onSelectThread}
+        suppressThreadSystemMarkers
+        questLinkSurface={questLinkSurface}
+      />
+    );
+  // Both presentations render through the same row list, so a message keeps its
+  // row (and its loaded images) when the answer presentation comes and goes.
+  const { rows, quizQuestIds } = threadResponsePresentation
+    ? readyThreadResponseRows(
+        turn,
+        threadResponsePresentation,
+        activeNeedsInputAnchorMessageIds,
+        unansweredMessageEntry,
+      )
+    : fallbackCollapsedRows(turn, preserveHostQuestQuiz, unansweredMessageEntry);
+  return (
+    <CollapsedTurnRows
+      rows={rows}
+      quizQuestIds={quizQuestIds}
+      renderEntry={renderEntry}
       sessionId={sessionId}
       currentThreadKey={currentThreadKey}
-      minuteBoundaryLabels={minuteBoundaryLabels}
-      isCodexSession={isCodexSession}
-      activeCodexTerminalIds={activeCodexTerminalIds}
-      onOpenCodexTerminal={onOpenCodexTerminal}
       onSelectThread={onSelectThread}
-      suppressThreadSystemMarkers
       questLinkSurface={questLinkSurface}
     />
   );
-  if (threadResponsePresentation) {
-    return (
-      <ReadyThreadResponseRows
-        turn={turn}
-        presentation={threadResponsePresentation}
-        sessionId={sessionId}
-        currentThreadKey={currentThreadKey}
-        onSelectThread={onSelectThread}
-        questLinkSurface={questLinkSurface}
-        activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
-        unansweredMessageEntry={unansweredMessageEntry}
-        renderEntry={renderEntry}
-      />
-    );
-  }
-  // The fallback Ready path has no response presentation to carry a separate Quiz row.
-  // Rebuild only directives already owned by this turn, and skip any representative that renders one itself.
-  const hiddenHostQuizIds = preserveHostQuestQuiz
-    ? (() => {
-        const visibleQuizIds = new Set(
-          collapsedEntries.flatMap((row) =>
-            row.kind === "entry" && row.entry.kind === "message"
-              ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(row.entry.msg))
-              : [],
-          ),
-        );
-        return [...new Set(turnQuestQuizIds(turn))].filter((questId) => !visibleQuizIds.has(questId));
-      })()
-    : [];
-  return (
-    <>
-      {collapsedEntries.map((row) => {
-        if (row.kind === "activity") return null;
+}
 
-        return (
-          <div key={row.key} className="px-2.5 py-2 sm:px-3">
-            <HidePawContext.Provider value={true}>
-              {isCompactableHerdEventEntry(row.entry) ? (
-                <CompactFeedActivity
-                  segments={[{ kind: "worker_event", messages: [row.entry.msg] }]}
-                  sessionId={sessionId}
-                  isCodexSession={isCodexSession}
-                  activeCodexTerminalIds={activeCodexTerminalIds}
-                  onOpenCodexTerminal={onOpenCodexTerminal}
-                  questLinkSurface={questLinkSurface}
-                />
-              ) : (
-                renderEntry(row.entry)
-              )}
-            </HidePawContext.Provider>
-          </div>
-        );
-      })}
-      {unansweredMessageEntry && (
-        <div className="px-2.5 py-2 sm:px-3" data-testid="collapsed-turn-unanswered-message">
-          <HidePawContext.Provider value={true}>{renderEntry(unansweredMessageEntry)}</HidePawContext.Provider>
-        </div>
-      )}
-      {hiddenHostQuizIds.length > 0 && (
-        <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
-          <AssistantQuestQuizContent
-            text={hiddenHostQuizIds.map((questId) => `{[(Quest Quiz: ${questId})]}`).join("\n")}
-            sessionId={sessionId}
-            questLinkSurface={questLinkSurface}
-          />
-        </div>
-      )}
-    </>
+/** A collapsed turn's rows when no answer presentation applies: its visible entries. */
+function fallbackCollapsedRows(
+  turn: Turn,
+  preserveHostQuestQuiz: boolean,
+  unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null,
+): { rows: CollapsedTurnRow[]; quizQuestIds: string[] } {
+  const rows: CollapsedTurnRow[] = [
+    // Sub-conclusions lead the card, set slightly apart from the rows below.
+    ...turn.subConclusions.map((item, index) => ({
+      key: `entry:${getEntryId(item.entry)}`,
+      entry: item.entry,
+      className: `min-w-0 px-3 ${index === 0 ? "pt-2" : "pt-1.5"}`,
+    })),
+    ...(turn.collapsedEntries ?? []).flatMap((row) =>
+      row.kind === "entry" ? [{ key: `entry:${getEntryId(row.entry)}`, entry: row.entry }] : [],
+    ),
+  ];
+  if (unansweredMessageEntry) {
+    rows.push({
+      key: `entry:${unansweredMessageEntry.msg.id}`,
+      entry: unansweredMessageEntry,
+      testId: "collapsed-turn-unanswered-message",
+    });
+  }
+  if (!preserveHostQuestQuiz) return { rows, quizQuestIds: [] };
+  // This path has no response presentation to carry a separate Quiz row. Rebuild
+  // only directives already owned by this turn, and skip any a visible row renders itself.
+  const visibleQuizIds = new Set(
+    rows.flatMap((row) =>
+      row.entry.kind === "message" ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(row.entry.msg)) : [],
+    ),
   );
+  return {
+    rows,
+    quizQuestIds: [...new Set(turnQuestQuizIds(turn))].filter((questId) => !visibleQuizIds.has(questId)),
+  };
 }
 
 interface TurnEntryRun {
@@ -568,26 +569,7 @@ export const TurnEntries = memo(function TurnEntries({
                           <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
                         )}
                         <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                          {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
-                            <div className="px-3 pt-2 space-y-1.5">
-                              <HidePawContext.Provider value={true}>
-                                {turn.subConclusions.map((sc, scIdx) => (
-                                  <FeedEntries
-                                    key={scIdx}
-                                    entries={[sc.entry]}
-                                    sessionId={sessionId}
-                                    currentThreadKey={currentThreadKey}
-                                    isCodexSession={isCodexSession}
-                                    activeCodexTerminalIds={activeCodexTerminalIds}
-                                    onOpenCodexTerminal={onOpenCodexTerminal}
-                                    onSelectThread={onSelectThread}
-                                    questLinkSurface={questLinkSurface}
-                                  />
-                                ))}
-                              </HidePawContext.Provider>
-                            </div>
-                          )}
-                          <CollapsedTurnRows
+                          <CollapsedTurnContent
                             turn={turn}
                             sessionId={sessionId}
                             currentThreadKey={currentThreadKey}

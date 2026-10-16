@@ -189,6 +189,10 @@ describe("ImagePreviewGroup pending attachments", () => {
     expect(previewIds(group)).toEqual(["loadable"]);
     expect(within(group).getByRole("button", { name: "Open image loadable.png" })).toBeEnabled();
     expect(screen.queryByTestId("image-preview-preload")).toBeNull();
+    // It is cached, so it loads eagerly and decodes with the strip: a lazy,
+    // async remount showed a blank tile on the iPhone until the image caught up.
+    expect(thumbnailFor(group, "loadable")).toHaveAttribute("loading", "eager");
+    expect(thumbnailFor(group, "loadable")).toHaveAttribute("decoding", "sync");
 
     // A remembered image that now fails is forgotten, so the next mount goes
     // back to the silent preload instead of reserving a strip for it.

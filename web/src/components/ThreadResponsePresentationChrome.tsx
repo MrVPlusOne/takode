@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -19,6 +20,7 @@ import {
   MessageThreadHeader,
   MessageThreadHeaderOwnedContext,
 } from "./MessageThreadHeader.js";
+import { HidePawContext } from "./PawTrail.js";
 import type { ThreadResponseReferencedUserMessage } from "./thread-response-presentation.js";
 
 function ReplyIcon() {
@@ -438,42 +440,61 @@ export function ThreadResponseCoverageBadge({
  * An answer message under its header line: the thread link joined with the
  * answered-message chip. The message bubble inside skips its own thread link.
  */
-export function AnsweredMessage({
-  message,
-  currentThreadKey,
-  onSelectThread,
-  messageCount,
-  referencedMessages,
-  children,
-}: {
+/** What an answer's header shows: its thread and the messages it answers. */
+export interface AnswerChrome {
   message: ChatMessage;
-  currentThreadKey?: string;
-  onSelectThread?: (threadKey: string) => void;
   messageCount: number;
   referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
+}
+
+/**
+ * A message with its answer header, or without one when `answer` is null. Both
+ * render the same element tree, because the thread's answer presentation drops
+ * out briefly whenever a message is sent; a changed tree would remount the
+ * message and reload its images.
+ */
+export function AnsweredMessage({
+  answer,
+  currentThreadKey,
+  onSelectThread,
+  children,
+}: {
+  answer: AnswerChrome | null;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   children: ReactNode;
 }) {
+  const outerHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
+  const outerHidePaw = useContext(HidePawContext);
   return (
     <>
-      <MessageThreadHeader
-        threadKey={getMessageThreadLinkKey(message, currentThreadKey)}
-        onSelectThread={onSelectThread}
-        answerChip={
-          messageCount > 0 ? (
-            <ThreadResponseCoverageBadge messageCount={messageCount} referencedMessages={referencedMessages} />
-          ) : null
-        }
-      />
-      <MessageThreadHeaderOwnedContext.Provider value={true}>{children}</MessageThreadHeaderOwnedContext.Provider>
+      {answer && (
+        <MessageThreadHeader
+          threadKey={getMessageThreadLinkKey(answer.message, currentThreadKey)}
+          onSelectThread={onSelectThread}
+          answerChip={
+            answer.messageCount > 0 ? (
+              <ThreadResponseCoverageBadge
+                messageCount={answer.messageCount}
+                referencedMessages={answer.referencedMessages}
+              />
+            ) : null
+          }
+        />
+      )}
+      <MessageThreadHeaderOwnedContext.Provider value={outerHeaderOwned || answer !== null}>
+        <HidePawContext.Provider value={outerHidePaw || answer !== null}>{children}</HidePawContext.Provider>
+      </MessageThreadHeaderOwnedContext.Provider>
     </>
   );
 }
 
+/** An expanded turn's message, framed as the thread's current answer when it is one. */
 export function ExpandedCurrentThreadResponse(props: Parameters<typeof AnsweredMessage>[0]) {
   return (
     <div
-      className="rounded-xl border border-cc-primary/25 px-2.5 py-2 sm:px-3"
-      data-testid="thread-response-current-expanded"
+      className={props.answer ? "rounded-xl border border-cc-primary/25 px-2.5 py-2 sm:px-3" : undefined}
+      data-testid={props.answer ? "thread-response-current-expanded" : undefined}
     >
       <AnsweredMessage {...props} />
     </div>

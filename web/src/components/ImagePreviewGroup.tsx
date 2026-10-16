@@ -302,8 +302,11 @@ export function ImagePreviewGroup({
                       loaded ? "opacity-100 group-hover:opacity-90" : "opacity-0"
                     }`}
                     draggable={false}
-                    loading="lazy"
-                    decoding="async"
+                    // A thumbnail this browser already loaded is in its cache, so a
+                    // remounted strip (a turn collapsing on Ready, a thread reopening)
+                    // paints it with the surrounding content instead of a blank tile.
+                    loading={loaded ? "eager" : "lazy"}
+                    decoding={loaded ? "sync" : "async"}
                     onLoad={() => markLoaded(image, originalImage)}
                     onError={() => markFailed(image, originalImage)}
                     data-testid="image-preview-thumbnail-image"
