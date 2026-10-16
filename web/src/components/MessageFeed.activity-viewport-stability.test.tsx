@@ -1449,7 +1449,7 @@ describe("composer overlay scroll reachability", () => {
       const boundary = screen.getByTestId("composer-minimizer");
       const right = screen.getByTestId("feed-status-pill-right");
       const left = screen.getByTestId("feed-status-pill-left");
-      expect(right.textContent).toContain("1 ⏰ in 13h");
+      expect(right.textContent).toContain("in 13h");
       expect(right.style.transform).toBe("");
 
       composerHeight = 310;

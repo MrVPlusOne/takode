@@ -1,4 +1,5 @@
 import { SYNCED_PROJECTION_DESCRIPTOR_LIST } from "../shared/synced-projection-registry.js";
+import { sessionWaitsEqual } from "../shared/session-waits.js";
 import type { QuestmasterTask, SdkSessionInfo, SessionTaskEntry } from "./types.js";
 
 export function stringArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -237,7 +238,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.cronJobId === b.cronJobId &&
     a.cronJobName === b.cronJobName &&
     a.pendingTimerCount === b.pendingTimerCount &&
-    a.waitingFor === b.waitingFor &&
+    sessionWaitsEqual(a.waits ?? [], b.waits ?? []) &&
     a.notificationUrgency === b.notificationUrgency &&
     a.activeNotificationCount === b.activeNotificationCount &&
     a.activeNeedsInputNotificationCount === b.activeNeedsInputNotificationCount &&

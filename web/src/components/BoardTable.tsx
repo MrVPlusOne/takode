@@ -259,9 +259,9 @@ function BoardSessionEntry({
         <span
           data-testid="board-participant-waiting"
           className="min-w-0 max-w-[16rem] truncate text-[11px] text-cc-success"
-          title={waitingStatusLabel(timerCount, dotProps.waitingFor)}
+          title={waitingStatusLabel(timerCount, dotProps.waits)}
         >
-          {waitingStatusShortLabel(timerCount, dotProps.waitingFor)}
+          {waitingStatusShortLabel(timerCount, dotProps.waits)}
         </span>
       )}
     </span>

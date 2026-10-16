@@ -8,11 +8,14 @@
  *   4. running            -> green dot, breathing glow (agent actively working)
  *   5. compacting         -> green dot, breathing glow (context compaction)
  *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
- *   7. waiting            -> green timer icon, no glow (idle but waiting on timers, background jobs, a landing run or a lease queue)
+ *   7. waiting            -> green wait icon of the leading wait's kind, no glow (idle but waiting on
+ *                            timers, the user's answer, background jobs, a landing run or a lease queue)
  *   8. idle               -> gray dot, no glow
  */
 
+import { describeSessionWaits, primarySessionWaitKind, type SessionWait } from "../../shared/session-waits.js";
 import { PowerPlugDot } from "./CatIcons.js";
+import { WaitKindIcon } from "./WaitKindIcon.js";
 import {
   deriveSessionStatus,
   type SessionVisualStatus,
@@ -76,27 +79,30 @@ const STATUS_LABEL: Record<SessionVisualStatus, string> = {
   idle: "Idle",
 };
 
-/** Compact hover-card label for the waiting state. */
-export function waitingStatusShortLabel(timerCount: number, waitingFor?: string | null): string {
-  const parts = waitingFor ? [waitingFor] : [];
+/** Compact label for the waiting state, used by the work board. */
+export function waitingStatusShortLabel(timerCount: number, waits?: readonly SessionWait[] | null): string {
+  const described = describeSessionWaits(waits);
+  const parts = described ? [described] : [];
   if (timerCount > 0) parts.push(`${timerCount} timer${timerCount === 1 ? "" : "s"}`);
   return parts.join(", ");
 }
 
 /** Full tooltip/accessible label for the waiting state. */
-export function waitingStatusLabel(timerCount: number, waitingFor?: string | null): string {
-  const parts = waitingFor ? [`Waiting for ${waitingFor}`] : [];
+export function waitingStatusLabel(timerCount: number, waits?: readonly SessionWait[] | null): string {
+  const described = describeSessionWaits(waits);
+  const parts = described ? [`Waiting for ${described}`] : [];
   if (timerCount > 0) parts.push(`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`);
   return parts.join("; ");
 }
 
-const CLOCK_PATH =
-  "M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z";
-
-/** Timer icon shown in place of the idle dot while a session waits on timers or what `waitingFor` names. */
+/**
+ * Icon shown in place of the idle dot while a session waits on timers or what `waits` lists.
+ * It draws the leading wait's kind (see `primarySessionWaitKind`), so a background job or a
+ * queue does not look like a timer; the tooltip names every wait.
+ */
 export function WaitingStatusIcon({
   timerCount,
-  waitingFor,
+  waits,
   className,
   title,
   ariaLabel,
@@ -104,24 +110,26 @@ export function WaitingStatusIcon({
   onPortrait = false,
 }: {
   timerCount: number;
-  waitingFor?: string | null;
+  waits?: readonly SessionWait[] | null;
   className?: string;
   title?: string;
   ariaLabel?: string;
   decorative?: boolean;
   /**
-   * Drawn on a portrait's corner: slightly smaller, with a white face and a thin outline in the
-   * card color hugging the clock, instead of sitting on a round card-colored disc that shows as a
-   * large white circle on the sessions panel's tinted rows.
+   * Drawn on a portrait's corner: slightly smaller, with a thin outline in the card color
+   * hugging the icon (and a white clock face), instead of sitting on a round card-colored disc
+   * that shows as a large white circle on the sessions panel's tinted rows.
    */
   onPortrait?: boolean;
 }) {
-  const defaultLabel = waitingStatusLabel(timerCount, waitingFor);
+  const defaultLabel = waitingStatusLabel(timerCount, waits);
+  const kind = primarySessionWaitKind(timerCount, waits) ?? "timer";
   const size = onPortrait ? "h-[11px] w-[11px]" : "h-3 w-3";
   return (
     <span
-      data-testid="session-status-timer-icon"
+      data-testid="session-status-waiting-icon"
       data-status="waiting"
+      data-wait-kind={kind}
       data-count={String(timerCount)}
       title={decorative ? undefined : (title ?? defaultLabel)}
       aria-label={decorative ? undefined : (ariaLabel ?? defaultLabel)}
@@ -130,15 +138,7 @@ export function WaitingStatusIcon({
         className ?? ""
       }`}
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" className={`block ${size} shrink-0 -translate-y-px`}>
-        {onPortrait && (
-          <>
-            <circle cx="8" cy="8.07" r="4.75" className="fill-cc-card" />
-            <path d={CLOCK_PATH} className="fill-none stroke-cc-card" strokeWidth="2.5" strokeLinejoin="round" />
-          </>
-        )}
-        <path d={CLOCK_PATH} />
-      </svg>
+      <WaitKindIcon kind={kind} outlined={onPortrait} className={`block ${size} shrink-0 -translate-y-px`} />
     </span>
   );
 }
@@ -147,9 +147,7 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
   const { className, ...rest } = props;
   const visualStatus = deriveSessionStatus(rest);
   if (visualStatus === "waiting") {
-    return (
-      <WaitingStatusIcon timerCount={rest.activeTimerCount ?? 0} waitingFor={rest.waitingFor} className={className} />
-    );
+    return <WaitingStatusIcon timerCount={rest.activeTimerCount ?? 0} waits={rest.waits} className={className} />;
   }
   const showGlow = SHOULD_GLOW[visualStatus];
   const glowColor = GLOW_COLOR[visualStatus];

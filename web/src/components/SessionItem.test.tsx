@@ -568,15 +568,15 @@ describe("SessionItem leader profiles", () => {
     });
 
     const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
-    const timerIcon = within(portraitButton).getByTestId("session-status-timer-icon");
+    const timerIcon = within(portraitButton).getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
     expect(timerIcon.parentElement).toHaveClass("absolute", "-bottom-px", "-right-px");
     // No round card-colored disc behind the clock: on the tinted sidebar rows it showed as a large
     // white circle. The icon draws a white face and a thin outline hugging the clock instead.
     expect(timerIcon.parentElement).not.toHaveClass("bg-cc-card");
     expect(timerIcon.querySelector("circle")).toHaveClass("fill-cc-card");
-    expect(screen.getAllByTestId("session-status-timer-icon")).toHaveLength(1);
-    expect(within(screen.getByTestId("session-title-row")).queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.getAllByTestId("session-status-waiting-icon")).toHaveLength(1);
+    expect(within(screen.getByTestId("session-title-row")).queryByTestId("session-status-waiting-icon")).toBeNull();
     expect(screen.queryByTestId("session-waiting-for")).toBeNull();
   });
 
@@ -887,29 +887,31 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("data-count", "2");
     expect(timerIcon).toHaveAttribute("title", "2 scheduled timers");
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
   });
 
-  it("replaces the idle dot with the timer icon and names the wait while the session waits", () => {
+  it("replaces the idle dot with the wait's icon and names the wait while the session waits", () => {
     // A worker running its gate in the background or queued for a lease ends
-    // its turn and would otherwise read as idle. The server-described wait
-    // reuses the timer icon and is spelled out in the metadata row, which
+    // its turn and would otherwise read as idle. The server-reported wait shows
+    // its own kind's icon (a job, not the timer clock, even with a timer pending:
+    // the user mistook a job wait for a timer) and is spelled out in the metadata row, which
     // compact worker rows also show (no hover on phones). Timers get no text:
     // the icon stands for them and its tooltip carries the count.
     const { container } = renderSessionItem({
       session: makeSession({
         status: "idle",
         sdkState: "connected",
-        waitingFor: 'background job "Run full gate"',
+        waits: [{ kind: "job", description: "Run full gate", startedAt: 1 }],
         pendingTimerCount: 1,
       }),
       permCount: 0,
     });
 
-    const icon = screen.getByTestId("session-status-timer-icon");
+    const icon = screen.getByTestId("session-status-waiting-icon");
+    expect(icon).toHaveAttribute("data-wait-kind", "job");
     expect(icon).toHaveAttribute("title", 'Waiting for background job "Run full gate"; 1 scheduled timer');
     expect(screen.getByTestId("session-waiting-for")).toHaveTextContent(/^background job "Run full gate"$/);
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
@@ -923,7 +925,7 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("title", "1 scheduled timer");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("title", "1 scheduled timer");
     expect(screen.queryByTestId("session-waiting-for")).toBeNull();
     expect(screen.queryByText(/timer/)).toBeNull();
   });
@@ -935,7 +937,7 @@ describe("SessionItem status dot", () => {
     });
 
     expect(container.querySelector('[data-testid="session-status-dot"]')).toHaveAttribute("data-status", "idle");
-    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.queryByTestId("session-status-waiting-icon")).toBeNull();
     expect(screen.queryByTestId("session-waiting-for")).toBeNull();
   });
 
@@ -960,7 +962,7 @@ describe("SessionItem status dot", () => {
     });
 
     expect(screen.getByTestId("session-pause-badge")).toHaveTextContent("1");
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
   });
 
   it("uses the dedicated alignment classes for the timer icon slot", () => {
@@ -969,7 +971,7 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon.className).toContain("h-3");
     expect(timerIcon.className).toContain("w-3");
     expect(timerIcon.className).toContain("leading-none");
@@ -985,7 +987,7 @@ describe("SessionItem status dot", () => {
       useStatusBar: true,
     });
 
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
   });
 
@@ -999,7 +1001,7 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
   });
 
@@ -1012,7 +1014,7 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
   });
 
   it("does not let stale local timer state clear the current row count", () => {
@@ -1023,7 +1025,7 @@ describe("SessionItem status dot", () => {
       permCount: 0,
     });
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "2");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("data-count", "2");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 });
@@ -1421,7 +1423,7 @@ describe("SessionItem notification marker", () => {
     // rather than a hover-hidden side badge.
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 2 }) });
 
-    const icon = screen.getByTestId("session-status-timer-icon");
+    const icon = screen.getByTestId("session-status-waiting-icon");
     expect(icon).toHaveAttribute("data-count", "2");
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
@@ -1433,7 +1435,7 @@ describe("SessionItem notification marker", () => {
       session: makeSession({ pendingTimerCount: 1 }),
       permCount: 1,
     });
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
   });
 
   it("shows the timer icon after the projection explicitly clears attention", () => {
@@ -1442,7 +1444,7 @@ describe("SessionItem notification marker", () => {
     ]);
     setSessionAttentionProjection("s1", { attentionReason: null, status: null });
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
@@ -1455,7 +1457,7 @@ describe("SessionItem notification marker", () => {
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
     const marker = screen.getByTestId("session-attention-marker");
     expect(marker).toHaveAttribute("data-attention", "action");
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
   });
 
   it("uses a projected review as the sole search-row marker authority ahead of a timer", () => {
@@ -1477,7 +1479,7 @@ describe("SessionItem notification marker", () => {
     });
 
     expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
@@ -1507,7 +1509,7 @@ describe("SessionItem notification marker", () => {
     });
 
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
     expect(screen.queryByTestId("session-attention-marker")).toBeNull();
   });
 
@@ -1521,7 +1523,7 @@ describe("SessionItem notification marker", () => {
       session: makeSession({ pendingTimerCount: 1 }),
     });
 
-    expect(screen.getByTestId("session-status-timer-icon")).toBeInTheDocument();
+    expect(screen.getByTestId("session-status-waiting-icon")).toBeInTheDocument();
     expect(screen.queryByTestId("session-attention-marker")).toBeNull();
     expect(screen.queryByTestId("session-notification-marker")).toBeNull();
   });
@@ -1545,7 +1547,7 @@ describe("SessionItem notification marker", () => {
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
 
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-waiting-icon"]')).toBeNull();
     expect(screen.queryByTestId("session-attention-marker")).toBeNull();
     expect(screen.queryByTestId("session-notification-marker")).toBeNull();
   });

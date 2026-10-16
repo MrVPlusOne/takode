@@ -149,7 +149,7 @@ export function SessionHoverCard({
   const timerCount = s.pendingTimerCount ?? 0;
   const needsInput = projectedAttentionStatus?.urgency === "needs-input";
   const activeTimerCount = needsInput ? 0 : timerCount;
-  const waitingFor = needsInput ? null : (s.waitingFor ?? null);
+  const waits = needsInput ? null : (s.waits ?? null);
   const statusDotProps: SessionStatusDotProps = {
     archived: s.archived,
     permCount: s.permCount,
@@ -158,12 +158,12 @@ export function SessionHoverCard({
     status: s.status,
     idleKilled: s.idleKilled,
     activeTimerCount,
-    waitingFor,
+    waits,
   };
   const visualStatus = deriveSessionStatus(statusDotProps);
   const statusLabel = sessionHoverStatusLabel(visualStatus);
   // The header stays short; the full wait description gets its own line.
-  const waitingDetail = visualStatus === "waiting" ? waitingStatusLabel(activeTimerCount, waitingFor) : null;
+  const waitingDetail = visualStatus === "waiting" ? waitingStatusLabel(activeTimerCount, waits) : null;
   const attentionStatus = s.archived
     ? null
     : getSessionHoverAttentionStatus(s.permCount > 0 ? null : projectedAttentionStatus);

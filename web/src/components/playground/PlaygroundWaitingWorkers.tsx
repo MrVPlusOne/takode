@@ -8,37 +8,50 @@ import { SessionItem } from "../SessionItem.js";
 import { Section } from "./shared.js";
 
 /**
- * Idle workers that are waiting on something: the server describes each wait in
- * `waitingFor` (background jobs, landing runs, lease queues) next to the timer
- * count, and sidebar rows and the work board name it instead of showing idle.
- * A leader with a portrait carries the timer icon on the portrait's corner.
+ * Idle workers that are waiting on something: the server lists each wait in
+ * `waits` (the user's answer, background jobs, landing runs, lease queues) next to
+ * the timer count. Sidebar rows and the work board name it instead of showing idle,
+ * with the icon of the leading wait's kind. A leader with a portrait carries that
+ * icon on the portrait's corner.
  */
 const NOW = Date.now();
 const WORKERS: Array<{ quest: string; title: string; session: SdkSessionInfo }> = [
   {
     quest: "q-701",
     title: "Background gate run",
-    session: worker(7101, "Background gate worker", { waitingFor: 'background job "Run full gate"' }),
+    session: worker(7101, "Background gate worker", {
+      waits: [{ kind: "job", description: "Run full gate", startedAt: NOW - 7 * 60_000 }],
+    }),
   },
   {
     quest: "q-702",
     title: "Queued for a test slot",
-    session: worker(7102, "Queued test worker", { waitingFor: "full-suite:takode@devbox (#2 in line)" }),
+    session: worker(7102, "Queued test worker", {
+      waits: [{ kind: "queue", resource: "full-suite:takode@devbox", position: 2 }],
+    }),
   },
   {
     quest: "q-703",
     title: "Change in a landing run",
-    session: worker(7103, "Landing worker", { waitingFor: "landing run" }),
+    session: worker(7103, "Landing worker", { waits: [{ kind: "landing" }] }),
   },
   {
     quest: "q-704",
     title: "Timer and two background jobs",
     session: worker(7104, "Timer worker", {
       pendingTimerCount: 1,
-      waitingFor: '2 background jobs: "Run full gate", "Dev server"',
+      waits: [
+        { kind: "job", description: "Run full gate", startedAt: NOW - 4 * 60_000 },
+        { kind: "job", description: "Dev server", startedAt: NOW - 50 * 60_000 },
+      ],
     }),
   },
-  { quest: "q-705", title: "Waiting on nothing", session: worker(7105, "Idle worker", {}) },
+  {
+    quest: "q-705",
+    title: "User Checkpoint",
+    session: worker(7105, "Checkpoint worker", { waits: [{ kind: "answer", questId: "q-705" }] }),
+  },
+  { quest: "q-706", title: "Waiting on nothing", session: worker(7106, "Idle worker", {}) },
 ];
 
 const LEADER: SdkSessionInfo = {
@@ -103,7 +116,7 @@ export function PlaygroundWaitingWorkers() {
   return (
     <Section
       title="Waiting Workers"
-      description="Idle sessions that wait on a background job, a lease line, a landing run or a timer show a timer icon; sidebar rows and the work board's worker column name job and queue waits, while timers need no text. A leader's icon sits on its portrait corner. A worker waiting on nothing stays a grey idle dot."
+      description="Idle sessions that wait on the user's answer, a background job, a lease line, a landing run or a timer show that wait's icon (the leading one when there are several); sidebar rows and the work board's worker column name non-timer waits, while timers need no text. A leader's icon sits on its portrait corner. A worker waiting on nothing stays a grey idle dot."
     >
       <div className="grid gap-3 md:grid-cols-2" data-testid="playground-waiting-workers">
         <div className="rounded-xl bg-cc-sidebar p-2">

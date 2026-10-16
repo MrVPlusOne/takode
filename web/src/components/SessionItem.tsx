@@ -21,6 +21,7 @@ import { boardSummarySegmentsFromActivePhaseSummary, type BoardSummarySegment } 
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import { projectedSessionAttentionStatus } from "../utils/session-attention-status.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { describeSessionWaits } from "../../shared/session-waits.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
 import { HostBadge } from "./HostBadge.js";
@@ -495,7 +496,8 @@ function SessionItemComponent({
     idleKilled: s.idleKilled,
   });
   const timerCount = s.pendingTimerCount ?? 0;
-  const waitingFor = s.waitingFor ?? null;
+  const waits = s.waits ?? null;
+  const waitingFor = describeSessionWaits(waits);
   const isPaused = s.paused ?? !!s.pause?.pausedAt;
   const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
   const showWaitingIcon =
@@ -652,7 +654,7 @@ function SessionItemComponent({
                 statusRing={leaderPortraitStatusRing}
                 cornerBadge={
                   showWaitingIcon ? (
-                    <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} className="mt-0" onPortrait />
+                    <WaitingStatusIcon timerCount={timerCount} waits={waits} className="mt-0" onPortrait />
                   ) : undefined
                 }
               />
@@ -666,7 +668,7 @@ function SessionItemComponent({
             {/* Status marker for sidebar rows. Timers and server-reported waits replace the idle dot;
                 an expanded leader portrait carries that icon on its corner instead. */}
             {showWaitingIcon && !usesExpandedLeaderPortrait ? (
-              <WaitingStatusIcon timerCount={timerCount} waitingFor={waitingFor} />
+              <WaitingStatusIcon timerCount={timerCount} waits={waits} />
             ) : (
               !useStatusBar &&
               !usesExpandedLeaderPortrait && (
@@ -964,7 +966,7 @@ function SessionItemComponent({
               {showWaitingIcon && waitingFor && (
                 <span
                   className="min-w-0 truncate text-[10px] text-emerald-500/80"
-                  title={waitingStatusLabel(timerCount, waitingFor)}
+                  title={waitingStatusLabel(timerCount, waits)}
                   data-testid="session-waiting-for"
                 >
                   {waitingFor}

@@ -165,7 +165,7 @@ describe("TreeViewGroup leader herd summary", () => {
     const leaseWorker = makeSession("worker-2", {
       herdedBy: "leader-1",
       sessionNum: 13,
-      waitingFor: "port:companion",
+      waits: [{ kind: "queue", resource: "port:companion", position: 1 }],
     });
     const idleReviewer = makeSession("reviewer-1", { reviewerOf: 11, sessionNum: 12 });
     const group: TreeViewGroupData = {
@@ -183,7 +183,10 @@ describe("TreeViewGroup leader herd summary", () => {
     const waitingIndicator = within(summary).getByTestId("status-count-waiting");
     expect(waitingIndicator).toHaveTextContent("2");
     expect(waitingIndicator).toHaveAccessibleName("2 sessions waiting on timers, background jobs or queues");
-    expect(within(waitingIndicator).getByTestId("session-status-timer-icon")).toHaveAttribute("data-status", "waiting");
+    expect(within(waitingIndicator).getByTestId("session-status-waiting-icon")).toHaveAttribute(
+      "data-status",
+      "waiting",
+    );
 
     const idleIndicator = Array.from(summary.querySelectorAll(".text-cc-muted\\/50")).find(
       (el) => el.textContent?.trim() === "1" && el.querySelector(".bg-cc-muted\\/30"),

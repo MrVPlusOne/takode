@@ -38,6 +38,7 @@ import { collectMessageAttentionRecords } from "../shared/leader-projection.js";
 import { createSessionNavigationProjectionDefinition } from "./session-navigation-projection.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { SyncedProjectionRuntime, type SyncedProjectionRuntimeMetrics } from "./synced-projection-runtime.js";
+import type { SessionWait } from "../shared/session-waits.js";
 
 export interface WsBridgeSyncedProjectionDeps {
   getSession: (sessionId: string) => Session | undefined;
@@ -45,7 +46,7 @@ export interface WsBridgeSyncedProjectionDeps {
   getLauncherSessionInfo: (sessionId: string) => SdkSessionInfo | null | undefined;
   getSessionName: (sessionId: string) => string | undefined;
   getPendingTimerCount: (sessionId: string) => number;
-  getWaitingFor: (sessionId: string) => string | null;
+  getWaits: (sessionId: string) => SessionWait[];
   getBackendConnected: (sessionId: string) => boolean;
   getSessionStatus: (sessionId: string) => SessionNavigationStatus;
   getLastActivityAt: (sessionId: string) => number | undefined;
@@ -122,7 +123,7 @@ export class WsBridgeSyncedProjectionController {
         getLauncherSessionInfo: deps.getLauncherSessionInfo,
         getSessionName: deps.getSessionName,
         getPendingTimerCount: deps.getPendingTimerCount,
-        getWaitingFor: deps.getWaitingFor,
+        getWaits: deps.getWaits,
         getBackendConnected: deps.getBackendConnected,
         getSessionStatus: deps.getSessionStatus,
         getLastActivityAt: deps.getLastActivityAt,

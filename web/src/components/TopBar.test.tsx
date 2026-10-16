@@ -651,7 +651,7 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("data-count", "1");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 
@@ -677,7 +677,7 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
-    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.queryByTestId("session-status-waiting-icon")).toBeNull();
   });
 
   it("uses route-owned chrome on full-page routes without showing the current session title", () => {

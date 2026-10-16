@@ -15,7 +15,7 @@ import { PawTrailAvatar } from "../PawTrail.js";
 import { SelectionContextMenu } from "../SelectionContextMenu.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { CodexRateLimitsSection, CodexTokenDetailsSection } from "../TaskPanel.js";
-import { TimerModal } from "../TimerWidget.js";
+import { WaitingPopover } from "../WaitingChip.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "../ToolBlock.js";
 import { PLAYGROUND_SESSION_ROWS } from "./fixtures.js";
 import { getPlaygroundSectionId, type PlaygroundSectionGroupId } from "./navigation.js";
@@ -1811,9 +1811,9 @@ export function TimerModalDemo() {
         onClick={() => setOpen(true)}
         className="text-xs font-medium px-3 py-1.5 rounded-md bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 transition-colors cursor-pointer"
       >
-        Open timer modal
+        Open waiting list
       </button>
-      {open && <TimerModal sessionId="playground-timers" onClose={() => setOpen(false)} />}
+      {open && <WaitingPopover sessionId="playground-timers" onClose={() => setOpen(false)} />}
     </>
   );
 }

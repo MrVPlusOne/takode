@@ -30,7 +30,7 @@ export interface SessionNavigationProjectionOverrides {
     | "killedByIdleManager"
     | "pendingPermissionCount"
     | "pendingTimerCount"
-    | "waitingFor"
+    | "waits"
     | "paused"
     | "pausedInputQueueCount"
     | "lastActivityAt"
@@ -132,7 +132,7 @@ export function createSessionNavigationProjectionValue(
     killedByIdleManager: idleKilled ?? lifecycle.killedByIdleManager ?? false,
     pendingPermissionCount: 0,
     pendingTimerCount: 0,
-    waitingFor: null,
+    waits: [],
     paused: false,
     pausedInputQueueCount: 0,
     lastActivityAt: 2,

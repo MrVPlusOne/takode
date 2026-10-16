@@ -1,5 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  applySessionNavigationProjectionPatch,
+  createSessionNavigationProjectionPatch,
   isSessionNavigationProjectionValue,
   reconcileSessionNavigationProjectionValue,
   sessionNavigationProjectionEqual,
@@ -34,7 +36,7 @@ function value(): SessionNavigationProjectionValue {
     killedByIdleManager: false,
     pendingPermissionCount: 0,
     pendingTimerCount: 1,
-    waitingFor: null,
+    waits: [],
     paused: false,
     pausedInputQueueCount: 0,
     lastActivityAt: 2,
@@ -109,5 +111,18 @@ describe("session navigation projection contract", () => {
 
     const next = { ...structuredClone(first), status: "running" as const };
     expect(reconcileSessionNavigationProjectionValue(first, next)).toBe(next);
+  });
+
+  it("leaves an equal rebuilt waits list out of projection patches", () => {
+    // The server rebuilds `waits` on every publish, so it compares by content:
+    // an unchanged list must not be resent to every browser.
+    const job = { kind: "job" as const, description: "Run full gate", startedAt: 5 };
+    const queue = { kind: "queue" as const, resource: "agent-browser", position: 2 };
+    const previous = { ...value(), waits: [job] };
+    expect(createSessionNavigationProjectionPatch(previous, { ...previous, waits: [{ ...job }] })).toEqual({});
+    const patch = createSessionNavigationProjectionPatch(previous, { ...previous, waits: [job, queue] });
+    expect(patch).toEqual({ waits: [job, queue] });
+    expect(applySessionNavigationProjectionPatch(previous, patch)?.waits).toEqual([job, queue]);
+    expect(applySessionNavigationProjectionPatch(previous, { waits: [{ kind: "nope" }] })).toBeUndefined();
   });
 });

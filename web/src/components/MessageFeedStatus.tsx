@@ -18,7 +18,7 @@ import { buildUserImagePreviewItems } from "./image-preview-utils.js";
 import { MessageBubble } from "./MessageBubble.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { NotificationChip } from "./NotificationChip.js";
-import { TimerChip } from "./TimerWidget.js";
+import { WaitingChip } from "./WaitingChip.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 import { formatReplyContentForPreview } from "../utils/reply-context.js";
@@ -651,7 +651,7 @@ export function FeedStatusPill({
         style={composerOverlayLift}
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
-        <TimerChip sessionId={sessionId} />
+        <WaitingChip sessionId={sessionId} />
         <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
     </>

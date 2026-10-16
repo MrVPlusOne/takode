@@ -590,7 +590,7 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(within(row).getByText("wt")).toBeInTheDocument();
     expect(within(row).getByText("#42")).toBeInTheDocument();
     expect(within(row).getByAltText(backendType === "codex" ? "Codex" : "Claude")).toBeInTheDocument();
-    expect(within(row).getByTestId("session-status-timer-icon")).toBeInTheDocument();
+    expect(within(row).getByTestId("session-status-waiting-icon")).toBeInTheDocument();
 
     fireEvent.mouseEnter(row);
     const hover = await screen.findByTestId("session-hover-card");

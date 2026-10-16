@@ -8,6 +8,7 @@ import type { ResourceLeaseWait } from "../resource-lease-types.js";
 import type { BackgroundTaskInfo, BackgroundTaskSnapshot } from "./adapter-interface.js";
 import type { BoardRow } from "../session-types.js";
 import { findUserCheckpointQuestsForWorker } from "./board-user-checkpoint.js";
+import type { SessionWait } from "../../shared/session-waits.js";
 
 type SessionLike = any;
 
@@ -149,38 +150,30 @@ export function formatBoardSessionRef(sessionId: string, deps: BoardParticipantD
 }
 
 /**
- * Describe what an otherwise idle session is waiting on, apart from timers, for
+ * List what an otherwise idle session is waiting on, apart from timers, for
  * status displays: the user's answer on a quest in User Checkpoint, its background
- * jobs, an active landing run, and its place in resource-lease queues. It reads the same signals as the stall check, so a
- * worker the board treats as waiting never looks plainly idle. Returns null when
- * the session waits on none of these.
+ * jobs, an active landing run, and its place in resource-lease queues. It reads the
+ * same signals as the stall check, so a worker the board treats as waiting never
+ * looks plainly idle. The order is the display priority: the first entry leads.
  */
-export function describeSessionWaits(
+export function listSessionWaits(
   sessionId: string,
   deps: Pick<BoardParticipantDeps, "getLeaseWaits" | "getBackgroundTasks" | "isLandingActive"> & {
     /** Leader sessions whose boards may hold this worker's quest in a User Checkpoint. */
     listBoardSessions?: () => Iterable<{ board?: Map<string, BoardRow> }>;
   },
-): string | null {
-  const parts: string[] = [];
+): SessionWait[] {
   const checkpointQuests = deps.listBoardSessions
     ? findUserCheckpointQuestsForWorker(deps.listBoardSessions(), sessionId)
     : [];
-  if (checkpointQuests.length > 0) parts.push(`user's answer on ${checkpointQuests.join(", ")}`);
-  const jobs = deps.getBackgroundTasks?.(sessionId)?.tasks ?? [];
-  if (jobs.length > 0) {
-    const quoted = jobs
-      .map((job) => job.description.trim())
-      .filter(Boolean)
-      .map((text) => `"${text}"`)
-      .join(", ");
-    const label = jobs.length > 1 ? `${jobs.length} background jobs` : "background job";
-    parts.push(quoted ? `${label}${jobs.length > 1 ? ":" : ""} ${quoted}` : label);
-  }
-  const landing = deps.isLandingActive?.(sessionId) ?? false;
-  if (landing) parts.push("landing run");
-  for (const wait of deps.getLeaseWaits?.(sessionId) ?? []) {
-    parts.push(`${wait.resourceKey} (#${wait.position} in line)`);
-  }
-  return parts.length > 0 ? parts.join("; ") : null;
+  return [
+    ...checkpointQuests.map((questId): SessionWait => ({ kind: "answer", questId })),
+    ...(deps.getBackgroundTasks?.(sessionId)?.tasks ?? []).map(
+      (job): SessionWait => ({ kind: "job", description: job.description.trim(), startedAt: job.startedAt }),
+    ),
+    ...(deps.isLandingActive?.(sessionId) ? [{ kind: "landing" } as const] : []),
+    ...(deps.getLeaseWaits?.(sessionId) ?? []).map(
+      (wait): SessionWait => ({ kind: "queue", resource: wait.resourceKey, position: wait.position }),
+    ),
+  ];
 }

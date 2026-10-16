@@ -6,6 +6,7 @@ import "@testing-library/jest-dom";
 import { BoardTable, formatCompletedTime, orderBoardRows, type BoardRowData } from "./BoardTable.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
+import type { SessionWait } from "../../shared/session-waits.js";
 
 interface MockStoreState {
   quests: Array<{
@@ -24,7 +25,7 @@ interface MockStoreState {
     status?: "idle" | "running" | "compacting" | "reverting" | null;
     cliConnected?: boolean;
     pendingTimerCount?: number;
-    waitingFor?: string;
+    waits?: SessionWait[];
   }>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   zoomLevel?: number;
@@ -547,11 +548,10 @@ describe("BoardTable", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("session-status-timer-icon").map((icon) => icon.getAttribute("data-count"))).toEqual([
-      "1",
-      "2",
-    ]);
-    expect(screen.getAllByTestId("session-status-timer-icon").map((icon) => icon.getAttribute("title"))).toEqual([
+    expect(screen.getAllByTestId("session-status-waiting-icon").map((icon) => icon.getAttribute("data-count"))).toEqual(
+      ["1", "2"],
+    );
+    expect(screen.getAllByTestId("session-status-waiting-icon").map((icon) => icon.getAttribute("title"))).toEqual([
       "1 scheduled timer",
       "2 scheduled timers",
     ]);
@@ -576,7 +576,7 @@ describe("BoardTable", () => {
         status: "idle",
         archived: false,
         cliConnected: true,
-        waitingFor: 'background job "Run full gate"',
+        waits: [{ kind: "job", description: "Run full gate", startedAt: 1 }],
       },
       {
         sessionId: "worker-idle",
@@ -599,7 +599,7 @@ describe("BoardTable", () => {
     const label = screen.getByTestId("board-participant-waiting");
     expect(label).toHaveTextContent('background job "Run full gate"');
     expect(label).toHaveAttribute("title", 'Waiting for background job "Run full gate"');
-    expect(screen.getAllByTestId("session-status-timer-icon")).toHaveLength(1);
+    expect(screen.getAllByTestId("session-status-waiting-icon")).toHaveLength(1);
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
   });
 
@@ -621,8 +621,8 @@ describe("BoardTable", () => {
 
     render(<BoardTable board={board} />);
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("title", "1 scheduled timer");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("title", "1 scheduled timer");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 

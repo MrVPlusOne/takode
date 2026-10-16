@@ -10,6 +10,7 @@ import {
   type SessionNavigationSdkState,
   type SessionNavigationStatus,
 } from "../shared/session-navigation-projection.js";
+import { boundSessionWaits, type SessionWait } from "../shared/session-waits.js";
 import { deriveAskPermissionForMode } from "../shared/permission-modes.js";
 import { normalizePersistedBackendType } from "./session-types.js";
 import { isCodexLeaderRecycleMode } from "../shared/codex-leader-compaction-mode.js";
@@ -26,8 +27,8 @@ export interface SessionNavigationProjectionDefinitionDeps<TSubscriber> {
   getLauncherSessionInfo: (sessionId: string) => SdkSessionInfo | null | undefined;
   getSessionName: (sessionId: string) => string | undefined;
   getPendingTimerCount: (sessionId: string) => number;
-  /** What an idle session waits on apart from timers (background jobs, landing run, lease queues). */
-  getWaitingFor: (sessionId: string) => string | null;
+  /** What an idle session waits on apart from timers (the user's answer, background jobs, landing run, lease queues). */
+  getWaits: (sessionId: string) => SessionWait[];
   getBackendConnected: (sessionId: string) => boolean;
   getSessionStatus: (sessionId: string) => SessionNavigationStatus;
   getLastActivityAt: (sessionId: string) => number | undefined;
@@ -192,7 +193,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     killedByIdleManager: launcherInfo?.killedByIdleManager === true,
     pendingPermissionCount: session.pendingPermissions.size,
     pendingTimerCount: nonNegativeInteger(deps.getPendingTimerCount(session.id)),
-    waitingFor: boundedNullableText(deps.getWaitingFor(session.id)),
+    waits: boundSessionWaits(deps.getWaits(session.id)),
     paused: pause !== null,
     pausedInputQueueCount: nonNegativeInteger(pause?.queuedMessages.length),
     lastActivityAt: nonNegativeNullableNumber(deps.getLastActivityAt(session.id)),

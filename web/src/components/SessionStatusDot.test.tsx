@@ -132,10 +132,12 @@ describe("deriveSessionStatus", () => {
   it("returns 'waiting' when an otherwise idle session is queued for a resource lease", () => {
     // A session parked in a lease queue is blocked, not idle, so it shares the
     // timer waiting state instead of the gray idle dot.
-    expect(deriveSessionStatus(makeProps({ waitingFor: "port:companion" }))).toBe("waiting");
-    expect(deriveSessionStatus(makeProps({ waitingFor: null }))).toBe("idle");
+    const waits = [{ kind: "queue" as const, resource: "port:companion", position: 1 }];
+    expect(deriveSessionStatus(makeProps({ waits }))).toBe("waiting");
+    expect(deriveSessionStatus(makeProps({ waits: [] }))).toBe("idle");
+    expect(deriveSessionStatus(makeProps({ waits: null }))).toBe("idle");
     // Unread results still outrank the waiting state, as they do for timers.
-    expect(deriveSessionStatus(makeProps({ waitingFor: "port:companion", hasUnread: true }))).toBe("completed_unread");
+    expect(deriveSessionStatus(makeProps({ waits, hasUnread: true }))).toBe("completed_unread");
   });
 
   it("returns 'running' over 'completed_unread' when still running", () => {
@@ -292,7 +294,7 @@ describe("SessionStatusDot component", () => {
 
   it("does NOT apply glow animation for scheduled timer status", () => {
     render(<SessionStatusDot {...makeProps({ activeTimerCount: 1 })} />);
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon.style.animation).toBe("");
   });
 
@@ -352,19 +354,24 @@ describe("SessionStatusDot component", () => {
 
   it("renders the timer icon instead of a rounded dot for waiting state", () => {
     render(<SessionStatusDot {...makeProps({ activeTimerCount: 2 })} />);
-    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    const timerIcon = screen.getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("data-count", "2");
     expect(timerIcon).toHaveAttribute("title", "2 scheduled timers");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 
-  it("reuses the timer icon for a server-described wait and names it", () => {
+  it("shows the leading server-reported wait's icon and names every wait", () => {
     // The top bar and participant chips render through this component, so a
     // session waiting on a lease line (or a background job, or a landing run)
-    // must show the waiting icon with the server's description.
-    render(<SessionStatusDot {...makeProps({ waitingFor: "port:companion (#2 in line)", activeTimerCount: 1 })} />);
-    const icon = screen.getByTestId("session-status-timer-icon");
+    // must show that wait's own icon, not the timer clock, and name it.
+    render(
+      <SessionStatusDot
+        {...makeProps({ waits: [{ kind: "queue", resource: "port:companion", position: 2 }], activeTimerCount: 1 })}
+      />,
+    );
+    const icon = screen.getByTestId("session-status-waiting-icon");
     expect(icon).toHaveAttribute("data-status", "waiting");
+    expect(icon).toHaveAttribute("data-wait-kind", "queue");
     expect(icon).toHaveAttribute("title", "Waiting for port:companion (#2 in line); 1 scheduled timer");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });

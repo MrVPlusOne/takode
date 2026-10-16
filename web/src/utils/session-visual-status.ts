@@ -1,3 +1,5 @@
+import type { SessionWait } from "../../shared/session-waits.js";
+
 export type SessionVisualStatus =
   | "archived"
   | "permission"
@@ -25,8 +27,8 @@ export interface SessionVisualStatusInput {
   idleKilled?: boolean;
   /** Number of active timers waiting on an otherwise idle session */
   activeTimerCount?: number;
-  /** Server-described waits of an otherwise idle session apart from timers: background jobs, a landing run, lease queues */
-  waitingFor?: string | null;
+  /** Server-reported waits of an otherwise idle session apart from timers: the user's answer, background jobs, a landing run, lease queues */
+  waits?: readonly SessionWait[] | null;
 }
 
 /**
@@ -43,7 +45,7 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
     hasUnread,
     idleKilled,
     activeTimerCount = 0,
-    waitingFor,
+    waits,
   } = props;
 
   if (archived) return "archived";
@@ -60,6 +62,6 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
   if (hasUnread) return "completed_unread";
   // Timers and every other wait the server reports share one "waiting" state so
   // an idle session that is actually waiting does not read as plain idle.
-  if (activeTimerCount > 0 || waitingFor) return "waiting";
+  if (activeTimerCount > 0 || (waits?.length ?? 0) > 0) return "waiting";
   return "idle";
 }

@@ -1,3 +1,5 @@
+import { isSessionWaitList, sessionWaitsEqual, type SessionWait } from "./session-waits.js";
+
 /** Compact server-owned summary used by session navigation surfaces. */
 export const SESSION_NAVIGATION_PROJECTION = "session-navigation" as const;
 export const SESSION_NAVIGATION_PROJECTION_MAX_VALUE_BYTES = 16 * 1024;
@@ -34,7 +36,8 @@ const RULES = {
   killedByIdleManager: "boolean",
   pendingPermissionCount: "nonnegative-integer",
   pendingTimerCount: "nonnegative-integer",
-  waitingFor: ["nullable-string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
+  /** What the session waits on apart from timers: the user's answer, background jobs, a landing run, lease queues. */
+  waits: "session-waits",
   paused: "boolean",
   pausedInputQueueCount: "nonnegative-integer",
   lastActivityAt: "nonnegative-nullable-number",
@@ -74,21 +77,23 @@ const RULES = {
 } as const;
 
 type FieldRule = (typeof RULES)[keyof typeof RULES];
-type FieldValue<Rule extends FieldRule> = Rule extends "boolean"
-  ? boolean
-  : Rule extends "nullable-boolean"
-    ? boolean | null
-    : Rule extends "nonnegative-integer" | "nonnegative-number"
-      ? number
-      : Rule extends "nonnegative-nullable-number" | "positive-nullable-integer"
-        ? number | null
-        : Rule extends readonly ["string", number]
-          ? string
-          : Rule extends readonly ["nullable-string", number]
-            ? string | null
-            : Rule extends readonly unknown[]
-              ? Rule[number]
-              : never;
+type FieldValue<Rule extends FieldRule> = Rule extends "session-waits"
+  ? SessionWait[]
+  : Rule extends "boolean"
+    ? boolean
+    : Rule extends "nullable-boolean"
+      ? boolean | null
+      : Rule extends "nonnegative-integer" | "nonnegative-number"
+        ? number
+        : Rule extends "nonnegative-nullable-number" | "positive-nullable-integer"
+          ? number | null
+          : Rule extends readonly ["string", number]
+            ? string
+            : Rule extends readonly ["nullable-string", number]
+              ? string | null
+              : Rule extends readonly unknown[]
+                ? Rule[number]
+                : never;
 
 /** Current-build fields shared by REST session rows and live projection updates. */
 export type SessionNavigationProjectionValue = {
@@ -100,6 +105,7 @@ export type SessionNavigationStatus = SessionNavigationProjectionValue["status"]
 export type SessionNavigationProjectionPatch = Partial<SessionNavigationProjectionValue>;
 
 function fieldMatches(rule: FieldRule, value: unknown): boolean {
+  if (rule === "session-waits") return isSessionWaitList(value);
   if (rule === "boolean") return typeof value === "boolean";
   if (rule === "nullable-boolean") return value === null || typeof value === "boolean";
   if (rule === "nonnegative-integer") return Number.isSafeInteger(value) && (value as number) >= 0;
@@ -128,12 +134,21 @@ export function isSessionNavigationProjectionValue(value: unknown): value is Ses
   );
 }
 
+/** The only structured field compares by content: the server rebuilds it on every publish. */
+function fieldEqual(
+  field: keyof SessionNavigationProjectionValue,
+  left: SessionNavigationProjectionValue,
+  right: SessionNavigationProjectionValue,
+): boolean {
+  return field === "waits" ? sessionWaitsEqual(left.waits, right.waits) : left[field] === right[field];
+}
+
 export function sessionNavigationProjectionEqual(
   left: SessionNavigationProjectionValue,
   right: SessionNavigationProjectionValue,
 ): boolean {
-  return (Object.keys(RULES) as (keyof SessionNavigationProjectionValue)[]).every(
-    (field) => left[field] === right[field],
+  return (Object.keys(RULES) as (keyof SessionNavigationProjectionValue)[]).every((field) =>
+    fieldEqual(field, left, right),
   );
 }
 
@@ -153,7 +168,6 @@ export function sessionNavigationProjectionToSessionFields(value: SessionNavigat
     reviewerOf: value.reviewerOf ?? undefined,
     cronJobId: value.cronJobId ?? undefined,
     cronJobName: value.cronJobName ?? undefined,
-    waitingFor: value.waitingFor ?? undefined,
     lastActivityAt: value.lastActivityAt ?? undefined,
     lastUserMessageAt: value.lastUserMessageAt ?? undefined,
     lastAttentionAt: value.lastAttentionAt ?? undefined,
@@ -180,7 +194,7 @@ export function createSessionNavigationProjectionPatch(
 ): SessionNavigationProjectionPatch {
   return Object.fromEntries(
     (Object.keys(RULES) as (keyof SessionNavigationProjectionValue)[])
-      .filter((field) => previous[field] !== next[field])
+      .filter((field) => !fieldEqual(field, previous, next))
       .map((field) => [field, next[field]]),
   ) as SessionNavigationProjectionPatch;
 }

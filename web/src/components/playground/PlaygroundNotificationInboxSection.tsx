@@ -9,7 +9,7 @@ import { NotificationChip } from "../NotificationChip.js";
 import { PlaygroundNotifyMe } from "./PlaygroundNotifyMe.js";
 import { GlobalAttentionMenu } from "../GlobalAttentionMenu.js";
 import { MessageFeed } from "../MessageFeed.js";
-import { TimerChip } from "../TimerWidget.js";
+import { WaitingChip } from "../WaitingChip.js";
 import { useStore } from "../../store.js";
 import type { ChatMessage, LeaderThreadResponseProjection } from "../../types.js";
 import type { SessionAttentionPreview } from "../../hooks/useSessionAttention.js";
@@ -602,7 +602,7 @@ export function PlaygroundNotificationInboxSection() {
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">
                 <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
-                  <TimerChip sessionId="playground-timers" />
+                  <WaitingChip sessionId="playground-timers" />
                   <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
                 </div>
               </div>
@@ -702,7 +702,7 @@ export function PlaygroundNotificationInboxSection() {
             </p>
             <div className="relative h-24 rounded-lg border border-cc-border bg-cc-bg overflow-hidden">
               <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3">
-                <TimerChip sessionId="playground-timers" />
+                <WaitingChip sessionId="playground-timers" />
                 <NotificationChip sessionId="playground-notifs" />
               </div>
             </div>
@@ -764,7 +764,7 @@ export function PlaygroundNotificationInboxSection() {
                 </button>
               </div>
               <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3">
-                <TimerChip sessionId="playground-timers" />
+                <WaitingChip sessionId="playground-timers" />
                 <NotificationChip sessionId="playground-notifs" />
               </div>
             </div>

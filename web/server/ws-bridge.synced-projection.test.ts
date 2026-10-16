@@ -819,8 +819,8 @@ describe("WsBridge synchronized projections", () => {
   });
 
   it("publishes what an idle worker waits for from its background jobs, landing run and lease queues", async () => {
-    // Sidebar rows and the work board read `waitingFor` to show an idle worker
-    // as waiting instead of idle. The bridge composes it from the real signal
+    // Sidebar rows, the work board and the feed's waiting chip read `waits` to show
+    // an idle worker as waiting instead of idle. The bridge composes it from the real signal
     // sources: the Claude adapter's background jobs (republished when they
     // change), the landing queue and the lease manager.
     const bridge = new WsBridge();
@@ -861,22 +861,29 @@ describe("WsBridge synchronized projections", () => {
       .getSyncedProjectionController()
       .replaceSubscriptions(socket, [{ projection: "session-navigation", key: "worker" }])
       .find((message) => message.type === "synced_projection_snapshot");
-    expect(initial).toMatchObject({ value: { waitingFor: "full-suite:takode@devbox (#2 in line)" } });
+    const queue = { kind: "queue", resource: "full-suite:takode@devbox", position: 2 };
+    expect(initial).toMatchObject({ value: { waits: [queue] } });
 
     tasks = [{ taskId: "gate", description: "Run full gate", startedAt: 1 }];
     onTasksChanged();
     await bridge.getSyncedProjectionController().flushForTest();
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
-      patch: { waitingFor: 'background job "Run full gate"; full-suite:takode@devbox (#2 in line)' },
+      patch: { waits: [{ kind: "job", description: "Run full gate", startedAt: 1 }, queue] },
     });
+
+    // The list is rebuilt on every publish; an unchanged one must not be resent.
+    const sentBefore = messages(socket).length;
+    bridge.invalidateSessionNavigation("worker");
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket)).toHaveLength(sentBefore);
 
     tasks = [];
     landing = true;
     bridge.invalidateSessionNavigation("worker");
     await bridge.getSyncedProjectionController().flushForTest();
     expect(messages(socket).at(-1)).toMatchObject({
-      patch: { waitingFor: "landing run; full-suite:takode@devbox (#2 in line)" },
+      patch: { waits: [{ kind: "landing" }, queue] },
     });
   });
 

@@ -191,7 +191,7 @@ function computeChildSessionSummary(
       hasUnread: hasUnreadSessionAttention(attention),
       idleKilled: s.idleKilled,
     });
-    const isWaiting = (s.pendingTimerCount ?? 0) > 0 || !!s.waitingFor;
+    const isWaiting = (s.pendingTimerCount ?? 0) > 0 || (s.waits?.length ?? 0) > 0;
     const showsWaitingStatus =
       !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !attention && s.permCount === 0 && isWaiting;
     if (showsWaitingStatus) counts.waiting++;

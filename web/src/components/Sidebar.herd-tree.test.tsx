@@ -396,7 +396,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     // Session rows show the dot rather than the stripe the old search results used; the
     // unread error must still win over the scheduled-timer waiting icon.
     expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
-    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("session-status-waiting-icon")).not.toBeInTheDocument();
   });
 
   it("keeps legacy cron-row attention ahead of a scheduled timer", async () => {
@@ -427,7 +427,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
 
     const row = (await screen.findByText("Legacy Cron Attention")).closest("button")!;
     expect(within(row).getByTestId("session-status-stripe")).toHaveAttribute("data-status", "completed_unread");
-    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("session-status-waiting-icon")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
   });
 
@@ -501,7 +501,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     const row = screen.getByText("Unread Timer Leader").closest("button")!;
     expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
     expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
-    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("session-status-waiting-icon")).not.toBeInTheDocument();
     expect(within(row).queryByTestId("session-notification-marker")).not.toBeInTheDocument();
     fireEvent.mouseEnter(row);
     await waitFor(() => {

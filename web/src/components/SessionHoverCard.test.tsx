@@ -304,7 +304,7 @@ describe("SessionHoverCard", () => {
       />,
     );
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "2");
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute("data-count", "2");
     expect(screen.getByText("waiting")).toBeInTheDocument();
     expect(screen.getByTestId("session-hover-waiting-status")).toHaveTextContent("2 scheduled timers");
     expect(screen.queryByText("idle")).toBeNull();
@@ -316,7 +316,12 @@ describe("SessionHoverCard", () => {
     // its own line so the short header label stays compact.
     render(
       <SessionHoverCard
-        session={makeSession({ waitingFor: 'background job "Run full gate"; port:companion (#2 in line)' })}
+        session={makeSession({
+          waits: [
+            { kind: "job", description: "Run full gate", startedAt: 1 },
+            { kind: "queue", resource: "port:companion", position: 2 },
+          ],
+        })}
         sessionName="Lease Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
@@ -327,7 +332,7 @@ describe("SessionHoverCard", () => {
       />,
     );
 
-    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute(
+    expect(screen.getByTestId("session-status-waiting-icon")).toHaveAttribute(
       "title",
       'Waiting for background job "Run full gate"; port:companion (#2 in line)',
     );
@@ -354,7 +359,7 @@ describe("SessionHoverCard", () => {
 
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
     expect(screen.getByText("running")).toBeInTheDocument();
-    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
+    expect(screen.queryByTestId("session-status-waiting-icon")).toBeNull();
   });
 
   it("explains active needs-input status near the top of the hover card", () => {

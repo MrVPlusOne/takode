@@ -1601,7 +1601,7 @@ export function PlaygroundOverviewSections() {
                   isConnected={true}
                   sdkState="connected"
                   status="idle"
-                  waitingFor="port:takode:jiayi (#2 in line)"
+                  waits={[{ kind: "queue", resource: "port:takode:jiayi", position: 2 }]}
                 />
                 <span className="text-xs text-cc-muted">Waiting (lease)</span>
               </div>
