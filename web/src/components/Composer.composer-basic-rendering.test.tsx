@@ -1246,7 +1246,7 @@ it.each([
     });
   });
   // Dictation ends with the transcription tag that tells agents the text was dictated.
-  expect(textarea.value).toBe("Voice first line\nVoice second line [transcribed]");
+  expect(textarea.value).toBe("Voice first line\nVoice second line\n[transcribed]");
   expect(textarea.getAttribute("aria-expanded")).toBe("true");
   expect(document.activeElement).not.toBe(textarea);
   // Expansion after completion is ordinary state: a later outside action still minimizes it.

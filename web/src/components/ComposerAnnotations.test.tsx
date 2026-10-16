@@ -205,7 +205,7 @@ describe("composer annotation attachments", () => {
       }),
     );
     // Dictated comments end with the tag that tells agents the text was transcribed.
-    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("New spoken comment [transcribed]");
+    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("New spoken comment\n[transcribed]");
     expect(useStore.getState().composerDrafts.get("session")?.annotations).toEqual([first]);
   });
 
@@ -213,7 +213,7 @@ describe("composer annotation attachments", () => {
     // Appending at the end of an already-dictated comment must leave one tag, at the end.
     useStore.getState().setAnnotationEditor({
       sessionId: "session",
-      annotation: { ...first, comment: "Spoken first. [transcribed]" },
+      annotation: { ...first, comment: "Spoken first.\n[transcribed]" },
     });
     render(<ComposerAnnotations sessionId="session" threadKey="main" />);
     const comment = screen.getByLabelText("Comment") as HTMLTextAreaElement;
@@ -221,7 +221,7 @@ describe("composer annotation attachments", () => {
     fireEvent.click(screen.getByLabelText("Voice comment"));
     await act(async () => mocks.audioReady?.(new Blob(["audio"])));
     expect(mocks.transcribe.mock.calls[0][1]).toMatchObject({ mode: "append" });
-    expect(comment.value).toBe("Spoken first. New spoken comment [transcribed]");
+    expect(comment.value).toBe("Spoken first. New spoken comment\n[transcribed]");
   });
 
   it("previews a voice edit and never replaces other comments or the main message", async () => {
@@ -279,7 +279,7 @@ describe("composer annotation attachments", () => {
   it("shows a comment's trailing transcription tag as the feed marker", () => {
     // A dictated comment is sent with "[transcribed]" for agents; the feed shows a compact marker instead.
     render(
-      <AnnotationAttachments annotations={[{ ...first, comment: "Spoken note [transcribed]" }]} variant="message" />,
+      <AnnotationAttachments annotations={[{ ...first, comment: "Spoken note\n[transcribed]" }]} variant="message" />,
     );
     expect(screen.getByText("Spoken note")).toBeTruthy();
     expect(screen.queryByText(/\[transcribed\]/)).toBeNull();

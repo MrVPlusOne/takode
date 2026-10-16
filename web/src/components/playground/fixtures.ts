@@ -628,7 +628,7 @@ export const MSG_USER_TRANSCRIBED: ChatMessage = {
   id: "msg-1-transcribed",
   role: "user",
   content:
-    "Let's keep the refresh token in memory for now and revisit persistent storage after the rollout. [transcribed]",
+    "Let's keep the refresh token in memory for now and revisit persistent storage after the rollout.\n[transcribed]",
   timestamp: Date.now() - 58000,
 };
 

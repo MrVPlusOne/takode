@@ -1063,7 +1063,7 @@ describe("Composer voice edit mode", () => {
 
     await waitFor(() => {
       expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-        "Improve this introduction. Add one more detail. [transcribed]",
+        "Improve this introduction. Add one more detail.\n[transcribed]",
       );
     });
     expect(screen.queryByText("Voice edit preview")).toBeNull();
@@ -1095,7 +1095,7 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByLabelText("Voice input"));
 
     await waitFor(() => {
-      expect(textarea.value).toBe("Original draft. Appended note. [transcribed]");
+      expect(textarea.value).toBe("Original draft. Appended note.\n[transcribed]");
     });
     fireEvent.click(screen.getByRole("button", { name: "Rerun as voice edit" }));
 
@@ -1130,7 +1130,7 @@ describe("Composer voice edit mode", () => {
   it("tags appended transcription once when the draft already carries the tag", async () => {
     // The draft carries the tag from an earlier dictation and the cursor sits mid-draft:
     // the appended text goes at the cursor without a second tag.
-    setupMockStore({ draftText: "First part. Second part. [transcribed]" });
+    setupMockStore({ draftText: "First part. Second part.\n[transcribed]" });
     mockGetSettings.mockResolvedValueOnce({
       claudeDefaultModel: "",
       transcriptionConfig: { voiceCaptureMode: "append" },
@@ -1143,14 +1143,14 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByLabelText("Voice input"));
 
     await waitFor(() => {
-      expect(textarea.value).toBe("First part. Inserted. Second part. [transcribed]");
+      expect(textarea.value).toBe("First part. Inserted. Second part.\n[transcribed]");
     });
   });
 
   it("moves the tag to the end when appending after a dictated draft", async () => {
     // Reported on a phone: the cursor sits after the earlier dictation's tag, so the old
     // "only once" rule left "[transcribed]" between the two passages.
-    setupMockStore({ draftText: "Earlier passage. [transcribed]" });
+    setupMockStore({ draftText: "Earlier passage.\n[transcribed]" });
     mockGetSettings.mockResolvedValueOnce({
       claudeDefaultModel: "",
       transcriptionConfig: { voiceCaptureMode: "append" },
@@ -1163,7 +1163,7 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByLabelText("Voice input"));
 
     await waitFor(() => {
-      expect(textarea.value).toBe("Earlier passage. Also, more. [transcribed]");
+      expect(textarea.value).toBe("Earlier passage. Also, more.\n[transcribed]");
     });
   });
 

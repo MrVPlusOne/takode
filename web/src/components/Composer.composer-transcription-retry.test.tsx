@@ -577,7 +577,7 @@ describe("Composer transcription retry", () => {
 
     // The second transcribe call should succeed and fill the textarea, tagged as transcribed
     await waitFor(() => {
-      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("hello world [transcribed]");
+      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("hello world\n[transcribed]");
     });
 
     // Retry banner should be gone

@@ -186,7 +186,7 @@ describe("NeedsInputAnswerField", () => {
     expect(options.focusedContext).toContain("The canary is green and rollback is ready.");
     expect(options.focusedContext).toContain("Suggested answers: yes, no");
     // Dictated answers end with the tag that tells agents the text was transcribed.
-    expect(onChange).toHaveBeenCalledWith("hello Takode [transcribed]");
+    expect(onChange).toHaveBeenCalledWith("hello Takode\n[transcribed]");
   });
 
   it("moves an earlier answer's tag to the end when dictating after it", async () => {
@@ -198,7 +198,7 @@ describe("NeedsInputAnswerField", () => {
         notification={notification}
         question={question}
         questionCount={1}
-        value="ship it [transcribed]"
+        value={"ship it\n[transcribed]"}
         onChange={onChange}
         placeholder="Your answer"
       />,
@@ -209,7 +209,7 @@ describe("NeedsInputAnswerField", () => {
     fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
     voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship it Takode [transcribed]"));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship it Takode\n[transcribed]"));
   });
 
   it("uses simple dictation insertion semantics without edit or append mode", () => {
@@ -283,7 +283,7 @@ describe("NeedsInputAnswerField", () => {
     expect(mockToggleRecording).toHaveBeenCalledTimes(2);
     voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
 
-    await waitFor(() => expect(textarea).toHaveValue("manual editTakode [transcribed]"));
+    await waitFor(() => expect(textarea).toHaveValue("manual editTakode\n[transcribed]"));
   });
 
   it("keeps failed voice audio retryable and retries with the original needs-input context", async () => {
@@ -322,7 +322,7 @@ describe("NeedsInputAnswerField", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship approved [transcribed]"));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship approved\n[transcribed]"));
     expect(mockTranscribe).toHaveBeenCalledTimes(2);
     expect(mockTranscribe.mock.calls[1]?.[0]).toBe(voiceBlob);
     expect(mockTranscribe.mock.calls[1]?.[1]).toEqual(

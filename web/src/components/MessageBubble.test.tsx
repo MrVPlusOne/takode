@@ -194,7 +194,7 @@ describe("MessageBubble - user messages", () => {
   it("shows a trailing transcription tag as a small marker instead of message text", () => {
     // Voice transcription appends "[transcribed]" so agents know the text was dictated;
     // the feed shows it as a compact marker rather than raw prose.
-    const msg = makeMessage({ role: "user", content: "Dictated request [transcribed]" });
+    const msg = makeMessage({ role: "user", content: "Dictated request\n[transcribed]" });
     render(<MessageBubble message={msg} />);
 
     expect(screen.getByText("Dictated request")).toBeTruthy();

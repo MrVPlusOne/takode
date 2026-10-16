@@ -6,20 +6,24 @@
 export const TRANSCRIPTION_TAG = "[transcribed]";
 
 /**
- * Ends `text` with exactly one transcription tag. A tag left from an earlier dictation is
- * removed first, so appending after it leaves no tag between the two passages.
+ * Ends `text` with exactly one transcription tag on its own final line, so tapping near the
+ * end of the dictated text does not land in the tag. A tag left from an earlier dictation
+ * is removed first, so appending after it leaves no tag between the two passages.
  */
 export function addTranscriptionTag(text: string): string {
   const parts = text.split(TRANSCRIPTION_TAG);
   const untagged = parts
     .map((part, index) => {
       const next = parts[index + 1];
-      // Drop the space before a removed tag only when whitespace or the end follows the tag;
-      // text joined straight onto the tag keeps that space as its separator.
-      return next !== undefined && /^(\s|$)/.test(next) ? part.replace(/[ \t]+$/, "") : part;
+      if (next === undefined) return part;
+      // Drop the whitespace (usually the tag's own line break) before a removed tag. Text
+      // joined straight onto the tag, as needs-input dictation inserts at the cursor with no
+      // separator, gets a single space instead.
+      const kept = part.trimEnd();
+      return kept && /^\S/.test(next) ? `${kept} ` : kept;
     })
     .join("");
-  return `${untagged.trimEnd()} ${TRANSCRIPTION_TAG}`;
+  return `${untagged.trimEnd()}\n${TRANSCRIPTION_TAG}`;
 }
 
 /**
