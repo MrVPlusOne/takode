@@ -5,7 +5,7 @@ import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
 import type { MessageFeedEndSlackProps } from "./MessageFeedEndSlack.js";
-import { useComposerOverlayLift, useComposerScrollSpace } from "./ComposerFeedLayout.js";
+import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
 import { useWaitingWorkerPreviewTarget } from "./WaitingWorkerPreview.js";
 
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
@@ -32,7 +32,6 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const normalizedThreadKey = normalizeThreadKey(currentThreadKey);
   const statusScope = `${sessionId}:${normalizedThreadKey}`;
   const composerScrollSpace = useComposerScrollSpace(statusScope);
-  const composerOverlayLift = useComposerOverlayLift();
   const currentThreadStatuses = useStore((state) => selectLeaderThreadStatuses(state, sessionId));
   const visibleThreadStatuses = useMemo(
     () => getVisibleCurrentThreadStatuses(currentThreadStatuses, normalizedThreadKey),
@@ -166,7 +165,6 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const threadStatusLayoutKey = `${visibleThreadStatusSignature}\u0000${currentThreadStatusHeight}\u0000${threadStatusCompensation}`;
 
   return {
-    composerOverlayLift,
     feedEndScrollSlack,
     feedEndSlackProps,
     reserveTargetScrollSpace,

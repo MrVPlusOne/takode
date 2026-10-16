@@ -25,10 +25,21 @@ const GROUP_ARIA_LABEL: Record<AttentionKind, string> = {
   unread: "Unread results",
 };
 
-/** Where the feed chip's Next just went, floating above the chip. */
-export function SessionAttentionToast({ landing }: { landing: NextAttentionLanding }) {
+/** Where the feed chip's Next just went, floating next to the chip on the feed side. */
+export function SessionAttentionToast({
+  landing,
+  placement,
+}: {
+  landing: NextAttentionLanding;
+  /** The feed edge the chip floats at; the toast shows on the chip's other side. */
+  placement: "top" | "bottom";
+}) {
   return (
-    <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 w-max max-w-[min(24rem,calc(100vw-1.5rem))] font-sans-ui">
+    <div
+      className={`pointer-events-none absolute right-0 z-20 w-max max-w-[min(24rem,calc(100vw-1.5rem))] font-sans-ui ${
+        placement === "top" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+      }`}
+    >
       <NextAttentionToast landing={landing} inline />
     </div>
   );

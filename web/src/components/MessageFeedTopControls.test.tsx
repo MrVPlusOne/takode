@@ -66,9 +66,62 @@ function installSession(withChild: boolean) {
   });
 }
 
+const originalInnerWidth = window.innerWidth;
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+}
+
+function installNeedsInput() {
+  useStore.setState({
+    sessionNotifications: new Map([
+      [
+        "session-1",
+        [{ id: "n-1", category: "needs-input", summary: "Pick one", timestamp: 1, messageId: "m-1", done: false }],
+      ],
+    ]),
+  });
+}
+
 describe("MessageFeedTopControls", () => {
+  beforeEach(() => {
+    // Phone width by default: the attention chip joins this row only on desktop.
+    setViewportWidth(430);
+  });
+
   afterEach(() => {
-    useStore.setState({ sessions: new Map(), codexSubagentInspector: null });
+    setViewportWidth(originalInnerWidth);
+    useStore.setState({ sessions: new Map(), codexSubagentInspector: null, sessionNotifications: new Map() });
+  });
+
+  it("puts the session attention chip at the right end of the row on desktop only", () => {
+    // Desktop moves the chip to the feed's top right to cut mouse travel to
+    // the top bar's attention controls; phones keep it at the bottom right
+    // (FeedStatusPill) within thumb reach, so this row leaves it out there.
+    installSession(true);
+    installNeedsInput();
+    const props = {
+      sessionId: "session-1",
+      terminals: [terminal],
+      subagents: [],
+      selectedToolUseId: null,
+      onSelect: vi.fn(),
+      onSelectSubagent: vi.fn(),
+      onDismissSubagent: vi.fn(),
+    };
+    const view = render(<MessageFeedTopControls {...props} />);
+    expect(screen.queryByTestId("session-attention-chip")).toBeNull();
+
+    setViewportWidth(1280);
+    view.rerender(<MessageFeedTopControls {...props} />);
+    const controls = screen.getByTestId("message-feed-top-controls");
+    const chip = within(controls).getByTestId("session-attention-chip");
+    const rightGroup = chip.parentElement!;
+    expect(rightGroup).toHaveClass("ml-auto", "shrink-0");
+    // The Codex child control and the chip share the right group, chip last.
+    expect(rightGroup.lastElementChild).toBe(chip);
+    expect(within(rightGroup).getByTestId("codex-subagent-feed-control-row")).toBeInTheDocument();
+    expect(chip).toHaveTextContent("1/1·Next");
   });
 
   it("shares one collision-free absolute rail between live activity and the session chip", () => {

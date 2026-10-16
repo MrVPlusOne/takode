@@ -102,3 +102,34 @@ export function MessageFeedNavigationControls({
     </div>
   );
 }
+
+/** "New content below" pill: jumps to the latest content, lifted above an expanded desktop composer. */
+export function LatestContentPill({
+  latestSectionBelow,
+  onClick,
+}: {
+  /** The latest content is in a newer, unloaded section rather than further down this one. */
+  latestSectionBelow: boolean;
+  onClick: () => void;
+}) {
+  const composerOverlayLift = useComposerOverlayLift();
+  return (
+    <div
+      style={composerOverlayLift}
+      className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4"
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-cc-primary/25 bg-cc-card/95 px-4 py-2 text-sm font-medium text-cc-fg shadow-lg backdrop-blur-sm transition-colors hover:bg-cc-hover cursor-pointer"
+        title="Jump to latest"
+        aria-label="Jump to latest"
+      >
+        <span
+          className={`inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary ${latestSectionBelow ? "" : "animate-pulse"}`}
+        />
+        <span className="truncate">{latestSectionBelow ? "Latest section below" : "New content below"}</span>
+      </button>
+    </div>
+  );
+}

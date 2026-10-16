@@ -1,9 +1,19 @@
 import { useStore } from "../store.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { CodexSubagentFeedControl } from "./CodexSubagentFeedControl.js";
 import { LiveActivityRail, type CodexTerminalEntry, type LiveSubagentEntry } from "./MessageFeedLiveActivity.js";
+import { NotificationChip } from "./NotificationChip.js";
 
+/**
+ * Controls floating at the top of the feed, in one row so they never overlap: live terminals and
+ * subagents on the left, then the Codex subagent control and, on desktop, the session's attention
+ * chip at the right. Desktop keeps the chip up here near the top bar's attention controls to cut
+ * mouse travel; phones keep it at the bottom right (FeedStatusPill), within thumb reach.
+ */
 export function MessageFeedTopControls({
   sessionId,
+  currentThreadKey,
+  onSelectThread,
   terminals,
   subagents,
   selectedToolUseId,
@@ -13,6 +23,8 @@ export function MessageFeedTopControls({
   showCodexSubagents = true,
 }: {
   sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   terminals: CodexTerminalEntry[];
   subagents: LiveSubagentEntry[];
   selectedToolUseId: string | null;
@@ -26,8 +38,9 @@ export function MessageFeedTopControls({
   );
   const hasCodexSubagents = showCodexSubagents && hasCodexSubagentData;
   const hasLiveActivity = terminals.length > 0 || subagents.length > 0;
+  const showAttentionChip = useDesktopShellLayout();
 
-  if (!hasCodexSubagents && !hasLiveActivity) return null;
+  if (!hasCodexSubagents && !hasLiveActivity && !showAttentionChip) return null;
 
   return (
     <div
@@ -44,7 +57,19 @@ export function MessageFeedTopControls({
           onDismissSubagent={onDismissSubagent}
         />
       )}
-      {hasCodexSubagents && <CodexSubagentFeedControl sessionId={sessionId} />}
+      {(hasCodexSubagents || showAttentionChip) && (
+        <div className="ml-auto flex shrink-0 items-start gap-2">
+          {hasCodexSubagents && <CodexSubagentFeedControl sessionId={sessionId} />}
+          {showAttentionChip && (
+            <NotificationChip
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+              placement="top"
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

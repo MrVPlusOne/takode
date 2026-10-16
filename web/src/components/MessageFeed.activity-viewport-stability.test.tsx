@@ -27,7 +27,7 @@ beforeAll(() => {
   });
 });
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -1286,11 +1286,18 @@ describe("MessageFeed activity viewport stability", () => {
     setProducerActivity(sid, "main", true);
     const resize = installControlledResizeObserver();
     const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+    // The attention chip floats at the bottom right only on phones (desktop puts it at the top).
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.getByText("Active here")).toBeTruthy());
-      expect(screen.getByRole("button", { name: /next item that needs attention in this session/ })).toBeTruthy();
+      expect(
+        within(screen.getByTestId("feed-status-pill-right")).getByRole("button", {
+          name: /next item that needs attention in this session/,
+        }),
+      ).toBeTruthy();
       geometry.setPhysicalBottom();
       const lastElement = document.querySelector<HTMLElement>(`[data-message-id="${last.id}"]`)!;
       const baseline = {
@@ -1308,8 +1315,40 @@ describe("MessageFeed activity viewport stability", () => {
       expect(geometry.scrollTop).toBe(baseline.scrollTop);
       expect(lastElement.getBoundingClientRect().top).toBe(baseline.anchorOffset);
     } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
       geometry.restore();
       resize.restore();
+    }
+  });
+
+  it("floats the session attention chip at the top right on desktop and the bottom right on phones", () => {
+    // Desktop: near the top bar's attention controls, to cut mouse travel.
+    // Phone: at the bottom right, within thumb reach. Only one chip ever shows,
+    // and on desktop the bottom-right stack leaves it out entirely.
+    const sid = "attention-chip-placement";
+    setProducerWindow(sid, "main");
+    setConnectedLeaderSession(sid);
+    setNeedsInputNotification(sid);
+    const originalInnerWidth = window.innerWidth;
+    const chipName = /next item that needs attention in this session/;
+
+    try {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+      const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
+      expect(screen.getAllByRole("button", { name: chipName })).toHaveLength(1);
+      expect(
+        within(screen.getByTestId("message-feed-top-controls")).getByRole("button", { name: chipName }),
+      ).toBeTruthy();
+      expect(within(screen.getByTestId("feed-status-pill-right")).queryByRole("button", { name: chipName })).toBeNull();
+
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
+      act(() => window.dispatchEvent(new Event("resize")));
+      view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+      expect(screen.getAllByRole("button", { name: chipName })).toHaveLength(1);
+      expect(within(screen.getByTestId("feed-status-pill-right")).getByRole("button", { name: chipName })).toBeTruthy();
+      expect(screen.queryByTestId("message-feed-top-controls")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
     }
   });
 });

@@ -52,32 +52,36 @@ import {
 const EMPTY: SessionNotification[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 type NotificationCategory = SessionNotification["category"];
-const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
+const NOTIFICATION_POPOVER_MIN_OFFSET_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
 const NEXT_TOAST_MS = 2600;
 const OTHER_ATTENTION_KINDS = ["notify-me", "unread"] as const;
 
-function getNotificationPopoverBottomPx(anchor: HTMLElement | null): number {
-  if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+/** Where the chip floats: the feed's lower right (phones) or its upper right (desktop, less mouse travel). */
+export type NotificationChipPlacement = "top" | "bottom";
+
+/**
+ * The inbox opens on the chip's open side: above a chip at the feed's bottom, below one at its top.
+ * Returns the panel's distance from that viewport edge.
+ */
+function getNotificationPopoverOffsetPx(anchor: HTMLElement | null, placement: NotificationChipPlacement): number {
+  if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_OFFSET_PX;
   const anchorRect = anchor.getBoundingClientRect();
   if (anchorRect.top === 0 && anchorRect.bottom === 0 && anchorRect.width === 0 && anchorRect.height === 0) {
-    return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+    return NOTIFICATION_POPOVER_MIN_OFFSET_PX;
   }
-  const anchorTop = anchorRect.top;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  if (!Number.isFinite(anchorTop) || viewportHeight <= 0) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
-  return Math.max(
-    NOTIFICATION_POPOVER_MIN_BOTTOM_PX,
-    Math.ceil(viewportHeight - anchorTop + NOTIFICATION_POPOVER_ANCHOR_GAP_PX),
-  );
+  const edgeDistance = placement === "top" ? anchorRect.bottom : viewportHeight - anchorRect.top;
+  if (!Number.isFinite(edgeDistance) || viewportHeight <= 0) return NOTIFICATION_POPOVER_MIN_OFFSET_PX;
+  return Math.max(NOTIFICATION_POPOVER_MIN_OFFSET_PX, Math.ceil(edgeDistance + NOTIFICATION_POPOVER_ANCHOR_GAP_PX));
 }
 
-function useNotificationPopoverLayout(anchor: HTMLElement | null) {
-  const [bottomPx, setBottomPx] = useState(NOTIFICATION_POPOVER_MIN_BOTTOM_PX);
+function useNotificationPopoverLayout(anchor: HTMLElement | null, placement: NotificationChipPlacement) {
+  const [offsetPx, setOffsetPx] = useState(NOTIFICATION_POPOVER_MIN_OFFSET_PX);
 
   useLayoutEffect(() => {
-    const update = () => setBottomPx(getNotificationPopoverBottomPx(anchor));
+    const update = () => setOffsetPx(getNotificationPopoverOffsetPx(anchor, placement));
     update();
 
     window.addEventListener("resize", update);
@@ -94,11 +98,11 @@ function useNotificationPopoverLayout(anchor: HTMLElement | null) {
       window.visualViewport?.removeEventListener("resize", update);
       observer?.disconnect();
     };
-  }, [anchor]);
+  }, [anchor, placement]);
 
   return {
-    "--notification-popover-bottom": `${bottomPx}px`,
-    "--notification-popover-available-height": `calc(100dvh - ${bottomPx}px - ${NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX}px)`,
+    [placement === "top" ? "--notification-popover-top" : "--notification-popover-bottom"]: `${offsetPx}px`,
+    "--notification-popover-available-height": `calc(100dvh - ${offsetPx}px - ${NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX}px)`,
   } as CSSProperties;
 }
 
@@ -720,6 +724,7 @@ function NotificationPopover({
   sessionId,
   onClose,
   anchor,
+  placement,
   currentThreadKey,
   onSelectThread,
   attentionItems,
@@ -729,6 +734,7 @@ function NotificationPopover({
   sessionId: string;
   onClose: () => void;
   anchor: HTMLElement | null;
+  placement: NotificationChipPlacement;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   /** The session's queue; its Notify Me and unread items get their own sections. */
@@ -743,7 +749,7 @@ function NotificationPopover({
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const popoverLayoutStyle = useNotificationPopoverLayout(anchor);
+  const popoverLayoutStyle = useNotificationPopoverLayout(anchor, placement);
   const readAll = usePendingAction("Read All failed.");
   const markAllRead = useCallback(() => {
     void readAll.run(() =>
@@ -771,7 +777,9 @@ function NotificationPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed inset-x-3 bottom-[var(--notification-popover-bottom)] z-50 flex max-h-[min(60vh,28rem,var(--notification-popover-available-height))] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-[36rem] md:w-[39rem] sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[min(60vh,34rem,var(--notification-popover-available-height))]"
+      className={`fixed inset-x-3 ${
+        placement === "top" ? "top-[var(--notification-popover-top)]" : "bottom-[var(--notification-popover-bottom)]"
+      } z-50 flex max-h-[min(60vh,28rem,var(--notification-popover-available-height))] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-[36rem] md:w-[39rem] sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[min(60vh,34rem,var(--notification-popover-available-height))]`}
       style={popoverLayoutStyle}
       role="dialog"
       aria-label="Notification inbox"
@@ -928,11 +936,14 @@ export function NotificationChip({
   currentThreadKey,
   onSelectThread,
   attentionPreview,
+  placement = "bottom",
 }: {
   sessionId: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   attentionPreview?: SessionAttentionPreview;
+  /** Which feed edge the chip floats at; its toast and list open away from that edge. */
+  placement?: NotificationChipPlacement;
 }) {
   const { active, muted } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
@@ -1058,7 +1069,7 @@ export function NotificationChip({
             </span>
           )}
         </button>
-        {landing && <SessionAttentionToast landing={landing} />}
+        {landing && <SessionAttentionToast landing={landing} placement={placement} />}
       </div>
 
       {open && (
@@ -1066,6 +1077,7 @@ export function NotificationChip({
           sessionId={sessionId}
           onClose={close}
           anchor={chipRef.current}
+          placement={placement}
           currentThreadKey={currentThreadKey}
           onSelectThread={onSelectThread}
           attentionItems={attention.queue}

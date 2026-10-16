@@ -95,7 +95,7 @@ import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll
 import { useJumpTargetPin } from "./message-feed-jump-target-pin.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
-import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
+import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -169,7 +169,6 @@ export function MessageFeed({
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
   const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
   const {
-    composerOverlayLift,
     feedEndScrollSlack,
     feedEndSlackProps,
     reserveTargetScrollSpace,
@@ -600,7 +599,6 @@ export function MessageFeed({
     readyCollapseSettled && isLeaderSession && !isAllThreadsKey(normalizedThreadKey) && !responseStateHasTrackedWork;
   const isLoadingOlderSection = pendingSectionLoadDirection === "older";
   const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
-  const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
   const missingSelectedWindowHasContext = hasMissingSelectedThreadWindowContext({
     selectedFeedWindowEnabled,
     hasActiveThreadWindow: Boolean(activeThreadWindow),
@@ -1779,6 +1777,8 @@ export function MessageFeed({
   const feedTopControls = (
     <MessageFeedTopControls
       sessionId={sessionId}
+      currentThreadKey={threadKey}
+      onSelectThread={onSelectThread}
       terminals={visibleCodexTerminalRailEntries}
       subagents={visibleLiveSubagentEntries}
       selectedToolUseId={selectedCodexTerminalId}
@@ -1946,25 +1946,7 @@ export function MessageFeed({
         )}
 
         {showLatestPill && latestIndicatorMode !== "external" && (
-          <div
-            style={composerOverlayLift}
-            className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4"
-          >
-            <button
-              type="button"
-              onClick={handleScrollToBottomClick}
-              className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-cc-primary/25 bg-cc-card/95 px-4 py-2 text-sm font-medium text-cc-fg shadow-lg backdrop-blur-sm transition-colors hover:bg-cc-hover cursor-pointer"
-              title="Jump to latest"
-              aria-label="Jump to latest"
-            >
-              <span
-                className={`inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary ${
-                  hasNewerSections ? "" : "animate-pulse"
-                }`}
-              />
-              <span className="truncate">{latestPillLabel}</span>
-            </button>
-          </div>
+          <LatestContentPill latestSectionBelow={hasNewerSections} onClick={handleScrollToBottomClick} />
         )}
 
         <MessageFeedNavigationControls

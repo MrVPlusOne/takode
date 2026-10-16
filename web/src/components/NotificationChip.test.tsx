@@ -1159,6 +1159,31 @@ describe("NotificationChip", () => {
     }
   });
 
+  it("opens its list and toast below a chip at the feed's top", () => {
+    // Desktop places the chip at the feed's top right, just under the top bar.
+    // Opening upward there would push the list off screen, so the list drops
+    // from the chip's bottom edge and the Next toast shows under the chip.
+    setNotifications("s1", [
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: 1, messageId: "m-1", done: false },
+    ]);
+
+    render(<NotificationChip sessionId="s1" placement="top" />);
+    Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ x: 900, y: 60, top: 60, right: 1000, bottom: 84, left: 900, width: 100, height: 24 }),
+    });
+
+    fireEvent.click(chipButton());
+    expect(screen.getByTestId("next-attention-toast").parentElement).toHaveClass("top-full");
+
+    openInbox();
+    const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+    expect(dialog.className).toContain("top-[var(--notification-popover-top)]");
+    expect(dialog.className).not.toContain("bottom-[var(--notification-popover-bottom)]");
+    expect(dialog.style.getPropertyValue("--notification-popover-top")).toBe("92px");
+    expect(dialog.style.getPropertyValue("--notification-popover-available-height")).toBe("calc(100dvh - 92px - 12px)");
+  });
+
   it("does not show a hover card when hovering a needs-input notification row", () => {
     mockStoreState.messages = new Map([
       [
