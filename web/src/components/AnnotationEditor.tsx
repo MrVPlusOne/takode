@@ -5,6 +5,7 @@ import type { ConversationAnnotation } from "../../shared/conversation-annotatio
 import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import { buildAnnotationVoiceReference, type AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
 import { api } from "../api.js";
+import { useStore } from "../store.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { useSendKey } from "../hooks/useSendKey.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
@@ -52,6 +53,7 @@ export function AnnotationEditor({
   const [hideAlternate, setHideAlternate] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pressedOutside = useRef(false);
+  const focusComposerOnClose = useRef(false);
   const capture = useRef<Capture | null>(null);
   const generation = useRef(0);
   const currentText = useRef(text);
@@ -72,7 +74,10 @@ export function AnnotationEditor({
     return () => {
       generation.current++;
       capture.current = null;
-      previous?.focus({ preventScroll: true });
+      // A keyboard save hands focus to the composer so the next send key sends the message. Tap and click saves
+      // keep the earlier focus, so a phone keyboard does not pop up unasked.
+      if (focusComposerOnClose.current) useStore.getState().focusComposer();
+      else previous?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -218,7 +223,9 @@ export function AnnotationEditor({
           onKeyDown={(event) => {
             if (!saveKey.isSendKey(event)) return;
             event.preventDefault();
-            if (canSave) onSave(text);
+            if (!canSave) return;
+            focusComposerOnClose.current = true;
+            onSave(text);
           }}
           placeholder="Add your comment…"
           rows={4}

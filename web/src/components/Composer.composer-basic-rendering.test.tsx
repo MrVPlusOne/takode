@@ -867,6 +867,25 @@ describe("Composer basic rendering", () => {
     await waitFor(() => expect(document.activeElement).toBe(textarea));
   });
 
+  it("puts the cursor at the end of the draft on an explicit focus request", async () => {
+    // A focus request (for example after saving a comment with the send key) means "continue typing here",
+    // so the cursor goes after the draft even if it was left elsewhere before.
+    setupMockStore({ draftText: "Draft to continue" });
+    mockStoreState.focusComposerTrigger = 1;
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange(0, 0);
+
+    act(() => {
+      mockStoreState.focusComposerTrigger = 2;
+      notifyMockStore();
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.selectionStart).toBe("Draft to continue".length);
+    expect(textarea.selectionEnd).toBe("Draft to continue".length);
+  });
+
   it("blurs a focused drafted mobile composer when leader thread navigation reuses it", async () => {
     // Leader quest-thread selection can reuse one Composer instance. The route
     // change must be view-only on touch devices while preserving the draft.

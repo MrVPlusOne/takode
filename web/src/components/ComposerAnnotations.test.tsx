@@ -147,6 +147,37 @@ describe("composer annotation attachments", () => {
     expect(annotations()?.[1].comment).toBe("Revised outside");
   });
 
+  it("asks the composer for focus after a keyboard save, but not after a tap or click save", () => {
+    // Saving with the send key should leave the cursor in the composer so the next send key sends the message.
+    // Save-button and outside-click saves keep the earlier focus, so a phone keyboard does not pop up unasked.
+    const trigger = () => useStore.getState().focusComposerTrigger;
+    openNewComment();
+    const before = trigger();
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Clicked comment" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(trigger()).toBe(before);
+
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Outside comment" } });
+    const backdrop = screen.getByRole("dialog").parentElement!;
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(trigger()).toBe(before);
+
+    // An empty comment cannot save, so the send key leaves the editor open and requests nothing.
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: " " } });
+    fireEvent.keyDown(screen.getByLabelText("Comment"), { key: "Enter" });
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(trigger()).toBe(before);
+
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Keyboard comment" } });
+    fireEvent.keyDown(screen.getByLabelText("Comment"), { key: "Enter" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useStore.getState().composerDrafts.get("session")?.annotations?.[1].comment).toBe("Keyboard comment");
+    expect(trigger()).toBe(before + 1);
+  });
+
   it("stays open when the outside click ends a selection drag or voice work is unsettled", async () => {
     // A selection that starts in the textarea and is released over the backdrop produces a click on the backdrop;
     // only a press that also started outside counts. Pending transcription and an undecided voice edit stay open

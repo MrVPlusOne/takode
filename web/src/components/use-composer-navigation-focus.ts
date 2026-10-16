@@ -17,7 +17,11 @@ export function useComposerNavigationFocus(options: {
     previousFocusTriggerRef.current = focusTrigger;
     if (typeof focusTrigger !== "number" || typeof previousFocusTrigger !== "number") return;
     if (focusTrigger <= previousFocusTrigger) return;
-    textareaRef.current?.focus();
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    // A focus request means "continue typing here": put the cursor after the draft, not where it last was.
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, [focusTrigger, textareaRef]);
 
   useEffect(() => {
