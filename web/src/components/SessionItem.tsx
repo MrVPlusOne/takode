@@ -799,6 +799,8 @@ function SessionItemComponent({
               className={`flex min-w-0 items-center gap-1 mt-0.5 text-[10.5px] ${sidebarMetadataClassName} leading-tight ${usesExpandedLeaderPortrait ? "col-start-2 row-start-2" : ""}`}
               data-testid={usesExpandedLeaderPortrait ? "session-metadata-row" : undefined}
             >
+              {/* Backend icon first so it lines up across cards. */}
+              <img src={backendLogo} alt={backendAlt} className="w-3.5 h-3.5 shrink-0 object-contain opacity-85" />
               {spaceLabel && (
                 <span
                   className="max-w-[45%] truncate text-[10px] font-medium text-cc-fg/70 shrink-0"
@@ -811,7 +813,6 @@ function SessionItemComponent({
               {s.sessionNum != null && (
                 <span className="text-[9px] font-mono text-current shrink-0">#{s.sessionNum}</span>
               )}
-              <img src={backendLogo} alt={backendAlt} className="w-3.5 h-3.5 shrink-0 object-contain opacity-85" />
               {s.hostId && <HostBadge hostId={s.hostId} />}
               {s.isContainerized && (
                 <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-cc-info bg-cc-info-bg">

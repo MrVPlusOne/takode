@@ -715,6 +715,20 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByTestId("session-status-dot")).toBeInTheDocument();
   });
 
+  it("puts the backend icon first on the metadata row, before the space name and session number", () => {
+    // The icon leads the row so it sits at the same horizontal position on every card,
+    // whatever the length of the space name (Recent view) or session number.
+    renderSessionItem({
+      session: makeSession({ sessionNum: 42 }),
+      spaceLabel: "Takode",
+    });
+
+    const backendIcon = screen.getByAltText("Codex");
+    const row = backendIcon.parentElement!;
+    expect(row.firstElementChild).toBe(backendIcon);
+    expect(row).toHaveTextContent("Takode#42");
+  });
+
   it("uses the approved Claude backend badge for Claude sessions", () => {
     renderSessionItem({
       session: makeSession({ backendType: "claude-sdk" }),
