@@ -12,6 +12,7 @@ import { LONG_PRESS_MS } from "../hooks/useLongPress.js";
 
 const mockConnectSession = vi.fn();
 const mockConnectAllSessions = vi.fn();
+const mockSyncedProjectionsLive = vi.fn(() => false);
 const mockDisconnectSession = vi.fn();
 const scrollTargetSessionIds: string[] = [];
 const mockScrollIntoView = vi.fn(function (this: Element) {
@@ -22,6 +23,7 @@ vi.mock("../ws.js", () => ({
   connectSession: (...args: unknown[]) => mockConnectSession(...args),
   connectAllSessions: (...args: unknown[]) => mockConnectAllSessions(...args),
   disconnectSession: (...args: unknown[]) => mockDisconnectSession(...args),
+  syncedProjectionsLive: () => mockSyncedProjectionsLive(),
 }));
 
 vi.mock("../utils/pending-creation.js", () => ({
@@ -32,7 +34,7 @@ const mockApi = {
   listSessions: vi.fn().mockResolvedValue([]),
   // The sidebar poll reads through pollActiveSessions; by default it returns
   // whatever listSessions is mocked to, as a changed list with no ETag.
-  pollActiveSessions: vi.fn(async (_etag: string | null) => ({
+  pollActiveSessions: vi.fn(async (_etag: string | null, _options?: { socketProjections?: boolean }) => ({
     sessions: await mockApi.listSessions({ includeArchived: false }),
     etag: null as string | null,
   })),
@@ -75,7 +77,8 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
-    pollActiveSessions: (etag: string | null) => mockApi.pollActiveSessions(etag),
+    pollActiveSessions: (etag: string | null, options?: { socketProjections?: boolean }) =>
+      mockApi.pollActiveSessions(etag, options),
     listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
     getArchivedSessionsSummary: (...args: unknown[]) => mockApi.getArchivedSessionsSummary(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
@@ -365,16 +368,15 @@ describe("Sidebar", { timeout: 10000 }, () => {
     }
   });
 
-  // While the selected session's socket is live it pushes the fast-changing
-  // row fields, so the poll names the last list's ETag and an unchanged answer
-  // (null) leaves the hydrated list alone. Without a live socket it re-reads in full.
-  it("polls with the last list's ETag only while the session socket is live", async () => {
+  // While the selected session's socket delivers every listed session's synced
+  // projections, it keeps those fields current: the poll names the last list's
+  // ETag and asks for rows without the projections, and an unchanged answer (null)
+  // leaves the hydrated list alone. Otherwise it re-reads the full list.
+  it("polls with the last list's ETag only while the socket delivers the projections", async () => {
     vi.useFakeTimers();
     const listed = [makeSdkSession("s1")];
-    mockState = createMockState({
-      currentSessionId: "s1",
-      connectionStatus: new Map([["s1", "connected"]]),
-    } as Partial<MockStoreState>);
+    mockState = createMockState({ currentSessionId: "s1" } as Partial<MockStoreState>);
+    mockSyncedProjectionsLive.mockReturnValue(true);
     mockApi.pollActiveSessions.mockResolvedValueOnce({ sessions: listed, etag: 'W/"one"' });
     mockApi.pollActiveSessions.mockResolvedValueOnce(null as never);
     try {
@@ -385,15 +387,19 @@ describe("Sidebar", { timeout: 10000 }, () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });
-      expect(mockApi.pollActiveSessions.mock.calls.map(([etag]) => etag)).toEqual([null, 'W/"one"']);
+      expect(mockApi.pollActiveSessions.mock.calls).toEqual([
+        [null, { socketProjections: true }],
+        ['W/"one"', { socketProjections: true }],
+      ]);
       expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1);
 
-      mockState = { ...mockState, connectionStatus: new Map([["s1", "disconnected"]]) } as MockStoreState;
+      mockSyncedProjectionsLive.mockReturnValue(false);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });
-      expect(mockApi.pollActiveSessions.mock.calls.at(-1)?.[0]).toBeNull();
+      expect(mockApi.pollActiveSessions.mock.calls.at(-1)).toEqual([null, { socketProjections: false }]);
     } finally {
+      mockSyncedProjectionsLive.mockReturnValue(false);
       vi.useRealTimers();
     }
   });

@@ -27,12 +27,15 @@ export async function listSessions(options?: { includeArchived?: boolean }): Pro
 /**
  * Re-read the active session list. Given the ETag of the list last read, the
  * server answers 304 (null here) when only fields the session socket keeps
- * current have changed since.
+ * current have changed since. With `socketProjections`, the caller's socket
+ * delivers the synced projections, so the rows come without them.
  */
 export async function pollActiveSessions(
   etag: string | null,
+  options: { socketProjections?: boolean } = {},
 ): Promise<{ sessions: SdkSessionInfo[]; etag: string | null } | null> {
-  const response = await fetch(`${BASE}/sessions?includeArchived=false`, {
+  const query = options.socketProjections ? "includeArchived=false&socketProjections=1" : "includeArchived=false";
+  const response = await fetch(`${BASE}/sessions?${query}`, {
     cache: "no-store",
     ...(etag ? { headers: { "If-None-Match": etag } } : {}),
   });

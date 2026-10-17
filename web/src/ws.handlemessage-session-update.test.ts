@@ -228,6 +228,23 @@ describe("handleMessage: session_update", () => {
     ).toEqual(["q-9"]);
   });
 
+  // The server leaves the completed board out of a board update when it did not
+  // change since the previous one; the browser keeps the copy it holds (the same
+  // object, so its memoized snapshot-part hash stays valid).
+  it("keeps the held completed board when a board update leaves it out", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+    const completed = [{ questId: "q-1", title: "Done", status: "DONE", createdAt: 1, updatedAt: 2, completedAt: 3 }];
+    fireMessage({ type: "board_updated", board: [], completedBoard: completed });
+    const held = useStore.getState().sessionCompletedBoards.get("s1");
+    expect(held).toEqual(completed);
+
+    const active = [{ questId: "q-2", title: "Active", status: "IMPLEMENTING", createdAt: 4, updatedAt: 5 }];
+    fireMessage({ type: "board_updated", board: active });
+    expect(useStore.getState().sessionBoards.get("s1")).toEqual(active);
+    expect(useStore.getState().sessionCompletedBoards.get("s1")).toBe(held);
+  });
+
   it("force-refreshes only server-open leader quest titles after a global quest update", async () => {
     // Every connected browser receives the quest update; each must refresh its
     // own bounded retained-tab title cache rather than the full quest corpus.

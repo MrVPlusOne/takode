@@ -79,7 +79,7 @@ function boardUpdatedMessage(reviewer: BoardParticipantStatus | null): BoardUpda
 function applyBoardUpdated(message: BoardUpdatedMessage) {
   const store = useStore.getState();
   store.setSessionBoard(LEADER_ID, message.board);
-  store.setSessionCompletedBoard(LEADER_ID, message.completedBoard);
+  if (message.completedBoard) store.setSessionCompletedBoard(LEADER_ID, message.completedBoard);
   store.setSessionBoardRowStatuses(LEADER_ID, message.rowSessionStatuses ?? {});
 }
 

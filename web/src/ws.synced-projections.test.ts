@@ -423,6 +423,48 @@ describe("synced projection WebSocket carrier", () => {
     expect(messages(carrier).some((message) => message.type === "synced_projection_resync")).toBe(false);
   });
 
+  // The sidebar poll skips the projections in the session list only while the
+  // carrier socket delivers all of them: its current inventory is acknowledged
+  // with a value for every identity. A pending ack, a list the socket has not
+  // subscribed yet, or an ack that left an identity without a value is not live.
+  it("reports projections live only after the current inventory is fully acknowledged", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "carrier", archived: false } as never] });
+    useStore.getState().setCurrentSession("carrier");
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+    expect(wsModule.syncedProjectionsLive()).toBe(false);
+
+    const carrierSubscriptions = [
+      { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
+      { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
+    ];
+    fire(carrier, attentionEnvelope({ key: "carrier" }));
+    fire(carrier, createSessionNavigationProjectionEnvelope({ key: "carrier" }));
+    fire(carrier, { type: "synced_projection_subscriptions_ack", subscriptions: carrierSubscriptions, complete: true });
+    expect(wsModule.syncedProjectionsLive()).toBe(true);
+
+    // A newly listed session is not covered until its subscription is acknowledged.
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "carrier", archived: false } as never,
+        { sessionId: "worker", archived: false } as never,
+      ],
+    });
+    expect(wsModule.syncedProjectionsLive()).toBe(false);
+    wsModule.refreshSyncedProjectionSubscriptions("carrier");
+    expect(wsModule.syncedProjectionsLive()).toBe(false);
+
+    // The ack leaves the worker's navigation without a value: still not live.
+    fire(carrier, attentionEnvelope({ key: "worker" }));
+    fire(carrier, {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [...carrierSubscriptions, { projection: SESSION_ATTENTION_PROJECTION, key: "worker" }],
+      complete: true,
+    });
+    expect(wsModule.syncedProjectionsLive()).toBe(false);
+  });
+
   it("selectively fences identities omitted by a complete partial ack", () => {
     const workerAttention = attentionEnvelope({ key: "worker", revision: 1 });
     const carrierAttention = attentionEnvelope({ key: "carrier", revision: 1 });

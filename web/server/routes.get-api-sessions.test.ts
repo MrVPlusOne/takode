@@ -582,25 +582,40 @@ describe("POST /api/sessions/_labels", () => {
 
 describe("GET /api/sessions", () => {
   // The sidebar re-reads this list every few seconds. Fields a browser's session
-  // socket keeps current (synced projections, activity time) must not change
-  // the ETag, so such a re-read is a bodyless 304; any other change is a 200.
+  // socket keeps current (synced projections and the navigation fields they carry,
+  // such as activity and git refresh times) must not change the ETag, so such a
+  // re-read is a bodyless 304; any other change is a 200.
   it("answers 304 when only socket-delivered fields changed", async () => {
-    const row = { sessionId: "s1", state: "running", cwd: "/a", lastActivityAt: 1 };
+    const row = { sessionId: "s1", state: "running", cwd: "/a", lastActivityAt: 1, cliSessionId: "cli-1" };
     launcher.listSessions.mockReturnValue([row]);
     const first = await app.request("/api/sessions", { method: "GET" });
     const etag = first.headers.get("etag");
     expect(etag).toBeTruthy();
     expect(first.headers.get("cache-control")).toBe("no-store");
 
-    launcher.listSessions.mockReturnValue([{ ...row, lastActivityAt: 2 }]);
+    // A git status refresh only moves the refresh time, which the navigation projection carries.
+    launcher.listSessions.mockReturnValue([{ ...row, lastActivityAt: 2, gitStatusRefreshedAt: 5 }]);
     const unchanged = await app.request("/api/sessions", { method: "GET", headers: { "If-None-Match": etag! } });
     expect(unchanged.status).toBe(304);
     expect(await unchanged.text()).toBe("");
 
-    launcher.listSessions.mockReturnValue([{ ...row, cwd: "/moved" }]);
+    launcher.listSessions.mockReturnValue([{ ...row, cliSessionId: "cli-2" }]);
     const changed = await app.request("/api/sessions", { method: "GET", headers: { "If-None-Match": etag! } });
     expect(changed.status).toBe(200);
     expect(changed.headers.get("etag")).not.toBe(etag);
+  });
+
+  // A browser whose socket delivers the synced projections asks for rows without
+  // them; every other caller still gets them, and the ETag is the same either way.
+  it("leaves the synced projections out for a browser whose socket delivers them", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "running", cwd: "/a" }]);
+    const full = await app.request("/api/sessions?includeArchived=false", { method: "GET" });
+    const slim = await app.request("/api/sessions?includeArchived=false&socketProjections=1", { method: "GET" });
+    expect((await full.json())[0].sessionNavigationProjection).toMatchObject({ projection: "session-navigation" });
+    const slimRow = (await slim.json())[0];
+    expect(slimRow).not.toHaveProperty("sessionNavigationProjection");
+    expect(slimRow).toMatchObject({ sessionId: "s1", cwd: "/a" });
+    expect(slim.headers.get("etag")).toBe(full.headers.get("etag"));
   });
 
   it("returns the list of sessions enriched with names", async () => {

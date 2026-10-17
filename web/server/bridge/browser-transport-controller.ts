@@ -35,6 +35,7 @@ import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
+import { projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
 import {
   sendFeedAttentionSnapshot,
   sendInitialTreeGroupState,
@@ -1471,6 +1472,7 @@ export function broadcastToBrowsers(
 ): void {
   if (isLiveContentDelta(msg)) return;
   msg = projectBrowserMessage(msg);
+  if (msg.type === "board_updated") msg = projectBoardUpdateForBrowsers(session, msg);
   msg = attachRecentHistoryIndex(session.messageHistory, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(

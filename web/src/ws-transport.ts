@@ -103,6 +103,8 @@ export interface WsTransport {
   sendGlobalMessage: (msg: BrowserOutgoingMessage, preferredSessionId?: string | null) => boolean;
   requestFullHistorySync: (sessionId: string) => boolean;
   refreshSyncedProjectionSubscriptions: (sessionId: string) => boolean;
+  /** Whether this session's open socket has every projection the current session list needs, acknowledged and live. */
+  syncedProjectionsLive: (sessionId: string) => boolean;
   requestSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => boolean;
   hasPendingSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => boolean;
   resolveSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => void;
@@ -153,6 +155,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   const syncedProjectionSubscriptionSignatures = new Map<string, string>();
   const pendingSyncedProjectionResyncs = new Map<string, Set<string>>();
   const pendingSyncedProjectionSubscriptionAcks = new Map<string, PendingSyncedProjectionSubscriptionAck[]>();
+  // Sessions whose last acknowledged inventory left some projection without a value from the socket.
+  const partialSyncedProjectionAcks = new Set<string>();
 
   // A socket left by a session switch, kept briefly so the next session reuses
   // it: a new connection costs several round trips on a slow link.
@@ -366,9 +370,21 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (desired === undefined || syncedProjectionSubscriptionInventorySignature(desired) !== pending.signature) {
       return null;
     }
-    return [...acknowledged]
-      .filter((entryId) => pending.acceptedSnapshots.has(entryId))
-      .map((entryId) => pending.expected.get(entryId)!);
+    const accepted = [...acknowledged].filter((entryId) => pending.acceptedSnapshots.has(entryId));
+    if (accepted.length < pending.expected.size) partialSyncedProjectionAcks.add(carrierSessionId);
+    else partialSyncedProjectionAcks.delete(carrierSessionId);
+    return accepted.map((entryId) => pending.expected.get(entryId)!);
+  }
+
+  function syncedProjectionsLive(sessionId: string): boolean {
+    if (!isSocketSendable(sockets.get(sessionId))) return false;
+    if (pendingSyncedProjectionSubscriptionAcks.has(sessionId) || partialSyncedProjectionAcks.has(sessionId))
+      return false;
+    const desired = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
+    return (
+      desired !== undefined &&
+      syncedProjectionSubscriptionSignatures.get(sessionId) === syncedProjectionSubscriptionInventorySignature(desired)
+    );
   }
 
   function sendSessionSubscribe(sessionId: string, forceFullHistory = false): boolean {
@@ -1000,6 +1016,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     sendGlobalMessage,
     requestFullHistorySync,
     refreshSyncedProjectionSubscriptions,
+    syncedProjectionsLive,
     requestSyncedProjectionResync,
     hasPendingSyncedProjectionResync,
     resolveSyncedProjectionResync,

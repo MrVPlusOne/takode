@@ -271,6 +271,12 @@ export function refreshSyncedProjectionSubscriptions(sessionId?: string | null):
   return transport.refreshSyncedProjectionSubscriptions(carrierSessionId);
 }
 
+/** Whether the selected session's socket delivers, live, every synced projection the session list needs. */
+export function syncedProjectionsLive(): boolean {
+  const carrierSessionId = useStore.getState().currentSessionId;
+  return carrierSessionId !== null && transport.syncedProjectionsLive(carrierSessionId);
+}
+
 export function sendVsCodeSelectionUpdate(
   update: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }>,
 ): boolean {

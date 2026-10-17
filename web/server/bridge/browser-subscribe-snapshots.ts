@@ -1,5 +1,6 @@
 import type { BoardRow, BrowserIncomingMessage } from "../session-types.js";
 import { snapshotPartHash, type KnownSnapshotParts } from "../../shared/snapshot-part-hash.js";
+import { browserBoardRows } from "./browser-board-rows.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import { getSessionDraftsSnapshot, type DraftSession } from "./session-drafts-controller.js";
@@ -63,7 +64,9 @@ export function sendStateSnapshot(
   delete data.feedAttentionSent;
   const board = deps.getBoard(session.id) as BoardRow[];
   const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
-  const completedBoardHeld = !!known?.completed_board && known.completed_board === snapshotPartHash(completedBoard);
+  const browserCompletedBoard = browserBoardRows(completedBoard);
+  const completedBoardHeld =
+    !!known?.completed_board && known.completed_board === snapshotPartHash(browserCompletedBoard);
   const notificationStatus = getNotificationStatusSnapshot(session);
   sendToBrowser(ws, {
     type: "state_snapshot",
@@ -76,8 +79,8 @@ export function sendStateSnapshot(
     activeTurnRoute: deriveActiveTurnRoute(session),
     ...codexReasoningSnapshotFields(session),
     codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-    board,
-    ...(completedBoardHeld ? {} : { completedBoard }),
+    board: browserBoardRows(board),
+    ...(completedBoardHeld ? {} : { completedBoard: browserCompletedBoard }),
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     ...(feedAttentionSent
       ? {}

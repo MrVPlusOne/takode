@@ -1399,7 +1399,8 @@ function handleParsedMessage(
       // Update Zustand board state so the persistent WorkBoardBar widget
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
-      store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
+      // Left out when unchanged since the previous update: keep the copy held.
+      if (data.completedBoard) store.setSessionCompletedBoard(sessionId, data.completedBoard);
       if (data.rowSessionStatuses) {
         store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
       }

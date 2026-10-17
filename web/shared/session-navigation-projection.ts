@@ -179,12 +179,16 @@ export function sessionNavigationProjectionToSessionFields(value: SessionNavigat
   };
 }
 
+/** Session list row fields the navigation projection owns; `numTurns` is derived from `userTurnCount`. */
+export const SESSION_NAVIGATION_ROW_FIELDS: readonly string[] = [...Object.keys(RULES), "numTurns"];
+
 /** Copy only navigation-owned row fields without granting source completeness. */
 export function sessionNavigationFieldsFromSession(source: Record<string, unknown>) {
   return Object.fromEntries(
-    [...Object.keys(RULES), "numTurns"]
-      .filter((field) => Object.hasOwn(source, field))
-      .map((field) => [field, source[field]]),
+    SESSION_NAVIGATION_ROW_FIELDS.filter((field) => Object.hasOwn(source, field)).map((field) => [
+      field,
+      source[field],
+    ]),
   );
 }
 

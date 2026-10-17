@@ -59,6 +59,34 @@ describe("subscribe snapshot parts the browser already holds", () => {
     expect(sent(none)[0].completedBoard).toEqual(COMPLETED);
   });
 
+  // Completed rows keep final Memory's parked completion (debrief text) on the
+  // server. Browsers never read it, so the snapshot sends rows without it, and
+  // the held-copy hash is of that browser form: a browser holding exactly what
+  // it was sent must still match, or every revisit would resend the board.
+  it("sends completed rows without the parked completion and matches the browser's copy of them", () => {
+    const landed = {
+      questId: "q-2",
+      title: "Landed work",
+      status: "DONE",
+      landing: {
+        entryId: "e-1",
+        tip: "abc",
+        outcome: "landed",
+        completion: { debrief: "Long debrief", debriefTldr: "TLDR" },
+      },
+    };
+    const board = deps();
+    board.getCompletedBoard = vi.fn(() => [landed]);
+    const first = socket();
+    sendStateSnapshot(session(), first, board);
+    const browserCopy = sent(first)[0].completedBoard;
+    expect(browserCopy).toEqual([{ ...landed, landing: { entryId: "e-1", tip: "abc", outcome: "landed" } }]);
+
+    const revisit = socket({ knownSnapshotParts: { completed_board: snapshotPartHash(browserCopy) } });
+    sendStateSnapshot(session(), revisit, board);
+    expect(sent(revisit)[0]).not.toHaveProperty("completedBoard");
+  });
+
   it("does not repeat notifications and attention records already sent by this subscribe", () => {
     const ws = socket();
     sendFeedAttentionSnapshot(session(), ws);

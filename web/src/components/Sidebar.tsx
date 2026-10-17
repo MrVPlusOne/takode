@@ -18,7 +18,7 @@ import {
 } from "../store.js";
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
-import { connectSession } from "../ws.js";
+import { connectSession, syncedProjectionsLive } from "../ws.js";
 import { navigateToSession, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
@@ -181,8 +181,9 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     let active = true;
     let refreshInFlight: Promise<void> | null = null;
     let lastRefreshStartedAt = 0;
-    // ETag of the list last hydrated here. While the session socket is live it
-    // pushes the fast-changing row fields, so an unchanged rest costs a 304.
+    // ETag of the list last hydrated here. While the session socket delivers every
+    // listed session's projections it keeps those fields current, so the poll asks
+    // for the rest only: an unchanged rest costs a 304, a changed one comes without them.
     let listEtag: string | null = null;
 
     function refreshSessionList(force: boolean) {
@@ -195,10 +196,8 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       refreshInFlight = (async () => {
         try {
           const requestSequence = beginActiveSessionListRequest();
-          const store = useStore.getState();
-          const socketLive =
-            store.currentSessionId !== null && store.connectionStatus.get(store.currentSessionId) === "connected";
-          const changed = await api.pollActiveSessions(socketLive ? listEtag : null);
+          const live = syncedProjectionsLive();
+          const changed = await api.pollActiveSessions(live ? listEtag : null, { socketProjections: live });
           if (active && changed) {
             listEtag = changed.etag;
             hydrateSessionList(changed.sessions, {

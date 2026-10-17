@@ -72,7 +72,7 @@ import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignmen
 import { isSessionPaused } from "../session-pause.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionExtraRoutes } from "./session-extra-routes.js";
-import { sessionListEtag } from "./session-list-etag.js";
+import { sessionListEtag, withoutSyncedProjections } from "./session-list-etag.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 import { relaunchSessionProcess } from "./session-process-relaunch.js";
@@ -1211,7 +1211,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // The ETag ignores socket-delivered fields, so a browser cache must never answer for the server.
     c.header("Cache-Control", "no-store");
     if (c.req.header("if-none-match") === etag) return c.body(null, 304);
-    return c.json(enriched);
+    return c.json(c.req.query("socketProjections") === "1" ? withoutSyncedProjections(enriched) : enriched);
   });
   // Session labels for CLI output such as `quest show`: the same name, number and
   // archived state as GET /sessions, for only the requested sessions.

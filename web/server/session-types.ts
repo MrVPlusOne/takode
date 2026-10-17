@@ -1327,7 +1327,8 @@ export type BrowserIncomingMessageBase =
   | {
       type: "board_updated";
       board: BoardRow[];
-      completedBoard: BoardRow[];
+      /** Absent when unchanged since the session's previous board update; browsers keep the copy they hold. */
+      completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     }
