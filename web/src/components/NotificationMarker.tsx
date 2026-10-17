@@ -16,6 +16,7 @@ import {
   getNotificationSourceContext,
   shouldShowNeedsInputQuestionPrompt,
 } from "../utils/notification-source-context.js";
+import { isLeaderReadMarkerNotification } from "../utils/anchored-notifications.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
@@ -62,11 +63,11 @@ export function NotificationMarker({
   // Find the matching notification in the store to enable interactive controls
   const notif = useStore((s) => {
     if (!sessionId) return null;
-    const notifications = s.sessionNotifications?.get(sessionId);
-    if (!notifications) return null;
-    if (notificationId) return notifications.find((n) => n.id === notificationId && n.category === category) ?? null;
-    if (!messageId) return null;
-    return notifications.find((n) => n.messageId === messageId && n.category === category) ?? null;
+    return (
+      s.sessionNotifications
+        ?.get(sessionId)
+        ?.find((n) => isMarkerNotification(n, { notificationId, messageId, category })) ?? null
+    );
   });
 
   const canToggleDone = !!onToggleDone || (!!sessionId && (!!messageId || !!notificationId));
@@ -119,17 +120,7 @@ export function NotificationMarker({
         return;
       }
       if (!sessionId) return;
-      const liveNotif =
-        notif ??
-        useStore
-          .getState()
-          .sessionNotifications.get(sessionId)
-          ?.find((n) =>
-            notificationId
-              ? n.id === notificationId && n.category === category
-              : n.messageId === messageId && n.category === category,
-          ) ??
-        null;
+      const liveNotif = notif ?? findNotification({ sessionId, notificationId, messageId, category });
       if (!liveNotif) return;
       void toggle.run(() => api.markNotificationDone(sessionId, liveNotif.id, !liveNotif.done));
     },
@@ -479,9 +470,26 @@ function findNotification({
   messageId?: string;
   category: SessionNotification["category"];
 }): SessionNotification | null {
-  const notifications = useStore.getState().sessionNotifications.get(sessionId);
-  if (!notifications) return null;
-  if (notificationId) return notifications.find((n) => n.id === notificationId && n.category === category) ?? null;
-  if (!messageId) return null;
-  return notifications.find((n) => n.messageId === messageId && n.category === category) ?? null;
+  return (
+    useStore
+      .getState()
+      .sessionNotifications.get(sessionId)
+      ?.find((n) => isMarkerNotification(n, { notificationId, messageId, category })) ?? null
+  );
+}
+
+/** A leader read marker never binds to a chip through its message alone; it is not a question. */
+function isMarkerNotification(
+  notification: SessionNotification,
+  target: {
+    notificationId?: string;
+    messageId?: string;
+    category: SessionNotification["category"];
+  },
+): boolean {
+  if (notification.category !== target.category) return false;
+  if (target.notificationId) return notification.id === target.notificationId;
+  return (
+    !!target.messageId && notification.messageId === target.messageId && !isLeaderReadMarkerNotification(notification)
+  );
 }

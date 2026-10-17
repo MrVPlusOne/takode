@@ -895,4 +895,98 @@ describe("MessageBubble notification markers", () => {
       });
     }
   });
+
+  // Leader read markers ("Answer in q-N | ...", "q-N ready for review: ...") only make a
+  // thread unread. They used to render as bell chips with a reply button under the answer,
+  // which read as questions, so the feed shows none for them, read or not. An ordinary
+  // review notification on another message keeps its chip.
+  it("shows no feed chip for leader read markers while other review chips stay", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-answer",
+        category: "review",
+        summary: "Answer in q-7 | The fix is in.",
+        timestamp: Date.now(),
+        messageId: "asst-answer",
+        unreadReason: "answer",
+        threadKey: "q-7",
+        done: false,
+      },
+      {
+        id: "n-complete",
+        category: "review",
+        summary: "q-7 ready for review: Fix the thing",
+        timestamp: Date.now(),
+        messageId: "asst-closing",
+        unreadReason: "quest-complete",
+        threadKey: "q-7",
+        done: true,
+      },
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-8 ready for review",
+        timestamp: Date.now(),
+        messageId: "asst-review",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      const { container } = render(
+        <>
+          <MessageBubble
+            message={makeMessage({ id: "asst-answer", role: "assistant", content: "The fix is in." })}
+            sessionId="notify-session"
+          />
+          <MessageBubble
+            message={makeMessage({ id: "asst-closing", role: "assistant", content: "Wrapping up." })}
+            sessionId="notify-session"
+          />
+          <MessageBubble
+            message={makeMessage({ id: "asst-review", role: "assistant", content: "Ready to look at." })}
+            sessionId="notify-session"
+          />
+        </>,
+      );
+
+      const chips = [...container.querySelectorAll("[data-notification-category]")];
+      expect(chips.map((chip) => chip.getAttribute("data-notification-id"))).toEqual(["n-review"]);
+      expect(screen.queryByText(/Answer in q-7/)).toBeNull();
+      expect(screen.queryByText(/q-7 ready for review/)).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  // An inline `takode notify review` chip finds its notification by message. It must not
+  // pick up a read marker on the same message and offer to reply to it.
+  it("does not bind an inline review chip to a read marker on the same message", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-answer",
+        category: "review",
+        summary: "Answer in Main | Done.",
+        timestamp: Date.now(),
+        messageId: "asst-answer",
+        unreadReason: "answer",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(<NotificationMarker category="review" sessionId="notify-session" messageId="asst-answer" />);
+
+      expect(screen.queryByRole("button", { name: "reply in composer" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Mark as reviewed" })).toHaveProperty("disabled", true);
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
 });
