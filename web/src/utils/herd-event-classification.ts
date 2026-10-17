@@ -4,7 +4,9 @@ import { parseHerdEvents } from "./herd-event-parser.js";
 
 const ROUTINE_STRUCTURED_EVENT_TYPES = new Set(["turn_end", "worker_stream", "board_stalled"]);
 const ROUTINE_LEGACY_TEXT_EVENT_TYPES = new Set(["turn_end", "worker_stream"]);
-const DECISION_EVENT_TYPES = new Set(["permission_request", "notification_needs_input"]);
+// A needs-input event is not here: its chip has no answer UI (the question lives
+// on the worker's notification), so it joins worker-event activity like turn_end.
+const DECISION_EVENT_TYPES = new Set(["permission_request"]);
 const HERD_EVENT_LIFECYCLE_LABEL_SET = new Set<string>(Object.values(HERD_EVENT_LIFECYCLE_LABELS));
 
 function parseHeaderEventType(header: string): string | null {

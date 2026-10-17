@@ -643,6 +643,44 @@ describe("MessageFeed - compact activity", () => {
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
   });
 
+  it("folds a worker's needs-input event into the surrounding worker-event group", () => {
+    // Live leader shape: a Send, then the worker's needs-input event, then two
+    // turn_end events. The needs-input chip has no answer UI of its own, so it
+    // must join the group instead of splitting it in two, and stay openable.
+    const sid = "test-needs-input-worker-event";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Use 61 CPUs here" }),
+      makeMessage({
+        id: "send-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "send-1", name: "Bash", input: { command: "takode send 2444 'resize'" } },
+        ],
+      }),
+      makeHerdEvent(
+        "needs-input-herd",
+        "1 event from 1 session\n\n#2444 | notification_needs_input | waiting for decision; Work preserved | Which CPU count?",
+        { eventType: "notification_needs_input", lifecycle: ["waiting_for_decision"], routine: false },
+      ),
+      makeHerdEvent("turn-end-1", "1 event from 1 session\n\n#2444 | turn_end | ok 31.3s", {
+        eventKey: turnEndEventKey(),
+      }),
+      makeHerdEvent("turn-end-2", "1 event from 1 session\n\n#2444 | turn_end | ok 36.6s", {
+        eventKey: turnEndEventKey(),
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Sent a message, 3 worker events")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show all 4 activity items/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Show Event: #2444 \| notification_needs_input/ }));
+    expect(screen.getByText(/Which CPU count\?/)).toBeTruthy();
+  });
+
   it("renders notification UI outside a compacted tool-only notify command", () => {
     // Tool-only notify messages bypass MessageBubble, so the feed-level compact group must preserve the fallback panel.
     const sid = "test-compact-tool-notification";

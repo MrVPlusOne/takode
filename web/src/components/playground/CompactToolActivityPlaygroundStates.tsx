@@ -176,6 +176,23 @@ const WORKER_EVENTS: ChatMessage[] = [
       { event: "session_error", sessionId: "worker-2486", sessionNum: 2486, routine: false, ts: Date.now() - 1_000 },
     ],
   },
+  {
+    id: "compact-tool-worker-3",
+    role: "user",
+    content:
+      "1 event from 1 session\n\n#2485 | notification_needs_input | waiting for decision; Work preserved | Use 61 CPUs or find 64?",
+    timestamp: Date.now() - 500,
+    takodeHerdEvents: [
+      {
+        event: "notification_needs_input",
+        sessionId: "worker-2485",
+        sessionNum: 2485,
+        routine: false,
+        ts: Date.now() - 500,
+        lifecycle: ["waiting_for_decision"],
+      },
+    ],
+  },
 ];
 
 // ─── Activity groups: only agent text splits them ───────────────────────────
