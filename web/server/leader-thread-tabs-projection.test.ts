@@ -1516,6 +1516,75 @@ describe("leader thread tab status-group times", () => {
   });
 });
 
+describe("leader thread tab unread result text", () => {
+  it("names the newest unread result, not a later quiet Ready status", () => {
+    // The reported case (Oct 17): an answer in the briefing thread stayed unread, then a
+    // quiet periodic check marked the thread Ready without creating anything to read.
+    // The unread row must keep naming the answer: showing the Ready summary made the
+    // quiet check look like it had made the thread unread.
+    const quietReady = { ...status("q-7", "ready"), summary: "12 PM check quiet", timestamp: 900, updatedAt: 900 };
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-7", "q-8", "q-9"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+        leaderThreadStatuses: { "q-7": quietReady },
+      } as unknown as Session["state"],
+      completedBoard: new Map([["q-9", boardRow("q-9", "DONE", { completedAt: 300 })]]),
+      notifications: [
+        // Shapes written by recordAnswerUnreadNotifications and recordQuestCompletionUnreadNotification.
+        notification("n-1", "review", "q-7", {
+          summary: "Answer in q-7 | An older answer",
+          timestamp: 100,
+          unreadReason: "answer",
+        }),
+        notification("n-2", "review", "q-7", {
+          summary: "Answer in q-7 | It reads as an open call",
+          timestamp: 200,
+          unreadReason: "answer",
+        }),
+        notification("n-3", "review", "q-7", {
+          summary: "Answer in q-7 | Already read",
+          timestamp: 300,
+          unreadReason: "answer",
+          done: true,
+          doneAt: 310,
+        }),
+        notification("n-4", "review", "q-8", {
+          summary: "Answer in q-8 | Read",
+          timestamp: 100,
+          unreadReason: "answer",
+          done: true,
+          doneAt: 110,
+        }),
+        notification("n-5", "review", "q-9", {
+          summary: "q-9 ready for review: Daily briefing",
+          timestamp: 300,
+          unreadReason: "quest-complete",
+        }),
+      ],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+    const attention = (threadKey: string) => value.tabs.find((tab) => tab.threadKey === threadKey)?.attention;
+
+    expect(value.threadStatuses["q-7"]).toMatchObject({ kind: "ready", summary: "12 PM check quiet" });
+    expect(attention("q-7")).toMatchObject({
+      reviewUnread: true,
+      reviewSummary: "Answer in q-7 | It reads as an open call",
+    });
+    // Nothing unread: no text, so nothing stale rides along in the projection.
+    expect(attention("q-8")).toMatchObject({ reviewUnread: false });
+    expect(attention("q-8")).not.toHaveProperty("reviewSummary");
+    expect(attention("q-9")).toMatchObject({ reviewUnread: true, reviewSummary: "Journey finished: Daily briefing" });
+    expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
+  });
+});
+
 describe("leader thread tab chat times", () => {
   function userMessage(threadKey: string, timestamp: number, extra: Record<string, unknown> = {}) {
     const route = threadKey === "main" ? {} : { threadKey, questId: threadKey };

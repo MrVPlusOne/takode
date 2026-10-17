@@ -428,6 +428,8 @@ interface AttentionVisualInput {
   title: string | null;
   titleRank: number;
   titleUpdatedAt: number;
+  /** When the result behind `attention.reviewSummary` arrived. */
+  reviewSummaryAt: number;
 }
 
 function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecord>): Map<string, AttentionVisualInput> {
@@ -443,6 +445,7 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
       title: null,
       titleRank: 0,
       titleUpdatedAt: 0,
+      reviewSummaryAt: 0,
     };
     const active = isAttentionActive(record);
     const updatedAt = nonNegativeNumber(record.updatedAt);
@@ -450,18 +453,21 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
     const isResult =
       record.source?.kind === "notification" &&
       (record.type === "review_ready" || record.priority === "review" || record.priority === "completed");
-    const attention = {
+    // An unread row describes the newest unread result itself, never the thread's
+    // latest Ready status: a later quiet Ready must not look like a new result.
+    const reviewSummaryText = active && isResult ? unreadResultText(record) : "";
+    const takesReviewSummary =
+      !!reviewSummaryText && (!current.attention.reviewSummary || updatedAt >= current.reviewSummaryAt);
+    const reviewSummary = takesReviewSummary ? reviewSummaryText : current.attention.reviewSummary;
+    const reviewSummaryAt = takesReviewSummary ? updatedAt : current.reviewSummaryAt;
+    const attention: LeaderThreadTabsProjectionAttention = {
       needsInput:
         current.attention.needsInput ||
         (active && record.type === "needs_input" && record.priority === "needs_input" && record.state !== "muted"),
       mutedNeedsInput:
         current.attention.mutedNeedsInput ||
         (record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input"),
-      reviewUnread:
-        current.attention.reviewUnread ||
-        (active &&
-          record.source?.kind === "notification" &&
-          (record.type === "review_ready" || record.priority === "review" || record.priority === "completed")),
+      reviewUnread: current.attention.reviewUnread || (active && isResult),
       updatedAt: Math.max(current.attention.updatedAt, updatedAt),
       // Prompts and results move a tab between status groups when they arrive and when they
       // are answered or read, so either moment counts as a group change.
@@ -473,6 +479,7 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
               nonNegativeNumber(record.resolvedAt),
             )
           : current.attention.changedAt,
+      ...(reviewSummary ? { reviewSummary } : {}),
     };
 
     let { candidate, title, titleRank, titleUpdatedAt } = current;
@@ -503,9 +510,16 @@ function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecor
         titleUpdatedAt = updatedAt;
       }
     }
-    result.set(threadKey, { attention, candidate, title, titleRank, titleUpdatedAt });
+    result.set(threadKey, { attention, candidate, title, titleRank, titleUpdatedAt, reviewSummaryAt });
   }
   return result;
+}
+
+function unreadResultText(record: SessionAttentionRecord): string {
+  const title = boundedText(record.title, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH).trim();
+  const summary = boundedText(record.summary, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH).trim();
+  const text = title && summary ? `${title}: ${summary}` : title || summary;
+  return boundedText(text, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH);
 }
 
 function buildEffectiveOpenKeys(

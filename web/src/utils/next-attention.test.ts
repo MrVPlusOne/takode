@@ -153,17 +153,18 @@ describe("collectUnreadAttention", () => {
 
   it("lists a leader's unread threads from its tab projection instead of the whole session", () => {
     // Ready results live in leader threads; Next should open the exact thread.
-    const attention = (reviewUnread: boolean, updatedAt: number) => ({
+    const attention = (reviewUnread: boolean, updatedAt: number, reviewSummary?: string) => ({
       needsInput: false,
       mutedNeedsInput: false,
       reviewUnread,
       updatedAt,
+      ...(reviewSummary ? { reviewSummary } : {}),
     });
-    const tab = (threadKey: string, reviewUnread: boolean, updatedAt: number) => ({
+    const tab = (threadKey: string, reviewUnread: boolean, updatedAt: number, reviewSummary?: string) => ({
       threadKey,
       questId: threadKey,
       title: `${threadKey} title`,
-      attention: attention(reviewUnread, updatedAt),
+      attention: attention(reviewUnread, updatedAt, reviewSummary),
     });
     const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, "leader");
     const candidates = collectUnreadAttention({
@@ -176,25 +177,26 @@ describe("collectUnreadAttention", () => {
           {
             currentQuestStateVersion: 1,
             tabState: null,
-            tabs: [tab("q-1", true, 70), tab("q-2", false, 80)],
+            tabs: [tab("q-1", true, 70, "Answer in q-1 | It reads as an open call"), tab("q-2", false, 80)],
             mainAttention: attention(true, 60),
-            // A thread's Thread Ready summary becomes the unread row's first line;
-            // a Thread Waiting status is not a result and is left out.
+            // The reported case: q-1's unread result is an earlier answer, and the
+            // leader later marked q-1 Ready for a quiet check that made nothing
+            // unread. The row names the answer, never that later Ready summary.
             threadStatuses: {
               "q-1": {
                 kind: "ready",
                 label: "Thread Ready",
                 threadKey: "q-1",
-                summary: "landed",
+                summary: "12 PM check quiet",
                 messageId: "m",
                 timestamp: 1,
                 updatedAt: 1,
               },
               main: {
-                kind: "waiting",
-                label: "Thread Waiting",
+                kind: "ready",
+                label: "Thread Ready",
                 threadKey: "main",
-                summary: "waiting",
+                summary: "nothing pending",
                 messageId: "m",
                 timestamp: 1,
                 updatedAt: 1,
@@ -206,8 +208,15 @@ describe("collectUnreadAttention", () => {
       ]),
     });
     expect(candidates).toEqual([
+      // No result text known: the row falls back to its generic label.
       { sessionId: "leader", threadKey: "main", label: "Main", timestamp: 60 },
-      { sessionId: "leader", threadKey: "q-1", label: "q-1 title", timestamp: 70, summary: "landed" },
+      {
+        sessionId: "leader",
+        threadKey: "q-1",
+        label: "q-1 title",
+        timestamp: 70,
+        summary: "Answer in q-1 | It reads as an open call",
+      },
     ]);
   });
 });

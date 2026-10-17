@@ -38,7 +38,7 @@ export interface UnreadAttentionCandidate {
   threadKey: string | null;
   label: string;
   timestamp: number;
-  /** The thread's latest Thread Ready summary, when the leader's tab projection has one. */
+  /** What the thread's newest unread result is, when the leader's tab projection says. */
   summary?: string;
 }
 
@@ -191,18 +191,18 @@ export function collectUnreadAttention(
     const sessionLabel = session.name || `Session ${session.sessionId.slice(0, 8)}`;
     const tabs = session.isOrchestrator ? resolveLeaderThreadTabsProjection(state, session.sessionId) : null;
     if (tabs?.projectionState === "accepted") {
-      const { mainAttention, tabs: threadTabs, threadStatuses } = tabs.value;
-      const readySummary = (threadKey: string) => {
-        const status = threadStatuses[threadKey];
-        return status?.label === "Thread Ready" && status.summary ? { summary: status.summary } : {};
-      };
+      const { mainAttention, tabs: threadTabs } = tabs.value;
+      // Name the unread result itself, not the thread's latest Ready status, which may be
+      // a later quiet check that made nothing unread.
+      const resultSummary = ({ reviewSummary }: typeof mainAttention) =>
+        reviewSummary ? { summary: reviewSummary } : {};
       if (mainAttention.reviewUnread) {
         candidates.push({
           sessionId: session.sessionId,
           threadKey: MAIN_THREAD_KEY,
           label: "Main",
           timestamp: mainAttention.updatedAt,
-          ...readySummary(MAIN_THREAD_KEY),
+          ...resultSummary(mainAttention),
         });
       }
       for (const tab of threadTabs) {
@@ -212,7 +212,7 @@ export function collectUnreadAttention(
           threadKey: tab.threadKey,
           label: tab.title ?? tab.questId ?? sessionLabel,
           timestamp: tab.attention.updatedAt,
-          ...readySummary(tab.threadKey),
+          ...resultSummary(tab.attention),
         });
       }
       if (candidates.some((candidate) => candidate.sessionId === session.sessionId)) continue;

@@ -40,6 +40,8 @@ export interface LeaderThreadTabsProjectionAttention {
   updatedAt: number;
   /** Latest time a prompt or result for this thread appeared or was answered, read or dismissed. */
   changedAt: number;
+  /** What the newest unread result is, such as "Answer in q-12 | ..."; absent when nothing is unread. */
+  reviewSummary?: string;
 }
 
 export interface LeaderThreadTabsProjectionJourney {
@@ -122,7 +124,9 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
     typeof candidate.mutedNeedsInput === "boolean" &&
     typeof candidate.reviewUnread === "boolean" &&
     isNonNegativeNumber(candidate.updatedAt) &&
-    isNonNegativeNumber(candidate.changedAt)
+    isNonNegativeNumber(candidate.changedAt) &&
+    (candidate.reviewSummary === undefined ||
+      isBoundedString(candidate.reviewSummary, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH))
   );
 }
 
