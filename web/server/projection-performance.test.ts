@@ -1632,7 +1632,7 @@ describe("synchronized projection performance controls", () => {
     const changedScenarios = [
       {
         scenario: attention.firstNeedsInput,
-        metrics: changedMetrics({ invalidations: 3, valueBytes: 73, cachedValueBytes: 35 }),
+        metrics: changedMetrics({ invalidations: 2, valueBytes: 73, cachedValueBytes: 35 }),
         // Needs-input inbox entries carry `"questionOnly":true` (20 bytes each) since cards became question-only.
         current: { inbox: [479, 0], global: [325, 325], projection: [232, 232], total: 1_593 },
         control: { inbox: [471, 0], global: [1_254, 1_254], raw: [128, 0], total: 3_107 },
@@ -1640,28 +1640,28 @@ describe("synchronized projection performance controls", () => {
       },
       {
         scenario: attention.firstReview,
-        metrics: changedMetrics({ invalidations: 3, valueBytes: 68, cachedValueBytes: 30 }),
+        metrics: changedMetrics({ invalidations: 2, valueBytes: 68, cachedValueBytes: 30 }),
         current: { inbox: [444, 0], global: [320, 320], projection: [227, 227], total: 1_538 },
         control: { inbox: [436, 0], global: [1_239, 1_239], raw: [128, 0], total: 3_042 },
         sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
       },
       {
         scenario: attention.sameUrgencyCountChange,
-        metrics: changedMetrics({ invalidations: 2, valueBytes: 68, cachedValueBytes: 0 }),
+        metrics: changedMetrics({ invalidations: 1, valueBytes: 68, cachedValueBytes: 0 }),
         current: { inbox: [591, 0], global: [320, 320], projection: [227, 227], total: 1_685 },
         control: { inbox: [583, 0], global: [826, 826], raw: [64, 0], total: 2_299 },
         sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
       },
       {
         scenario: attention.burstNeedsInput,
-        metrics: changedMetrics({ invalidations: 51, valueBytes: 74, cachedValueBytes: 36 }),
+        metrics: changedMetrics({ invalidations: 26, valueBytes: 74, cachedValueBytes: 36 }),
         current: { inbox: [61_541, 0], global: [8_193, 8_189], projection: [233, 233], total: 78_389 },
         control: { inbox: [61_320, 0], global: [21_414, 21_414], raw: [1_664, 0], total: 105_812 },
         sends: { inbox: 25, global: 25, controlGlobal: 51, controlRaw: 26 },
       },
       {
         scenario: attention.explicitReadClear,
-        metrics: changedMetrics({ invalidations: 2, valueBytes: 38, cachedValueBytes: -30 }),
+        metrics: changedMetrics({ invalidations: 1, valueBytes: 38, cachedValueBytes: -30 }),
         current: { inbox: [295, 0], global: [316, 316], projection: [197, 197], total: 1_321 },
         control: { inbox: [287, 0], global: [834, 834], raw: [87, 0], total: 2_042 },
         sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
@@ -1735,7 +1735,7 @@ describe("synchronized projection performance controls", () => {
     );
 
     expect(attention.noSubscriber).toMatchObject({
-      metrics: { ...zeroMetrics(), invalidations: 3 },
+      metrics: { ...zeroMetrics(), invalidations: 2 },
       exactOwnerInbox: { logicalSends: 1, deliveries: 1, bytesByBrowser: [474, 0], totalBytes: 474 },
       compactGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [325, 325], totalBytes: 650 },
       projection: emptyAttentionTraffic(),

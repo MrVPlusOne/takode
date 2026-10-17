@@ -732,6 +732,87 @@ describe("Persistence", () => {
     expect(replayed.map((event: any) => event.message.type)).toEqual(["status_change"]);
   });
 
+  it("keeps notification-list and attention-record copies out of the replay buffer and sends the current ones before any replay", async () => {
+    // Each notification or attention-record update is a full copy of the list (about 100-200 KB on a busy
+    // leader). A reconnecting browser gets the current lists in feed_attention_snapshot, which a bounded
+    // subscribe sends ahead of event_replay, so replaying older copies never changed what it ends up with.
+    // Older builds' saved copies are dropped on restore, while other buffered events are kept.
+    const notification = {
+      id: "n-1",
+      category: "needs-input",
+      summary: "Pick",
+      timestamp: 1,
+      messageId: null,
+      done: false,
+    };
+    const attentionRecord = {
+      id: "attention-1",
+      leaderSessionId: "leader-attention",
+      type: "needs_input",
+      source: { kind: "notification", id: "n-1" },
+      threadKey: "main",
+      title: "Pick",
+      summary: "Pick",
+      actionLabel: "Answer",
+      priority: "needs_input",
+      state: "unresolved",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    store.saveSync({
+      id: "leader-attention",
+      state: { session_id: "leader-attention", backend_type: "claude-sdk", cwd: "/saved", isOrchestrator: true },
+      messageHistory: [],
+      pendingMessages: [],
+      pendingPermissions: [],
+      notifications: [notification],
+      attentionRecords: [attentionRecord],
+      nextEventSeq: 4,
+      eventBuffer: [
+        { seq: 1, message: { type: "notification_update", notifications: [] } },
+        { seq: 2, message: { type: "attention_records_update", attentionRecords: [] } },
+        { seq: 3, message: { type: "status_change", status: "idle" } },
+      ],
+    } as any);
+    await store.flushAll();
+    await bridge.restoreFromDisk();
+
+    const session = bridge.getSession("leader-attention")!;
+    expect(session.eventBuffer.map((event) => event.message.type)).toEqual(["status_change"]);
+
+    bridge.broadcastToSession("leader-attention", {
+      type: "notification_update",
+      notifications: [notification],
+    } as any);
+    bridge.broadcastToSession("leader-attention", {
+      type: "attention_records_update",
+      attentionRecords: [attentionRecord],
+    } as any);
+    expect(session.eventBuffer.map((event) => event.message.type)).toEqual(["status_change"]);
+
+    const browser = makeBrowserSocket("leader-attention");
+    bridge.handleBrowserOpen(browser, "leader-attention");
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    await waitForBrowserMessage(browser, (message: any) => message.type === "state_snapshot");
+    const sent = browser.send.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+    const feedAttentionIndex = sent.findIndex((message: any) => message.type === "feed_attention_snapshot");
+    const replayIndex = sent.findIndex((message: any) => message.type === "event_replay");
+    expect(sent[feedAttentionIndex]).toMatchObject({
+      notifications: [notification],
+      attentionRecords: [attentionRecord],
+    });
+    expect(feedAttentionIndex).toBeLessThan(replayIndex);
+    expect(sent[replayIndex].events.map((event: any) => event.message.type)).toEqual(["status_change"]);
+  });
+
   it("restoreFromDisk: loads persisted pending Codex rollback state", async () => {
     store.saveSync({
       id: "persisted-rollback",

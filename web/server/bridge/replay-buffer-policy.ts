@@ -24,6 +24,10 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   // Every state_snapshot carries the current board, completed board and row statuses. Each update is a
   // full copy (hundreds of KB on a busy leader), so buffering them bloated leader saves to megabytes.
   "board_updated",
+  // Same for the notification list and attention records: each update is a full copy, and every bounded
+  // subscribe sends the current ones in feed_attention_snapshot before any replay (replay needs a bounded view).
+  "notification_update",
+  "attention_records_update",
 ]);
 
 export function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is ReplayableBrowserIncomingMessage {
