@@ -145,6 +145,21 @@ describe("mobile quest banner disclosure", () => {
     expect(screen.getByTestId("quest-thread-details")).not.toHaveClass("hidden");
   });
 
+  it("keeps the close button outside the content that wraps on wider screens", () => {
+    // The strip's title and chips wrap onto more lines as the window narrows. The close
+    // button must not be one of the wrapping items, or it drops onto its own line at the
+    // left; as the row's last direct child it keeps the top right corner at every width.
+    // Real widths are covered in browser validation.
+    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" diffSessionId="leader" onCloseTab={() => {}} />);
+    const wrapping = screen.getByTestId("quest-thread-wrapping-content");
+    const close = screen.getByTestId("quest-thread-close-tab");
+    expect(within(wrapping).getByText("q-9001")).toBeInTheDocument();
+    expect(within(wrapping).getByTestId("quest-thread-meta-strip")).toBeInTheDocument();
+    expect(wrapping).not.toContainElement(close);
+    expect(close.parentElement).toBe(wrapping.parentElement);
+    expect(close.parentElement?.lastElementChild).toBe(close);
+  });
+
   it("does not offer an empty disclosure on a session banner with only a Journey", () => {
     render(
       <QuestThreadBanner
