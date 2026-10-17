@@ -75,6 +75,20 @@ describe("GET /sessions/:id/message-search", () => {
     });
   });
 
+  it("orders matches newest first with sort=recent", async () => {
+    // Exact-word "relay" in the older message outranks the newer prefix match by relevance.
+    const app = makeRoute([user("exact-old", "relay down", 10), user("prefix-new", "relaying again", 20)]);
+    const ids = async (url: string) =>
+      ((await (await app.request(url)).json()) as { results: Array<{ messageId: string }> }).results.map(
+        (result) => result.messageId,
+      );
+    expect(await ids("/sessions/123/message-search?q=relay&includeUser=true")).toEqual(["exact-old", "prefix-new"]);
+    expect(await ids("/sessions/123/message-search?q=relay&includeUser=true&sort=recent")).toEqual([
+      "prefix-new",
+      "exact-old",
+    ]);
+  });
+
   // The navigator re-reads this index on every switch; its timing field differs
   // on every run, so the validator must ignore it for an unchanged index to be a 304.
   it("answers an unchanged index with a 304 despite a different run time", async () => {

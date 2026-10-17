@@ -1,7 +1,7 @@
 /**
- * Phone thread tabs as status groups: the bar with its chips, each chip's list, the
- * switcher sheet with search, closing, closed tabs to reopen and the Recent messages
- * mode, at the top and at the bottom of the screen.
+ * Phone thread tabs as status groups: the bar with its chips, each chip's list, and Find
+ * with its two modes (the user's messages, or open and closed tabs, both newest first),
+ * at the top and at the bottom of the screen.
  */
 import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
@@ -60,7 +60,7 @@ const TABS: PrimaryThreadChip[] = [
   ),
 ];
 
-/** A long-running leader's past quests: Find lists them only on search or under Closed. */
+/** A long-running leader's past quests: Find's Tabs mode lists them with the open tabs, by recency. */
 const CLOSED_TITLES = ["Retire the tab strip", "Quest preview sheet", "Relay tunnel health check", "Voice retry"];
 const CLOSED_TABS: PrimaryThreadChip[] = Array.from({ length: 140 }, (_, index) =>
   questTab(`q-${9460 - index}`, `${CLOSED_TITLES[index % CLOSED_TITLES.length]} ${index + 1}`, null, {
@@ -152,7 +152,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); search opens every tab with search by title or quest number, and closing. Closed tabs stay behind a link and a Closed filter until a search matches them; choosing one reopens it. The Recent filter lists the user's latest messages with the tab each is in; choosing one opens that tab at the message."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it)."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">

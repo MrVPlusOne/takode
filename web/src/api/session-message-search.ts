@@ -76,6 +76,8 @@ export interface SearchSessionMessagesOptions {
   filters?: Partial<MessageSearchFilters>;
   limit?: number;
   offset?: number;
+  /** Order a query's matches newest first instead of best match first. */
+  sort?: "relevance" | "recent";
   signal?: AbortSignal;
 }
 
@@ -96,6 +98,7 @@ export async function searchSessionMessages(
   if (options?.threadKey) params.set("threadKey", options.threadKey);
   if (typeof options?.limit === "number") params.set("limit", String(options.limit));
   if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+  if (options?.sort === "recent") params.set("sort", "recent");
   if (typeof options?.filters?.user === "boolean") params.set("includeUser", options.filters.user ? "true" : "false");
   if (typeof options?.filters?.assistant === "boolean") {
     params.set("includeAssistant", options.filters.assistant ? "true" : "false");

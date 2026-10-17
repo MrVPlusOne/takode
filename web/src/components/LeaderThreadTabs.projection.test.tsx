@@ -19,7 +19,7 @@ import {
 import { MessageFeed } from "./MessageFeed.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
-import { listedThreadTab, listedThreadTabs, openAllThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import { groupThreadTabKeys, listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 
@@ -141,7 +141,10 @@ describe("leader thread tabs projected component behavior", () => {
     expect(q1).toHaveAttribute("data-needs-input", "true");
     expect(within(q1).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
     expect(listedThreadTab("q-2")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(screen.queryByText("Stale legacy tab")).toBeNull();
+    // The stale local tab is not open; Find lists its thread only as a closed tab.
+    expect(
+      within(screen.getByTestId("thread-tab-switcher")).getByText("Stale legacy tab").closest("[data-closed]"),
+    ).toHaveAttribute("data-closed", "true");
 
     const ready = createLeaderThreadTabsProjectionValue({
       tabs: value.tabs,
@@ -382,14 +385,9 @@ describe("leader thread tabs projected component behavior", () => {
 
     render(<WorkBoardBar sessionId="leader" currentThreadKey="q-105" onCloseThreadTab={onCloseThreadTab} />);
 
-    openAllThreadTabs();
-    const listed = (group: string) =>
-      within(screen.getAllByTestId("thread-tab-switcher-section").find((section) => section.dataset.group === group)!)
-        .getAllByTestId("thread-tab-list-row")
-        .map((row) => row.getAttribute("data-thread-key"));
-    expect(listed("needs-input")).toEqual(["q-103"]);
-    expect(listed("in-progress")).toEqual(["q-101", "q-102", "q-104", "q-105", "q-106"]);
-    expect(listed("done")).toEqual(["q-107"]);
+    expect(groupThreadTabKeys("needs-input")).toEqual(["q-103"]);
+    expect(groupThreadTabKeys("in-progress")).toEqual(["q-101", "q-102", "q-104", "q-105", "q-106"]);
+    expect(groupThreadTabKeys("done")).toEqual(["q-107"]);
 
     for (const key of ["q-101", "q-102", "q-103", "q-104"]) {
       expect(listedThreadTab(key)).toHaveAttribute("data-closable", "false");
@@ -612,8 +610,8 @@ describe("leader thread tabs projected component behavior", () => {
     // q-702's unread result files it under New results, after the in-progress tabs. Among
     // those, the projected q-703 changed group more recently than the restored local q-701,
     // which has no server time yet.
-    const tabs = listedThreadTabs();
-    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-703", "q-701", "q-702"]);
+    expect(groupThreadTabKeys("in-progress")).toEqual(["q-703", "q-701"]);
+    expect(groupThreadTabKeys("new-results")).toEqual(["q-702"]);
     expect(listedThreadTab("q-702")).toHaveAttribute("data-blue-notification", "true");
     expect(listedThreadTab("q-703")).toHaveAttribute("data-muted-needs-input", "true");
   });

@@ -18,7 +18,7 @@ import type { LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import { searchSessionMessages } from "../api/session-message-search.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 
-/** Find's Recent mode lists this many of the user's latest messages. */
+/** Find's Messages mode lists this many of the user's latest messages. */
 const RECENT_MESSAGE_LIMIT = 50;
 
 export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
@@ -199,13 +199,15 @@ export function ThreadTabRail({
     const untitled = (closedTabs ?? []).filter((tab) => tab.questId && tab.title === tab.questId);
     if (untitled.length > 0) void useStore.getState().hydrateQuestTitles(untitled.map((tab) => tab.questId!));
   };
-  // Recent in Find: the user's own messages across every tab of this leader, newest first.
+  // Find's Messages mode: the user's own messages across every tab of this leader, newest first,
+  // also when searching.
   const loadRecentMessages = useCallback<LoadRecentMessages>(
     (query, signal) =>
       searchSessionMessages(sessionId, {
         query,
         scope: "leader_all_tabs",
         filters: { user: true, assistant: false, event: false },
+        sort: "recent",
         limit: RECENT_MESSAGE_LIMIT,
         signal,
       }).then((response) => response.results),

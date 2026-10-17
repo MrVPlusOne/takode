@@ -1,7 +1,8 @@
 /**
- * Find's Recent mode: the user's latest messages to this leader, newest first, each with
- * the tab it belongs to. Tabs are grouped by status, so a conversation from a few
- * exchanges ago can sit in any group; this list finds it by when it happened instead.
+ * Find's Messages mode: the user's latest messages to this leader, newest first (also when
+ * searching), each with the tab it belongs to. Tabs are grouped by status, so a
+ * conversation from a few exchanges ago can sit in any group; this list finds it by when
+ * it happened instead.
  */
 import { useEffect, useState } from "react";
 import type { MessageSearchResult } from "../api/session-message-search.js";
@@ -9,7 +10,7 @@ import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.
 import { timeAgo } from "../utils/quest-helpers.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
-/** Loads the user's messages to this leader, newest first, or the best matches for `query`. */
+/** Loads the user's messages to this leader matching `query` (all when empty), newest first. */
 export type LoadRecentMessages = (query: string, signal: AbortSignal) => Promise<MessageSearchResult[]>;
 
 /** Typing waits this long before searching, so each keystroke does not start a request. */

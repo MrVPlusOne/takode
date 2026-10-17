@@ -387,6 +387,30 @@ describe("searchSessionMessages", () => {
     expect(response.results.every((result) => result.starred)).toBe(true);
     expect(response.results.map((result) => result.messageId)).not.toContain("unstarred");
   });
+
+  it("orders a query's matches newest first when asked, instead of best match first", () => {
+    // Find's Messages mode lists the user's messages by recency also while searching. An
+    // exact word match outranks a prefix match by relevance, but not in recent order, and
+    // messages that do not match stay out either way.
+    const messageHistory = [
+      user("exact-old", "relay down again", 10),
+      user("prefix-new", "relaying through the proxy", 30),
+      user("unrelated", "board colors", 40),
+    ];
+    const search = (sort?: "relevance" | "recent") =>
+      searchSessionMessages({
+        sessionId: "leader-session",
+        sessionNum: 456,
+        isLeaderSession: true,
+        messageHistory,
+        query: "relay",
+        scope: "leader_all_tabs",
+        filters: { user: true, assistant: false, event: false },
+        sort,
+      }).results.map((result) => result.messageId);
+    expect(search()).toEqual(["exact-old", "prefix-new"]);
+    expect(search("recent")).toEqual(["prefix-new", "exact-old"]);
+  });
 });
 
 // Navigation returns only authoritative identity, never text or an assumed complete client corpus.

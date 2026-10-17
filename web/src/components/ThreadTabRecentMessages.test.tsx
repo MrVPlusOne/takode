@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Find's Recent mode: the user's latest messages to a leader with the tab each belongs to,
- * searching them, and opening a tab at the chosen message.
+ * Find's Messages mode: the user's latest messages to a leader with the tab each belongs to,
+ * searching them newest first, opening a tab at the chosen message, and Find reopening in
+ * the mode the user last chose.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -52,9 +53,16 @@ const RECENT = [
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
+
+function findMode(scope: HTMLElement, mode: "messages" | "tabs"): HTMLElement {
+  return within(scope)
+    .getAllByTestId("thread-find-mode")
+    .find((item) => item.dataset.mode === mode)!;
+}
 
 function openRecent(load = vi.fn(async (_query: string, _signal: AbortSignal) => RECENT)) {
   const onOpenMessage = vi.fn();
@@ -72,14 +80,11 @@ function openRecent(load = vi.fn(async (_query: string, _signal: AbortSignal) =>
   );
   fireEvent.click(screen.getByTestId("thread-tab-group-search"));
   const sheet = screen.getByTestId("thread-tab-switcher");
-  const chip = within(sheet)
-    .getAllByTestId("thread-tab-switcher-filter")
-    .find((item) => item.dataset.filter === "recent")!;
-  fireEvent.click(chip);
+  fireEvent.click(findMode(sheet, "messages"));
   return { sheet, load, onOpenMessage };
 }
 
-describe("Find's Recent mode", () => {
+describe("Find's Messages mode", () => {
   it("lists the user's messages newest first with their tab, state and time, and opens one", async () => {
     // Each row names the tab its message is in, open or closed, so the user can find a
     // conversation without remembering which status group its tab sits in now.
@@ -143,15 +148,52 @@ describe("Find's Recent mode", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const filters = screen.getAllByTestId("thread-tab-switcher-filter").map((chip) => chip.dataset.filter);
-    expect(filters).not.toContain("recent");
+    expect(screen.queryByTestId("thread-find-mode")).toBeNull();
+    expect(screen.getByTestId("thread-tab-switcher").dataset.mode).toBe("tabs");
+  });
+
+  it("opens Find in the mode the user chose last", async () => {
+    // First use lists tabs; after the user picks Messages, Find opens there next time,
+    // and switching back to Tabs is remembered too.
+    const { sheet } = openRecent();
+    expect(sheet.dataset.mode).toBe("messages");
+    await within(sheet).findAllByTestId("thread-tab-recent-row");
+    fireEvent.click(screen.getByTestId("thread-tab-switcher-backdrop"));
+
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    const reopened = screen.getByTestId("thread-tab-switcher");
+    expect(reopened.dataset.mode).toBe("messages");
+    expect(findMode(reopened, "messages").getAttribute("aria-checked")).toBe("true");
+    await within(reopened).findAllByTestId("thread-tab-recent-row");
+
+    fireEvent.click(findMode(reopened, "tabs"));
+    fireEvent.click(screen.getByTestId("thread-tab-switcher-backdrop"));
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    expect(screen.getByTestId("thread-tab-switcher").dataset.mode).toBe("tabs");
+  });
+
+  it("starts in Tabs mode the first time", () => {
+    render(
+      <ThreadTabGroupBar
+        main={MAIN}
+        tabs={OPEN}
+        currentThreadKey="q-10"
+        activeOutputThreadKey={null}
+        onSelect={vi.fn()}
+        loadRecentMessages={vi.fn(async () => RECENT)}
+        onOpenMessage={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    expect(screen.getByTestId("thread-tab-switcher").dataset.mode).toBe("tabs");
   });
 });
 
-describe("ThreadTabRail Recent", () => {
+describe("ThreadTabRail Messages", () => {
   it("asks the server for the user's own messages across the leader's tabs and opens the tab at one", async () => {
-    // The rail reuses the leader's message search, limited to the user's messages, and
-    // opens the result through a message route, which also reopens a closed tab.
+    // The rail reuses the leader's message search, limited to the user's messages and
+    // ordered newest first even when searching, and opens the result through a message
+    // route, which also reopens a closed tab.
     const fetchMock = vi.fn(async (_url: string) =>
       Response.json({ results: [message("m3", "q-9", "Make the done color quieter", NOW)] }),
     );
@@ -167,9 +209,7 @@ describe("ThreadTabRail Recent", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    fireEvent.click(
-      screen.getAllByTestId("thread-tab-switcher-filter").find((chip) => chip.dataset.filter === "recent")!,
-    );
+    fireEvent.click(findMode(screen.getByTestId("thread-tab-switcher"), "messages"));
     const row = await screen.findByTestId("thread-tab-recent-row");
     const url = new URL(String(fetchMock.mock.calls[0]![0]), "http://localhost");
     expect(url.pathname).toBe("/api/sessions/leader-session/message-search");
@@ -179,6 +219,7 @@ describe("ThreadTabRail Recent", () => {
       includeAssistant: "false",
       includeEvents: "false",
       limit: "50",
+      sort: "recent",
     });
     fireEvent.click(row);
     expect(window.location.hash).toContain("/msg/m3");

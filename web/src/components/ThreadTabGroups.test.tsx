@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Phone thread tab groups: how tabs are filed into groups, the chips and their lists,
- * the switcher sheet's search and closing, closed tabs in Find, and the rail choosing groups on phones.
+ * Find's Tabs mode (open and closed tabs by recency), and the rail choosing groups on phones.
  */
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -144,7 +144,7 @@ describe("ThreadTabGroupBar", () => {
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
   });
 
-  it("keeps Main out of the groups, with its bell on its own tab and in Find", () => {
+  it("keeps Main out of the groups and Find, with its bell on its own tab", () => {
     // Main has a prompt and the only quest prompt is answered, so no Needs you group shows:
     // counting Main there too duplicated it, and tapping that group from Main did nothing.
     renderBar({
@@ -158,11 +158,12 @@ describe("ThreadTabGroupBar", () => {
     expect(within(screen.getByTestId("thread-tab-group-main")).getByTestId("thread-tab-bell").dataset.kind).toBe(
       "needs-input",
     );
-    // Find still reaches Main's prompt: Main stays pinned first, bell included.
+    // Find lists quest tabs only; Main is always one tap away on the bar.
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const firstRow = within(screen.getByTestId("thread-tab-switcher")).getAllByTestId("thread-tab-list-row")[0]!;
-    expect(firstRow.dataset.threadKey).toBe("main");
-    expect(within(firstRow).getByTestId("thread-tab-bell").dataset.kind).toBe("needs-input");
+    const keys = within(screen.getByTestId("thread-tab-switcher"))
+      .getAllByTestId("thread-tab-list-row")
+      .map((row) => row.dataset.threadKey);
+    expect(keys).not.toContain("main");
   });
 
   it("opens a larger group's list without switching tabs", () => {
@@ -232,7 +233,6 @@ describe("ThreadTabGroupBar", () => {
     const { onClose } = renderBar();
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
     const sheet = screen.getByTestId("thread-tab-switcher");
-    expect(sheet.textContent).toContain("7 tabs");
     fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "q-13" } });
     const rows = within(sheet).getAllByTestId("thread-tab-list-row");
     expect(rows.map((row) => row.dataset.threadKey)).toEqual(["q-13"]);
@@ -240,16 +240,25 @@ describe("ThreadTabGroupBar", () => {
     expect(onClose).toHaveBeenCalledWith("q-13");
   });
 
-  it("asks once before closing every finished tab that can close", () => {
+  it("asks once before closing every finished tab that can close, from the Done list", () => {
+    // "Close all" moved from Find to the Done group's list, where the finished tabs are.
     const { onClose } = renderBar();
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const closeAll = screen.getByTestId("thread-tab-switcher-close-all");
+    fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
+    const closeAll = within(screen.getByTestId("thread-tab-group-list")).getByTestId("thread-tab-close-all");
     fireEvent.click(closeAll);
     expect(onClose).not.toHaveBeenCalled();
     expect(closeAll.textContent).toBe("Close 2 tabs?");
     fireEvent.click(closeAll);
     // q-12 is finished but unread, and q-15 cannot close, so neither is closed.
     expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
+  });
+
+  it("offers Close all only in the Done list", () => {
+    renderBar();
+    fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
+    expect(screen.getByTestId("thread-tab-close-all")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
+    expect(within(screen.getByTestId("thread-tab-switcher")).queryByTestId("thread-tab-close-all")).toBeNull();
   });
 
   it("switches to Main in one tap and marks it as current there", () => {
@@ -419,16 +428,22 @@ describe("ThreadTabRail", () => {
   });
 });
 
-describe("Find with closed tabs", () => {
-  // Closed tabs come newest first, as WorkBoardBar orders them.
+describe("Find's Tabs mode", () => {
+  // Open and closed tabs share one list, ordered by their latest activity: a chat, a prompt
+  // or result (groupChangedAt), or a board change (updatedAt), whichever is newest.
+  const OPEN = [
+    tab("q-10", { title: "Fix the relay proxy", updatedAt: 500 }),
+    tab("q-11", { needsInput: true, groupChangedAt: 900 }),
+    tab("q-13", { completed: true, canClose: true, updatedAt: 100 }),
+  ];
   const CLOSED = [
-    tab("q-9", { title: "Relay proxy timeout", completed: true, stateLabel: "Done" }),
-    tab("q-8", { title: "Board colors", completed: true, stateLabel: "Done" }),
-    tab("q-7", { title: "Old relay cleanup", stateLabel: "Work" }),
+    tab("q-9", { title: "Relay proxy timeout", completed: true, stateLabel: "Done", updatedAt: 700 }),
+    tab("q-8", { title: "Board colors", completed: true, stateLabel: "Done", updatedAt: 300 }),
+    tab("q-7", { title: "Old relay cleanup", stateLabel: "Work", updatedAt: 50 }),
   ];
 
   function openFind(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {}) {
-    const result = renderBar({ closedTabs: CLOSED, ...props });
+    const result = renderBar({ tabs: OPEN, closedTabs: CLOSED, ...props });
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
     return { ...result, sheet: screen.getByTestId("thread-tab-switcher") };
   }
@@ -438,33 +453,30 @@ describe("Find with closed tabs", () => {
       .getAllByTestId("thread-tab-list-row")
       .map((row) => row.dataset.threadKey);
 
-  it("keeps closed tabs out of the default view behind one link", () => {
-    // The open tabs read as before; the closed ones only show as a count until asked for.
+  it("lists open and closed tabs together, most recently active first, with no status sections", () => {
     const { sheet } = openFind();
-    expect(rowKeys(sheet)).not.toContain("q-9");
-    expect(within(sheet).getByTestId("thread-tab-switcher-show-closed").textContent).toContain("3 closed tabs");
-    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-show-closed"));
-    expect(rowKeys(sheet)).toEqual(["q-9", "q-8", "q-7"]);
-    const filter = within(sheet)
-      .getAllByTestId("thread-tab-switcher-filter")
-      .find((chip) => chip.dataset.filter === "closed")!;
-    expect(filter.getAttribute("aria-pressed")).toBe("true");
+    expect(rowKeys(sheet)).toEqual(["q-11", "q-9", "q-10", "q-8", "q-13", "q-7"]);
+    expect(within(sheet).queryByTestId("thread-tab-switcher-filter")).toBeNull();
+    expect(within(sheet).queryByTestId("thread-tab-switcher-section")).toBeNull();
   });
 
-  it("searches closed tabs by title below the open matches and reopens the one chosen", () => {
-    // Choosing a closed row selects its thread, which opens its tab again.
+  it("marks closed tabs and reopens the one chosen", () => {
+    // A closed row reads muted, says Closed, has no close button, and selecting it opens its tab again.
     const { sheet, onSelect } = openFind();
-    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "relay" } });
-    expect(rowKeys(sheet)).toEqual(["q-10", "q-9", "q-7"]);
-    const closedSection = within(sheet)
-      .getAllByTestId("thread-tab-switcher-section")
-      .find((section) => section.dataset.group === "closed")!;
-    expect(closedSection.textContent).toContain("Closed");
-    const closedRow = within(closedSection).getAllByTestId("thread-tab-list-row")[0]!;
+    const closedRow = within(sheet)
+      .getAllByTestId("thread-tab-list-row")
+      .find((row) => row.dataset.threadKey === "q-9")!;
     expect(closedRow.dataset.closed).toBe("true");
+    expect(closedRow.textContent).toContain("q-9 · Done · Closed");
     expect(within(closedRow).queryByTestId("thread-tab-list-row-close")).toBeNull();
     fireEvent.click(within(closedRow).getByTestId("thread-tab-list-row-select"));
     expect(onSelect).toHaveBeenCalledWith("q-9");
+  });
+
+  it("searches open and closed tabs by title, keeping the newest first", () => {
+    const { sheet } = openFind();
+    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "relay" } });
+    expect(rowKeys(sheet)).toEqual(["q-9", "q-10", "q-7"]);
   });
 
   it("finds a closed tab by quest number", () => {
@@ -473,24 +485,14 @@ describe("Find with closed tabs", () => {
     expect(rowKeys(sheet)).toEqual(["q-8"]);
   });
 
-  it("lists hundreds of closed tabs a page at a time", () => {
+  it("lists hundreds of tabs a page at a time", () => {
     // Rendering every past quest at once would make Find slow for long-running leaders.
     const many = Array.from({ length: 250 }, (_, index) => tab(`q-${1000 - index}`, { completed: true }));
-    const { sheet } = openFind({ closedTabs: many });
-    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-show-closed"));
+    const { sheet } = openFind({ tabs: [], closedTabs: many });
     expect(rowKeys(sheet)).toHaveLength(100);
-    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-closed-more"));
+    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-more"));
     expect(rowKeys(sheet)).toHaveLength(200);
-    expect(within(sheet).getByTestId("thread-tab-switcher-closed-more").textContent).toBe("Show 50 more");
-  });
-
-  it("offers no Closed filter or link when the leader has no closed tabs", () => {
-    const { sheet } = openFind({ closedTabs: [] });
-    expect(within(sheet).queryByTestId("thread-tab-switcher-show-closed")).toBeNull();
-    const filters = within(sheet)
-      .getAllByTestId("thread-tab-switcher-filter")
-      .map((chip) => chip.dataset.filter);
-    expect(filters).not.toContain("closed");
+    expect(within(sheet).getByTestId("thread-tab-switcher-more").textContent).toBe("Show 50 more");
   });
 });
 

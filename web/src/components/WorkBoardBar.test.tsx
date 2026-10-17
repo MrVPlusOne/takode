@@ -124,7 +124,7 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-import { listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import { groupedThreadTabKeys, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
@@ -321,8 +321,6 @@ describe("WorkBoardBar", () => {
 
     const tabs = listedThreadTabs();
     expect(queryByText("Active")).not.toBeInTheDocument();
-    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
-    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-5", "q-2", "q-4"]);
     expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")).toHaveAttribute(
       "data-needs-input",
       "true",
@@ -337,6 +335,8 @@ describe("WorkBoardBar", () => {
     );
     expect(queryByText("q-4 ready for review")).toBeInTheDocument();
     expect(queryByText("Finished work")).not.toBeInTheDocument();
+    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
+    expect(groupedThreadTabKeys()).toEqual(["q-1", "q-5", "q-2", "q-4"]);
   });
 
   it("selects attention tabs without replaying notification route targets", () => {
@@ -486,11 +486,7 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
     );
 
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-open-a",
-      "q-open-b",
-      "q-old",
-    ]);
+    expect(groupedThreadTabKeys()).toEqual(["q-open-a", "q-open-b", "q-old"]);
 
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -500,11 +496,7 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
     );
 
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-open-a",
-      "q-open-b",
-      "q-old",
-    ]);
+    expect(groupedThreadTabKeys()).toEqual(["q-open-a", "q-open-b", "q-old"]);
   });
 
   it("hands off an off-board attention-tab close and removes it only after projected authority updates", () => {
@@ -538,9 +530,11 @@ describe("WorkBoardBar", () => {
       />,
     );
 
+    // Closing opens the next tab in the closed tab's status group.
+    const grouped = groupedThreadTabKeys();
+    const expectedNextThread = grouped[grouped.indexOf("q-5") + 1] ?? "main";
     const tabs = listedThreadTabs();
     const offBoardTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-5")!;
-    const expectedNextThread = tabs[tabs.indexOf(offBoardTab) + 1]?.getAttribute("data-thread-key") ?? "main";
     const boardActiveTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(offBoardTab).toHaveAttribute("data-closable", "true");
     expect(boardActiveTab).toHaveAttribute("data-closable", "false");
@@ -679,7 +673,7 @@ describe("WorkBoardBar", () => {
     );
 
     // q-1066 is finished in Questmaster, so it lists under Done after the in-progress q-1119.
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119", "q-1066"]);
+    expect(groupedThreadTabKeys()).toEqual(["q-1119", "q-1066"]);
 
     view.rerender(
       <WorkBoardBar

@@ -75,6 +75,8 @@ export interface SearchSessionMessagesInput {
   filters?: Partial<MessageSearchFilters>;
   limit?: number;
   offset?: number;
+  /** How a query's matches are ordered: best match first (default) or newest first. */
+  sort?: "relevance" | "recent";
   starredMessages?: Record<string, StarredMessageRecord>;
 }
 
@@ -146,13 +148,17 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     .filter((candidate) => filters[candidate.category])
     .filter((candidate) => !filters.starredOnly || Boolean(input.starredMessages?.[candidate.messageId]));
 
-  const matched: CandidateMessage[] = query
+  const ranked = query
     ? candidates
         .map((candidate) => ({ candidate, rank: rankSearchFields([{ rank: 0, text: candidate.text }], query) }))
         .filter((match): match is { candidate: CandidateMessage; rank: SearchRank } => match.rank !== null)
-        .sort(compareRankedCandidates)
-        .map((match) => match.candidate)
-    : [...candidates].sort((left, right) => right.timestamp - left.timestamp || right.historyIndex - left.historyIndex);
+    : null;
+  const matched: CandidateMessage[] =
+    ranked && input.sort !== "recent"
+      ? ranked.sort(compareRankedCandidates).map((match) => match.candidate)
+      : (ranked?.map((match) => match.candidate) ?? [...candidates]).sort(
+          (left, right) => right.timestamp - left.timestamp || right.historyIndex - left.historyIndex,
+        );
 
   const page = matched.slice(offset, offset + limit);
   const results = page.map((candidate) =>
