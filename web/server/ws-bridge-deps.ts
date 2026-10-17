@@ -982,6 +982,10 @@ export function getBrowserTransportDeps(host: any) {
     },
     getVsCodeSelectionState: () => host.browserTransportState.vscodeSelectionState,
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
+    markSessionRead: (targetSession: unknown) =>
+      clearAttentionAndMarkReadController(targetSession as Session, host.getSessionNotificationDeps(), {
+        mode: "session-view",
+      }),
     backendAttached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     isHostOffline: (hostId: string) => !hostIsOnline(hostId),

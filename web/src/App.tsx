@@ -6,6 +6,7 @@ import {
   connectSession,
   disconnectSession,
   refreshSyncedProjectionSubscriptions,
+  sendToSession,
   sendVsCodeSelectionUpdate,
 } from "./ws.js";
 import { api, checkHealthStatus } from "./api.js";
@@ -864,7 +865,11 @@ export default function App() {
         if (connectedSessionIdRef.current && connectedSessionIdRef.current !== resolvedSessionId) {
           disconnectSession(connectedSessionIdRef.current);
         }
-        api.markSessionRead?.(resolvedSessionId, { mode: "session-view" }).catch(() => {});
+        // This runs on every session-list change, so it uses the session's socket when one is open:
+        // the server does the same as for the request, which costs far more bytes on a slow link.
+        if (!sendToSession(resolvedSessionId, { type: "session_read", mode: "session-view" })) {
+          api.markSessionRead?.(resolvedSessionId, { mode: "session-view" }).catch(() => {});
+        }
         connectSession(resolvedSessionId);
         connectedSessionIdRef.current = resolvedSessionId;
         if (selectedGitRefreshSessionIdRef.current !== resolvedSessionId) {

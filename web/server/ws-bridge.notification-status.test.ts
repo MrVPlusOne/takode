@@ -10,9 +10,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  markNotificationDone,
   notifyUser as notifyUserController,
   recordAnswerUnreadNotifications,
 } from "./bridge/session-registry-controller.js";
+import { receiveSyncedList } from "../src/utils/synced-lists.js";
+import type { SessionNotification } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
@@ -93,6 +96,89 @@ describe("notification status fanout", () => {
     });
     expect(typeof globalStatus.session.notificationStatusUpdatedAt).toBe("number");
     expect(globalStatus.session.notifications).toBeUndefined();
+  });
+
+  // Every inbox change used to resend the whole list, mostly resolved entries
+  // (about 100 KB on a busy leader). After the first update, each update
+  // carries only what changed since the previous one, and a browser applying
+  // them in order holds exactly the server's list.
+  it("sends later inbox changes as deltas that rebuild the server's exact list", () => {
+    const bridge = new WsBridge();
+    bridge.store = new SessionStore(mkdtempSync(join(tmpdir(), "notification-delta-")));
+    makeCliSocket("worker").attach(bridge);
+    const browser = makeBrowserSocket("worker");
+    bridge.handleBrowserOpen(browser, "worker");
+    browser.send.mockClear();
+    const session = bridge.getSession("worker")!;
+    const deps = getNotificationTestDeps(bridge);
+
+    const first = notifyUserController(session, "needs-input", "First question", deps);
+    notifyUserController(session, "needs-input", "Second question", deps);
+    markNotificationDone(session, first.notificationId!, true, deps);
+
+    const updates = sentMessages(browser).filter((msg) => msg.type === "notification_update");
+    expect(updates).toHaveLength(3);
+    expect(updates[0].notifications).toHaveLength(1);
+    expect(updates[1]).not.toHaveProperty("notifications");
+    expect(updates[1].notificationsDelta.upserts.map((n: { summary: string }) => n.summary)).toEqual([
+      "Second question",
+    ]);
+    expect(updates[2].notificationsDelta).toMatchObject({ upserts: [{ id: first.notificationId, done: true }] });
+
+    let held: SessionNotification[] | null = null;
+    for (const update of updates) {
+      held = receiveSyncedList<SessionNotification>(
+        "notifications",
+        "worker",
+        { list: update.notifications, delta: update.notificationsDelta, hash: update.notificationsHash },
+        (notification) => notification.id,
+      );
+      expect(held).not.toBeNull();
+    }
+    expect(held).toEqual(JSON.parse(JSON.stringify(session.notifications)));
+  });
+
+  // A browser whose copy did not fit an update asks for the list again over its socket.
+  it("answers a list resync over the socket with the list as the browser should hold it", async () => {
+    const bridge = new WsBridge();
+    bridge.store = new SessionStore(mkdtempSync(join(tmpdir(), "notification-resync-")));
+    makeCliSocket("worker").attach(bridge);
+    const browser = makeBrowserSocket("worker");
+    bridge.handleBrowserOpen(browser, "worker");
+    const session = bridge.getSession("worker")!;
+    notifyUserController(session, "needs-input", "Question", getNotificationTestDeps(bridge));
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "list_resync", list: "notifications", held: "x" }),
+    );
+
+    const [answer] = sentMessages(browser);
+    expect(answer).toMatchObject({
+      type: "notification_update",
+      notifications: [{ summary: "Question" }],
+      activeNeedsInputNotificationCount: 1,
+    });
+  });
+
+  // The page showing a session marks it read on every session-list change; over
+  // its socket that does exactly what `PATCH /sessions/:id/read` in session-view mode does.
+  it("clears unread state for a session_read message like the session-view read request", async () => {
+    const bridge = new WsBridge();
+    bridge.store = new SessionStore(mkdtempSync(join(tmpdir(), "session-read-")));
+    makeCliSocket("worker").attach(bridge);
+    const browser = makeBrowserSocket("worker");
+    bridge.handleBrowserOpen(browser, "worker");
+    const session = bridge.getSession("worker")!;
+    session.attentionReason = "review";
+    session.manualUnread = true;
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_read", mode: "session-view" }));
+
+    expect(session.attentionReason).toBeNull();
+    expect(session.manualUnread).toBe(false);
+    expect(session.lastReadAt).toEqual(expect.any(Number));
   });
 
   it("fans later answer unread count changes through compact summary and scoped projection", async () => {

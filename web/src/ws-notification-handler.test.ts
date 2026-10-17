@@ -49,7 +49,6 @@ describe("handleNotificationUpdateMessage", () => {
     const notifications = [review("n-1"), review("n-2"), review("n-3"), review("n-4"), review("n-5")];
 
     handleNotificationUpdateMessage("s1", {
-      type: "notification_update",
       notifications,
       notificationUrgency: "review",
       activeNotificationCount: 1,
@@ -71,7 +70,6 @@ describe("handleNotificationUpdateMessage", () => {
 
   it("derives counts for backward-compatible updates without summary fields", () => {
     handleNotificationUpdateMessage("s1", {
-      type: "notification_update",
       notifications: [review("n-1")],
       notificationStatusVersion: 6,
     });

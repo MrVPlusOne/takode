@@ -1,13 +1,18 @@
 /**
  * A hash of a large subscribe snapshot part (the completed work board, the
- * session tree groups) as JSON. The browser names the hash of the copy it
- * holds when it subscribes, and the server leaves the part out when its own
- * copy hashes the same, so a revisit does not download it again. Both sides
- * serialize with plain `JSON.stringify`: a copy parsed from the server's JSON
- * serializes back identically, and any difference only costs a resend.
+ * session tree groups, the notification and attention lists) as JSON. The
+ * browser names the hash of the copy it holds when it subscribes, and the
+ * server leaves the part out when its own copy hashes the same, so a revisit
+ * does not download it again. Both sides serialize with plain
+ * `JSON.stringify`: a copy parsed from the server's JSON serializes back
+ * identically, and any difference only costs a resend.
  */
 export function snapshotPartHash(value: unknown): string {
-  const text = JSON.stringify(value) ?? "";
+  return snapshotTextHash(JSON.stringify(value) ?? "");
+}
+
+/** `snapshotPartHash` of a value already serialized to JSON. */
+export function snapshotTextHash(text: string): string {
   // Two independent 32-bit multiply-xor streams (cyrb53-style), 64 bits together.
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -25,4 +30,6 @@ export function snapshotPartHash(value: unknown): string {
 export interface KnownSnapshotParts {
   completed_board?: string;
   tree_groups?: string;
+  notifications?: string;
+  attention_records?: string;
 }

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom";
 
 const mockConnectSession = vi.fn();
+const mockSendToSession = vi.fn((..._args: unknown[]) => false);
 const mockDisconnectSession = vi.fn();
 const mockViewportHandoffGates = vi.hoisted(() => ({
   session: vi.fn(),
@@ -234,6 +235,7 @@ vi.mock("./ws.js", () => ({
   connectSession: (...args: unknown[]) => mockConnectSession(...args),
   disconnectSession: (...args: unknown[]) => mockDisconnectSession(...args),
   refreshSyncedProjectionSubscriptions: vi.fn(() => true),
+  sendToSession: (...args: unknown[]) => mockSendToSession(...args),
   sendVsCodeSelectionUpdate: vi.fn(),
 }));
 
@@ -993,6 +995,22 @@ describe("App hidden panels", () => {
         mode: "session-view",
       }),
     );
+  });
+
+  // The route effect re-runs on every session-list change. With the session's
+  // socket open, the read marker goes over it (same server effect) instead of
+  // an HTTP request each time.
+  it("sends the session-view read marker over the open session socket instead of a request", async () => {
+    mockSendToSession.mockReturnValue(true);
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "session_read", mode: "session-view" }),
+    );
+    expect(mockMarkSessionRead).not.toHaveBeenCalled();
+    mockSendToSession.mockReturnValue(false);
   });
 
   it("renders the right-pane chat in preview mode when searchPreviewSessionId is set", () => {

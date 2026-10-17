@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { snapshotPartHash } from "../../shared/snapshot-part-hash.js";
 import type { BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import {
+  answerListResync,
   sendFeedAttentionSnapshot,
   sendInitialTreeGroupState,
   sendStateSnapshot,
@@ -104,7 +105,10 @@ describe("subscribe snapshot parts the browser already holds", () => {
     expect(sent(ws)[2].attentionRecords).toEqual([{ id: "a-1" }]);
   });
 
-  it("skips the tree groups when the held copy hashes the same, and sends changed ones", async () => {
+  // The tree groups map every session ever created to its group. A browser
+  // holding a copy the server remembers gets only the changed assignments; one
+  // holding an unknown copy gets the whole map.
+  it("skips the tree groups when the held copy hashes the same, and sends only changes to a recent copy", async () => {
     const held = socket({
       initialTreeGroupState: Promise.resolve(TREE),
       knownSnapshotParts: { tree_groups: snapshotPartHash(TREE) },
@@ -112,12 +116,100 @@ describe("subscribe snapshot parts the browser already holds", () => {
     await sendInitialTreeGroupState(held);
     expect(held.send).not.toHaveBeenCalled();
 
+    const next = { ...TREE, assignments: { s1: "g1", s2: "g1" } };
     const changed = socket({
-      initialTreeGroupState: Promise.resolve({ ...TREE, assignments: { s1: "g1", s2: "g1" } }),
+      initialTreeGroupState: Promise.resolve(next),
       knownSnapshotParts: { tree_groups: snapshotPartHash(TREE) },
     });
     await sendInitialTreeGroupState(changed);
-    expect(sent(changed)[0]).toMatchObject({ type: "tree_groups_update", treeAssignments: { s1: "g1", s2: "g1" } });
+    expect(sent(changed)[0]).toEqual({
+      type: "tree_groups_update",
+      treeGroups: TREE.groups,
+      treeAssignmentsDelta: {
+        base: snapshotPartHash(TREE),
+        hash: snapshotPartHash(next),
+        upserts: [["s2", "g1"]],
+        removed: [],
+      },
+      treeNodeOrder: {},
+      treeGroupsHash: snapshotPartHash(next),
+    });
+
+    const unknown = socket({
+      initialTreeGroupState: Promise.resolve(next),
+      knownSnapshotParts: { tree_groups: "other" },
+    });
+    await sendInitialTreeGroupState(unknown);
+    expect(sent(unknown)[0]).toMatchObject({ treeAssignments: { s1: "g1", s2: "g1" } });
+  });
+
+  // A phone returning to a busy leader used to download every notification and
+  // attention record again, although nearly all were resolved and unchanged.
+  it("leaves out notification and attention lists the browser holds, and sends changes to a recent copy", () => {
+    const leader = session();
+    (leader as any).notifications.unshift({
+      id: "n-0",
+      category: "needs-input",
+      summary: "Old",
+      timestamp: 0,
+      done: true,
+    });
+    const first = socket();
+    sendFeedAttentionSnapshot(leader, first);
+    const received = sent(first)[0];
+    expect(received.notifications).toHaveLength(2);
+    const known = {
+      notifications: snapshotPartHash(received.notifications),
+      attention_records: snapshotPartHash(received.attentionRecords),
+    };
+
+    const revisit = socket({ knownSnapshotParts: known });
+    sendFeedAttentionSnapshot(leader, revisit);
+    const unchanged = sent(revisit)[0];
+    expect(unchanged).not.toHaveProperty("notifications");
+    expect(unchanged).not.toHaveProperty("attentionRecords");
+    expect(unchanged).toMatchObject({
+      notificationsHash: known.notifications,
+      attentionRecordsHash: known.attention_records,
+      activeNeedsInputNotificationCount: 1,
+    });
+
+    // The prompt was answered while the browser was away: only that entry travels.
+    (leader as any).notifications[1].done = true;
+    const back = socket({ knownSnapshotParts: known });
+    sendFeedAttentionSnapshot(leader, back);
+    const changed = sent(back)[0];
+    expect(changed).not.toHaveProperty("notifications");
+    expect(changed.notificationsDelta).toMatchObject({
+      base: known.notifications,
+      upserts: [{ id: "n-1", done: true }],
+      removed: [],
+    });
+    expect(changed).not.toHaveProperty("attentionRecordsDelta");
+  });
+
+  it("answers a list resync with changes from the copy the browser holds", async () => {
+    const leader = session();
+    const first = socket();
+    sendFeedAttentionSnapshot(leader, first);
+    const held = snapshotPartHash(sent(first)[0].attentionRecords);
+    (leader as any).attentionRecords = [{ id: "a-1" }, { id: "a-2" }];
+
+    const ws = socket();
+    await answerListResync(leader, ws, "attention_records", held, deps());
+    expect(sent(ws)[0]).toEqual({
+      type: "attention_records_update",
+      attentionRecordsHash: snapshotPartHash([{ id: "a-1" }, { id: "a-2" }]),
+      attentionRecordsDelta: {
+        base: held,
+        hash: snapshotPartHash([{ id: "a-1" }, { id: "a-2" }]),
+        upserts: [{ id: "a-2" }],
+        removed: [],
+      },
+    });
+
+    await answerListResync(leader, ws, "notifications", "unknown", deps());
+    expect(sent(ws)[1]).toMatchObject({ type: "notification_update", notifications: [{ id: "n-1" }] });
   });
 });
 

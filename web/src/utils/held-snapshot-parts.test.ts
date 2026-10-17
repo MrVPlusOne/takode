@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { snapshotPartHash } from "../../shared/snapshot-part-hash.js";
 import { useStore } from "../store.js";
 import { heldSnapshotParts } from "./held-snapshot-parts.js";
+import { receiveSyncedList } from "./synced-lists.js";
 
 // The browser names hashes of what it holds; they must equal the server's
 // hashes of the same data as sent, or every revisit would download it again.
@@ -29,6 +30,14 @@ describe("heldSnapshotParts", () => {
     });
     // Another session's completed board is not held.
     expect(heldSnapshotParts("other")).toEqual({ tree_groups: snapshotPartHash(tree) });
+  });
+
+  // Notification and attention lists are named by the server's hash of the
+  // list it last sent, which their changes build on.
+  it("names the hash of the notification and attention lists the server last sent", () => {
+    const list = [{ id: "n-1" }];
+    receiveSyncedList("notifications", "named", { list, hash: "server-hash" }, (entry) => entry.id);
+    expect(heldSnapshotParts("named")).toEqual({ notifications: "server-hash" });
   });
 
   it("follows replaced values instead of a remembered hash", () => {

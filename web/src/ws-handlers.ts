@@ -41,7 +41,11 @@ import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { applyPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
-import { handleAttentionAlertMessage, handleNotificationUpdateMessage } from "./ws-notification-handler.js";
+import {
+  handleAttentionAlertMessage,
+  handleNotificationUpdateMessage,
+  type NotificationListUpdate,
+} from "./ws-notification-handler.js";
 import { applyRemoteDraftChange, applySessionDraftsSnapshot } from "./draft-sync.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
@@ -55,6 +59,9 @@ import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { recordLiveAnswerArrival } from "./utils/live-answer-arrivals.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
+import { applyKeyedListDelta } from "../shared/keyed-list-delta.js";
+import { heldTreeGroupsHash } from "./utils/held-snapshot-parts.js";
+import { receivedListHash, receiveSyncedList, type SyncedListKind } from "./utils/synced-lists.js";
 import {
   handleSyncedProjectionMessage,
   type SyncedProjectionMessageHandlerDeps,
@@ -672,29 +679,67 @@ function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
   return retained;
 }
 
-/** The notification inbox and attention records a session's feed places chips and rows from. */
+/**
+ * The notification inbox and attention records a session's feed places chips
+ * and rows from. Each list may come whole, as changes to the list this browser
+ * named in its subscribe, or not at all because it holds the current one.
+ */
 function applyFeedAttention(
   sessionId: string,
   data: Extract<BrowserIncomingMessage, { type: "state_snapshot" | "feed_attention_snapshot" }>,
+  deps: WsMessageHandlerDeps,
 ): void {
-  if (data.notifications) {
-    applySessionNotifications(
-      sessionId,
-      data.notifications,
-      {
-        notificationUrgency: data.notificationUrgency,
-        activeNotificationCount: data.activeNotificationCount,
-        activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
-        activeReviewNotificationCount: data.activeReviewNotificationCount,
-        mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
-        notificationStatusVersion: data.notificationStatusVersion,
-        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
-      },
-      { authoritativeStatus: true },
-    );
-  }
   // A state snapshot leaves both out when the feed attention snapshot already sent them.
-  if (data.attentionRecords) useStore.getState().setSessionAttentionRecords(sessionId, data.attentionRecords);
+  if (data.notifications || data.notificationsHash !== undefined) applyNotifications(sessionId, data, deps);
+  applyAttentionRecords(sessionId, data, deps);
+}
+
+function applyNotifications(sessionId: string, data: NotificationListUpdate, deps: WsMessageHandlerDeps): void {
+  if (!handleNotificationUpdateMessage(sessionId, data)) requestListResync(sessionId, "notifications", deps);
+}
+
+function applyAttentionRecords(
+  sessionId: string,
+  data: Pick<
+    Extract<BrowserIncomingMessage, { type: "attention_records_update" }>,
+    "attentionRecords" | "attentionRecordsDelta" | "attentionRecordsHash"
+  >,
+  deps: WsMessageHandlerDeps,
+): void {
+  if (!data.attentionRecords && data.attentionRecordsHash === undefined) return;
+  const records = receiveSyncedList(
+    "attention_records",
+    sessionId,
+    { list: data.attentionRecords, delta: data.attentionRecordsDelta, hash: data.attentionRecordsHash },
+    (record) => record.id,
+  );
+  if (records) useStore.getState().setSessionAttentionRecords(sessionId, records);
+  else requestListResync(sessionId, "attention_records", deps);
+}
+
+/**
+ * The tree-group assignments an update leaves the browser with: whole, as
+ * changes to the tree groups it holds, `undefined` when it holds these tree
+ * groups already, or `null` when the changes are for tree groups it no longer holds.
+ */
+function resolveTreeAssignments(
+  data: Extract<BrowserIncomingMessage, { type: "tree_groups_update" }>,
+): Record<string, string> | undefined | null {
+  if (data.treeAssignments && typeof data.treeAssignments === "object") return data.treeAssignments;
+  const held = heldTreeGroupsHash();
+  if (held === data.treeGroupsHash) return undefined;
+  const delta = data.treeAssignmentsDelta;
+  if (!delta || held !== delta.base) return null;
+  return Object.fromEntries(applyKeyedListDelta([...useStore.getState().treeAssignments], delta, ([id]) => id));
+}
+
+/** Asks the server for a list again after an update that builds on a list this browser does not hold. */
+function requestListResync(sessionId: string, list: SyncedListKind | "tree_groups", deps: WsMessageHandlerDeps): void {
+  deps.sendToSession(sessionId, {
+    type: "list_resync",
+    list,
+    held: (list === "tree_groups" ? heldTreeGroupsHash() : receivedListHash(list, sessionId)) ?? "",
+  });
 }
 
 function resetAuthoritativeHistoryState(
@@ -1412,7 +1457,7 @@ function handleParsedMessage(
     }
 
     case "notification_update": {
-      handleNotificationUpdateMessage(sessionId, data);
+      applyNotifications(sessionId, data, deps);
       break;
     }
 
@@ -1422,7 +1467,7 @@ function handleParsedMessage(
     }
 
     case "attention_records_update": {
-      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+      applyAttentionRecords(sessionId, data, deps);
       break;
     }
 
@@ -1484,12 +1529,12 @@ function handleParsedMessage(
       // Drafts shared by the user's browsers; replace this tab's copy except edits it is still sending.
       applySessionDraftsSnapshot(sessionId, data.drafts);
       // Sync notification inbox from server on connect/reconnect
-      applyFeedAttention(sessionId, data);
+      applyFeedAttention(sessionId, data, deps);
       break;
     }
 
     case "feed_attention_snapshot": {
-      applyFeedAttention(sessionId, data);
+      applyFeedAttention(sessionId, data, deps);
       break;
     }
 
@@ -1558,10 +1603,13 @@ function handleParsedMessage(
     case "tree_groups_update": {
       const startedAt = perfNow();
       const groups = Array.isArray(data.treeGroups) ? data.treeGroups : [];
-      const assignments =
-        data.treeAssignments && typeof data.treeAssignments === "object"
-          ? (data.treeAssignments as Record<string, string>)
-          : {};
+      const assignments = resolveTreeAssignments(data);
+      if (assignments === null) {
+        requestListResync(sessionId, "tree_groups", deps);
+        break;
+      }
+      // Already holds these tree groups, for example from another socket of this tab.
+      if (assignments === undefined) break;
       const nodeOrder =
         data.treeNodeOrder && typeof data.treeNodeOrder === "object"
           ? (data.treeNodeOrder as Record<string, string[]>)

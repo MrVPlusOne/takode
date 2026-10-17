@@ -79,6 +79,7 @@ import { relaunchSessionProcess } from "./session-process-relaunch.js";
 import { buildSessionBackendLaunchSettings } from "./session-create-launch-settings.js";
 import { resolveSessionSpaceForCreate } from "./session-create-space.js";
 import { buildBrowserSessionDetail } from "./session-detail-response.js";
+import { treeGroupUpdates } from "../bridge/tree-group-updates.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -157,13 +158,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
   /** Helper: broadcast current tree group state to all browsers. */
   async function broadcastTreeGroups() {
-    const tgs = await treeGroupStore.getState();
-    wsBridge.broadcastGlobal({
-      type: "tree_groups_update",
-      treeGroups: tgs.groups,
-      treeAssignments: tgs.assignments,
-      treeNodeOrder: tgs.nodeOrder,
-    } as any);
+    wsBridge.broadcastGlobal(treeGroupUpdates.forBroadcast(await treeGroupStore.getState()));
   }
 
   const normalizeTreeGroupId = (value: unknown): string | undefined => {

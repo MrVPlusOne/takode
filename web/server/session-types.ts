@@ -55,6 +55,7 @@ import type {
   SyncedProjectionUpdateMessage,
 } from "../shared/synced-projection.js";
 import type { QuestTitlePreview } from "./quest-types.js";
+import type { KeyedListDelta } from "../shared/keyed-list-delta.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 import type {
   CodexCompactionCause,
@@ -708,6 +709,18 @@ export type BrowserOutgoingMessage =
   | SyncedProjectionSubscribeMessage
   | SyncedProjectionResyncMessage
   | {
+      /** A list update applied to a list this browser no longer holds; the server sends the list again. */
+      type: "list_resync";
+      list: "notifications" | "attention_records" | "tree_groups";
+      /** Hash of the list the browser holds. */
+      held: string;
+    }
+  | {
+      /** The browser shows this session: clear its unread state, as `PATCH /sessions/:id/read` does. */
+      type: "session_read";
+      mode: "session-view";
+    }
+  | {
       type: "history_window_request";
       from_turn: number;
       turn_count: number;
@@ -1275,10 +1288,15 @@ export type BrowserIncomingMessageBase =
       completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+      /** Left out with its records when the feed attention snapshot of the same subscribe sent them. */
       notifications?: SessionNotification[];
+      notificationsDelta?: KeyedListDelta<SessionNotification>;
+      notificationsHash?: string;
       /** Unsent drafts shared by the user's browsers (see shared/session-drafts.ts). */
       drafts?: import("../shared/session-drafts.js").SessionDraftsState;
       attentionRecords?: SessionAttentionRecord[];
+      attentionRecordsDelta?: KeyedListDelta<SessionAttentionRecord>;
+      attentionRecordsHash?: string;
       notificationUrgency?: "needs-input" | "review" | null;
       activeNotificationCount?: number;
       activeNeedsInputNotificationCount?: number;
@@ -1291,8 +1309,17 @@ export type BrowserIncomingMessageBase =
       /** Sent before a subscribe's conversation window, so the feed's first render
        *  already has the notification chips and attention rows placed in it. */
       type: "feed_attention_snapshot";
-      notifications: SessionNotification[];
-      attentionRecords: SessionAttentionRecord[];
+      /**
+       * Each list comes whole, as a delta from the list the browser named in
+       * its subscribe, or not at all when the browser holds the current one
+       * (see server/bridge/feed-attention-lists.ts). The hash names the current list.
+       */
+      notifications?: SessionNotification[];
+      notificationsDelta?: KeyedListDelta<SessionNotification>;
+      notificationsHash?: string;
+      attentionRecords?: SessionAttentionRecord[];
+      attentionRecordsDelta?: KeyedListDelta<SessionAttentionRecord>;
+      attentionRecordsHash?: string;
       notificationUrgency?: "needs-input" | "review" | null;
       activeNotificationCount?: number;
       activeNeedsInputNotificationCount?: number;
@@ -1347,7 +1374,10 @@ export type BrowserIncomingMessageBase =
     }
   | {
       type: "notification_update";
-      notifications: SessionNotification[];
+      /** Whole, or as a delta from the list the previous update sent; the hash names the current list. */
+      notifications?: SessionNotification[];
+      notificationsDelta?: KeyedListDelta<SessionNotification>;
+      notificationsHash?: string;
       notificationUrgency?: NotificationUrgency;
       activeNotificationCount?: number;
       activeNeedsInputNotificationCount?: number;
@@ -1358,7 +1388,10 @@ export type BrowserIncomingMessageBase =
     }
   | {
       type: "attention_records_update";
-      attentionRecords: SessionAttentionRecord[];
+      /** Whole, or as a delta from the records the previous update sent; the hash names the current records. */
+      attentionRecords?: SessionAttentionRecord[];
+      attentionRecordsDelta?: KeyedListDelta<SessionAttentionRecord>;
+      attentionRecordsHash?: string;
     }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
   | AttentionAlertMessage
@@ -1381,8 +1414,12 @@ export type BrowserIncomingMessageBase =
   | {
       type: "tree_groups_update";
       treeGroups: import("./tree-group-store.js").TreeGroup[];
-      treeAssignments: Record<string, string>;
+      /** Whole, or as a delta of `[sessionId, groupId]` entries from the tree groups the browser holds. */
+      treeAssignments?: Record<string, string>;
+      treeAssignmentsDelta?: KeyedListDelta<[string, string]>;
       treeNodeOrder: Record<string, string[]>;
+      /** `snapshotPartHash` of the tree groups this message leaves the browser with. */
+      treeGroupsHash?: string;
     };
 
 type BrowserIncomingMessageMetadata = import("./leader-thread-response-types.js").LeaderRoutedAssistantMetadata & {

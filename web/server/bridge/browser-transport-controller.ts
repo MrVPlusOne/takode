@@ -36,7 +36,10 @@ import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
 import { projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
+import { projectFeedAttentionUpdateForBrowsers } from "./feed-attention-lists.js";
+import type { TreeGroupState } from "./tree-group-updates.js";
 import {
+  answerListResync,
   sendFeedAttentionSnapshot,
   sendInitialTreeGroupState,
   sendStateSnapshot,
@@ -215,11 +218,7 @@ export interface BrowserTransportLauncherInfo {
   archived?: boolean;
 }
 
-export interface BrowserTransportTreeGroupState {
-  groups: unknown[];
-  assignments: Record<string, unknown>;
-  nodeOrder: Record<string, string[]>;
-}
+export type BrowserTransportTreeGroupState = TreeGroupState;
 
 export interface BrowserTransportDeps {
   refreshGitInfoThenRecomputeDiff: (session: BrowserTransportSessionLike, options: { notifyPoller: boolean }) => void;
@@ -245,6 +244,8 @@ export interface BrowserTransportDeps {
     batch: TakodeHerdBatchSnapshot | undefined,
   ) => { batch?: TakodeHerdBatchSnapshot; content?: string; changed: boolean };
   broadcastToBrowsers: (session: BrowserTransportSessionLike, msg: BrowserIncomingMessage) => void;
+  /** Clears the session's unread state for a browser showing it, as `PATCH /sessions/:id/read` in session-view mode. */
+  markSessionRead?: (session: BrowserTransportSessionLike) => void;
   setAttentionAction: (session: BrowserTransportSessionLike) => void;
   touchActivity?: (sessionId: string) => void;
   notifyImageSendFailure: (session: BrowserTransportSessionLike, err?: unknown) => void;
@@ -320,6 +321,9 @@ function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean 
     msg.type === "history_sync_mismatch" ||
     msg.type === "synced_projection_subscribe" ||
     msg.type === "synced_projection_resync" ||
+    msg.type === "list_resync" ||
+    // Read markers apply to archived sessions too, as the read request does.
+    msg.type === "session_read" ||
     (msg as { type: string }).type === "ping"
   );
 }
@@ -625,6 +629,15 @@ export function handleBrowserProtocolMessage(
   }
 
   if (handleSyncedProjectionProtocolMessage(session, msg, ws, deps, sendToBrowser)) return true;
+
+  if (msg.type === "list_resync") {
+    return ws ? answerListResync(session, ws, msg.list, msg.held, deps).then(() => true) : true;
+  }
+
+  if (msg.type === "session_read") {
+    deps.markSessionRead?.(session);
+    return true;
+  }
 
   if (msg.type === "history_window_request") {
     if (!ws) return true;
@@ -1473,6 +1486,7 @@ export function broadcastToBrowsers(
   if (isLiveContentDelta(msg)) return;
   msg = projectBrowserMessage(msg);
   if (msg.type === "board_updated") msg = projectBoardUpdateForBrowsers(session, msg);
+  msg = projectFeedAttentionUpdateForBrowsers(session, msg);
   msg = attachRecentHistoryIndex(session.messageHistory, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(

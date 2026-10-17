@@ -3,22 +3,35 @@ import type { BrowserIncomingMessage } from "./types.js";
 import { applySessionNotifications } from "./notification-status.js";
 import { isMostRecentlyUsedAlertWindow } from "./utils/alert-window-presence.js";
 import { parseHash } from "./utils/routing.js";
+import { receiveSyncedList } from "./utils/synced-lists.js";
 import { readDisplayedLeaderThreadKey } from "./utils/thread-viewport.js";
 import { ALL_THREADS_KEY, normalizeThreadKey } from "./utils/thread-projection.js";
 import { playNeedsInputSound, playReviewSound } from "./utils/notification-sound.js";
 
-type NotificationUpdateMessage = Extract<BrowserIncomingMessage, { type: "notification_update" }>;
+/** The notification list and status fields a `notification_update` or subscribe snapshot carries. */
+export type NotificationListUpdate = Omit<Extract<BrowserIncomingMessage, { type: "notification_update" }>, "type">;
 type AttentionAlertMessage = Extract<BrowserIncomingMessage, { type: "attention_alert" }>;
 
 /** Alerts this close together play one sound. */
 const ALERT_BURST_MS = 2000;
 let lastAlertSound: { at: number; kind: AttentionAlertMessage["kind"] } | null = null;
 
-/** Applies one server-authored inbox update for the open session. */
-export function handleNotificationUpdateMessage(sessionId: string, data: NotificationUpdateMessage): void {
+/**
+ * Applies one server-authored inbox update for the open session. Returns
+ * false, applying nothing, when the update builds on a list this browser did
+ * not receive; the caller asks for the list again.
+ */
+export function handleNotificationUpdateMessage(sessionId: string, data: NotificationListUpdate): boolean {
+  const notifications = receiveSyncedList(
+    "notifications",
+    sessionId,
+    { list: data.notifications, delta: data.notificationsDelta, hash: data.notificationsHash },
+    (notification) => notification.id,
+  );
+  if (!notifications) return false;
   applySessionNotifications(
     sessionId,
-    data.notifications ?? [],
+    notifications,
     {
       notificationUrgency: data.notificationUrgency,
       activeNotificationCount: data.activeNotificationCount,
@@ -30,6 +43,7 @@ export function handleNotificationUpdateMessage(sessionId: string, data: Notific
     },
     { authoritativeStatus: true },
   );
+  return true;
 }
 
 /**

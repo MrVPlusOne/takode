@@ -117,6 +117,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
 
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
+import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
 
 export {
@@ -545,6 +546,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeSession: (sessionId) => {
     releaseSessionLocalImagePreviewUrls(sessionId);
+    forgetReceivedLists(sessionId);
     set((s) => removeSessionState(s, sessionId));
   },
 

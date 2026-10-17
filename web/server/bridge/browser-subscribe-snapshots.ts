@@ -1,4 +1,4 @@
-import type { BoardRow, BrowserIncomingMessage } from "../session-types.js";
+import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from "../session-types.js";
 import { snapshotPartHash, type KnownSnapshotParts } from "../../shared/snapshot-part-hash.js";
 import { browserBoardRows } from "./browser-board-rows.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
@@ -9,6 +9,8 @@ import {
   getUserVisibleSessionNotifications,
 } from "./session-notification-controller.js";
 import { getCodexAutoPauseRecoveryProgress } from "../codex-result-error-auto-pause.js";
+import { attentionRecordFields, notificationListFields } from "./feed-attention-lists.js";
+import { treeGroupUpdates } from "./tree-group-updates.js";
 import {
   deriveActiveTurnRoute,
   deriveSessionStatus,
@@ -38,11 +40,22 @@ function socketData(ws: BrowserTransportSocketLike): SubscribeSnapshotSocketData
 export function sendFeedAttentionSnapshot(session: BrowserTransportSessionLike, ws: BrowserTransportSocketLike): void {
   sendToBrowser(ws, {
     type: "feed_attention_snapshot",
-    notifications: getUserVisibleSessionNotifications(session),
-    attentionRecords: session.attentionRecords ?? [],
+    ...feedAttentionLists(session, socketData(ws).knownSnapshotParts),
     ...getNotificationStatusSnapshot(session),
   } as BrowserIncomingMessage);
   socketData(ws).feedAttentionSent = true;
+}
+
+/** The notification list and attention records, each left out or sent as changes when the browser holds a recent copy. */
+function feedAttentionLists(session: BrowserTransportSessionLike, known: KnownSnapshotParts | undefined) {
+  return {
+    ...notificationListFields(session, getUserVisibleSessionNotifications(session), known?.notifications),
+    ...attentionRecordFields(
+      session,
+      (session.attentionRecords ?? []) as SessionAttentionRecord[],
+      known?.attention_records,
+    ),
+  };
 }
 
 /**
@@ -82,12 +95,7 @@ export function sendStateSnapshot(
     board: browserBoardRows(board),
     ...(completedBoardHeld ? {} : { completedBoard: browserCompletedBoard }),
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
-    ...(feedAttentionSent
-      ? {}
-      : {
-          notifications: getUserVisibleSessionNotifications(session),
-          attentionRecords: session.attentionRecords ?? [],
-        }),
+    ...(feedAttentionSent ? {} : feedAttentionLists(session, known)),
     drafts: getSessionDraftsSnapshot(session as DraftSession),
     notificationUrgency: notificationStatus.notificationUrgency,
     activeNotificationCount: notificationStatus.activeNotificationCount,
@@ -99,29 +107,54 @@ export function sendStateSnapshot(
   } as BrowserIncomingMessage);
 }
 
-/** The session tree groups, prepared when the socket opened; left out when the browser's copy hashes the same. */
+/**
+ * The session tree groups, prepared when the socket opened; left out when the
+ * browser's copy hashes the same, and sent as changed assignments when it holds a recent copy.
+ */
 export async function sendInitialTreeGroupState(ws: BrowserTransportSocketLike): Promise<void> {
   const data = socketData(ws);
   const pending = data.initialTreeGroupState;
+  // Read before waiting: the state snapshot clears the subscribe's held parts.
+  const held = data.knownSnapshotParts?.tree_groups;
   delete data.initialTreeGroupState;
   if (!pending) return;
   try {
     const treeGroups = await pending;
     if (!treeGroups) return;
-    const part = {
-      groups: treeGroups.groups,
-      assignments: treeGroups.assignments,
-      nodeOrder: treeGroups.nodeOrder ?? {},
-    };
-    const held = data.knownSnapshotParts?.tree_groups;
-    if (held && held === snapshotPartHash(part)) return;
-    sendToBrowser(ws, {
-      type: "tree_groups_update",
-      treeGroups: part.groups,
-      treeAssignments: part.assignments,
-      treeNodeOrder: part.nodeOrder,
-    } as BrowserIncomingMessage);
+    const update = treeGroupUpdates.forBrowser(treeGroups, held);
+    if (update) sendToBrowser(ws, update);
   } catch {
     // Preparation already records the failure; socket cleanup is handled elsewhere.
   }
+}
+
+/**
+ * Sends a list again to a browser whose copy did not match an update it
+ * received (`list_resync`): as changes from the copy it holds when that copy
+ * is recent, otherwise whole.
+ */
+export async function answerListResync(
+  session: BrowserTransportSessionLike,
+  ws: BrowserTransportSocketLike,
+  list: "notifications" | "attention_records" | "tree_groups",
+  held: string,
+  deps: Pick<BrowserTransportDeps, "getTreeGroupState">,
+): Promise<void> {
+  if (list === "notifications") {
+    sendToBrowser(ws, {
+      type: "notification_update",
+      ...notificationListFields(session, getUserVisibleSessionNotifications(session), held),
+      ...getNotificationStatusSnapshot(session),
+    } as BrowserIncomingMessage);
+    return;
+  }
+  if (list === "attention_records") {
+    sendToBrowser(ws, {
+      type: "attention_records_update",
+      ...attentionRecordFields(session, (session.attentionRecords ?? []) as SessionAttentionRecord[], held),
+    } as BrowserIncomingMessage);
+    return;
+  }
+  const update = treeGroupUpdates.forBrowser(await deps.getTreeGroupState(), held);
+  if (update) sendToBrowser(ws, update);
 }
