@@ -32,6 +32,14 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Base reconnect delay */
 const BASE_RECONNECT_DELAY_MS = 2_000;
+/**
+ * Reconnect delay while the page is hidden. iOS wakes a Home Screen app in the
+ * background for a few seconds when a push alert arrives; reconnecting then
+ * downloaded the whole session state only for the app to be suspended again.
+ * Coming back on screen reconnects at once (`ensureActiveSessionConnection`),
+ * and a hidden desktop tab still reconnects after this delay for its alerts.
+ */
+const HIDDEN_RECONNECT_DELAY_MS = 60_000;
 const SEQ_STATE_FLUSH_DELAY_MS = 50;
 /** How long a socket left by a session switch waits to be reused before it closes. */
 const SPARE_SOCKET_TTL_MS = 5_000;
@@ -562,7 +570,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function scheduleReconnect(sessionId: string): void {
     if (reconnectTimers.has(sessionId)) return;
     const attempts = reconnectAttempts.get(sessionId) || 0;
-    const delay = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempts), MAX_RECONNECT_DELAY_MS);
+    const backoff = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempts), MAX_RECONNECT_DELAY_MS);
+    const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    const delay = hidden ? HIDDEN_RECONNECT_DELAY_MS : backoff;
     reconnectAttempts.set(sessionId, attempts + 1);
     const timer = setTimeout(() => {
       reconnectTimers.delete(sessionId);

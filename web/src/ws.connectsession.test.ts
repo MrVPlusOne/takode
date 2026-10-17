@@ -525,6 +525,62 @@ describe("connectSession", () => {
     }
   });
 
+  // iOS wakes a hidden Home Screen app for a few seconds when a push alert
+  // arrives; the dead socket's close then fired a reconnect that downloaded the
+  // whole session state just before the app was suspended again. While the page
+  // is hidden, a reconnect waits for the page to come back on screen, or a
+  // minute as a fallback for hidden desktop tabs.
+  describe("reconnect while the page is hidden", () => {
+    const SESSION = "hidden-reconnect";
+    const socketsFor = () => MockWebSocket.instances.filter((ws) => ws.url.includes(`/ws/browser/${SESSION}`));
+    let visibility: DocumentVisibilityState = "visible";
+
+    beforeEach(() => {
+      visibility = "visible";
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+      useStore.setState({ sdkSessions: [{ sessionId: SESSION, archived: false } as any] });
+      useStore.getState().setCurrentSession(SESSION);
+    });
+
+    afterEach(() => {
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    });
+
+    it("reconnects after a minute instead of two seconds", () => {
+      wsModule.connectSession(SESSION);
+      socketsFor()[0].onopen?.(new Event("open"));
+      visibility = "hidden";
+      socketsFor()[0].onclose?.();
+
+      vi.advanceTimersByTime(30_000);
+      expect(socketsFor()).toHaveLength(1);
+      vi.advanceTimersByTime(30_000);
+      expect(socketsFor()).toHaveLength(2);
+    });
+
+    it("reconnects at once when the page comes back on screen", () => {
+      wsModule.connectSession(SESSION);
+      socketsFor()[0].onopen?.(new Event("open"));
+      visibility = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+      socketsFor()[0].onclose?.();
+      vi.advanceTimersByTime(5_000);
+      expect(socketsFor()).toHaveLength(1);
+
+      visibility = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(socketsFor()).toHaveLength(2);
+    });
+
+    it("keeps the two-second reconnect while the page is visible", () => {
+      wsModule.connectSession(SESSION);
+      socketsFor()[0].onopen?.(new Event("open"));
+      socketsFor()[0].onclose?.();
+      vi.advanceTimersByTime(2_000);
+      expect(socketsFor()).toHaveLength(2);
+    });
+  });
+
   it("keeps bounded capability after an explicit full-history sync request", () => {
     useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
     window.location.hash = "#/session/s1?thread=q-1831";
