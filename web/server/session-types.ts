@@ -1005,6 +1005,19 @@ export interface QuestLifecycleEventSnapshot {
   leaderSessionId?: string;
 }
 
+/**
+ * Something the user may want to hear about happened in a tab: a new needs-input
+ * prompt for the user, or a result to read (a tab became newly unread, or a
+ * Notify Me result). Sent to every browser, which decides whether to play a sound.
+ */
+export interface AttentionAlertMessage {
+  type: "attention_alert";
+  session_id: string;
+  kind: "needs-input" | "result";
+  /** The leader thread tab the alert belongs to; absent for ordinary sessions, whose tab is the session. */
+  thread_key?: string;
+}
+
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
   | import("./browser-connection-message-types.js").BrowserConnectionIncomingMessage
@@ -1348,6 +1361,7 @@ export type BrowserIncomingMessageBase =
       attentionRecords: SessionAttentionRecord[];
     }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
+  | AttentionAlertMessage
   | {
       type: "session_activity_update";
       session_id: string;

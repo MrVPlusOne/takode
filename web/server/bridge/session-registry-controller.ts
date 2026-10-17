@@ -42,9 +42,11 @@ import {
   type CodexNativeSubagentRegistry,
 } from "../codex-native-subagent-state.js";
 import {
+  announceAttentionAlert,
   clearAttentionAndMarkRead,
   deriveNotificationStatusUpdatedAt,
   getNotificationStatusSnapshot,
+  hasUnreadResult,
   normalizeStatusNumber,
   setAttention,
 } from "./session-notification-controller.js";
@@ -1640,9 +1642,11 @@ export function handleResultAttentionAndNotifications(
   });
 
   if (shouldNotifyHuman) {
+    const wasUnread = hasUnreadResult(session, null);
     setAttention(session, resultMsg.is_error ? "error" : "review", deps, {
       allowHerdedWorker: isHerdedWorker && turnTriggerSource === "user",
     });
+    if (!wasUnread && hasUnreadResult(session, null)) announceAttentionAlert(session, "result", undefined, deps);
   }
 
   if (resultMsg.is_error) {

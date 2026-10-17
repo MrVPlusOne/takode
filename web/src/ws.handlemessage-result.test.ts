@@ -118,6 +118,20 @@ function makeSession(id: string): SessionState {
   };
 }
 
+/** Records desktop notifications; result handling still sends them, while alert sounds come from attention_alert. */
+function captureDesktopNotifications(): { titles: string[]; restore: () => void } {
+  const titles: string[] = [];
+  const original = (globalThis as any).Notification;
+  (globalThis as any).Notification = class {
+    static permission = "granted";
+    constructor(title: string) {
+      titles.push(title);
+    }
+  };
+  useStore.getState().setNotificationDesktop(true);
+  return { titles, restore: () => ((globalThis as any).Notification = original) };
+}
+
 function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
@@ -344,6 +358,7 @@ describe("handleMessage: result", () => {
       parent_tool_use_id: null,
     });
     const hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const desktop = captureDesktopNotifications();
 
     fireMessage({
       type: "result",
@@ -362,11 +377,12 @@ describe("handleMessage: result", () => {
       },
     });
 
-    expect(playNotificationSoundMock).not.toHaveBeenCalled();
+    expect(desktop.titles).toEqual([]);
+    desktop.restore();
     hasFocusSpy.mockRestore();
   });
 
-  it("plays completion notifications for leader sessions when latest assistant has a notification", () => {
+  it("sends completion notifications for leader sessions when latest assistant has a notification", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore
@@ -389,6 +405,7 @@ describe("handleMessage: result", () => {
       parent_tool_use_id: null,
     });
     const hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const desktop = captureDesktopNotifications();
 
     fireMessage({
       type: "result",
@@ -407,7 +424,8 @@ describe("handleMessage: result", () => {
       },
     });
 
-    expect(playNotificationSoundMock).toHaveBeenCalledTimes(1);
+    expect(desktop.titles).toEqual(["Session completed"]);
+    desktop.restore();
     hasFocusSpy.mockRestore();
   });
 
@@ -433,6 +451,7 @@ describe("handleMessage: result", () => {
       parent_tool_use_id: null,
     });
     const hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const desktop = captureDesktopNotifications();
 
     fireMessage({
       type: "result",
@@ -451,7 +470,8 @@ describe("handleMessage: result", () => {
       },
     });
 
-    expect(playNotificationSoundMock).not.toHaveBeenCalled();
+    expect(desktop.titles).toEqual([]);
+    desktop.restore();
     hasFocusSpy.mockRestore();
   });
 
@@ -480,7 +500,8 @@ describe("handleMessage: result", () => {
       timestamp: Date.now(),
     });
 
-    expect(playNotificationSoundMock).toHaveBeenCalledTimes(1);
+    // The leader-idle chime is retired; only the desktop notification remains.
+    expect(playNotificationSoundMock).not.toHaveBeenCalled();
     expect(notificationCalls).toEqual([
       {
         title: "Leader group idle",

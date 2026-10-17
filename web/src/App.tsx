@@ -95,6 +95,7 @@ import {
   maybeReadVsCodeSelectionContext,
 } from "./utils/vscode-context.js";
 import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
+import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
@@ -329,6 +330,7 @@ function renderSecondaryPage(page: SecondaryPage) {
 
 export default function App() {
   useLayoutEffect(() => browserLoadDiagnostics.markAppCommitted(), []);
+  useEffect(() => startAlertWindowPresence(), []);
   const {
     colorTheme,
     darkMode,

@@ -134,6 +134,20 @@ afterEach(() => {
 });
 
 describe("Notify Me result to Pushover", () => {
+  it("announces a monitored result to browsers so they can sound it", async () => {
+    const { bridge, session, publish } = fixture();
+    const browser = { data: { kind: "browser", sessionId: session.id }, send: vi.fn(), close: vi.fn(), readyState: 1 };
+    bridge.handleBrowserOpen(browser as any, session.id);
+    setThreadMonitoring(session, "q-42", true);
+    await publish();
+    const alerts = browser.send.mock.calls
+      .map((call) => JSON.parse(String(call[0])))
+      .filter((msg) => msg.type === "attention_alert");
+    expect(alerts).toEqual([
+      expect.objectContaining({ type: "attention_alert", session_id: session.id, kind: "result", thread_key: "q-42" }),
+    ]);
+  });
+
   // Review is disabled in the fixture so every lifecycle case also proves that
   // monitored results use their own filter through the real completed-turn path.
   it.each([

@@ -11,7 +11,6 @@ import type {
   SdkSessionInfo,
   TaskItem,
 } from "./types.js";
-import { playNotificationSound } from "./utils/notification-sound.js";
 import { getRecoveryModelDeliveryContent } from "./utils/injected-event-message.js";
 import {
   extractTextFromBlocks,
@@ -42,7 +41,7 @@ import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { applyPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
-import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
+import { handleAttentionAlertMessage, handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 import { applyRemoteDraftChange, applySessionDraftsSnapshot } from "./draft-sync.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
@@ -820,6 +819,11 @@ function handleParsedMessage(
       break;
     }
 
+    case "attention_alert": {
+      handleAttentionAlertMessage(data, { live: context.source === "live" });
+      break;
+    }
+
     case "codex_pending_inputs": {
       store.setPendingCodexInputs(sessionId, data.inputs);
       for (const input of data.inputs) {
@@ -1066,14 +1070,6 @@ function handleParsedMessage(
       store.setSessionTaskPreview(sessionId, null);
       const isProviderRetryResult = !!r.codex_provider_retry;
       const notifyOnResult = !isProviderRetryResult && shouldNotifyOnResult(sessionId, store);
-      // Play notification sound if enabled and tab is not focused
-      if (notifyOnResult && !document.hasFocus() && store.notificationSound) {
-        const sdk = store.sdkSessions.find((s) => s.sessionId === sessionId);
-        console.log(
-          `[notification] result sound: session=${sessionId.slice(0, 8)} isOrch=${!!sdk?.isOrchestrator} herdedBy=${sdk?.herdedBy ?? "none"}`,
-        );
-        playNotificationSound();
-      }
       if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
       }
@@ -1213,11 +1209,8 @@ function handleParsedMessage(
 
     case "leader_group_idle": {
       console.log(
-        `[notification] leader_group_idle: leader=${data.leader_label} members=${data.member_count} idle_for=${data.idle_for_ms}ms focus=${document.hasFocus()} sound=${store.notificationSound}`,
+        `[notification] leader_group_idle: leader=${data.leader_label} members=${data.member_count} idle_for=${data.idle_for_ms}ms focus=${document.hasFocus()}`,
       );
-      if (!document.hasFocus() && store.notificationSound) {
-        playNotificationSound();
-      }
       if (!document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification(
           "Leader group idle",

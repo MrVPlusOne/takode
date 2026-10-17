@@ -1,3 +1,4 @@
+import { announceAttentionAlert } from "./bridge/session-notification-controller.js";
 import { hostIsOnline } from "./remote-host/session-machine.js";
 import { serverWorkAdmission } from "./server-work-admission.js";
 import type { ServerWebSocket } from "bun";
@@ -830,6 +831,9 @@ export function getClaudeMessageHandlers(host: any) {
       host.pushoverNotifier?.cancelPermission(sessionId, requestId),
     onMonitoredThreadResult: (targetSession: unknown, threadKey: string) => {
       const session = targetSession as Session;
+      announceAttentionAlert(session, "result", threadKey, {
+        broadcastToBrowsers: (alertSession, msg) => host.broadcastToBrowsers(alertSession as Session, msg),
+      });
       const result = session.state.threadMonitoring?.threads[threadKey]?.pending;
       if (!result || !host.pushoverNotifier) return;
       const title = session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey;

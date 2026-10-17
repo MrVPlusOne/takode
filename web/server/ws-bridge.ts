@@ -1960,6 +1960,14 @@ export class WsBridge {
     msg: BrowserIncomingMessage,
     options?: { skipBuffer?: boolean; skipGlobalActivity?: boolean },
   ) {
+    if (msg.type === "attention_alert") {
+      // Every browser decides for itself whether the alert's tab is the one it shows. An alert
+      // is never replayed, so it is sent unsequenced and leaves every session's event numbering alone.
+      for (const target of this.sessions.values()) {
+        for (const socket of target.browserSockets) sendToBrowser(socket, msg);
+      }
+      return;
+    }
     this.captureSessionNavigationSourceMessage(session, msg);
     if (!options?.skipGlobalActivity) maybeBroadcastGlobalSessionActivityUpdate(this, session, msg);
     broadcastToBrowsersController(session, msg, this.getBrowserTransportDeps(), options);

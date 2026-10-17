@@ -18,9 +18,6 @@ import {
 } from "./session-list-hydration.js";
 import type { BrowserIncomingMessage } from "./types.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
-import { getSyncedProjectionValue } from "./store-synced-projections.js";
-import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringProjectionValue } from "../shared/thread-monitoring.js";
-import { playNewMonitoredResultSound } from "./ws-notification-handler.js";
 
 export interface SyncedProjectionMessageHandlerDeps {
   requestSyncedProjectionResync?: (carrierSessionId: string, projection: string, key: string) => boolean;
@@ -90,18 +87,10 @@ export function handleSyncedProjectionMessage(
 
   if (data.type === "synced_projection_update") {
     const update = data as SyncedProjectionUpdateMessage;
-    const previousMonitoring =
-      update.projection === THREAD_MONITORING_PROJECTION
-        ? getSyncedProjectionValue(store, THREAD_MONITORING_PROJECTION, update.key)
-        : undefined;
     const structurallyValid = isValidSyncedProjectionUpdate(update);
     const result = store.applySyncedProjectionUpdate(update, {
       activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
     });
-    if (result.accepted && previousMonitoring && "value" in update) {
-      const next = update.value as ThreadMonitoringProjectionValue;
-      if (next.alertVersion > previousMonitoring.alertVersion) playNewMonitoredResultSound();
-    }
     if (result.requestResync) {
       deps.requestSyncedProjectionResync?.(sessionId, update.projection, update.key);
     } else if (!structurallyValid) {

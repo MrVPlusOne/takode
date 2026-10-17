@@ -1,37 +1,24 @@
 import { useStore } from "./store.js";
 import type { BrowserIncomingMessage } from "./types.js";
 import { applySessionNotifications } from "./notification-status.js";
+import { isMostRecentlyUsedAlertWindow } from "./utils/alert-window-presence.js";
+import { parseHash } from "./utils/routing.js";
+import { readDisplayedLeaderThreadKey } from "./utils/thread-viewport.js";
+import { ALL_THREADS_KEY, normalizeThreadKey } from "./utils/thread-projection.js";
 import { playNeedsInputSound, playReviewSound } from "./utils/notification-sound.js";
 
 type NotificationUpdateMessage = Extract<BrowserIncomingMessage, { type: "notification_update" }>;
+type AttentionAlertMessage = Extract<BrowserIncomingMessage, { type: "attention_alert" }>;
 
-let lastNotificationSoundAt = 0;
-const NOTIFICATION_SOUND_DEBOUNCE_MS = 1000;
+/** Alerts this close together play one sound. */
+const ALERT_BURST_MS = 2000;
+let lastAlertSound: { at: number; kind: AttentionAlertMessage["kind"] } | null = null;
 
-/** Shares the existing alert gate so Ready and monitoring updates sound only once. */
-export function playNewMonitoredResultSound(): void {
-  const now = Date.now();
-  if (
-    document.hasFocus() ||
-    !useStore.getState().notificationSound ||
-    now - lastNotificationSoundAt < NOTIFICATION_SOUND_DEBOUNCE_MS
-  )
-    return;
-  lastNotificationSoundAt = now;
-  void playReviewSound();
-}
-
-/** Applies one server-authored inbox update and handles its optional user alert. */
+/** Applies one server-authored inbox update for the open session. */
 export function handleNotificationUpdateMessage(sessionId: string, data: NotificationUpdateMessage): void {
-  const store = useStore.getState();
-  const newNotifications = data.notifications ?? [];
-  const oldNotifications = store.sessionNotifications?.get(sessionId) ?? [];
-  const oldIds = new Set(oldNotifications.map((notification) => notification.id));
-  const added = newNotifications.filter((notification) => !notification.done && !oldIds.has(notification.id));
-
-  const applied = applySessionNotifications(
+  applySessionNotifications(
     sessionId,
-    newNotifications,
+    data.notifications ?? [],
     {
       notificationUrgency: data.notificationUrgency,
       activeNotificationCount: data.activeNotificationCount,
@@ -43,23 +30,33 @@ export function handleNotificationUpdateMessage(sessionId: string, data: Notific
     },
     { authoritativeStatus: true },
   );
-  if (!applied) return;
+}
 
-  // Play differentiated sounds for new notifications while the tab is unfocused.
+/**
+ * Sounds an alert from any session unless the user is viewing its tab: a new
+ * needs-input prompt plays the two-tap, a new result to read plays the single tone.
+ * Only the most recently used Takode window plays it. Alerts within about two
+ * seconds play one sound; a needs-input alert still plays after a single tone.
+ */
+export function handleAttentionAlertMessage(data: AttentionAlertMessage, options: { live: boolean }): void {
+  if (!options.live || !useStore.getState().notificationSound) return;
+  if (isViewingAlertTab(data.session_id, data.thread_key)) return;
+  if (!isMostRecentlyUsedAlertWindow()) return;
   const now = Date.now();
-  if (
-    added.length === 0 ||
-    document.hasFocus() ||
-    !store.notificationSound ||
-    now - lastNotificationSoundAt < NOTIFICATION_SOUND_DEBOUNCE_MS
-  ) {
+  const previous = lastAlertSound;
+  if (previous && now - previous.at < ALERT_BURST_MS && (previous.kind === "needs-input" || data.kind === "result")) {
     return;
   }
+  lastAlertSound = { at: now, kind: data.kind };
+  void (data.kind === "needs-input" ? playNeedsInputSound() : playReviewSound());
+}
 
-  lastNotificationSoundAt = now;
-  if (added.some((notification) => notification.category === "needs-input")) {
-    playNeedsInputSound();
-  } else if (added.some((notification) => notification.category === "review")) {
-    playReviewSound();
-  }
+/** The tab is on screen in a visible, focused window. An unfocused window views nothing. */
+function isViewingAlertTab(sessionId: string, threadKey: string | undefined): boolean {
+  if (document.visibilityState !== "visible" || !document.hasFocus()) return false;
+  if (parseHash(window.location.hash).page !== "session") return false;
+  if (useStore.getState().currentSessionId !== sessionId) return false;
+  if (!threadKey) return true;
+  const displayed = readDisplayedLeaderThreadKey(sessionId);
+  return displayed === ALL_THREADS_KEY || displayed === normalizeThreadKey(threadKey);
 }

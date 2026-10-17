@@ -1,4 +1,5 @@
 import type {
+  AttentionAlertMessage,
   BoardRow,
   BrowserIncomingMessage,
   NeedsInputNotificationQuestion,
@@ -134,6 +135,44 @@ export function setAttention(
   if (current && pri[current] >= pri[reason]) return;
   session.attentionReason = reason;
   deps.persistSession(session);
+}
+
+/**
+ * Whether a tab already shows something unread: for a leader thread tab, an unread
+ * result in that thread; for an ordinary session (`threadKey` null), any unread
+ * result or the session's own unread attention.
+ */
+export function hasUnreadResult(session: SessionLike, threadKey: string | null): boolean {
+  if (threadKey === null) {
+    const reason = session.attentionReason as AttentionReason | null;
+    if (reason === "review" || reason === "error" || session.manualUnread === true) return true;
+  }
+  const normalizedThreadKey = threadKey === null ? null : normalizeLeaderThreadKey(threadKey);
+  return (session.notifications ?? []).some(
+    (notification: SessionNotification) =>
+      notification.category === "review" &&
+      !notification.done &&
+      (normalizedThreadKey === null ||
+        normalizeLeaderThreadKey(notification.threadKey ?? "main") === normalizedThreadKey),
+  );
+}
+
+/**
+ * Tell every browser that a tab got a needs-input prompt for the user or a new result
+ * to read. Browsers sound it unless they show that tab; see `AttentionAlertMessage`.
+ */
+export function announceAttentionAlert(
+  session: SessionLike,
+  kind: AttentionAlertMessage["kind"],
+  threadKey: string | undefined,
+  deps: Pick<BrowserNotificationDeps, "broadcastToBrowsers">,
+): void {
+  deps.broadcastToBrowsers?.(session, {
+    type: "attention_alert",
+    session_id: session.id,
+    kind,
+    ...(threadKey ? { thread_key: normalizeLeaderThreadKey(threadKey) } : {}),
+  });
 }
 
 export function clearAttentionAndMarkRead(
@@ -445,6 +484,9 @@ export function notifyUser(
     },
     threadRoute,
   );
+  // An ordinary session is one tab; a leader's tabs are its threads.
+  const alertThreadKey = isLeaderSession ? threadRoute.threadKey : undefined;
+  const resultWasUnread = category === "review" && hasUnreadResult(session, alertThreadKey ?? null);
   session.notifications.push(notif);
   if (notif.category === "needs-input") {
     surfaceCreatedNeedsInputThreadTab(session, threadRoute, timestamp, deps);
@@ -481,6 +523,8 @@ export function notifyUser(
   if (createdFallbackMessage) deps.broadcastToBrowsers?.(session, createdFallbackMessage);
 
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  if (category === "needs-input") announceAttentionAlert(session, "needs-input", alertThreadKey, deps);
+  if (category === "review" && !resultWasUnread) announceAttentionAlert(session, "result", alertThreadKey, deps);
 
   if (category === "needs-input" || category === "review") {
     const reason = category === "needs-input" ? "action" : "review";
@@ -633,6 +677,9 @@ function addLeaderUnreadNotification(
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const threadRoute = normalizeThreadRoute(input.threadKey) ?? { threadKey: "main" };
+  if (!hasUnreadResult(session, threadRoute.threadKey)) {
+    announceAttentionAlert(session, "result", threadRoute.threadKey, input.deps);
+  }
   session.notifications.push(
     withThreadRoute(
       {

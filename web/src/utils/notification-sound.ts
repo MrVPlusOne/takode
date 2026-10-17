@@ -65,8 +65,3 @@ export async function playNeedsInputSound(): Promise<void> {
     // Web Audio API not available
   }
 }
-
-/** Backward-compatible alias for the review completion chime. */
-export async function playNotificationSound(): Promise<void> {
-  await playReviewSound();
-}

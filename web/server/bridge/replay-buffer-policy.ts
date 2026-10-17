@@ -9,6 +9,7 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "browser_connection_probe",
   "event_replay",
   "leader_group_idle",
+  "attention_alert",
   "quest_list_updated",
   "session_quest_claimed",
   "quest_lifecycle_event",
