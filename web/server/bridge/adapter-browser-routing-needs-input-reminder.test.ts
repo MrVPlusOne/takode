@@ -13,6 +13,10 @@ import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.
 import { dispatchQueuedCodexTurns } from "./codex-turn-queue.js";
 import { requestCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
 import { buildAvailableMemoryCatalogBundle } from "../memory-catalog-injection-utils.js";
+import { recordSkillVersions, resetSkillChangeTrackingForTest } from "../skill-change-notice.js";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -1264,6 +1268,56 @@ describe("direct user needs-input reminders", () => {
       }),
     ]);
     expect(recordSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds a skill change notice alongside the memory catalog and checks the session once", async () => {
+    // A session that loaded `quest` before this server start changed it gets the
+    // notice in its delivered input and as its own history entry; later inputs don't.
+    const home = await mkdtemp(join(tmpdir(), "routing-skill-change-"));
+    try {
+      const options = {
+        skillNames: ["quest"],
+        skillsDir: home,
+        statePath: join(home, "state.json"),
+      };
+      await mkdir(join(home, "quest"));
+      await writeFile(join(home, "quest", "SKILL.md"), "v1");
+      await recordSkillVersions({ ...options, now: 1 });
+      await writeFile(join(home, "quest", "SKILL.md"), "v2");
+      await recordSkillVersions({ ...options, now: Date.now() });
+
+      const session = makeSession();
+      session.pendingStartupMemoryCatalogInjection = true;
+      session.messageHistory.push({
+        type: "user_message",
+        content: "x",
+        timestamp: 2,
+        agentSource: { sessionId: "system:leader-skill-preload:quest" },
+      });
+      session.claudeSdkAdapter = {
+        sendBrowserMessage: vi.fn(() => true),
+        isConnected: vi.fn(() => true),
+      } as any;
+      const deps = makeDeps();
+      deps.buildMemoryCatalogInjectionBundle = vi.fn(async () =>
+        buildAvailableMemoryCatalogBundle("Memory catalog preloaded"),
+      );
+
+      await routeBrowserMessage(session as any, userMessage({ content: "Do the work" }), undefined, deps);
+      await routeBrowserMessage(session as any, userMessage({ content: "More work" }), undefined, deps);
+
+      expect(sentClaudeContent(session)).toMatch(
+        /\] Do the work\n\n\[Skills changed\] [^\n]*`quest`[\s\S]*Memory catalog/,
+      );
+      const sent = vi.mocked(session.claudeSdkAdapter!.sendBrowserMessage).mock.calls[1]?.[0] as { content: string };
+      expect(sent.content).not.toContain("[Skills changed]");
+      expect(
+        session.messageHistory.slice(1).map((entry: any) => entry.agentSource?.sessionId ?? entry.content),
+      ).toEqual(["Do the work", "system:skill-change-notice", "system:memory-catalog", "More work"]);
+    } finally {
+      resetSkillChangeTrackingForTest();
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it("preserves trusted recovery priority when startup memory augments delivery content", async () => {

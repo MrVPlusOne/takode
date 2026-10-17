@@ -8,14 +8,15 @@ import {
   stripResourceLeaseMessageFields,
 } from "../../shared/resource-lease-message.js";
 import { LANDING_QUEUE_MESSAGE_SOURCE, LANDING_QUEUE_MESSAGE_TAG } from "../../shared/landing-queue.js";
-import { SESSION_RECOVERY_SOURCE_ID } from "../../shared/injected-event-message.js";
+import { SESSION_RECOVERY_SOURCE_ID, SKILL_CHANGE_NOTICE_SOURCE_ID } from "../../shared/injected-event-message.js";
 
 export type SystemReminderKind =
   | "resource-lease"
   | "long-sleep-guard"
   | "restart-continuation"
   | "landing-queue"
-  | "session-recovery";
+  | "session-recovery"
+  | "skills-changed";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
 export type SystemReminderTone = "success" | "attention" | "info";
@@ -52,7 +53,8 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === "system:long-sleep-guard" ||
     sourceId?.startsWith("system:restart-continuation:") === true ||
     sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
-    sourceId === SESSION_RECOVERY_SOURCE_ID
+    sourceId === SESSION_RECOVERY_SOURCE_ID ||
+    sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID
   );
 }
 
@@ -85,6 +87,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   }
   if (sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId) return buildLandingQueueReminder(message.content);
   if (sourceId === SESSION_RECOVERY_SOURCE_ID) return buildSessionRecoveryReminder(message.content);
+  if (sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID) return buildSkillChangeReminder(message.content);
   return null;
 }
 
@@ -162,6 +165,21 @@ function buildSessionRecoveryReminder(content: string): SystemReminderViewModel 
     summary: rebuilt.length > 0 ? rebuilt.join(", ") : "Takode rebuilt part of this session",
     badge: "system",
     tone: "attention",
+    detailFacts: [],
+    detailContent: content,
+  };
+}
+
+/** The notice's first line names the changed skills in backticks. */
+function buildSkillChangeReminder(content: string): SystemReminderViewModel {
+  const firstLine = content.split(/\r?\n/, 1)[0] ?? "";
+  const names = [...firstLine.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+  return {
+    kind: "skills-changed",
+    title: "Skills changed",
+    summary: names.length > 0 ? names.join(", ") : firstLine,
+    badge: "skills",
+    tone: "info",
     detailFacts: [],
     detailContent: content,
   };

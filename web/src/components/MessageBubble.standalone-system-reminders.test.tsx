@@ -305,4 +305,28 @@ describe("MessageBubble standalone system reminder messages", () => {
     fireEvent.click(chip);
     expect(screen.getByText(/Recover your context/)).toBeTruthy();
   });
+
+  it("renders skill change notices as chips naming the changed skills", () => {
+    // The collapsed line names the skills; the instruction to reload stays in the detail.
+    const msg = makeMessage({
+      content: [
+        "[Skills changed] These skills changed after you loaded them: `quest`, `takode-orchestration`.",
+        "Your copies of them are out of date. Load again only the ones you need.",
+      ].join("\n"),
+      agentSource: {
+        sessionId: "system:skill-change-notice",
+        sessionLabel: "Skills Changed",
+      },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("skills-changed");
+    expect(chip.textContent).toBe("Skills changed · quest, takode-orchestrationskills");
+    expect(screen.queryByText(/Load again only/)).toBeNull();
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/Load again only/)).toBeTruthy();
+  });
 });

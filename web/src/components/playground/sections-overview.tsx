@@ -20,7 +20,11 @@ import { PlaygroundMarkdownImages } from "./PlaygroundMarkdownImages.js";
 import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
 import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
-import { PlaygroundLandingQueueMessage, PlaygroundSessionRecoveryMessage } from "./SystemNoticePlaygroundStates.js";
+import {
+  PlaygroundLandingQueueMessage,
+  PlaygroundSessionRecoveryMessage,
+  PlaygroundSkillChangeMessage,
+} from "./SystemNoticePlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { QuestQuizSection } from "../QuestQuizSection.js";
@@ -724,6 +728,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Session rebuilt notice">
             <PlaygroundSessionRecoveryMessage />
+          </Card>
+          <Card label="Skills changed notice">
+            <PlaygroundSkillChangeMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

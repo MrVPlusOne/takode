@@ -39,6 +39,13 @@ export function LandingIcon() {
   return <StrokeIcon d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" />;
 }
 
+/** An open book: skill text. */
+export function BookIcon() {
+  return (
+    <StrokeIcon d="M8 4.5C6.5 3.3 4.5 3 2.5 3.2v9c2-.2 4 .1 5.5 1.3 1.5-1.2 3.5-1.5 5.5-1.3v-9C11.5 3 9.5 3.3 8 4.5zM8 4.5v9" />
+  );
+}
+
 export function LinkIcon() {
   return (
     <StrokeIcon

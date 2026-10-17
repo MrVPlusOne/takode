@@ -136,6 +136,7 @@ import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
+import { recordSkillVersions } from "./skill-change-notice.js";
 import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
@@ -614,6 +615,12 @@ await runPreListenStartupReadiness(
   },
   { port, packageRoot, startupSkillSlugs: GLOBAL_SKILL_SLUGS },
 );
+// Before sessions take input: which of Takode's skills this start changed.
+await recordSkillVersions({
+  skillNames: [...GLOBAL_SKILL_SLUGS, "quest", "memory"],
+  skillsDir: join(homedir(), ".claude", "skills"),
+  statePath: join(homedir(), ".companion", "skill-versions", `${serverId}.json`),
+}).catch((error) => serverLog.error("Recording skill versions failed", { error: String(error) }));
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
 // Once: quest notes written before machine stamps existed get the machine their session ran on.

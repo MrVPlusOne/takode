@@ -12,7 +12,7 @@ import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-rem
 import { useStore } from "../store.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
-import { LandingIcon, LockIcon, RestartIcon, WarningIcon } from "./InjectedMessageIcons.js";
+import { BookIcon, LandingIcon, LockIcon, RestartIcon, WarningIcon } from "./InjectedMessageIcons.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import {
@@ -145,5 +145,6 @@ function SystemReminderIcon({ kind }: { kind: SystemReminderViewModel["kind"] })
   if (kind === "resource-lease") return <LockIcon />;
   if (kind === "landing-queue") return <LandingIcon />;
   if (kind === "long-sleep-guard" || kind === "session-recovery") return <WarningIcon />;
+  if (kind === "skills-changed") return <BookIcon />;
   return <RestartIcon />;
 }

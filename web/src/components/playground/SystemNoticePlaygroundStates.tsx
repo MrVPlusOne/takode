@@ -47,3 +47,20 @@ export function PlaygroundSessionRecoveryMessage() {
   };
   return <MessageBubble message={message} sessionId="playground-session-recovery" showTimestamp={false} />;
 }
+
+export function PlaygroundSkillChangeMessage() {
+  const message: ChatMessage = {
+    id: "playground-skill-change-msg",
+    role: "user",
+    content: [
+      "[Skills changed] These skills changed after you loaded them: `quest`, `takode-orchestration`.",
+      "Your copies of them are out of date. Load again only the ones you need for what you are doing now (the Skill tool, or read its SKILL.md), and skip the rest until you need them.",
+    ].join("\n"),
+    timestamp: Date.now() - 12_000,
+    agentSource: {
+      sessionId: "system:skill-change-notice",
+      sessionLabel: "Skills Changed",
+    },
+  };
+  return <MessageBubble message={message} sessionId="playground-skill-change" showTimestamp={false} />;
+}
