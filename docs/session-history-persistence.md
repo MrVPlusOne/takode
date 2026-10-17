@@ -75,3 +75,24 @@ large hot metadata. All active history still materializes at startup. Traversing
 record structure and hashing current strings still takes CPU time. No particular
 RAM reduction, cross-process writer fencing or stronger physical-power-loss /
 directory-metadata durability guarantee is implied.
+
+## Save cost rule
+
+An ordinary save must cost in proportion to what changed, not to the size of the
+history. Twice a save that touched the whole history froze the server as
+histories grew: in February 2026 every save re-serialized it, and in October 2026
+the large-session format re-hashed it. The October change was correct and
+tested; only its cost on a real large session was never measured. Therefore:
+
+- `session-store-save-cost.test.ts` and `session-history-journal.test.ts` check
+  that an ordinary save never reads saved rows (in both formats), and the former
+  that adding one row to a 10,000-row history
+  hashes and writes only a handful of rows. Keep these passing; they count work
+  instead of timing it.
+- A save step that holds the event loop for more than 200 ms (the level of the
+  server's own "Event loop blocked" warnings) logs
+  `Slow save blocked the event loop for <ms>ms: session=<id>, messages=<n>, toolResults=<n>`.
+  Seeing it in the server log means a save path regressed.
+- Any change to the save path or the saved format is timed on a copy of a real
+  large session (one of the biggest leaders) before it lands, comparing the
+  longest event-loop stall per save with the previous code.

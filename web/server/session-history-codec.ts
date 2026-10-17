@@ -36,8 +36,8 @@ export function captureJson<T>(input: T): T {
   return visit(input, "") as T;
 }
 
-/** Conservative early-exit size estimate; never stringify history to select its format. */
-export function isLargeHistory(values: unknown[]): boolean {
+/** Conservative size estimate that stops once it reaches `limit`; never stringify history to select its format. */
+export function estimateJsonBytes(values: unknown[], limit = Number.POSITIVE_INFINITY): number {
   let bytes = 0;
   function visit(value: unknown): boolean {
     if (typeof value === "string") bytes += value.length * 2 + 2;
@@ -51,9 +51,10 @@ export function isLargeHistory(values: unknown[]): boolean {
         if (visit(item)) return true;
       }
     } else bytes += 8;
-    return bytes >= HISTORY_THRESHOLD_BYTES;
+    return bytes >= limit;
   }
-  return visit(values);
+  visit(values);
+  return bytes;
 }
 
 /** Bounded typed tokens are outside the payload, including for object property names. */

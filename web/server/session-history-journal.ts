@@ -361,7 +361,8 @@ export class SessionHistoryJournal {
   /**
    * Appends the rows that changed since the cached committed state and publishes the new head.
    * Rows below `unchanged` are live objects the caller promises have not changed since its last save;
-   * rows inside the committed frozen prefix are then reused without being read.
+   * rows inside the committed frozen prefix are then reused without being read. `onTurn` is called
+   * wherever the write resumes after waiting, so the caller can time how long it holds the event loop.
    */
   async write(
     sessionId: string,
@@ -371,7 +372,7 @@ export class SessionHistoryJournal {
     frozenToolCount: number,
     publish: (head: HistoryReference) => Promise<void>,
     priorHead?: HistoryReference,
-    unchanged: UnchangedHistoryPrefix = { messages: 0, tools: 0 },
+    { unchanged = { messages: 0, tools: 0 }, onTurn }: { unchanged?: UnchangedHistoryPrefix; onTurn?: () => void } = {},
   ): Promise<HistoryReference> {
     if (priorHead) {
       validateHistoryReference(priorHead);
@@ -381,7 +382,7 @@ export class SessionHistoryJournal {
     let candidate: JournalCache | undefined;
     const created: string[] = [];
     try {
-      const rows = { messages, tools, frozenCount, frozenToolCount, unchanged };
+      const rows = { messages, tools, frozenCount, frozenToolCount, unchanged, onTurn };
       candidate = await this.append(sessionId, rows, previous, created);
       if (previous && candidate.head.bytes - liveBytes(candidate) > liveBytes(candidate)) {
         await this.rollback(sessionId, previous.head);
@@ -468,6 +469,7 @@ export class SessionHistoryJournal {
         for (let i = frozen ? trusted[kind] : end; i < (frozen ? end : values[kind].length); i++) {
           if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
             await new Promise((resolve) => setImmediate(resolve));
+            rows.onTurn?.();
             sliceStart = performance.now();
           }
           const value = i < unchanged[kind] ? captureJson(values[kind][i]) : values[kind][i];
@@ -480,11 +482,14 @@ export class SessionHistoryJournal {
     }
     const idOf = (text: string) => (frozenStrings.get(text) ?? strings.get(text))!.id;
     const file = await open(path, previous ? "r+" : "wx", 0o600);
+    rows.onTurn?.();
     if (!previous) created.push(path);
-    const writer = new HistoryFrameWriter(file, previous?.head.bytes ?? 0);
+    const writer = new HistoryFrameWriter(file, previous?.head.bytes ?? 0, rows.onTurn);
     try {
-      if (previous) await file.truncate(previous.head.bytes);
-      else await writer.frame(["history", 1, sessionId, generation]);
+      if (previous) {
+        await file.truncate(previous.head.bytes);
+        rows.onTurn?.();
+      } else await writer.frame(["history", 1, sessionId, generation]);
       for (const [text, range] of unwritten) {
         range.start = writer.position;
         for (const frame of stringFrames(range.id, text)) await writer.frame(frame);
@@ -538,6 +543,7 @@ interface CandidateRows {
   frozenCount: number;
   frozenToolCount: number;
   unchanged: UnchangedHistoryPrefix;
+  onTurn?: () => void;
 }
 
 function rangeBytes(ranges: Iterable<Range>): number {
@@ -559,6 +565,8 @@ export class HistoryFrameWriter {
   constructor(
     private file: FileHandle,
     public position: number,
+    /** Called after each write completes, where the writer resumes on a new event-loop turn. */
+    private onTurn?: () => void,
   ) {}
   async frame(value: unknown[]): Promise<void> {
     const text = JSON.stringify(value) + "\n";
@@ -578,6 +586,7 @@ export class HistoryFrameWriter {
         buffer.length - written,
         this.position - this.size + written,
       );
+      this.onTurn?.();
       if (!bytesWritten) throw new Error("History write made no progress");
       written += bytesWritten;
     }

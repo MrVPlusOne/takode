@@ -1,4 +1,10 @@
-import { captureJson, isLargeHistory, valueDigest, type JsonValue } from "./session-history-codec.js";
+import {
+  captureJson,
+  estimateJsonBytes,
+  HISTORY_THRESHOLD_BYTES,
+  valueDigest,
+  type JsonValue,
+} from "./session-history-codec.js";
 import {
   SessionHistoryJournal,
   SessionHistoryError,
@@ -268,6 +274,34 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
 
+/**
+ * A save step holding the event loop this long is logged with the session it saved. It matches the
+ * server's "Event loop blocked" warnings, so each one a save causes is named. Ordinary saves of the
+ * largest leaders peak around 70 ms, and their first save after a restart around 160 ms.
+ */
+const SLOW_SAVE_BLOCK_MS = 200;
+
+/**
+ * Returns a function to call wherever a save resumes after waiting. It times the synchronous stretch
+ * that follows, up to the save's next await, so a save that blocks the server names itself. A turn's
+ * other callbacks are not counted, so another slow task is never blamed on a save.
+ */
+function watchSaveTurns(session: PersistedSession): () => void {
+  const turn = () => {
+    const start = performance.now();
+    queueMicrotask(() => {
+      const ms = performance.now() - start;
+      if (ms <= SLOW_SAVE_BLOCK_MS) return;
+      console.warn(
+        `[session-store] Slow save blocked the event loop for ${Math.round(ms)}ms: session=${session.id.slice(0, 8)}, ` +
+          `messages=${session.messageHistory.length}, toolResults=${session.toolResults?.length ?? 0}`,
+      );
+    });
+  };
+  turn();
+  return turn;
+}
+
 /** Captures a session for saving, sharing (not copying) the given leading history and tool-result rows. */
 function captureSession(session: PersistedSession, shared: UnchangedHistoryPrefix): PersistedSession {
   const { messageHistory, toolResults } = session;
@@ -334,6 +368,8 @@ export class SessionStore {
   private frozenCounts = new Map<string, number>();
   /** Same for tool results — how many entries are in the frozen JSONL. */
   private frozenToolResultCounts = new Map<string, number>();
+  /** Estimated size of each small session's saved rows, so format checks need not re-read them. */
+  private savedHistorySizes = new Map<string, { messages: number; tools: number; bytes: number }>();
 
   constructor(dir?: string, port?: number) {
     if (dir) {
@@ -590,6 +626,39 @@ export class SessionStore {
     }
 
     return removedCount > 0 ? { messages: cleaned, removedCount } : { messages, removedCount: 0 };
+  }
+
+  /**
+   * Whether a small session's history reached the chunked-format size. Saved rows change only through
+   * repairs, which share none, so their size is estimated when they freeze and remembered, keeping an
+   * ordinary save from re-reading them.
+   */
+  private reachesChunkedSize(
+    sessionId: string,
+    messages: unknown[],
+    toolResults: unknown[],
+    unchanged: UnchangedHistoryPrefix,
+    frozen: UnchangedHistoryPrefix,
+  ): boolean {
+    const known = this.savedHistorySizes.get(sessionId);
+    const limit = HISTORY_THRESHOLD_BYTES;
+    const saved =
+      known && known.messages === unchanged.messages && known.tools === unchanged.tools
+        ? known.bytes
+        : estimateJsonBytes([messages.slice(0, unchanged.messages), toolResults.slice(0, unchanged.tools)], limit);
+    const freezing =
+      saved +
+      estimateJsonBytes(
+        [messages.slice(unchanged.messages, frozen.messages), toolResults.slice(unchanged.tools, frozen.tools)],
+        limit - saved,
+      );
+    const remaining = limit - freezing;
+    const large =
+      remaining <= 0 ||
+      estimateJsonBytes([messages.slice(frozen.messages), toolResults.slice(frozen.tools)], remaining) >= remaining;
+    // Remembered for the next save, whose unshared prefix will be exactly these rows if this save succeeds.
+    if (!large) this.savedHistorySizes.set(sessionId, { ...frozen, bytes: freezing });
+    return large;
   }
 
   private enqueueWrite(sessionId: string, run: () => Promise<void>, coalescible = false): SessionWriteRequest {
@@ -859,6 +928,7 @@ export class SessionStore {
             tools: Math.min(previousTools, session.toolResults?.length ?? 0),
           }
         : { messages: 0, tools: 0 };
+    const turn = watchSaveTurns(session);
     // Admission captures nested payload and pending ownership before any await.
     try {
       session = captureSession(session, unchanged);
@@ -913,9 +983,12 @@ export class SessionStore {
           this.diskHistoryHints = undefined;
           throw error;
         }));
+      turn();
       if (hints.has(session.id) && !this.historyReferences.has(session.id)) {
         try {
-          const hot = JSON.parse(await readFile(this.filePath(session.id), "utf8")) as PersistedSession;
+          const text = await readFile(this.filePath(session.id), "utf8");
+          turn();
+          const hot = JSON.parse(text) as PersistedSession;
           if (Object.hasOwn(hot, "_historyRef")) {
             if (!hot._historyRef || hot.id !== session.id)
               throw new SessionHistoryError("Invalid existing history head");
@@ -926,7 +999,14 @@ export class SessionStore {
         }
         hints.delete(session.id);
       }
-      if (session._historyRef || this.historyReferences.has(session.id) || isLargeHistory([messages, toolResults])) {
+      if (
+        session._historyRef ||
+        this.historyReferences.has(session.id) ||
+        this.reachesChunkedSize(session.id, messages, toolResults, unchanged, {
+          messages: frozenCount,
+          tools: frozenTools,
+        })
+      ) {
         const head = await this.historyJournal.write(
           session.id,
           messages as unknown as JsonValue[],
@@ -939,8 +1019,9 @@ export class SessionStore {
             ]);
           },
           this.historyReferences.get(session.id) ?? session._historyRef,
-          unchanged,
+          { unchanged, onTurn: turn },
         );
+        turn();
         this.historyReferences.set(session.id, head);
         this.frozenCounts.set(session.id, frozenCount);
         this.frozenToolResultCounts.set(session.id, frozenTools);
@@ -963,6 +1044,7 @@ export class SessionStore {
         // Revert/retry may replace a prefix. First commit a self-contained hot
         // snapshot so a crash cannot pair an old hot tail with a shorter log.
         await replaceSessionFile(this.filePath(session.id), [this.encodeHotJson(session, messages, toolResults, 0, 0)]);
+        turn();
         this.frozenCounts.set(session.id, 0);
         this.frozenToolResultCounts.set(session.id, 0);
       }
@@ -975,6 +1057,7 @@ export class SessionStore {
           toolResults.slice(rewrite ? 0 : previousTools, frozenTools),
           !rewrite && previous > 0,
         );
+        turn();
         // These counts describe successfully synced history, even if the following
         // hot replacement fails. A retry must not append that prefix twice.
         this.frozenCounts.set(session.id, frozenCount);
@@ -1386,6 +1469,7 @@ export class SessionStore {
       (await this.diskHistoryHints)?.delete(sessionId);
       this.frozenCounts.delete(sessionId);
       this.frozenToolResultCounts.delete(sessionId);
+      this.savedHistorySizes.delete(sessionId);
       this.requestedHistoryLengths.delete(sessionId);
       this.failedSaves.delete(sessionId);
       this.persistenceFailures.delete(`hot:${sessionId}`);
