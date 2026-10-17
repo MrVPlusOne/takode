@@ -4,6 +4,7 @@ import {
   SessionHistoryError,
   readSessionHistory,
   type HistoryReference,
+  type UnchangedHistoryPrefix,
 } from "./session-history-journal.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import { createReadStream, mkdirSync } from "node:fs";
@@ -93,7 +94,7 @@ export interface SearchExcerpt {
 //
 // Edits made after a turn froze, such as thread handoffs and attachments that
 // add refs to older messages, must use saveHistoryEdits(), which rewrites the
-// frozen log; an ordinary save would never write them.
+// frozen log; an ordinary save would never write them, in either history format.
 //
 // Tool results are frozen at the same boundary. They only arrive via
 // buildToolResultPreviews() inside handleResultMessage() — the same moment
@@ -265,6 +266,19 @@ interface LauncherRestoreState {
 
 function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+/** Captures a session for saving, sharing (not copying) the given leading history and tool-result rows. */
+function captureSession(session: PersistedSession, shared: UnchangedHistoryPrefix): PersistedSession {
+  const { messageHistory, toolResults } = session;
+  const captured = captureJson({
+    ...session,
+    messageHistory: messageHistory.slice(shared.messages),
+    toolResults: toolResults?.slice(shared.tools),
+  });
+  captured.messageHistory = messageHistory.slice(0, shared.messages).concat(captured.messageHistory);
+  if (toolResults) captured.toolResults = toolResults.slice(0, shared.tools).concat(captured.toolResults ?? []);
+  return captured;
 }
 
 function serializedJsonArrayBytes(itemBytes: number, itemCount: number): number {
@@ -834,9 +848,20 @@ export class SessionStore {
   }
 
   private async writeSnapshot(session: PersistedSession, repairCount?: number): Promise<void> {
+    const previous = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
+    const previousTools = this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0;
+    // Saved frozen rows change only through repairs (saveHistoryEdits), so an ordinary save shares
+    // them uncaptured; copying and re-reading a large history on every save blocked the event loop.
+    let unchanged: UnchangedHistoryPrefix =
+      repairCount === undefined && !this.persistenceFailures.has(`frozen:${session.id}`)
+        ? {
+            messages: Math.min(previous, session.messageHistory.length),
+            tools: Math.min(previousTools, session.toolResults?.length ?? 0),
+          }
+        : { messages: 0, tools: 0 };
     // Admission captures nested payload and pending ownership before any await.
     try {
-      session = captureJson(session);
+      session = captureSession(session, unchanged);
     } catch (error) {
       this.failedSaves.set(session.id, session);
       this.persistenceFailures.set(`hot:${session.id}`, error);
@@ -845,8 +870,6 @@ export class SessionStore {
     const cleaned = this.trimDuplicateReplayPreviewTail(session.messageHistory);
     const messages = cleaned.messages.slice();
     const toolResults = (session.toolResults ?? []).slice();
-    const previous = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
-    const previousTools = this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0;
     if (
       repairCount !== undefined &&
       (!Number.isSafeInteger(repairCount) ||
@@ -860,6 +883,12 @@ export class SessionStore {
     }
     const rewrite =
       repairCount !== undefined || previous > messages.length || this.persistenceFailures.has(`frozen:${session.id}`);
+    if (rewrite || cleaned.removedCount > 0) {
+      // These saves read or reindex the shared prefix, so capture it now, still before any await.
+      for (let i = 0; i < unchanged.messages && i < messages.length; i++) messages[i] = captureJson(messages[i]);
+      for (let i = 0; i < unchanged.tools; i++) toolResults[i] = captureJson(toolResults[i]);
+      unchanged = { messages: 0, tools: 0 };
+    }
     const cutoff = repairCount ?? this.computeFreezeCutoff(messages);
     const frozenCount = rewrite ? cutoff : Math.max(previous, cutoff);
     let frozenTools = Math.min(previousTools, toolResults.length);
@@ -910,6 +939,7 @@ export class SessionStore {
             ]);
           },
           this.historyReferences.get(session.id) ?? session._historyRef,
+          unchanged,
         );
         this.historyReferences.set(session.id, head);
         this.frozenCounts.set(session.id, frozenCount);

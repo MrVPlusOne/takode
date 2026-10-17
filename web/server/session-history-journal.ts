@@ -4,6 +4,7 @@ import { open, unlink } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  captureJson,
   HISTORY_STRING_CHARS,
   stringFrames,
   valueDigest,
@@ -35,10 +36,19 @@ interface RowRange extends Range {
 }
 interface JournalCache {
   head: HistoryReference;
+  /** Strings referenced by the committed frozen prefix (`head.frozenCount` / `head.frozenToolCount` rows). */
+  frozenStrings: Map<string, StringRange>;
+  frozenStringBytes: number;
+  /** Strings referenced only by rows after the frozen prefix. */
   strings: Map<string, StringRange>;
   messages: RowRange[];
   tools: RowRange[];
   nextId: number;
+}
+/** Leading rows the caller has not changed since its last save; they are live objects, not captured copies. */
+export interface UnchangedHistoryPrefix {
+  messages: number;
+  tools: number;
 }
 interface JournalIndex {
   strings: Map<number, StringRange>;
@@ -348,6 +358,11 @@ export class SessionHistoryJournal {
     this.caches.delete(sessionId);
   }
 
+  /**
+   * Appends the rows that changed since the cached committed state and publishes the new head.
+   * Rows below `unchanged` are live objects the caller promises have not changed since its last save;
+   * rows inside the committed frozen prefix are then reused without being read.
+   */
   async write(
     sessionId: string,
     messages: JsonValue[],
@@ -356,6 +371,7 @@ export class SessionHistoryJournal {
     frozenToolCount: number,
     publish: (head: HistoryReference) => Promise<void>,
     priorHead?: HistoryReference,
+    unchanged: UnchangedHistoryPrefix = { messages: 0, tools: 0 },
   ): Promise<HistoryReference> {
     if (priorHead) {
       validateHistoryReference(priorHead);
@@ -365,14 +381,11 @@ export class SessionHistoryJournal {
     let candidate: JournalCache | undefined;
     const created: string[] = [];
     try {
-      candidate = await this.append(sessionId, messages, tools, frozenCount, frozenToolCount, previous, created);
-      const live = [...candidate.strings.values(), ...candidate.messages, ...candidate.tools].reduce(
-        (sum, r) => sum + r.end - r.start,
-        0,
-      );
-      if (previous && candidate.head.bytes - live > live) {
+      const rows = { messages, tools, frozenCount, frozenToolCount, unchanged };
+      candidate = await this.append(sessionId, rows, previous, created);
+      if (previous && candidate.head.bytes - liveBytes(candidate) > liveBytes(candidate)) {
         await this.rollback(sessionId, previous.head);
-        candidate = await this.append(sessionId, messages, tools, frozenCount, frozenToolCount, undefined, created);
+        candidate = await this.append(sessionId, rows, undefined, created);
       }
       await publish(candidate.head);
     } catch (error) {
@@ -406,37 +419,73 @@ export class SessionHistoryJournal {
 
   private async append(
     sessionId: string,
-    messages: JsonValue[],
-    tools: JsonValue[],
-    frozenCount: number,
-    frozenToolCount: number,
+    rows: CandidateRows,
     previous: JournalCache | undefined,
     created: string[],
   ): Promise<JournalCache> {
     const generation = previous?.head.generation ?? randomUUID();
     const path = historyPath(this.dir, sessionId, generation);
+    const values = [rows.messages, rows.tools];
+    const unchanged = [rows.unchanged.messages, rows.unchanged.tools];
+    const frozenEnds = [rows.frozenCount, rows.frozenToolCount];
+    const committedFrozen = [previous?.head.frozenCount ?? 0, previous?.head.frozenToolCount ?? 0];
+    // The committed frozen prefix changes only through repairs, which pass no unchanged rows, so an
+    // ordinary save reuses it without reading it: re-digesting a large leader's whole history on
+    // every save blocked the event loop for over a second.
+    const reuse =
+      previous !== undefined &&
+      [0, 1].every(
+        (k) =>
+          unchanged[k] >= committedFrozen[k] &&
+          frozenEnds[k] >= committedFrozen[k] &&
+          values[k].length >= committedFrozen[k],
+      );
+    const trusted = reuse ? committedFrozen : [0, 0];
+    const freezes = frozenEnds.some((end, k) => end > trusted[k]);
+    const frozenStrings = reuse && !freezes ? previous.frozenStrings : new Map(reuse ? previous.frozenStrings : []);
     const strings = new Map<string, StringRange>();
+    const unwritten: Array<[string, StringRange]> = [];
+    const newlyFrozen: StringRange[] = [];
     let nextId = previous?.nextId ?? 0;
-    const rows = [messages, tools].map((values) =>
-      values.map((value) => {
-        for (const _ of valueTokens(value, (text) => {
-          if (!strings.has(text))
-            strings.set(text, previous?.strings.get(text) ?? { id: nextId++, length: text.length, start: 0, end: 0 });
-          return strings.get(text)!.id;
-        })) {
-          /* Discover only this candidate's references, including unchanged rows. */
+    const reference = (text: string, frozen: boolean): number => {
+      const known = frozenStrings.get(text) ?? strings.get(text);
+      if (known) return known.id;
+      const range = previous?.frozenStrings.get(text) ??
+        previous?.strings.get(text) ?? { id: nextId++, length: text.length, start: 0, end: 0 };
+      if (!range.end) unwritten.push([text, range]);
+      if (frozen) {
+        frozenStrings.set(text, range);
+        newlyFrozen.push(range);
+      } else strings.set(text, range);
+      return range.id;
+    };
+    // Frozen rows first, so a string shared with later rows is accounted to the frozen prefix.
+    const candidates: { value: JsonValue; digest: string }[][] = [[], []];
+    let sliceStart = performance.now();
+    for (const frozen of [true, false]) {
+      for (let kind = 0; kind < 2; kind++) {
+        const end = Math.min(frozenEnds[kind], values[kind].length);
+        for (let i = frozen ? trusted[kind] : end; i < (frozen ? end : values[kind].length); i++) {
+          if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
+            await new Promise((resolve) => setImmediate(resolve));
+            sliceStart = performance.now();
+          }
+          const value = i < unchanged[kind] ? captureJson(values[kind][i]) : values[kind][i];
+          for (const _ of valueTokens(value, (text) => reference(text, frozen))) {
+            /* Discover this candidate's references. */
+          }
+          candidates[kind][i] = { value, digest: valueDigest(value) };
         }
-        return { value, digest: valueDigest(value) };
-      }),
-    );
+      }
+    }
+    const idOf = (text: string) => (frozenStrings.get(text) ?? strings.get(text))!.id;
     const file = await open(path, previous ? "r+" : "wx", 0o600);
     if (!previous) created.push(path);
     const writer = new HistoryFrameWriter(file, previous?.head.bytes ?? 0);
     try {
       if (previous) await file.truncate(previous.head.bytes);
       else await writer.frame(["history", 1, sessionId, generation]);
-      for (const [text, range] of strings) {
-        if (range.end) continue;
+      for (const [text, range] of unwritten) {
         range.start = writer.position;
         for (const frame of stringFrames(range.id, text)) await writer.frame(frame);
         range.end = writer.position;
@@ -444,15 +493,19 @@ export class SessionHistoryJournal {
       const resultRows: RowRange[][] = [[], []];
       for (let kind = 0; kind < 2; kind++) {
         const old = kind === 0 ? previous?.messages : previous?.tools;
-        for (let i = 0; i < rows[kind].length; i++) {
-          const row = rows[kind][i];
+        for (let i = 0; i < values[kind].length; i++) {
+          if (i < trusted[kind]) {
+            resultRows[kind].push(old![i]);
+            continue;
+          }
+          const row = candidates[kind][i];
           if (old?.[i]?.digest === row.digest) {
             resultRows[kind].push(old[i]);
             continue;
           }
           const start = writer.position;
           await writer.frame([kind === 0 ? "message" : "tool", i, row.digest]);
-          for (const token of valueTokens(row.value, (text) => strings.get(text)!.id)) await writer.frame(token);
+          for (const token of valueTokens(row.value, idOf)) await writer.frame(token);
           await writer.frame(["endRow"]);
           resultRows[kind].push({ start, end: writer.position, digest: row.digest });
         }
@@ -462,20 +515,42 @@ export class SessionHistoryJournal {
         generation,
         bytes: 0,
         revision: (previous?.head.revision ?? 0) + 1,
-        messageCount: messages.length,
-        toolCount: tools.length,
-        frozenCount,
-        frozenToolCount,
+        messageCount: rows.messages.length,
+        toolCount: rows.tools.length,
+        frozenCount: rows.frozenCount,
+        frozenToolCount: rows.frozenToolCount,
       };
       await writer.frame(historyCommitFrame(head));
       head.bytes = writer.position;
       await writer.flush();
       await file.sync();
-      return { head, strings, messages: resultRows[0], tools: resultRows[1], nextId };
+      const frozenStringBytes = (reuse ? previous.frozenStringBytes : 0) + rangeBytes(newlyFrozen);
+      return { head, frozenStrings, frozenStringBytes, strings, messages: resultRows[0], tools: resultRows[1], nextId };
     } finally {
       await file.close();
     }
   }
+}
+
+interface CandidateRows {
+  messages: JsonValue[];
+  tools: JsonValue[];
+  frozenCount: number;
+  frozenToolCount: number;
+  unchanged: UnchangedHistoryPrefix;
+}
+
+function rangeBytes(ranges: Iterable<Range>): number {
+  let bytes = 0;
+  for (const range of ranges) bytes += range.end - range.start;
+  return bytes;
+}
+
+/** Saved bytes still referenced by the committed state; the rest of the generation is obsolete. */
+function liveBytes(cache: JournalCache): number {
+  return (
+    cache.frozenStringBytes + rangeBytes(cache.strings.values()) + rangeBytes(cache.messages) + rangeBytes(cache.tools)
+  );
 }
 
 export class HistoryFrameWriter {

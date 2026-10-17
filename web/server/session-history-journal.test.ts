@@ -282,6 +282,79 @@ it("archives the latest accepted debounced state without a later timer undoing t
   expect(loaded?.pendingMessages).toEqual(value.pendingMessages);
 });
 
+it("reads, copies or digests no saved frozen row on an ordinary save, and still saves explicit edits of one", async () => {
+  // Re-digesting a large leader's whole history on every save blocked the server's event loop
+  // for over a second. Saved frozen rows change only through saveHistoryEdits, so ordinary saves
+  // must not touch them; a getter on a frozen row's payload counts every read.
+  const { root, value, store } = await setup();
+  value.messageHistory.push({ type: "result", data: { subtype: "success" } } as never);
+  await store.saveImmediate(value);
+  expect((await head(root)).frozenCount).toBe(2);
+
+  const frozen = value.messageHistory[0] as { content: string };
+  let content = frozen.content;
+  let reads = 0;
+  Object.defineProperty(frozen, "content", {
+    enumerable: true,
+    configurable: true,
+    get: () => {
+      reads++;
+      return content;
+    },
+    set: (next: string) => {
+      content = next;
+    },
+  });
+  value.messageHistory.push({ type: "user_message", content: "next turn", timestamp: 2 });
+  await store.saveImmediate(value);
+  value.messageHistory.push({ type: "result", data: { subtype: "success" } } as never);
+  value.toolResults!.push(["tool-2", { content: "second tool", timestamp: 2, is_error: false }]);
+  await store.saveImmediate(value);
+  expect(reads).toBe(0);
+  expect((await head(root)).frozenCount).toBe(4);
+  expect((await new SessionStore(root).load(value.id))?.messageHistory).toEqual(value.messageHistory);
+
+  // An explicit edit of a frozen row is a repair: it is read and saved.
+  frozen.content = "edited after freezing";
+  await store.saveHistoryEdits(value, [0]);
+  expect(reads).toBeGreaterThan(0);
+  const loaded = await new SessionStore(root).load(value.id);
+  expect(loaded?.messageHistory).toEqual(value.messageHistory);
+  expect(loaded?.toolResults).toEqual(value.toolResults);
+});
+
+it("keeps exact content and reclaims space across many turns that share strings with the frozen prefix", async () => {
+  // Strings are written once and referenced by id. Rows that freeze later reuse strings first
+  // written by hot rows, and hot rows reuse frozen strings; every save must still reload exactly,
+  // and reclamation must still find the obsolete bytes of a rewritten hot row.
+  const { root, value, store } = await setup();
+  const shared = "shared payload ".repeat(1000);
+  for (let turn = 0; turn < 6; turn++) {
+    value.messageHistory.push({ type: "user_message", content: shared, timestamp: turn });
+    await store.saveImmediate(value);
+    const hot = { type: "user_message", content: `draft ${turn}`, timestamp: turn } as never;
+    value.messageHistory.push(hot);
+    for (let i = 0; i < 3; i++) {
+      (hot as { content: string }).content = `${turn}:${i}`.repeat(200000);
+      await store.saveImmediate(value);
+    }
+    value.toolResults!.push([`tool-${turn}`, { content: shared, timestamp: turn, is_error: false }]);
+    value.messageHistory.push({ type: "result", data: { subtype: "success" } } as never);
+    await store.saveImmediate(value);
+    const reloaded = await new SessionStore(root).load(value.id);
+    expect(reloaded?.messageHistory).toEqual(value.messageHistory);
+    expect(reloaded?.toolResults).toEqual(value.toolResults);
+  }
+  expect((await head(root)).frozenCount).toBe(value.messageHistory.length);
+  // Superseded drafts are obsolete bytes; reclamation keeps them from outweighing the live bytes,
+  // which a fresh self-contained generation of the same state measures.
+  const fresh = await mkdtemp(join(tmpdir(), "incremental-history-"));
+  roots.push(fresh);
+  await new SessionStore(fresh).saveImmediate(value);
+  expect((await readdir(root)).filter((p) => p.endsWith(".data"))).toHaveLength(1);
+  expect((await head(root)).bytes).toBeLessThanOrEqual(2 * (await head(fresh)).bytes);
+});
+
 it("reads a hand-written journal whose rows reference later strings and whose superseded row is invalid", async () => {
   // The single-pass reader decodes each row when it ends. Our writers emit strings before the rows
   // using them, but the format does not require it, and only committed live rows must be valid, so

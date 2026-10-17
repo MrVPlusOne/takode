@@ -30,6 +30,14 @@ Reads do not populate those caches. The first write after restoring a session
 can create a fresh self-contained generation; it does not keep decoded obsolete
 strings from an earlier journal. Successful archiving releases the writer cache.
 
+An ordinary save does not read, copy or hash rows inside the committed frozen
+prefix: like the legacy frozen log, those rows change only through
+`saveHistoryEdits` (or a revert or failure retry), which captures and verifies
+every row. Hashing a large leader's whole history on every save blocked the
+server's event loop for over a second. Saves that do read every row, such as the
+first save after a restart or a reclamation rewrite, yield to the event loop
+about every 20 ms.
+
 Data and its commit record are synced before atomic hot-head replacement. Failed
 publication preserves the prior head and restores its committed byte extent.
 The failed snapshot remains owned, flush reports the failure, and the existing
