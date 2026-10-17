@@ -680,6 +680,58 @@ describe("Persistence", () => {
     expect((snapshot as any).drafts).toEqual(drafts);
   });
 
+  it("keeps work-board copies out of a leader's replay buffer and sends the current board in the subscribe snapshot", async () => {
+    // Every board update is a full copy of the board and completed board (hundreds of KB on a busy
+    // leader); buffering them made one leader's saved replay buffer 14 MB. The subscribe snapshot
+    // always carries the current board, so replaying old copies adds nothing. Older builds' saved
+    // copies are dropped on restore, while other buffered events are kept.
+    const oldRow = { questId: "q-1", title: "Old title", updatedAt: 1 };
+    const currentRow = { questId: "q-1", title: "Current title", updatedAt: 2 };
+    store.saveSync({
+      id: "leader-board",
+      state: { session_id: "leader-board", backend_type: "claude-sdk", cwd: "/saved", isOrchestrator: true },
+      messageHistory: [],
+      pendingMessages: [],
+      pendingPermissions: [],
+      board: [currentRow],
+      completedBoard: [],
+      nextEventSeq: 3,
+      eventBuffer: [
+        { seq: 1, message: { type: "board_updated", board: [oldRow], completedBoard: [] } },
+        { seq: 2, message: { type: "status_change", status: "idle" } },
+      ],
+    } as any);
+    await store.flushAll();
+    await bridge.restoreFromDisk();
+
+    const session = bridge.getSession("leader-board")!;
+    expect(session.eventBuffer.map((event) => event.message.type)).toEqual(["status_change"]);
+
+    bridge.broadcastToSession("leader-board", {
+      type: "board_updated",
+      board: [currentRow],
+      completedBoard: [],
+    } as any);
+    expect(session.eventBuffer.map((event) => event.message.type)).toEqual(["status_change"]);
+
+    const browser = makeBrowserSocket("leader-board");
+    bridge.handleBrowserOpen(browser, "leader-board");
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    const snapshot = await waitForBrowserMessage(browser, (message: any) => message.type === "state_snapshot");
+    expect(snapshot.board).toEqual([currentRow]);
+    const sent = browser.send.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+    const replayed = sent.flatMap((message: any) => (message.type === "event_replay" ? message.events : []));
+    expect(replayed.map((event: any) => event.message.type)).toEqual(["status_change"]);
+  });
+
   it("restoreFromDisk: loads persisted pending Codex rollback state", async () => {
     store.saveSync({
       id: "persisted-rollback",

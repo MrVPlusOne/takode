@@ -21,6 +21,9 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "codex_pending_inputs",
   // Drafts: every state_snapshot carries the current drafts, so replaying old keystrokes adds nothing.
   "session_draft_update",
+  // Every state_snapshot carries the current board, completed board and row statuses. Each update is a
+  // full copy (hundreds of KB on a busy leader), so buffering them bloated leader saves to megabytes.
+  "board_updated",
 ]);
 
 export function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is ReplayableBrowserIncomingMessage {
