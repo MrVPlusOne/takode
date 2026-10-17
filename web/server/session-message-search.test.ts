@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveSessionMessageTarget, searchSessionMessages } from "./session-message-search.js";
+import { LEADER_KICKOFF_PREFIX } from "../shared/injected-event-message.js";
 
 function user(
   id: string,
@@ -307,6 +308,24 @@ describe("searchSessionMessages", () => {
     expect(response.results.map((result) => result.messageId)).not.toContain("normal-user");
     expect(response.results.every((result) => result.category === "event")).toBe(true);
     expect(response.results.map((result) => result.role)).toEqual(expect.arrayContaining(["system", "user"]));
+  });
+
+  it("files Takode's own prompts under events, so the user filter lists only the user's words", () => {
+    // The leader's Recent list in Find asks for user messages only; a leader kickoff
+    // prompt has no agent source but was not written by the user.
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [
+        user("kickoff", `${LEADER_KICKOFF_PREFIX} Read the board.`, 10),
+        user("typed", "please fix the relay", 20),
+      ],
+      filters: { user: true, assistant: false, event: false },
+      scope: "leader_all_tabs",
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["typed"]);
   });
 
   it("labels session recycled markers without compaction wording", () => {

@@ -1,6 +1,7 @@
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { isActualHumanUserMessage } from "./user-message-classification.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -232,7 +233,9 @@ function normalizeRawMessage(
       messageId: rawMessageId(message, historyIndex),
       historyIndex,
       role: "user",
-      category: !sourceId || sourceId === sessionId ? "user" : "event",
+      // Takode's own prompts (compaction recovery, leader kickoff) carry no agent source but
+      // are not the user's words, so the user filter and the leader's Recent list skip them.
+      category: isActualHumanUserMessage(message) || sourceId === sessionId ? "user" : "event",
       timestamp: timestampForRawMessage(message),
       text: message.content,
     };

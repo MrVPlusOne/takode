@@ -3,7 +3,7 @@
  * tabs as status groups (ThreadTabGroups) on every screen size, with the tab menu
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -14,6 +14,12 @@ import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
+import type { LoadRecentMessages } from "./ThreadTabRecentMessages.js";
+import { searchSessionMessages } from "../api/session-message-search.js";
+import { navigateToSessionMessageId } from "../utils/routing.js";
+
+/** Find's Recent mode lists this many of the user's latest messages. */
+const RECENT_MESSAGE_LIMIT = 50;
 
 export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
@@ -193,6 +199,20 @@ export function ThreadTabRail({
     const untitled = (closedTabs ?? []).filter((tab) => tab.questId && tab.title === tab.questId);
     if (untitled.length > 0) void useStore.getState().hydrateQuestTitles(untitled.map((tab) => tab.questId!));
   };
+  // Recent in Find: the user's own messages across every tab of this leader, newest first.
+  const loadRecentMessages = useCallback<LoadRecentMessages>(
+    (query, signal) =>
+      searchSessionMessages(sessionId, {
+        query,
+        scope: "leader_all_tabs",
+        filters: { user: true, assistant: false, event: false },
+        limit: RECENT_MESSAGE_LIMIT,
+        signal,
+      }).then((response) => response.results),
+    [sessionId],
+  );
+  const openMessage = (threadKey: string, messageId: string) =>
+    navigateToSessionMessageId(sessionId, messageId, { threadKey, preserveMainThreadRoute: true });
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
@@ -207,6 +227,8 @@ export function ThreadTabRail({
         tabs={displayedTabs}
         closedTabs={closedTabs}
         onOpenFind={hydrateClosedTitles}
+        loadRecentMessages={onSelectThread ? loadRecentMessages : undefined}
+        onOpenMessage={onSelectThread ? openMessage : undefined}
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
         monitors={monitors}

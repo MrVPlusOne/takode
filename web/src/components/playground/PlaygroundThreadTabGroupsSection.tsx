@@ -1,12 +1,14 @@
 /**
  * Phone thread tabs as status groups: the bar with its chips, each chip's list, the
- * switcher sheet with search, closing and closed tabs to reopen, at the top and at the
- * bottom of the screen.
+ * switcher sheet with search, closing, closed tabs to reopen and the Recent messages
+ * mode, at the top and at the bottom of the screen.
  */
 import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
+import type { MessageSearchResult } from "../../api/session-message-search.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
+import type { LoadRecentMessages } from "../ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -67,6 +69,33 @@ const CLOSED_TABS: PrimaryThreadChip[] = Array.from({ length: 140 }, (_, index) 
   }),
 );
 
+/** The user's latest messages to the leader, across open and closed tabs and Main. */
+const RECENT_MESSAGES: Array<[string, string, number]> = [
+  ["q-9482", "Can the tab show which group it moved to? I keep losing it after it finishes.", 2],
+  ["main", "What's still running from this morning?", 9],
+  ["q-9481", "Keep the send button where it is; move only the attention chip.", 25],
+  ["q-9459", "The preview sheet should close with the back gesture too, like the image viewer does.", 70],
+  ["q-9479", "Looks great on the phone. Ship it.", 130],
+  ["main", "Please file a quest for the relay timeout we saw yesterday and start it after the board fix lands.", 300],
+];
+
+const loadPlaygroundRecentMessages: LoadRecentMessages = async (query) =>
+  RECENT_MESSAGES.map(
+    ([threadKey, text, minutesAgo], index): MessageSearchResult => ({
+      id: `playground:${index}`,
+      sessionId: "playground",
+      sessionNum: null,
+      messageId: `playground-recent-${index}`,
+      historyIndex: index,
+      role: "user",
+      category: "user",
+      timestamp: NOW - minutesAgo * MINUTE,
+      snippet: text,
+      routeThreadKey: threadKey,
+      starred: false,
+    }),
+  ).filter((result) => result.snippet.toLowerCase().includes(query.toLowerCase()));
+
 function PhoneFrame({ placement }: { placement: "top" | "bottom" }) {
   const [current, setCurrent] = useState("q-9482");
   const [tabs, setTabs] = useState(TABS);
@@ -111,6 +140,8 @@ function PhoneFrame({ placement }: { placement: "top" | "bottom" }) {
         }}
         onSelect={select}
         onClose={close}
+        loadRecentMessages={loadPlaygroundRecentMessages}
+        onOpenMessage={(threadKey) => select(threadKey)}
       />
     </div>
   );
@@ -121,7 +152,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); search opens every tab with search by title or quest number, and closing. Closed tabs stay behind a link and a Closed filter until a search matches them; choosing one reopens it."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); search opens every tab with search by title or quest number, and closing. Closed tabs stay behind a link and a Closed filter until a search matches them; choosing one reopens it. The Recent filter lists the user's latest messages with the tab each is in; choosing one opens that tab at the message."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">
