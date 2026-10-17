@@ -96,9 +96,9 @@ function RecentMessageRow({
 }) {
   const threadKey = threadKeyOf(result);
   const main = threadKey === MAIN_THREAD_KEY;
-  const meta = [main ? "Main" : (tab?.title ?? threadKey), main ? null : tab?.stateLabel, timeAgo(result.timestamp)]
-    .filter(Boolean)
-    .join(" · ");
+  const place = main ? "Main" : (tab?.title ?? threadKey);
+  // A long quest title gives way first, so the state and time stay readable.
+  const detail = [main ? null : tab?.stateLabel, timeAgo(result.timestamp)].filter(Boolean).join(" · ");
   const barColor = main ? "var(--color-cc-fg)" : (tab?.accentColor ?? tab?.titleColor ?? "var(--color-cc-muted)");
   return (
     <button
@@ -115,10 +115,12 @@ function RecentMessageRow({
           <Snippet text={result.snippet} ranges={result.matchRanges} />
         </span>
         <span
-          className="mt-0.5 truncate text-[11.5px]"
+          className="mt-0.5 flex min-w-0 whitespace-pre text-[11.5px]"
           style={{ color: main ? "var(--color-cc-muted)" : (tab?.titleColor ?? "var(--color-cc-muted)") }}
+          data-testid="thread-tab-recent-row-meta"
         >
-          {meta}
+          <span className="truncate">{place}</span>
+          <span className="shrink-0"> · {detail}</span>
         </span>
       </span>
     </button>
