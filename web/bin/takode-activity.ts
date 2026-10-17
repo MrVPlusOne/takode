@@ -17,7 +17,7 @@ interface ActivityResponse {
   unreadable?: Array<{ session: number | null; error: string }>;
 }
 
-/** `takode activity`: the user's hand-typed messages and the final answers to them in a time window. */
+/** `takode activity`: the user's hand-typed messages and the final messages they were shown in a time window. */
 export async function handleActivity(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const now = Date.now();
@@ -64,17 +64,22 @@ export function parseActivityTime(value: string, now: number): number {
 
 /**
  * Render each session thread as a narrative. An answer names the user messages it
- * answers unless they are exactly the unanswered ones just above it.
+ * answers unless they are exactly the unanswered ones just above it; an answer that
+ * names none is marked as a new result.
  */
 export function formatActivity(response: ActivityResponse, full: boolean): string {
   const messages = response.threads.flatMap((thread) => thread.messages);
   const answered = new Set(messages.flatMap((message) => message.to ?? []));
   const userCount = messages.filter((message) => message.role === "user").length;
   const unanswered = messages.filter((message) => message.role === "user" && !answered.has(message.index)).length;
+  const newResults = messages.filter((message) => message.role === "answer" && !message.to).length;
+  const reports = messages.filter((message) => message.role === "report").length;
   const lines = [
     `Activity ${formatDate(response.since)} ${formatTime(response.since)} → ${formatDate(response.until)} ${formatTime(response.until)} · ${
       response.spaces ? `space ${response.spaces.join(", ")}` : "all spaces"
-    } · ${userCount} user message${userCount === 1 ? "" : "s"}${unanswered ? ` (${unanswered} unanswered)` : ""}`,
+    } · ${userCount} user message${userCount === 1 ? "" : "s"}${unanswered ? ` (${unanswered} unanswered)` : ""}${
+      newResults ? ` · ${newResults} new result${newResults === 1 ? "" : "s"}` : ""
+    }${reports ? ` · ${reports} report${reports === 1 ? "" : "s"}` : ""}`,
     `Open a message: takode read <session> <msg>.${full ? "" : " Whole messages: --full."} Structured: --json.`,
   ];
   for (const unreadable of response.unreadable ?? []) {
@@ -98,7 +103,11 @@ export function formatActivity(response: ActivityResponse, full: boolean): strin
         lines.push(formatMessage(message, full, answered.has(message.index) ? "" : "unanswered"));
         continue;
       }
-      const to = message.to ?? [];
+      if (!message.to) {
+        lines.push(formatMessage(message, full, message.role === "answer" ? "new result" : ""));
+        continue;
+      }
+      const to = message.to;
       const obvious = to.length === open.length && to.every((index) => open.includes(index));
       open = open.filter((index) => !to.includes(index));
       lines.push(formatMessage(message, full, obvious ? "" : `to ${to.join(", ")}`));

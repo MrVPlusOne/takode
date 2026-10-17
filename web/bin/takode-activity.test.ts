@@ -61,6 +61,29 @@ describe("formatActivity", () => {
     expect(lines.find((line) => line.includes("user [9]"))).toMatch(/user \[9\] \(unanswered\): Thanks$/);
   });
 
+  it("marks a leader answer that names no message as a new result and lists reports", () => {
+    const thread: ActivityThread = {
+      ...leaderThread,
+      messages: [
+        { role: "user", index: 3, at, text: "Fix the sidebar" },
+        { role: "answer", index: 5, at, text: "Worker PR merged." },
+        { role: "report", index: 6, at, text: "# Briefing\n\nAll green." },
+        { role: "answer", index: 8, at, text: "Sidebar fixed.", to: [3] },
+      ],
+    };
+    const lines = formatActivity({ since: at, until: at + 1, spaces: ["Takode"], threads: [thread] }, false).split(
+      "\n",
+    );
+
+    expect(lines[0]).toContain("1 user message · 1 new result · 1 report");
+    expect(lines.find((line) => line.includes("answer [5]"))).toMatch(
+      /answer \[5\] \(new result\): Worker PR merged\.$/,
+    );
+    expect(lines.find((line) => line.includes("report [6]"))).toMatch(/report \[6\]: # Briefing All green\.$/);
+    // Neither closes the open request, so the later answer to it needs no note.
+    expect(lines.find((line) => line.includes("answer [8]"))).toMatch(/answer \[8\]: Sidebar fixed\.$/);
+  });
+
   it("shows each thread's space when several spaces are listed, and whole multi-line messages with --full", () => {
     const text = formatActivity(
       { since: at, until: at + 1, spaces: null, threads: [leaderThread, workerThread] },

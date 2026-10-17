@@ -190,7 +190,7 @@ takode search jwt --all
 
 ### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
 
-Show what the user did in a time window (default: the last 24 hours): every message the user typed by hand and the final answers to them, as one narrative per session thread, with indexes for `takode read`. From a session it covers that session's own space unless `--space` names others. Use it to catch up on activity, for example for a daily briefing.
+Show what the user did in a time window (default: the last 24 hours): every message the user typed by hand and every final message the user was shown (answers to those messages, leader answers that name no message, published reports), as one narrative per session thread, with indexes for `takode read`. From a session it covers that session's own space unless `--space` names others. Use it to catch up on activity, for example for a daily briefing.
 
 ```bash
 takode activity --since yesterday --until today

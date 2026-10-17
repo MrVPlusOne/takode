@@ -48,6 +48,18 @@ function leaderAnswer(text: string, timestamp: number, ids: string[], threadKey 
   });
 }
 
+function report(content: string, timestamp: number, threadKey = "main"): BrowserIncomingMessage {
+  return {
+    type: "markdown_report",
+    id: `report-${timestamp}`,
+    timestamp,
+    content,
+    threadKey,
+    ...(threadKey === "main" ? {} : { questId: threadKey }),
+    source: { sessionId: "session-1", reportId: `report-${timestamp}`, sourcePath: "/tmp/report.md", sha256: "0" },
+  } as BrowserIncomingMessage;
+}
+
 function result(options: { retry?: boolean } = {}): BrowserIncomingMessage {
   return {
     type: "result",
@@ -156,6 +168,52 @@ describe("buildActivityStream", () => {
     expect(threads.map((thread) => thread.thread)).toEqual(["q-5", undefined]);
     expect(roles(threads[0]!.messages)).toEqual(["user:0", "user:3", "answer:7->0,3"]);
     expect(roles(threads[1]!.messages)).toEqual(["user:4", "answer:5->4"]);
+  });
+
+  it("lists leader answers that name no message and published reports in the thread they were written in", () => {
+    // A no-ID answer settles with an empty ID list and is authored in q-7, though its stored
+    // route was normalized to Main. Reports carry their own thread. Neither answers a user
+    // message, so they carry no `to` and leave the earlier request unanswered. Only those
+    // inside the window are listed, since nothing ties them to a message inside it.
+    const threads = buildActivityStream({
+      documents: [
+        doc(
+          [
+            leaderUser("u1", "Check the build", 100),
+            result(),
+            assistant("Worker PR result: merged.", 200, {
+              threadKey: "main",
+              threadAnswer: {
+                version: 2,
+                answerUserMessageIds: [],
+                observedHistoryLength: 0,
+                authoredThreadKey: "q-7",
+              },
+            }),
+            result(),
+            report("# Evening briefing\n\nAll green.", 300),
+            report("# Quest report", 310, "q-7"),
+            report("# Before the window", 10),
+          ],
+          { isOrchestrator: true, sessionName: "Leader" },
+        ),
+        // Reports published by an ordinary session belong to that whole session.
+        doc([report("# Worker report", 400, "q-9")], { sessionId: "worker", sessionNum: 8 }),
+      ],
+      since: 50,
+      until: 1000,
+    });
+
+    expect(threads.map((thread) => [thread.session, thread.thread])).toEqual([
+      [7, undefined],
+      [7, "q-7"],
+      [8, undefined],
+    ]);
+    expect(roles(threads[0]!.messages)).toEqual(["user:0", "report:4"]);
+    expect(roles(threads[1]!.messages)).toEqual(["answer:2", "report:5"]);
+    expect(threads[1]!.messages[0]).toEqual({ role: "answer", index: 2, at: 200, text: "Worker PR result: merged." });
+    expect(threads[0]!.messages[1]!.text).toBe("# Evening briefing\n\nAll green.");
+    expect(roles(threads[2]!.messages)).toEqual(["report:0"]);
   });
 
   it("lists messages outside the window only when they answer or are answered by one inside it", () => {

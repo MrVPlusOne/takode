@@ -10,7 +10,7 @@ const ACTIVITY_TEXT_LIMIT = 1000;
 /**
  * `GET /takode/activity?since=<ms>&until=<ms>&space=<names|ids|all>&full=1`
  *
- * The user's hand-typed messages and the final answers to them for a time window.
+ * The user's hand-typed messages and the final messages they were shown in a time window.
  * Without `space`, a session caller sees only its own session space, so a session in
  * one space never pulls another space's content in by accident.
  */

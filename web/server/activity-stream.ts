@@ -1,4 +1,5 @@
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
+import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import { formatReplyContentForAssistant } from "../shared/reply-context.js";
 import { MAIN_THREAD_KEY } from "../shared/thread-window.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
@@ -20,15 +21,19 @@ export interface ActivitySessionDocument {
 
 /** A message in the stream. `index` is its history index, so `takode read <session> <index>` opens it. */
 export interface ActivityMessage {
-  /** `user` for a message the user typed; `answer` for a final answer to user messages. */
-  role: "user" | "answer";
+  /**
+   * `user` for a message the user typed; `answer` for a final answer, to user messages
+   * or (without `to`) a leader's new result that names no message; `report` for a
+   * published `takode report`.
+   */
+  role: "user" | "answer" | "report";
   index: number;
   at: number;
   text: string;
   /** Full text length, present only when `text` was shortened. */
   chars?: number;
   images?: number;
-  /** For answers: history indexes of the user messages it answers. */
+  /** For answers to user messages: history indexes of the messages it answers. */
   to?: number[];
 }
 
@@ -54,10 +59,12 @@ export interface BuildActivityStreamInput {
 
 /**
  * Build the user's activity stream for `[since, until)`: every message the user typed by
- * hand and the final answers to them. A leader's answers are the settled explicit answers
- * that name the user's messages; elsewhere the last reply of a turn answers the user
- * messages sent during it. A message outside the window is still listed when it answers,
- * or is answered by, a message inside it. Threads are ordered by their first listed message.
+ * hand and every final message the user was shown. A leader's answers are its settled
+ * explicit answers, whether they name the user's messages or present a new result that
+ * names none; elsewhere the last reply of a turn answers the user messages sent during it.
+ * Published reports are listed in every session. A message outside the window is still
+ * listed when it answers, or is answered by, a message inside it. Threads are ordered by
+ * their first listed message.
  */
 export function buildActivityStream(input: BuildActivityStreamInput): ActivityThread[] {
   const threads: Array<ActivityThread & { firstAt: number }> = [];
@@ -96,6 +103,8 @@ function sessionActivity(
   const history = document.messageHistory;
   const asks = new Map<number, RawMessage>();
   const answers = new Map<number, { reply: RawMessage; to: number[] }>();
+  // Results nothing asked for: leader answers that name no message, and published reports.
+  const unrequested = new Map<number, { role: "answer" | "report"; raw: RawMessage; thread: string }>();
 
   // Leader user messages carry session-scoped IDs (u1, u2, ...) that settled answers name.
   const leaderAskIndexById = new Map<string, number>();
@@ -117,9 +126,21 @@ function sessionActivity(
       else turn = { asks: [index] };
       return;
     }
+    if (message.type === "markdown_report") {
+      unrequested.set(index, {
+        role: "report",
+        raw: { index, at: message.timestamp, text: message.content.trim(), images: 0 },
+        thread: document.isOrchestrator ? leaderMessageThreadKey(message) : MAIN_THREAD_KEY,
+      });
+      return;
+    }
     const reply = replyMessage(message, index);
     if (reply && message.type === "assistant" && message.threadAnswer) {
-      const to = [...new Set(message.threadAnswer.answerUserMessageIds)]
+      const ids = message.threadAnswer.answerUserMessageIds;
+      // An answer naming no message belongs to the thread it was written in.
+      if (ids.length === 0)
+        unrequested.set(index, { role: "answer", raw: reply, thread: leaderMessageThreadKey(message) });
+      const to = [...new Set(ids)]
         .map((id) => leaderAskIndexById.get(id))
         .filter((askIndex): askIndex is number => askIndex !== undefined);
       if (to.length) answers.set(index, { reply, to });
@@ -140,6 +161,7 @@ function sessionActivity(
       for (const askIndex of answer.to) listed.add(askIndex);
     } else if (answer.to.some((askIndex) => inWindow(asks.get(askIndex)!))) listed.add(index);
   }
+  for (const [index, result] of unrequested) if (inWindow(result.raw)) listed.add(index);
 
   const threadOf = (askIndex: number): string =>
     document.isOrchestrator ? authoritativeMessageOwner(history[askIndex]!).threadKey : MAIN_THREAD_KEY;
@@ -152,6 +174,8 @@ function sessionActivity(
         thread: threadOf(answer.to[0]!),
       };
     }
+    const result = unrequested.get(index);
+    if (result) return { message: toMessage(result.role, result.raw, input.textLimit), thread: result.thread };
     return { message: toMessage("user", asks.get(index)!, input.textLimit), thread: threadOf(index) };
   });
 }

@@ -91,11 +91,12 @@ Options:
 
 const ACTIVITY_HELP = `Usage: takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]
 
-Show the user's activity in a time window: every message the user typed by hand and the
-final answers to them, as one narrative per session thread. A leader's answers are the
-explicit answers that name the user's messages; elsewhere the last reply of a turn
-answers the messages sent during it. A message outside the window is still listed when
-it answers, or is answered by, one inside it.
+Show the user's activity in a time window: every message the user typed by hand and
+every final message the user was shown, as one narrative per session thread. A leader's
+answers are its explicit answers: those that name the user's messages, and new results
+that name none (marked "new result"); elsewhere the last reply of a turn answers the
+messages sent during it. Published takode reports are listed as reports. A message
+outside the window is still listed when it answers, or is answered by, one inside it.
 
 Each message shows its history index: open it with takode read <session> <index>, and
 its quest with quest show q-N. Sessions archived before the server last started are
@@ -110,9 +111,10 @@ Options:
                     that session's own space; elsewhere, all spaces
   --full            Whole messages instead of the first 1,000 characters
   --json            Structured output: { since, until, spaces, threads: [{ session,
-                    sessionId, sessionName, space, thread?, messages: [{ role (user or
-                    answer), index, at, text, chars? (full length when shortened), images?,
-                    to? (indexes an answer answers) }] }] }
+                    sessionId, sessionName, space, thread?, messages: [{ role (user,
+                    answer or report), index, at, text, chars? (full length when
+                    shortened), images?, to? (indexes an answer answers; absent on a
+                    new result and a report) }] }] }
 `;
 
 const INFO_HELP = `Usage: takode info <session> [--json] [--details | --include <fields>]
