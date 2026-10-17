@@ -34,6 +34,7 @@ import { randomUUID } from "node:crypto";
 import type { PhoneAlertSubject } from "../phone-alert-status.js";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
+import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
 
 type SessionLike = any;
 
@@ -727,15 +728,11 @@ function answerPreview(answer: LeaderAnswerEntry): string {
   );
 }
 
+/** The first line of an answer or report as plain text: alerts and unread rows show it unrendered. */
 function firstLinePreview(text: string): string {
-  const firstLine = text
+  const firstLine = markdownToPlainText(text)
     .split("\n")
-    .map((line) =>
-      line
-        .replace(/^#+\s+/, "")
-        .replace(/\s+/g, " ")
-        .trim(),
-    )
+    .map((line) => line.replace(/\s+/g, " ").trim())
     .find((line) => line && !line.startsWith("{[("));
   if (!firstLine) return "";
   return firstLine.length > ANSWER_PREVIEW_MAX_CHARS

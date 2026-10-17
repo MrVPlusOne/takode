@@ -628,6 +628,26 @@ describe("result-message-controller", () => {
     expect(session.notifications).toHaveLength(1);
   });
 
+  it("previews an answer as plain text in its unread notification", () => {
+    // The summary feeds unread rows and phone alerts, which show it unrendered. The
+    // reported answer opened with bold text running past the 80-character preview,
+    // which showed as a dangling "**"; Markdown is stripped before truncating.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "u1", { threadKey: "q-7" }));
+    session.messageHistory.push(
+      routedFinal("bold-answer", 1, {
+        threadKey: "q-7",
+        text: "It reads as **genuine excitement, but an open call, not a pointed request to you.** The `????!!!!` fits [Frank's posts](https://example.com).\n\n- More detail.",
+      }),
+    );
+    session.userMessageIdsThisTurn = [0];
+    handleResultMessage(session, makeResult({ uuid: "bold-answer-result" }), makeDeps());
+
+    expect(session.notifications?.[0]?.summary).toBe(
+      "Answer in q-7 | It reads as genuine excitement, but an open call, not a pointed request to you.…",
+    );
+  });
+
   it("settles an answer that names no messages as unread without covering pending requests", () => {
     // A worker's own timer produced a report: the leader's turn has no request or
     // timer firing to answer, so it presents the result with [thread:q-7:A]. That
