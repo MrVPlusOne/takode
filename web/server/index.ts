@@ -569,6 +569,7 @@ wsBridge.sessionNameGetter = (sessionId) => sessionNames.getName(sessionId) || s
 wsBridge.sessionStoredNameGetter = (sessionId) => sessionNames.getName(sessionId);
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
+wsBridge.resolveQuestStartedFrom = async (questId) => (await getQuest(questId))?.relationships?.startedFrom ?? null;
 
 // ── Phone alerts for overdue to-dos, and follow-up reminders for questions and to-dos left waiting ──
 const reminderSettings = () => normalizeNeedsInputReminderSettings(getSettings().needsInputReminders);

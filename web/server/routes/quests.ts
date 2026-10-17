@@ -426,7 +426,12 @@ export function createQuestRoutes(ctx: RouteContext) {
     ctx;
   const bridgeAny = wsBridge as any;
   const questSourceHistory = (sessionId: string) => wsBridge.getSession(sessionId)?.messageHistory;
-  registerStartedQuestsRoute(api, { resolveId, listQuests: () => questStore.listQuests() });
+  registerStartedQuestsRoute(api, {
+    resolveId,
+    listQuests: () => questStore.listQuests(),
+    getQuest: (questId) => questStore.getQuest(questId),
+    getHistory: questSourceHistory,
+  });
 
   const setClaimedQuest = (
     sessionId: string,

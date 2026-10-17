@@ -5,6 +5,17 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
+  /** A supporting quest: its request stays where it was asked and is answered there. */
+  supporting: boolean;
+}
+
+/** The leader's answer that delivered a supporting quest's result. */
+export interface SupportingQuestAnswer {
+  messageId: string;
+  /** The thread the answer was written in. */
+  threadKey: string;
+  timestamp: number;
+  markdown: string;
 }
 
 /** The quests filed from the user's messages in this leader session. */
@@ -12,4 +23,16 @@ export async function fetchStartedQuests(sessionId: string, signal?: AbortSignal
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/started-quests`, { signal });
   if (!res.ok) throw new Error(`started quests: ${res.status}`);
   return ((await res.json()) as { quests: StartedQuest[] }).quests;
+}
+
+/** For a supporting quest, the leader's answer that delivered its result, if one was written. */
+export async function fetchSupportingQuestAnswer(
+  sessionId: string,
+  questId: string,
+  signal?: AbortSignal,
+): Promise<SupportingQuestAnswer | null> {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}/started-quests/${encodeURIComponent(questId)}/answer`;
+  const res = await fetch(path, { signal });
+  if (!res.ok) throw new Error(`supporting quest answer: ${res.status}`);
+  return ((await res.json()) as { answer: SupportingQuestAnswer | null }).answer;
 }

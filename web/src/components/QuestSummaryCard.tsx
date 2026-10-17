@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
@@ -56,6 +56,7 @@ export function QuestSummaryCard({
   className = "",
   sessionId,
   questLinkSurface,
+  detail,
 }: {
   quest: QuestmasterTask;
   label: string;
@@ -69,6 +70,8 @@ export function QuestSummaryCard({
   className?: string;
   sessionId?: string;
   questLinkSurface: QuestLinkSurface;
+  /** A line under the title, such as where the quest's result was answered. */
+  detail?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = fullText !== "" && fullText !== summary;
@@ -90,6 +93,7 @@ export function QuestSummaryCard({
         />
         <span className="min-w-0 truncate">{quest.title}</span>
       </div>
+      {detail}
       <div className="mt-1.5 min-w-0 text-sm text-cc-fg">
         <MarkdownContent
           text={expanded && canExpand ? fullText : summary}

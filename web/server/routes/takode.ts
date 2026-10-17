@@ -183,6 +183,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const notificationRouteDeps = {
     isHerdedWorkerSession: (session: BridgeSession) => !!launcher.getSession(session.id)?.herdedBy,
+    resolveQuestStartedFrom: async (questId: string) => (await wsBridge.resolveQuestStartedFrom?.(questId)) ?? null,
     getLauncherSessionInfo: (sessionId: string) => launcher.getSession(sessionId),
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),

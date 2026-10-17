@@ -1,4 +1,5 @@
 import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
+import type { QuestStartedFrom } from "./quest-types.js";
 import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
@@ -458,6 +459,7 @@ export class WsBridge {
   onSessionNamedByQuest: ((sessionId: string, title: string) => void) | null = null;
   resolveQuestTitle: ((questId: string) => Promise<string | null>) | null = null;
   resolveQuestStatus: ((questId: string) => Promise<string | null>) | null = null;
+  resolveQuestStartedFrom: ((questId: string) => Promise<QuestStartedFrom | null>) | null = null;
   private userMsgCounter = 0;
   /** Per-project cache of slash commands, skills, and apps so new sessions get them
    *  before the CLI sends system/init (which only arrives after the first

@@ -3,6 +3,7 @@ import { leaderMessageThreadKey } from "../../shared/leader-thread-response-rout
 import { findLeaderUserMessageById } from "../leader-user-message-id.js";
 import type { QuestStartedFrom, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
+import { findSupportingQuestAnswer, findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
 import type { OptionalAuthResult } from "./context.js";
 
 /**
@@ -37,28 +38,49 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
+  /** True for a supporting quest: its request stays where it was asked and is answered there. */
+  supporting: boolean;
 }
 
 /**
  * `GET /sessions/:id/started-quests`: the quests filed from the user's messages in one
  * leader session, so each source message can link on to the quest it started.
+ * `GET /sessions/:id/started-quests/:questId/answer`: for a supporting quest, the leader's
+ * answer that delivered its result, so the quest's own thread can show it.
  */
 export function registerStartedQuestsRoute(
   api: Hono,
   deps: {
     resolveId: (idOrNum: string) => string | null;
     listQuests: () => Promise<ReadonlyArray<QuestmasterTask>>;
+    getQuest: (questId: string) => Promise<QuestmasterTask | null>;
+    getHistory: (sessionId: string) => ReadonlyArray<BrowserIncomingMessage> | undefined;
   },
 ): void {
   api.get("/sessions/:id/started-quests", async (c) => {
     const sessionId = deps.resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
     const quests: StartedQuest[] = [];
+    let requests: ReturnType<typeof indexLeaderRequests> | undefined;
     for (const quest of await deps.listQuests()) {
       const startedFrom = quest.relationships?.startedFrom;
       if (startedFrom?.sessionId !== sessionId) continue;
-      quests.push({ questId: quest.questId, title: quest.title, startedFrom });
+      requests ??= indexLeaderRequests(deps.getHistory(sessionId) ?? []);
+      const supporting = findSupportingQuestSource(requests, sessionId, quest.questId, startedFrom) !== null;
+      quests.push({ questId: quest.questId, title: quest.title, startedFrom, supporting });
     }
     return c.json({ quests });
+  });
+
+  api.get("/sessions/:id/started-quests/:questId/answer", async (c) => {
+    const sessionId = deps.resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+    const quest = await deps.getQuest(c.req.param("questId").toLowerCase());
+    if (!quest) return c.json({ error: "Quest not found" }, 404);
+    const history = deps.getHistory(sessionId) ?? [];
+    const startedFrom = quest.relationships?.startedFrom;
+    const source = findSupportingQuestSource(indexLeaderRequests(history), sessionId, quest.questId, startedFrom);
+    const answer = source ? findSupportingQuestAnswer(history, source, quest.questId, quest.createdAt) : null;
+    return c.json({ answer });
   });
 }

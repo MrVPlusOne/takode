@@ -35,6 +35,8 @@ import type { PhoneAlertSubject } from "../phone-alert-status.js";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
+import type { QuestStartedFrom } from "../quest-types.js";
+import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
 
 type SessionLike = any;
 
@@ -116,6 +118,8 @@ type NotificationMuteDeps = PersistNotificationDeps & {
 
 type LeaderUnreadDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
+  /** The message a quest was filed from, to recognize supporting quests. */
+  resolveQuestStartedFrom?: (questId: string) => Promise<QuestStartedFrom | null>;
 };
 
 type ClearAttentionAndMarkReadOptions = {
@@ -609,12 +613,20 @@ export function recordAnswerUnreadNotifications(
  * Make a completed quest's leader thread unread. The thread's Quest complete card
  * shows the result, so this does not depend on the leader writing an answer, which
  * it cannot do for work another leader handed over. Recompleting a quest counts again.
+ * A supporting quest (see findSupportingQuestSource) adds nothing: its result reaches
+ * the user as the leader's answer to the request, which stays pending until answered.
  */
-export function recordQuestCompletionUnreadNotification(
+export async function recordQuestCompletionUnreadNotification(
   session: SessionLike,
   completion: { questId: string; summary: string; completedAt: number },
   deps: LeaderUnreadDeps,
-): boolean {
+): Promise<boolean> {
+  // Without a resolver nothing is awaited, so the unread is recorded synchronously.
+  const startedFrom = deps.resolveQuestStartedFrom ? await deps.resolveQuestStartedFrom(completion.questId) : null;
+  const requests = startedFrom ? indexLeaderRequests(session.messageHistory ?? []) : null;
+  if (requests && findSupportingQuestSource(requests, session.id, completion.questId, startedFrom ?? undefined)) {
+    return false;
+  }
   const threadKey = normalizeLeaderThreadKey(completion.questId);
   const alreadyRecorded = (session.notifications ?? []).some(
     (notification: SessionNotification) =>

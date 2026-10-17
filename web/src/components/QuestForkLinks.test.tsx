@@ -185,4 +185,43 @@ describe("Continued in links", () => {
     await waitFor(() => expect(within(screen.getByTestId("in-main")).getByTestId("continued-in-link")).toBeVisible());
     expect(within(screen.getByTestId("in-quest")).queryByTestId("continued-in-links")).not.toBeInTheDocument();
   });
+  it("shows a supporting quest's phase under the request and previews it instead of switching tabs", async () => {
+    // q-9 supports the Main request, which stays in Main and is answered there; q-10 already finished.
+    const supporting = (questId: string, title: string) => ({
+      questId,
+      title,
+      startedFrom: STARTED_FROM,
+      supporting: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ quests: [supporting(QUEST_ID, "Relay timeout"), supporting("q-10", "Relay logs")] }),
+      ),
+    );
+    act(() =>
+      useStore.setState((state) => ({
+        sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
+          { questId: QUEST_ID, status: "WORKING", updatedAt: 1 },
+        ]),
+        sessionCompletedBoards: new Map(state.sessionCompletedBoards).set(SESSION_ID, [
+          { questId: "q-10", status: "COMPLETED", updatedAt: 2 },
+        ]),
+      })),
+    );
+    const onSelectThread = vi.fn();
+    render(
+      <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
+        <ContinuedInLinks messageId="main-ask" currentThreadKey="main" onSelectThread={onSelectThread} />
+      </StartedQuestsProvider>,
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId("supporting-quest-link")).toHaveLength(2));
+    const [running, done] = screen.getAllByTestId("supporting-quest-link");
+    expect(running).toHaveTextContent("Work · Relay timeout");
+    expect(done).toHaveTextContent("Done · Relay logs");
+    expect(screen.queryByTestId("continued-in-link")).not.toBeInTheDocument();
+    fireEvent.click(within(running).getByText("Relay timeout"));
+    expect(onSelectThread).not.toHaveBeenCalled();
+  });
 });

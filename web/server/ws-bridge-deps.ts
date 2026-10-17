@@ -598,6 +598,7 @@ export function getSessionNotificationDeps(host: any) {
     ) => host.pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
     cancelScheduledNotification: (sessionId: string, notificationId: string) =>
       host.pushoverNotifier?.cancelNotification(sessionId, notificationId),
+    resolveQuestStartedFrom: async (questId: string) => (await host.resolveQuestStartedFrom?.(questId)) ?? null,
   };
 }
 

@@ -64,6 +64,8 @@ describe("GET /sessions/:id/started-quests", () => {
     registerStartedQuestsRoute(api, {
       resolveId: (id) => (id === "12" ? "leader-1" : id),
       listQuests: async () => [quest("q-1", "leader-1"), quest("q-2", "leader-2"), quest("q-3")],
+      getQuest: async () => null,
+      getHistory: () => [],
     });
 
     const response = await api.request("/sessions/12/started-quests");
@@ -73,8 +75,56 @@ describe("GET /sessions/:id/started-quests", () => {
           questId: "q-1",
           title: "Title q-1",
           startedFrom: { sessionId: "leader-1", messageId: "m-q-1", threadKey: "main", timestamp: 5 },
+          // The source message is not in this history, so the quest is not known to be supporting.
+          supporting: false,
         },
       ],
     });
+  });
+
+  it("marks supporting quests and returns the answer that delivered a supporting quest's result", async () => {
+    // u3 was asked in q-10 and stayed there; q-11 was filed from it, and the leader
+    // answered u3 in q-10 in the turn the worker's herd event started.
+    const leaderHistory = [
+      { ...human("ask", "u3", "q-10"), timestamp: 1000 },
+      {
+        type: "user_message",
+        id: "herd",
+        content: "1 event from 1 session",
+        timestamp: 4000,
+        agentSource: { sessionId: "herd-events" },
+        threadKey: "q-11",
+        questId: "q-11",
+      },
+      {
+        type: "assistant",
+        message: { id: "answer", content: [{ type: "text", text: "Both checks agree." }] },
+        parent_tool_use_id: null,
+        timestamp: 4100,
+        threadKey: "q-10",
+        questId: "q-10",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u3"], observedHistoryLength: 1, authoredThreadKey: "q-10" },
+      },
+    ] as unknown as BrowserIncomingMessage[];
+    const supportingQuest = {
+      questId: "q-11",
+      title: "Condor check",
+      createdAt: 1500,
+      relationships: { startedFrom: { sessionId: "leader-1", messageId: "ask", threadKey: "q-10", timestamp: 1000 } },
+    } as QuestmasterTask;
+    const api = new Hono();
+    registerStartedQuestsRoute(api, {
+      resolveId: (id) => id,
+      listQuests: async () => [supportingQuest],
+      getQuest: async (questId) => (questId === "q-11" ? supportingQuest : null),
+      getHistory: () => leaderHistory,
+    });
+
+    const list = await (await api.request("/sessions/leader-1/started-quests")).json();
+    expect(list.quests).toEqual([expect.objectContaining({ questId: "q-11", supporting: true })]);
+    expect(await (await api.request("/sessions/leader-1/started-quests/q-11/answer")).json()).toEqual({
+      answer: { messageId: "answer", threadKey: "q-10", timestamp: 4100, markdown: "Both checks agree." },
+    });
+    expect((await api.request("/sessions/leader-1/started-quests/q-99/answer")).status).toBe(404);
   });
 });

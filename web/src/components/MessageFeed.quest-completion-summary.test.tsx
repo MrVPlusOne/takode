@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   buildLeaderThreadResponseState,
   finalizeRoutedLeaderResponseMessage,
@@ -307,5 +307,40 @@ describe("MessageFeed quest completion summary", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     expect(screen.getByTestId("quest-completion-summary")).toHaveTextContent(TLDR);
     expect(screen.queryByRole("button", { name: "Show full debrief" })).not.toBeInTheDocument();
+  });
+
+  it("leads a supporting quest's card with the answer given where the user asked", async () => {
+    // The quest was filed from a request the user asked in q-77, and the leader answered
+    // it there. The server returns that answer; the card shows it, links to it, and keeps
+    // the debrief behind the toggle.
+    const answer = {
+      messageId: "combined-answer",
+      threadKey: "q-77",
+      timestamp: COMPLETED_AT - 60_000,
+      markdown: "Both checks agree.",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ answer }));
+    onTestFinished(() => fetchMock.mockRestore());
+    const startedFrom = { sessionId: SESSION_ID, messageId: "compare-ask", threadKey: "q-77", timestamp: 1 };
+    installHistory(wrapUpHistory("Quest closed."), doneQuest({ quizItems: undefined, relationships: { startedFrom } }));
+    act(() =>
+      useStore.getState().upsertQuestTitlePreview({ questId: "q-77", title: "Check the eval trend", version: 1 }),
+    );
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const card = screen.getByTestId("quest-completion-summary");
+    await waitFor(() => expect(card).toHaveTextContent("Both checks agree."));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/sessions/${SESSION_ID}/started-quests/${QUEST_ID}/answer`,
+      expect.anything(),
+    );
+    expect(card).not.toHaveTextContent(TLDR);
+    const answeredIn = within(card).getByTestId("quest-completion-answered-in");
+    expect(answeredIn).toHaveTextContent("Answered in Check the eval trend");
+    fireEvent.click(within(card).getByRole("button", { name: "Show debrief" }));
+    expect(card).toHaveTextContent(DEBRIEF);
+    fireEvent.click(answeredIn);
+    expect(window.location.hash).toContain("/msg/combined-answer");
+    expect(window.location.hash).toContain("thread=q-77");
   });
 });

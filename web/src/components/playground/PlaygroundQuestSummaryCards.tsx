@@ -8,6 +8,7 @@ import { normalizeHistoryMessageToChatMessages } from "../../utils/history-messa
 import { buildFeedSections } from "../message-feed-sections.js";
 import { MessageFeedCenteredState } from "../MessageFeedCenteredState.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
+import { SupportingQuestAnswerContext } from "../QuestCompletionSummaryCard.js";
 import { StartedQuestsContext } from "../QuestForkLinks.js";
 import { Card, Section } from "./shared.js";
 
@@ -15,6 +16,8 @@ const SESSION_ID = "playground-quest-summary-cards";
 const QUEST_ID = "q-9008";
 const DESCRIPTION_QUEST_ID = "q-9021";
 const EXCERPT_QUEST_ID = "q-9022";
+const SUPPORTING_RUNNING_ID = "q-9024";
+const SUPPORTING_DONE_ID = "q-9025";
 const EMPTY_IDS = new Set<string>();
 const NOOP = () => {};
 
@@ -161,28 +164,49 @@ function QuestThread({
 export function PlaygroundQuestCompletionSummary() {
   useEffect(() => {
     useStore.setState((state) => ({
-      questDetails: new Map(state.questDetails).set(QUEST_ID, {
-        id: "playground-completion-summary",
-        questId: QUEST_ID,
+      questDetails: new Map(state.questDetails)
+        .set(QUEST_ID, {
+          id: "playground-completion-summary",
+          questId: QUEST_ID,
+          version: 1,
+          title: "Speed up quest writes",
+          description: "Make quest writes and reads fast.",
+          status: "done",
+          createdAt: 1,
+          // Between the work note and the herd event reporting the completion.
+          completedAt: messageTimestamp(1) + 30_000,
+          verificationItems: [],
+          debriefTldr:
+            "- Quest reads now come from an in-memory store, so `takode board show` dropped from ~300 ms to ~20 ms.\n- Writes still re-serialize the store and take about 100 ms.",
+          debrief:
+            "Quest reads and board views were slow because every request re-read and parsed the whole quest store from disk. The server now keeps a deep-frozen in-memory copy and checks the file's identity before trusting it, so another process rewriting the file is still picked up.\n\nWrites still serialize the full store, which accounts for the remaining ~100 ms per write. The live server shows the new timings only after it restarts onto this build.",
+          quizItems: [
+            {
+              id: "why-slow",
+              question: "Why did a single quest read take 150-360 ms before this change?",
+              answer: "Every request re-read and parsed the whole quest store from disk.",
+            },
+          ],
+        })
+        .set(SUPPORTING_DONE_ID, {
+          id: "playground-completion-summary-supporting",
+          questId: SUPPORTING_DONE_ID,
+          version: 1,
+          title: "QA eval trend numbers from Condor",
+          description: "Read-only: QA eval trend numbers from Condor, to compare with the laptop worker's check.",
+          status: "done",
+          createdAt: 1,
+          // Before the worker event that completes the dispatch-only thread.
+          completedAt: messageTimestamp(1) + 30_000,
+          verificationItems: [],
+          debriefTldr:
+            "- Condor rollouts confirm Frank's chart is the 77B T3 run; exec dips slightly, seeded QA rises.",
+          relationships: { startedFrom: SUPPORTING_STARTED_FROM },
+        }),
+      questTitlePreviews: new Map(state.questTitlePreviews).set(EXCERPT_QUEST_ID, {
+        questId: EXCERPT_QUEST_ID,
+        title: "Show quest summaries in quest threads",
         version: 1,
-        title: "Speed up quest writes",
-        description: "Make quest writes and reads fast.",
-        status: "done",
-        createdAt: 1,
-        // Between the work note and the herd event reporting the completion.
-        completedAt: messageTimestamp(1) + 30_000,
-        verificationItems: [],
-        debriefTldr:
-          "- Quest reads now come from an in-memory store, so `takode board show` dropped from ~300 ms to ~20 ms.\n- Writes still re-serialize the store and take about 100 ms.",
-        debrief:
-          "Quest reads and board views were slow because every request re-read and parsed the whole quest store from disk. The server now keeps a deep-frozen in-memory copy and checks the file's identity before trusting it, so another process rewriting the file is still picked up.\n\nWrites still serialize the full store, which accounts for the remaining ~100 ms per write. The live server shows the new timings only after it restarts onto this build.",
-        quizItems: [
-          {
-            id: "why-slow",
-            question: "Why did a single quest read take 150-360 ms before this change?",
-            answer: "Every request re-read and parsed the whole quest store from disk.",
-          },
-        ],
       }),
     }));
   }, []);
@@ -214,6 +238,15 @@ export function PlaygroundQuestCompletionSummary() {
             testId="playground-completion-summary-later"
           />
         </Card>
+        <Card label="Supporting quest · leads with the answer given where the user asked">
+          <SupportingQuestAnswerContext.Provider value={SUPPORTING_ANSWERS}>
+            <QuestThread
+              questId={SUPPORTING_DONE_ID}
+              history={dispatchHistory(SUPPORTING_DONE_ID)}
+              testId="playground-completion-summary-supporting"
+            />
+          </SupportingQuestAnswerContext.Provider>
+        </Card>
       </div>
     </Section>
   );
@@ -229,7 +262,53 @@ const STARTED_FROM = {
 const STARTED_QUESTS = new Map([
   [
     STARTED_FROM.messageId,
-    [{ questId: DESCRIPTION_QUEST_ID, title: "Set up the DevBox as a Takode host", startedFrom: STARTED_FROM }],
+    [
+      {
+        questId: DESCRIPTION_QUEST_ID,
+        title: "Set up the DevBox as a Takode host",
+        startedFrom: STARTED_FROM,
+        supporting: false,
+      },
+    ],
+  ],
+]);
+
+/** One request in the excerpt quest's thread that two supporting quests help answer there. */
+const SUPPORTING_STARTED_FROM = {
+  sessionId: SESSION_ID,
+  messageId: `${EXCERPT_QUEST_ID}-compare`,
+  threadKey: EXCERPT_QUEST_ID,
+  timestamp: messageTimestamp(3),
+};
+const SUPPORTING_QUESTS = new Map([
+  [
+    SUPPORTING_STARTED_FROM.messageId,
+    [
+      {
+        questId: SUPPORTING_RUNNING_ID,
+        title: "QA eval trend numbers from the laptop",
+        startedFrom: SUPPORTING_STARTED_FROM,
+        supporting: true,
+      },
+      {
+        questId: SUPPORTING_DONE_ID,
+        title: "QA eval trend numbers from Condor",
+        startedFrom: SUPPORTING_STARTED_FROM,
+        supporting: true,
+      },
+    ],
+  ],
+]);
+const SUPPORTING_ANSWERS = new Map([
+  [
+    SUPPORTING_DONE_ID,
+    {
+      messageId: `${EXCERPT_QUEST_ID}-combined-answer`,
+      threadKey: EXCERPT_QUEST_ID,
+      timestamp: messageTimestamp(6),
+      markdown:
+        "Both checks are in, and they agree. **Frank's chart is the 77B Big Climb T3 run, not 12B.** Our seeded-QA eval is flat to rising in every run.",
+    },
   ],
 ]);
 
@@ -262,6 +341,13 @@ export function PlaygroundQuestDescriptionSummary() {
           description:
             "## Background\nLeader quest threads often begin with nothing but tool activity, so the feed never says what the quest is about. Completed threads already end with a Quest complete card built from the final debrief, and this quest adds the matching card at the start of the thread.\n\n## Goal\nShow the description TLDR, expandable to the full description.",
         }),
+      // The supporting quests' rows read their state from this leader's boards.
+      sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
+        { questId: SUPPORTING_RUNNING_ID, status: "WORKING", updatedAt: messageTimestamp(4) },
+      ]),
+      sessionCompletedBoards: new Map(state.sessionCompletedBoards).set(SESSION_ID, [
+        { questId: SUPPORTING_DONE_ID, status: "COMPLETED", updatedAt: messageTimestamp(5) },
+      ]),
     }));
   }, []);
 
@@ -293,6 +379,31 @@ export function PlaygroundQuestDescriptionSummary() {
                 ),
               ]}
               testId="playground-description-summary-excerpt"
+              onSelectThread={NOOP}
+            />
+          </StartedQuestsContext.Provider>
+        </Card>
+        <Card label="Supporting quests under the request · their phase, previewed in place">
+          <StartedQuestsContext.Provider value={SUPPORTING_QUESTS}>
+            <QuestThread
+              questId={EXCERPT_QUEST_ID}
+              history={[
+                message(
+                  EXCERPT_QUEST_ID,
+                  "human",
+                  SUPPORTING_STARTED_FROM.messageId,
+                  "Check this on both the laptop and Condor, then compare.",
+                  3,
+                ),
+                message(
+                  EXCERPT_QUEST_ID,
+                  "assistant",
+                  `${EXCERPT_QUEST_ID}-dispatch-both`,
+                  "Sent to both workers; I'll compare and answer here.",
+                  4,
+                ),
+              ]}
+              testId="playground-supporting-quest-rows"
               onSelectThread={NOOP}
             />
           </StartedQuestsContext.Provider>

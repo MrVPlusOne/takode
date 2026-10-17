@@ -1,3 +1,4 @@
+import type { QuestStartedFrom } from "../quest-types.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildPersistedSessionPayload,
@@ -130,6 +131,31 @@ function leaderAnswer({
     threadRefs: alsoShownIn.map((key) => ({ threadKey: key, questId: key, source: "backfill" })),
     leaderThreadRole: "answer",
     threadAnswer: { version: 2, answerUserMessageIds: ["u1"], authoredThreadKey: threadKey },
+  };
+}
+
+/** A user's message to a leader as the bridge records it, with its persisted uN. */
+function leaderRequest({
+  id,
+  userMessageId,
+  threadKey,
+  threadRefs,
+}: {
+  id: string;
+  userMessageId: string;
+  threadKey: string;
+  threadRefs?: unknown[];
+}): any {
+  return {
+    type: "user_message",
+    id,
+    content: "Please look into it.",
+    timestamp: 1000,
+    leaderResponseCoverageVersion: 1,
+    leaderUserMessageId: userMessageId,
+    threadKey,
+    ...(threadKey !== "main" ? { questId: threadKey } : {}),
+    ...(threadRefs ? { threadRefs } : {}),
   };
 }
 
@@ -1174,7 +1200,7 @@ describe("session notification status metadata", () => {
     expect(session.attentionReason).toBe("action");
   });
 
-  it("records a quest completion as unread in its thread, once per completion", () => {
+  it("records a quest completion as unread in its thread, once per completion", async () => {
     const session = makeSession({
       state: { isOrchestrator: true },
       messageHistory: [
@@ -1185,10 +1211,12 @@ describe("session notification status metadata", () => {
     const deps = makeDeps();
     const completion = { questId: "q-9", summary: "q-9 ready for review: Fix paste", completedAt: 5000 };
 
-    expect(recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(true);
-    expect(recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(false);
+    expect(await recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(true);
+    expect(await recordQuestCompletionUnreadNotification(session, completion, deps)).toBe(false);
     // Completing the quest again later counts again.
-    expect(recordQuestCompletionUnreadNotification(session, { ...completion, completedAt: 9000 }, deps)).toBe(true);
+    expect(await recordQuestCompletionUnreadNotification(session, { ...completion, completedAt: 9000 }, deps)).toBe(
+      true,
+    );
 
     expect(session.notifications).toEqual([
       expect.objectContaining({
@@ -1204,5 +1232,36 @@ describe("session notification status metadata", () => {
     ]);
     expect(session.attentionReason).toBe("review");
     expect(deps.scheduleNotification).not.toHaveBeenCalled();
+  });
+
+  it("records nothing when a supporting quest completes, and keeps unread for quests that own their request", async () => {
+    // q-11 was filed from u7, which the user asked in q-10 and which stayed there:
+    // the leader answers u7 in q-10, so q-11 finishing adds no second unread.
+    // q-12 was filed from a Main request handed off to it, so it is the conversation.
+    const session = makeSession({
+      state: { isOrchestrator: true },
+      messageHistory: [
+        leaderRequest({ id: "ask", userMessageId: "u7", threadKey: "q-10" }),
+        leaderRequest({
+          id: "main-ask",
+          userMessageId: "u8",
+          threadKey: "main",
+          threadRefs: [{ threadKey: "q-12", questId: "q-12", source: "explicit", attachedAt: 1200 }],
+        }),
+      ],
+    });
+    const sources: Record<string, QuestStartedFrom> = {
+      "q-11": { sessionId: "s1", messageId: "ask", threadKey: "q-10", timestamp: 1000 },
+      "q-12": { sessionId: "s1", messageId: "main-ask", threadKey: "main", timestamp: 1100 },
+    };
+    const deps = { ...makeDeps(), resolveQuestStartedFrom: async (questId: string) => sources[questId] ?? null };
+
+    const complete = (questId: string, completedAt: number) =>
+      recordQuestCompletionUnreadNotification(session, { questId, summary: questId, completedAt }, deps);
+    expect(await complete("q-11", 5000)).toBe(false);
+    expect(await complete("q-12", 6000)).toBe(true);
+    expect(session.notifications).toEqual([
+      expect.objectContaining({ threadKey: "q-12", unreadReason: "quest-complete" }),
+    ]);
   });
 });
