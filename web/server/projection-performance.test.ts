@@ -1486,117 +1486,194 @@ export async function collectProjectionPerformanceResults(): Promise<ProjectionP
   };
 }
 
-const NO_OP_METRICS: MetricSample = {
-  ...zeroMetrics(),
+/*
+ * The assertions below follow the acceptance thresholds in
+ * docs/synchronized-projection-performance.md. Operation counts (sends, deliveries,
+ * invalidations, selections, derivations, updates, snapshots, subscriptions) are exact,
+ * and so is every "zero work" case. Bytes are never pinned: they are compared with the
+ * historical control, required to be equal for every browser, and bounded by generous
+ * ceilings that only a large accidental payload crosses. Byte checks cover the
+ * projection system's own values and messages; other messages (notification inbox,
+ * global summaries, board detail) only take part in the old-versus-new comparison.
+ * Exact sizes print with TAKODE_PRINT_PROJECTION_PERFORMANCE=1.
+ */
+
+/**
+ * Upper bounds, about 1.5x the sizes measured on October 17, 2026, for one projection
+ * value (`value`), one projection update or patch on the wire (`update`) and one
+ * subscription response (snapshot plus ack, `subscription`).
+ */
+const BYTE_CEILINGS = {
+  sessionAttention: { value: 128, update: 400, subscription: 600 },
+  sessionNavigation: { value: 2_400, update: 300, subscription: 2_800 },
+  leaderThreadTabs: { value: 12_500, update: 1_700, subscription: 13_000 },
+} as const;
+
+type ByteCeilings = (typeof BYTE_CEILINGS)[keyof typeof BYTE_CEILINGS];
+
+const BYTE_METRIC_KEYS = [
+  "valueBytes",
+  "cachedValueBytes",
+  "snapshotValueBytes",
+  "updateValueBytes",
+  "deliveredValueBytes",
+] as const satisfies readonly MetricKey[];
+
+type MetricCounts = Omit<MetricSample, (typeof BYTE_METRIC_KEYS)[number]>;
+
+function metricCounts(metrics: MetricSample): MetricCounts {
+  const counts: Record<string, number> = { ...metrics };
+  for (const key of BYTE_METRIC_KEYS) delete counts[key];
+  return counts as MetricCounts;
+}
+
+const NO_OP_COUNTS: Partial<MetricCounts> = {
   invalidations: 1,
   batches: 1,
   dependencySelections: 1,
   dependencyEqualSuppressions: 1,
 };
 
-function changedMetrics(options: {
-  invalidations: number;
-  valueBytes: number;
-  browserCount?: number;
-  cachedValueBytes?: number;
-  updateValueBytes?: number;
-}): MetricSample {
-  const browserCount = options.browserCount ?? PROJECTION_PERFORMANCE_FIXTURE.browserCount;
-  const updateValueBytes = options.updateValueBytes ?? options.valueBytes;
+/** One drained batch that derives once and sends one update to each browser. */
+function changedCounts(invalidations: number): Partial<MetricCounts> {
   return {
-    ...zeroMetrics(),
-    invalidations: options.invalidations,
+    invalidations,
     batches: 1,
     dependencySelections: 1,
     derivations: 1,
-    updates: browserCount > 0 ? 1 : 0,
-    valueBytes: options.valueBytes,
-    cachedValueBytes: options.cachedValueBytes ?? (browserCount > 0 ? 0 : options.valueBytes),
-    updateValueBytes: browserCount > 0 ? updateValueBytes : 0,
-    deliveries: browserCount,
-    deliveredValueBytes: updateValueBytes * browserCount,
+    updates: 1,
+    deliveries: PROJECTION_PERFORMANCE_FIXTURE.browserCount,
   };
 }
 
-function reconnectMetrics(valueBytes: number): MetricSample {
-  return {
-    ...zeroMetrics(),
-    snapshots: 1,
-    subscriptionsAccepted: 1,
-    snapshotValueBytes: valueBytes,
-  };
+const RECONNECT_COUNTS: Partial<MetricCounts> = { snapshots: 1, subscriptionsAccepted: 1 };
+
+/** The second browser reuses the clean cache: one selection and derivation, two snapshots. */
+const INITIAL_SUBSCRIPTION_COUNTS: Partial<MetricCounts> = {
+  dependencySelections: 1,
+  derivations: 1,
+  snapshots: 2,
+  subscriptionsAccepted: 2,
+};
+
+/**
+ * Exact projection work, and byte counters that are zero exactly when nothing was
+ * built, sent or snapshotted, scale linearly with deliveries, and stay under the ceiling.
+ */
+function expectProjectionWork(actual: MetricSample, counts: Partial<MetricCounts>, ceiling: number): void {
+  expect(metricCounts(actual)).toEqual({ ...metricCounts(zeroMetrics()), ...counts });
+  expect(actual.valueBytes > 0).toBe(actual.derivations > 0);
+  expect(actual.updateValueBytes > 0).toBe(actual.updates > 0);
+  expect(actual.snapshotValueBytes > 0).toBe(actual.snapshots > 0);
+  expect(actual.deliveredValueBytes).toBe(actual.updateValueBytes * actual.deliveries);
+  expect(actual.valueBytes).toBeLessThanOrEqual(ceiling);
+  expect(actual.updateValueBytes).toBeLessThanOrEqual(ceiling);
+  expect(Math.abs(actual.cachedValueBytes)).toBeLessThanOrEqual(ceiling);
+  expect(actual.snapshotValueBytes).toBeLessThanOrEqual(ceiling * actual.snapshots);
+  if (actual.derivations === 0) expect(actual.cachedValueBytes).toBe(0);
 }
 
-function initialSubscriptionMetrics(valueBytes: number): MetricSample {
-  return {
-    ...zeroMetrics(),
-    dependencySelections: 1,
-    derivations: 1,
-    snapshots: 2,
-    subscriptionsAccepted: 2,
-    valueBytes,
-    cachedValueBytes: valueBytes,
-    snapshotValueBytes: valueBytes * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-  };
+/** Initial subscription for two browsers caches one value and snapshots it to each. */
+function expectInitialSubscription(actual: MetricSample, ceiling: number): void {
+  expectProjectionWork(actual, INITIAL_SUBSCRIPTION_COUNTS, ceiling);
+  expect(actual.cachedValueBytes).toBe(actual.valueBytes);
+  expect(actual.snapshotValueBytes).toBe(actual.valueBytes * PROJECTION_PERFORMANCE_FIXTURE.browserCount);
 }
 
-function expectedHistoricalControlSequence(
-  producerFrames: number,
-  payloadBytesByTypePerProducerFrame: Record<string, number>,
-): ExecutedControlSequenceAccounting {
-  const payloadsPerFrame = Object.keys(payloadBytesByTypePerProducerFrame).length;
-  const payloadBytesPerProducerFrame = Object.values(payloadBytesByTypePerProducerFrame).reduce(
-    (total, bytes) => total + bytes,
-    0,
-  );
-  const bytesPerBrowser = producerFrames * payloadBytesPerProducerFrame;
-  const assemblies = producerFrames * payloadsPerFrame;
-  return {
-    producerFrames,
+/** A clean reconnect snapshots the cached value without selecting or deriving again. */
+function expectReconnect(
+  reconnect: {
+    metrics: MetricSample;
+    projectionSubscriptionResponseMessages: number;
+    projectionSubscriptionResponseBytes: number;
+  },
+  initial: { metrics: MetricSample; responseBytesPerBrowser: number },
+  ceilings: ByteCeilings,
+): void {
+  expectProjectionWork(reconnect.metrics, RECONNECT_COUNTS, ceilings.value);
+  expect(reconnect.metrics.snapshotValueBytes).toBe(initial.metrics.valueBytes);
+  expect(reconnect.projectionSubscriptionResponseMessages).toBe(2);
+  expect(reconnect.projectionSubscriptionResponseBytes).toBe(initial.responseBytesPerBrowser);
+  expect(initial.responseBytesPerBrowser).toBeLessThanOrEqual(ceilings.subscription);
+}
+
+function trafficCounts(sample: AttentionTrafficSample) {
+  return { logicalSends: sample.logicalSends, deliveries: sample.deliveries };
+}
+
+/** A projection update sends the same bytes to each browser, under the update ceiling. */
+function expectProjectionTraffic(sample: AttentionTrafficSample, ceilings: ByteCeilings): void {
+  expect(trafficCounts(sample)).toEqual({ logicalSends: 1, deliveries: PROJECTION_PERFORMANCE_FIXTURE.browserCount });
+  expect(sample.bytesByBrowser[1]).toBe(sample.bytesByBrowser[0]);
+  expect(sample.bytesByBrowser[0]).toBeGreaterThan(0);
+  expect(sample.bytesByBrowser[0]).toBeLessThanOrEqual(ceilings.update);
+}
+
+/** Exact sends per producer frame and payload type; bytes grow linearly with frames and browsers. */
+function expectControlSequence(
+  actual: ExecutedControlSequenceAccounting,
+  expected: { producerFrames: number; payloadTypes: readonly string[] },
+): void {
+  const assemblies = expected.producerFrames * expected.payloadTypes.length;
+  expect(actual).toMatchObject({
+    producerFrames: expected.producerFrames,
     sourceAssemblies: assemblies,
     payloadAssemblies: assemblies,
     logicalSends: assemblies,
     deliveries: assemblies * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     subscriptionRequests: 0,
     subscriptionsAccepted: 0,
-    payloadBytesPerProducerFrame,
-    payloadBytesByTypePerProducerFrame,
-    bytesPerBrowser,
-    totalBytes: bytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-  };
+  });
+  expect(Object.keys(actual.payloadBytesByTypePerProducerFrame).sort()).toEqual([...expected.payloadTypes].sort());
+  expect(actual.payloadBytesPerProducerFrame).toBe(
+    Object.values(actual.payloadBytesByTypePerProducerFrame).reduce((total, bytes) => total + bytes, 0),
+  );
+  expect(actual.bytesPerBrowser).toBe(expected.producerFrames * actual.payloadBytesPerProducerFrame);
+  expect(actual.totalBytes).toBe(actual.bytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount);
 }
 
-function expectedMatchedPair(options: {
-  producerFrames: number;
-  parallelBytesByTypePerFrame: Record<string, number>;
-  projectionBytesPerBrowser: number;
-  runtimeMetrics: MetricSample;
-}): MatchedCompatiblePairAccounting {
-  const parallel = expectedHistoricalControlSequence(options.producerFrames, options.parallelBytesByTypePerFrame);
-  const projectionLogicalSends = options.runtimeMetrics.updates;
-  const projectionDeliveries = options.runtimeMetrics.deliveries;
-  const projectionTotalBytes = options.projectionBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount;
-  return {
-    producerFrames: options.producerFrames,
-    parallel,
-    projection: {
-      sourceAssemblies: options.runtimeMetrics.dependencySelections,
-      payloadAssemblies: options.runtimeMetrics.updates,
-      logicalSends: projectionLogicalSends,
-      deliveries: projectionDeliveries,
-      bytesPerBrowser: options.projectionBytesPerBrowser,
-      totalBytes: projectionTotalBytes,
-      runtimeMetrics: options.runtimeMetrics,
-    },
-    combined: {
-      logicalSends: parallel.logicalSends + projectionLogicalSends,
-      deliveries: parallel.deliveries + projectionDeliveries,
-      bytesPerBrowser: parallel.bytesPerBrowser + options.projectionBytesPerBrowser,
-      totalBytes: parallel.totalBytes + projectionTotalBytes,
-      subscriptionRequests: 0,
-      subscriptionsAccepted: 0,
-    },
-  };
+/**
+ * The retained parallel payloads plus the projection, measured against the historical
+ * control for the same producer frames: exact work, and never more sends, deliveries
+ * or bytes than the control.
+ */
+function expectMatchedPair(
+  actual: MatchedCompatiblePairAccounting,
+  control: ExecutedControlSequenceAccounting,
+  expected: {
+    producerFrames: number;
+    parallelPayloadTypes: readonly string[];
+    projectionCounts: Partial<MetricCounts>;
+    ceilings: ByteCeilings;
+  },
+): void {
+  expect(actual.producerFrames).toBe(expected.producerFrames);
+  expectControlSequence(actual.parallel, {
+    producerFrames: expected.producerFrames,
+    payloadTypes: expected.parallelPayloadTypes,
+  });
+  const runtime = actual.projection.runtimeMetrics;
+  expectProjectionWork(runtime, expected.projectionCounts, expected.ceilings.value);
+  expect(actual.projection).toMatchObject({
+    sourceAssemblies: runtime.dependencySelections,
+    payloadAssemblies: runtime.updates,
+    logicalSends: runtime.updates,
+    deliveries: runtime.deliveries,
+    totalBytes: actual.projection.bytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
+  });
+  expect(actual.projection.bytesPerBrowser > 0).toBe(runtime.updates > 0);
+  expect(actual.projection.bytesPerBrowser).toBeLessThanOrEqual(expected.ceilings.update);
+  expect(actual.combined).toEqual({
+    logicalSends: actual.parallel.logicalSends + actual.projection.logicalSends,
+    deliveries: actual.parallel.deliveries + actual.projection.deliveries,
+    bytesPerBrowser: actual.parallel.bytesPerBrowser + actual.projection.bytesPerBrowser,
+    totalBytes: actual.parallel.totalBytes + actual.projection.totalBytes,
+    subscriptionRequests: 0,
+    subscriptionsAccepted: 0,
+  });
+  expect(actual.combined.logicalSends).toBeLessThanOrEqual(control.logicalSends);
+  expect(actual.combined.deliveries).toBeLessThanOrEqual(control.deliveries);
+  expect(actual.combined.bytesPerBrowser).toBeLessThanOrEqual(control.bytesPerBrowser);
 }
 
 describe("synchronized projection performance controls", () => {
@@ -1604,6 +1681,7 @@ describe("synchronized projection performance controls", () => {
   it("measures attention equal, first urgency, count, burst, clear, reconnect, no-subscriber, and two-browser costs", async () => {
     const result = await collectProjectionPerformanceResults();
     const attention = result.sessionAttention;
+    const ceilings = BYTE_CEILINGS.sessionAttention;
     const noForbiddenTraffic = {
       observerInboxDeliveries: 0,
       observerPermissionDeliveries: 0,
@@ -1612,16 +1690,18 @@ describe("synchronized projection performance controls", () => {
     };
 
     expect(result.controlCommits.sessionAttention).toBe("0e5c6eb2e1f49856d48e57556de260b5984f8d2f");
-    expect(attention.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(73));
-    expect(attention.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(366);
-    expect(attention.reconnect).toEqual({
-      metrics: reconnectMetrics(73),
-      projectionSubscriptionResponseMessages: 2,
-      projectionSubscriptionResponseBytes: 366,
-    });
+    expectInitialSubscription(attention.initialProjectionSubscriptionMetrics, ceilings.value);
+    expectReconnect(
+      attention.reconnect,
+      {
+        metrics: attention.initialProjectionSubscriptionMetrics,
+        responseBytesPerBrowser: attention.initialProjectionSubscriptionResponseBytesPerBrowser,
+      },
+      ceilings,
+    );
 
     expect(attention.equalInvalidation).toMatchObject({
-      metrics: NO_OP_METRICS,
+      metrics: { ...zeroMetrics(), ...NO_OP_COUNTS },
       exactOwnerInbox: emptyAttentionTraffic(),
       compactGlobalSummary: emptyAttentionTraffic(),
       projection: emptyAttentionTraffic(),
@@ -1632,122 +1712,83 @@ describe("synchronized projection performance controls", () => {
     const changedScenarios = [
       {
         scenario: attention.firstNeedsInput,
-        metrics: changedMetrics({ invalidations: 2, valueBytes: 73, cachedValueBytes: 35 }),
-        // Needs-input inbox entries carry `"questionOnly":true` (20 bytes each) since cards became question-only.
-        current: { inbox: [479, 0], global: [325, 325], projection: [232, 232], total: 1_593 },
-        control: { inbox: [471, 0], global: [1_254, 1_254], raw: [128, 0], total: 3_107 },
+        invalidations: 2,
         sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
       },
       {
         scenario: attention.firstReview,
-        metrics: changedMetrics({ invalidations: 2, valueBytes: 68, cachedValueBytes: 30 }),
-        current: { inbox: [444, 0], global: [320, 320], projection: [227, 227], total: 1_538 },
-        control: { inbox: [436, 0], global: [1_239, 1_239], raw: [128, 0], total: 3_042 },
+        invalidations: 2,
         sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
       },
       {
         scenario: attention.sameUrgencyCountChange,
-        metrics: changedMetrics({ invalidations: 1, valueBytes: 68, cachedValueBytes: 0 }),
-        current: { inbox: [591, 0], global: [320, 320], projection: [227, 227], total: 1_685 },
-        control: { inbox: [583, 0], global: [826, 826], raw: [64, 0], total: 2_299 },
+        invalidations: 1,
         sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
       },
       {
         scenario: attention.burstNeedsInput,
-        metrics: changedMetrics({ invalidations: 26, valueBytes: 74, cachedValueBytes: 36 }),
-        current: { inbox: [61_541, 0], global: [8_193, 8_189], projection: [233, 233], total: 78_389 },
-        control: { inbox: [61_320, 0], global: [21_414, 21_414], raw: [1_664, 0], total: 105_812 },
+        invalidations: 26,
         sends: { inbox: 25, global: 25, controlGlobal: 51, controlRaw: 26 },
       },
       {
         scenario: attention.explicitReadClear,
-        metrics: changedMetrics({ invalidations: 1, valueBytes: 38, cachedValueBytes: -30 }),
-        current: { inbox: [295, 0], global: [316, 316], projection: [197, 197], total: 1_321 },
-        control: { inbox: [287, 0], global: [834, 834], raw: [87, 0], total: 2_042 },
+        invalidations: 1,
         sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
       },
     ] as const;
 
-    for (const { scenario, metrics, current, control, sends } of changedScenarios) {
-      expect(scenario.metrics).toEqual(metrics);
-      expect(scenario.exactOwnerInbox).toMatchObject({
-        logicalSends: sends.inbox,
-        deliveries: sends.inbox,
-        bytesByBrowser: current.inbox,
-      });
-      expect(scenario.compactGlobalSummary).toMatchObject({
+    for (const { scenario, invalidations, sends } of changedScenarios) {
+      expectProjectionWork(scenario.metrics, changedCounts(invalidations), ceilings.value);
+      // The inbox goes to the owner's browser only.
+      expect(trafficCounts(scenario.exactOwnerInbox)).toEqual({ logicalSends: sends.inbox, deliveries: sends.inbox });
+      expect(scenario.exactOwnerInbox.bytesByBrowser[1]).toBe(0);
+      expect(trafficCounts(scenario.compactGlobalSummary)).toEqual({
         logicalSends: sends.global,
         deliveries: sends.global * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-        bytesByBrowser: current.global,
       });
-      expect(scenario.projection).toMatchObject({
-        logicalSends: 1,
-        deliveries: PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-        bytesByBrowser: current.projection,
-      });
+      expectProjectionTraffic(scenario.projection, ceilings);
       expect(scenario.forbidden).toEqual(noForbiddenTraffic);
-      expect(scenario.combinedRequiredBytes).toBe(current.total);
-      expect(scenario.historicalControl.exactOwnerInbox).toMatchObject({
+      expect(trafficCounts(scenario.historicalControl.exactOwnerInbox)).toEqual({
         logicalSends: sends.inbox,
-        bytesByBrowser: control.inbox,
+        deliveries: sends.inbox,
       });
-      expect(scenario.historicalControl.fullGlobalSummary).toMatchObject({
+      expect(trafficCounts(scenario.historicalControl.fullGlobalSummary)).toEqual({
         logicalSends: sends.controlGlobal,
         deliveries: sends.controlGlobal * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-        bytesByBrowser: control.global,
       });
-      expect(scenario.historicalControl.rawAttentionSessionUpdate).toMatchObject({
+      expect(trafficCounts(scenario.historicalControl.rawAttentionSessionUpdate)).toEqual({
         logicalSends: sends.controlRaw,
         deliveries: sends.controlRaw,
-        bytesByBrowser: control.raw,
       });
-      expect(scenario.historicalControl.combined.totalBytes).toBe(control.total);
       expect(scenario.combinedRequiredBytes).toBeLessThan(scenario.historicalControl.combined.totalBytes);
     }
 
-    expect(attention.permissionChange).toMatchObject({
-      metrics: changedMetrics({ invalidations: 2, valueBytes: 73, cachedValueBytes: 35 }),
-      exactOwnerInbox: emptyAttentionTraffic(),
-      ownerPermissionDetail: {
-        logicalSends: 1,
-        deliveries: 1,
-        bytesByBrowser: [231, 0],
-        totalBytes: 231,
-      },
-      compactGlobalSummary: emptyAttentionTraffic(),
-      projection: {
-        logicalSends: 1,
-        deliveries: 2,
-        bytesByBrowser: [232, 232],
-        totalBytes: 464,
-      },
-      forbidden: noForbiddenTraffic,
-      combinedRequiredBytes: 695,
+    const permission = attention.permissionChange;
+    expectProjectionWork(permission.metrics, changedCounts(2), ceilings.value);
+    expect(permission.exactOwnerInbox).toEqual(emptyAttentionTraffic());
+    expect(trafficCounts(permission.ownerPermissionDetail)).toEqual({ logicalSends: 1, deliveries: 1 });
+    expect(permission.ownerPermissionDetail.bytesByBrowser[1]).toBe(0);
+    expect(permission.compactGlobalSummary).toEqual(emptyAttentionTraffic());
+    expectProjectionTraffic(permission.projection, ceilings);
+    expect(permission.forbidden).toEqual(noForbiddenTraffic);
+    expect(trafficCounts(permission.historicalControl.ownerPermissionDetail)).toEqual({
+      logicalSends: 1,
+      deliveries: 1,
     });
-    expect(attention.permissionChange.historicalControl).toMatchObject({
-      ownerPermissionDetail: { logicalSends: 1, deliveries: 1, bytesByBrowser: [223, 0], totalBytes: 223 },
-      fullGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [403, 403], totalBytes: 806 },
-      rawAttentionSessionUpdate: emptyAttentionTraffic(),
-      combined: { logicalSends: 2, deliveries: 3, bytesByBrowser: [626, 403], totalBytes: 1_029 },
-    });
-    expect(attention.permissionChange.combinedRequiredBytes).toBeLessThan(
-      attention.permissionChange.historicalControl.combined.totalBytes,
-    );
+    expect(trafficCounts(permission.historicalControl.fullGlobalSummary)).toEqual({ logicalSends: 1, deliveries: 2 });
+    expect(permission.historicalControl.rawAttentionSessionUpdate).toEqual(emptyAttentionTraffic());
+    expect(trafficCounts(permission.historicalControl.combined)).toEqual({ logicalSends: 2, deliveries: 3 });
+    expect(permission.combinedRequiredBytes).toBeLessThan(permission.historicalControl.combined.totalBytes);
 
-    expect(attention.noSubscriber).toMatchObject({
-      metrics: { ...zeroMetrics(), invalidations: 2 },
-      exactOwnerInbox: { logicalSends: 1, deliveries: 1, bytesByBrowser: [474, 0], totalBytes: 474 },
-      compactGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [325, 325], totalBytes: 650 },
-      projection: emptyAttentionTraffic(),
-      forbidden: noForbiddenTraffic,
-      combinedRequiredBytes: 1_124,
-    });
-    expect(attention.noSubscriber.historicalControl.combined).toEqual({
-      logicalSends: 6,
-      deliveries: 9,
-      bytesByBrowser: [1_848, 1_254],
-      totalBytes: 3_102,
-    });
+    // Without a subscriber the projection only records invalidations and builds nothing.
+    const noSubscriber = attention.noSubscriber;
+    expect(noSubscriber.metrics).toEqual({ ...zeroMetrics(), invalidations: 2 });
+    expect(trafficCounts(noSubscriber.exactOwnerInbox)).toEqual({ logicalSends: 1, deliveries: 1 });
+    expect(trafficCounts(noSubscriber.compactGlobalSummary)).toEqual({ logicalSends: 1, deliveries: 2 });
+    expect(noSubscriber.projection).toEqual(emptyAttentionTraffic());
+    expect(noSubscriber.forbidden).toEqual(noForbiddenTraffic);
+    expect(trafficCounts(noSubscriber.historicalControl.combined)).toEqual({ logicalSends: 6, deliveries: 9 });
+    expect(noSubscriber.combinedRequiredBytes).toBeLessThan(noSubscriber.historicalControl.combined.totalBytes);
   });
 
   /**
@@ -1758,91 +1799,78 @@ describe("synchronized projection performance controls", () => {
   it("measures navigation no-op, change, burst, reconnect, multi-browser, and cold no-subscriber costs", async () => {
     const result = await collectProjectionPerformanceResults();
     const navigation = result.sessionNavigation;
+    const ceilings = BYTE_CEILINGS.sessionNavigation;
+    const browsers = PROJECTION_PERFORMANCE_FIXTURE.browserCount;
 
     expect(navigation.noOp).toEqual({
-      metrics: NO_OP_METRICS,
+      metrics: { ...zeroMetrics(), ...NO_OP_COUNTS },
       messagesPerBrowser: 0,
       requiredWireBytesPerBrowser: 0,
       requiredWireBytesTotal: 0,
     });
-    expect(navigation.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 2, valueBytes: 1_545, cachedValueBytes: 5, updateValueBytes: 20 }),
+    for (const [scenario, invalidations] of [
+      [navigation.singleChange, 2],
+      [navigation.burstChange, PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations * 2],
+    ] as const) {
+      expectProjectionWork(scenario.metrics, changedCounts(invalidations), ceilings.value);
+      expect(scenario.messagesPerBrowser).toBe(1);
+      expect(scenario.requiredWireBytesPerBrowser).toBeLessThanOrEqual(ceilings.update);
+      expect(scenario.requiredWireBytesTotal).toBe(scenario.requiredWireBytesPerBrowser * browsers);
+    }
+    expectInitialSubscription(navigation.initialProjectionSubscriptionMetrics, ceilings.value);
+    expectReconnect(
+      navigation.reconnect,
+      {
+        metrics: navigation.initialProjectionSubscriptionMetrics,
+        responseBytesPerBrowser: navigation.initialProjectionSubscriptionResponseBytesPerBrowser,
+      },
+      ceilings,
     );
-    expect(navigation.singleChange.messagesPerBrowser).toBe(1);
-    expect(navigation.singleChange.requiredWireBytesTotal).toBe(
-      navigation.singleChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-    );
-    expect(navigation.burstChange.metrics).toEqual(
-      changedMetrics({
-        invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations * 2,
-        valueBytes: 1_545,
-        cachedValueBytes: 5,
-        updateValueBytes: 20,
-      }),
-    );
-    expect(navigation.burstChange.messagesPerBrowser).toBe(1);
-    expect(navigation.burstChange.requiredWireBytesTotal).toBe(
-      navigation.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-    );
-    expect(navigation.reconnect.metrics).toEqual(reconnectMetrics(1_540));
-    expect(navigation.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
     // Status-only navigation activity is fully projection-owned in the current
     // compatible build, so the matched pair emits only the compact field patch.
-    expect(navigation.bytes).toEqual({
-      historicalLegacyStatusActivity: 412,
-      retainedParallelActivityResidual: 0,
-      requiredProjectionStatusUpdate: 180,
-      matchedCompatiblePairStatusChange: 180,
-    });
-    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_835);
-    expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_540));
-    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_835);
+    expect(navigation.bytes.retainedParallelActivityResidual).toBe(0);
+    expect(navigation.bytes.matchedCompatiblePairStatusChange).toBe(navigation.bytes.requiredProjectionStatusUpdate);
+    expect(navigation.bytes.requiredProjectionStatusUpdate).toBeLessThanOrEqual(ceilings.update);
+    expect(navigation.bytes.matchedCompatiblePairStatusChange).toBeLessThan(
+      navigation.bytes.historicalLegacyStatusActivity,
+    );
 
     // The executable historical controls have no subscription work and emit one
     // full activity payload for every producer frame, including semantic no-ops.
-    expect(navigation.historicalControlSequences).toEqual({
-      noOp: expectedHistoricalControlSequence(1, { session_activity_update: 412 }),
-      singleStatusChange: expectedHistoricalControlSequence(1, { session_activity_update: 412 }),
-      burstStatusChange: expectedHistoricalControlSequence(25, { session_activity_update: 412 }),
+    const controls = navigation.historicalControlSequences;
+    expectControlSequence(controls.noOp, { producerFrames: 1, payloadTypes: ["session_activity_update"] });
+    expectControlSequence(controls.singleStatusChange, {
+      producerFrames: 1,
+      payloadTypes: ["session_activity_update"],
     });
-    expect(navigation.matchedCompatiblePairSequences).toEqual({
-      noOp: expectedMatchedPair({
-        producerFrames: 1,
-        parallelBytesByTypePerFrame: {},
-        projectionBytesPerBrowser: 0,
-        runtimeMetrics: { ...NO_OP_METRICS, invalidations: 2 },
-      }),
-      singleStatusChange: expectedMatchedPair({
-        producerFrames: 1,
-        parallelBytesByTypePerFrame: {},
-        projectionBytesPerBrowser: 180,
-        runtimeMetrics: changedMetrics({
-          invalidations: 2,
-          valueBytes: 1_545,
-          cachedValueBytes: 5,
-          updateValueBytes: 20,
-        }),
-      }),
-      burstStatusChange: expectedMatchedPair({
-        producerFrames: 25,
-        parallelBytesByTypePerFrame: {},
-        projectionBytesPerBrowser: 180,
-        runtimeMetrics: changedMetrics({
-          invalidations: 50,
-          valueBytes: 1_545,
-          cachedValueBytes: 5,
-          updateValueBytes: 20,
-        }),
-      }),
+    expectControlSequence(controls.burstStatusChange, {
+      producerFrames: 25,
+      payloadTypes: ["session_activity_update"],
     });
-    expect(navigation.matchedCompatiblePairSequences.noOp.combined.bytesPerBrowser).toBe(0);
-    expect(navigation.matchedCompatiblePairSequences.burstStatusChange.combined).toMatchObject({
-      logicalSends: 1,
-      deliveries: 2,
-      bytesPerBrowser: 180,
-      totalBytes: 360,
+
+    const pairs = navigation.matchedCompatiblePairSequences;
+    expectMatchedPair(pairs.noOp, controls.noOp, {
+      producerFrames: 1,
+      parallelPayloadTypes: [],
+      projectionCounts: { ...NO_OP_COUNTS, invalidations: 2 },
+      ceilings,
     });
+    expectMatchedPair(pairs.singleStatusChange, controls.singleStatusChange, {
+      producerFrames: 1,
+      parallelPayloadTypes: [],
+      projectionCounts: changedCounts(2),
+      ceilings,
+    });
+    expectMatchedPair(pairs.burstStatusChange, controls.burstStatusChange, {
+      producerFrames: 25,
+      parallelPayloadTypes: [],
+      projectionCounts: changedCounts(50),
+      ceilings,
+    });
+    expect(pairs.noOp.combined.bytesPerBrowser).toBe(0);
+    // A 25-frame burst still costs one update per browser.
+    expect(pairs.burstStatusChange.combined).toMatchObject({ logicalSends: 1, deliveries: browsers });
     expect(navigation.noSubscriber).toEqual({ ...zeroMetrics(), invalidations: 1 });
   });
 
@@ -1854,41 +1882,34 @@ describe("synchronized projection performance controls", () => {
   it("measures leader-tab no-op, change, burst, reconnect, multi-browser, and no-subscriber costs", async () => {
     const result = await collectProjectionPerformanceResults();
     const leaderTabs = result.leaderThreadTabs;
+    const ceilings = BYTE_CEILINGS.leaderThreadTabs;
+    const browsers = PROJECTION_PERFORMANCE_FIXTURE.browserCount;
 
     expect(leaderTabs.noOp).toEqual({
-      metrics: NO_OP_METRICS,
+      metrics: { ...zeroMetrics(), ...NO_OP_COUNTS },
       messagesPerBrowser: 0,
       requiredWireBytesPerBrowser: 0,
       requiredWireBytesTotal: 0,
     });
-    expect(leaderTabs.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 8_245, cachedValueBytes: -7, updateValueBytes: 70 }),
+    for (const [scenario, invalidations] of [
+      [leaderTabs.singleChange, 1],
+      [leaderTabs.burstChange, PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations],
+      [leaderTabs.phaseChange, 1],
+    ] as const) {
+      expectProjectionWork(scenario.metrics, changedCounts(invalidations), ceilings.value);
+      expect(scenario.messagesPerBrowser).toBe(1);
+      expect(scenario.requiredWireBytesPerBrowser).toBeLessThanOrEqual(ceilings.update);
+      expect(scenario.requiredWireBytesTotal).toBe(scenario.requiredWireBytesPerBrowser * browsers);
+    }
+    expectInitialSubscription(leaderTabs.initialProjectionSubscriptionMetrics, ceilings.value);
+    expectReconnect(
+      leaderTabs.reconnect,
+      {
+        metrics: leaderTabs.initialProjectionSubscriptionMetrics,
+        responseBytesPerBrowser: leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser,
+      },
+      ceilings,
     );
-    expect(leaderTabs.singleChange.messagesPerBrowser).toBe(1);
-    expect(leaderTabs.singleChange.requiredWireBytesTotal).toBe(
-      leaderTabs.singleChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-    );
-    expect(leaderTabs.burstChange.metrics).toEqual(
-      changedMetrics({
-        invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations,
-        valueBytes: 8_243,
-        cachedValueBytes: -9,
-        updateValueBytes: 68,
-      }),
-    );
-    expect(leaderTabs.burstChange.messagesPerBrowser).toBe(1);
-    expect(leaderTabs.burstChange.requiredWireBytesTotal).toBe(
-      leaderTabs.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-    );
-    expect(leaderTabs.phaseChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 8_336, cachedValueBytes: 84, updateValueBytes: 922 }),
-    );
-    expect(leaderTabs.phaseChange.messagesPerBrowser).toBe(1);
-    expect(leaderTabs.phaseChange.requiredWireBytesTotal).toBe(
-      leaderTabs.phaseChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
-    );
-    expect(leaderTabs.reconnect.metrics).toEqual(reconnectMetrics(8_252));
-    expect(leaderTabs.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
     expect(leaderTabs.boardProducerProjectionOwnership).toEqual({
       sessionNavigationSubscribed: true,
@@ -1897,77 +1918,46 @@ describe("synchronized projection performance controls", () => {
     });
     // Detailed board state remains authoritative, while compatible-build visual
     // fields and the parallel thread-status update are removed.
-    expect(leaderTabs.bytes).toEqual({
-      subscribedParallelBoardActivityResidual: 0,
-      parallelBoardDetailLegacyPayload: 3_286,
-      requiredProjectionPhaseChange: 1_080,
-      matchedCompatiblePairPhaseChange: 4_366,
-      confirmedRemovableLegacyThreadStatusPayload: 236,
-      requiredProjectionStatusUpdate: 228,
-      matchedCompatiblePairStatusChange: 228,
-    });
-    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(8_543);
-    expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(8_252));
-    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(8_543);
+    const bytes = leaderTabs.bytes;
+    expect(bytes.subscribedParallelBoardActivityResidual).toBe(0);
+    expect(bytes.matchedCompatiblePairStatusChange).toBe(bytes.requiredProjectionStatusUpdate);
+    expect(bytes.matchedCompatiblePairPhaseChange).toBe(
+      bytes.parallelBoardDetailLegacyPayload + bytes.requiredProjectionPhaseChange,
+    );
+    expect(bytes.requiredProjectionStatusUpdate).toBeLessThanOrEqual(ceilings.update);
+    expect(bytes.requiredProjectionPhaseChange).toBeLessThanOrEqual(ceilings.update);
+    expect(bytes.confirmedRemovableLegacyThreadStatusPayload).toBeGreaterThan(0);
 
     // Historical controls retain global activity plus board detail. The current
     // compatible pair sends only detailed board authority and one coalesced patch.
-    expect(leaderTabs.historicalControlSequences).toEqual({
-      noOp: expectedHistoricalControlSequence(1, {
-        session_activity_update: 3_233,
-        board_updated: 3_701,
-      }),
-      singlePhaseChange: expectedHistoricalControlSequence(1, {
-        session_activity_update: 3_317,
-        board_updated: 3_785,
-      }),
-      burstPhaseChange: expectedHistoricalControlSequence(25, {
-        session_activity_update: 3_317,
-        board_updated: 3_785,
-      }),
+    const controls = leaderTabs.historicalControlSequences;
+    const controlTypes = ["board_updated", "session_activity_update"];
+    expectControlSequence(controls.noOp, { producerFrames: 1, payloadTypes: controlTypes });
+    expectControlSequence(controls.singlePhaseChange, { producerFrames: 1, payloadTypes: controlTypes });
+    expectControlSequence(controls.burstPhaseChange, { producerFrames: 25, payloadTypes: controlTypes });
+
+    const pairs = leaderTabs.matchedCompatiblePairSequences;
+    expectMatchedPair(pairs.noOp, controls.noOp, {
+      producerFrames: 1,
+      parallelPayloadTypes: ["board_updated"],
+      projectionCounts: NO_OP_COUNTS,
+      ceilings,
     });
-    expect(leaderTabs.matchedCompatiblePairSequences).toEqual({
-      noOp: expectedMatchedPair({
-        producerFrames: 1,
-        parallelBytesByTypePerFrame: { board_updated: 3_285 },
-        projectionBytesPerBrowser: 0,
-        runtimeMetrics: NO_OP_METRICS,
-      }),
-      singlePhaseChange: expectedMatchedPair({
-        producerFrames: 1,
-        parallelBytesByTypePerFrame: { board_updated: 3_286 },
-        projectionBytesPerBrowser: 1_080,
-        runtimeMetrics: changedMetrics({
-          invalidations: 1,
-          valueBytes: 8_336,
-          cachedValueBytes: 84,
-          updateValueBytes: 922,
-        }),
-      }),
-      burstPhaseChange: expectedMatchedPair({
-        producerFrames: 25,
-        parallelBytesByTypePerFrame: { board_updated: 3_286 },
-        projectionBytesPerBrowser: 1_080,
-        runtimeMetrics: changedMetrics({
-          invalidations: 25,
-          valueBytes: 8_336,
-          cachedValueBytes: 84,
-          updateValueBytes: 922,
-        }),
-      }),
+    expectMatchedPair(pairs.singlePhaseChange, controls.singlePhaseChange, {
+      producerFrames: 1,
+      parallelPayloadTypes: ["board_updated"],
+      projectionCounts: changedCounts(1),
+      ceilings,
     });
-    expect(leaderTabs.matchedCompatiblePairSequences.noOp.combined).toMatchObject({
-      logicalSends: 1,
-      deliveries: 2,
-      bytesPerBrowser: 3_285,
-      totalBytes: 6_570,
+    expectMatchedPair(pairs.burstPhaseChange, controls.burstPhaseChange, {
+      producerFrames: 25,
+      parallelPayloadTypes: ["board_updated"],
+      projectionCounts: changedCounts(25),
+      ceilings,
     });
-    expect(leaderTabs.matchedCompatiblePairSequences.burstPhaseChange.combined).toMatchObject({
-      logicalSends: 26,
-      deliveries: 52,
-      bytesPerBrowser: 83_230,
-      totalBytes: 166_460,
-    });
+    expect(pairs.noOp.combined).toMatchObject({ logicalSends: 1, deliveries: browsers });
+    // 25 board-detail frames plus one coalesced projection update.
+    expect(pairs.burstPhaseChange.combined).toMatchObject({ logicalSends: 26, deliveries: 26 * browsers });
 
     // Both targeted cross-leader invalidation and generic persistence avoid
     // projection selection and value construction until a subscriber requests it.

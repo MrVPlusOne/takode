@@ -63,6 +63,7 @@ The executable controls live in `web/server/projection-performance.test.ts` and 
 - The frontend fixture renders four actual `SessionItem` rows or one actual `WorkBoardBar`, then sends full producer-shaped messages through the current WebSocket handler. Current matched-pair cases always install a valid accepted projection.
 - Server control accounting records source/payload assemblies, logical sends, deliveries, bytes, and zero historical subscription work. Current runtime metrics add invalidations, batches, dependency selections, derivations, suppressions, updates, snapshots, and accepted subscriptions.
 - Raw socket capture supplies exact serialized message bytes because runtime byte counters cover projection values rather than full envelopes.
+- Since October 17, 2026 the server test pins exact operation counts (sends, deliveries, invalidations, selections, derivations, updates, snapshots, subscriptions) and every zero-work case, but not exact byte totals. Bytes are compared with the historical control, required to be equal for every browser and linear in producer frames, and bounded by ceilings of about 1.5x the measured sizes, applied to projection values and messages only. Exact byte totals had to be edited by unrelated feature work twelve times in six weeks without catching a regression; the report command below still prints them.
 - React Profiler commit counts and Zustand notification counts are hard evidence. Duration is report-only because sub-millisecond JSDOM timing is too noisy for a gate.
 
 Reproduce the report with:
@@ -311,7 +312,7 @@ Downstream cleanup and any later projection candidate must preserve these determ
 7. A one-session visual change must not rerender unrelated visible session rows.
 8. Invalidation with no subscriber should do no feature projection derivation unless it explicitly warms an imminent requested snapshot.
 9. Confirmed compatibility-only fields may be removed for compatible builds, but detailed board, notification, history, routing, and command authorities remain unless independently replaced.
-10. Wall-clock results remain report-only until the project has a repeatable environment and observed variance band. Deterministic counts, bytes, and renders own the current pass/fail decision.
+10. Wall-clock results remain report-only until the project has a repeatable environment and observed variance band. Deterministic counts and renders, byte comparisons against the control, and byte ceilings own the current pass/fail decision; exact byte totals are report-only.
 
 ## Overall verdict
 
