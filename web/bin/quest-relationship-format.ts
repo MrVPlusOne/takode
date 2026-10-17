@@ -9,8 +9,13 @@ const LABELS: Record<QuestRelatedQuestKind, string> = {
 
 export function formatQuestRelationships(quest: QuestmasterTask): string[] {
   const related = quest.relatedQuests ?? [];
-  if (related.length === 0) return [];
+  const startedFrom = quest.relationships?.startedFrom;
+  if (related.length === 0 && !startedFrom) return [];
   const lines = ["Relationships:"];
+  if (startedFrom) {
+    const thread = startedFrom.threadKey === "main" ? "Main" : startedFrom.threadKey;
+    lines.push(`  Started from: user message in ${thread} (${new Date(startedFrom.timestamp).toLocaleString()})`);
+  }
   for (const entry of related) {
     const source = entry.explicit ? "explicit" : "detected";
     lines.push(`  ${LABELS[entry.kind]}: ${entry.questId} (${source})`);

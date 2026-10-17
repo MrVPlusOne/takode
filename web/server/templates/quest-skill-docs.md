@@ -66,7 +66,7 @@ quest show   <id> [--sections <list>] [--full] [--json]        Show compact ques
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
-quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
+quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN>] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]  Claim for your session; force is explicit, audited, and server-auth only
 quest reassign <id> --session <worker> --reason <text> [--json]         Leader-only audited quest ownership reassignment
 quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]  Mark done and submit optional User review checks
@@ -75,7 +75,7 @@ quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <
 quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
-quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]     Edit in place (NEVER use to create)
+quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>] [--json]     Edit in place (NEVER use to create)
 quest check  <id> <index> [--json]                            Toggle a User review check
 quest feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry explicitly
@@ -209,6 +209,7 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--tags "t1,t2"` | Comma-separated tags |
 | `--session-space <slug>` | Override the quest's session-space metadata. Defaults from the creator session when available. |
 | `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up of earlier quest(s) |
+| `--source-message <uN>` | Leader sessions: the user's message (its `id:uN`) this quest was filed from; the quest thread links back to it |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |
@@ -226,6 +227,7 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--session-space <slug>` | Set or change the quest's session-space metadata. |
 | `--follow-up-of "q-1,q-2"` | Persist that this quest is a true follow-up of earlier quest(s) |
 | `--clear-follow-up-of` | Clear explicit follow-up relationships from this quest |
+| `--source-message <uN>` | Record the user's message (its `id:uN`) this quest was filed from |
 | `--json` | Output JSON |
 
 ### quest list [flags]

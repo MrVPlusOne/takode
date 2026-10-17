@@ -82,7 +82,7 @@ import {
 import { showHelp } from "./quest-help.js";
 import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
 import { runHistoryCommand } from "./quest-history-command.js";
-import { parseRelationshipFlags } from "./quest-relationship-flags.js";
+import { parseRelationshipFlags, parseSourceMessageFlag } from "./quest-relationship-flags.js";
 import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { readDeliveryRange } from "../server/quest-delivery-range.js";
@@ -801,6 +801,7 @@ async function cmdCreate(): Promise<void> {
     "tags",
     "session-space",
     "follow-up-of",
+    "source-message",
     "image",
     "images",
     "json",
@@ -820,7 +821,7 @@ async function cmdCreate(): Promise<void> {
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
         '[--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] ' +
-        '[--image <path>] [--images "p1,p2"]',
+        '[--source-message <uN>] [--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -846,6 +847,7 @@ async function cmdCreate(): Promise<void> {
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
   const relationships = parseRelationshipFlags({ option });
+  const sourceMessage = sourceMessageOption();
 
   try {
     const resolvedImages =
@@ -868,7 +870,7 @@ async function cmdCreate(): Promise<void> {
     };
     const quest = directCodex
       ? await createQuest({ ...createInput, createdBy: codexQuestProvenance(directCodex) })
-      : (await questServer.request<QuestmasterTask>("POST", "/quests", createInput)).value;
+      : (await questServer.request<QuestmasterTask>("POST", "/quests", { ...createInput, ...sourceMessage })).value;
     if (jsonOutput) {
       out(quest);
     } else {
@@ -877,6 +879,19 @@ async function cmdCreate(): Promise<void> {
       console.log(`Use this exact quest ID for follow-up commands: ${quest.questId}`);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
+  } catch (e) {
+    die((e as Error).message);
+  }
+}
+
+/** `--source-message uN`, which only the Takode server can resolve in the caller's conversation. */
+function sourceMessageOption(): ReturnType<typeof parseSourceMessageFlag> {
+  try {
+    const sourceMessage = parseSourceMessageFlag(option);
+    if (directCodex && "startedFromUserMessageId" in sourceMessage) {
+      die("--source-message needs a Takode-managed session");
+    }
+    return sourceMessage;
   } catch (e) {
     die((e as Error).message);
   }
@@ -1270,13 +1285,14 @@ async function cmdEdit(): Promise<void> {
     "session-space",
     "follow-up-of",
     "clear-follow-up-of",
+    "source-message",
     "json",
   ]);
   const id = positional(0);
   if (!id) {
     die(
       'Usage: quest edit <questId> [--title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>]',
     );
   }
 
@@ -1302,6 +1318,7 @@ async function cmdEdit(): Promise<void> {
     die("Use either --follow-up-of or --clear-follow-up-of, not both");
   }
   const relationships = parseRelationshipFlags({ option, clearFollowUpOf: flag("clear-follow-up-of") });
+  const sourceMessage = sourceMessageOption();
 
   if (
     title === undefined &&
@@ -1309,10 +1326,11 @@ async function cmdEdit(): Promise<void> {
     tldr === undefined &&
     tags === undefined &&
     sessionSpaceSlug === undefined &&
-    relationships === undefined
+    relationships === undefined &&
+    !("startedFromUserMessageId" in sourceMessage)
   ) {
     die(
-      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, or --clear-follow-up-of is required",
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, --clear-follow-up-of, or --source-message is required",
     );
   }
 
@@ -1330,7 +1348,12 @@ async function cmdEdit(): Promise<void> {
           ...patch,
           lastModifiedBy: codexQuestProvenance(directCodex),
         })
-      : (await questServer.request<QuestmasterTask>("PATCH", `/quests/${encodeURIComponent(id)}`, patch)).value;
+      : (
+          await questServer.request<QuestmasterTask>("PATCH", `/quests/${encodeURIComponent(id)}`, {
+            ...patch,
+            ...sourceMessage,
+          })
+        ).value;
     if (!quest) die(`Quest ${id} not found`);
     if (jsonOutput) {
       out(quest);

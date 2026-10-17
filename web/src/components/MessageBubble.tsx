@@ -56,6 +56,7 @@ import {
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
+import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
@@ -929,6 +930,7 @@ function UserMessage({
         </CollapsibleContent>
         {transcribed && <TranscriptionTagMarker testId="user-message-transcribed-tag" />}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
+        <ContinuedInLinks messageId={message.id} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />

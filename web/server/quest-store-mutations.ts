@@ -23,7 +23,7 @@ import {
   normalizeCommitShas,
   normalizeVerificationItems,
 } from "./quest-store-helpers.js";
-import { normalizeQuestRelationships } from "./quest-relationships.js";
+import { mergeQuestRelationships, normalizeQuestRelationships } from "./quest-relationships.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
 import { appendQuestRecoveryEvent } from "./quest-recovery.js";
 import { normalizeQuestCodeCommitEvidenceReplacementEvents } from "./quest-code-commit-evidence.js";
@@ -160,7 +160,7 @@ export function buildTransitionedQuest(
   const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
   const relationships =
     input.relationships !== undefined
-      ? normalizeQuestRelationships(input.relationships, current.questId)
+      ? mergeQuestRelationships(current.relationships, input.relationships, current.questId)
       : normalizeQuestRelationships(current.relationships, current.questId);
   const base = {
     id: liveStore ? current.questId : nextVersionId(current.questId, current.version),

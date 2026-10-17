@@ -5,6 +5,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { connectSession, sendToSession } from "../ws.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { StartedQuestsProvider } from "./QuestForkLinks.js";
 import { Composer } from "./Composer.js";
 import { ComposerFeedLayout } from "./ComposerFeedLayout.js";
 import { SideChatPanel } from "./SideChatPanel.js";
@@ -1115,14 +1116,21 @@ export function ChatView({
                   </div>
                 }
               >
-                <MessageFeed
+                {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                <StartedQuestsProvider
                   sessionId={sessionId}
-                  threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                  projectThreadRoutes={isLeaderSession}
-                  onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                  showCodexSubagentControl={!preview}
-                  markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                />
+                  enabled={isLeaderSession && !preview}
+                  refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                >
+                  <MessageFeed
+                    sessionId={sessionId}
+                    threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                    projectThreadRoutes={isLeaderSession}
+                    onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                    showCodexSubagentControl={!preview}
+                    markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                  />
+                </StartedQuestsProvider>
               </ViewportHandoffThreadEntryGate>
             </div>
             {!preview && selectedSideChat && (

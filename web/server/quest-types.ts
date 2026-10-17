@@ -57,6 +57,20 @@ export interface QuestQuizItem {
 export interface QuestRelationships {
   /** Earlier quests this quest explicitly follows up on. */
   followUpOf?: string[];
+  /** The user's message in a leader conversation this quest was filed from. */
+  startedFrom?: QuestStartedFrom;
+}
+
+/** A user's message in a leader session, named by a quest started from it. */
+export interface QuestStartedFrom {
+  /** The leader session holding the conversation. */
+  sessionId: string;
+  /** History ID of the user's message. */
+  messageId: string;
+  /** The thread the message was written in: "main" or a quest ID. */
+  threadKey: string;
+  /** When the user sent the message. */
+  timestamp: number;
 }
 
 /** Derived read model combining explicit relationships and detected quest references. */

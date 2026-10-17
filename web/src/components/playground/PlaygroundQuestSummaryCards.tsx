@@ -8,6 +8,7 @@ import { normalizeHistoryMessageToChatMessages } from "../../utils/history-messa
 import { buildFeedSections } from "../message-feed-sections.js";
 import { MessageFeedCenteredState } from "../MessageFeedCenteredState.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
+import { StartedQuestsContext } from "../QuestForkLinks.js";
 import { Card, Section } from "./shared.js";
 
 const SESSION_ID = "playground-quest-summary-cards";
@@ -117,10 +118,12 @@ function QuestThread({
   questId,
   history,
   testId,
+  onSelectThread,
 }: {
   questId: string;
   history: BrowserIncomingMessage[];
   testId: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const sections = useMemo(() => threadSections(questId, history), [questId, history]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY_IDS);
@@ -130,6 +133,7 @@ function QuestThread({
         sections={sections}
         sessionId={SESSION_ID}
         currentThreadKey={questId}
+        onSelectThread={onSelectThread}
         leaderSession
         showInlineMessageTiming={false}
         isCodexSession={false}
@@ -215,6 +219,20 @@ export function PlaygroundQuestCompletionSummary() {
   );
 }
 
+const STARTED_FROM = {
+  sessionId: SESSION_ID,
+  messageId: `${EXCERPT_QUEST_ID}-ask`,
+  threadKey: EXCERPT_QUEST_ID,
+  timestamp: messageTimestamp(2),
+};
+/** The excerpt quest's thread holds the user's message the DevBox quest was filed from. */
+const STARTED_QUESTS = new Map([
+  [
+    STARTED_FROM.messageId,
+    [{ questId: DESCRIPTION_QUEST_ID, title: "Set up the DevBox as a Takode host", startedFrom: STARTED_FROM }],
+  ],
+]);
+
 export function PlaygroundQuestDescriptionSummary() {
   useEffect(() => {
     useStore.setState((state) => ({
@@ -229,6 +247,8 @@ export function PlaygroundQuestDescriptionSummary() {
           sessionId: "playground-worker",
           claimedAt: 2,
           tldr: "Register the DevBox as a Takode host so workers can run on its GPUs, then prove one worker session runs there end to end.",
+          // Filed from the user's message in the q-9022 thread below.
+          relationships: { startedFrom: STARTED_FROM },
           description:
             "## Background\nThe DevBox has idle GPUs, but Takode can only run sessions on this Mac.\n\n## Goal\n- Register the DevBox as a host with `takode node`.\n- Keep the reverse tunnel running across reboots.\n- Spawn one worker on the DevBox and confirm its tools run there.",
         })
@@ -248,22 +268,34 @@ export function PlaygroundQuestDescriptionSummary() {
   return (
     <Section
       title="Quest Description Summary"
-      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded; a quest thread with no messages shows it in place of the empty placeholder."
+      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded; a quest thread with no messages shows it in place of the empty placeholder. A quest filed from one of the user's messages opens with a link back to that message, and the message links on to the quest (Continued in)."
     >
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <Card label="Dispatch-only thread · description TLDR">
+        <Card label="Dispatch-only thread · description TLDR, started from a message">
           <QuestThread
             questId={DESCRIPTION_QUEST_ID}
             history={dispatchHistory(DESCRIPTION_QUEST_ID)}
             testId="playground-description-summary-tldr"
           />
         </Card>
-        <Card label="Quest without a TLDR · description excerpt">
-          <QuestThread
-            questId={EXCERPT_QUEST_ID}
-            history={dispatchHistory(EXCERPT_QUEST_ID)}
-            testId="playground-description-summary-excerpt"
-          />
+        <Card label="Quest without a TLDR · description excerpt, message continued in another quest">
+          <StartedQuestsContext.Provider value={STARTED_QUESTS}>
+            <QuestThread
+              questId={EXCERPT_QUEST_ID}
+              history={[
+                ...dispatchHistory(EXCERPT_QUEST_ID),
+                message(
+                  EXCERPT_QUEST_ID,
+                  "human",
+                  STARTED_FROM.messageId,
+                  "Also set up the DevBox as a host, separately from this.",
+                  2,
+                ),
+              ]}
+              testId="playground-description-summary-excerpt"
+              onSelectThread={NOOP}
+            />
+          </StartedQuestsContext.Provider>
         </Card>
         <Card label="Quest thread with no messages · card replaces the empty placeholder">
           <div

@@ -13,7 +13,7 @@ Commands:
   commit-links <id> --delivery <id> [--range <base-sha>..<recorded-tip-sha>] [--commits <sha,...>] [--json]  Author fixed delivery or verified range chips
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
-  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]
+  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN>] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
   claim  <id> [--session <sid>] [--force --reason <text>] [--json]
                                                          Claim for session; --force is audited and server-auth only
@@ -29,7 +29,7 @@ Commands:
                                                          Change status
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
-  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]
+  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>] [--json]
                                                          Edit in place
   check  <id> <index> [--json]                           Toggle a User review check
   feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
@@ -97,6 +97,7 @@ BODY
   quest create "Follow-up" --follow-up-of q-1
   quest edit q-2 --follow-up-of "q-1,q-3"
   quest edit q-2 --clear-follow-up-of
+  quest create "Relay timeout" --source-message u12   # filed from the user's message u12
   quest claim q-1 --force --reason "board assigned this phase to me"
   quest reassign q-1 --session 42 --reason "stale previous worker"
   quest complete q-1 --force --reason "worker archived after accepted Memory evidence"

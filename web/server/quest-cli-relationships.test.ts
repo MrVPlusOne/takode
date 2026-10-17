@@ -84,4 +84,17 @@ describe("quest CLI relationships", () => {
     expect(original.relatedQuests).toBeUndefined();
     expect(JSON.parse(clearedSearch.stdout)).toEqual([]);
   });
+
+  it("sends --source-message to the server, which needs a session to resolve it", async () => {
+    // A malformed ID fails in the CLI; a well-formed one reaches the server, which refuses
+    // it here because uN IDs belong to the calling session and this caller has none.
+    const malformed = await runQuest(["create", "Forked", "--source-message", "12"], home);
+    expect(malformed.status).not.toBe(0);
+    expect(malformed.stderr).toContain("--source-message takes a user message ID like u12");
+
+    const sessionless = await runQuest(["create", "Forked", "--source-message", "u12"], home);
+    expect(sessionless.status).not.toBe(0);
+    expect(sessionless.stderr).toContain("--source-message needs a Takode session");
+    expect(JSON.parse((await runQuest(["list", "--json"], home)).stdout)).toEqual([]);
+  });
 });

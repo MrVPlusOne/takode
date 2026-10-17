@@ -2,7 +2,7 @@ import type { QuestDone, QuestFeedbackEntry, QuestPatchInput, QuestmasterTask } 
 import { hasQuestReviewMetadata } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
 import { normalizeQuestQuizItems } from "./quest-quiz.js";
-import { normalizeQuestRelationships } from "./quest-relationships.js";
+import { mergeQuestRelationships } from "./quest-relationships.js";
 import { shouldMarkVerificationInboxUnreadFromFeedbackPatch } from "./quest-store-helpers.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 
@@ -23,7 +23,7 @@ export function applyQuestPatch(current: QuestmasterTask, questId: string, patch
     else delete (updated as { sessionSpaceSlug?: string }).sessionSpaceSlug;
   }
   if (patch.relationships !== undefined) {
-    const relationships = normalizeQuestRelationships(patch.relationships, questId);
+    const relationships = mergeQuestRelationships(current.relationships, patch.relationships, questId);
     if (relationships) (updated as { relationships?: QuestmasterTask["relationships"] }).relationships = relationships;
     else delete (updated as { relationships?: QuestmasterTask["relationships"] }).relationships;
   }

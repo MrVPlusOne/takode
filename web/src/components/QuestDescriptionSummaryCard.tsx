@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
+import { StartedFromLink } from "./QuestForkLinks.js";
 
 const EXCERPT_CHARS = 280;
 
@@ -10,6 +11,7 @@ const EXCERPT_CHARS = 280;
  * an excerpt of the description instead. It follows the current server quest record,
  * so description edits and refinements show up. Renders `fallback` (nothing by
  * default) until the record loads, and for a quest with neither TLDR nor description.
+ * A quest filed from one of the user's messages also links back to that message.
  */
 export function QuestDescriptionSummaryCard({
   questId,
@@ -26,9 +28,8 @@ export function QuestDescriptionSummaryCard({
   if (!quest) return fallback;
   const description = quest.description?.trim() ?? "";
   const summary = quest.tldr?.trim() || descriptionExcerpt(description);
-  if (!summary) return fallback;
-
-  return (
+  const startedFrom = quest.relationships?.startedFrom;
+  const card = summary ? (
     <QuestSummaryCard
       quest={quest}
       label="Quest"
@@ -41,6 +42,15 @@ export function QuestDescriptionSummaryCard({
       sessionId={sessionId}
       questLinkSurface={questLinkSurface}
     />
+  ) : (
+    fallback
+  );
+  if (!startedFrom) return card;
+  return (
+    <div>
+      <StartedFromLink startedFrom={startedFrom} sessionId={sessionId} />
+      {card}
+    </div>
   );
 }
 

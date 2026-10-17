@@ -1,4 +1,10 @@
-import type { QuestRelatedQuest, QuestRelatedQuestKind, QuestRelationships, QuestmasterTask } from "./quest-types.js";
+import type {
+  QuestRelatedQuest,
+  QuestRelatedQuestKind,
+  QuestRelationships,
+  QuestStartedFrom,
+  QuestmasterTask,
+} from "./quest-types.js";
 import { liveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 
 type MutableQuest = QuestmasterTask & {
@@ -16,9 +22,35 @@ export function normalizeQuestRelationshipId(value: unknown): string | null {
 
 export function normalizeQuestRelationships(value: unknown, ownQuestId?: string): QuestRelationships | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const raw = value as { followUpOf?: unknown };
+  const raw = value as { followUpOf?: unknown; startedFrom?: unknown };
   const followUpOf = normalizeQuestIdList(raw.followUpOf, ownQuestId);
-  return followUpOf.length > 0 ? { followUpOf } : undefined;
+  const startedFrom = normalizeStartedFrom(raw.startedFrom);
+  if (followUpOf.length === 0 && !startedFrom) return undefined;
+  return { ...(followUpOf.length > 0 ? { followUpOf } : {}), ...(startedFrom ? { startedFrom } : {}) };
+}
+
+/**
+ * Apply a relationships edit key by key, so clearing follow-ups keeps the message a quest
+ * was started from and recording that message keeps the follow-ups.
+ */
+export function mergeQuestRelationships(
+  current: QuestRelationships | undefined,
+  edit: QuestRelationships,
+  ownQuestId?: string,
+): QuestRelationships | undefined {
+  return normalizeQuestRelationships({ ...current, ...edit }, ownQuestId);
+}
+
+function normalizeStartedFrom(value: unknown): QuestStartedFrom | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<Record<keyof QuestStartedFrom, unknown>>;
+  const text = (field: unknown) => (typeof field === "string" && field.trim() ? field.trim() : null);
+  const sessionId = text(raw.sessionId);
+  const messageId = text(raw.messageId);
+  const threadKey = text(raw.threadKey)?.toLowerCase();
+  if (!sessionId || !messageId || !threadKey) return undefined;
+  if (typeof raw.timestamp !== "number" || !Number.isFinite(raw.timestamp)) return undefined;
+  return { sessionId, messageId, threadKey, timestamp: raw.timestamp };
 }
 
 export function stripDerivedQuestRelationships<T extends QuestmasterTask | null | undefined>(quest: T): T {

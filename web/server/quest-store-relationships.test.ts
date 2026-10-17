@@ -62,4 +62,34 @@ describe("quest store relationships", () => {
       { questId: followUp.questId, kind: "has_follow_up", explicit: true },
     ]);
   });
+
+  it("keeps the message a quest started from when follow-ups change, and the follow-ups when it is recorded", async () => {
+    // Relationship edits apply key by key: `quest edit --clear-follow-up-of` must not drop
+    // the source message, and `--source-message` must not drop follow-ups. Both survive a
+    // status transition, which builds a new quest version.
+    const startedFrom = { sessionId: "leader-1", messageId: "msg-1", threadKey: "main", timestamp: 5 };
+    const earlier = await questStore.createQuest({ title: "Original" });
+    const quest = await questStore.createQuest({
+      title: "Forked",
+      relationships: { followUpOf: [earlier.questId] },
+    });
+
+    await questStore.patchQuest(quest.questId, { relationships: { startedFrom } });
+    expect((await questStore.getQuest(quest.questId))?.relationships).toEqual({
+      followUpOf: [earlier.questId],
+      startedFrom,
+    });
+
+    await questStore.patchQuest(quest.questId, { relationships: { followUpOf: [] } });
+    await questStore.transitionQuest(quest.questId, { status: "refined", description: "Refined" });
+    expect((await questStore.getQuest(quest.questId))?.relationships).toEqual({ startedFrom });
+  });
+
+  it("drops a malformed source message instead of storing it", async () => {
+    const quest = await questStore.createQuest({
+      title: "Forked",
+      relationships: { startedFrom: { sessionId: "leader-1", messageId: "", threadKey: "main", timestamp: 5 } },
+    });
+    expect(quest.relationships).toBeUndefined();
+  });
 });
