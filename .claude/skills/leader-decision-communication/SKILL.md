@@ -67,8 +67,8 @@ When the user must judge something visual, such as design alternatives, a checkp
 
 This skill guides recommendations and their presentation; it does not grant authority. Continue to follow the applicable User Checkpoint brief and Takode orchestration rules.
 
-- Keep option meanings and relevant tradeoffs self-contained in the decision surface; explain every shortcut there.
-- State what yes authorizes and what no declines or preserves.
+- Keep option meanings and relevant tradeoffs self-contained in the decision surface. Explain an option there only when its label and the question leave its meaning or tradeoff unclear: options with real tradeoffs, external consequences or non-obvious meanings need a line each, while self-explanatory ones such as yes/no, **Approve** / **Change something** or **File only** need none. Repeating a clear button label as prose fails the necessity filter.
+- Make clear what yes authorizes and what no declines or preserves; when the question already says so, do not restate it per option.
 - Keep material risks, irreversible effects, and approval-defining values visible.
 - Preserve fresh explicit approval, revised-packet, decision-context-in-notification, fresh-notification, board-wait, and scoped-wait requirements.
 - Do not broaden permissions or treat an edit, question, or ambiguous reply as approval.
