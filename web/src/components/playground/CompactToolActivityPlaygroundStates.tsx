@@ -109,6 +109,34 @@ const PURE_WORKER_SEND_GROUP: ToolMsgGroup = {
   ],
 };
 
+// A leader messaging another leader routes the send with a thread comment and
+// names the recipient's thread with --thread; it is still a sent message.
+const LEADER_SEND_GROUP: ToolMsgGroup = {
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: "compact-leader-send",
+  items: [
+    {
+      id: "compact-leader-send-1",
+      name: "Bash",
+      input: {
+        command: '# thread:main\ntakode send 2957 --thread main "Approval is in; merge once CI is green."',
+        description: "Relay the approval to the daily leader",
+      },
+      messageId: "compact-leader-send",
+    },
+    {
+      id: "compact-leader-send-2",
+      name: "Bash",
+      input: {
+        command: "# thread:main\ntakode send 2851 --thread q-42 --stdin <<'EOF'\nPlease file this UI bug.\nEOF",
+        description: "Report the bug to the Takode leader",
+      },
+      messageId: "compact-leader-send",
+    },
+  ],
+};
+
 // The needs-input decision renders as its own card on the anchored prose, so
 // the command that raised it is an ordinary line with no extra chip.
 const NEEDS_INPUT_NOTIFY_GROUP: ToolMsgGroup = {
@@ -532,6 +560,15 @@ export function PlaygroundCompactToolActivityStates() {
         <Card label="Worker message">
           <CompactToolMessageGroups
             groups={[PURE_WORKER_SEND_GROUP]}
+            sessionId={MOCK_SESSION_ID}
+            isCodexSession={false}
+            activeCodexTerminalIds={new Set()}
+            onOpenCodexTerminal={() => {}}
+          />
+        </Card>
+        <Card label="Leader-to-leader messages (--thread)">
+          <CompactToolMessageGroups
+            groups={[LEADER_SEND_GROUP]}
             sessionId={MOCK_SESSION_ID}
             isCodexSession={false}
             activeCodexTerminalIds={new Set()}

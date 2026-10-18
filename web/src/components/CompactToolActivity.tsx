@@ -3,7 +3,7 @@ import { useStore } from "../store.js";
 import type { ToolResultPreview } from "../types.js";
 import { parseTakodeBoardCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
-import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
+import { isTakodeSendToolCall } from "../utils/takode-send-command.js";
 import { getDistinctChangeFilePaths } from "../utils/tool-rendering.js";
 import { formatFileHeaderPath } from "./DiffViewer.js";
 import { formatDuration, getPreview, getToolLabel, ToolBlockEmbeddedContext, ToolDurationBadge } from "./ToolBlock.js";
@@ -61,9 +61,9 @@ interface ActivityCategory {
 function getActivityCategory(item: CompactToolActivityItem): string {
   if (item.kind === "worker_event") return "worker-event";
   if (item.kind === "thought") return "thought";
+  if (isTakodeSendToolCall(item.name, item.input)) return "worker-send";
   const name = item.name.toLowerCase();
   if (name === "bash") {
-    if (isPureTakodeSendCommand(item.input.command)) return "worker-send";
     return parseFileReadCommand(String(item.input.command ?? "")) ? "read" : "command";
   }
   if (name === "read" || name.includes("read_file")) return "read";

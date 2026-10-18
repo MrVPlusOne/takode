@@ -2,11 +2,16 @@ import { parse } from "shell-quote";
 import { stripCommandThreadComment } from "../../shared/thread-routing.js";
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
-const FLAG_WITH_VALUE = new Set(["--port"]);
+const FLAG_WITH_VALUE = new Set(["--port", "--thread"]);
 const FLAG_WITHOUT_VALUE = new Set(["--correction", "--json"]);
 const STDIN_REDIRECT_OPS = new Set(["<", "<<<"]);
 
 type ShellToken = ReturnType<typeof parse>[number];
+
+/** Recognize a tool call (Claude or Codex Bash) whose only effect is sending a Takode message. */
+export function isTakodeSendToolCall(name: string, input: Record<string, unknown> | undefined): boolean {
+  return name.toLowerCase() === "bash" && isPureTakodeSendCommand(input?.command);
+}
 
 /**
  * Recognize one Bash invocation whose only effect is sending a Takode message.

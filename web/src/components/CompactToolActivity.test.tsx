@@ -73,6 +73,20 @@ describe("CompactToolActivity", () => {
     ).toBe("Sent 2 messages, ran command");
   });
 
+  it("counts leader-to-leader sends with a thread flag as sent messages", () => {
+    // Leaders route sends to another leader's thread; the --thread flag must not demote them to commands.
+    expect(
+      summarizeToolActivity([
+        { id: "send-1", name: "Bash", input: { command: '# thread:main\ntakode send 2957 --thread main "Merge."' } },
+        {
+          id: "send-2",
+          name: "Bash",
+          input: { command: "takode send 2851 --thread q-42 --stdin <<'EOF'\nPlease file this.\nEOF" },
+        },
+      ]),
+    ).toBe("Sent 2 messages");
+  });
+
   it("keeps send counts distinct from the long ordinary-tool fallback", () => {
     expect(
       summarizeToolActivity([

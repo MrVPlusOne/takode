@@ -69,6 +69,7 @@ function summaryLabels(stats: TurnStats, durationMs: number | null): string[] {
     labels.push(minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : formatElapsed(durationMs));
   }
   if (stats.messageCount > 0) labels.push(stats.messageCount + (stats.messageCount === 1 ? " message" : " messages"));
+  if (stats.sentMessageCount) labels.push(`${stats.sentMessageCount} sent`);
   if (stats.toolCount > 0) labels.push(stats.toolCount + (stats.toolCount === 1 ? " tool" : " tools"));
   if (stats.subagentCount > 0) labels.push(stats.subagentCount + (stats.subagentCount === 1 ? " agent" : " agents"));
   if (stats.herdEventCount > 0) labels.push(summarizeWorkerEventActivity(stats.herdEventCount));

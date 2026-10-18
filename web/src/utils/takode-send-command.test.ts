@@ -13,6 +13,11 @@ describe("isPureTakodeSendCommand", () => {
     ["takode send 17 --stdin <<'EOF'\nPlease continue.\nEOF", "quoted heredoc"],
     ["takode send 17 --stdin <<'EOF'\nExplain $(git status) literally.\nEOF", "literal quoted-heredoc syntax"],
     ["takode send 17 --stdin <<-EOF\n\tPlease continue.\n\tEOF", "tab-stripped heredoc"],
+    // Leader-to-leader sends name the recipient leader's thread; the stored
+    // commands below are the shapes leaders actually emit.
+    ['takode send 2957 --thread main "Please merge once CI is green."', "leader thread flag"],
+    ['# thread:main\ntakode send 2957 --thread q-2676 "Please merge."', "thread comment and thread flag"],
+    ["# thread:main\ntakode send 2851 --thread main --stdin <<'EOF'\nPlease file this.\nEOF", "thread flag heredoc"],
   ])("recognizes a pure send with %s", (command) => {
     expect(isPureTakodeSendCommand(command)).toBe(true);
   });
@@ -35,6 +40,8 @@ describe("isPureTakodeSendCommand", () => {
     ["takode send 17 --stdin <<'EOF'\n\nEOF", "empty heredoc"],
     ["takode send 17 --stdin <<'EOF'\nhello\nEOF\ngit status", "trailing heredoc command"],
     ['command takode send 17 "hello"', "unsupported wrapper"],
+    ['takode send 2957 "hello" --thread', "thread flag without a value"],
+    ['takode send 2957 --thread --stdin <<< "hello"', "thread flag followed by another flag"],
   ])("rejects %s", (command) => {
     expect(isPureTakodeSendCommand(command)).toBe(false);
   });

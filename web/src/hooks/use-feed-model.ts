@@ -20,6 +20,7 @@ import {
 } from "../utils/assistant-message-renderability.js";
 import { stripQuestQuizMarkers } from "../components/AssistantQuestQuizContent.js";
 import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
+import { isTakodeSendToolCall } from "../utils/takode-send-command.js";
 import { isCompactToolActivityItem } from "../components/CompactToolActivity.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 import type { TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
@@ -438,7 +439,10 @@ export function groupMessages(
 
 export interface TurnStats {
   messageCount: number;
+  /** Tool calls other than `takode send`, which count in `sentMessageCount` instead. */
   toolCount: number;
+  /** Messages sent to other sessions with `takode send`; absent when none. */
+  sentMessageCount?: number;
   subagentCount: number;
   herdEventCount: number;
   herdEventLifecycle?: TakodeHerdEventLifecycle[];
@@ -487,6 +491,7 @@ export interface FeedModel {
 function countEntryStats(entries: FeedEntry[]): {
   messages: number;
   tools: number;
+  sentMessages: number;
   subagents: number;
   herdEvents: number;
   herdEventLifecycle: TakodeHerdEventLifecycle[];
@@ -494,6 +499,7 @@ function countEntryStats(entries: FeedEntry[]): {
 } {
   let messages = 0;
   let tools = 0;
+  let sentMessages = 0;
   let subagents = 0;
   let herdEvents = 0;
   const herdEventLifecycle: TakodeHerdEventLifecycle[] = [];
@@ -504,14 +510,11 @@ function countEntryStats(entries: FeedEntry[]): {
       const msg = entry.msg;
       if (isCodexReasoningDetailMessage(msg)) continue;
       if (msg.role === "assistant") {
-        // Count tool_use blocks
-        let entryTools = 0;
-        if (msg.contentBlocks) {
-          for (const b of msg.contentBlocks) {
-            if (b.type === "tool_use") entryTools++;
-          }
+        for (const b of msg.contentBlocks ?? []) {
+          if (b.type !== "tool_use") continue;
+          if (isTakodeSendToolCall(b.name, b.input)) sentMessages++;
+          else tools++;
         }
-        tools += entryTools;
         // Only count as a "message" if it has text content (not just tool invocations)
         const text = msg.content?.trim();
         if (text) {
@@ -530,12 +533,16 @@ function countEntryStats(entries: FeedEntry[]): {
       }
     } else if (entry.kind === "tool_msg_group") {
       // Tool results — only count as tools, not messages
-      tools += entry.items.length;
+      for (const item of entry.items) {
+        if (isTakodeSendToolCall(item.name, item.input)) sentMessages++;
+        else tools++;
+      }
     } else if (entry.kind === "subagent") {
       subagents++;
       const childStats = countEntryStats(entry.children);
       messages += childStats.messages;
       tools += childStats.tools;
+      sentMessages += childStats.sentMessages;
       subagents += childStats.subagents;
       herdEvents += childStats.herdEvents;
       herdEventLifecycle.push(...childStats.herdEventLifecycle);
@@ -546,6 +553,7 @@ function countEntryStats(entries: FeedEntry[]): {
         const childStats = countEntryStats(sg.children);
         messages += childStats.messages;
         tools += childStats.tools;
+        sentMessages += childStats.sentMessages;
         subagents += childStats.subagents;
         herdEvents += childStats.herdEvents;
         herdEventLifecycle.push(...childStats.herdEventLifecycle);
@@ -554,7 +562,7 @@ function countEntryStats(entries: FeedEntry[]): {
     }
   }
 
-  return { messages, tools, subagents, herdEvents, herdEventLifecycle, lastText };
+  return { messages, tools, sentMessages, subagents, herdEvents, herdEventLifecycle, lastText };
 }
 
 /** Check if a FeedEntry is a system message (compact markers, errors, info dividers).
@@ -1095,6 +1103,7 @@ function buildCollapsedTurnEntries(
       stats: {
         messageCount: stats.messages,
         toolCount: stats.tools,
+        ...(stats.sentMessages > 0 ? { sentMessageCount: stats.sentMessages } : {}),
         subagentCount: stats.subagents,
         herdEventCount: stats.herdEvents,
         ...(stats.herdEventLifecycle.length > 0 ? { herdEventLifecycle: stats.herdEventLifecycle } : {}),
@@ -1324,6 +1333,7 @@ function makeTurn(
       messageCount:
         s.messages - (responseEntry ? 1 : 0) - countEntryStats(notificationEntries).messages - promotedEntryKeys.size,
       toolCount: s.tools,
+      ...(s.sentMessages > 0 ? { sentMessageCount: s.sentMessages } : {}),
       subagentCount: s.subagents,
       herdEventCount: s.herdEvents,
       ...(s.herdEventLifecycle.length > 0 ? { herdEventLifecycle: s.herdEventLifecycle } : {}),

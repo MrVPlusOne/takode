@@ -256,7 +256,7 @@ describe("turn activity disclosure integration", () => {
     // The reported long-duration example uses the real summary control and
     // retains its formatted value and counts when switching display states.
     const duration = within(screen.getByTestId("playground-turn-duration"));
-    const summary = "17h 13min · 9 messages · 18 tools · 5 worker events";
+    const summary = "17h 13min · 9 messages · 3 sent · 18 tools · 5 worker events";
     const control = duration.getByRole("button", { name: `Show turn activity · ${summary}` });
     fireEvent.click(control);
     expect(duration.getByRole("button", { name: `Hide turn activity · ${summary}` })).toBe(control);

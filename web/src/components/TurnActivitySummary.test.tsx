@@ -52,6 +52,15 @@ describe("TurnActivitySummary root-only tool scope", () => {
     expect(control).toHaveTextContent("2 messages");
   });
 
+  it("shows takode sends as their own count next to messages", () => {
+    // Sends are the agent messaging another session, so they read as "N sent", not as tools.
+    const stats = { ...STATS, sentMessageCount: 2 };
+    render(<TurnActivityDisclosure stats={stats} durationMs={344_000} expanded={false} onToggle={() => {}} />);
+    expect(screen.getByRole("button", { name: "Show turn activity · 5m 44s · 1 message · 2 sent · 3 tools" })).toBe(
+      screen.getByRole("button"),
+    );
+  });
+
   it("keeps expanded summaries on the same root-only count contract", () => {
     render(<TurnActivityDisclosure stats={STATS} durationMs={null} expanded onToggle={() => {}} />);
 

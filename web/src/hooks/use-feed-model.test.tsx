@@ -62,6 +62,34 @@ describe("Claude empty thinking blocks", () => {
   });
 });
 
+describe("turn stats for takode send", () => {
+  // The turn summary shows sends as "N sent" rather than tools, for leader
+  // (--thread) and worker sends alike; other Bash calls stay tools.
+  function bash(id: string, command: string): ChatMessage {
+    return makeMessage({
+      id,
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: `${id}-tool`, name: "Bash", input: { command } }],
+    });
+  }
+
+  it("counts sends separately from other tool calls", () => {
+    const model = buildFeedModel(
+      [
+        makeMessage({ id: "u1", role: "user", content: "relay this" }),
+        bash("a1", '# thread:main\ntakode send 2957 --thread main "Approved; merge when green."'),
+        bash("a2", "git status"),
+        bash("a3", "takode send 17 --stdin <<'EOF'\nPlease continue.\nEOF"),
+      ],
+      true,
+    );
+
+    expect(model.turns).toHaveLength(1);
+    expect(model.turns[0].stats).toMatchObject({ toolCount: 1, sentMessageCount: 2 });
+  });
+});
+
 describe("Claude notes followed by commands in the same message", () => {
   // Claude often sends "short note + Bash" as one assistant message, as stored
   // in real sessions. The note stays a message; the trailing commands join the

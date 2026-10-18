@@ -91,7 +91,7 @@ export function PlaygroundTurnActivitySection() {
       <Section title="Long Turn Duration" description="Hour-long summaries show hours and minutes in both states.">
         <div data-testid="playground-turn-duration">
           <TurnActivityDisclosure
-            stats={{ messageCount: 9, toolCount: 18, subagentCount: 0, herdEventCount: 5 }}
+            stats={{ messageCount: 9, sentMessageCount: 3, toolCount: 18, subagentCount: 0, herdEventCount: 5 }}
             durationMs={62_024_000}
             expanded={longExpanded}
             onToggle={() => setLongExpanded((value) => !value)}
