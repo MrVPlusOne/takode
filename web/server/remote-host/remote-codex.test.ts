@@ -69,4 +69,47 @@ describe("Codex on a remote host", () => {
     stdin.end();
     expect(await proc.exited).toBe(0);
   });
+
+  // A prepared launch keeps its environment on the host and its spawn command
+  // carries none, so the API port rewrite must read the prepared environment:
+  // a leader's TAKODE_API_PORT, like COMPANION_PORT, moves from the coordinator's
+  // port to this host's API proxy, and a worker still gets no TAKODE_API_PORT.
+  it("points a prepared leader's TAKODE_API_PORT at the host's API proxy and gives workers none", async () => {
+    const manager = new HostLinkManager();
+    const printPorts =
+      "process.stdout.write(JSON.stringify({ companion: process.env.COMPANION_PORT ?? null, api: process.env.TAKODE_API_PORT ?? null }));";
+    agent = new HostAgent({
+      coordinatorUrl: "http://coordinator.test",
+      token: "token",
+      apiProxyPort: 45_678,
+      commands: { codex: "/opt/host/codex" },
+      log: () => {},
+      connect: () => new FakeHostLink(manager, hostId).agentSide,
+      prepareCodexLaunch: async (_sessionId, _info, options) => ({
+        spawnCmd: [process.execPath, "-e", printPorts],
+        spawnEnv: options.env as Record<string, string>,
+        spawnCwd: undefined,
+      }),
+    });
+    agent.start();
+    while (!manager.status(hostId).online) await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const portsSeenBy = async (env: Record<string, string>) => {
+      const prepared = await manager.request(
+        hostId,
+        { kind: "prepare_codex", sessionId: "s-1", info: { cwd: "/srv" }, options: { env } },
+        5_000,
+      );
+      const proc = remoteSubprocess(
+        manager.spawn(hostId, { command: "codex", args: [], env: {}, preparedLaunchId: prepared.launchId }),
+      );
+      const output = await new Response(proc.stdout as ReadableStream<Uint8Array>).text();
+      expect(await proc.exited).toBe(0);
+      return JSON.parse(output);
+    };
+
+    const leaderEnv = { COMPANION_PORT: "3456", TAKODE_API_PORT: "3456", TAKODE_ROLE: "orchestrator" };
+    expect(await portsSeenBy(leaderEnv)).toEqual({ companion: "45678", api: "45678" });
+    expect(await portsSeenBy({ COMPANION_PORT: "3456" })).toEqual({ companion: "45678", api: null });
+  });
 });

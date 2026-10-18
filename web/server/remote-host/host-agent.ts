@@ -492,12 +492,14 @@ export class HostAgent {
       this.emit(command.procId, { kind: "exit", code: null, signal: null });
       return;
     }
+    // A prepared Codex launch carries its environment here; its spawn command sends none.
+    const launchEnv = prepared?.env ?? command.env;
     const env: NodeJS.ProcessEnv = {
       ...(command.fullEnv
         ? command.env
         : {
             ...inheritedLaunchEnv(process.env),
-            ...(prepared?.env ?? command.env),
+            ...launchEnv,
             // Like on the coordinator, agents find Takode's CLI wrappers and the user's
             // shell tools first. A prepared Codex launch already built this PATH here.
             ...(prepared ? {} : { PATH: getEnrichedPath() }),
@@ -505,7 +507,8 @@ export class HostAgent {
       // Agent CLIs on this host reach the coordinator through the local API proxy,
       // which holds their calls while the coordinator restarts.
       COMPANION_PORT: port,
-      ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
+      // Only leaders carry TAKODE_API_PORT; workers must not gain it.
+      ...(launchEnv.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
       // A coordinator on another machine holds all Takode data, so CLIs here
       // must not answer from this machine's files.
       ...(command.fullEnv ? {} : { [REMOTE_HOST_ENV]: "1" }),
