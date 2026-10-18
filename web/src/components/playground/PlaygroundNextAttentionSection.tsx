@@ -12,7 +12,7 @@ import type { SessionNotification } from "../../types.js";
 import { buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
 import { NextAttentionToast } from "../AttentionKind.js";
 import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
-import { SidebarQuickActions } from "../SidebarQuickActions.js";
+import { SidebarGlobalSearch } from "../SidebarGlobalSearch.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const NOW = Date.now();
@@ -205,9 +205,9 @@ export function PlaygroundNextAttentionSection() {
               <PhoneTopBar />
             </div>
           </Card>
-          <Card label="Sessions panel quick actions (desktop and phone)">
+          <Card label="Sessions panel global search (desktop and phone)">
             <div className="w-[228px]">
-              <SidebarQuickActions closePanelOnOpen={false} />
+              <SidebarGlobalSearch closePanelOnOpen={false} />
             </div>
           </Card>
         </div>

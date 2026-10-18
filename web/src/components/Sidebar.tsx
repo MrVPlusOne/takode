@@ -33,7 +33,7 @@ import { SessionContextMenu } from "./SessionContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
-import { SidebarQuickActions } from "./SidebarQuickActions.js";
+import { SidebarGlobalSearch } from "./SidebarGlobalSearch.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
@@ -797,7 +797,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
             </span>
           )}
         </div>
-        <SidebarQuickActions onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />
+        <SidebarGlobalSearch onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />
       </div>
 
       <div
