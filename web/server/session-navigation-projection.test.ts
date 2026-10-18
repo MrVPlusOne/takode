@@ -75,6 +75,7 @@ describe("session navigation projection", () => {
         sessionNum: 42,
         backendType: "codex",
         isOrchestrator: true,
+        codexLeaderCompactionMode: "recycle",
         isAssistant: false,
         herdedBy: "leader-1",
         reviewerOf: 7,

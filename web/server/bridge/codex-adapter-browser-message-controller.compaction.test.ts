@@ -9,7 +9,7 @@ import type { BrowserIncomingMessage, ContentBlock } from "../session-types.js";
 function makeSession(): any {
   return {
     id: "codex-leader",
-    state: { isOrchestrator: true, backend_type: "codex" },
+    state: { isOrchestrator: true, backend_type: "codex", codex_leader_compaction_mode: "recycle" },
     messageHistory: [],
     toolStartTimes: new Map(),
     toolProgressOutput: new Map(),
@@ -428,6 +428,7 @@ describe("codex-adapter-browser-message-controller compaction", () => {
       ...makeDeps(broadcasts),
       getLauncherSessionInfo: vi.fn(() => ({
         isOrchestrator: true,
+        codexLeaderCompactionMode: "recycle",
         codexLeaderRecycleThresholdTokens: 545_000,
       })),
     };

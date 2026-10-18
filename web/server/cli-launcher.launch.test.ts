@@ -1065,6 +1065,7 @@ describe("launch", () => {
       expect(config).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
+      (launcher.getSession(workerInfo.sessionId) as any).codexLeaderCompactionMode = "recycle";
       configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "/opt/fake/codex" }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1126,6 +1127,7 @@ describe("launch", () => {
 
       const session = launcher.getSession(workerInfo.sessionId) as any;
       session.isOrchestrator = true;
+      session.codexLeaderCompactionMode = "recycle";
       session.codexLeaderRecycleThresholdTokens = 328400;
       session.codexLeaderRecycleLineage = {
         recycleEvents: [
@@ -1223,6 +1225,7 @@ describe("launch", () => {
       expect(cmdAndArgs[0]).toBe(wrapperPath);
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
+      (launcher.getSession(workerInfo.sessionId) as any).codexLeaderCompactionMode = "recycle";
       configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: wrapperPath }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1263,6 +1266,7 @@ describe("launch", () => {
       await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
+        codexLeaderCompactionMode: "recycle",
         env: {
           TAKODE_ROLE: "orchestrator",
           TAKODE_API_PORT: "3457",
@@ -1335,6 +1339,7 @@ describe("launch", () => {
       await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
+        codexLeaderCompactionMode: "recycle",
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1389,6 +1394,7 @@ describe("launch", () => {
       await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
+        codexLeaderCompactionMode: "recycle",
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1464,6 +1470,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
+        codexLeaderCompactionMode: "recycle",
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1821,6 +1828,7 @@ describe("launch", () => {
       expect(innerScript).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
+      (launcher.getSession(workerInfo.sessionId) as any).codexLeaderCompactionMode = "recycle";
       configureMachineSettings({ machineSettings: () => ({ claudeBinary: "", codexBinary: "codex" }) });
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1851,6 +1859,7 @@ describe("launch", () => {
 
     const session = launcher.getSession(info.sessionId)!;
     session.isOrchestrator = true;
+    session.codexLeaderCompactionMode = "recycle";
     launcher.setCLISessionId(info.sessionId, "thread-a");
 
     const prepared = launcher.prepareCodexLeaderRecycle(info.sessionId, {

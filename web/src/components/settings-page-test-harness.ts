@@ -180,7 +180,7 @@ function settingsResponse() {
     codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,
     codexLeaderRecycleThresholdTokensByModel: {},
-    codexLeaderCompactionMode: "recycle",
+    codexLeaderCompactionMode: "compact",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     chatMessageLineHeight: 1.45,

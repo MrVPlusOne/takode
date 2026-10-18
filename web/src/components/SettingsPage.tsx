@@ -67,6 +67,7 @@ import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
 import {
+  DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   normalizeCodexLeaderCompactionMode,
   type CodexLeaderCompactionMode,
 } from "../../shared/codex-leader-compaction-mode.js";
@@ -172,7 +173,9 @@ export function SettingsPage({
     });
   };
 
-  const [codexLeaderCompactionMode, setCodexLeaderCompactionMode] = useState<CodexLeaderCompactionMode>("recycle");
+  const [codexLeaderCompactionMode, setCodexLeaderCompactionMode] = useState<CodexLeaderCompactionMode>(
+    DEFAULT_CODEX_LEADER_COMPACTION_MODE,
+  );
   const [logFile, setLogFile] = useState("");
   const [leaderProfilePools, setLeaderProfilePools] = useState<LeaderProfilePoolSettings | undefined>(undefined);
   const [editorChoice, setEditorChoice] = useState<EditorKind>("none");
@@ -921,13 +924,13 @@ export function SettingsPage({
               <SettingsRow
                 label="Codex Leader Context Mode"
                 hidden={settingsSearch.rowHidden("sessions", "codex-leader-mode")}
-                description="Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use built-in compaction. Manual /compact always compacts; /recycle recycles a leader once. Neither command changes this automatic mode."
+                description="Default for new Codex leaders. Compacting lets Codex use its built-in compaction; recycling replaces the leader with a fresh process before Codex compacts. Manual /compact always compacts; /recycle recycles a leader once. Neither command changes this automatic mode."
               >
                 <SegmentedControl
                   label="Codex Leader Context Mode"
                   options={[
-                    { value: "recycle", label: "Recycle" },
                     { value: "compact", label: "Compact" },
+                    { value: "recycle", label: "Recycle" },
                   ]}
                   value={codexLeaderCompactionMode}
                   onChange={(mode) => {

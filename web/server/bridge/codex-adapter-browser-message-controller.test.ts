@@ -38,7 +38,7 @@ type TestCodexSession = {
 function makeSession(): TestCodexSession {
   return {
     id: "codex-leader",
-    state: { isOrchestrator: true, backend_type: "codex" },
+    state: { isOrchestrator: true, backend_type: "codex", codex_leader_compaction_mode: "recycle" },
     messageHistory: [],
     toolStartTimes: new Map(),
     toolProgressOutput: new Map(),
@@ -863,6 +863,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       ...makeDeps(broadcasts),
       getLauncherSessionInfo: vi.fn(() => ({
         isOrchestrator: true,
+        codexLeaderCompactionMode: "recycle",
         codexLeaderRecycleThresholdTokens: 545_000,
       })),
     };
@@ -1014,6 +1015,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       ...makeDeps(broadcasts),
       getLauncherSessionInfo: vi.fn(() => ({
         isOrchestrator: true,
+        codexLeaderCompactionMode: "recycle",
         codexLeaderRecycleThresholdTokens: 328_400,
         codexLeaderRecycleLineage: {
           recycleEvents: [
@@ -1062,6 +1064,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       ...makeDeps(broadcasts),
       getLauncherSessionInfo: vi.fn(() => ({
         isOrchestrator: true,
+        codexLeaderCompactionMode: "recycle",
         codexLeaderRecycleThresholdTokens: 545_000,
         codexLeaderRecycleLineage: {
           recycleEvents: [

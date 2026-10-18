@@ -287,6 +287,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const launcherSession = makeLauncherSession({
       backendType: "codex",
       isOrchestrator: true,
+      codexLeaderCompactionMode: "recycle",
       model: "gpt-5.4",
       codexLeaderRecycleThresholdTokens: 545_000,
     });

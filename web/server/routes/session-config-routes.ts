@@ -117,7 +117,7 @@ function buildSessionConfigResponse(session: NonNullable<ReturnType<RouteContext
     codexReasoningEffort: session.codexReasoningEffort ?? null,
     codexServiceTier: session.codexServiceTier ?? null,
     codexMaxContextLength: session.codexMaxContextLength ?? null,
-    codexLeaderCompactionMode: session.codexLeaderCompactionMode ?? "recycle",
+    codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(session.codexLeaderCompactionMode),
     claudeReasoningEffort: session.claudeReasoningEffort ?? null,
     claudeMaxContextLength: session.claudeMaxContextLength ?? null,
   };

@@ -59,4 +59,34 @@ describe("Codex leader compaction mode launch prep", () => {
     expect(launchScript).not.toContain("model_auto_compact_token_limit = 2725000");
     expect(spawn.codexLeaderRecycleThresholdTokens).toBeUndefined();
   });
+
+  // New and legacy leaders that never chose a mode follow the default, which is
+  // Codex built-in compaction; recycling applies only when explicitly selected.
+  it("defaults leaders without a chosen mode to compaction and recycles only when selected", async () => {
+    const prepareLeader = async (sessionId: string, mode?: "recycle") => {
+      const codexHome = await makeCodexHomeRoot();
+      await mkdir(join(codexHome, sessionId), { recursive: true });
+      return prepareCodexSpawn(
+        sessionId,
+        { cwd: "/repo", isOrchestrator: true, codexLeaderCompactionMode: mode },
+        {
+          codexHome,
+          codexAgentsSkillsHome: await makeCodexHomeRoot(),
+          codexHomePrepared: true,
+          codexLegacyHome: await makeCodexHomeRoot(),
+          codexSpawnPrepYieldEveryMs: Number.POSITIVE_INFINITY,
+          model: "takode-default-mode-leader",
+          env: { TAKODE_ROLE: "orchestrator" },
+        },
+      );
+    };
+
+    const defaulted = await prepareLeader("default-leader");
+    expect(defaulted.codexLeaderRecycleThresholdTokens).toBeUndefined();
+    expect(defaulted.spawnCmd.join("\n")).not.toContain("takode-leader-model-catalog.json");
+
+    const recycling = await prepareLeader("recycle-leader", "recycle");
+    expect(recycling.codexLeaderRecycleThresholdTokens).toBeGreaterThan(0);
+    expect(recycling.spawnCmd.join("\n")).toContain("takode-leader-model-catalog.json");
+  });
 });

@@ -518,8 +518,8 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                         }
                         className={inputClass}
                       >
-                        <option value="recycle">Recycle before Codex compacts</option>
                         <option value="compact">Use Codex built-in compaction</option>
+                        <option value="recycle">Recycle before Codex compacts</option>
                       </select>
                       <p className="mt-1.5 text-xs text-cc-muted">
                         Automatic behavior only. /compact compacts; /recycle recycles this leader once. Neither command

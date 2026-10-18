@@ -5,7 +5,7 @@ import { Card } from "./shared.js";
 
 export function PlaygroundContextCommands() {
   const [role, setRole] = useState("codex-leader");
-  const [mode, setMode] = useState("recycle");
+  const [mode, setMode] = useState("compact");
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isCodex = role !== "claude-leader";
@@ -54,8 +54,8 @@ export function PlaygroundContextCommands() {
               onChange={(event) => setMode(event.target.value)}
               className="rounded border border-cc-border bg-cc-input-bg p-2 text-sm text-cc-fg"
             >
-              <option value="recycle">Automatic recycle</option>
               <option value="compact">Automatic compact</option>
+              <option value="recycle">Automatic recycle</option>
             </select>
           )}
         </div>
