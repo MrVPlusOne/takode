@@ -205,9 +205,14 @@ export function NotificationMarker({
   );
 
   const selectedThreadKey = currentThreadKey ? normalizeThreadKey(currentThreadKey) : undefined;
+  // A card under its own context message goes wherever that context is shown: an answer
+  // (`--answers`) is shown in each tab owning a request it covers, and its question must be
+  // answerable there too. Other anchors stay in the owner thread only.
+  const anchoredToOwnContext = !!notif?.contextMessageId && notif.contextMessageId === messageId;
   if (
     isAction &&
     notif &&
+    !anchoredToOwnContext &&
     selectedThreadKey &&
     selectedThreadKey !== ALL_THREADS_KEY &&
     !isNotificationOwnerSelected(notif, selectedThreadKey)

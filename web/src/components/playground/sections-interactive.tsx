@@ -2,6 +2,7 @@ import { PlaygroundSessionSettingsCards } from "./PlaygroundSessionSettingsSecti
 import { useEffect, useState } from "react";
 import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
 import { PlaygroundVisualDecisionNotification } from "./PlaygroundVisualDecisionNotification.js";
+import { PlaygroundCrossThreadDecision } from "./PlaygroundCrossThreadDecision.js";
 import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
@@ -884,6 +885,11 @@ export function PlaygroundInteractiveSections() {
           <Card label="needs-input with screenshots in the context">
             <div className="text-cc-fg text-sm">
               <PlaygroundVisualDecisionNotification />
+            </div>
+          </Card>
+          <Card label="needs-input asked in Main, shown in the quest tab its context answers">
+            <div className="text-cc-fg text-sm">
+              <PlaygroundCrossThreadDecision />
             </div>
           </Card>
           <Card label="needs-input with legacy in-card body">
