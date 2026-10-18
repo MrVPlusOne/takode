@@ -43,6 +43,8 @@ describe("buildCompanionInstructions", () => {
     const result = buildCompanionInstructions({ backend });
     expect(result.includes("## Responding to Leaders")).toBe(backend !== "codex");
     expect(result.includes("## Native Computer Use")).toBe(backend === "codex");
+    // Claude Code's base prompt already carries this guidance; only Codex needs it.
+    expect(result.includes("## Judgment and Asking")).toBe(backend === "codex");
     // Only Claude Code notifies the agent when a background command exits, so
     // only Claude sessions may be told to wait on one with this tool argument.
     expect(result.includes("run_in_background: true")).toBe(backend !== "codex");
@@ -64,18 +66,19 @@ describe("buildCompanionInstructions", () => {
     "claude",
     "claude-sdk",
     "codex",
-  ] as const)("includes one complete design replacement section across %s roles and checkouts", (stored) => {
+  ] as const)("includes one complete copy of each shared role rule across %s roles and checkouts", (stored) => {
     const backend = loadedBackend(stored);
-    // The rule must reach leaders before dispatch and workers before Work.
+    // These rules must reach leaders before dispatch and workers before Work.
     // Compare assembled content, without maintaining a second copy of its prose.
-    const heading = "## Design Replacement\n\n";
-    const sharedSection = buildCompanionInstructions().split(heading)[1]?.split("\n\n## ")[0];
-    expect(sharedSection?.trim()).toBeTruthy();
-    for (const isOrchestrator of [false, true]) {
-      for (const worktree of [undefined, { branch: "feature", repoRoot: "/projects/example" }]) {
-        const prompt = buildInjectedSystemPromptForDebug({ backend, isOrchestrator, worktree });
-        expect(prompt.split(heading)).toHaveLength(2);
-        expect(prompt).toContain(`${heading}${sharedSection}`);
+    for (const heading of ["## Design Replacement\n\n", "## Requirements and Precautions\n\n"]) {
+      const sharedSection = buildCompanionInstructions().split(heading)[1]?.split("\n\n## ")[0];
+      expect(sharedSection?.trim()).toBeTruthy();
+      for (const isOrchestrator of [false, true]) {
+        for (const worktree of [undefined, { branch: "feature", repoRoot: "/projects/example" }]) {
+          const prompt = buildInjectedSystemPromptForDebug({ backend, isOrchestrator, worktree });
+          expect(prompt.split(heading)).toHaveLength(2);
+          expect(prompt).toContain(`${heading}${sharedSection}`);
+        }
       }
     }
   });
