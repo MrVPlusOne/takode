@@ -341,6 +341,8 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   window.location.hash = "#/session/s1";
+  // Tests share one jsdom history; drop a Main mark an earlier test left on this entry.
+  history.replaceState(null, "", window.location.href);
   mockSendToSession.mockClear();
   mockMessageFeedRenders.mockClear();
   mockAcknowledgeModelProvenanceMigration.mockClear();
@@ -641,6 +643,42 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(window.location.hash).toBe("#/session/s1?thread=q-941");
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
+  });
+
+  it("keeps every tab step reachable with browser back and forward, including Main", async () => {
+    // The phone's back and forward swipes walk browser history. Main's URL has no thread param,
+    // which on a fresh arrival restores the saved tab; on the history entry where Main was
+    // shown, that restore used to show the last quest tab again, making the step look dead.
+    resetStore({
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
+      messages: new Map([["s1", [threadMessage("q-941", 1), threadMessage("q-777", 2)]]]),
+      quests: [
+        { questId: "q-941", title: "First tab", status: "in_progress" },
+        { questId: "q-777", title: "Second tab", status: "in_progress" },
+      ],
+    });
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+    const expectShown = async (threadKey: string, hash: string) => {
+      await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", threadKey));
+      expect(window.location.hash).toBe(hash);
+    };
+    await expectShown("main", "#/session/s1");
+
+    fireEvent.click(scope.getByRole("button", { name: /q-941 first tab/i }));
+    await expectShown("q-941", "#/session/s1?thread=q-941");
+    fireEvent.click(scope.getByRole("button", { name: /q-777 second tab/i }));
+    await expectShown("q-777", "#/session/s1?thread=q-777");
+
+    act(() => history.back());
+    await expectShown("q-941", "#/session/s1?thread=q-941");
+    act(() => history.back());
+    await expectShown("main", "#/session/s1");
+    act(() => history.forward());
+    await expectShown("q-941", "#/session/s1?thread=q-941");
+    act(() => history.forward());
+    await expectShown("q-777", "#/session/s1?thread=q-777");
   });
 
   it("falls back to Main when the browser-local selected tab is no longer server-open", async () => {

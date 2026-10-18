@@ -23,6 +23,8 @@ import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import {
   hasMessageDeepLinkFromHash,
+  historyEntryShowsMainThread,
+  markHistoryEntryShowsMainThread,
   navigateToSessionThread,
   parseHash,
   threadRouteFromHash,
@@ -881,25 +883,30 @@ export function ChatView({
 
     if (!hasThreadRoute) {
       lastProcessedRouteThreadKeyRef.current = null;
-      const restoredThreadKey = restorableSelectedThreadKey({
-        threadKey: passiveRestoreThreadKeyRef.current,
-        authoritativeLeaderOpenThreadTabs,
-        openThreadTabKeys,
-        rows: navigationThreadRows,
-      });
+      // Back or forward onto an entry that showed Main shows Main; restoring the saved tab
+      // there would turn that history step into a dead one.
+      const restoredThreadKey = historyEntryShowsMainThread()
+        ? MAIN_THREAD_KEY
+        : restorableSelectedThreadKey({
+            threadKey: passiveRestoreThreadKeyRef.current,
+            authoritativeLeaderOpenThreadTabs,
+            openThreadTabKeys,
+            rows: navigationThreadRows,
+          });
       const nextThreadKey = restoredThreadKey ?? MAIN_THREAD_KEY;
       passiveRestoreThreadKeyRef.current = nextThreadKey;
       selectedThreadKeyRef.current = nextThreadKey;
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
-      if (!restoredThreadKey) {
+      if (nextThreadKey === MAIN_THREAD_KEY) {
         persistLeaderSelectedThreadKey(sessionId, MAIN_THREAD_KEY);
-      } else if (restoredThreadKey !== MAIN_THREAD_KEY) {
+        markHistoryEntryShowsMainThread();
+      } else {
         // This URL follows passive selection restore, not an external route
         // requesting first placement over the authoritative tab order.
-        locallySelectedRouteThreadKeyRef.current = restoredThreadKey;
-        navigateToSessionThread(sessionId, restoredThreadKey, true);
+        locallySelectedRouteThreadKeyRef.current = nextThreadKey;
+        navigateToSessionThread(sessionId, nextThreadKey, true);
       }
       return;
     }

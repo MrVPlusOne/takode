@@ -280,6 +280,32 @@ function withThreadKeyInHashOptions(hash: string, threadKey: string, options: { 
   return query ? `${path}?${query}` : path;
 }
 
+const MAIN_THREAD_ENTRY_STATE_KEY = "takodeShowsMainThread";
+
+/**
+ * Whether the current browser-history entry is one where a leader showed Main.
+ *
+ * Main's URL carries no thread param, which otherwise means "restore the saved tab". The mark
+ * on the entry tells the two apart, so the back or forward gesture returning to that entry shows
+ * Main again instead of the tab viewed last.
+ */
+export function historyEntryShowsMainThread(): boolean {
+  const state: unknown = history.state;
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    (state as Record<string, unknown>)[MAIN_THREAD_ENTRY_STATE_KEY] === true
+  );
+}
+
+/** Mark the current browser-history entry as showing a leader's Main thread. */
+export function markHistoryEntryShowsMainThread(): void {
+  if (historyEntryShowsMainThread()) return;
+  const state: unknown = history.state;
+  const record = typeof state === "object" && state !== null ? (state as Record<string, unknown>) : {};
+  history.replaceState({ ...record, [MAIN_THREAD_ENTRY_STATE_KEY]: true }, "", window.location.href);
+}
+
 /**
  * Read playground section ID from the hash query (if present).
  */
