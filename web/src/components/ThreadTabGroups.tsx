@@ -5,7 +5,6 @@
  * user's messages or every tab, open and closed, newest first.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
@@ -15,6 +14,7 @@ import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { BellIcon } from "./AttentionKind.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
+import { SearchField, SearchModeSwitch, SearchSheet } from "./SearchSheet.js";
 import { ThreadTabRecentMessages, type LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
@@ -686,7 +686,10 @@ const TAB_PAGE_SIZE = 100;
 export type ThreadFindMode = "messages" | "tabs";
 /** Find opens in the mode the user last chose. */
 const FIND_MODE_STORAGE_KEY = "cc-thread-find-mode";
-const FIND_MODE_LABEL: Record<ThreadFindMode, string> = { messages: "Messages", tabs: "Tabs" };
+const FIND_MODE_OPTIONS: ReadonlyArray<{ id: ThreadFindMode; label: string }> = [
+  { id: "messages", label: "Messages" },
+  { id: "tabs", label: "Tabs" },
+];
 
 function readFindMode(): ThreadFindMode {
   return scopedGetItem(FIND_MODE_STORAGE_KEY) === "messages" ? "messages" : "tabs";
@@ -740,110 +743,71 @@ function ThreadTabSwitcherSheet({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 md:items-center md:justify-start md:pt-[10vh]"
-      onClick={onClose}
-      data-testid="thread-tab-switcher-backdrop"
+  return (
+    <SearchSheet
+      label="Find"
+      onClose={onClose}
+      testId="thread-tab-switcher"
+      backdropTestId="thread-tab-switcher-backdrop"
+      dataMode={mode}
+      header={
+        recent ? (
+          <SearchModeSwitch
+            label="Find"
+            options={FIND_MODE_OPTIONS}
+            value={mode}
+            onChange={chooseMode}
+            testId="thread-find-mode"
+          />
+        ) : (
+          <span className="text-[15px] text-cc-fg">Find a tab</span>
+        )
+      }
     >
-      <div
-        className="flex h-[88dvh] flex-col rounded-t-2xl border-t border-cc-border bg-cc-card shadow-2xl md:h-[75vh] md:w-[36rem] md:rounded-2xl md:border"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-label="Find"
-        data-testid="thread-tab-switcher"
-        data-mode={mode}
-      >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-cc-border md:hidden" />
-        <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-2">
-          {recent ? (
-            <div className="inline-flex rounded-lg bg-cc-hover/70 p-0.5" role="radiogroup" aria-label="Find">
-              {(["messages", "tabs"] as const).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  onClick={() => chooseMode(id)}
-                  className={`h-8 rounded-md px-4 text-[13px] ${
-                    mode === id ? "bg-cc-card text-cc-fg shadow-sm" : "text-cc-muted"
-                  }`}
-                  aria-checked={mode === id}
-                  data-testid="thread-find-mode"
-                  data-mode={id}
-                >
-                  {FIND_MODE_LABEL[id]}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <span className="text-[15px] text-cc-fg">Find a tab</span>
-          )}
-          <button type="button" onClick={onClose} className="ml-auto text-[14px] text-cc-primary">
-            Done
-          </button>
-        </div>
-        <div className="shrink-0 px-4 pb-2">
-          <label className="flex h-10 items-center gap-2 rounded-xl bg-cc-hover/70 px-3 text-cc-muted">
-            <svg
-              viewBox="0 0 16 16"
-              className="h-4 w-4 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              aria-hidden="true"
-            >
-              <circle cx="7" cy="7" r="4.5" />
-              <path d="M10.5 10.5L14 14" strokeLinecap="round" />
-            </svg>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={mode === "messages" ? "Search your messages" : "Search tabs by title or quest number"}
-              className="min-w-0 flex-1 bg-transparent text-[16px] text-cc-fg outline-none placeholder:text-[14px] placeholder:text-cc-muted"
-              aria-label={mode === "messages" ? "Search your messages" : "Find a tab"}
-              data-testid="thread-tab-switcher-search"
-            />
-          </label>
-        </div>
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-6">
-          {mode === "messages" && recent && (
-            <ThreadTabRecentMessages
+      <SearchField
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={mode === "messages" ? "Search your messages" : "Search tabs by title or quest number"}
+        aria-label={mode === "messages" ? "Search your messages" : "Find a tab"}
+        data-testid="thread-tab-switcher-search"
+      />
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-6">
+        {mode === "messages" && recent && (
+          <ThreadTabRecentMessages
+            query={query}
+            load={recent.load}
+            tabFor={(threadKey) => tabByKey.get(threadKey)}
+            onOpen={recent.open}
+          />
+        )}
+        {matches.slice(0, shown).map((tab) => {
+          const closed = closedKeys.has(normalizeThreadKey(tab.threadKey));
+          return (
+            <ThreadTabListRow
+              key={tab.threadKey}
+              tab={tab}
+              context={closed ? closedContext : context}
               query={query}
-              load={recent.load}
-              tabFor={(threadKey) => tabByKey.get(threadKey)}
-              onOpen={recent.open}
+              closed={closed}
             />
-          )}
-          {matches.slice(0, shown).map((tab) => {
-            const closed = closedKeys.has(normalizeThreadKey(tab.threadKey));
-            return (
-              <ThreadTabListRow
-                key={tab.threadKey}
-                tab={tab}
-                context={closed ? closedContext : context}
-                query={query}
-                closed={closed}
-              />
-            );
-          })}
-          {matches.length > shown && (
-            <button
-              type="button"
-              onClick={() => setShown((count) => count + TAB_PAGE_SIZE)}
-              className="w-full px-4 py-3 text-left text-[13px] text-cc-primary"
-              data-testid="thread-tab-switcher-more"
-            >
-              Show {Math.min(TAB_PAGE_SIZE, matches.length - shown)} more
-            </button>
-          )}
-          {mode === "tabs" && matches.length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-cc-muted">
-              {query.trim() ? `No tab matches “${query}”.` : "No quest tabs yet."}
-            </p>
-          )}
-        </div>
+          );
+        })}
+        {matches.length > shown && (
+          <button
+            type="button"
+            onClick={() => setShown((count) => count + TAB_PAGE_SIZE)}
+            className="w-full px-4 py-3 text-left text-[13px] text-cc-primary"
+            data-testid="thread-tab-switcher-more"
+          >
+            Show {Math.min(TAB_PAGE_SIZE, matches.length - shown)} more
+          </button>
+        )}
+        {mode === "tabs" && matches.length === 0 && (
+          <p className="px-4 py-6 text-[13px] text-cc-muted">
+            {query.trim() ? `No tab matches “${query}”.` : "No quest tabs yet."}
+          </p>
+        )}
       </div>
-    </div>,
-    document.body,
+    </SearchSheet>
   );
 }

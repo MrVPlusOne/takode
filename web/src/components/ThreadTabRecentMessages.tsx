@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import type { MessageSearchResult } from "../api/session-message-search.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { timeAgo } from "../utils/quest-helpers.js";
+import { SEARCH_ROW_CLASS, SearchMeta, SearchRowContent } from "./SearchSheet.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 /** Loads the user's messages to this leader matching `query` (all when empty), newest first. */
@@ -98,32 +99,29 @@ function RecentMessageRow({
   const threadKey = threadKeyOf(result);
   const main = threadKey === MAIN_THREAD_KEY;
   const place = main ? "Main" : (tab?.title ?? threadKey);
-  // A long quest title gives way first, so the state and time stay readable.
-  const detail = [main ? null : tab?.stateLabel, timeAgo(result.timestamp)].filter(Boolean).join(" · ");
+  const detail = [main ? null : tab?.stateLabel, timeAgo(result.timestamp)];
   const barColor = main ? "var(--color-cc-fg)" : (tab?.accentColor ?? tab?.titleColor ?? "var(--color-cc-muted)");
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-cc-hover/40"
+      className={`${SEARCH_ROW_CLASS} hover:bg-cc-hover/40`}
       data-testid="thread-tab-recent-row"
       data-thread-key={threadKey}
       data-message-id={result.messageId}
     >
-      <span className="w-1 self-stretch shrink-0 rounded-full" style={{ backgroundColor: barColor }} />
-      <span className="flex min-w-0 flex-1 flex-col leading-snug">
+      <SearchRowContent
+        barColor={barColor}
+        meta={<SearchMeta items={[place, ...detail]} />}
+        metaStyle={{
+          color: main ? "var(--color-cc-muted)" : (tab?.titleColor ?? "var(--color-cc-muted)"),
+        }}
+        metaTestId="thread-tab-recent-row-meta"
+      >
         <span className="line-clamp-2 text-[14px] text-cc-fg">
           <Snippet text={result.snippet} ranges={result.matchRanges} />
         </span>
-        <span
-          className="mt-0.5 flex min-w-0 whitespace-pre text-[11.5px]"
-          style={{ color: main ? "var(--color-cc-muted)" : (tab?.titleColor ?? "var(--color-cc-muted)") }}
-          data-testid="thread-tab-recent-row-meta"
-        >
-          <span className="truncate">{place}</span>
-          <span className="shrink-0"> · {detail}</span>
-        </span>
-      </span>
+      </SearchRowContent>
     </button>
   );
 }

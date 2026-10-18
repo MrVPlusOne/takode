@@ -17,10 +17,15 @@ import {
   type MessageSearchScopeKind,
   type RecentAskBundle,
   type RecentAskBundlesResponse,
-  type RecentAskFilter,
 } from "../api.js";
 import type { QuestListPreview, SdkSessionInfo } from "../types.js";
-import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import {
+  getQuestDisplayOwner,
+  getQuestLeaderSessionId,
+  getQuestOwnerSessionId,
+  timeAgo,
+} from "../utils/quest-helpers.js";
+import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
@@ -32,6 +37,15 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { StarIcon } from "./StarredMessageIndicator.js";
 import { RecentAskBundleResult } from "./RecentAskBundleResult.js";
+import {
+  HIDDEN_SCROLLBAR_CLASS,
+  SEARCH_ROW_CLASS,
+  SearchField,
+  SearchMeta,
+  SearchModeSwitch,
+  SearchRowContent,
+  SearchSheet,
+} from "./SearchSheet.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 
 export type UniversalSearchMode = "recent" | "quests" | "sessions" | "messages" | "starred";
@@ -80,19 +94,12 @@ const SESSION_FILTERS: Array<{ id: "includeArchived" | "leadersOnly"; label: str
   { id: "leadersOnly", label: "Leaders only" },
 ];
 
-const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
-  { id: "recent", label: "Recent" },
-  { id: "quests", label: "Quests" },
-  { id: "sessions", label: "Sessions" },
-  { id: "messages", label: "Messages" },
-  { id: "starred", label: "Starred" },
-];
-
-const RECENT_FILTERS: Array<{ id: RecentAskFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "needs_me", label: "Needs me" },
-  { id: "new_response", label: "New response" },
-  { id: "active", label: "Active" },
+const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string; title: string }> = [
+  { id: "recent", label: "Recent", title: "Browse recent conversations" },
+  { id: "quests", label: "Quests", title: "Search quests" },
+  { id: "sessions", label: "Sessions", title: "Search sessions" },
+  { id: "messages", label: "Messages", title: "Search messages" },
+  { id: "starred", label: "Starred", title: "Search starred messages" },
 ];
 
 const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
@@ -243,18 +250,6 @@ function questRecency(quest: QuestListPreview): number {
   return Math.max(quest.createdAt ?? 0, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
-function formatRelativeTime(ts: number | undefined): string {
-  if (!ts) return "";
-  const diffMs = Date.now() - ts;
-  if (diffMs < 60_000) return "just now";
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function nextMode(current: UniversalSearchMode, direction: 1 | -1): UniversalSearchMode {
   const modes: UniversalSearchMode[] = ["recent", "quests", "sessions", "messages", "starred"];
   const currentIndex = Math.max(0, modes.indexOf(current));
@@ -369,7 +364,6 @@ export function UniversalSearchOverlay({
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [recentFilter, setRecentFilter] = useState<RecentAskFilter>("all");
   const [recentSessionSpaceId, setRecentSessionSpaceId] = useState<string | null>(null);
   const [messageSettings, setMessageSettings] = useState<MessageSearchSettings>(() => readMessageSearchSettings());
   const [sessionFilters, setSessionFilters] = useState({ includeArchived: false, leadersOnly: false });
@@ -493,7 +487,6 @@ export function UniversalSearchOverlay({
     setQuery(initialState.query);
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
-    setRecentFilter("all");
     setRecentSessionSpaceId(null);
     setQuestActionMenu(null);
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
@@ -516,13 +509,12 @@ export function UniversalSearchOverlay({
     messageSettings.filters.event,
     messageSettings.filters.user,
     mode,
-    recentFilter,
     recentSessionSpaceId,
   ]);
 
   const liveMessageQuery = mode === "messages" ? query.trim() : "";
   const resultQuery = mode === "messages" ? liveMessageQuery : debouncedQuery.trim();
-  const searchKey = `${mode}:${resultQuery}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:recentFilter=${recentFilter}:space=${recentSessionSpaceId ?? ""}`;
+  const searchKey = `${mode}:${resultQuery}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:space=${recentSessionSpaceId ?? ""}`;
 
   useEffect(() => {
     if (!open) return;
@@ -550,7 +542,6 @@ export function UniversalSearchOverlay({
       }));
       void api
         .fetchRecentAskBundles({
-          filter: recentFilter,
           sessionSpaceId: recentSessionSpaceId,
           signal: controller.signal,
         })
@@ -748,7 +739,6 @@ export function UniversalSearchOverlay({
     mode,
     open,
     recentAskPreviewResponse,
-    recentFilter,
     recentSessionSpaceId,
     starredSearchPreviewResponse,
     visibleLimit,
@@ -884,7 +874,7 @@ export function UniversalSearchOverlay({
     [mode, setUserMode],
   );
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (isComposingEnter(event)) return;
 
     if (questActionMenu) {
@@ -973,345 +963,278 @@ export function UniversalSearchOverlay({
   const placeholder =
     mode === "recent"
       ? currentSessionAvailable
-        ? "Browse recent conversations or search this session's messages..."
-        : "Browse recent conversations..."
+        ? "Search this session's messages"
+        : "Browse recent conversations"
       : mode === "quests"
-        ? "Search quests..."
+        ? "Search quests"
         : mode === "sessions"
-          ? "Search sessions..."
+          ? "Search sessions"
           : mode === "starred"
-            ? "Search starred messages..."
+            ? "Search starred messages"
             : currentSessionAvailable
-              ? "Search messages..."
+              ? "Search messages"
               : "Open a session to search messages";
 
-  const fixedPresentation = presentation === "fixed";
-  const usesRecentGeometry = mode === "recent" || (mode === "messages" && recentSearchOrigin);
-
   return (
-    <div
-      className={
-        fixedPresentation
-          ? usesRecentGeometry
-            ? "fixed inset-0 z-[80] flex items-start justify-center bg-black/35 px-0 py-0 sm:px-6 sm:pt-[6vh]"
-            : "fixed inset-0 z-[80] flex items-start justify-center bg-black/35 px-3 pt-[9vh] sm:px-6"
-          : "relative flex items-start justify-center px-0 py-0"
+    <SearchSheet
+      label="Universal Search"
+      presentation={presentation}
+      layerClassName="z-[80]"
+      onClose={onClose}
+      onKeyDown={handleKeyDown}
+      dataMode={mode}
+      header={
+        <SearchModeSwitch
+          label="Search mode"
+          options={MODE_OPTIONS}
+          value={mode}
+          onChange={setUserMode}
+          testId="universal-search-mode"
+        />
       }
-      onMouseDown={(event) => {
-        if (fixedPresentation && event.target === event.currentTarget) onClose();
-      }}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Universal Search"
-        className={`w-full overflow-hidden border border-cc-border bg-cc-card text-cc-fg shadow-2xl ${
-          usesRecentGeometry
-            ? "flex h-full max-w-5xl flex-col rounded-none sm:h-auto sm:max-h-[88vh] sm:rounded-xl"
-            : "max-w-3xl rounded-xl"
-        }`}
-        onKeyDown={handleKeyDown}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="sr-only" aria-live="polite" aria-atomic="true">
-          {modeLabel} mode
-        </div>
-        <div className="border-b border-cc-border bg-cc-sidebar/80 px-3 py-3 sm:px-4">
-          <div className="flex items-center gap-2">
-            <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4 shrink-0 text-cc-muted">
-              <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
-            </svg>
-            <input
-              ref={inputRef}
-              type="text"
-              role="searchbox"
-              inputMode="search"
-              aria-label="Universal Search query"
-              value={query}
-              onChange={(event) => setUserQuery(event.target.value)}
-              placeholder={placeholder}
-              className="min-w-0 flex-1 bg-transparent text-sm text-cc-fg outline-none placeholder:text-cc-muted"
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {modeLabel} mode
+      </div>
+      <span role="status" className="sr-only">
+        {loading ? "Searching..." : `${results.length}${hasMore ? "+" : ""} ${modeLabel.toLowerCase()}`}
+      </span>
+      <SearchField
+        inputRef={inputRef}
+        type="text"
+        role="searchbox"
+        inputMode="search"
+        aria-label="Universal Search query"
+        value={query}
+        onChange={(event) => setUserQuery(event.target.value)}
+        placeholder={placeholder}
+        trailing={
+          loading ? (
+            <span
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-cc-muted/30 border-t-cc-primary motion-safe:animate-spin"
             />
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg sm:h-7 sm:w-7"
-              title="Close Universal Search"
-              aria-label="Close Universal Search"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                <path
-                  fillRule="evenodd"
-                  d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-cc-border/70 bg-cc-bg/70 p-0.5">
-              {MODE_OPTIONS.map((option) => {
-                const active = mode === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setUserMode(option.id)}
-                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      active
-                        ? "bg-cc-primary/18 text-cc-primary"
-                        : "text-cc-muted hover:bg-cc-hover/70 hover:text-cc-fg"
-                    }`}
-                    title={
-                      option.id === "recent" ? "Browse recent conversations" : `Search ${option.label.toLowerCase()}`
-                    }
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              <span role="status" className="inline-flex items-center gap-1.5">
-                {loading ? (
-                  <>
-                    <span
-                      aria-hidden="true"
-                      className="h-3 w-3 shrink-0 rounded-full border-2 border-cc-muted/30 border-t-cc-primary motion-safe:animate-spin"
-                    />
-                    Searching...
-                  </>
-                ) : (
-                  `${results.length}${hasMore ? "+" : ""} ${modeLabel.toLowerCase()}`
-                )}
-              </span>
-              <span className="hidden sm:inline">Tab switches modes</span>
-            </div>
-          </div>
-          {mode === "recent" && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-cc-border/70 bg-cc-bg/60 p-0.5">
-                {RECENT_FILTERS.map((filter) => {
-                  const active = recentFilter === filter.id;
-                  return (
-                    <button
-                      key={filter.id}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => setRecentFilter(filter.id)}
-                      className={`whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                        active ? "bg-cc-primary/18 text-cc-primary" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-                      }`}
-                    >
-                      {filter.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {(recentMeta?.sessionSpaces.length ?? 0) > 1 && (
-                <select
-                  aria-label="Filter recent conversations by Session Space"
-                  value={recentSessionSpaceId ?? ""}
-                  onChange={(event) => setRecentSessionSpaceId(event.target.value || null)}
-                  className="max-w-48 rounded-lg border border-cc-border bg-cc-bg px-2 py-1 text-[11px] text-cc-fg outline-none focus:border-cc-primary/50"
-                >
-                  <option value="">All Session Spaces</option>
-                  {recentMeta?.sessionSpaces.map((space) => (
-                    <option key={space.id} value={space.id}>
-                      {space.name} ({space.count})
-                    </option>
-                  ))}
-                </select>
-              )}
-              <span className="ml-auto text-[11px] text-cc-muted">
-                {recentMeta?.totalRecentGroups ?? results.length} recent destinations · limit {recentMeta?.limit ?? 50}
-              </span>
-            </div>
-          )}
-          {mode === "sessions" && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {SESSION_FILTERS.map((filter) => {
-                const active = sessionFilters[filter.id];
-                return (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setSessionFilters((current) => ({ ...current, [filter.id]: !current[filter.id] }))}
-                    className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-                      active
-                        ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
-                        : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {mode === "messages" && currentSessionAvailable && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 text-[11px] text-cc-muted">{messageScopeLabel}</span>
-              {isLeaderSession && (
-                <div className="mr-1 flex items-center gap-1 rounded-lg border border-cc-border/70 bg-cc-bg/60 p-0.5">
-                  <button
-                    type="button"
-                    aria-pressed={effectiveMessageScope === "current_thread"}
-                    disabled={!currentThreadKey || isAllThreadsKey(currentThreadKey)}
-                    onClick={() => setMessageSettings((current) => ({ ...current, scope: "current_thread" }))}
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                      effectiveMessageScope === "current_thread"
-                        ? "bg-cc-primary/18 text-cc-primary"
-                        : currentThreadKey && !isAllThreadsKey(currentThreadKey)
-                          ? "text-cc-muted hover:bg-cc-hover/70 hover:text-cc-fg"
-                          : "cursor-not-allowed text-cc-muted/45"
-                    }`}
-                  >
-                    Current tab
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={effectiveMessageScope === "leader_all_tabs"}
-                    onClick={() => setMessageSettings((current) => ({ ...current, scope: "leader_all_tabs" }))}
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                      effectiveMessageScope === "leader_all_tabs"
-                        ? "bg-cc-primary/18 text-cc-primary"
-                        : "text-cc-muted hover:bg-cc-hover/70 hover:text-cc-fg"
-                    }`}
-                  >
-                    Across tabs
-                  </button>
-                </div>
-              )}
-              {MESSAGE_FILTERS.map((filter) => {
-                const active = messageSettings.filters[filter.id];
-                return (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() =>
-                      setMessageSettings((current) => ({
-                        ...current,
-                        filters: { ...current.filters, [filter.id]: !current.filters[filter.id] },
-                      }))
-                    }
-                    className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-                      active
-                        ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
-                        : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div
-          ref={listRef}
-          onScroll={handleScroll}
-          className={`overflow-y-auto p-2 ${
-            usesRecentGeometry ? "min-h-0 flex-1 sm:max-h-[72vh]" : "max-h-[58vh] sm:max-h-[62vh]"
-          }`}
-        >
-          {mode === "messages" && !currentSessionAvailable ? (
-            <EmptySearchState
-              title="Current session required"
-              detail="Open a session to search its messages. Recent, Quests, Sessions, and Starred remain available."
-            />
-          ) : error ? (
-            <EmptySearchState title="Search failed" detail="Try again or switch modes." />
-          ) : results.length === 0 && loading ? (
-            <SearchSkeleton />
-          ) : results.length === 0 ? (
-            <EmptySearchState
-              title="No results"
-              detail={
-                mode === "recent"
-                  ? recentFilter !== "all" || recentSessionSpaceId
-                    ? "No recent conversations match these filters."
-                    : "No recent conversations are available yet."
-                  : mode === "messages" && !liveMessageQuery
-                    ? "Enter a query to search messages."
-                    : mode === "starred"
-                      ? debouncedQuery.trim()
-                        ? "No starred messages match."
-                        : "No starred messages yet."
-                      : debouncedQuery.trim()
-                        ? "Try a shorter query."
-                        : "Nothing to show yet."
+          ) : null
+        }
+      />
+      {/* Recent browses the user's own messages, so it offers no attention filters; only
+          the Session Space choice, when there is more than one. */}
+      {mode === "recent" && (recentMeta?.sessionSpaces.length ?? 0) > 1 && (
+        <SearchFilterRow>
+          <select
+            aria-label="Filter recent conversations by Session Space"
+            value={recentSessionSpaceId ?? ""}
+            onChange={(event) => setRecentSessionSpaceId(event.target.value || null)}
+            className={`${FILTER_CHIP_CLASS} max-w-48 bg-transparent outline-none ${
+              recentSessionSpaceId ? FILTER_CHIP_ACTIVE_CLASS : FILTER_CHIP_IDLE_CLASS
+            }`}
+          >
+            <option value="">All Session Spaces</option>
+            {recentMeta?.sessionSpaces.map((space) => (
+              <option key={space.id} value={space.id}>
+                {space.name} ({space.count})
+              </option>
+            ))}
+          </select>
+        </SearchFilterRow>
+      )}
+      {mode === "sessions" && (
+        <SearchFilterRow>
+          {SESSION_FILTERS.map((filter) => (
+            <FilterChip
+              key={filter.id}
+              active={sessionFilters[filter.id]}
+              onClick={() =>
+                setSessionFilters((current) => ({
+                  ...current,
+                  [filter.id]: !current[filter.id],
+                }))
               }
+              label={filter.label}
             />
-          ) : (
-            <div role="listbox" aria-label={`${modeLabel} results`} className="space-y-1">
-              {results.map((result, index) => (
-                <ResultRow
-                  key={`${result.kind}:${result.id}`}
-                  result={result}
-                  query={debouncedQuery}
-                  sessions={sessions}
-                  selected={index === selectedResultIndex}
-                  copiedQuestId={copiedQuestId}
-                  questActionMenu={
-                    result.kind === "quest" && questActionMenu?.resultId === result.id ? questActionMenu : null
-                  }
-                  onPointerMove={() => {
-                    setSelectedIndex(index);
-                    if (questActionMenu && questActionMenu.resultId !== result.id) setQuestActionMenu(null);
-                  }}
-                  onOpen={() => openResult(result)}
-                  onCopyQuestId={copyQuestId}
-                  onOpenQuestActionMenu={() => setQuestActionMenu({ resultId: result.id, selectedActionIndex: 0 })}
-                  onSelectQuestAction={(selectedActionIndex) =>
-                    setQuestActionMenu({ resultId: result.id, selectedActionIndex })
-                  }
-                  onActivateQuestAction={(quest, action) => activateQuestResultAction(quest, action)}
-                  onInlineNavigate={onClose}
-                  onOpenRecentMessage={(bundle, messageId) => {
-                    onOpenMessage(bundle.sessionId, messageId, bundle.ownerThreadKey);
-                    onClose();
-                  }}
-                />
-              ))}
-              {hasMore && (
-                <button
-                  type="button"
-                  onClick={() => setVisibleLimit((current) => current + PAGE_SIZE)}
-                  className="mt-2 w-full rounded-lg border border-cc-border bg-cc-bg/70 px-3 py-2 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
-                >
-                  Load more
-                </button>
-              )}
-            </div>
+          ))}
+        </SearchFilterRow>
+      )}
+      {mode === "messages" && currentSessionAvailable && (
+        <SearchFilterRow>
+          {isLeaderSession && (
+            <>
+              <FilterChip
+                active={effectiveMessageScope === "current_thread"}
+                disabled={!currentThreadKey || isAllThreadsKey(currentThreadKey)}
+                onClick={() =>
+                  setMessageSettings((current) => ({
+                    ...current,
+                    scope: "current_thread",
+                  }))
+                }
+                label="Current tab"
+              />
+              <FilterChip
+                active={effectiveMessageScope === "leader_all_tabs"}
+                onClick={() =>
+                  setMessageSettings((current) => ({
+                    ...current,
+                    scope: "leader_all_tabs",
+                  }))
+                }
+                label="Across tabs"
+              />
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px shrink-0 bg-cc-border" />
+            </>
           )}
-          {mode === "recent" && !loading && (
-            <div className="mt-3 flex flex-col gap-2 border-t border-cc-border/70 px-2 pt-3 text-[11px] text-cc-muted sm:flex-row sm:items-center sm:justify-between">
-              <span>{recentMeta?.coverageNotice || "Recent is bounded to the latest destinations."}</span>
+          {MESSAGE_FILTERS.map((filter) => (
+            <FilterChip
+              key={filter.id}
+              active={messageSettings.filters[filter.id]}
+              onClick={() =>
+                setMessageSettings((current) => ({
+                  ...current,
+                  filters: {
+                    ...current.filters,
+                    [filter.id]: !current.filters[filter.id],
+                  },
+                }))
+              }
+              label={filter.label}
+            />
+          ))}
+          <span className="ml-1 shrink-0 text-[11.5px] text-cc-muted">{messageScopeLabel}</span>
+        </SearchFilterRow>
+      )}
+
+      <div ref={listRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto pb-6">
+        {mode === "messages" && !currentSessionAvailable ? (
+          <EmptySearchState
+            title="Current session required"
+            detail="Open a session to search its messages. Recent, Quests, Sessions, and Starred remain available."
+          />
+        ) : error ? (
+          <EmptySearchState title="Search failed" detail="Try again or switch modes." />
+        ) : results.length === 0 && loading ? (
+          <SearchSkeleton />
+        ) : results.length === 0 ? (
+          <EmptySearchState
+            title="No results"
+            detail={
+              mode === "recent"
+                ? recentSessionSpaceId
+                  ? "No recent conversations match these filters."
+                  : "No recent conversations are available yet."
+                : mode === "messages" && !liveMessageQuery
+                  ? "Enter a query to search messages."
+                  : mode === "starred"
+                    ? debouncedQuery.trim()
+                      ? "No starred messages match."
+                      : "No starred messages yet."
+                    : debouncedQuery.trim()
+                      ? "Try a shorter query."
+                      : "Nothing to show yet."
+            }
+          />
+        ) : (
+          <div role="listbox" aria-label={`${modeLabel} results`}>
+            {results.map((result, index) => (
+              <ResultRow
+                key={`${result.kind}:${result.id}`}
+                result={result}
+                query={debouncedQuery}
+                sessions={sessions}
+                selected={index === selectedResultIndex}
+                copiedQuestId={copiedQuestId}
+                questActionMenu={
+                  result.kind === "quest" && questActionMenu?.resultId === result.id ? questActionMenu : null
+                }
+                onPointerMove={() => {
+                  setSelectedIndex(index);
+                  if (questActionMenu && questActionMenu.resultId !== result.id) setQuestActionMenu(null);
+                }}
+                onOpen={() => openResult(result)}
+                onCopyQuestId={copyQuestId}
+                onOpenQuestActionMenu={() =>
+                  setQuestActionMenu({
+                    resultId: result.id,
+                    selectedActionIndex: 0,
+                  })
+                }
+                onSelectQuestAction={(selectedActionIndex) =>
+                  setQuestActionMenu({
+                    resultId: result.id,
+                    selectedActionIndex,
+                  })
+                }
+                onActivateQuestAction={(quest, action) => activateQuestResultAction(quest, action)}
+                onInlineNavigate={onClose}
+                onOpenRecentMessage={(bundle, messageId) => {
+                  onOpenMessage(bundle.sessionId, messageId, bundle.ownerThreadKey);
+                  onClose();
+                }}
+              />
+            ))}
+            {hasMore && (
               <button
                 type="button"
-                onClick={() => setUserMode("messages")}
-                className="shrink-0 rounded-lg border border-cc-border bg-cc-bg px-3 py-1.5 font-medium text-cc-fg hover:bg-cc-hover"
+                onClick={() => setVisibleLimit((current) => current + PAGE_SIZE)}
+                className="w-full px-4 py-3 text-left text-[13px] text-cc-primary"
               >
-                {currentSessionAvailable ? "Search this session's messages" : "Open Messages"}
+                Load more
               </button>
-            </div>
-          )}
-        </div>
-      </section>
+            )}
+          </div>
+        )}
+        {mode === "recent" && !loading && recentMeta?.coverageNotice && (
+          <p className="px-4 pt-3 text-[11.5px] text-cc-muted">{recentMeta.coverageNotice}</p>
+        )}
+      </div>
+    </SearchSheet>
+  );
+}
+
+const FILTER_CHIP_CLASS = "h-7 shrink-0 whitespace-nowrap rounded-full border px-3 text-[12px] transition-colors";
+const FILTER_CHIP_ACTIVE_CLASS = "border-cc-primary/40 bg-cc-primary/10 text-cc-primary";
+const FILTER_CHIP_IDLE_CLASS = "border-cc-border text-cc-muted hover:text-cc-fg";
+
+/** The current mode's filters, one scrollable line under the search box. */
+function SearchFilterRow({ children }: { children: ReactNode }) {
+  return (
+    <div className={`flex shrink-0 items-center gap-1.5 overflow-x-auto px-4 pb-2 ${HIDDEN_SCROLLBAR_CLASS}`}>
+      {children}
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  disabled = false,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={`${FILTER_CHIP_CLASS} ${active ? FILTER_CHIP_ACTIVE_CLASS : FILTER_CHIP_IDLE_CLASS} disabled:cursor-not-allowed disabled:opacity-45`}
+    >
+      {label}
+    </button>
   );
 }
 
 function SearchSkeleton() {
   return (
-    <div className="space-y-2 p-2" aria-label="Searching">
+    <div aria-label="Searching">
       {[0, 1, 2].map((item) => (
-        <div key={item} className="h-14 animate-pulse rounded-lg bg-cc-hover/60" />
+        <div key={item} className={SEARCH_ROW_CLASS}>
+          <span className="h-10 w-1 shrink-0 rounded-full bg-cc-hover" />
+          <span className="h-10 flex-1 animate-pulse rounded-lg bg-cc-hover/60" />
+        </div>
       ))}
     </div>
   );
@@ -1319,9 +1242,9 @@ function SearchSkeleton() {
 
 function EmptySearchState({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="px-4 py-10 text-center">
-      <div className="text-sm font-medium text-cc-fg">{title}</div>
-      <div className="mt-1 text-xs text-cc-muted">{detail}</div>
+    <div className="px-4 py-6">
+      <div className="text-[14px] text-cc-fg">{title}</div>
+      <div className="mt-0.5 text-[13px] text-cc-muted">{detail}</div>
     </div>
   );
 }
@@ -1425,11 +1348,8 @@ function ResultOption({
       aria-selected={selected}
       onPointerMove={onPointerMove}
       onClick={onOpen}
-      className={`w-full cursor-pointer rounded-lg border px-3 py-2 text-left transition-colors ${
-        selected
-          ? "border-cc-primary/35 bg-cc-primary/12"
-          : "border-transparent bg-transparent hover:border-cc-border hover:bg-cc-hover/70"
-      }`}
+      // Keyboard selection shows on wide screens only; on a phone it would mark the first row for no reason.
+      className={`${SEARCH_ROW_CLASS} relative cursor-pointer ${selected ? "md:bg-cc-hover/60" : "hover:bg-cc-hover/40"}`}
     >
       {children}
     </div>
@@ -1470,6 +1390,7 @@ function QuestResultRow({
   const workerSessionNum = sessionNumForId(sessions, workerSessionId);
   const actions = getQuestResultActions(quest, sessions);
   const selectedActionIndex = Math.min(actionMenu?.selectedActionIndex ?? 0, actions.length - 1);
+  const status = getQuestRecordStatusTheme(quest);
   function handleInteractiveKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === "Enter" || event.key === " ") event.stopPropagation();
   }
@@ -1485,125 +1406,138 @@ function QuestResultRow({
   }
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
-      <div className="relative flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <QuestInlineLink
-              questId={quest.questId}
-              stopPropagation
-              hoverCardZIndexClassName="z-[90]"
-              onNavigate={onInlineNavigate}
-              className="shrink-0 font-mono-code text-[11px] text-cc-primary hover:underline"
-            />
-            <button
-              type="button"
-              className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-transparent text-cc-muted transition-colors hover:border-cc-border hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
-                copied ? "text-emerald-300" : ""
-              }`}
-              aria-label={`Copy quest ID ${quest.questId}`}
-              title={copied ? `Copied ${quest.questId}` : `Copy ${quest.questId}`}
-              onKeyDown={handleInteractiveKeyDown}
-              onClick={handleCopyClick}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
-                <rect x="5" y="3" width="8" height="10" rx="1.5" />
-                <path d="M3 11V5.5A2.5 2.5 0 015.5 3H9" />
-              </svg>
-            </button>
-            <span className="truncate text-sm font-medium text-cc-fg">{quest.title}</span>
-          </div>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
-            <span className="rounded-md bg-cc-hover px-1.5 py-0.5">{quest.status}</span>
-            {leaderSessionId && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
-                <span>leader</span>
-                <SessionInlineLink
-                  sessionId={leaderSessionId}
-                  sessionNum={leaderSessionNum}
-                  threadKey={quest.questId}
+      <SearchRowContent
+        barColor={`var(--color-cc-status-${QUEST_STATUS_BAR[quest.status] ?? "idea"})`}
+        barQuiet={quest.status === "done"}
+        meta={
+          <SearchMeta
+            truncate={-1}
+            items={[
+              <span className="inline-flex items-center gap-0.5">
+                <QuestInlineLink
+                  questId={quest.questId}
                   stopPropagation
                   hoverCardZIndexClassName="z-[90]"
                   onNavigate={onInlineNavigate}
-                  className="font-mono-code text-cc-primary hover:underline"
-                >
-                  {`#${leaderSessionNum ?? "?"}`}
-                </SessionInlineLink>
-              </span>
-            )}
-            {owner?.kind === "codex" ? (
-              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
-                <span>owner</span>
-                <CodexQuestOwnerChip owner={owner} stopPropagation />
-              </span>
-            ) : workerSessionId ? (
-              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
-                <span>worker</span>
-                <SessionInlineLink
-                  sessionId={workerSessionId}
-                  sessionNum={workerSessionNum}
-                  stopPropagation
-                  hoverCardZIndexClassName="z-[90]"
-                  onNavigate={onInlineNavigate}
-                  className="font-mono-code text-cc-primary hover:underline"
-                >
-                  {`#${workerSessionNum ?? "?"}`}
-                </SessionInlineLink>
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1 text-[11px] text-cc-muted">
-          <span>{formatRelativeTime(questRecency(quest))}</span>
-          <button
-            type="button"
-            className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
-              selected || actionMenu ? "text-cc-fg" : "text-cc-muted/75"
-            }`}
-            aria-label={`More options for ${quest.questId}`}
-            title="More options (Right Arrow)"
-            onKeyDown={handleInteractiveKeyDown}
-            onClick={handleOpenActionMenu}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
-              <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
-        {actionMenu && (
-          <div
-            role="menu"
-            aria-label={`Actions for ${quest.questId}`}
-            className="absolute right-0 top-8 z-[90] min-w-44 rounded-lg border border-cc-border bg-cc-card py-1 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {actions.map((action, index) => {
-              const actionSelected = index === selectedActionIndex;
-              return (
+                  className="font-mono-code hover:underline"
+                />
                 <button
-                  key={action.id}
                   type="button"
-                  role="menuitem"
-                  className={`flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[11px] transition-colors ${
-                    actionSelected ? "bg-cc-primary/15 text-cc-primary" : "text-cc-fg hover:bg-cc-hover"
+                  className={`inline-flex h-5 w-5 items-center justify-center rounded hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+                    copied ? "text-cc-success" : ""
                   }`}
-                  onMouseEnter={() => onSelectAction(index)}
+                  aria-label={`Copy quest ID ${quest.questId}`}
+                  title={copied ? `Copied ${quest.questId}` : `Copy ${quest.questId}`}
                   onKeyDown={handleInteractiveKeyDown}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onActivateAction(quest, action);
-                  }}
+                  onClick={handleCopyClick}
                 >
-                  <span>{action.label}</span>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+                    <rect x="5" y="3" width="8" height="10" rx="1.5" />
+                    <path d="M3 11V5.5A2.5 2.5 0 015.5 3H9" />
+                  </svg>
                 </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              </span>,
+              <span className={status.text}>{status.label}</span>,
+              // Time comes before the people, so a narrow row clips a session number rather than when.
+              timeAgo(questRecency(quest)),
+              leaderSessionId ? (
+                <span className="inline-flex items-center gap-1">
+                  <span>leader</span>
+                  <SessionInlineLink
+                    sessionId={leaderSessionId}
+                    sessionNum={leaderSessionNum}
+                    threadKey={quest.questId}
+                    stopPropagation
+                    hoverCardZIndexClassName="z-[90]"
+                    onNavigate={onInlineNavigate}
+                    className="font-mono-code hover:underline"
+                  >
+                    {`#${leaderSessionNum ?? "?"}`}
+                  </SessionInlineLink>
+                </span>
+              ) : null,
+              owner?.kind === "codex" ? (
+                <span className="inline-flex items-center gap-1">
+                  <span>owner</span>
+                  <CodexQuestOwnerChip owner={owner} stopPropagation />
+                </span>
+              ) : workerSessionId ? (
+                <span className="inline-flex items-center gap-1">
+                  <span>worker</span>
+                  <SessionInlineLink
+                    sessionId={workerSessionId}
+                    sessionNum={workerSessionNum}
+                    stopPropagation
+                    hoverCardZIndexClassName="z-[90]"
+                    onNavigate={onInlineNavigate}
+                    className="font-mono-code hover:underline"
+                  >
+                    {`#${workerSessionNum ?? "?"}`}
+                  </SessionInlineLink>
+                </span>
+              ) : null,
+            ]}
+          />
+        }
+      >
+        <span className="truncate text-[14px] text-cc-fg">{quest.title}</span>
+      </SearchRowContent>
+      <button
+        type="button"
+        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+          actionMenu ? "text-cc-fg" : "text-cc-muted/75"
+        }`}
+        aria-label={`More options for ${quest.questId}`}
+        title="More options (Right Arrow)"
+        onKeyDown={handleInteractiveKeyDown}
+        onClick={handleOpenActionMenu}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+          <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {actionMenu && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${quest.questId}`}
+          className="absolute right-4 top-full z-[90] -mt-1 min-w-44 rounded-lg border border-cc-border bg-cc-card py-1 shadow-xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {actions.map((action, index) => {
+            const actionSelected = index === selectedActionIndex;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                role="menuitem"
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors ${
+                  actionSelected ? "bg-cc-hover text-cc-fg" : "text-cc-fg hover:bg-cc-hover"
+                }`}
+                onMouseEnter={() => onSelectAction(index)}
+                onKeyDown={handleInteractiveKeyDown}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onActivateAction(quest, action);
+                }}
+              >
+                <span>{action.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </ResultOption>
   );
 }
+
+/** Quest status token for the row's bar; finished quests fade like finished tabs in Find. */
+const QUEST_STATUS_BAR: Record<string, string> = {
+  idea: "idea",
+  refined: "refined",
+  in_progress: "progress",
+  done: "done",
+};
 
 function SessionResultRow({
   session,
@@ -1620,45 +1554,29 @@ function SessionResultRow({
 }) {
   const displayName = sessionDisplayName(session);
   const nameParts = getHighlightParts(displayName, query);
-  const metadata = [
-    session.archived ? "archived" : null,
-    session.gitBranch ? `branch ${session.gitBranch}` : null,
-    session.cwd || session.repoRoot || null,
-    session.backendType ?? null,
-  ].filter((item): item is string => Boolean(item));
-
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 rounded-md bg-cc-hover px-1.5 py-0.5 font-mono-code text-[10px] text-cc-muted">
-              {typeof session.sessionNum === "number" ? `#${session.sessionNum}` : "session"}
-            </span>
-            <span className="truncate text-sm font-medium text-cc-fg">
-              {nameParts.map((part, index) =>
-                part.matched ? (
-                  <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-amber-300/25 px-0.5 text-amber-100">
-                    {part.text}
-                  </mark>
-                ) : (
-                  <span key={`${part.text}-${index}`}>{part.text}</span>
-                ),
-              )}
-            </span>
-          </div>
-          {metadata.length > 0 && (
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
-              {metadata.map((item) => (
-                <span key={item} className="max-w-[320px] truncate rounded-md border border-cc-border px-1.5 py-0.5">
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="shrink-0 text-[11px] text-cc-muted">{formatRelativeTime(sessionRecency(session))}</div>
-      </div>
+      <SearchRowContent
+        barColor={session.isOrchestrator ? "var(--color-cc-fg)" : "var(--color-cc-muted)"}
+        barQuiet={session.archived === true}
+        meta={
+          <SearchMeta
+            truncate={3}
+            items={[
+              typeof session.sessionNum === "number" ? `#${session.sessionNum}` : "session",
+              session.archived ? "archived" : null,
+              session.gitBranch ? `branch ${session.gitBranch}` : null,
+              session.cwd || session.repoRoot || null,
+              session.backendType ?? null,
+              timeAgo(sessionRecency(session)),
+            ]}
+          />
+        }
+      >
+        <span className="truncate text-[14px] text-cc-fg">
+          <HighlightedText parts={nameParts} />
+        </span>
+      </SearchRowContent>
     </ResultOption>
   );
 }
@@ -1676,54 +1594,50 @@ function MessageResultRow({
   onPointerMove: () => void;
   onOpen: () => void;
 }) {
-  const parts = getHighlightParts(message.snippet, query);
-  const badgeLabel = message.category;
   const sessionLabel = formatMessageResultSessionLabel(message);
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-cc-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
-              {badgeLabel}
-            </span>
-            {message.starred && <StarIcon className="h-3.5 w-3.5 text-amber-200" />}
-            {sessionLabel && (
-              <span className="max-w-44 truncate rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
-                {sessionLabel}
-              </span>
-            )}
-            {"archived" in message && message.archived && (
-              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
-                Archived
-              </span>
-            )}
-            {"reviewerOf" in message && typeof message.reviewerOf === "number" && (
-              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
-                Reviewer
-              </span>
-            )}
-            {message.sourceLabel && (
-              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
-                {message.sourceLabel}
-              </span>
-            )}
-            <span className="text-[11px] text-cc-muted">{formatRelativeTime(message.timestamp)}</span>
-          </div>
-          <div className="mt-1 line-clamp-2 text-sm text-cc-fg">
-            {parts.map((part, index) =>
-              part.matched ? (
-                <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-amber-300/25 px-0.5 text-amber-100">
-                  {part.text}
-                </mark>
-              ) : (
-                <span key={`${part.text}-${index}`}>{part.text}</span>
-              ),
-            )}
-          </div>
-        </div>
-      </div>
+      <SearchRowContent
+        barColor={message.category === "user" ? "var(--color-cc-fg)" : "var(--color-cc-muted)"}
+        meta={
+          <SearchMeta
+            truncate={1}
+            items={[
+              <span className="inline-flex items-center gap-1 capitalize">
+                {message.starred && <StarIcon className="h-3 w-3 text-amber-400" />}
+                {message.category}
+              </span>,
+              sessionLabel,
+              "archived" in message && message.archived ? "Archived" : null,
+              "reviewerOf" in message && typeof message.reviewerOf === "number" ? "Reviewer" : null,
+              message.sourceLabel,
+              timeAgo(message.timestamp),
+            ]}
+          />
+        }
+      >
+        <span className="line-clamp-2 text-[14px] text-cc-fg">
+          <HighlightedText parts={getHighlightParts(message.snippet, query)} />
+        </span>
+      </SearchRowContent>
     </ResultOption>
+  );
+}
+
+/** Query matches use the same tint as Find's. */
+function HighlightedText({ parts }: { parts: ReadonlyArray<{ text: string; matched: boolean }> }) {
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.matched ? (
+          <mark key={`${part.text}-${index}`} className="rounded-sm bg-cc-primary/25 text-inherit">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={`${part.text}-${index}`}>{part.text}</span>
+        ),
+      )}
+    </>
   );
 }
 

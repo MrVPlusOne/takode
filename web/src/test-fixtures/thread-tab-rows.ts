@@ -54,5 +54,5 @@ export function listedThreadTab(threadKey: string, container?: HTMLElement): HTM
 /** Closes the all-tabs sheet if it is open. */
 export function closeAllThreadTabs(): void {
   const backdrop = screen.queryByTestId("thread-tab-switcher-backdrop");
-  if (backdrop) fireEvent.click(backdrop);
+  if (backdrop) fireEvent.mouseDown(backdrop);
 }
