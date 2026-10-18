@@ -1438,7 +1438,6 @@ describe("POST /api/transcribe", () => {
     ensureBridgeSession(bridge, "session-1", { taskHistory: [], messageHistory: [] });
 
     const rawTranscript = "我想要你帮我修复这个错误";
-    // Over 3x the raw character count, but not its UTF-8 size, so the hallucination guard keeps it.
     const translated = "I want you to help me fix this error, please.";
     vi.mocked(fetch)
       .mockResolvedValueOnce(

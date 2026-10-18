@@ -28,7 +28,6 @@ const {
   isSystemNoise,
   MAX_TURNS,
   MIN_CHARS_FOR_ENHANCEMENT,
-  HALLUCINATION_LENGTH_RATIO,
   STT_PROMPT_MAX_CHARS,
 } = _testHelpers;
 
@@ -673,6 +672,25 @@ describe("enhanceTranscript", () => {
     // Should NOT have skipReason "no context" — it should attempt the call
     expect(result._debug?.skipReason).not.toBe("no context");
   });
+
+  it("uses the enhancer output as returned, however much longer than the transcript", async () => {
+    // There is no length guard: the prompt keeps the enhancer on task, and the user can discard an
+    // unwanted result in the composer. Output many times the transcript's size is still inserted.
+    const transcript =
+      "fix the auth token refresh bug in the middleware and then rerun the integration tests before lunch, please";
+    const longOutput = `${transcript}. `.repeat(10).trim();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ choices: [{ message: { content: longOutput }, finish_reason: "stop" }] }));
+    try {
+      const result = await enhanceTranscript(transcript, [], defaultConfig, "key", { sessionName: "Auth session" });
+      expect(result.enhanced).toBe(true);
+      expect(result.text).toBe(longOutput);
+      expect(result._debug?.skipReason).toBeUndefined();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 // ─── Custom enhancer instructions ───────────────────────────────────────────
@@ -722,19 +740,6 @@ describe("custom enhancer instructions", () => {
     const result = await enhanceTranscript("修复这个错误", null, { ...config, enhancementInstructions: "" }, "key");
     expect(result._debug?.skipReason).toBe("too short");
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("measures the hallucination guard in UTF-8 bytes so translations out of Chinese survive", async () => {
-    // 7 Chinese characters (21 bytes) -> 31 English characters: over 3x the characters, under 3x the bytes.
-    mockLlm("Please fix this bug right away.");
-    const kept = await enhanceTranscript("请立即修复错误", null, config, "key");
-    expect(kept.enhanced).toBe(true);
-
-    // Runaway output is still discarded.
-    mockLlm("x".repeat(200));
-    const discarded = await enhanceTranscript("请立即修复错误", null, config, "key");
-    expect(discarded.enhanced).toBe(false);
-    expect(discarded._debug?.skipReason).toBe("hallucination guard");
   });
 
   it("adds instructions to voice edit and voice append system prompts", async () => {

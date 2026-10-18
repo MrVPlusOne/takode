@@ -73,7 +73,7 @@ function originalEnhancementComparisonText(entry: TranscriptionLogEntry): string
   if (!entry.enhancement) return "Original enhancement was not attempted.";
   if (entry.enhancement.enhancedText !== null) return entry.enhancement.enhancedText;
   if (entry.enhancement.skipReason) return "(skipped: " + entry.enhancement.skipReason + ")";
-  return "(null — skipped, failed, or hallucination guard)";
+  return "(null — skipped or failed)";
 }
 
 interface TranscriptionDebugPanelProps {
@@ -903,9 +903,7 @@ export function TranscriptionDebugPanel({
                                     originalLabel="Original enhanced output"
                                     replayLabel="Replay enhanced output"
                                     originalText={originalEnhancementComparisonText(expandedEntry)}
-                                    replayText={
-                                      variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"
-                                    }
+                                    replayText={variant.enhancedText ?? "(null — skipped or failed)"}
                                     highlight={
                                       expandedEntry.enhancement?.enhancedText !== null &&
                                       expandedEntry.enhancement?.enhancedText !== undefined &&
@@ -994,8 +992,7 @@ export function TranscriptionDebugPanel({
                             Enhanced Result
                           </span>
                           <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
-                            {expandedEntry.enhancement.enhancedText ??
-                              "(null — skipped, failed, or hallucination guard)"}
+                            {expandedEntry.enhancement.enhancedText ?? "(null — skipped or failed)"}
                           </pre>
                         </div>
                       </>
