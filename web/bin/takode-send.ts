@@ -9,6 +9,7 @@ import {
   parseFlags,
   readStdinText,
 } from "./takode-core.js";
+import { normalizeThreadTarget } from "../shared/thread-routing.js";
 
 /** Server record of a message queued for a session that was not running (server/message-delivery-tracker.ts). */
 export interface MessageDelivery {
@@ -20,6 +21,21 @@ export interface MessageDelivery {
   followUp: boolean;
 }
 
+/** The thread a message named with --thread was filed under on the receiving leader. */
+interface SentThread {
+  threadKey: string;
+  /** The named quest does not exist, so the message went to Main. */
+  questNotFound?: string;
+  /** The named quest is not on the receiving leader's board. */
+  notOnRecipientBoard?: true;
+}
+
+const SEND_FLAGS = ["--json", "--correction", "--stdin", "--thread"];
+const THREAD_REQUIRED =
+  "Messages to a leader need --thread: the receiving leader's thread for this message. " +
+  "Use --thread q-N for the quest it is about when that leader runs it or you are handing it over, " +
+  "otherwise --thread main. Name the receiver's thread, not the one you are working in.";
+
 const POLL_MS = 1_000;
 /** The server ends `pending` after its 20 s wait window; this only guards against a server that never does. */
 const MAX_WAIT_MS = 40_000;
@@ -27,15 +43,16 @@ const MAX_WAIT_MS = 40_000;
 export async function handleSend(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const usage =
-    "Usage: takode send <session> <message> [--correction] [--json]\n       takode send <session> --stdin [--correction] [--json]";
+    "Usage: takode send <session> <message> [--thread <main|q-N>] [--correction] [--json]\n       takode send <session> --stdin [--thread <main|q-N>] [--correction] [--json]";
   const flags = parseFlags(args.slice(1));
-  assertKnownFlags(flags, new Set(["json", "correction", "stdin"]), usage);
+  assertKnownFlags(flags, new Set(["json", "correction", "stdin", "thread"]), usage);
 
   const jsonMode = flags.json === true;
   const isCorrection = flags.correction === true;
   const useStdin = flags.stdin === true;
+  const thread = flags.thread === undefined ? undefined : parseThreadFlag(flags.thread);
 
-  const messageParts = args.slice(1).filter((arg) => arg !== "--json" && arg !== "--correction" && arg !== "--stdin");
+  const messageParts = args.slice(1).filter((arg, i, rest) => !SEND_FLAGS.includes(arg) && rest[i - 1] !== "--thread");
 
   if (!sessionRef) err(usage);
   if (useStdin && messageParts.length > 0) {
@@ -71,6 +88,11 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
       // skip the busy-session guard and herd check. The server accepts them only from leaders.
       const isPeerLeader = targetSession.isOrchestrator === true && targetId !== callerSessionId;
 
+      // A leader files incoming messages under one of its threads, and only the sender
+      // knows which one the message belongs to, so messages to leaders must name it.
+      if (targetSession.isOrchestrator === true && !thread) err(THREAD_REQUIRED);
+      if (targetSession.isOrchestrator !== true && thread) err("--thread applies only to messages to a leader.");
+
       // Guard: block sends to running sessions unless --correction is used
       if (!isPeerLeader && targetSession.isGenerating && !isCorrection) {
         const label = targetSession.name
@@ -95,7 +117,12 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // If error is from our own guards (herd check, running check), re-throw
-      if (msg.includes("not in your herd") || msg.includes("currently working") || msg.includes("archived session")) {
+      if (
+        msg.includes("not in your herd") ||
+        msg.includes("currently working") ||
+        msg.includes("archived session") ||
+        msg.includes("--thread")
+      ) {
         throw e;
       }
       // Other errors (session not found, etc.) — let the send call handle it
@@ -127,8 +154,15 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
   const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/message`, {
     content: cleanContent,
     ...(agentSource ? { agentSource } : {}),
+    ...(thread ? { threadKey: thread } : {}),
     trackDelivery: true,
-  })) as { delivery?: string; paused?: boolean; diagnostic?: string; messageDelivery?: MessageDelivery };
+  })) as {
+    delivery?: string;
+    paused?: boolean;
+    diagnostic?: string;
+    messageDelivery?: MessageDelivery;
+    thread?: SentThread;
+  };
   if (result.messageDelivery) result.messageDelivery = await awaitDelivery(base, result.messageDelivery);
 
   if (jsonMode) {
@@ -137,6 +171,7 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
   }
 
   const target = formatInlineText(sessionRef);
+  if (result.thread) console.log(describeSentThread(result.thread));
   if (result.paused) {
     console.log(
       `[${formatTime(Date.now())}] ✓ Message held for paused session ${target}. ${
@@ -188,4 +223,21 @@ export function printDelivery(
     const later = tracked.followUp ? " You will get a message_delivery herd event when it is delivered or fails." : "";
     console.log(`${time} … ${subject} queued, NOT delivered yet: ${reason}.${later} (${tracked.id})`);
   }
+}
+
+function parseThreadFlag(value: string | boolean): string {
+  const target = typeof value === "string" ? normalizeThreadTarget(value) : null;
+  if (!target) err("--thread must be main or a quest ID such as q-42.");
+  return target.threadKey;
+}
+
+function describeSentThread(thread: SentThread): string {
+  if (thread.questNotFound) {
+    return `Thread: Main (${formatInlineText(thread.questNotFound)} does not exist, so the message went to Main)`;
+  }
+  if (thread.threadKey === "main") return "Thread: Main";
+  const note = thread.notOnRecipientBoard
+    ? " -- not on the receiver's board (expected for a handoff; otherwise check you named the receiver's thread, not your own)"
+    : "";
+  return `Thread: ${thread.threadKey}${note}`;
 }

@@ -77,7 +77,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 - **`[Timer reminder HH:MM]`** -- one timer firing; it carries no answer ID (see Leader Thread Routing for when its result is an answer)
 - **`[Herd HH:MM]`** -- automatic event summary from herded sessions
 - **`[Agent #N HH:MM]`** -- forwarded from another agent/session
-- **`[Leader #N HH:MM]`** -- sent by another leader session with `takode send`; your turn output does not reach it, so reply with `takode send <N>` when a reply is needed
+- **`[Leader #N HH:MM]`** -- sent by another leader session with `takode send`; your turn output does not reach it, so reply with `takode send <N> --thread <its thread>` when a reply is needed
 
 ### Event Types and Reactions
 
@@ -394,11 +394,13 @@ Show leader-answerable prompts for a session: `AskUserQuestion`, `ExitPlanMode`,
 
 These commands require `TAKODE_ROLE=orchestrator`. Non-orchestrator sessions will get a permission error.
 
-### `takode send <session> <message> [--correction]`
+### `takode send <session> <message> [--thread <main|q-N>] [--correction]`
 
 Send a message to a **herded** worker session (injected as a user message). Requires herding first.
 
 You can also send to another **leader** session by its session number, without herding. The recipient sees a `[Leader #N HH:MM]` tag, and its busy state does not block delivery. Only leaders can message a leader, and only a worker's own leader can message that worker.
+
+Messages to a leader require `--thread`, the receiving leader's thread the message belongs in. Use `--thread q-N` when the message is about a quest that leader runs or that you are handing over to it; otherwise use `--thread main`, including for news about your own quests and messages that span several quests. Name the receiver's thread, not the thread you are working in, and do not put a `[thread:...]` marker in the message text. A quest that does not exist falls back to Main, and the result says which thread was used and flags a quest that is not on the receiver's board. Workers have no threads, so `--thread` is not used for them.
 
 **Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
 
@@ -410,6 +412,7 @@ Delivery is reported, not assumed. A message to a running session prints `delive
 takode herd 2
 takode send 2 "Please also add tests for the edge cases"
 takode send 2 "Actually, skip the auth tests" --correction
+takode send 7 "FYI for your q-12: the fix it needs landed" --thread q-12
 ```
 
 **Shell quoting safety.** Do not put complex text payloads directly inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. Use Takode's non-inline input paths instead: `takode send --stdin` for sent messages, and `takode spawn --message-file <path>` or `--message-file -` for spawn dispatches.

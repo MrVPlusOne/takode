@@ -240,7 +240,7 @@ describe("takode send", () => {
 
     try {
       const result = await runTakode(
-        ["send", "leader-b", "memory", "commands", "will", "fail", "--port", String(port)],
+        ["send", "leader-b", "memory", "commands", "will", "fail", "--thread", "Q-12", "--port", String(port)],
         {
           ...process.env,
           COMPANION_SESSION_ID: "leader-a",
@@ -254,9 +254,114 @@ describe("takode send", () => {
         {
           content: "memory commands will fail",
           agentSource: { sessionId: "leader-a", sessionLabel: "#21 Leader A" },
+          threadKey: "q-12",
           trackDelivery: true,
         },
       ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("requires --thread for leader recipients and rejects it for workers", async () => {
+    // A leader files every incoming message under one of its threads and only the
+    // sender knows which, so a leader message without --thread fails before sending.
+    // Workers have no threads, so naming one there is a mistake, as is a malformed value.
+    const messageCalls: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const url = req.url || "";
+      const json = (body: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (url === "/api/takode/me") return json({ sessionId: "leader-a", isOrchestrator: true });
+      if (url === "/api/sessions/leader-b") {
+        return json({ sessionId: "leader-b", sessionNum: 22, isOrchestrator: true });
+      }
+      if (url === "/api/sessions/worker-c") return json({ sessionId: "worker-c", sessionNum: 23 });
+      if (url === "/api/sessions/leader-a/herd") return json([{ sessionId: "worker-c" }]);
+      if (url === "/api/takode/sessions") return json([]);
+      if (req.method === "POST") {
+        messageCalls.push(await readJson(req));
+        return json({ ok: true, delivery: "sent" });
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-a", COMPANION_AUTH_TOKEN: "auth-leader-a" };
+
+    try {
+      const missing = await runTakode(["send", "leader-b", "hello", "--port", String(port)], env);
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toContain("Messages to a leader need --thread");
+
+      const toWorker = await runTakode(["send", "worker-c", "hello", "--thread", "main", "--port", String(port)], env);
+      expect(toWorker.status).toBe(1);
+      expect(toWorker.stderr).toContain("--thread applies only to messages to a leader");
+
+      const malformed = await runTakode(["send", "leader-b", "hello", "--thread", "q-x", "--port", String(port)], env);
+      expect(malformed.status).toBe(1);
+      expect(malformed.stderr).toContain("--thread must be main or a quest ID");
+
+      expect(messageCalls).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("reports the thread the leader filed the message under, including a Main fallback", async () => {
+    // The server answers with the thread it used; the sender must see when a named quest
+    // did not exist (Main fallback) or is not on the receiver's board.
+    let reply: JsonObject = {};
+    const server = createServer(async (req, res) => {
+      const url = req.url || "";
+      const json = (body: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (url === "/api/takode/me") return json({ sessionId: "leader-a", isOrchestrator: true });
+      if (url === "/api/sessions/leader-b") {
+        return json({ sessionId: "leader-b", sessionNum: 22, isOrchestrator: true });
+      }
+      if (url === "/api/takode/sessions") return json([]);
+      if (req.method === "POST") {
+        await readJson(req);
+        return json(reply);
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-a", COMPANION_AUTH_TOKEN: "auth-leader-a" };
+    const send = (thread: string) =>
+      runTakode(["send", "leader-b", "hello", "--thread", thread, "--port", String(port)], env);
+
+    try {
+      reply = {
+        ok: true,
+        delivery: "sent",
+        thread: { threadKey: "main", questNotFound: "q-999" },
+      };
+      const missing = await send("q-999");
+      expect(missing.status).toBe(0);
+      expect(missing.stdout).toContain("Thread: Main (q-999 does not exist, so the message went to Main)");
+
+      reply = {
+        ok: true,
+        delivery: "sent",
+        thread: { threadKey: "q-12", notOnRecipientBoard: true },
+      };
+      const offBoard = await send("q-12");
+      expect(offBoard.stdout).toContain("Thread: q-12 -- not on the receiver's board");
+
+      reply = { ok: true, delivery: "sent", thread: { threadKey: "q-12" } };
+      const onBoard = await send("q-12");
+      expect(onBoard.stdout).toMatch(/Thread: q-12\n/);
     } finally {
       server.close();
     }

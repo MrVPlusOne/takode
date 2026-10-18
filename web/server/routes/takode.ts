@@ -55,6 +55,7 @@ import {
   routeKey,
   sameThreadRoute,
   threadRouteForTarget,
+  type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
@@ -982,7 +983,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (rawThreadKey && routeKey(explicitRoute) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
       return c.json({ error: "threadKey must be main or q-N" }, 400);
     }
-    const threadRoute = explicitRoute ?? inferThreadRouteFromTextContent(body.content) ?? undefined;
+    const explicitThread = explicitRoute
+      ? await resolveSentThread(explicitRoute, session.isOrchestrator ? wsBridge.getSession(id) : undefined)
+      : null;
+    // Senders that name no thread (older CLIs, direct API callers) still get the text guess.
+    const threadRoute = explicitThread?.route ?? inferThreadRouteFromTextContent(body.content) ?? undefined;
+    const threadReport = explicitThread ? { thread: explicitThread.report } : {};
     // Validate optional agentSource label from callers.
     let sessionLabel: string | undefined;
     if (body.agentSource && typeof body.agentSource === "object") {
@@ -1022,6 +1028,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ok: true,
         sessionId: id,
         delivery,
+        ...threadReport,
         paused: true,
         diagnostic: `Session is paused; message held until unpause (${getPauseState(wsBridge.getSession(id))?.queuedMessages.length ?? 0} held).`,
       });
@@ -1039,6 +1046,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       ok: true,
       sessionId: id,
       delivery,
+      ...threadReport,
       ...trackQueuedMessage(delivery, body, id, auth, body.content, threadRoute?.questId),
     });
   });
@@ -1904,4 +1912,39 @@ export function createTakodeRoutes(ctx: RouteContext) {
   });
 
   return api;
+}
+
+/**
+ * Resolve a thread the sender named with `takode send --thread`. A quest that doesn't
+ * exist falls back to Main. The recipient need not have the thread yet (a handoff starts
+ * it), but a quest missing from a leader recipient's board is flagged so a sender who
+ * named its own quest instead of the recipient's notices.
+ */
+async function resolveSentThread(
+  route: ThreadRouteMetadata,
+  leaderRecipient: { board: Map<string, unknown>; completedBoard: Map<string, unknown> } | undefined,
+): Promise<{
+  route: ThreadRouteMetadata;
+  report: {
+    threadKey: string;
+    questNotFound?: string;
+    notOnRecipientBoard?: true;
+  };
+}> {
+  const questId = route.questId;
+  if (!questId) return { route, report: { threadKey: "main" } };
+  if (!(await questStore.getQuest(questId))) {
+    return {
+      route: { threadKey: "main" },
+      report: { threadKey: "main", questNotFound: questId },
+    };
+  }
+  const onBoard = !leaderRecipient || leaderRecipient.board.has(questId) || leaderRecipient.completedBoard.has(questId);
+  return {
+    route,
+    report: {
+      threadKey: questId,
+      ...(onBoard ? {} : { notOnRecipientBoard: true as const }),
+    },
+  };
 }

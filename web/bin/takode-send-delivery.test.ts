@@ -52,6 +52,8 @@ async function sendWithDeliveries(deliveries: Delivery[], sessionDelivery = "que
         "leader-b",
         "take",
         "over",
+        "--thread",
+        "main",
         "--port",
         String(port),
       ],

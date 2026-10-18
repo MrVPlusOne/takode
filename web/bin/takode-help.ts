@@ -218,17 +218,21 @@ const EXPORT_HELP = `Usage: takode export <session> <path>
 Export a session's full history to a text file.
 `;
 
-const SEND_HELP = `Usage: takode send <session> <message> [--correction] [--json]
-       takode send <session> --stdin [--correction] [--json]
+const SEND_HELP = `Usage: takode send <session> <message> [--thread <main|q-N>] [--correction] [--json]
+       takode send <session> --stdin [--thread <main|q-N>] [--correction] [--json]
 
 Send a message to a herded session, or to another leader session.
 A leader's busy state does not block delivery, so --correction is not needed for leaders.
+Messages to a leader must name the receiving leader's thread with --thread: the quest the
+message is about when that leader runs it or you are handing it over, otherwise main.
+A quest that does not exist falls back to Main; the result says which thread was used.
 If the session is not running, waits up to 20s for it to start and reports whether
 the message was delivered. A message still queued after that shows the reason, and a
 message_delivery herd event follows when it is delivered or fails.
 
 Options:
   --stdin       Read the message body from stdin
+  --thread      The receiving leader's thread (main or q-N); required for leaders, not used for workers
   --correction  Send steering input to a currently running session
   --json        Output JSON
 `;
