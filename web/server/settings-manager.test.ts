@@ -65,6 +65,7 @@ describe("settings-manager", () => {
         customVocabulary: "",
         enhancementEnabled: true,
         enhancementMode: "default",
+        enhancementInstructions: "",
         enhancementModel: "gpt-5-mini",
         sttModel: "gpt-transcribe",
         sttLanguageHints: [],
@@ -365,7 +366,7 @@ describe("settings-manager", () => {
     });
   });
 
-  it("persists transcription custom vocabulary across reloads", async () => {
+  it("persists transcription custom vocabulary and enhancer instructions across reloads", async () => {
     updateSettings({
       transcriptionConfig: {
         apiKey: "",
@@ -373,6 +374,7 @@ describe("settings-manager", () => {
         enhancementEnabled: true,
         enhancementModel: "gpt-5-mini",
         customVocabulary: "Takode, WsBridge, Questmaster",
+        enhancementInstructions: "Always translate into English.",
       },
     });
 
@@ -385,6 +387,7 @@ describe("settings-manager", () => {
       enhancementEnabled: true,
       enhancementModel: "gpt-5-mini",
       customVocabulary: "Takode, WsBridge, Questmaster",
+      enhancementInstructions: "Always translate into English.",
     });
 
     _resetForTest(settingsPath);
@@ -394,6 +397,7 @@ describe("settings-manager", () => {
       baseUrl: "https://api.openai.com/v1",
       enhancementEnabled: true,
       enhancementMode: "default",
+      enhancementInstructions: "Always translate into English.",
       enhancementModel: "gpt-5-mini",
       customVocabulary: "Takode, WsBridge, Questmaster",
       sttModel: "gpt-transcribe",
@@ -609,6 +613,7 @@ describe("settings-manager", () => {
       customVocabulary: "",
       enhancementEnabled: false,
       enhancementMode: "default",
+      enhancementInstructions: "",
       enhancementModel: "gpt-4o-mini",
       sttModel: "gpt-transcribe",
       sttLanguageHints: [],
@@ -665,6 +670,7 @@ describe("settings-manager", () => {
         customVocabulary: "",
         enhancementEnabled: true,
         enhancementMode: "default",
+        enhancementInstructions: "",
         enhancementModel: "gpt-5-mini",
         sttModel: "gpt-transcribe",
         sttLanguageHints: [],

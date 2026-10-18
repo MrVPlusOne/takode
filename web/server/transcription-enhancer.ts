@@ -303,6 +303,22 @@ function getVoiceAppendSystemPrompt(mode: "default" | "bullet" | undefined): str
   return mode === "bullet" ? VOICE_APPEND_BULLET_SYSTEM_PROMPT : VOICE_APPEND_DEFAULT_SYSTEM_PROMPT;
 }
 
+/**
+ * Append the user's custom enhancer instructions from Settings to an enhancer system prompt.
+ * They come last and take precedence, so a style such as "always translate into English" wins
+ * over the built-in cleaning rules. The speech-to-text prompt never includes them.
+ */
+function withCustomInstructions(systemPrompt: string, config: TranscriptionConfig): string {
+  const instructions = config.enhancementInstructions?.trim();
+  if (!instructions) return systemPrompt;
+  return `${systemPrompt}
+
+<USER_CUSTOM_INSTRUCTIONS>
+The user added these instructions for your output. Follow them; where they conflict with the rules above, they take precedence.
+${instructions}
+</USER_CUSTOM_INSTRUCTIONS>`;
+}
+
 // ─── Context extraction ─────────────────────────────────────────────────────
 
 /** Truncate a string with "..." if it exceeds maxLen. */
@@ -912,11 +928,11 @@ export interface EnhancementResult {
  * Enhance a raw transcript using conversation context from the active session.
  *
  * Returns the raw text unchanged (with enhanced=false) when:
- * - The transcript is too short (< 3 words)
- * - No context is available (no conversation turns AND no supplementary context)
+ * - The transcript is too short (under MIN_CHARS_FOR_ENHANCEMENT) and no custom instructions are set
+ * - No context is available (no conversation turns, supplementary context or custom instructions)
  * - Enhancement is disabled in config
  * - The LLM call fails
- * - The LLM output looks like hallucination (> 3x original length)
+ * - The LLM output looks like hallucination (> 3x original length in UTF-8 bytes)
  */
 export async function enhanceTranscript(
   rawText: string,
@@ -925,92 +941,11 @@ export async function enhanceTranscript(
   apiKey: string,
   extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
-  const model = config.enhancementModel || "gpt-5-mini";
-  const systemPrompt = extra?.annotationContext
-    ? ANNOTATION_VOICE_SYSTEM_PROMPT
-    : getDictationSystemPrompt(config.enhancementMode);
-
-  // Skip if enhancement is disabled
-  if (!config.enhancementEnabled) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "disabled" },
-    };
-  }
-
-  // Skip for very short transcripts
-  if (rawText.trim().length < MIN_CHARS_FOR_ENHANCEMENT) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "too short" },
-    };
-  }
-
-  // Build context from session history
   const conversationContext = history ? buildTranscriptionContext(history) : "";
-
-  // Check if we have any meaningful context at all
-  const hasExtra = !!(
-    extra?.annotationContext ||
-    extra?.composerText ||
-    extra?.taskTitles?.length ||
-    extra?.sessionName ||
-    extra?.activeSessionNames?.length ||
-    extra?.customVocabulary?.trim()
-  );
-  if (!conversationContext && !hasExtra) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" },
-    };
-  }
-
-  // Build prompt and call LLM
-  const prompt = buildEnhancementPrompt(rawText, conversationContext, extra, config.enhancementMode);
-  const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
-  const durationMs = Date.now() - t0;
-
-  if (!llmResult.ok) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: prompt, enhancedText: null, durationMs, skipReason: llmResult.error },
-    };
-  }
-
-  const enhanced = llmResult.text;
-
-  // Hallucination guard: if the enhanced text is way longer than the raw, discard it
-  if (enhanced.length > rawText.length * HALLUCINATION_LENGTH_RATIO) {
-    console.warn(
-      `[transcription-enhancer] Discarding hallucinated output (${enhanced.length} chars vs ${rawText.length} raw)`,
-    );
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: {
-        model,
-        systemPrompt,
-        userMessage: prompt,
-        enhancedText: enhanced,
-        durationMs,
-        skipReason: "hallucination guard",
-      },
-    };
-  }
-
-  return {
-    text: enhanced,
-    rawText,
-    enhanced: true,
-    _debug: { model, systemPrompt, userMessage: prompt, enhancedText: enhanced, durationMs },
-  };
+  return enhanceTranscriptFromReplayContext(rawText, conversationContext, config, apiKey, extra);
 }
 
+/** Same as `enhanceTranscript`, with the conversation context already built (live calls and replays). */
 export async function enhanceTranscriptFromReplayContext(
   rawText: string,
   conversationContext: string,
@@ -1019,9 +954,13 @@ export async function enhanceTranscriptFromReplayContext(
   extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
   const model = config.enhancementModel || "gpt-5-mini";
-  const systemPrompt = extra?.annotationContext
-    ? ANNOTATION_VOICE_SYSTEM_PROMPT
-    : getDictationSystemPrompt(config.enhancementMode);
+  const systemPrompt = withCustomInstructions(
+    extra?.annotationContext ? ANNOTATION_VOICE_SYSTEM_PROMPT : getDictationSystemPrompt(config.enhancementMode),
+    config,
+  );
+  // Custom instructions (e.g. "always translate into English") must shape every transcription,
+  // so the latency and no-context skips only apply without them.
+  const hasCustomInstructions = !!config.enhancementInstructions?.trim();
 
   if (!config.enhancementEnabled) {
     return {
@@ -1031,7 +970,7 @@ export async function enhanceTranscriptFromReplayContext(
     };
   }
 
-  if (rawText.trim().length < MIN_CHARS_FOR_ENHANCEMENT) {
+  if (!hasCustomInstructions && rawText.trim().length < MIN_CHARS_FOR_ENHANCEMENT) {
     return {
       text: rawText,
       enhanced: false,
@@ -1047,7 +986,7 @@ export async function enhanceTranscriptFromReplayContext(
     extra?.activeSessionNames?.length ||
     extra?.customVocabulary?.trim()
   );
-  if (!conversationContext && !hasExtra) {
+  if (!conversationContext && !hasExtra && !hasCustomInstructions) {
     return {
       text: rawText,
       enhanced: false,
@@ -1069,9 +1008,11 @@ export async function enhanceTranscriptFromReplayContext(
   }
 
   const enhanced = llmResult.text;
-  if (enhanced.length > rawText.length * HALLUCINATION_LENGTH_RATIO) {
+  // Hallucination guard: discard output far longer than the raw text. UTF-8 bytes rather than characters,
+  // so translating dense scripts such as Chinese into English is not mistaken for runaway output.
+  if (Buffer.byteLength(enhanced) > Buffer.byteLength(rawText) * HALLUCINATION_LENGTH_RATIO) {
     console.warn(
-      `[transcription-enhancer] Discarding replay hallucinated output (${enhanced.length} chars vs ${rawText.length} raw)`,
+      `[transcription-enhancer] Discarding hallucinated output (${enhanced.length} chars vs ${rawText.length} raw)`,
     );
     return {
       text: rawText,
@@ -1127,9 +1068,10 @@ export async function applyVoiceEdit(
         extra.customVocabulary,
       )
     : buildVoiceEditPrompt(instructionText, currentComposerText, conversationContext, extra);
-  const systemPrompt = extra?.annotationContext
-    ? ANNOTATION_VOICE_SYSTEM_PROMPT
-    : getVoiceEditSystemPrompt(config.enhancementMode);
+  const systemPrompt = withCustomInstructions(
+    extra?.annotationContext ? ANNOTATION_VOICE_SYSTEM_PROMPT : getVoiceEditSystemPrompt(config.enhancementMode),
+    config,
+  );
   const t0 = Date.now();
   const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
@@ -1186,9 +1128,10 @@ export async function applyVoiceAppend(
         extra.customVocabulary,
       )
     : buildVoiceAppendPrompt(rawSpeechText, existingDraftText, conversationContext, extra);
-  const systemPrompt = extra?.annotationContext
-    ? ANNOTATION_VOICE_SYSTEM_PROMPT
-    : getVoiceAppendSystemPrompt(config.enhancementMode);
+  const systemPrompt = withCustomInstructions(
+    extra?.annotationContext ? ANNOTATION_VOICE_SYSTEM_PROMPT : getVoiceAppendSystemPrompt(config.enhancementMode),
+    config,
+  );
   const t0 = Date.now();
   const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
@@ -1948,6 +1891,7 @@ export const _testHelpers = {
   VOICE_APPEND_DEFAULT_SYSTEM_PROMPT,
   VOICE_APPEND_BULLET_SYSTEM_PROMPT,
   getVoiceAppendSystemPrompt,
+  withCustomInstructions,
   MAX_TURNS,
   ENHANCER_MSG_START,
   ENHANCER_MSG_STEP,

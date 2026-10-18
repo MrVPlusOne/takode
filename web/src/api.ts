@@ -769,6 +769,8 @@ export interface TranscriptionConfig {
   enhancementModel: string;
   customVocabulary?: string;
   enhancementMode?: "default" | "bullet";
+  /** Free-form instructions appended to the enhancer prompt only (not the STT model). */
+  enhancementInstructions?: string;
   sttModel?: string;
   sttLanguageHints?: string[];
   /** Preferred voice capture mode when composer has text: "edit" or "append". */

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { SessionTaskEntry } from "./session-types.js";
 import { injectReplyContext } from "../shared/reply-context.js";
@@ -10,6 +10,8 @@ import {
   buildVoiceAppendPrompt,
   buildSttPrompt,
   enhanceTranscript,
+  applyVoiceEdit,
+  applyVoiceAppend,
 } from "./transcription-enhancer.js";
 
 const {
@@ -20,6 +22,7 @@ const {
   VOICE_APPEND_BULLET_SYSTEM_PROMPT,
   VOICE_APPEND_DEFAULT_SYSTEM_PROMPT,
   getVoiceAppendSystemPrompt,
+  withCustomInstructions,
   trunc,
   extractAssistantText,
   isSystemNoise,
@@ -669,6 +672,81 @@ describe("enhanceTranscript", () => {
     });
     // Should NOT have skipReason "no context" — it should attempt the call
     expect(result._debug?.skipReason).not.toBe("no context");
+  });
+});
+
+// ─── Custom enhancer instructions ───────────────────────────────────────────
+
+describe("custom enhancer instructions", () => {
+  const config = {
+    apiKey: "test-key",
+    baseUrl: "https://api.openai.com/v1",
+    enhancementEnabled: true,
+    enhancementModel: "gpt-5-mini",
+    enhancementInstructions: "  Always translate the result into English.  ",
+  };
+
+  /** Mock the enhancement LLM and return the request bodies it received. */
+  function mockLlm(content: string) {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => Response.json({ choices: [{ message: { content }, finish_reason: "stop" }] }));
+    return () => fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("appends trimmed instructions after the built-in rules, and leaves the prompt alone when blank", () => {
+    const prompt = withCustomInstructions(DICTATION_DEFAULT_SYSTEM_PROMPT, config);
+    expect(prompt.startsWith(DICTATION_DEFAULT_SYSTEM_PROMPT)).toBe(true);
+    expect(prompt.endsWith("\nAlways translate the result into English.\n</USER_CUSTOM_INSTRUCTIONS>")).toBe(true);
+    expect(withCustomInstructions("base", { ...config, enhancementInstructions: "  \n " })).toBe("base");
+    expect(withCustomInstructions("base", { ...config, enhancementInstructions: undefined })).toBe("base");
+  });
+
+  it("enhances short transcripts without context when instructions are set", async () => {
+    // Without instructions this transcript is skipped as too short and context-free; with
+    // "always translate" the user expects every transcription to be translated.
+    const requests = mockLlm("Fix the bug.");
+    const result = await enhanceTranscript("修复这个错误", null, config, "key");
+    expect(result.enhanced).toBe(true);
+    expect(result.text).toBe("Fix the bug.");
+    expect(requests()[0].messages[0].content).toContain("Always translate the result into English.");
+    expect(requests()[0].messages[1].content).not.toContain("Always translate");
+  });
+
+  it("keeps the too-short skip when no instructions are set", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const result = await enhanceTranscript("修复这个错误", null, { ...config, enhancementInstructions: "" }, "key");
+    expect(result._debug?.skipReason).toBe("too short");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("measures the hallucination guard in UTF-8 bytes so translations out of Chinese survive", async () => {
+    // 7 Chinese characters (21 bytes) -> 31 English characters: over 3x the characters, under 3x the bytes.
+    mockLlm("Please fix this bug right away.");
+    const kept = await enhanceTranscript("请立即修复错误", null, config, "key");
+    expect(kept.enhanced).toBe(true);
+
+    // Runaway output is still discarded.
+    mockLlm("x".repeat(200));
+    const discarded = await enhanceTranscript("请立即修复错误", null, config, "key");
+    expect(discarded.enhanced).toBe(false);
+    expect(discarded._debug?.skipReason).toBe("hallucination guard");
+  });
+
+  it("adds instructions to voice edit and voice append system prompts", async () => {
+    const requests = mockLlm("Edited text.");
+    const edit = await applyVoiceEdit("make it shorter", "A long draft.", null, config, "key");
+    const append = await applyVoiceAppend("and one more thing", "A draft.", null, config, "key");
+    expect(edit._debug.systemPrompt).toContain("Always translate the result into English.");
+    expect(append._debug.systemPrompt).toContain("Always translate the result into English.");
+    expect(requests().map((body) => body.messages[0].content)).toEqual([
+      edit._debug.systemPrompt,
+      append._debug.systemPrompt,
+    ]);
   });
 });
 

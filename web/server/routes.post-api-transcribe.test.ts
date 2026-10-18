@@ -1426,6 +1426,60 @@ describe("POST /api/transcribe", () => {
     expect(enhanceBody.messages[1].content).toContain("</CUSTOM_VOCABULARY>");
   });
 
+  it("adds custom instructions to the enhancer system prompt only, never to the STT request", async () => {
+    // The user's custom instructions shape the enhanced output (here: translation), so they go to the
+    // enhancement model. The STT request must stay unchanged. A short transcript is still enhanced because
+    // instructions such as "always translate" apply to every transcription.
+    mockVoiceSettings({
+      sttModel: "gpt-4o-mini-transcribe",
+      enhancementInstructions: "Always translate the result into English.",
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("Voice instructions session");
+    ensureBridgeSession(bridge, "session-1", { taskHistory: [], messageHistory: [] });
+
+    const rawTranscript = "我想要你帮我修复这个错误";
+    // Over 3x the raw character count, but not its UTF-8 size, so the hallucination guard keeps it.
+    const translated = "I want you to help me fix this error, please.";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: rawTranscript }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: translated } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav", "X-Companion-Audio-Filename": "recording.wav" },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('"enhanced":true');
+    expect(body).toContain(translated);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const sttForm = sttInit.body as FormData;
+    expect(sttForm.get("model")).toBe("gpt-4o-mini-transcribe");
+    for (const [, value] of sttForm.entries()) {
+      if (typeof value === "string") expect(value).not.toContain("Always translate");
+    }
+
+    const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    const enhanceBody = JSON.parse(String(enhanceInit.body));
+    expect(enhanceBody.messages[0].content).toContain("<USER_CUSTOM_INSTRUCTIONS>\nThe user added these instructions");
+    expect(enhanceBody.messages[0].content).toContain("Always translate the result into English.");
+    expect(enhanceBody.messages[1].content).not.toContain("Always translate");
+  });
+
   it("uses selected quest-thread conversation context for STT and dictation enhancement", async () => {
     mockVoiceSettings({ sttModel: "gpt-4o-mini-transcribe", customVocabulary: "Takode, WsBridge, SelectedCustomTerm" });
     vi.mocked(sessionNames.getName).mockReturnValue("Leader voice session");

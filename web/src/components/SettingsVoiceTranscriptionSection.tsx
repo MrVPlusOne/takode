@@ -39,6 +39,8 @@ interface SettingsVoiceTranscriptionSectionProps {
   setTranscriptionEnhancement: Dispatch<SetStateAction<boolean>>;
   enhancementMode: "default" | "bullet";
   setEnhancementMode: Dispatch<SetStateAction<"default" | "bullet">>;
+  enhancementInstructions: string;
+  setEnhancementInstructions: Dispatch<SetStateAction<string>>;
   transcriptionVocabulary: string;
   setTranscriptionVocabulary: Dispatch<SetStateAction<string>>;
   transcriptionSaving: boolean;
@@ -67,6 +69,8 @@ export function SettingsVoiceTranscriptionSection({
   setTranscriptionEnhancement,
   enhancementMode,
   setEnhancementMode,
+  enhancementInstructions,
+  setEnhancementInstructions,
   transcriptionVocabulary,
   setTranscriptionVocabulary,
   transcriptionSaving,
@@ -171,6 +175,7 @@ export function SettingsVoiceTranscriptionSection({
         enhancementModel: transcriptionModel,
         customVocabulary: transcriptionVocabulary,
         enhancementMode,
+        enhancementInstructions,
         sttModel: resolvedSttModel,
         sttLanguageHints,
       };
@@ -400,6 +405,25 @@ export function SettingsVoiceTranscriptionSection({
             </select>
             <p className="mt-1 text-xs text-cc-muted">
               Prose outputs clean paragraphs. Bullet Points structures dictation as organized lists.
+            </p>
+          </div>
+        )}
+        {transcriptionEnhancement && (
+          <div>
+            <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="enhancement-instructions">
+              Custom Instructions
+            </label>
+            <textarea
+              id="enhancement-instructions"
+              value={enhancementInstructions}
+              onChange={(e) => setEnhancementInstructions(e.target.value)}
+              rows={3}
+              placeholder="Always translate the result into English."
+              className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 resize-y"
+            />
+            <p className="mt-1 text-xs text-cc-muted">
+              Added to the enhancement model's prompt (not the STT model), for example an output style or a language to
+              translate into. When set, every transcription is enhanced, including short ones.
             </p>
           </div>
         )}

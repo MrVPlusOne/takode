@@ -898,6 +898,55 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("loads and saves custom enhancer instructions", async () => {
+    // The instructions are free-form text for the enhancement model; they round-trip through
+    // the Voice Input section's Save like the other transcription settings.
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      serverSlug: "prod",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      editorConfig: { editor: "none" },
+      transcriptionConfig: {
+        apiKey: "***",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        enhancementInstructions: "Keep it short.",
+      },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Input");
+    await waitFor(() => {
+      expect(within(voiceSection).getByLabelText("Custom Instructions")).toHaveValue("Keep it short.");
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("Custom Instructions"), {
+      target: { value: "Always translate the result into English." },
+    });
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transcriptionConfig: expect.objectContaining({
+            enhancementInstructions: "Always translate the result into English.",
+          }),
+        }),
+      );
+    });
+  });
+
   it("loads and saves a custom voice transcription model", async () => {
     // A saved non-built-in STT model should reopen the selector in Custom Model mode.
     mockApi.getSettings.mockResolvedValue({

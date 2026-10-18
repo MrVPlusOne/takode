@@ -1342,6 +1342,7 @@ describe("PUT /api/settings", () => {
           enhancementEnabled: false,
           enhancementModel: "gpt-4.1-mini",
           customVocabulary: "Takode, WsBridge, Questmaster",
+          enhancementInstructions: "  Always translate into English.\n",
         },
       }),
     });
@@ -1355,6 +1356,7 @@ describe("PUT /api/settings", () => {
           enhancementEnabled: false,
           enhancementModel: "gpt-4.1-mini",
           customVocabulary: "Takode, WsBridge, Questmaster",
+          enhancementInstructions: "Always translate into English.",
           sttLanguageHints: [],
         }),
       }),

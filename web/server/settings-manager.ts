@@ -179,6 +179,8 @@ export interface TranscriptionConfig {
   customVocabulary?: string;
   /** Enhancement output style. Optional for backward compat — undefined treated as "default". */
   enhancementMode?: EnhancementMode;
+  /** Free-form user instructions appended to the enhancer's system prompt only (never the STT prompt). */
+  enhancementInstructions?: string;
   /** OpenAI STT model to use for speech-to-text. */
   sttModel?: SttModel;
   /** Expected input-language hints for gpt-transcribe. */
@@ -257,6 +259,7 @@ let settings: CompanionSettings = {
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
     enhancementMode: "default",
+    enhancementInstructions: "",
     sttModel: DEFAULT_STT_MODEL,
     sttLanguageHints: [],
   },
@@ -411,6 +414,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       sttModel,
       sttLanguageHints: normalizeGptTranscribeLanguageHints(c.sttLanguageHints),
       enhancementMode,
+      enhancementInstructions: typeof c.enhancementInstructions === "string" ? c.enhancementInstructions : "",
       voiceCaptureMode,
     };
   }
@@ -423,6 +427,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
     sttModel: DEFAULT_STT_MODEL,
     sttLanguageHints: [],
     enhancementMode: "default",
+    enhancementInstructions: "",
   };
 }
 

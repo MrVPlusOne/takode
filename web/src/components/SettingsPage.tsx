@@ -233,6 +233,7 @@ export function SettingsPage({
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
   const [enhancementMode, setEnhancementMode] = useState<"default" | "bullet">("default");
   const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
+  const [enhancementInstructions, setEnhancementInstructions] = useState("");
   const [transcriptionSaving, setTranscriptionSaving] = useState(false);
   const [transcriptionSaved, setTranscriptionSaved] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState("");
@@ -276,6 +277,7 @@ export function SettingsPage({
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
           setEnhancementMode(s.transcriptionConfig.enhancementMode ?? "default");
           setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
+          setEnhancementInstructions(s.transcriptionConfig.enhancementInstructions || "");
           setSttLanguageHints(s.transcriptionConfig.sttLanguageHints || []);
         }
         setEditorChoice(s.editorConfig?.editor ?? "none");
@@ -854,6 +856,8 @@ export function SettingsPage({
                 setEnhancementMode={setEnhancementMode}
                 transcriptionVocabulary={transcriptionVocabulary}
                 setTranscriptionVocabulary={setTranscriptionVocabulary}
+                enhancementInstructions={enhancementInstructions}
+                setEnhancementInstructions={setEnhancementInstructions}
                 transcriptionSaving={transcriptionSaving}
                 setTranscriptionSaving={setTranscriptionSaving}
                 transcriptionSaved={transcriptionSaved}

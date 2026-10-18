@@ -970,6 +970,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
         typeof tc.enhancementMode === "string" && (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
           ? (tc.enhancementMode as EnhancementMode)
           : current.enhancementMode,
+      enhancementInstructions:
+        typeof tc.enhancementInstructions === "string"
+          ? tc.enhancementInstructions.trim()
+          : current.enhancementInstructions || "",
       voiceCaptureMode:
         typeof tc.voiceCaptureMode === "string" && (tc.voiceCaptureMode === "edit" || tc.voiceCaptureMode === "append")
           ? (tc.voiceCaptureMode as "edit" | "append")
