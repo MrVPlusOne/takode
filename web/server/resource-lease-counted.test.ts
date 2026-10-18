@@ -113,19 +113,26 @@ describe("counted resource leases", () => {
     ]);
   });
 
-  it("allows only idle capacity changes, preserves no-op configuration and persists configured empty pools", async () => {
-    // Both raising and lowering capacity must leave occupied slot identities alone.
+  it("changes capacity without moving held slots, preserves no-op configuration and persists configured empty pools", async () => {
+    // Holders keep their slot numbers: raising is always allowed, lowering only
+    // while no held slot would fall outside the new range.
     await manager.configure("test-server", 3);
     await acquire("a");
     const before = readFileSync(store.getPathForTest(), "utf8");
     await manager.configure("test-server", 3);
     expect(readFileSync(store.getPathForTest(), "utf8")).toBe(before);
-    for (const capacity of [2, 4]) {
-      await expect(manager.configure("test-server", capacity)).rejects.toMatchObject({ code: "conflict" });
-    }
     for (const capacity of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
       await expect(manager.configure("test-server", capacity)).rejects.toMatchObject({ code: "invalid" });
     }
+    await acquire("b");
+    await acquire("c");
+    await manager.release("test-server", "b");
+    // Slot 3 is still held, so the pool cannot shrink below it even though slot 2 is free.
+    await expect(manager.configure("test-server", 2)).rejects.toMatchObject({ code: "conflict" });
+    expect((await manager.configure("test-server", 4)).capacity).toBe(4);
+    await manager.release("test-server", "c");
+    // With only slot 1 held, lowering leaves its holder untouched.
+    expect((await manager.configure("test-server", 1)).leases).toMatchObject([{ slot: 1, ownerSessionId: "a" }]);
     await manager.release("test-server", "a");
     await manager.configure("test-server", 2);
     manager.destroy();
@@ -136,6 +143,35 @@ describe("counted resource leases", () => {
     expect(await manager.getStatus("unconfigured")).toMatchObject({ capacity: 1, available: true });
     // Resource keys may also be ordinary Object prototype names.
     expect(await manager.getStatus("constructor")).toMatchObject({ capacity: 1, waiters: [] });
+  });
+
+  it("raises a busy pool by promoting queued waiters into the new slots in FIFO order", async () => {
+    // A pool with a queue never goes idle, so raising it must work while held
+    // and hand the new slots to waiters before any newcomer.
+    await acquire("a");
+    await acquire("b");
+    await acquire("c");
+    await acquire("d");
+    const raised = await manager.configure("test-server", 3);
+    expect(raised.leases.map((lease) => [lease.slot, lease.ownerSessionId])).toEqual([
+      [1, "a"],
+      [2, "b"],
+      [3, "c"],
+    ]);
+    expect(raised.waiters.map((waiter) => waiter.waiterSessionId)).toEqual(["d"]);
+    expect(bridge.injectUserMessage.mock.calls.map(([id, content]) => [id, content.match(/Slot: .*/)?.[0]])).toEqual([
+      ["b", "Slot: 2 of 3"],
+      ["c", "Slot: 3 of 3"],
+    ]);
+    expect((await acquire("newcomer", 60_000, false)).status).toBe("unavailable");
+    // The raise is persisted together with the promotions.
+    manager.destroy();
+    manager = new ResourceLeaseManager(bridge, store);
+    expect((await manager.getStatus("test-server")).leases.map((lease) => lease.ownerSessionId)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 
   it("preserves singleton owners, times, metadata and waiters through v1 migration and a v2 restart", async () => {

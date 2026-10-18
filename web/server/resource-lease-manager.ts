@@ -99,11 +99,19 @@ export class ResourceLeaseManager {
       }
       const changed = this.expireDueLeases(Date.now());
       await this.persistIfNeeded(changed);
-      if (capacity !== this.getCapacity(resourceKey) && this.getLeases(resourceKey).length > 0) {
-        throw new ResourceLeaseError("conflict", "Capacity can change only when no slots are leased");
+      // Holders keep their slot numbers, so capacity may change while a pool is
+      // busy as long as no held slot would fall outside the new range.
+      const highestHeld = Math.max(0, ...this.getLeases(resourceKey).map((lease) => lease.slot));
+      if (capacity < highestHeld) {
+        throw new ResourceLeaseError(
+          "conflict",
+          `Capacity cannot drop below held slot ${highestHeld}; lower it after that slot is released`,
+        );
       }
       if (this.data.capacities[resourceKey] !== capacity) {
         this.data.capacities[resourceKey] = capacity;
+        // Raising a busy pool fills its new slots from the queue in FIFO order.
+        this.promoteWaiters(resourceKey, Date.now());
         await this.persistIfNeeded(true);
       }
       return this.buildStatus(resourceKey);

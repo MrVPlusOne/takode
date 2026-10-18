@@ -70,7 +70,7 @@ export const LEASE_HELP = `Usage: takode lease <configure|acquire|status|list|re
 Coordinate named global resources such as dev-server:companion or agent-browser.
 
 Subcommands:
-  configure <resource> --capacity <count> [--json]  (leader only; idle pool)
+  configure <resource> --capacity <count> [--json]  (leader only)
   acquire <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--wait] [--json]
   wait <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--json]
   status [resource] [--json]
@@ -89,7 +89,9 @@ acquire and wait exit 0 only when you hold the lease; queued exits ${QUEUED_EXIT
 export const LEASE_CONFIGURE_HELP = `Usage: takode lease configure <resource> --capacity <count> [--json]
 
 Leaders set a positive integer capacity according to the user's resource budget.
-Actual changes require no leased slots; setting the same value is a no-op.
+Raising works while slots are held: queued waiters fill the new slots in FIFO order
+and get their usual Resource Lease message. Lowering cannot go below a held slot
+number; holders are never moved. Setting the same value is a no-op.
 This bounds reservations on this server, not processes or memory use.
 `;
 

@@ -288,7 +288,9 @@ describe("resource lease routes", () => {
     expect(full.result).toMatchObject({ status: "unavailable", capacity: 3, resourceKey: "test-server" });
     expect(full.result.leases.map((lease: any) => lease.slot)).toEqual([1, 2, 3]);
     expect(full.result).not.toHaveProperty("lease");
-    expect((await post("configure", "leader", { capacity: 4 })).status).toBe(409);
+    // A busy pool may grow, and shrink back while no held slot is cut off, but not below a held slot.
+    expect((await post("configure", "leader", { capacity: 2 })).status).toBe(409);
+    expect((await post("configure", "leader", { capacity: 4 })).status).toBe(200);
     expect((await post("configure", "leader", { capacity: 3 })).status).toBe(200);
     expect((await post("renew", "owner", { slot: 2 })).status).toBe(403);
     expect((await post("heartbeat", "owner", { slot: 1, ttl: "1m" })).status).toBe(200);
