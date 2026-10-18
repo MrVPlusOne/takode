@@ -1070,6 +1070,38 @@ describe("Composer voice edit mode", () => {
     expect(screen.getByRole("button", { name: "Rerun as voice edit" })).toBeTruthy();
   });
 
+  it("remembers the rerun mode so the next voice input starts in it", async () => {
+    // Rerunning in the other mode means the recording started in the wrong mode.
+    // The chosen mode must become the saved preference and the next recording's
+    // mode, so the user does not have to rerun again.
+    setupMockStore({ draftText: "Improve this introduction." });
+    mockTranscribe
+      .mockResolvedValueOnce({
+        mode: "edit",
+        text: "Improved introduction.",
+        rawText: "make this clearer",
+        instructionText: "make this clearer",
+        backend: "openai",
+        enhanced: true,
+      })
+      .mockResolvedValueOnce({ mode: "append", text: "Add one more detail.", backend: "openai", enhanced: true })
+      .mockResolvedValueOnce({ mode: "append", text: "And another.", backend: "openai", enhanced: true });
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+    await screen.findByText("Voice edit preview");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rerun as append" }));
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ transcriptionConfig: { voiceCaptureMode: "append" } });
+    await screen.findByRole("button", { name: "Rerun as voice edit" });
+
+    fireEvent.click(screen.getByLabelText("Voice input"));
+    await waitFor(() => {
+      expect(mockTranscribe).toHaveBeenCalledTimes(3);
+    });
+    expect(mockTranscribe.mock.calls[2][1]).toEqual(expect.objectContaining({ mode: "append" }));
+  });
+
   it("reruns a completed append result as voice edit with the same audio and restores the edit base text", async () => {
     // Append changes the live draft immediately, so the alternate edit rerun must
     // reuse the same blob while restoring the original base text for the diff.

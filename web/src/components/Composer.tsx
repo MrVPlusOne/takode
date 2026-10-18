@@ -642,6 +642,9 @@ export function Composer({
   const rerunAlternateVoiceMode = useCallback(async () => {
     if (!alternateVoiceRerun || alternateVoiceRerun.status === "running") return;
     const targetMode = alternateVoiceRerun.sourceMode === "edit" ? "append" : "edit";
+    // A rerun in the other mode means the recording started in the wrong one, so the
+    // next voice input should start in the mode the user just chose.
+    persistPreferredVoiceMode(targetMode);
     setVoiceError(null);
     setFailedTranscription(null);
     setAlternateVoiceRerun({
@@ -659,7 +662,7 @@ export function Composer({
       undefined,
       "alternate",
     );
-  }, [alternateVoiceRerun, setVoiceError]);
+  }, [alternateVoiceRerun, persistPreferredVoiceMode, setVoiceError]);
 
   const toggleVoiceUnsupportedInfo = useCallback(
     (expandComposerOnReveal = false) => {
