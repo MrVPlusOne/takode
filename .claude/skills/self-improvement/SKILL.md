@@ -22,10 +22,10 @@ durable, non-trivial changes such as CLAUDE.md/AGENTS.md additions, skill
 updates, system prompt changes, utility code, or other code changes, do not
 apply the change directly from this workflow.
 
-**Note on instruction files:** Claude Code uses `CLAUDE.md` and Codex uses
-`AGENTS.md`. Throughout this workflow, "CLAUDE.md" refers to whichever
-instruction file the current agent uses. Check for both when searching for
-existing guidance, and write to the appropriate one.
+**Note on instruction files:** Claude Code reads `CLAUDE.md` and Codex reads
+`AGENTS.md`. Throughout this workflow, "CLAUDE.md" means whichever instruction
+file a rule must reach. Check both when searching for existing guidance, and
+target every file the rule must reach.
 
 Follow these steps exactly. Do not skip steps.
 
@@ -64,10 +64,11 @@ If the user explicitly ran `/self-improvement`, skip this step.
 
 Review the current conversation to identify what went wrong or should be improved.
 
-**If `$ARGUMENTS` is non-empty**, use it as the starting point. Still review
-conversation context to understand the full picture.
+**If the user described the problem** (for example in text after
+`/self-improvement`), use it as the starting point. Still review conversation
+context to understand the full picture.
 
-**If `$ARGUMENTS` is empty**, scan the conversation for:
+**Otherwise**, scan the conversation for:
 - Explicit corrections from the user ("no, do it this way", "don't do X")
 - Moments where you had to redo work
 - Patterns where you made suboptimal choices
@@ -86,13 +87,15 @@ them to clarify. Do not proceed with a vague or forced improvement.
 
 Before drafting, check what guidance already exists. Read these files if present:
 
-- `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md`
+- `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (the user's personal
+  instructions)
 - The project root `CLAUDE.md` and `AGENTS.md`
 - The project `.claude/CLAUDE.md` and `.claude/AGENTS.md`
 
 Search for overlapping skills:
 
-- Glob `~/.claude/skills/*/SKILL.md` for existing skills
+- List the skills in `~/.claude/skills/` and `~/.agents/skills/` (installed for
+  every project) and in the project's `.claude/skills/` and `.agents/skills/`
 - Grep CLAUDE.md and AGENTS.md files for keywords related to the failure
 
 Determine:
@@ -130,8 +133,8 @@ ordering. If the improvement is scoped to a particular skill's domain, update
 that skill's SKILL.md rather than adding to CLAUDE.md.
 
 Draft or update the skill: frontmatter (name, description, argument-hint) and
-body (step-by-step workflow, safety gates). Follow the pattern in existing
-skills at `~/.claude/skills/*/SKILL.md`.
+body (step-by-step workflow, safety gates). Follow the pattern of existing
+skills in the folders listed in Step 2.
 
 #### Code Change
 Best for: when the root cause is a tooling gap, missing feature, or buggy
@@ -158,15 +161,27 @@ rule need to be enforced, and by whom?"
 
 | Scope | Target | When to use |
 |-------|--------|-------------|
-| **Personal cross-project** | `~/.claude/CLAUDE.md` | Personal preferences and behavioral rules that apply to all projects (formatting, git habits, code style) |
+| **Personal cross-project** | The user's personal instructions | Personal preferences and behavioral rules that apply to all projects (formatting, git habits, code style) |
 | **Project-specific** | Project root `CLAUDE.md` | Architecture conventions, testing patterns, and domain rules specific to one codebase |
-| **Injected system prompt** | Server code that injects prompts | Behavioral rules for specific session types (leader, worker, regular) that apply across all projects using that session type |
-| **Skill-specific** | `~/.claude/skills/<name>/SKILL.md` | Guidance scoped to a particular workflow or skill invocation |
+| **Injected system prompt** | Takode server code that injects prompts | Behavioral rules for specific session types (leader, worker, reviewer, regular) that apply across all projects using that session type |
+| **Skill-specific** | The skill's source `SKILL.md` | Guidance scoped to a particular workflow or skill invocation |
 | **Code** | Source code | When the root cause is a tooling gap, missing feature, or bug -- the improvement is the code itself |
 
 **Common mistake**: putting session-type rules (e.g., "leaders should do X") in
 a project CLAUDE.md when they belong in the injected system prompt, since they
 apply to any session of that type regardless of project.
+
+**Name the source, not an installed copy.** Files in a user's home folder may be
+copies installed from elsewhere, and an edit there can be lost or detach that
+file from future updates:
+- When Takode manages the user's instructions and skills (a
+  `~/.companion/user-instructions` or `~/.companion/user-skills` store exists on
+  the machine running the Takode server), personal rules belong in the store's
+  `user-instructions/all.md` (or `claude.md`/`codex.md` for one backend) and
+  personal skills in `user-skills/<all|claude|codex>/<skill>/`. Never edit a
+  machine's `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` copy.
+- Skill folders are often links. Resolve the entry (for example with
+  `readlink`) to find the repository or store that holds the skill's source.
 
 ## Step 4: Present Quest Proposal to User
 
@@ -182,12 +197,14 @@ For CLAUDE.md/AGENTS.md, skill, prompt, or code changes, describe the intended
 surface and the exact behavior the quest should achieve. Do not present this as
 an "apply this patch now" approval.
 
-Ask the user for approval or correction in plain text. Do NOT use
-AskUserQuestion -- it blocks the session and covers the proposal with a modal,
-preventing the user from reading the proposal while deciding. In Takode
-leader/orchestrator sessions, first publish the detailed proposal in the routed
-leader response, then call `takode notify needs-input`; never represent a user
-wait only with `Thread Waiting`.
+Ask for approval or correction. In a Takode session, use
+`takode notify needs-input`: put the proposal in its context, which appears in
+the chat as a message, and add suggested replies; do not explain the proposal
+again in a separate message. Outside Takode, ask in plain text. Do NOT use
+AskUserQuestion: its modal covers the proposal while the user decides.
+Leader/orchestrator sessions apply leader-decision-communication first and
+never represent the wait only with `Thread Waiting`; workers ask their leader
+the same way.
 
 **Do not proceed without explicit user approval.**
 
