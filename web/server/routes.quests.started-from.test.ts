@@ -102,9 +102,8 @@ describe("quests filed from a user's message", () => {
     ]);
     const response = await makeApp().request("/api/sessions/leader-1/started-quests");
 
-    // The Main request it came from was never handed off, so q-9 supports Main's answer.
     expect(await response.json()).toEqual({
-      quests: [{ questId: "q-9", title: "Relay fix", startedFrom, supporting: true }],
+      quests: [{ questId: "q-9", title: "Relay fix", startedFrom }],
     });
   });
 });

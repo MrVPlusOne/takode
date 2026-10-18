@@ -5,8 +5,6 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
-  /** A supporting quest: its request stays where it was asked and is answered there. */
-  supporting: boolean;
 }
 
 /** The leader's answer that delivered a supporting quest's result. */

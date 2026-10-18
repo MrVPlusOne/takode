@@ -90,6 +90,17 @@ function leaderSession(): SessionState {
 const HISTORY: BrowserIncomingMessage[] = [
   { type: "user_message", id: "main-ask", content: "Please fix the relay timeout.", timestamp: SENT_AT },
 ];
+/** The same request after the leader moved it into q-9 (Main-to-quest handoff); Main still shows it. */
+const HANDED_OFF_HISTORY: BrowserIncomingMessage[] = [
+  {
+    type: "user_message",
+    id: "main-ask",
+    content: "Please fix the relay timeout.",
+    timestamp: SENT_AT,
+    threadKey: "main",
+    threadRefs: [{ threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit", attachedAt: SENT_AT + 1 }],
+  },
+];
 
 function installThread(threadKey: string, history: BrowserIncomingMessage[], quest?: QuestmasterTask): void {
   const sync = buildThreadWindowSync({
@@ -113,6 +124,13 @@ function installThread(threadKey: string, history: BrowserIncomingMessage[], que
 }
 
 const STARTED_FROM = { sessionId: SESSION_ID, messageId: "main-ask", threadKey: "main", timestamp: SENT_AT };
+const HANDED_OFF_MESSAGE = {
+  id: "main-ask",
+  metadata: {
+    threadKey: "main",
+    threadRefs: [{ threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit" as const }],
+  },
+};
 
 describe("Started from link", () => {
   it("opens the quest thread with a link to the user's message it was filed from", () => {
@@ -142,14 +160,14 @@ describe("Started from link", () => {
 });
 
 describe("Continued in links", () => {
-  it("adds a link under the source message to each quest it started", async () => {
+  it("adds a link under a handed-off message to the quest it moved into", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         Response.json({ quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM }] }),
       ),
     );
-    installThread("main", HISTORY);
+    installThread("main", HANDED_OFF_HISTORY);
     const onSelectThread = vi.fn();
     render(
       <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
@@ -175,10 +193,10 @@ describe("Continued in links", () => {
     render(
       <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="q-9">
         <div data-testid="in-main">
-          <ContinuedInLinks messageId="main-ask" currentThreadKey="main" onSelectThread={vi.fn()} />
+          <ContinuedInLinks message={HANDED_OFF_MESSAGE} currentThreadKey="main" onSelectThread={vi.fn()} />
         </div>
         <div data-testid="in-quest">
-          <ContinuedInLinks messageId="main-ask" currentThreadKey={QUEST_ID} onSelectThread={vi.fn()} />
+          <ContinuedInLinks message={HANDED_OFF_MESSAGE} currentThreadKey={QUEST_ID} onSelectThread={vi.fn()} />
         </div>
       </StartedQuestsProvider>,
     );
@@ -187,12 +205,7 @@ describe("Continued in links", () => {
   });
   it("shows a supporting quest's phase under the request and previews it instead of switching tabs", async () => {
     // q-9 supports the Main request, which stays in Main and is answered there; q-10 already finished.
-    const supporting = (questId: string, title: string) => ({
-      questId,
-      title,
-      startedFrom: STARTED_FROM,
-      supporting: true,
-    });
+    const supporting = (questId: string, title: string) => ({ questId, title, startedFrom: STARTED_FROM });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -212,7 +225,7 @@ describe("Continued in links", () => {
     const onSelectThread = vi.fn();
     render(
       <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
-        <ContinuedInLinks messageId="main-ask" currentThreadKey="main" onSelectThread={onSelectThread} />
+        <ContinuedInLinks message={{ id: "main-ask" }} currentThreadKey="main" onSelectThread={onSelectThread} />
       </StartedQuestsProvider>,
     );
 
@@ -223,5 +236,35 @@ describe("Continued in links", () => {
     expect(screen.queryByTestId("continued-in-link")).not.toBeInTheDocument();
     fireEvent.click(within(running).getByText("Relay timeout"));
     expect(onSelectThread).not.toHaveBeenCalled();
+  });
+
+  it("turns a supporting row into Continued in when the request is handed off after the quests loaded", async () => {
+    // The leader files q-9 and moves the request into it moments later. The started quests
+    // load when q-9's thread appears, before the handoff, and are not loaded again; the
+    // updated message alone must switch the row.
+    const fetchMock = vi.fn(async () =>
+      Response.json({ quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    act(() =>
+      useStore.setState((state) => ({
+        sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
+          { questId: QUEST_ID, status: "WORKING", updatedAt: 1 },
+        ]),
+      })),
+    );
+    installThread("main", HISTORY);
+    render(
+      <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
+        <MessageFeed sessionId={SESSION_ID} threadKey="main" onSelectThread={vi.fn()} />
+      </StartedQuestsProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("supporting-quest-link")).toHaveTextContent("Work · Relay timeout"));
+
+    installThread("main", HANDED_OFF_HISTORY);
+
+    expect(screen.getByTestId("continued-in-link")).toHaveTextContent("Continued in Relay timeout");
+    expect(screen.queryByTestId("supporting-quest-link")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

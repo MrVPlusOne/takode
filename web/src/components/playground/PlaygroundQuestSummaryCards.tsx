@@ -86,6 +86,13 @@ function laterExchangeHistory(): BrowserIncomingMessage[] {
 }
 
 /** A just-dispatched quest thread: only worker events and leader board updates, no prose. */
+/** The request moved into `questId`, which it now continues in; its first thread still shows it. */
+function handedOff(request: BrowserIncomingMessage, questId: string): BrowserIncomingMessage {
+  if (request.type !== "user_message") return request;
+  const ref = { threadKey: questId, questId, source: "explicit" as const, attachedAt: request.timestamp + 1 };
+  return { ...request, threadRefs: [...(request.threadRefs ?? []), ref] };
+}
+
 function dispatchHistory(questId: string): BrowserIncomingMessage[] {
   return [
     message(questId, "herd", `${questId}-dispatch`, "1 event from 1 session\n\n#12 | quest_claimed | Work started", 0),
@@ -267,7 +274,6 @@ const STARTED_QUESTS = new Map([
         questId: DESCRIPTION_QUEST_ID,
         title: "Set up the DevBox as a Takode host",
         startedFrom: STARTED_FROM,
-        supporting: false,
       },
     ],
   ],
@@ -288,13 +294,11 @@ const SUPPORTING_QUESTS = new Map([
         questId: SUPPORTING_RUNNING_ID,
         title: "QA eval trend numbers from the laptop",
         startedFrom: SUPPORTING_STARTED_FROM,
-        supporting: true,
       },
       {
         questId: SUPPORTING_DONE_ID,
         title: "QA eval trend numbers from Condor",
         startedFrom: SUPPORTING_STARTED_FROM,
-        supporting: true,
       },
     ],
   ],
@@ -370,12 +374,15 @@ export function PlaygroundQuestDescriptionSummary() {
               questId={EXCERPT_QUEST_ID}
               history={[
                 ...dispatchHistory(EXCERPT_QUEST_ID),
-                message(
-                  EXCERPT_QUEST_ID,
-                  "human",
-                  STARTED_FROM.messageId,
-                  "Also set up the DevBox as a host, separately from this.",
-                  2,
+                handedOff(
+                  message(
+                    EXCERPT_QUEST_ID,
+                    "human",
+                    STARTED_FROM.messageId,
+                    "Also set up the DevBox as a host, separately from this.",
+                    2,
+                  ),
+                  DESCRIPTION_QUEST_ID,
                 ),
               ]}
               testId="playground-description-summary-excerpt"

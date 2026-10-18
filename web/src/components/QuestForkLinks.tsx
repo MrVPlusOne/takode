@@ -6,9 +6,11 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { QuestStartedFrom } from "../../server/quest-types.js";
+import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { fetchStartedQuests, type StartedQuest } from "../api/started-quests.js";
 import { useStore } from "../store.js";
+import type { ChatMessage } from "../types.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
@@ -56,24 +58,31 @@ export function StartedQuestsProvider({
   return <StartedQuestsContext.Provider value={byMessageId}>{children}</StartedQuestsContext.Provider>;
 }
 
-/** Under a user's message: the quests it started, except the one whose thread is on screen. */
+/**
+ * Under a user's message: the quests it started, except the one whose thread is on screen.
+ * A request moved into its quest (Main-to-quest handoff) continues there; any other
+ * quest supports a request that stays and is answered where it was asked. The message's
+ * own route decides which, because it updates as soon as a handoff lands, while the
+ * started quests were often loaded just before it, when the quest was filed.
+ */
 export function ContinuedInLinks({
-  messageId,
+  message,
   currentThreadKey,
   onSelectThread,
 }: {
-  messageId: string;
+  message: Pick<ChatMessage, "id" | "metadata">;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const quests = useContext(StartedQuestsContext)?.get(messageId);
+  const quests = useContext(StartedQuestsContext)?.get(message.id);
   const current = currentThreadKey ? normalizeThreadKey(currentThreadKey) : null;
   const shown = quests?.filter((quest) => normalizeThreadKey(quest.questId) !== current) ?? [];
   if (!onSelectThread || shown.length === 0) return null;
+  const owner = leaderResponseOwnerThreadKey(message.metadata ?? {});
   return (
     <div className="mt-1.5 flex flex-col items-end gap-0.5" data-testid="continued-in-links">
       {shown.map((quest) =>
-        quest.supporting ? (
+        normalizeThreadKey(quest.questId) !== owner ? (
           <SupportingQuestLink key={quest.questId} quest={quest} />
         ) : (
           <button

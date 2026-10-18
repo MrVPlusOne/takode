@@ -930,7 +930,7 @@ function UserMessage({
         </CollapsibleContent>
         {transcribed && <TranscriptionTagMarker testId="user-message-transcribed-tag" />}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
-        <ContinuedInLinks messageId={message.id} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+        <ContinuedInLinks message={message} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />

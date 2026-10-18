@@ -75,14 +75,12 @@ describe("GET /sessions/:id/started-quests", () => {
           questId: "q-1",
           title: "Title q-1",
           startedFrom: { sessionId: "leader-1", messageId: "m-q-1", threadKey: "main", timestamp: 5 },
-          // The source message is not in this history, so the quest is not known to be supporting.
-          supporting: false,
         },
       ],
     });
   });
 
-  it("marks supporting quests and returns the answer that delivered a supporting quest's result", async () => {
+  it("returns the answer that delivered a supporting quest's result", async () => {
     // u3 was asked in q-10 and stayed there; q-11 was filed from it, and the leader
     // answered u3 in q-10 in the turn the worker's herd event started.
     const leaderHistory = [
@@ -120,8 +118,6 @@ describe("GET /sessions/:id/started-quests", () => {
       getHistory: () => leaderHistory,
     });
 
-    const list = await (await api.request("/sessions/leader-1/started-quests")).json();
-    expect(list.quests).toEqual([expect.objectContaining({ questId: "q-11", supporting: true })]);
     expect(await (await api.request("/sessions/leader-1/started-quests/q-11/answer")).json()).toEqual({
       answer: { messageId: "answer", threadKey: "q-10", timestamp: 4100, markdown: "Both checks agree." },
     });

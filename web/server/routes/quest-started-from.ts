@@ -38,8 +38,6 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
-  /** True for a supporting quest: its request stays where it was asked and is answered there. */
-  supporting: boolean;
 }
 
 /**
@@ -61,13 +59,10 @@ export function registerStartedQuestsRoute(
     const sessionId = deps.resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
     const quests: StartedQuest[] = [];
-    let requests: ReturnType<typeof indexLeaderRequests> | undefined;
     for (const quest of await deps.listQuests()) {
       const startedFrom = quest.relationships?.startedFrom;
       if (startedFrom?.sessionId !== sessionId) continue;
-      requests ??= indexLeaderRequests(deps.getHistory(sessionId) ?? []);
-      const supporting = findSupportingQuestSource(requests, sessionId, quest.questId, startedFrom) !== null;
-      quests.push({ questId: quest.questId, title: quest.title, startedFrom, supporting });
+      quests.push({ questId: quest.questId, title: quest.title, startedFrom });
     }
     return c.json({ quests });
   });
