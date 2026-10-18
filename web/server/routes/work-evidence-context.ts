@@ -11,6 +11,7 @@ import type { RouteContext } from "./context.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 import { onMachine, type HostOperationName, type HostOperations } from "../remote-host/host-operations.js";
 import { hostIsOnline } from "../remote-host/session-machine.js";
+import { workEvidenceCaller, type WorkEvidenceTargetCaller } from "../work-evidence-replacement.js";
 
 /**
  * Run a delivery evidence operation on the machine that holds the checkout: a
@@ -29,6 +30,21 @@ export async function onCheckoutMachine<K extends HostOperationName>(
     const message = error instanceof Error ? error.message : String(error);
     throw new DeliveryEvidenceError(message, hostIsOnline(hostId) ? 409 : 503);
   }
+}
+
+/**
+ * The fields a delivery check reads from a session. A session started directly on
+ * an existing checkout records no branch, so its branch is read from Git on the
+ * checkout's machine, through `repoInfo` because older nodes have it too. The
+ * verifier still checks that branch, the commits and a stable head itself.
+ */
+export async function resolveWorkEvidenceCaller(session: WorkEvidenceTargetCaller): Promise<WorkEvidenceTargetCaller> {
+  const caller = workEvidenceCaller(session);
+  if (caller.isWorktree === true || caller.actualBranch || caller.branch || !caller.cwd) return caller;
+  const repo = await onCheckoutMachine(caller.hostId, "repoInfo", caller.cwd);
+  // A detached HEAD reads as "HEAD": leave the branch unknown so the verifier says so.
+  if (!repo || repo.currentBranch === "HEAD") return caller;
+  return { ...caller, actualBranch: repo.currentBranch };
 }
 
 /** The quest evidence a delivery check reads, without the rest of the quest record. */

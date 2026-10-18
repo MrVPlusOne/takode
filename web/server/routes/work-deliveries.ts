@@ -16,6 +16,7 @@ import {
   hasUnaddressedHumanFeedback,
   onCheckoutMachine,
   resolveActiveWorkPhaseContext,
+  resolveWorkEvidenceCaller,
   resolveCurrentWorkFeedback,
 } from "./work-evidence-context.js";
 
@@ -158,7 +159,7 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
         questId,
         actorSessionId: worker.auth.callerId,
         phaseOccurrenceId: worker.scope.phaseOccurrenceId,
-        caller: workEvidenceCaller(worker.auth.caller),
+        caller: await resolveWorkEvidenceCaller(worker.auth.caller),
         existing: deliveryEvidenceOf(worker.quest),
         leaderSessionId: worker.match.leaderSessionId,
         deliveryTargetId: body.deliveryTargetId,

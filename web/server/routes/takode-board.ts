@@ -4,7 +4,7 @@ import {
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH,
 } from "../../shared/quest-code-commit-evidence.js";
-import { workEvidenceCaller, workEvidenceHost } from "../work-evidence-replacement.js";
+import { workEvidenceHost } from "../work-evidence-replacement.js";
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
@@ -54,6 +54,7 @@ import {
   hasUnaddressedHumanFeedback,
   onCheckoutMachine,
   resolveActiveWorkPhaseContext,
+  resolveWorkEvidenceCaller,
   resolveCurrentWorkFeedback,
   findAssignedBoardRowsForWorker,
   type ActiveWorkPhaseContext,
@@ -534,7 +535,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
             questId,
             actorSessionId: auth.callerId,
             phaseOccurrenceId: initialWorkContext.phaseOccurrenceId,
-            caller: workEvidenceCaller(auth.caller),
+            caller: await resolveWorkEvidenceCaller(auth.caller),
             commitShas,
             existing: deliveryEvidenceOf(quest),
             leaderSessionId: initialMatch.leaderSessionId,
@@ -862,15 +863,14 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     try {
-      const verifiedTarget = await onCheckoutMachine(
-        workEvidenceHost(auth.caller),
-        "verifyWorkEvidence",
-        workEvidenceCaller(auth.caller),
-        replacementCommitShas,
-      ).catch((error: unknown) => ({
-        error: error instanceof Error ? error.message : "Cannot verify replacement Work evidence.",
-        status: error instanceof DeliveryEvidenceError ? error.status : 503,
-      }));
+      const verifiedTarget = await resolveWorkEvidenceCaller(auth.caller)
+        .then((caller) =>
+          onCheckoutMachine(workEvidenceHost(caller), "verifyWorkEvidence", caller, replacementCommitShas),
+        )
+        .catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : "Cannot verify replacement Work evidence.",
+          status: error instanceof DeliveryEvidenceError ? error.status : 503,
+        }));
       if ("error" in verifiedTarget) return c.json({ error: verifiedTarget.error }, verifiedTarget.status);
 
       const refreshedMatches = findAssignedBoardRowsForWorker({

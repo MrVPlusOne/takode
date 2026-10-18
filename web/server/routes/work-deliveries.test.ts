@@ -1,9 +1,13 @@
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
 import * as store from "../quest-store.js";
 import { buildCodeDelivery, runPortCommand } from "../quest-code-deliveries.js";
 import { appendCodeEvidence } from "../quest-delivery-evidence.js";
+import { readGit } from "../git-commit-reader.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { deliveryFixture, FIRST_DELIVERY_SHA } from "../../src/test-fixtures/commit-delivery-fixture.js";
 
@@ -23,6 +27,7 @@ let row: {
 };
 let callerId: string;
 let callerHostId: string | undefined;
+let callerCwd: string | undefined;
 let release = vi.fn(() => {});
 let locked: boolean;
 let broadcast: ReturnType<typeof vi.fn>;
@@ -38,6 +43,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   callerId = "worker";
   callerHostId = undefined;
+  callerCwd = undefined;
   locked = false;
   release = vi.fn(() => {
     locked = false;
@@ -90,7 +96,7 @@ beforeEach(() => {
     launcher: {} as never,
     authenticateTakodeCaller: (() => ({
       callerId,
-      caller: { sessionId: callerId, isOrchestrator: false, hostId: callerHostId },
+      caller: { sessionId: callerId, isOrchestrator: false, hostId: callerHostId, cwd: callerCwd },
     })) as never,
     wsBridge: {
       findAssignedBoardRowsForWorker: () => [{ leaderSessionId: "leader", row }],
@@ -209,6 +215,44 @@ describe("guarded delivery recording before Memory", () => {
     expect((await recordDelivery()).status).toBeGreaterThanOrEqual(400);
     expect(buildCodeDelivery).not.toHaveBeenCalled();
     expect(store.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("reads a direct checkout's branch from Git when the session records none", async () => {
+    // Sessions started on an existing checkout have no branch fields; the verifier needs one.
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "work-deliveries-direct-")));
+    try {
+      await readGit(repo, ["init", "-b", "direct-line"]);
+      // An unborn branch reads as a detached HEAD, so give it a commit.
+      await readGit(repo, [
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        `core.hooksPath=${join(repo, ".no-hooks")}`,
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Base",
+      ]);
+      callerCwd = repo;
+      expect((await recordDelivery()).status).toBe(200);
+      expect(buildCodeDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ caller: expect.objectContaining({ cwd: repo, actualBranch: "direct-line" }) }),
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("asks a remote direct checkout's own host for its branch, never this machine", async () => {
+    // No host link is up, so the branch read fails on that host instead of reading local Git.
+    callerHostId = "devbox";
+    callerCwd = "/remote/checkout";
+    const response = await recordDelivery();
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("devbox");
+    expect(buildCodeDelivery).not.toHaveBeenCalled();
   });
 
   it("revalidates phase and owner after asynchronous Git verification", async () => {
