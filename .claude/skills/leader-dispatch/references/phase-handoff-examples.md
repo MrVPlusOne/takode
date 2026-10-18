@@ -1,6 +1,6 @@
 # Phase Handoff Examples
 
-Keep actual handoffs shorter than these examples and include only genuinely useful context the worker cannot already access. Generic behavior belongs in the active phase briefs.
+Each example is the whole message when there is no new context. The named assignee brief supplies the phase's duties (phase notes, compact chat handoff, stop boundary, transition mechanics), so do not repeat them; add only genuinely useful context the worker cannot already access.
 
 ## Initial Work
 
@@ -9,25 +9,20 @@ Work on [q-XX](quest:q-XX). Load the quest skill first, then read and claim the 
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
-
-Proceed within the authorized envelope. Keep the Work note current and stop after the guarded Work-to-Memory transition.
-
 ```
 
 If the leader has genuinely useful context the worker cannot otherwise access, add it in natural prose after the phase instruction, for example: `Use [#YY msg M](session:YY:M) for the later user correction.`
 
 ## Direct Worker Errand
 
-Use this only when the `leader-dispatch` direct worker errand checklist passes. It is not a Quest Journey phase handoff.
+Use this only when the `leader-dispatch` direct worker errand checklist passes. It is not a Quest Journey phase handoff. Workers' own instructions already define the errand limits and the stop-and-promote rule, so naming it a direct errand is enough.
 
 ```text
 Quick direct errand, not a Quest Journey.
 
-Use your retained context from [q-XX](quest:q-XX) / <accepted note or source>. Please do only this bounded read-only task:
+Use your retained context from [q-XX](quest:q-XX) / <accepted note or source>:
 - <exact draft, explanation, lookup, translation, formatting pass, or clarification request>
 - Source: <one exact message, thread, note, file, or artifact pointer>
-
-Do not claim or reopen a quest, write phase notes, mutate code/config/data/state, post externally, run validation, or create durable artifacts. If this needs broader investigation, implementation, validation, mutation, multiple turns, external consequences, review, or a durable handoff, stop and say it should be promoted to a normal quest.
 ```
 
 ## Work
@@ -37,7 +32,6 @@ Resume the authorized Work for [q-XX](quest:q-XX).
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
-
 ```
 
 That is sufficient when no new context exists. When a later user decision or genuinely useful external fact is not otherwise available to the worker, write it naturally and keep it narrow rather than adding a required section:
@@ -54,12 +48,10 @@ Prepare a User Checkpoint packet for [q-XX](quest:q-XX) without doing more Work.
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/user-checkpoint/assignee.md`
 
-Return a self-contained user-facing packet with findings, named options, tradeoffs, recommendation, exact requested answer, and any shortcut labels explained in the packet. Add or refresh the checkpoint note, then stop.
-
 Decision needed: <what is outside the approved Work envelope>.
-
-Before checkpoint entry, ensure the remaining suffix includes a later Work occurrence before Memory. A direct optional skip whose condition is already satisfied should stay in Work and use guarded `work-to-memory --skip-optional-checkpoint <reason>` instead of creating this packet.
 ```
+
+Before sending it, check the leader-side conditions in the User Checkpoint leader brief yourself: the remaining Journey has a later Work occurrence before Memory, and no direct optional skip applies.
 
 ## Memory
 
@@ -68,10 +60,6 @@ Proceed with final Memory for [q-XX](quest:q-XX).
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/memory/assignee.md`
-
-Use the accepted Work note and current artifacts. Perform catalog/direct-file memory triage, settle final debrief metadata, quest metadata, User review checks, cleanup/follow-ups, exactly one memory statement, and quest completion. Do not edit project-tracked implementation files; missing tracked work returns to Work.
-
-Do not put synchronized Work SHAs in this Memory handoff merely for attachment. The guarded Work -> Memory transition must already have recorded them as structured code commit metadata; missing code evidence routes back to Work.
 ```
 
 When the worker cannot otherwise access a relevant debrief decision, memory file, external artifact, cleanup need, or known residual risk, add one short natural sentence that points to it.
@@ -83,8 +71,6 @@ Work on [q-YY](quest:q-YY), a separate review quest for [q-XX](quest:q-XX).
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
-
-Use the accepted Work note, target diff/commit range, and evidence listed below. Read the review objective and constraints, then perform the authorized review within Work.
 
 Review target: <session, message range, Work note, commit range, artifact, or evidence>.
 ```
