@@ -31,14 +31,21 @@ describe("CollapsedReportPreview", () => {
     expect(clip.style.maxHeight).toBe("320px");
 
     fireEvent.click(toggle);
-    expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
+    const showLess = screen.getByRole("button", { name: "Show less" });
+    expect(showLess).toHaveAttribute("aria-expanded", "true");
     expect(clip.style.maxHeight).toBe("");
+    // An expanded report can run many screens, so its only collapse control sits
+    // in a bar pinned to the feed's top, ahead of the report, not at its far end.
+    expect(showLess.parentElement).toHaveClass("sticky");
+    expect(showLess.compareDocumentPosition(clip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show full report" })).not.toBeInTheDocument();
 
-    // Collapsing returns to the clipped preview and keeps the toggle on screen.
-    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    // Collapsing returns to the clipped preview and brings the card back on screen.
+    fireEvent.click(showLess);
     expect(screen.getByRole("button", { name: "Show full report" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show less" })).not.toBeInTheDocument();
     expect(clip.style.maxHeight).toBe("320px");
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
     vi.unstubAllGlobals();
   });
 

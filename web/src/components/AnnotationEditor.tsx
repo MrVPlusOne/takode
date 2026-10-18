@@ -10,6 +10,7 @@ import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { useSendKey } from "../hooks/useSendKey.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
+import { ReportCommentTarget } from "./ReportCommentTarget.js";
 
 type VoiceMode = "dictation" | "append" | "edit";
 interface Capture {
@@ -206,6 +207,11 @@ export function AnnotationEditor({
           }
         }}
       >
+        {annotation.reportSource && (
+          <div className="mb-2 flex">
+            <ReportCommentTarget source={annotation.reportSource} />
+          </div>
+        )}
         <blockquote className="mb-3 max-h-24 overflow-auto whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-3 text-xs text-cc-muted">
           {annotation.selectedText}
         </blockquote>

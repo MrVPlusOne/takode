@@ -555,7 +555,9 @@ export const TurnEntries = memo(function TurnEntries({
                         {!hasCollapsedCurrentAnswer && (
                           <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
                         )}
-                        <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                        {/* Clip, not hide: a hidden overflow is a scroll container, which would keep an
+                            expanded report's collapse bar from sticking to the feed's top. */}
+                        <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-clip">
                           <CollapsedTurnContent
                             turn={turn}
                             sessionId={sessionId}

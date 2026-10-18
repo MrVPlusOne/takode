@@ -162,10 +162,21 @@ function SentCommentExamples() {
         id: `sent-comment-${index}`,
         selectedText: example === "long" ? longQuotation : selectedText,
         comment:
-          example === "short"
+          example === "short" || example === "report"
             ? "Could this be configurable?"
             : `Comment ${index + 1}: Explain the expiry policy and how retries affect requests already in progress.\nKeep the existing cache available until the replacement is ready.`,
         sourceMessageId: "annotation-example",
+        // A comment made on a published report names the report it is about.
+        ...(example === "report"
+          ? {
+              reportSource: {
+                sessionId: SESSION,
+                reportId: "annotation-example",
+                sourcePath: "/home/me/reports/daily-briefing.md",
+                sha256: "a".repeat(64),
+              },
+            }
+          : {}),
       })),
     },
     0,
@@ -188,6 +199,7 @@ function SentCommentExamples() {
           <option value="short">Short comment only</option>
           <option value="long">Long quotation only</option>
           <option value="multiple">Several comments and text</option>
+          <option value="report">Comment on a report</option>
         </select>
       </label>
       <MessageBubble key={message.id} message={message} interactionMode="read-only" />

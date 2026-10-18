@@ -4,6 +4,7 @@ import { useAnnotationPreview } from "./use-annotation-preview.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
+import { ReportCommentTarget } from "./ReportCommentTarget.js";
 export { AnnotationSourceMarkers } from "./AnnotationSourceMarkers.js";
 
 /** Structured attachment previews; ordinary message text is never parsed as attachment syntax. */
@@ -69,13 +70,14 @@ function AnnotationAttachment({
           disabled={disabled}
           {...triggerProps}
           aria-label={`Comment ${number}`}
-          className="rounded-xl border border-cc-border bg-cc-hover/60 px-3 py-2 text-sm text-cc-fg"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-cc-border bg-cc-hover/60 px-3 py-2 text-sm text-cc-fg"
           onClick={(event) => {
             close();
             const rect = event.currentTarget.getBoundingClientRect();
             onEdit(annotation, { x: rect.left, y: rect.top });
           }}
         >
+          {annotation.reportSource && <ReportCommentTarget source={annotation.reportSource} compact />}
           Comment {number}
         </button>
         {preview}
@@ -95,6 +97,11 @@ function AnnotationAttachment({
           aria-label={`Comment ${number}`}
         >
           Comment {number}
+          {annotation.reportSource && (
+            <span className="ml-2">
+              <ReportCommentTarget source={annotation.reportSource} />
+            </span>
+          )}
         </summary>
         <div
           className={`max-w-lg space-y-3 border-t border-cc-border p-3 ${variant === "message" ? "" : "max-h-80 overflow-auto"}`}

@@ -9,8 +9,8 @@ const CLIPPED_HEIGHT_PX = 320;
  * whole without a toggle.
  */
 export function CollapsedReportPreview({ children }: { children: ReactNode }) {
+  const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const toggleRef = useRef<HTMLButtonElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
 
@@ -27,32 +27,49 @@ export function CollapsedReportPreview({ children }: { children: ReactNode }) {
   }, []);
 
   const clipped = overflows && !expanded;
-  const toggle = () => {
-    setExpanded(!expanded);
-    // Collapsing a long report from its end would leave the reader far below
-    // it; bring the toggle back on screen beside the clipped report.
-    if (expanded) requestAnimationFrame(() => toggleRef.current?.scrollIntoView({ block: "center" }));
+  const collapse = () => {
+    setExpanded(false);
+    // Collapsing from deep inside a long report would leave the reader far below
+    // it; bring the clipped card back on screen.
+    requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: "nearest" }));
   };
 
   return (
-    <div className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5" data-testid="collapsed-report">
-      <div className="relative min-w-0 overflow-hidden" style={clipped ? { maxHeight: CLIPPED_HEIGHT_PX } : undefined}>
+    <div
+      ref={cardRef}
+      className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5"
+      data-testid="collapsed-report"
+    >
+      {overflows && expanded && (
+        // An expanded report can run many screens, so its collapse control stays
+        // pinned to the top of the feed while any part of the report is in view.
+        // Sticky offsets start inside the feed's vertical padding (py-4 sm:py-6),
+        // so the negative top reaches the feed's visible top edge.
+        <div className="sticky -top-4 sm:-top-6 z-10 -mx-3 -mt-2.5 mb-1 flex justify-end rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5">
+          <ReportToggle expanded onClick={collapse} />
+        </div>
+      )}
+      {/* Clip rather than hide: focus or scrollIntoView cannot scroll a clipped box past its header. */}
+      <div className="relative min-w-0 overflow-clip" style={clipped ? { maxHeight: CLIPPED_HEIGHT_PX } : undefined}>
         <div ref={contentRef}>{children}</div>
         {clipped && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-cc-card to-transparent" />
         )}
       </div>
-      {overflows && (
-        <button
-          ref={toggleRef}
-          type="button"
-          aria-expanded={expanded}
-          onClick={toggle}
-          className="mt-1 cursor-pointer rounded-md py-0.5 text-[11px] font-medium text-cc-primary hover:text-cc-primary-hover"
-        >
-          {expanded ? "Show less" : "Show full report"}
-        </button>
-      )}
+      {clipped && <ReportToggle expanded={false} onClick={() => setExpanded(true)} />}
     </div>
+  );
+}
+
+function ReportToggle({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={onClick}
+      className={`cursor-pointer rounded-md text-[11px] font-medium text-cc-primary hover:text-cc-primary-hover ${expanded ? "py-1 pl-2" : "mt-1 py-0.5"}`}
+    >
+      {expanded ? "Show less" : "Show full report"}
+    </button>
   );
 }

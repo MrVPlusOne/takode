@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type SyntheticEvent } 
 import { createPortal } from "react-dom";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useStore } from "../store.js";
+import { ReportCommentTarget } from "./ReportCommentTarget.js";
 
 /** One hover/focus preview owns its highlight and can be entered to scroll long comments. */
 export function useAnnotationPreview(annotation: ConversationAnnotation, number: number, sessionId?: string) {
@@ -77,7 +78,10 @@ export function useAnnotationPreview(annotation: ConversationAnnotation, number:
             }}
             className="z-[1300] space-y-2 overflow-auto rounded-xl border border-cc-border bg-cc-card p-3 text-sm text-cc-fg shadow-xl"
           >
-            <div className="text-xs font-medium text-cc-muted">Comment {number}</div>
+            <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-cc-muted">
+              <span className="shrink-0">Comment {number}</span>
+              {annotation.reportSource && <ReportCommentTarget source={annotation.reportSource} />}
+            </div>
             <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-2 text-cc-muted">
               {annotation.selectedText}
             </blockquote>

@@ -292,6 +292,41 @@ describe("composer annotation attachments", () => {
     expect(useStore.getState().composerDrafts.get("session")?.annotations).toEqual([first]);
   });
 
+  it("marks a comment on a report as aimed at that report while writing, in its chip and once sent", () => {
+    // A report sits inside a leader turn, so the user needs to see that the comment names the
+    // report file rather than the leader's response. Ordinary comments carry no such cue.
+    const reportComment = {
+      ...second,
+      reportSource: {
+        sessionId: "session",
+        reportId: "report",
+        sourcePath: "/reports/daily.md",
+        sha256: "a".repeat(64),
+      },
+    };
+    useStore.getState().setAnnotationEditor({ sessionId: "session", annotation: reportComment });
+    render(<ComposerAnnotations sessionId="session" threadKey="main" />);
+    expect(screen.getByRole("dialog").textContent).toContain("On report daily.md");
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Why this order?" } });
+    fireEvent.click(screen.getByText("Save"));
+
+    const cues = (name: string) =>
+      screen.getByRole("button", { name }).querySelectorAll("[data-testid=report-comment-target]");
+    expect(cues("Comment 1")).toHaveLength(0);
+    expect(cues("Comment 2")).toHaveLength(1);
+    expect(cues("Comment 2")[0].getAttribute("title")).toBe("On report /reports/daily.md");
+
+    cleanup();
+    render(
+      <AnnotationAttachments
+        variant="message"
+        annotations={[first, { ...reportComment, comment: "Why this order?" }]}
+      />,
+    );
+    const summaries = screen.getAllByRole("group").map((details) => details.querySelector("summary")!.textContent);
+    expect(summaries).toEqual(["Comment 1", "Comment 2On report daily.md"]);
+  });
+
   it("retains structured annotations in failed pending sends and sends an empty main message", () => {
     mocks.send.mockReturnValue(false);
     const draft = { text: "", images: [], annotations: [first] };
