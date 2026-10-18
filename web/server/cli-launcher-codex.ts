@@ -451,6 +451,13 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
   };
 
   setDefault("display_name", displayNameFromModelSlug(modelSlug), (value) => typeof value === "string");
+  if (Array.isArray(modelEntry.supported_reasoning_levels)) {
+    const levels = normalizeCatalogReasoningLevels(modelEntry.supported_reasoning_levels);
+    if (JSON.stringify(levels) !== JSON.stringify(modelEntry.supported_reasoning_levels)) {
+      modelEntry.supported_reasoning_levels = levels;
+      changed = true;
+    }
+  }
   setDefault(
     "supported_reasoning_levels",
     [
@@ -483,6 +490,21 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
   setDefault("experimental_supported_tools", [], Array.isArray);
 
   return changed;
+}
+
+/**
+ * Codex requires each supported reasoning level to be `{ effort, description }`.
+ * Turn bare effort strings into that shape, give a missing description an empty
+ * one, keep any other fields, and drop entries that name no effort.
+ */
+function normalizeCatalogReasoningLevels(levels: unknown[]): Record<string, unknown>[] {
+  return levels.flatMap((level) => {
+    if (typeof level === "string") return level.trim() ? [{ effort: level.trim(), description: "" }] : [];
+    if (!level || typeof level !== "object") return [];
+    const item = level as Record<string, unknown>;
+    if (typeof item.effort !== "string" || !item.effort.trim()) return [];
+    return [{ ...item, description: typeof item.description === "string" ? item.description : "" }];
+  });
 }
 
 function disableResponsesLiteForMaiLitellm(modelEntry: Record<string, any>): boolean {
@@ -700,7 +722,13 @@ async function ensureCodexModelCatalogOverride(
     modelEntries.push(modelEntry);
     addedModelEntry = true;
   }
-  const schemaDefaultsChanged = ensureCodexModelEntrySchemaDefaults(modelEntry, modelSlug);
+  // Codex parses the whole catalog at startup, so one malformed entry anywhere
+  // breaks the launch, not only a malformed selected model.
+  let schemaDefaultsChanged = false;
+  for (const entry of modelEntries) {
+    if (!entry || typeof entry !== "object" || typeof entry.slug !== "string") continue;
+    if (ensureCodexModelEntrySchemaDefaults(entry, entry.slug)) schemaDefaultsChanged = true;
+  }
   const changed = options.mutateModelEntry(modelEntry) || addedModelEntry || schemaDefaultsChanged;
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
@@ -1208,17 +1236,17 @@ async function prepareCodexHome(
   await syncCodexGlobalInstructionFiles(codexHome, sourceHome);
   await options?.timing?.yieldIfDue("snapshot Codex global instructions");
 
-  const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
+  // Codex validates these caches itself (CLI version, age, signed account identity),
+  // so seeding them only spares a session's startup the network fetches that rebuild them.
+  const startupCacheSeeds = ["models_cache.json", "cloud-config-bundle-cache.json"];
+  const fileSeeds = ["auth.json", "config.toml", "version.json", ...startupCacheSeeds];
   if (canSeedSourceHome) {
     for (const name of fileSeeds) {
       try {
+        const isStartupCache = startupCacheSeeds.includes(name);
         const candidateSources = [join(sourceHome, name)];
         const mayFallbackToLegacyAuth = name !== "auth.json" || options?.allowLegacyAuthFallback !== false;
-        if (
-          (name === "auth.json" || name === "models_cache.json") &&
-          legacyCodexHome !== sourceHome &&
-          mayFallbackToLegacyAuth
-        ) {
+        if ((name === "auth.json" || isStartupCache) && legacyCodexHome !== sourceHome && mayFallbackToLegacyAuth) {
           candidateSources.push(join(legacyCodexHome, name));
         }
 
@@ -1248,6 +1276,8 @@ async function prepareCodexHome(
           } else {
             await copyFile(src, dest);
           }
+        } else if (isStartupCache && (await stat(src)).mtimeMs > (await stat(dest)).mtimeMs) {
+          await copyFile(src, dest);
         }
         await options?.timing?.yieldIfDue(`seed Codex ${name}`);
       } catch (error) {

@@ -605,7 +605,8 @@ export function createSystemRoutes(ctx: RouteContext) {
     if (backendId === "codex") {
       let catalog;
       try {
-        catalog = await loadCodexModelCatalog({ pathExists });
+        // Opening a model picker asks Codex for the account's current models.
+        catalog = await loadCodexModelCatalog({ pathExists, refresh: true });
       } catch {
         return c.json({ error: "Failed to parse Codex models cache" }, 500);
       }

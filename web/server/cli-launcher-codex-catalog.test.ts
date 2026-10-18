@@ -992,6 +992,46 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("repairs every catalog entry, not only the selected model, and normalizes reasoning levels", async () => {
+    // Codex parses the whole supplied catalog at startup, so a malformed entry for
+    // another model breaks the launch just as a malformed selected entry would.
+    const codexHome = await makeCodexHome();
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "takode-test-selected";
+    await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: "other-model",
+            supported_reasoning_levels: ["low", { effort: "high" }, { description: "no effort" }],
+          },
+          {
+            slug: model,
+            supported_reasoning_levels: [{ effort: "medium", description: "Balanced", extra: "kept" }],
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderRecycleThresholdTokens: 260_000,
+      model,
+    });
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    const [other, selected] = catalog.models;
+    expectParserSafeEntry(other, "other-model");
+    expect(other.supported_reasoning_levels).toEqual([
+      { effort: "low", description: "" },
+      { effort: "high", description: "" },
+    ]);
+    expectParserSafeEntry(selected, model);
+    expect(selected.supported_reasoning_levels).toEqual([{ effort: "medium", description: "Balanced", extra: "kept" }]);
+  });
+
   it("repairs a legacy minimal configured catalog during relaunch prep", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

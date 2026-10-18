@@ -445,10 +445,12 @@ export function NewSessionModal({
       setDynamicModels(null);
       return;
     }
+    // Ignore an answer for a backend that is no longer selected.
+    let current = true;
     api
       .getBackendModels(backend)
       .then((models) => {
-        if (models.length > 0) {
+        if (current && models.length > 0) {
           const options = toModelOptions(models);
           // Always prepend the "Default" option (value="") so users can use
           // whatever model is configured in settings.json / cloud config.
@@ -459,6 +461,9 @@ export function NewSessionModal({
         }
       })
       .catch(() => {});
+    return () => {
+      current = false;
+    };
   }, [open, backend]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Migrate legacy Codex mode values from older builds.
@@ -645,7 +650,8 @@ export function NewSessionModal({
   function resolveModelOverrideForCreate(): string | undefined {
     const key = backendDefaultKey(backend);
     if (!defaultFieldEditedRef.current.model[key]) return undefined;
-    if (backend === "codex" && model === "") return codexDefaultModel || "";
+    // A chosen Codex "Default" is sent as "" (not omitted): the server resolves it
+    // from the current Codex config instead of a saved or inherited model.
     return model;
   }
 

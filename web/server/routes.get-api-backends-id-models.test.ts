@@ -526,7 +526,9 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("GET /api/backends/:id/models", () => {
-  it("filters old codex models and sorts current models by version descending", async () => {
+  it("lists the visible Codex models in Codex's own priority order without filtering by name", async () => {
+    // Takode once hid gpt-5.1/5.2 models and re-sorted by version, which could hide
+    // models the account has and disagree with Codex's own /model list.
     const cacheContent = JSON.stringify({
       models: [
         {
@@ -534,7 +536,7 @@ describe("GET /api/backends/:id/models", () => {
           display_name: "gpt-5.3-codex-spark",
           description: "Fast model",
           visibility: "list",
-          priority: 0,
+          priority: 3,
         },
         {
           slug: "gpt-5.3-codex",
@@ -549,14 +551,14 @@ describe("GET /api/backends/:id/models", () => {
           display_name: "gpt-5.2-codex",
           description: "Old model",
           visibility: "list",
-          priority: 0,
+          priority: 3,
         },
         {
           slug: "gpt-5.1-codex-mini",
           display_name: "gpt-5.1-codex-mini",
           description: "Older model",
           visibility: "list",
-          priority: 0,
+          priority: 1,
         },
         { slug: "gpt-5-codex", display_name: "gpt-5-codex", description: "Old model", visibility: "hide", priority: 8 },
       ],
@@ -570,7 +572,7 @@ describe("GET /api/backends/:id/models", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    // Should only include visible 5.3+ models, ordered by version then variant.
+    // Hidden models stay out; ties keep catalog order, as in Codex's picker.
     expect(json).toEqual([
       {
         value: "gpt-5.4",
@@ -580,11 +582,11 @@ describe("GET /api/backends/:id/models", () => {
         description: "Frontier model",
       },
       {
-        value: "gpt-5.3-codex",
-        canonicalIdentity: "gpt-5.3-codex",
+        value: "gpt-5.1-codex-mini",
+        canonicalIdentity: "gpt-5.1-codex-mini",
         routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
-        label: "gpt-5.3-codex",
-        description: "Main codex model",
+        label: "gpt-5.1-codex-mini",
+        description: "Older model",
       },
       {
         value: "gpt-5.3-codex-spark",
@@ -592,6 +594,20 @@ describe("GET /api/backends/:id/models", () => {
         routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         label: "gpt-5.3-codex-spark",
         description: "Fast model",
+      },
+      {
+        value: "gpt-5.2-codex",
+        canonicalIdentity: "gpt-5.2-codex",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.2-codex",
+        description: "Old model",
+      },
+      {
+        value: "gpt-5.3-codex",
+        canonicalIdentity: "gpt-5.3-codex",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.3-codex",
+        description: "Main codex model",
       },
     ]);
   });

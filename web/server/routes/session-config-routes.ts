@@ -15,6 +15,7 @@ import { resolveCodexSandboxForPermissionMode } from "./session-permission-mode.
 import { markCodexModelSwitchCompactionGuard } from "../bridge/codex-model-switch-compaction.js";
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
+import { MODEL_ID_PATTERN } from "../model-identity-contract.js";
 import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
@@ -154,6 +155,9 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
     const rawModel = parseNullableString(body, "model");
     if (rawModel !== undefined) {
       if (!rawModel) return c.json({ error: "model must be a non-empty string" }, 400);
+      if (backendType === "codex" && !MODEL_ID_PATTERN.test(rawModel.trim())) {
+        return c.json({ error: `Invalid Codex model id: ${rawModel}` }, 400);
+      }
       const current = liveStateValue<string>(liveState, "model", info.model) || "";
       if (changed(current, rawModel)) {
         launchPatch.model = rawModel;

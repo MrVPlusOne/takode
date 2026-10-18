@@ -8,6 +8,8 @@ import { getLegacyCodexHome } from "./codex-home.js";
 import { buildTakodeCatalogRouteEntry, fingerprintModelRouteEntry } from "./model-identity-contract.js";
 
 const CODEX_MODEL_CATALOG_TIMEOUT_MS = 3_000;
+// The account catalog may need a network fetch when Codex's own cache is stale.
+const CODEX_ACCOUNT_MODEL_CATALOG_TIMEOUT_MS = 10_000;
 const CODEX_MODEL_CATALOG_MAX_BUFFER = 2 * 1024 * 1024;
 
 export interface CodexReasoningLevelInfo {
@@ -38,7 +40,11 @@ export interface CodexBackendModelInfo {
 
 export interface CodexCatalogResult {
   models: CodexBackendModelInfo[];
-  source: "installed-cli" | "models-cache";
+  /**
+   * `account`: the catalog the installed CLI serves for the signed-in account;
+   * `installed-cli`: the catalog bundled with the CLI; `models-cache`: Codex's models_cache.json file.
+   */
+  source: "account" | "installed-cli" | "models-cache";
   cacheKey?: string;
   version?: string;
 }
@@ -55,33 +61,12 @@ interface LoadCodexCatalogOptions {
   readFileImpl?: typeof readFile;
   statImpl?: typeof stat;
   pathExists?: (path: string) => Promise<boolean>;
-  preferInstalledCli?: boolean;
+  /** Ask the CLI again even when a catalog was already loaded for this binary and version. */
+  refresh?: boolean;
 }
 
-let installedCatalogCache: CodexCatalogResult | null = null;
+let cliCatalogCache: CodexCatalogResult | null = null;
 let startupRefreshPromise: Promise<CodexCatalogResult | null> | null = null;
-
-function getCodexModelVariantRank(slug: string): number {
-  if (slug.includes("-codex-spark")) return 2;
-  if (slug.includes("-codex")) return 0;
-  return 1;
-}
-
-export function compareCodexModelSlugs(a: string, b: string): number {
-  const aMatch = a.match(/^gpt-(\d+)\.(\d+)(?:\.(\d+))?/);
-  const bMatch = b.match(/^gpt-(\d+)\.(\d+)(?:\.(\d+))?/);
-  if (!aMatch || !bMatch) return a.localeCompare(b);
-
-  const aVersion = [Number(aMatch[1]), Number(aMatch[2]), Number(aMatch[3] ?? 0)];
-  const bVersion = [Number(bMatch[1]), Number(bMatch[2]), Number(bMatch[3] ?? 0)];
-  for (let i = 0; i < aVersion.length; i += 1) {
-    if (aVersion[i] !== bVersion[i]) return bVersion[i] - aVersion[i];
-  }
-
-  const variantDelta = getCodexModelVariantRank(a) - getCodexModelVariantRank(b);
-  if (variantDelta !== 0) return variantDelta;
-  return a.localeCompare(b);
-}
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
@@ -136,9 +121,14 @@ function normalizeReasoningLevels(value: unknown): CodexReasoningLevelInfo[] | u
   return levels.length > 0 ? levels : undefined;
 }
 
+function catalogPriority(model: Record<string, unknown>): number {
+  return typeof model.priority === "number" && Number.isFinite(model.priority) ? model.priority : 0;
+}
+
 export function mapCodexCatalogModels(raw: unknown): CodexBackendModelInfo[] {
   const catalog = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const models = Array.isArray(catalog.models) ? catalog.models : [];
+  // Same order as Codex's own model picker: ascending priority, catalog order on ties.
   return models
     .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
     .filter((model) => model.visibility === "list")
@@ -146,8 +136,7 @@ export function mapCodexCatalogModels(raw: unknown): CodexBackendModelInfo[] {
       (model): model is Record<string, unknown> & { slug: string } =>
         typeof model.slug === "string" && model.slug.trim().length > 0,
     )
-    .filter((model) => !model.slug!.startsWith("gpt-5.2") && !model.slug!.startsWith("gpt-5.1"))
-    .sort((a, b) => compareCodexModelSlugs(a.slug as string, b.slug as string))
+    .sort((a, b) => catalogPriority(a) - catalogPriority(b))
     .map((model) => {
       const slug = (model.slug as string).trim();
       const supportedReasoningLevels = normalizeReasoningLevels(model.supported_reasoning_levels);
@@ -198,9 +187,9 @@ async function getBinaryCacheKey(binaryPath: string, statImpl: typeof stat): Pro
   return `${binaryPath}:${binaryStat.mtimeMs}:${binaryStat.size}`;
 }
 
-async function readInstalledCliCatalog(
+async function readCliCatalog(
   binaryPath: string,
-  options: Pick<LoadCodexCatalogOptions, "runCodexCommand" | "statImpl">,
+  options: Pick<LoadCodexCatalogOptions, "runCodexCommand" | "statImpl" | "refresh">,
 ): Promise<CodexCatalogResult | null> {
   const statImpl = options.statImpl ?? stat;
   const cacheKey = await getBinaryCacheKey(binaryPath, statImpl);
@@ -210,25 +199,35 @@ async function readInstalledCliCatalog(
     maxBuffer: 128 * 1024,
   }).catch(() => ({ stdout: "" }));
   const version = versionResult.stdout.trim() || undefined;
-  if (installedCatalogCache?.cacheKey === cacheKey && installedCatalogCache.version === version) {
-    return installedCatalogCache;
+  if (!options.refresh && cliCatalogCache?.cacheKey === cacheKey && cliCatalogCache.version === version) {
+    return cliCatalogCache;
   }
 
-  const catalogResult = await run(binaryPath, ["debug", "models", "--bundled"], {
-    timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
-    maxBuffer: CODEX_MODEL_CATALOG_MAX_BUFFER,
-  });
-  const parsed = JSON.parse(catalogResult.stdout);
-  const models = mapCodexCatalogModels(parsed);
+  const readCatalog = async (args: string[], timeout: number) => {
+    const { stdout } = await run(binaryPath, args, { timeout, maxBuffer: CODEX_MODEL_CATALOG_MAX_BUFFER });
+    return mapCodexCatalogModels(JSON.parse(stdout));
+  };
+  // Without --bundled, Codex answers with the account's models: it reuses its own
+  // models_cache.json while that is fresh for this CLI version and refetches it otherwise.
+  const accountModels = await readCatalog(["debug", "models"], CODEX_ACCOUNT_MODEL_CATALOG_TIMEOUT_MS).catch(
+    (error) => {
+      console.warn("[codex-model-catalog] Account model catalog unavailable; using the bundled catalog:", error);
+      return [];
+    },
+  );
+  const models =
+    accountModels.length > 0
+      ? accountModels
+      : await readCatalog(["debug", "models", "--bundled"], CODEX_MODEL_CATALOG_TIMEOUT_MS);
   if (models.length === 0) return null;
 
-  installedCatalogCache = {
+  cliCatalogCache = {
     models,
-    source: "installed-cli",
+    source: accountModels.length > 0 ? "account" : "installed-cli",
     cacheKey,
     version,
   };
-  return installedCatalogCache;
+  return cliCatalogCache;
 }
 
 async function readModelsCacheCatalog(
@@ -247,13 +246,18 @@ function resolveCodexBinary(override?: string): string | null {
   return resolveBinary(override || machineSettingsFor(null).codexBinary || "codex");
 }
 
+/**
+ * Load the Codex models offered in Takode's pickers, in Codex's own picker order:
+ * the signed-in account's catalog from the installed CLI, else the CLI's bundled
+ * catalog, else ~/.codex/models_cache.json. A catalog already loaded for the same
+ * binary and version is reused unless `refresh` is set.
+ */
 export async function loadCodexModelCatalog(options: LoadCodexCatalogOptions = {}): Promise<CodexCatalogResult | null> {
-  const preferInstalledCli = options.preferInstalledCli !== false;
   const binaryPath = resolveCodexBinary(options.codexBinary);
-  if (preferInstalledCli && binaryPath) {
+  if (binaryPath) {
     try {
-      const installed = await readInstalledCliCatalog(binaryPath, options);
-      if (installed) return installed;
+      const fromCli = await readCliCatalog(binaryPath, options);
+      if (fromCli) return fromCli;
     } catch {
       // Fall through to the legacy Codex cache.
     }
@@ -268,14 +272,14 @@ export async function loadCodexModelCatalog(options: LoadCodexCatalogOptions = {
 }
 
 export function getCachedCodexModelCatalog(): CodexCatalogResult | null {
-  return installedCatalogCache;
+  return cliCatalogCache;
 }
 
 export function refreshCodexModelCatalogOnStartup(
   options: LoadCodexCatalogOptions = {},
 ): Promise<CodexCatalogResult | null> {
   if (!startupRefreshPromise) {
-    startupRefreshPromise = loadCodexModelCatalog({ ...options, preferInstalledCli: true }).finally(() => {
+    startupRefreshPromise = loadCodexModelCatalog({ ...options, refresh: true }).finally(() => {
       startupRefreshPromise = null;
     });
   }
@@ -283,6 +287,6 @@ export function refreshCodexModelCatalogOnStartup(
 }
 
 export function _resetCodexModelCatalogCacheForTest(): void {
-  installedCatalogCache = null;
+  cliCatalogCache = null;
   startupRefreshPromise = null;
 }

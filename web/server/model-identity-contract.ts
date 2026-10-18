@@ -9,7 +9,9 @@ export type ModelAuthoritySource =
   | "session_default"
   | "inherited_session"
   | "managed_fallback"
-  | "launch_option";
+  | "launch_option"
+  /** The model set in the user's Codex config, chosen through an explicit "Default". */
+  | "codex_default";
 
 export interface ModelAuthorityCandidate {
   source: ModelAuthoritySource;

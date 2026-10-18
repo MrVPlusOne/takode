@@ -311,6 +311,19 @@ describe("session config routes", () => {
     );
   });
 
+  it("rejects an invalid Codex model id before changing launch config", async () => {
+    const { app, launcher } = createApp();
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "Not A Model" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(launcher.updateSessionLaunchConfig).not.toHaveBeenCalled();
+  });
+
   it("rejects unsupported Claude max context values", async () => {
     const { app } = createApp({ info: { backendType: "claude", permissionMode: "default" } });
 

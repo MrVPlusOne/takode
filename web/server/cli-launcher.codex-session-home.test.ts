@@ -436,6 +436,32 @@ describe("Codex session-home launch migration", () => {
     expect(mockSymlink).toHaveBeenCalledWith(legacyAuth, sessionAuth);
   });
 
+  it("seeds Codex startup caches into the session home and refreshes copies that are older", async () => {
+    // Codex validates these caches itself; without them a session's startup
+    // refetches the model catalog and the cloud config/policy bundle.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const legacyModels = join(legacyHome, "models_cache.json");
+    const legacyCloudConfig = join(legacyHome, "cloud-config-bundle-cache.json");
+    const sessionModels = join(sessionHome, "models_cache.json");
+    const sessionCloudConfig = join(sessionHome, "cloud-config-bundle-cache.json");
+
+    // The session already has an older models cache and no cloud config cache.
+    mockExistingPaths(legacyHome, legacyModels, legacyCloudConfig, sessionModels);
+    mockStat.mockImplementation(async (path: string) => ({
+      isFile: () => true,
+      mtimeMs: path === sessionModels ? 1 : 2,
+    }));
+
+    await launchCodex();
+
+    expect(mockCopyFile).toHaveBeenCalledWith(legacyCloudConfig, sessionCloudConfig);
+    expect(mockCopyFile).toHaveBeenCalledWith(legacyModels, sessionModels);
+  });
+
   it("replaces broken agents skill symlinks before legacy fallback migration", async () => {
     // Legacy migrations can leave broken ~/.agents/skills symlinks. A missing
     // slug fallback must replace those placeholders with usable skill contents.

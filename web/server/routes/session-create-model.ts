@@ -18,8 +18,11 @@ type ResolveSessionCreateModelOptions = {
   backend: BackendType;
   createdBy?: unknown;
   getClaudeUserDefaultModel: () => Promise<string>;
+  /** The model in the user's Codex config, or "" when it sets none. */
+  getCodexUserDefaultModel: () => Promise<string>;
   launcher: SessionCreateModelLauncher;
   configuredDefaultModel?: unknown;
+  /** An empty string is an explicit "Default" choice, unlike an omitted model. */
   requestedModel?: unknown;
 };
 
@@ -36,6 +39,7 @@ type SessionCreateModelSettings = {
 
 type SessionCreateModelResolverDeps = {
   getClaudeUserDefaultModel: () => Promise<string>;
+  getCodexUserDefaultModel: () => Promise<string>;
   launcher: SessionCreateModelLauncher;
 };
 
@@ -51,6 +55,7 @@ export async function resolveSessionCreateModel({
   createdBy,
   configuredDefaultModel,
   getClaudeUserDefaultModel,
+  getCodexUserDefaultModel,
   launcher,
   requestedModel,
 }: ResolveSessionCreateModelOptions): Promise<ResolvedSessionCreateModel> {
@@ -59,6 +64,18 @@ export async function resolveSessionCreateModel({
     typeof createdBy === "string" && createdBy.trim() ? launcher.resolveSessionId(createdBy.trim()) : null;
   const creator = creatorId ? launcher.getSession(creatorId) : null;
   const creatorModel = typeof creator?.model === "string" ? creator.model.trim() : "";
+
+  if (backend === "codex" && typeof requestedModel === "string" && !explicitModel) {
+    // "Default" means Codex's own default, which the picker labels from the same
+    // config; saved session defaults and the creator's model must not replace it.
+    const codexDefaultModel = (await getCodexUserDefaultModel()).trim();
+    const candidates: ModelAuthorityCandidate[] = [
+      { source: "managed_fallback", model: getDefaultModelForBackend("codex"), precedence: 100 },
+    ];
+    if (codexDefaultModel) candidates.push({ source: "codex_default", model: codexDefaultModel, precedence: 400 });
+    const modelAuthority = resolveModelAuthority(candidates);
+    return { model: modelAuthority.model, modelAuthority };
+  }
 
   if (backend === "codex") {
     const configuredModel = typeof configuredDefaultModel === "string" ? configuredDefaultModel.trim() : "";
@@ -90,6 +107,7 @@ export async function resolveSessionCreateModel({
 /** Bind route dependencies and keep request/default precedence out of the sessions route entrypoint. */
 export function createSessionCreateModelResolver({
   getClaudeUserDefaultModel,
+  getCodexUserDefaultModel,
   launcher,
 }: SessionCreateModelResolverDeps) {
   const resolveForBody = (
@@ -109,6 +127,7 @@ export function createSessionCreateModelResolver({
             ).codex.model
           : undefined,
       getClaudeUserDefaultModel,
+      getCodexUserDefaultModel,
       launcher,
       requestedModel: backend === "codex" ? originalRequestedModel : body.model,
     });
@@ -123,8 +142,8 @@ export function createSessionCreateModelResolver({
     ): Promise<ResolvedSessionCreateModel> => {
       if (backend !== "codex") return {};
       const resolved = await resolveForBody(backend, body, settings, originalRequestedModel);
-      const hasExplicitModel = typeof originalRequestedModel === "string" && originalRequestedModel.trim().length > 0;
-      if (hasExplicitModel || !resolved.modelAuthority) return resolved;
+      // An explicit choice, including "Default", is known provenance.
+      if (typeof originalRequestedModel === "string" || !resolved.modelAuthority) return resolved;
       return {
         ...resolved,
         modelProvenanceMigration: createModelProvenanceMigration(resolved.modelAuthority, "external_resume"),

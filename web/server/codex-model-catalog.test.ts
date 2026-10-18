@@ -34,29 +34,33 @@ function catalog(...models: Record<string, unknown>[]): string {
 }
 
 describe("Codex model catalog loading", () => {
-  it("prefers installed Codex CLI bundled catalog over stale models_cache metadata", async () => {
+  it("prefers the account catalog from the installed CLI over its bundled catalog and models_cache", async () => {
+    // `codex debug models` without --bundled answers with the signed-in account's
+    // models, which can include models the bundled catalog lacks.
     const binary = await makeBinary();
     const runCodexCommand = vi.fn(async (_binary: string, args: string[]) => ({
       stdout: args.includes("--version")
         ? "codex-cli 0.144.1\n"
-        : catalog({
-            slug: "gpt-5.6-sol",
-            display_name: "GPT-5.6-Sol",
-            description: "Latest frontier agentic coding model.",
-            visibility: "list",
-            context_window: 372000,
-            max_context_window: 372000,
-            effective_context_window_percent: 95,
-            auto_compact_token_limit: null,
-            service_tiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
-            supported_reasoning_levels: [
-              { effort: "low", description: "Fast responses" },
-              { effort: "ultra", description: "Maximum reasoning with delegation" },
-            ],
-            default_reasoning_level: "low",
-            supports_reasoning_summaries: true,
-            default_reasoning_summary: "none",
-          }),
+        : args.includes("--bundled")
+          ? catalog({ slug: "gpt-5.5", display_name: "GPT-5.5", visibility: "list" })
+          : catalog({
+              slug: "gpt-5.6-sol",
+              display_name: "GPT-5.6-Sol",
+              description: "Latest frontier agentic coding model.",
+              visibility: "list",
+              context_window: 372000,
+              max_context_window: 372000,
+              effective_context_window_percent: 95,
+              auto_compact_token_limit: null,
+              service_tiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+              supported_reasoning_levels: [
+                { effort: "low", description: "Fast responses" },
+                { effort: "ultra", description: "Maximum reasoning with delegation" },
+              ],
+              default_reasoning_level: "low",
+              supports_reasoning_summaries: true,
+              default_reasoning_summary: "none",
+            }),
     }));
 
     const result = await loadCodexModelCatalog({
@@ -66,8 +70,9 @@ describe("Codex model catalog loading", () => {
       readFileImpl: async () => catalog({ slug: "gpt-5.4", display_name: "GPT-5.4", visibility: "list" }) as never,
     });
 
-    expect(result?.source).toBe("installed-cli");
+    expect(result?.source).toBe("account");
     expect(result?.version).toBe("codex-cli 0.144.1");
+    expect(runCodexCommand.mock.calls.map(([, args]) => args.join(" "))).toEqual(["--version", "debug models"]);
     expect(result?.models).toEqual([
       {
         value: "gpt-5.6-sol",
@@ -91,12 +96,28 @@ describe("Codex model catalog loading", () => {
     ]);
   });
 
+  it("falls back to the bundled catalog when the account catalog is unavailable", async () => {
+    const binary = await makeBinary();
+    const runCodexCommand = vi.fn(async (_binary: string, args: string[]) => {
+      if (args.includes("--version")) return { stdout: "codex-cli 0.144.1\n" };
+      if (args.includes("--bundled")) return { stdout: catalog({ slug: "gpt-5.5", visibility: "list" }) };
+      throw new Error("models endpoint unreachable");
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand });
+
+    expect(result?.source).toBe("installed-cli");
+    expect(result?.models.map((model) => model.value)).toEqual(["gpt-5.5"]);
+  });
+
   it("falls back to models_cache when the installed CLI catalog command fails", async () => {
     const binary = await makeBinary();
     const runCodexCommand = vi.fn(async (_binary: string, args: string[]) => {
       if (args.includes("--version")) return { stdout: "codex-cli 0.144.1\n" };
       throw new Error("debug models failed");
     });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const result = await loadCodexModelCatalog({
       codexBinary: binary,
@@ -118,7 +139,7 @@ describe("Codex model catalog loading", () => {
     });
   });
 
-  it("caches installed CLI catalog by binary stat and version", async () => {
+  it("reuses the CLI catalog for the same binary and version unless a refresh is requested", async () => {
     const binary = "/tmp/fake-codex";
     let version = "codex-cli 0.144.1\n";
     let slug = "gpt-5.6-sol";
@@ -142,6 +163,12 @@ describe("Codex model catalog loading", () => {
     mtimeMs = 2;
     await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
     expect(runCodexCommand).toHaveBeenCalledTimes(7);
+
+    // A model picker opening asks Codex again, so account changes show up.
+    slug = "gpt-5.7-terra";
+    const refreshed = await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl, refresh: true });
+    expect(refreshed?.models[0]?.value).toBe("gpt-5.7-terra");
+    expect(runCodexCommand).toHaveBeenCalledTimes(9);
   });
 
   it("coalesces startup refreshes through the same installed CLI cache", async () => {
@@ -164,6 +191,18 @@ describe("Codex model catalog loading", () => {
 });
 
 describe("mapCodexCatalogModels", () => {
+  it("keeps every visible model in ascending priority order, as Codex's picker does", () => {
+    const models = mapCodexCatalogModels({
+      models: [
+        { slug: "gpt-5.6-sol", visibility: "list", priority: 2 },
+        { slug: "gpt-5.1-codex-mini", visibility: "list", priority: 1 },
+        { slug: "internal-preview", visibility: "hide", priority: 0 },
+        { slug: "gpt-5.2", visibility: "list", priority: 2 },
+      ],
+    });
+    expect(models.map((model) => model.value)).toEqual(["gpt-5.1-codex-mini", "gpt-5.6-sol", "gpt-5.2"]);
+  });
+
   it("maps service tiers, context metadata, and supported reasoning levels", () => {
     expect(
       mapCodexCatalogModels({

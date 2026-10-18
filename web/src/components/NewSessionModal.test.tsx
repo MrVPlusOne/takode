@@ -794,9 +794,10 @@ describe("NewSessionModal", () => {
     );
   });
 
-  it("passes the Codex config default as the explicit model when the user selects Default", async () => {
+  it("sends a chosen Codex Default as an explicit empty model for the server to resolve", async () => {
+    // Choosing "Default" must not look like an omitted model: the server would
+    // then apply the saved session default (gpt-5.4 here) instead of Codex's default.
     const user = userEvent.setup();
-    const onClose = vi.fn();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "codex",
       model: "",
@@ -809,21 +810,45 @@ describe("NewSessionModal", () => {
       codexInternetAccess: true,
       codexReasoningEffort: "high",
     });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "gpt-5.4" },
+      },
+    });
+    mockApi.getBackendModels.mockResolvedValue([{ value: "gpt-5.4", label: "GPT-5.4" }]);
 
-    render(<NewSessionModal open={true} onClose={onClose} />);
+    render(<NewSessionModal open={true} onClose={() => {}} />);
 
+    await user.click(await screen.findByRole("button", { name: /GPT-5\.4/ }));
     await user.click(await screen.findByRole("button", { name: /Default \(gpt-5\.5\)/ }));
-    await user.click((await screen.findAllByRole("button", { name: /Default \(gpt-5\.5\)/ })).at(-1)!);
     await user.click(await screen.findByRole("button", { name: "Create Session" }));
 
-    await waitFor(() => {
-      expect(mockQueuePendingSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          backend: "codex",
-          createOpts: expect.objectContaining({ model: "gpt-5.5" }),
-        }),
-      );
-    });
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ backend: "codex", model: "" }));
+  });
+
+  it("ignores a model list that arrives after switching to another backend", async () => {
+    // A slow answer for the previous backend must not replace the current backend's models.
+    const user = userEvent.setup();
+    let answerClaudeModels: (models: Array<{ value: string; label: string }>) => void = () => {};
+    mockApi.getBackendModels.mockImplementation((backend: string) =>
+      backend === "codex"
+        ? Promise.resolve([{ value: "gpt-5.4", label: "GPT-5.4" }])
+        : new Promise((resolve) => {
+            answerClaudeModels = resolve;
+          }),
+    );
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+    await waitFor(() => expect(mockApi.getBackendModels).toHaveBeenCalledWith("claude"));
+    await user.click(await screen.findByRole("button", { name: "Codex" }));
+    await waitFor(() => expect(mockApi.getBackendModels).toHaveBeenCalledWith("codex"));
+
+    await act(async () => answerClaudeModels([{ value: "claude-stale", label: "Stale Claude Model" }]));
+    await user.click(await screen.findByRole("button", { name: /Default \(gpt-5\.5\)/ }));
+    expect(await screen.findByRole("button", { name: /GPT-5\.4/ })).toBeInTheDocument();
+    expect(screen.queryByText("Stale Claude Model")).not.toBeInTheDocument();
   });
 
   // A session on a remote host names a folder on that host. The dialog starts

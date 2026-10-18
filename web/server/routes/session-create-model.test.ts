@@ -24,6 +24,7 @@ describe("resolveSessionCreateModel", () => {
         backend: "codex",
         createdBy: "leader-1",
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        getCodexUserDefaultModel: vi.fn(async () => ""),
         launcher,
       }),
     ).resolves.toMatchObject({
@@ -41,6 +42,7 @@ describe("resolveSessionCreateModel", () => {
         backend: "claude-sdk",
         createdBy: "leader-1",
         getClaudeUserDefaultModel,
+        getCodexUserDefaultModel: vi.fn(async () => ""),
         launcher,
       }),
     ).resolves.toEqual({ model: "claude-default" });
@@ -55,6 +57,7 @@ describe("resolveSessionCreateModel", () => {
         backend: "claude-sdk",
         createdBy: "leader-1",
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        getCodexUserDefaultModel: vi.fn(async () => ""),
         launcher,
         requestedModel: "custom-model",
       }),
@@ -69,6 +72,7 @@ describe("resolveSessionCreateModel", () => {
         backend: "codex",
         configuredDefaultModel: "gpt-5.6-terra",
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        getCodexUserDefaultModel: vi.fn(async () => ""),
         launcher,
       }),
     ).resolves.toMatchObject({
@@ -90,6 +94,7 @@ describe("resolveSessionCreateModel", () => {
       resolveSessionCreateModel({
         backend: "codex",
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        getCodexUserDefaultModel: vi.fn(async () => ""),
         launcher,
       }),
     ).resolves.toMatchObject({
@@ -102,6 +107,7 @@ describe("resolveSessionCreateModel", () => {
     const resolver = createSessionCreateModelResolver({
       launcher: makeLauncher(),
       getClaudeUserDefaultModel: async () => "",
+      getCodexUserDefaultModel: async () => "",
     });
 
     await expect(
@@ -115,5 +121,57 @@ describe("resolveSessionCreateModel", () => {
         selectedModel: "gpt-5.6-terra",
       },
     });
+  });
+
+  it("resolves an explicit Codex Default from the Codex config, not a saved or inherited model", async () => {
+    // The picker labels "Default" from the Codex config; a saved session default
+    // or the creator's model must not silently replace that choice.
+    const launcher = makeLauncher({ backendType: "codex", model: "gpt-5.4" });
+
+    await expect(
+      resolveSessionCreateModel({
+        backend: "codex",
+        createdBy: "leader-1",
+        configuredDefaultModel: "gpt-5.5",
+        getClaudeUserDefaultModel: vi.fn(async () => ""),
+        getCodexUserDefaultModel: vi.fn(async () => "gpt-5.6-terra"),
+        launcher,
+        requestedModel: "",
+      }),
+    ).resolves.toMatchObject({
+      model: "gpt-5.6-terra",
+      modelAuthority: {
+        source: "codex_default",
+        overrideTrace: [
+          { source: "codex_default", status: "selected" },
+          { source: "managed_fallback", status: "overridden" },
+        ],
+      },
+    });
+  });
+
+  it("uses the managed Codex default for an explicit Default when the Codex config sets no model", async () => {
+    await expect(
+      resolveSessionCreateModel({
+        backend: "codex",
+        configuredDefaultModel: "gpt-5.5",
+        getClaudeUserDefaultModel: vi.fn(async () => ""),
+        getCodexUserDefaultModel: vi.fn(async () => ""),
+        launcher: makeLauncher(),
+        requestedModel: "",
+      }),
+    ).resolves.toMatchObject({ model: "gpt-5.6-sol", modelAuthority: { source: "managed_fallback" } });
+  });
+
+  it("treats an explicit Default on resume as known provenance", async () => {
+    const resolver = createSessionCreateModelResolver({
+      launcher: makeLauncher(),
+      getClaudeUserDefaultModel: async () => "",
+      getCodexUserDefaultModel: async () => "gpt-5.6-terra",
+    });
+
+    const resolved = await resolver.forResume("codex", {}, {}, "");
+    expect(resolved).toMatchObject({ model: "gpt-5.6-terra", modelAuthority: { source: "codex_default" } });
+    expect(resolved.modelProvenanceMigration).toBeUndefined();
   });
 });

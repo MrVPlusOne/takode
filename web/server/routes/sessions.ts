@@ -18,7 +18,7 @@ import * as newSessionDefaultsStore from "../new-session-defaults-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
 import { parseBackendSelection, type BackendType, type CreationStepId } from "../session-types.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
-import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
+import { getSettings, getClaudeUserDefaultModel, getCodexUserDefaultModel, getServerId } from "../settings-manager.js";
 import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
@@ -99,7 +99,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     buildOrchestratorSystemPrompt,
     resolveInitialModeState,
   } = ctx;
-  const sessionModelResolver = createSessionCreateModelResolver({ getClaudeUserDefaultModel, launcher });
+  const sessionModelResolver = createSessionCreateModelResolver({
+    getClaudeUserDefaultModel,
+    getCodexUserDefaultModel: () => getCodexUserDefaultModel(),
+    launcher,
+  });
   const pendingWorktreeCleanups = new Map<string, Promise<void>>();
   const sessionAttentionDeps = {
     broadcastToBrowsers: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>, msg: unknown) =>
