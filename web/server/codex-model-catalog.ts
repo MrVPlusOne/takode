@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { resolveBinary } from "./path-resolver.js";
 import { getLegacyCodexHome } from "./codex-home.js";
 import { buildTakodeCatalogRouteEntry, fingerprintModelRouteEntry } from "./model-identity-contract.js";
+import type { CodexModelCatalog } from "./codex-session-catalog-entries.js";
 
 const CODEX_MODEL_CATALOG_TIMEOUT_MS = 3_000;
 // The account catalog may need a network fetch when Codex's own cache is stale.
@@ -269,6 +270,35 @@ export async function loadCodexModelCatalog(options: LoadCodexCatalogOptions = {
     if ((error as { code?: string })?.code === "ENOENT") return null;
     throw error;
   }
+}
+
+/**
+ * Loader for the raw catalog bundled with a Codex binary (`codex debug models
+ * --bundled`): full model entries, including each model's built-in prompt. It
+ * is local and fast, and runs at most once per loader. Returns undefined
+ * without a binary or under Vitest, so tests never run a real Codex.
+ */
+export function createCodexBundledModelCatalogLoader(
+  codexBinary?: string,
+): (() => Promise<CodexModelCatalog | null>) | undefined {
+  if (!codexBinary || process.env.VITEST) return undefined;
+  let loaded: Promise<CodexModelCatalog | null> | undefined;
+  return () => {
+    loaded ??= (async () => {
+      const binaryPath = resolveCodexBinary(codexBinary);
+      if (!binaryPath) return null;
+      const { stdout } = await defaultRunCodexCommand(binaryPath, ["debug", "models", "--bundled"], {
+        timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
+        maxBuffer: CODEX_MODEL_CATALOG_MAX_BUFFER,
+      });
+      const catalog = JSON.parse(stdout);
+      return Array.isArray(catalog?.models) ? { models: catalog.models } : null;
+    })().catch((error) => {
+      console.warn("[codex-model-catalog] Bundled Codex model catalog unavailable:", error);
+      return null;
+    });
+    return loaded;
+  };
 }
 
 export function getCachedCodexModelCatalog(): CodexCatalogResult | null {

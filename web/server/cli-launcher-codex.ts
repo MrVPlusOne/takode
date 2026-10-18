@@ -54,6 +54,8 @@ import {
   resolveCodexReasoningSummaryLaunchMode,
   type CodexReasoningSummaryLaunchMode,
 } from "./codex-reasoning-summary-config.js";
+import { createCodexBundledModelCatalogLoader } from "./codex-model-catalog.js";
+import { settleCodexCatalogModelEntries, type CodexModelCatalog } from "./codex-session-catalog-entries.js";
 import {
   effectiveContextPercentFromModelEntry,
   leaderRecycleThresholdForUsableCapacity,
@@ -433,80 +435,6 @@ function coercePositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function displayNameFromModelSlug(modelSlug: string): string {
-  if (/^gpt-/i.test(modelSlug)) return `GPT-${modelSlug.slice(4)}`;
-  return modelSlug
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((part) => (part.length <= 3 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1)))
-    .join(" ");
-}
-
-function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, modelSlug: string): boolean {
-  let changed = false;
-  const setDefault = (key: string, value: any, isValid: (current: unknown) => boolean) => {
-    if (isValid(modelEntry[key])) return;
-    modelEntry[key] = value;
-    changed = true;
-  };
-
-  setDefault("display_name", displayNameFromModelSlug(modelSlug), (value) => typeof value === "string");
-  if (Array.isArray(modelEntry.supported_reasoning_levels)) {
-    const levels = normalizeCatalogReasoningLevels(modelEntry.supported_reasoning_levels);
-    if (JSON.stringify(levels) !== JSON.stringify(modelEntry.supported_reasoning_levels)) {
-      modelEntry.supported_reasoning_levels = levels;
-      changed = true;
-    }
-  }
-  setDefault(
-    "supported_reasoning_levels",
-    [
-      { effort: "low", description: "Fast responses with lighter reasoning" },
-      { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
-      { effort: "high", description: "Greater reasoning depth for complex problems" },
-      { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
-      { effort: "max", description: "Maximum reasoning depth for the hardest problems" },
-      { effort: "ultra", description: "Maximum reasoning that may proactively use multiple agents" },
-    ],
-    Array.isArray,
-  );
-  setDefault("shell_type", "shell_command", (value) => typeof value === "string");
-  setDefault("visibility", "list", (value) => typeof value === "string");
-  setDefault("supported_in_api", true, (value) => typeof value === "boolean");
-  setDefault("priority", 0, (value) => typeof value === "number" && Number.isFinite(value));
-  setDefault("base_instructions", "", (value) => typeof value === "string");
-  setDefault("supports_reasoning_summaries", true, (value) => typeof value === "boolean");
-  setDefault("support_verbosity", true, (value) => typeof value === "boolean");
-  setDefault(
-    "truncation_policy",
-    { mode: "tokens", limit: 10000 },
-    (value) =>
-      !!value &&
-      typeof value === "object" &&
-      typeof (value as any).mode === "string" &&
-      typeof (value as any).limit === "number",
-  );
-  setDefault("supports_parallel_tool_calls", true, (value) => typeof value === "boolean");
-  setDefault("experimental_supported_tools", [], Array.isArray);
-
-  return changed;
-}
-
-/**
- * Codex requires each supported reasoning level to be `{ effort, description }`.
- * Turn bare effort strings into that shape, give a missing description an empty
- * one, keep any other fields, and drop entries that name no effort.
- */
-function normalizeCatalogReasoningLevels(levels: unknown[]): Record<string, unknown>[] {
-  return levels.flatMap((level) => {
-    if (typeof level === "string") return level.trim() ? [{ effort: level.trim(), description: "" }] : [];
-    if (!level || typeof level !== "object") return [];
-    const item = level as Record<string, unknown>;
-    if (typeof item.effort !== "string" || !item.effort.trim()) return [];
-    return [{ ...item, description: typeof item.description === "string" ? item.description : "" }];
-  });
-}
-
 function disableResponsesLiteForMaiLitellm(modelEntry: Record<string, any>): boolean {
   if (modelEntry.use_responses_lite !== true) return false;
   modelEntry.use_responses_lite = false;
@@ -611,6 +539,7 @@ async function ensureCodexLeaderModelCatalogOverride(
   options?: {
     model?: string;
     modelCatalogConfigPath?: string;
+    loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
     multiAgentVersion?: CodexMultiAgentVersion;
   },
 ): Promise<{ catalogJson?: string; configToml: string; launchGuard: CodexLeaderLaunchGuard }> {
@@ -621,6 +550,7 @@ async function ensureCodexLeaderModelCatalogOverride(
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeLeaderModelCatalogFilename,
     createModelEntry: (modelSlug) => ({
       slug: modelSlug,
@@ -659,6 +589,8 @@ async function ensureCodexModelCatalogOverride(
     createModelEntry?: (modelSlug: string) => Record<string, any>;
     sourceCatalogSnapshotFilename?: string;
     skipConfiguredCatalogSource?: boolean;
+    /** The CLI's bundled catalog, for models the catalog files lack or carry without a built-in prompt. */
+    loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
     mutateModelEntry: (modelEntry: Record<string, any>) => boolean;
   },
 ): Promise<{ catalogJson?: string; configToml: string }> {
@@ -696,7 +628,8 @@ async function ensureCodexModelCatalogOverride(
   }
   if (!Array.isArray(parsedCatalog?.models)) {
     if (!options.createModelEntry) return { configToml };
-    parsedCatalog = { models: [] };
+    // No catalog file: start from the one Codex itself falls back to.
+    parsedCatalog = (await options.loadCodexCatalog?.()) ?? { models: [] };
   }
 
   if (
@@ -713,23 +646,12 @@ async function ensureCodexModelCatalogOverride(
     await writeFile(sourceCatalogSnapshotPath, JSON.stringify(parsedCatalog, null, 2) + "\n", "utf-8");
   }
 
-  const modelEntries = parsedCatalog.models as any[];
-  let modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
-  let addedModelEntry = false;
-  if (!modelEntry || typeof modelEntry !== "object") {
-    if (!options.createModelEntry) return { configToml };
-    modelEntry = options.createModelEntry(modelSlug);
-    modelEntries.push(modelEntry);
-    addedModelEntry = true;
-  }
-  // Codex parses the whole catalog at startup, so one malformed entry anywhere
-  // breaks the launch, not only a malformed selected model.
-  let schemaDefaultsChanged = false;
-  for (const entry of modelEntries) {
-    if (!entry || typeof entry !== "object" || typeof entry.slug !== "string") continue;
-    if (ensureCodexModelEntrySchemaDefaults(entry, entry.slug)) schemaDefaultsChanged = true;
-  }
-  const changed = options.mutateModelEntry(modelEntry) || addedModelEntry || schemaDefaultsChanged;
+  const settled = await settleCodexCatalogModelEntries(parsedCatalog.models, modelSlug, {
+    loadCodexCatalog: options.loadCodexCatalog,
+    createModelEntry: options.createModelEntry,
+  });
+  if (!settled.modelEntry) return { configToml };
+  const changed = options.mutateModelEntry(settled.modelEntry) || settled.changed;
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
   const catalogPath = join(codexHome, options.catalogFilename);
@@ -786,6 +708,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
   options?: {
     model?: string;
     modelCatalogConfigPath?: string;
+    loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
     multiAgentVersion?: CodexMultiAgentVersion;
   },
 ): Promise<{ configToml: string; modelCatalogJson?: string; launchConfig: CodexContextLaunchConfig }> {
@@ -798,6 +721,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     createModelEntry: (modelSlug) => ({
@@ -854,6 +778,7 @@ async function ensureCodexMaiLitellmCatalogCompatibilityOverride(
   options?: {
     model?: string;
     modelCatalogConfigPath?: string;
+    loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
     multiAgentVersion?: CodexMultiAgentVersion;
     skipConfiguredCatalogSource?: boolean;
   },
@@ -861,6 +786,7 @@ async function ensureCodexMaiLitellmCatalogCompatibilityOverride(
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
@@ -878,11 +804,17 @@ async function ensureCodexMultiAgentModelCatalogOverride(
   codexHome: string,
   configToml: string,
   multiAgentVersion: CodexMultiAgentVersion,
-  options?: { model?: string; modelCatalogConfigPath?: string; skipConfiguredCatalogSource?: boolean },
+  options?: {
+    model?: string;
+    modelCatalogConfigPath?: string;
+    skipConfiguredCatalogSource?: boolean;
+    loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
+  },
 ): Promise<{ configToml: string; modelCatalogJson?: string }> {
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
@@ -1353,6 +1285,7 @@ async function ensureCodexSessionConfig(
     codexBinary?: string;
     multiAgentVersion?: CodexMultiAgentVersion;
     loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
+    loadBundledModelCatalog?: () => Promise<CodexModelCatalog | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {
       enabled: boolean;
@@ -1410,6 +1343,8 @@ async function ensureCodexSessionConfig(
           ? await resolveCodexLeaderRecycleThresholdForConfig(codexHome, next, modelId)
           : undefined;
   const leaderRecycleThresholdTokens = leaderRecycleThreshold?.recycleThresholdTokens;
+  const loadCodexCatalog =
+    options?.loadBundledModelCatalog ?? createCodexBundledModelCatalogLoader(options?.codexBinary);
   let modelCatalogJson: string | undefined;
   let leaderLaunchConfig: CodexLeaderLaunchConfig | undefined;
   let contextLaunchConfig: CodexContextLaunchConfig | undefined;
@@ -1417,6 +1352,7 @@ async function ensureCodexSessionConfig(
     const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderRecycleThresholdTokens, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      loadCodexCatalog,
       multiAgentVersion: options?.multiAgentVersion,
     });
     next = override.configToml;
@@ -1443,6 +1379,7 @@ async function ensureCodexSessionConfig(
     const override = await ensureCodexNonLeaderContextCapacityOverride(codexHome, next, desiredContextCapacity, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      loadCodexCatalog,
       multiAgentVersion: options?.multiAgentVersion,
     });
     next = override.configToml;
@@ -1460,6 +1397,7 @@ async function ensureCodexSessionConfig(
     const override = await ensureCodexMaiLitellmCatalogCompatibilityOverride(codexHome, next, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      loadCodexCatalog,
       multiAgentVersion: options?.multiAgentVersion,
       skipConfiguredCatalogSource: rebuildTakodeCatalog,
     });
@@ -1478,6 +1416,7 @@ async function ensureCodexSessionConfig(
       const override = await ensureCodexMultiAgentModelCatalogOverride(codexHome, next, options.multiAgentVersion, {
         model: modelId,
         modelCatalogConfigPath: options.modelCatalogConfigPath,
+        loadCodexCatalog,
         skipConfiguredCatalogSource: rebuildTakodeCatalog,
       });
       next = override.configToml;
@@ -1959,6 +1898,7 @@ export function _ensureCodexSessionConfigForTest(
     codexBinary?: string;
     multiAgentVersion?: CodexMultiAgentVersion;
     loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
+    loadBundledModelCatalog?: () => Promise<CodexModelCatalog | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {
       enabled: boolean;

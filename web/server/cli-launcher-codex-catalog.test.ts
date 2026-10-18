@@ -1132,4 +1132,65 @@ describe("Codex session catalog hardening", () => {
     const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
     expect(entry.multi_agent_version).toBe("v2");
   });
+
+  it("builds a catalog from the CLI's bundled models when no models_cache.json exists, then heals it on relaunch", async () => {
+    // GitHub Copilot providers never write models_cache.json. Takode used to write a
+    // one-model catalog with an empty base prompt there, so Codex ran with no
+    // built-in prompt. Now the bundled entries (with their prompts) are the source,
+    // and a generated catalog re-read on relaunch keeps them.
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "gpt-6-astra";
+    const bundledEntry = (slug: string) => ({
+      slug,
+      display_name: slug,
+      shell_type: "unified_exec",
+      base_instructions: `Built-in prompt for ${slug}`,
+      model_messages: { instructions_template: `Built-in prompt for ${slug}` },
+      context_window: 272_000,
+      max_context_window: 872_000,
+    });
+    const loadBundledModelCatalog = async () => ({ models: [bundledEntry(model), bundledEntry("gpt-5.5")] });
+    // A catalog an older Takode wrote: the session config already points at it.
+    await writeFile(
+      catalogPath,
+      JSON.stringify({ models: [{ slug: model, base_instructions: "", shell_type: "shell_command" }] }),
+      "utf-8",
+    );
+    await writeFile(configPath, `model = "${model}"\nmodel_catalog_json = ${JSON.stringify(catalogPath)}\n`, "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: true,
+      existingLeaderRecycleThresholdTokens: 260_000,
+      model,
+      loadBundledModelCatalog,
+    });
+
+    const healed = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(healed.models[0]).toMatchObject({
+      slug: model,
+      shell_type: "unified_exec",
+      model_messages: { instructions_template: `Built-in prompt for ${model}` },
+      context_window: 1_444_445,
+      auto_compact_token_limit: 1_300_000,
+    });
+
+    // Without any catalog file, the bundled catalog is the source, other models included.
+    await rm(catalogPath);
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: true,
+      existingLeaderRecycleThresholdTokens: 260_000,
+      model,
+      loadBundledModelCatalog,
+    });
+
+    const fresh = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(fresh.models.map((entry: { slug: string }) => entry.slug)).toEqual([model, "gpt-5.5"]);
+    expect(fresh.models[0]).toMatchObject({
+      base_instructions: `Built-in prompt for ${model}`,
+      context_window: 1_444_445,
+    });
+  });
 });
