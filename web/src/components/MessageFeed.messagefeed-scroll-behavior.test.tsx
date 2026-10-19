@@ -748,14 +748,14 @@ describe("MessageFeed - scroll behavior", () => {
     }
   });
 
-  it("keeps immediate bottom-follow when the user is near bottom and a non-streaming message arrives", async () => {
+  it("keeps immediate bottom-follow when the user is at the bottom and a non-streaming message arrives", async () => {
     const sid = "test-bottom-follow-non-streaming";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Question" })]);
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1600;
-    let scrollTopValue = 980;
+    let scrollTopValue = 988; // real bottom: scrollHeight - 12px end slack - clientHeight
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
       get() {
@@ -877,7 +877,7 @@ describe("MessageFeed - scroll behavior", () => {
     }
   });
 
-  it("uses immediate bottom alignment while generating when the user is near bottom", async () => {
+  it("uses immediate bottom alignment while generating when the user is at the bottom", async () => {
     const sid = "test-bottom-follow-streaming";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Question" })]);
     setStoreStatus(sid, "running");
@@ -885,7 +885,7 @@ describe("MessageFeed - scroll behavior", () => {
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1600;
-    let scrollTopValue = 980;
+    let scrollTopValue = 988; // real bottom: scrollHeight - 12px end slack - clientHeight
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
       get() {
@@ -931,7 +931,7 @@ describe("MessageFeed - scroll behavior", () => {
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1600;
-    let scrollTopValue = 980;
+    let scrollTopValue = 988; // real bottom: scrollHeight - 12px end slack - clientHeight
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -987,7 +987,7 @@ describe("MessageFeed - scroll behavior", () => {
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1600;
-    let scrollTopValue = 980;
+    let scrollTopValue = 988; // real bottom: scrollHeight - 12px end slack - clientHeight
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -1032,7 +1032,7 @@ describe("MessageFeed - scroll behavior", () => {
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1000;
-    let scrollTopValue = 380;
+    let scrollTopValue = 388; // real bottom: scrollHeight - 12px end slack - clientHeight
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -1380,7 +1380,7 @@ describe("MessageFeed - scroll behavior", () => {
     }
   });
 
-  it("keeps the real bottom visible when an older turn collapses near bottom", () => {
+  it("keeps the real bottom visible when an older turn collapses at the bottom", () => {
     const sid = "test-collapse-near-bottom-follow";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First request" }),
@@ -1398,7 +1398,7 @@ describe("MessageFeed - scroll behavior", () => {
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
-    let scrollTopValue = 1400;
+    let scrollTopValue = 1408; // real bottom: scrollHeight - 12px end slack - clientHeight
     let scrollHeightValue = 1600;
 
     Object.defineProperty(scrollContainer, "clientHeight", {

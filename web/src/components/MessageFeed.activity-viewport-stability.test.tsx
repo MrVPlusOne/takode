@@ -51,6 +51,10 @@ vi.mock("../ws.js", () => ({
 vi.mock("../api.js", () => ({
   api: {
     searchSessionMessages: vi.fn().mockResolvedValue({ results: [], hasMore: false, nextOffset: null }),
+    getSessionActivityPreview: vi.fn().mockResolvedValue({
+      lines: [{ historyIndex: 7, kind: "tool", toolName: "Bash", text: "Run focused tests", timestamp: 1 }],
+      lastActivityAt: 1,
+    }),
   },
 }));
 
@@ -71,6 +75,8 @@ vi.mock("../store.js", () => {
       streamingPausedDuration: new Map(),
       streamingPauseStartedAt: new Map(),
       sessionStatus: mockStoreValues.sessionStatus ?? new Map(),
+      sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
+      sessionBoardRowStatuses: mockStoreValues.sessionBoardRowStatuses ?? new Map(),
       activeTurnRoutes: mockStoreValues.activeTurnRoutes ?? new Map(),
       sessionStuck: new Map(),
       sessions: mockStoreValues.sessions ?? new Map(),
@@ -171,6 +177,8 @@ beforeEach(() => {
   mockStoreValues.threadWindowMessages = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
+  mockStoreValues.sessionBoards = new Map();
+  mockStoreValues.sessionBoardRowStatuses = new Map();
   mockStoreValues.activeTurnRoutes = new Map();
   mockStoreValues.sessionNotifications = new Map();
   mockStoreValues.sessionTimers = new Map();
@@ -397,6 +405,27 @@ function makeThreadStatus(
     updatedAt: 1_700_000_000_000,
     ...overrides,
   };
+}
+
+function setWaitingWorker(sessionId: string, threadKey: "q-4091", turnStartedAt: number) {
+  mockStoreValues.sessionBoards = new Map([
+    [sessionId, [{ questId: threadKey, worker: "worker-preview-session", workerNum: 3042, updatedAt: 1 }]],
+  ]);
+  mockStoreValues.sessionBoardRowStatuses = new Map([
+    [
+      sessionId,
+      {
+        [threadKey]: {
+          worker: {
+            sessionId: "worker-preview-session",
+            sessionNum: 3042,
+            status: "running",
+            generationStartedAt: turnStartedAt,
+          },
+        },
+      },
+    ],
+  ]);
 }
 
 function setNeedsInputNotification(sessionId: string) {
@@ -1079,6 +1108,67 @@ describe("MessageFeed activity viewport stability", () => {
       expect(geometry.scrollTop).toBe(before.scrollTop);
       expect(lastElement.getBoundingClientRect().top).toBe(before.anchorTop);
     } finally {
+      geometry.restore();
+      resize.restore();
+    }
+  });
+
+  it.each([
+    { label: "slow upward steps too small to count as scrolling up", flickUp: 0 },
+    { label: "a flick up followed by a small drift back down", flickUp: 60 },
+  ])("keeps a reading position just above a ticking worker preview after $label", async ({ flickUp }) => {
+    // The waiting worker preview sits in the last turn's status footer, and its turn timer
+    // changes that turn's DOM every second. A reader who left the real bottom, even by a few
+    // pixels, must stay put; before the fix any scroll within 120px of the bottom that was not
+    // a >4px upward step re-armed following, so each tick pulled the view back down.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const sid = `worker-preview-reading-${flickUp}`;
+    const selected = setProducerWindow(sid, "q-4091");
+    const last = selected.messages.at(-1)!;
+    setConnectedLeaderSession(sid);
+    setProducerThreadStatus(sid, makeThreadStatus("q-4091", last.id));
+    setWaitingWorker(sid, "q-4091", Date.now() - 73_000);
+    const resize = installControlledResizeObserver();
+    const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+    geometry.setThreadStatusFooterHeight(170);
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="q-4091" />);
+      await waitFor(() =>
+        expect(screen.getByTestId("waiting-worker-preview-turn-time").textContent).toContain("1m 13s"),
+      );
+      const scrollContainer = screen.getByTestId("message-feed-scroll-container");
+      geometry.setPhysicalBottom();
+      fireEvent.scroll(scrollContainer);
+
+      // Leave the trailing slack so the preview's bottom edge is 30px below the viewport.
+      const readingTop = geometry.contentBottom - 400 - 30;
+      if (flickUp > 0) {
+        geometry.setScrollTop(readingTop - flickUp);
+        fireEvent.scroll(scrollContainer);
+        geometry.setScrollTop(readingTop - flickUp + 2);
+        fireEvent.scroll(scrollContainer);
+      } else {
+        while (geometry.scrollTop > readingTop) {
+          geometry.setScrollTop(Math.max(readingTop, geometry.scrollTop - 3));
+          fireEvent.scroll(scrollContainer);
+        }
+      }
+      const before = geometry.scrollTop;
+
+      for (const elapsed of ["1m 14s", "1m 15s"]) {
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(screen.getByTestId("waiting-worker-preview-turn-time").textContent).toContain(elapsed);
+        expect(geometry.scrollTop).toBe(before);
+      }
+
+      // A taller preview (for example a wrapping line) must not pull the reader down either.
+      geometry.setThreadStatusFooterHeight(200);
+      resize.triggerElement(screen.getByTestId("message-feed-scroll-container").firstElementChild!);
+      expect(geometry.scrollTop).toBe(before);
+      expect(screen.getByLabelText("Go to bottom")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
       geometry.restore();
       resize.restore();
     }

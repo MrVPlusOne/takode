@@ -128,6 +128,8 @@ export {
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
+/** Sub-pixel slack for "at the real bottom"; the trailing spacer puts the physical bottom well below it. */
+const FOLLOW_RESUME_TOLERANCE_PX = 2;
 const SECTION_BOUNDARY_CONTROL_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted";
 
@@ -1193,9 +1195,10 @@ export function MessageFeed({
     if (!el) return;
     const currentScrollTop = el.scrollTop;
     const realContentBottom = getRealContentBottom() ?? el.scrollHeight;
-    const nearBottom = realContentBottom - currentScrollTop - el.clientHeight < 120;
+    const distanceFromBottom = realContentBottom - currentScrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom < 120;
     const nearOlderBoundary = currentScrollTop <= SECTION_WINDOW_TRIGGER_PX;
-    const nearNewerBoundary = realContentBottom - currentScrollTop - el.clientHeight <= SECTION_WINDOW_TRIGGER_PX;
+    const nearNewerBoundary = distanceFromBottom <= SECTION_WINDOW_TRIGGER_PX;
     const isProgrammaticScroll =
       programmaticScrollTargetRef.current != null &&
       Math.abs(currentScrollTop - programmaticScrollTargetRef.current) <= 2;
@@ -1205,15 +1208,10 @@ export function MessageFeed({
     const scrollingDown = currentScrollTop > lastScrollTopRef.current + 4;
     if (!isProgrammaticScroll) {
       if (scrollingUp || scrollingDown) handleKeyboardScroll();
-      if (scrollingUp) {
-        setAutoFollowEnabled(false);
-      } else if (!nearBottom) {
-        setAutoFollowEnabled(false);
-      } else if (nearBottom && !hasNewerSections) {
-        setAutoFollowEnabled(true);
-      } else if (hasNewerSections) {
-        setAutoFollowEnabled(false);
-      }
+      // Only reaching the real bottom resumes following. A position just above it is still
+      // reading: slow scrolls arrive in steps too small to count as scrolling up, and the
+      // per-second updates of a waiting worker's preview would otherwise pull the view down.
+      setAutoFollowEnabled(!scrollingUp && distanceFromBottom <= FOLLOW_RESUME_TOLERANCE_PX && !hasNewerSections);
     }
     isNearBottom.current = nearBottom;
     if (autoFollowEnabledRef.current && nearBottom && !hasNewerSections) {
