@@ -82,6 +82,53 @@ describe("composer annotation attachments", () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
+  it("keeps the editor inside the visible area as the iPhone keyboard opens and the view pans", () => {
+    // Modeled on an iPhone report: a passage just above the composer. The keyboard shrinks only the visual viewport
+    // (and window.innerHeight), and dragging the dimmed page pans the visual viewport over the fixed-position editor.
+    // The editor used to place itself from window.innerHeight alone: hidden behind the keyboard at first, then
+    // pushed above the screen by the first re-render (a tap or keystroke) after a pan.
+    const viewport = Object.assign(new EventTarget(), { offsetLeft: 0, offsetTop: 0, width: 430, height: 932 });
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 932 });
+    const editorHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+    // The editor is position: fixed, so its top is in layout coordinates; this is where it shows on screen.
+    const visibleTop = () => parseFloat(screen.getByRole("dialog").style.top) - viewport.offsetTop;
+    const expectVisible = () => {
+      expect(visibleTop()).toBeGreaterThanOrEqual(0);
+      expect(visibleTop() + 300).toBeLessThanOrEqual(viewport.height);
+    };
+    try {
+      useStore
+        .getState()
+        .setAnnotationEditor({ sessionId: "session", annotation: second, position: { x: 220, y: 740 } });
+      render(<ComposerAnnotations sessionId="session" threadKey="main" />);
+      expectVisible();
+
+      act(() => {
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: 545 });
+        viewport.height = 545;
+        viewport.dispatchEvent(new Event("resize"));
+      });
+      expectVisible();
+      const restingTop = visibleTop();
+
+      act(() => {
+        viewport.offsetTop = 350;
+        viewport.dispatchEvent(new Event("scroll"));
+      });
+      expectVisible();
+      fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Typed after the pan" } });
+      expectVisible();
+      // Clamped to the keyboard edge either way, so the editor does not move on screen while the page pans.
+      expect(visibleTop()).toBe(restingTop);
+    } finally {
+      editorHeight.mockRestore();
+      delete (window as { visualViewport?: unknown }).visualViewport;
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
+  });
+
   it("saves the comment with the active send key, matching the composer", () => {
     // Default scheme: Enter saves and Shift+Enter keeps editing (newline); the alternate scheme
     // makes Enter a newline and saves on Cmd/Ctrl+Enter.

@@ -1,5 +1,5 @@
 import { VoiceInputIcon } from "./VoiceInputIcon.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { addTranscriptionTag } from "../../shared/transcription-tag.js";
@@ -11,6 +11,7 @@ import { useSendKey } from "../hooks/useSendKey.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import { ReportCommentTarget } from "./ReportCommentTarget.js";
+import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
 
 type VoiceMode = "dictation" | "append" | "edit";
 interface Capture {
@@ -53,6 +54,9 @@ export function AnnotationEditor({
   const [alternate, setAlternate] = useState<Capture | null>(null);
   const [hideAlternate, setHideAlternate] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const dialog = useRef<HTMLElement>(null);
+  const viewport = useVisibleViewport();
+  const [height, setHeight] = useState(0);
   const pressedOutside = useRef(false);
   const focusComposerOnClose = useRef(false);
   const capture = useRef<Capture | null>(null);
@@ -80,6 +84,17 @@ export function AnnotationEditor({
       if (focusComposerOnClose.current) useStore.getState().focusComposer();
       else previous?.focus({ preventScroll: true });
     };
+  }, []);
+
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    const measure = () => setHeight(element.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
 
   function changeText(value: string) {
@@ -158,9 +173,21 @@ export function AnnotationEditor({
     voice.toggleRecording();
   }
 
-  const width = Math.min(420, window.innerWidth - 24);
-  const left = Math.max(12, Math.min(position?.x ?? (window.innerWidth - width) / 2, window.innerWidth - width - 12));
-  const top = Math.max(12, Math.min(position?.y ?? window.innerHeight / 3, window.innerHeight - 400));
+  // Place the editor inside the visible part of the page. On iPhone the keyboard shrinks only the visual viewport,
+  // which the user or Safari can then pan, so the window size alone puts the editor behind the keyboard or, once
+  // panned, above the screen. Staying at the passage while it fits keeps the editor still as the view moves.
+  const width = Math.min(420, viewport.width - 24);
+  const maxHeight = viewport.height - 24;
+  const left = clamp(
+    position?.x ?? viewport.left + (viewport.width - width) / 2,
+    viewport.left + 12,
+    viewport.right - width - 12,
+  );
+  const top = clamp(
+    position?.y ?? viewport.top + viewport.height / 3,
+    viewport.top + 12,
+    viewport.bottom - Math.min(height, maxHeight) - 12,
+  );
   return createPortal(
     <div
       className="fixed inset-0 z-[1200] bg-black/15"
@@ -181,8 +208,9 @@ export function AnnotationEditor({
         role="dialog"
         aria-modal="true"
         aria-label="Edit annotation"
-        style={{ width, left, top }}
-        className="fixed max-h-[85dvh] overflow-auto rounded-2xl border border-cc-border bg-cc-card p-4 text-cc-fg shadow-2xl"
+        ref={dialog}
+        style={{ width, left, top, maxHeight }}
+        className="fixed overflow-auto rounded-2xl border border-cc-border bg-cc-card p-4 text-cc-fg shadow-2xl"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();
@@ -354,4 +382,25 @@ export function AnnotationEditor({
     </div>,
     document.body,
   );
+}
+
+/** The visible part of the page in layout coordinates, kept current as the keyboard opens or the view pans. */
+function useVisibleViewport() {
+  const [viewport, setViewport] = useState(() => getVisualViewportRect());
+  useEffect(() => {
+    const update = () => setViewport(getVisualViewportRect());
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  return viewport;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
 }
