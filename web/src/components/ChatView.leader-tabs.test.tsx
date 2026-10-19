@@ -310,6 +310,7 @@ vi.mock("./session-participant-status.js", () => ({ useParticipantSessionStatusD
 
 import { ChatView } from "./ChatView.js";
 import { TopBar } from "./TopBar.js";
+import { getViewHistory, resetViewHistoryForTest } from "../utils/view-history.js";
 
 function RouteAwareLeaderSession() {
   const hash = useSyncExternalStore(
@@ -343,6 +344,7 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
   // Tests share one jsdom history; drop a Main mark an earlier test left on this entry.
   history.replaceState(null, "", window.location.href);
+  resetViewHistoryForTest();
   mockSendToSession.mockClear();
   mockMessageFeedRenders.mockClear();
   mockAcknowledgeModelProvenanceMigration.mockClear();
@@ -679,6 +681,24 @@ describe("ChatView leader open thread tabs", () => {
     await expectShown("q-941", "#/session/s1?thread=q-941");
     act(() => history.forward());
     await expectShown("q-777", "#/session/s1?thread=q-777");
+  });
+
+  it("records each tab shown for the Recently viewed list", async () => {
+    // The desktop history button lists the tabs the user looked at, newest first. ChatView is
+    // what knows which leader tab is on screen, so it records each one as it is shown.
+    resetStore({
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
+      messages: new Map([["s1", [threadMessage("q-941", 1)]]]),
+      quests: [{ questId: "q-941", title: "First tab", status: "in_progress" }],
+    });
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+
+    fireEvent.click(scope.getByRole("button", { name: /q-941 first tab/i }));
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(getViewHistory().map((entry) => `${entry.sessionId}:${entry.threadKey}`)).toEqual(["s1:q-941", "s1:main"]);
   });
 
   it("falls back to Main when the browser-local selected tab is no longer server-open", async () => {

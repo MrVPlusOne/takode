@@ -34,6 +34,7 @@ import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarGlobalSearch } from "./SidebarGlobalSearch.js";
+import { NavigationButtons } from "./NavigationButtons.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
@@ -774,7 +775,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
                 setServerNameDraft(serverName || "");
                 setEditingServerName(true);
               }}
-              className="text-sm font-semibold text-cc-fg tracking-tight cursor-pointer hover:text-cc-primary transition-colors"
+              className="min-w-0 truncate text-sm font-semibold text-cc-fg tracking-tight cursor-pointer hover:text-cc-primary transition-colors"
               title="Click to rename this server instance"
             >
               {serverName || "Takode"}
@@ -795,6 +796,11 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
             <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 leading-none">
               Dev
             </span>
+          )}
+          {isDesktopLayout && (
+            <div className="ml-auto">
+              <NavigationButtons />
+            </div>
           )}
         </div>
         <SidebarGlobalSearch onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />

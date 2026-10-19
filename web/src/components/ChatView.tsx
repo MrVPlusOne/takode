@@ -85,6 +85,7 @@ import {
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { useLeaderOpenThreadTabStateSync } from "../hooks/use-leader-open-thread-tab-state-sync.js";
 import { playStripClose } from "./quest-strip-close-animation.js";
+import { recordViewedTab } from "../utils/view-history.js";
 import type {
   ChatMessage,
   LeaderProjectionSnapshot,
@@ -605,6 +606,12 @@ export function ChatView({
   const allSessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const allSessionBoardRowStatuses = useStore((s) => s.sessionBoardRowStatuses);
   const routeSyncEnabled = hasThreadRoute !== undefined || routeThreadKey !== undefined;
+
+  // Feeds the navigation history list: the session on screen, and for leaders the tab it shows.
+  useEffect(() => {
+    if (preview || !routeSyncEnabled || !sessionMetadataKnown) return;
+    recordViewedTab(sessionId, isLeaderSession ? normalizeThreadKey(selectedThreadKey) : null);
+  }, [isLeaderSession, preview, routeSyncEnabled, selectedThreadKey, sessionId, sessionMetadataKnown]);
   const showQuestThreadBanner =
     isLeaderSession &&
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&

@@ -24,7 +24,9 @@ const QUEST_THREAD = /^q-\d+$/i;
  * through the bounded title projection; until they arrive the row shows the
  * quest ID.
  */
-export function useAttentionThreadTitles(items: readonly NextAttentionItem[]): AttentionThreadTitles {
+export function useAttentionThreadTitles(
+  items: readonly Pick<NextAttentionItem, "sessionId" | "threadKey">[],
+): AttentionThreadTitles {
   const state = useStore(
     useShallow((s) => ({
       quests: s.quests,
