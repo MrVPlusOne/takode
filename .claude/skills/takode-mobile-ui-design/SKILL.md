@@ -1,6 +1,6 @@
 ---
 name: takode-mobile-ui-design
-description: "Use before designing, redesigning or reviewing Takode UI for phones: layout and placement of bars, tabs, strips and buttons, thumb reach, information density, touch gestures, long-press menus, sheets and popovers, mobile animation, and presenting UI design options for the user to choose."
+description: "Use before designing, redesigning or reviewing Takode UI for phones: layout and placement of bars, tabs, strips and buttons, thumb reach, information density, chip rows versus dropdowns, touch gestures, long-press menus, sheets and popovers, mobile animation, and presenting UI design options for the user to choose."
 ---
 
 # Takode Mobile UI Design
@@ -41,6 +41,11 @@ The user runs Takode on a large iPhone (about 430 pt wide), mostly as the Home S
 - Drop what is not essential. Tags were removed from the quest preview.
 - Collapse secondary detail by default. Reminder chips start collapsed, and a long run of similar chips (such as related-quest references) belongs behind one expandable chip. Side-by-side buttons that fit on one row should share it instead of stacking.
 - Informational indicators must not look unread. The Board button shows phase-colored dots, never a count or badge, because a badge read as something to clear and nagged.
+
+**Aligned controls, not rows of uneven chips, for open-ended choices.**
+- When the values can grow without bound, such as user-added tags or categories, do not offer them as a row of chips. Their widths differ, they do not line up and they wrap, which looks chaotic. Use a dropdown, or another control that keeps an aligned layout. Picking a to-do's category is a dropdown.
+- A small fixed set of values is a judgment call: chips or a segmented bar can be right there. The status filters on the to-do page and in Questmaster are one segmented bar of equal cells; keep new filters consistent with it.
+- The rule is about choosing among values. Chips that show data on an item, such as linked-quest chips after a title, are a different case.
 
 **Make important content readable.**
 - Content people open a surface for (a quest's summary, latest phase, the question being asked) gets normal reading size and full contrast. Labels can be small and muted.
