@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CollapsedReportPreview } from "./CollapsedReportPreview.js";
+import { ReportCard } from "./ReportCard.js";
 
 // jsdom has no layout, so the report's measured height is stubbed per test.
 function stubScrollHeight(height: number) {
@@ -11,7 +11,7 @@ function stubScrollHeight(height: number) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("CollapsedReportPreview", () => {
+describe("ReportCard", () => {
   it("clips a long report and toggles between full and clipped in place", () => {
     stubScrollHeight(2000);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -20,9 +20,9 @@ describe("CollapsedReportPreview", () => {
     });
     Element.prototype.scrollIntoView = vi.fn();
     render(
-      <CollapsedReportPreview>
+      <ReportCard>
         <p>Daily briefing</p>
-      </CollapsedReportPreview>,
+      </ReportCard>,
     );
 
     const clip = screen.getByText("Daily briefing").parentElement!.parentElement!;
@@ -52,13 +52,13 @@ describe("CollapsedReportPreview", () => {
   it("shows a short report whole without a toggle", () => {
     stubScrollHeight(200);
     render(
-      <CollapsedReportPreview>
+      <ReportCard>
         <p>Short note</p>
-      </CollapsedReportPreview>,
+      </ReportCard>,
     );
 
     expect(screen.getByText("Short note")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByTestId("collapsed-report")).toBeInTheDocument();
+    expect(screen.getByTestId("report-card")).toBeInTheDocument();
   });
 });

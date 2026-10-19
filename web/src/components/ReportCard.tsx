@@ -1,14 +1,14 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-/** Height of a clipped report in a collapsed turn: its header and first sections. */
+/** Height of a clipped report: its header and first sections. */
 const CLIPPED_HEIGHT_PX = 320;
 
 /**
- * A published report embedded in a collapsed turn: framed so its boundary is
+ * The frame of a published report in the feed: bordered so its boundary is
  * clear, clipped to its opening, and expandable in place. Short reports show
  * whole without a toggle.
  */
-export function CollapsedReportPreview({ children }: { children: ReactNode }) {
+export function ReportCard({ children }: { children: ReactNode }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -38,7 +38,7 @@ export function CollapsedReportPreview({ children }: { children: ReactNode }) {
     <div
       ref={cardRef}
       className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5"
-      data-testid="collapsed-report"
+      data-testid="report-card"
     >
       {overflows && expanded && (
         // An expanded report can run many screens, so its collapse control stays

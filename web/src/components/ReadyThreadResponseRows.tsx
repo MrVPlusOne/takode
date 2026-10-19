@@ -5,7 +5,6 @@ import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HidePawContext } from "./PawTrail.js";
 import { collapsedResponseEntry, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { AnsweredMessage, type AnswerChrome } from "./ThreadResponsePresentationChrome.js";
-import { CollapsedReportPreview } from "./CollapsedReportPreview.js";
 import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
 
 function presentationEntries(turn: Turn): readonly FeedEntry[] {
@@ -35,7 +34,7 @@ function sourceDecisionEntries(
   });
 }
 
-/** Published Markdown reports stay visible, clipped, in a collapsed turn, so an
+/** Published Markdown reports stay visible in a collapsed turn, so an
  *  answer that points at "the report above" still has it on screen. */
 function sourceReportEntries(turn: Turn): Array<Extract<FeedEntry, { kind: "message" }>> {
   return presentationEntries(turn).filter(
@@ -88,8 +87,6 @@ export interface CollapsedTurnRow {
   className?: string;
   /** Present when the row is the thread's current answer. */
   answer?: AnswerChrome;
-  /** A published report, shown framed and clipped. */
-  report?: boolean;
 }
 
 /** The rows a collapsed turn shows while the thread's answer presentation applies to it. */
@@ -140,7 +137,6 @@ export function readyThreadResponseRows(
         key: `entry:${entry.msg.id}`,
         entry,
         testId: "thread-response-report",
-        report: true,
       },
       // A report that arrived live has no history index until the next window sync.
       order: (entry.msg.historyIndex ?? -1) >= 0 ? entry.msg.historyIndex! : Number.MAX_SAFE_INTEGER,
@@ -227,7 +223,7 @@ export function CollapsedTurnRows({
             currentThreadKey={currentThreadKey}
             onSelectThread={onSelectThread}
           >
-            {row.report ? <CollapsedReportPreview>{content}</CollapsedReportPreview> : content}
+            {content}
           </AnsweredMessage>
         </HidePawContext.Provider>
       </div>

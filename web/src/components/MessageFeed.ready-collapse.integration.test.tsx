@@ -348,6 +348,15 @@ describe("MessageFeed Ready auto-collapse", () => {
     const turn = latestTurn(view.container);
     expect(within(turn).getByText("Three new emails overnight.")).toBeInTheDocument();
     expect(within(turn).getByText("The briefing is the report just above.")).toBeInTheDocument();
+    expect(within(turn).getAllByTestId("report-card")).toHaveLength(1);
+
+    // Expanding the turn keeps the report in its one clippable card rather than
+    // showing it whole, so a long report never takes over the thread.
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
+    expectExpanded(view.container);
+    const expandedTurn = latestTurn(view.container);
+    expect(within(expandedTurn).getAllByTestId("report-card")).toHaveLength(1);
+    expect(within(expandedTurn).getByTestId("report-card")).toHaveTextContent("Three new emails overnight.");
   });
 
   it("collapses to an answer nobody asked for, as when relaying a worker-scheduled briefing", () => {

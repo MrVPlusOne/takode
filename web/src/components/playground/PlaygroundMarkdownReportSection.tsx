@@ -20,12 +20,8 @@ export function PlaygroundMarkdownReportSection() {
       <p className="text-sm text-cc-muted">
         Select a passage to add a comment. Comments go to this session. This preview does not send messages.
       </p>
-      <div
-        ref={setRoot}
-        data-annotation-preview-session={report.source.sessionId}
-        className="rounded-xl border border-cc-border bg-cc-card p-4"
-      >
-        <div className="max-h-[560px] overflow-auto" data-message-id={report.id} data-message-role="assistant">
+      <div ref={setRoot} data-annotation-preview-session={report.source.sessionId} className="space-y-3">
+        <div data-message-id={report.id} data-message-role="assistant">
           <MessageBubble message={message} sessionId={report.source.sessionId} />
         </div>
         <SelectionContextMenu selection={selection} sessionId={report.source.sessionId} onClose={selection.dismiss} />
