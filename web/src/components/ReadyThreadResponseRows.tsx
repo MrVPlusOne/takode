@@ -67,6 +67,17 @@ export function readyThreadResponseTurnHasContent(
   return false;
 }
 
+/** A card shown among a turn's entries at the time it happened, such as the Quest complete card. */
+export interface TimedCard {
+  node: ReactNode;
+  at: number;
+}
+
+/** Index of the first entry written after `at`, or -1; entries without a time of their own never count. */
+export function firstEntryAfter(entries: readonly FeedEntry[], at: number): number {
+  return entries.findIndex((entry) => entry.kind === "message" && entry.msg.timestamp > at);
+}
+
 /** One row of a collapsed turn's card. */
 export interface CollapsedTurnRow {
   /** Keyed by entry, so a message keeps its row whichever presentation lists it. */
@@ -138,6 +149,18 @@ export function readyThreadResponseRows(
   ].sort((left, right) => left.order - right.order || left.fallbackOrder - right.fallbackOrder);
 
   const rows: CollapsedTurnRow[] = ordered.map((item) => item.row);
+  // An answer first in the card follows its turn's own message directly.
+  const userMessageId = turn.userEntry?.kind === "message" ? turn.userEntry.msg.id : null;
+  const first = rows[0];
+  const firstResponse = responses.find((item) => `entry:${item.collapsedMessageEntry.msg.id}` === first?.key);
+  if (
+    first?.answer &&
+    userMessageId &&
+    firstResponse?.response.referencedUserMessageIds.length === 1 &&
+    firstResponse.response.referencedUserMessageIds[0] === userMessageId
+  ) {
+    first.answer = { ...first.answer, answersMessageAbove: true };
+  }
   if (unansweredMessageEntry) {
     rows.push({
       key: `entry:${unansweredMessageEntry.msg.id}`,
@@ -162,6 +185,7 @@ export function CollapsedTurnRows({
   currentThreadKey,
   onSelectThread,
   questLinkSurface,
+  timedCard = null,
 }: {
   rows: readonly CollapsedTurnRow[];
   quizQuestIds: readonly string[];
@@ -170,28 +194,55 @@ export function CollapsedTurnRows({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
+  /** Placed before the first row written after its time, else after the rows. */
+  timedCard?: TimedCard | null;
 }) {
   const seenKeys = new Set<string>();
+  const cardIndex = timedCard
+    ? firstEntryAfter(
+        rows.map((row) => row.entry),
+        timedCard.at,
+      )
+    : -1;
+  const card = timedCard && (
+    <div key="timed-card" className="min-w-0 px-2.5 py-2 empty:hidden sm:px-3" data-testid="collapsed-turn-timed-card">
+      {timedCard.node}
+    </div>
+  );
+  const renderRow = (row: CollapsedTurnRow, index: number) => {
+    if (seenKeys.has(row.key)) return null;
+    seenKeys.add(row.key);
+    const content = renderEntry(row.entry);
+    // Answers sharing a card can be hours apart; a rule keeps each one its own message.
+    const separation = index > 0 && row.answer ? " border-t border-cc-border/50" : "";
+    return (
+      <div
+        key={row.key}
+        className={`${row.className ?? "min-w-0 px-2.5 py-2 sm:px-3"}${separation}`}
+        data-testid={row.testId}
+      >
+        <HidePawContext.Provider value={true}>
+          <AnsweredMessage
+            answer={row.answer ?? null}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
+          >
+            {row.report ? <CollapsedReportPreview>{content}</CollapsedReportPreview> : content}
+          </AnsweredMessage>
+        </HidePawContext.Provider>
+      </div>
+    );
+  };
+  // One flat keyed list: a row the card moves next to keeps its element (and loaded images).
+  const items: ReactNode[] = [];
+  rows.forEach((row, index) => {
+    if (index === cardIndex) items.push(card);
+    items.push(renderRow(row, index));
+  });
+  if (cardIndex === -1) items.push(card);
   return (
     <>
-      {rows.map((row) => {
-        if (seenKeys.has(row.key)) return null;
-        seenKeys.add(row.key);
-        const content = renderEntry(row.entry);
-        return (
-          <div key={row.key} className={row.className ?? "min-w-0 px-2.5 py-2 sm:px-3"} data-testid={row.testId}>
-            <HidePawContext.Provider value={true}>
-              <AnsweredMessage
-                answer={row.answer ?? null}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-              >
-                {row.report ? <CollapsedReportPreview>{content}</CollapsedReportPreview> : content}
-              </AnsweredMessage>
-            </HidePawContext.Provider>
-          </div>
-        );
-      })}
+      {items}
       {quizQuestIds.length > 0 && (
         <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
           <AssistantQuestQuizContent
@@ -215,6 +266,7 @@ export function ReadyThreadResponseRows({
   questLinkSurface,
   needsInputAnchorMessageIds = new Set(),
   unansweredMessageEntry = null,
+  timedCard = null,
 }: {
   turn: Turn;
   presentation: ThreadResponsePresentation;
@@ -226,6 +278,7 @@ export function ReadyThreadResponseRows({
   needsInputAnchorMessageIds?: ReadonlySet<string>;
   /** Shown only when the turn has no answer or decision row of its own. */
   unansweredMessageEntry?: Extract<FeedEntry, { kind: "message" }> | null;
+  timedCard?: TimedCard | null;
 }) {
   const { rows, quizQuestIds } = readyThreadResponseRows(
     turn,
@@ -242,6 +295,7 @@ export function ReadyThreadResponseRows({
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
       questLinkSurface={questLinkSurface}
+      timedCard={timedCard}
     />
   );
 }

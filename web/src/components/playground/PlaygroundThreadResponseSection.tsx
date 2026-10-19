@@ -6,6 +6,7 @@ import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
+import { PlaygroundAnswersApart } from "./PlaygroundAnswersApart.js";
 import { PlaygroundCollapsedAnsweredDecision } from "./PlaygroundCollapsedAnsweredDecision.js";
 import { PlaygroundQuestCompletionSummary, PlaygroundQuestDescriptionSummary } from "./PlaygroundQuestSummaryCards.js";
 
@@ -271,6 +272,8 @@ const COMMENT_ONLY_TURN: Turn = {
   responseEntry: COMMENT_ONLY_RESPONSE,
 };
 // The covered request was sent only as a comment on earlier text: empty content, structured comments.
+// It came before this turn's own message, so the answer quotes it.
+const COMMENT_ONLY_REQUEST_ID = "playground-comment-only-request";
 const COMMENT_ONLY_PRESENTATION: ThreadResponsePresentation = {
   ...ANSWER_ONLY_PRESENTATION,
   currentResponses: [
@@ -278,6 +281,8 @@ const COMMENT_ONLY_PRESENTATION: ThreadResponsePresentation = {
       ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!,
       response: {
         ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!.response,
+        referencedUserMessageIds: [COMMENT_ONLY_REQUEST_ID],
+        coveredUserMessageIds: [COMMENT_ONLY_REQUEST_ID],
         currentMessageId: COMMENT_ONLY_RESPONSE.msg.id,
       },
       sourceTurnId: COMMENT_ONLY_TURN.id,
@@ -285,7 +290,7 @@ const COMMENT_ONLY_PRESENTATION: ThreadResponsePresentation = {
       collapsedMessageEntry: COMMENT_ONLY_RESPONSE,
       referencedUserMessages: [
         {
-          historyMessageId: ANSWER_ONLY_TURN.id,
+          historyMessageId: COMMENT_ONLY_REQUEST_ID,
           userMessageId: "u3",
           content: "",
           annotations: [
@@ -443,7 +448,7 @@ const MULTI_OWNER_PRESENTATION: ThreadResponsePresentation = {
 
 // A worker produced a report on its own schedule and the leader published it with
 // `takode report`, then presented it with an answer that names no request
-// ([thread:q-N:A]), which shows without an "Answers N messages" chip. The collapsed
+// ([thread:q-N:A]), which is marked as a new result. The collapsed
 // turn keeps the report on screen above the answer, clipped with a toggle.
 const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
   kind: "message",
@@ -583,7 +588,7 @@ export function PlaygroundThreadResponseSection() {
               />
             </div>
           </Card>
-          <Card label="Collapsed answer only · no hidden tools">
+          <Card label="Collapsed answer only · answers the message above">
             <div
               className="min-w-0 w-full max-w-[320px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-turn-summary-without-tools"
@@ -645,7 +650,7 @@ export function PlaygroundThreadResponseSection() {
               />
             </div>
           </Card>
-          <Card label="Collapsed answer from another thread · joined thread link">
+          <Card label="Collapsed answer from another thread · thread link above the quote">
             <div
               className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-cross-thread-answer"
@@ -691,6 +696,7 @@ export function PlaygroundThreadResponseSection() {
             </div>
           </Card>
           <PlaygroundCollapsedAnsweredDecision />
+          <PlaygroundAnswersApart />
           <Card label="Collapsed quest projection · associated Main answer">
             <div
               className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"

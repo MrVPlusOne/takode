@@ -1,4 +1,4 @@
-import { createContext, type ReactNode } from "react";
+import { createContext } from "react";
 import type { ChatMessage } from "../types.js";
 import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
@@ -35,49 +35,30 @@ export function getMessageThreadLinkKey(message: ChatMessage, currentThreadKey?:
   return threadKey === normalizeThreadKey(currentThreadKey) ? null : threadKey;
 }
 
-/**
- * Header line of a feed message: a clickable link to the message's thread and,
- * for answers, the answered-message chip. With a chip, both join into one tag.
- */
+/** Header line of a feed message: a clickable link to the message's thread. */
 export function MessageThreadHeader({
   threadKey,
   onSelectThread,
-  answerChip,
 }: {
   threadKey: string | null;
   onSelectThread?: (threadKey: string) => void;
-  answerChip?: ReactNode;
 }) {
-  if (!threadKey && !answerChip) return null;
-
-  const link = threadKey ? (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelectThread?.(threadKey);
-      }}
-      disabled={!onSelectThread}
-      className={`cc-thread-link min-w-0 truncate font-mono-code text-[11px] leading-none transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/35 disabled:cursor-default disabled:no-underline ${
-        answerChip ? "border-r border-cc-border/60 px-2 py-1" : ""
-      }`}
-      title={`Open thread:${threadKey}`}
-      data-testid="thread-source-badge"
-    >
-      thread:{threadKey}
-    </button>
-  ) : null;
-
+  if (!threadKey) return null;
   return (
     <div className="mb-1.5 flex min-w-0" data-testid="message-thread-header">
-      {answerChip ? (
-        <div className="inline-flex min-w-0 max-w-full items-stretch overflow-hidden rounded-md border border-cc-border/60 bg-cc-hover/30">
-          {link}
-          {answerChip}
-        </div>
-      ) : (
-        link
-      )}
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelectThread?.(threadKey);
+        }}
+        disabled={!onSelectThread}
+        className="cc-thread-link min-w-0 truncate font-mono-code text-[11px] leading-none transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/35 disabled:cursor-default disabled:no-underline"
+        title={`Open thread:${threadKey}`}
+        data-testid="thread-source-badge"
+      >
+        thread:{threadKey}
+      </button>
     </div>
   );
 }

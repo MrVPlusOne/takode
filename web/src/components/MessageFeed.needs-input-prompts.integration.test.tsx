@@ -237,8 +237,8 @@ describe("MessageFeed needs-input prompts in collapsed turns", () => {
     expect(view.container.querySelectorAll(`[data-message-id="${UNRESOLVED_PROMPT_TWO_ID}"]`)).toHaveLength(1);
     expect(within(turn).queryByText(/Stale embedded prompt/)).not.toBeInTheDocument();
     expect(within(turn).getAllByTestId("thread-response-needs-input-prompt")).toHaveLength(2);
-    expect(within(turn).getAllByTestId("thread-response-answer-count")).toHaveLength(1);
-    expect(within(turn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(within(turn).getAllByTestId("thread-response-answer-reference")).toHaveLength(1);
+    expect(within(turn).getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
     expect(within(turn).getByText("Choose deployment boundary")).toBeVisible();
     expect(within(turn).queryByText("Outdated embedded prompt snapshot")).not.toBeInTheDocument();
     expect(within(turn).getByText("Confirm follow-up state")).toBeVisible();
@@ -331,7 +331,7 @@ describe("MessageFeed needs-input prompts in collapsed turns", () => {
     expect(within(turn).queryByText(/Stale embedded prompt/)).not.toBeInTheDocument();
     expect(view.container.querySelectorAll(`[data-message-id="${STALE_HERD_ANCHOR_ID}"]`)).toHaveLength(0);
     expect(within(turn).queryByTestId("thread-response-needs-input-prompt")).not.toBeInTheDocument();
-    expect(within(turn).getAllByTestId("thread-response-answer-count")).toHaveLength(1);
+    expect(within(turn).getAllByTestId("thread-response-answer-reference")).toHaveLength(1);
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
   });

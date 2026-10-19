@@ -973,6 +973,15 @@ function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response
   );
 }
 
+/** The user's own message, not the quote of it above an answer that answers it. */
+function getUserMessageText(text: string): HTMLElement {
+  const matches = screen
+    .getAllByText(text)
+    .filter((element) => !element.closest('[data-testid="thread-response-answer-reference"]'));
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
+}
+
 describe("MessageFeed explicit answer selected-window integration", () => {
   beforeEach(() => {
     useStore.getState().reset();
@@ -1008,7 +1017,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       .querySelector<HTMLElement>(`[data-message-id="${ASSOCIATED_MAIN_USER_ID}"]`)!
       .closest<HTMLElement>("[data-turn-id]")!;
     assertOneAnswerIdentity();
-    expect(within(mainTurn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(within(mainTurn).getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
     expect(
       view.container.querySelector(
         `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"] [data-testid="thread-source-badge"]`,
@@ -1035,13 +1044,12 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
     )!;
     assertOneAnswerIdentity();
-    expect(within(questTurn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
-    // Collapsed answers carry the thread link in their row header, joined with the answer chip.
-    const collapsedAnswerHeader = within(
-      collapsedAnswerRow.closest<HTMLElement>('[data-testid="thread-response-current"]')!,
-    ).getByTestId("message-thread-header");
+    expect(within(questTurn).getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
+    // Collapsed answers carry the thread link in their row header, and what they answer under it.
+    const collapsedRow = collapsedAnswerRow.closest<HTMLElement>('[data-testid="thread-response-current"]')!;
+    const collapsedAnswerHeader = within(collapsedRow).getByTestId("message-thread-header");
     expect(within(collapsedAnswerHeader).getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
-    expect(within(collapsedAnswerHeader).getByTestId("thread-response-answer-count")).toBeInTheDocument();
+    expect(within(collapsedRow).getByTestId("thread-response-answer-reference")).toBeInTheDocument();
     expect(
       within(questTurn).queryByText("Quest-side implementation detail stays behind expansion."),
     ).not.toBeInTheDocument();
@@ -1136,7 +1144,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
     expect(within(turn).queryByText("The worker is finishing the guarded transition.")).not.toBeInTheDocument();
     expect(within(turn).queryByText("The transition finished; Memory is running.")).not.toBeInTheDocument();
-    expect(within(turn).queryByTestId("thread-response-answer-count")).not.toBeInTheDocument();
+    expect(within(turn).queryByTestId("thread-response-answer-reference")).not.toBeInTheDocument();
     expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
     expect(view.container.querySelectorAll('[data-message-id="legacy-completion"]')).toHaveLength(1);
     expect(within(turn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
@@ -1238,8 +1246,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
   it("shows every valid answer in chronology after its original prompts and one Quiz when Ready", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
-    const first = screen.getByText("First pending request");
-    const second = screen.getByText("Second pending request");
+    const first = getUserMessageText("First pending request");
+    const second = getUserMessageText("Second pending request");
     const third = screen.getByText("Third pending request");
     const earlierGrouped = screen.getByText("Earlier grouped response");
     const grouped = screen.getByText("Current grouped response");
@@ -1248,11 +1256,11 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(second.compareDocumentPosition(earlierGrouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(earlierGrouped.compareDocumentPosition(grouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(third.compareDocumentPosition(singleton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    const answerCounts = screen.getAllByTestId("thread-response-answer-count");
+    const answerCounts = screen.getAllByTestId("thread-response-answer-reference");
     expect(answerCounts).toHaveLength(3);
-    expect(answerCounts[0]).toHaveTextContent("Answers 2 messages");
-    expect(answerCounts[1]).toHaveTextContent("Answers 2 messages");
-    expect(answerCounts[2]).toHaveTextContent("Answers 1 message");
+    expect(answerCounts[0]).toHaveAttribute("data-answer-count", "2");
+    expect(answerCounts[1]).toHaveAttribute("data-answer-count", "2");
+    expect(answerCounts[2]).toHaveAttribute("data-answer-count", "1");
     expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("thread-response-current")).toHaveLength(3);
     for (const answer of [earlierGrouped, grouped, singleton]) {
@@ -1286,7 +1294,10 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(singletonFrame).toHaveClass("border-cc-primary/25");
     expect(singletonFrame).not.toHaveClass("bg-cc-primary/[0.045]");
     expect(within(singletonFrame).queryByText("Current answer")).not.toBeInTheDocument();
-    expect(within(singletonFrame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(within(singletonFrame).getByTestId("thread-response-answer-reference")).toHaveAttribute(
+      "data-answer-count",
+      "1",
+    );
     const singletonMessageRow = within(singletonFrame)
       .getByText("Current singleton response")
       .closest<HTMLElement>("[class~='group/msg']")!;
@@ -1296,7 +1307,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(singletonFrame).getByRole("button", { name: "Message options" })).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
-    const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
+    const secondTurn = getUserMessageText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
     fireEvent.click(within(secondTurn).getByRole("button", { name: /Show turn activity/i }));
     const earlier = screen.getByText("Earlier grouped response");
     const current = screen.getByText("Current grouped response");
@@ -1306,7 +1317,10 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const groupedFrame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(groupedFrame).toBeInTheDocument();
     expect(within(groupedFrame).queryByText("Current answer")).not.toBeInTheDocument();
-    expect(within(groupedFrame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    expect(within(groupedFrame).getByTestId("thread-response-answer-reference")).toHaveAttribute(
+      "data-answer-count",
+      "2",
+    );
     const groupedMessageRow = within(groupedFrame)
       .getByText("Current grouped response")
       .closest<HTMLElement>("[class~='group/msg']")!;
@@ -1421,7 +1435,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     const answerText = "The earlier request is complete after asynchronous work.";
-    const anchorTurn = screen.getByText("Earlier asynchronous request").closest<HTMLElement>("[data-turn-id]")!;
+    const anchorTurn = getUserMessageText("Earlier asynchronous request").closest<HTMLElement>("[data-turn-id]")!;
     const sourceTurn = screen
       .getByText("Later request that triggered completion")
       .closest<HTMLElement>("[data-turn-id]")!;
@@ -1539,12 +1553,12 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
     expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
-    const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
+    const secondTurn = getUserMessageText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
     fireEvent.click(within(secondTurn).getByRole("button", { name: /Show turn activity/i }));
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
     const current = screen.getByText("Current grouped response");
     const frame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(frame).toBeInTheDocument();
-    expect(within(frame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    expect(within(frame).getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "2");
   });
 });

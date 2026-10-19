@@ -23,7 +23,10 @@ beforeEach(() => useStore.getState().reset());
 
 function expectChronology(container: HTMLElement) {
   const rows = [FIRST_REQUEST, LATER_QUESTION, DESIGN_ANSWER, IMPLEMENTATION_ANSWER].map((text) => {
-    const matches = within(container).getAllByText(text);
+    // Quotes above answers repeat request text; only the messages themselves count.
+    const matches = within(container)
+      .getAllByText(text)
+      .filter((element) => !element.closest('[data-testid="thread-response-answer-reference"]'));
     expect(matches).toHaveLength(1);
     return matches[0]!;
   });
@@ -78,10 +81,11 @@ describe("chronological collapsed answers", () => {
     expectChronology(container);
     fireEvent.click(within(sourceTurn).getByRole("button", { name: /Hide turn activity/ }));
     expectChronology(container);
-    const badges = within(sourceTurn).getAllByRole("button", {
-      name: "Answers 1 message; preview referenced message",
-    });
-    fireEvent.click(badges[1]!);
+    // The design answer sits right under the request it answers, so it points up;
+    // the implementation answer quotes the older request and previews it.
+    const references = within(sourceTurn).getAllByTestId("thread-response-answer-reference");
+    expect(references.map((reference) => reference.dataset.variant)).toEqual(["above", "quote"]);
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Answers 1 message; preview referenced message" }));
     expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent(FIRST_REQUEST);
     expect(screen.getByTestId("thread-response-coverage-preview")).not.toHaveTextContent(LATER_QUESTION);
     fireEvent.keyDown(document, { key: "Escape" });

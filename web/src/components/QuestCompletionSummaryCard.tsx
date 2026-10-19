@@ -5,13 +5,6 @@ import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { ThreadMessageLink } from "./QuestForkLinks.js";
 import { QuestRecordFetchContext, QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
 
-/**
- * Quest whose completion summary belongs above its Quiz in the current turn.
- * Only the leader quest thread's completion host turn provides a value, so
- * Quizzes elsewhere (worker feeds, Main, Playground) render unchanged.
- */
-export const QuestCompletionSummaryContext = createContext<string | null>(null);
-
 /** Supporting quests' delivering answers by quest ID, instead of loading them; the Playground provides these. */
 export const SupportingQuestAnswerContext = createContext<ReadonlyMap<string, SupportingQuestAnswer> | null>(null);
 
@@ -49,7 +42,6 @@ export function QuestCompletionSummaryCard({
       fullText={answer ? (debrief || tldr ? `${answer.markdown}\n\n---\n\n${debrief || tldr}` : "") : debrief}
       expandLabel={answer ? "Show debrief" : "Show full debrief"}
       testId="quest-completion-summary"
-      className="mt-3"
       sessionId={sessionId}
       questLinkSurface={questLinkSurface}
       detail={

@@ -212,12 +212,12 @@ function installReadyStatuses() {
   );
 }
 
-function answerHeader(container: HTMLElement): HTMLElement {
+function answerRow(container: HTMLElement): HTMLElement {
   const answer = container.querySelector<HTMLElement>(`[data-message-id="${ANSWER_ID}"]`)!;
-  const row =
+  return (
     answer.closest<HTMLElement>('[data-testid="thread-response-current"]') ??
-    answer.querySelector<HTMLElement>('[data-testid="thread-response-current-expanded"]')!;
-  return within(row).getByTestId("message-thread-header");
+    answer.querySelector<HTMLElement>('[data-testid="thread-response-current-expanded"]')!
+  );
 }
 
 function userThreadLink(container: HTMLElement, messageId: string): string | null {
@@ -260,12 +260,13 @@ describe("MessageFeed thread link ownership", () => {
     });
   });
 
-  it("shows only the answer chip in the quest tab the answer was written in", () => {
+  it("shows no thread link on an answer in the quest tab it was written in", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
-    const header = answerHeader(view.container);
-    expect(within(header).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
-    expect(within(header).queryByTestId("thread-source-badge")).toBeNull();
+    const row = answerRow(view.container);
+    expect(within(row).getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "2");
+    expect(within(row).queryByTestId("message-thread-header")).toBeNull();
+    expect(within(row).queryByTestId("thread-source-badge")).toBeNull();
     // The handed-off request was written in Main, so it links back there.
     expect(userThreadLink(view.container, HANDED_OFF_USER_ID)).toBe("thread:main");
     expect(userThreadLink(view.container, QUEST_USER_ID)).toBeNull();
@@ -274,9 +275,10 @@ describe("MessageFeed thread link ownership", () => {
   it("links the answer to its quest from the Main tab, collapsed and expanded", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey="main" />);
 
-    const collapsedHeader = answerHeader(view.container);
+    const collapsedRow = answerRow(view.container);
+    const collapsedHeader = within(collapsedRow).getByTestId("message-thread-header");
     expect(within(collapsedHeader).getByTestId("thread-source-badge")).toHaveTextContent(`thread:${QUEST_ID}`);
-    expect(within(collapsedHeader).getByTestId("thread-response-answer-count")).toBeInTheDocument();
+    expect(within(collapsedRow).getByTestId("thread-response-answer-reference")).toBeInTheDocument();
     expect(userThreadLink(view.container, HANDED_OFF_USER_ID)).toBeNull();
 
     const turn = view.container

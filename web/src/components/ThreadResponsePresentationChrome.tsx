@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
   type FocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -49,6 +51,10 @@ function nextFocusableAfter(element: HTMLElement): HTMLElement | null {
   return index >= 0 ? (controls[index + 1] ?? null) : null;
 }
 
+/** Wide enough on desktop to read a long message comfortably; phones use their full width. */
+const PREVIEW_MAX_WIDTH = 640;
+const PREVIEW_MAX_HEIGHT = 480;
+
 interface CoveragePreviewPosition {
   left: number;
   top: number;
@@ -70,8 +76,8 @@ function coveragePreviewPosition(
   const safeZoom = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
   const gutter = 8;
   const gap = 6;
-  const width = Math.min(360, Math.max(1, (viewport.width - gutter * 2) / safeZoom));
-  const maxHeight = Math.min(320, Math.max(1, (viewport.height - gutter * 2) / safeZoom));
+  const width = Math.min(PREVIEW_MAX_WIDTH, Math.max(1, (viewport.width - gutter * 2) / safeZoom));
+  const maxHeight = Math.min(PREVIEW_MAX_HEIGHT, Math.max(1, (viewport.height - gutter * 2) / safeZoom));
 
   preview.style.width = `${width}px`;
   preview.style.maxHeight = `${maxHeight}px`;
@@ -131,13 +137,47 @@ function hasCompletePreview(
   return true;
 }
 
-export function ThreadResponseCoverageBadge({
-  messageCount,
-  referencedMessages,
-}: {
-  messageCount: number;
-  referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
-}) {
+const EXCERPT_MAX_LENGTH = 400;
+
+/** Plain text that identifies a referenced message, for its clamped quote. */
+function referencedMessageExcerpt(message: ThreadResponseReferencedUserMessage): string {
+  const text = message.content.trim() || (message.annotations ?? []).map((annotation) => annotation.comment).join(" ");
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed) return collapsed.slice(0, EXCERPT_MAX_LENGTH);
+  const images = message.attachmentCount ?? 0;
+  return images === 1 ? "1 image" : `${images} images`;
+}
+
+function UpIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="h-3 w-3 shrink-0">
+      <path
+        d="M8 13V3.5M4 7l4-4 4 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function NewResultIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className="h-3 w-3 shrink-0">
+      <circle cx="8" cy="8" r="3" />
+    </svg>
+  );
+}
+
+/**
+ * Hover (fine pointer) and click/tap/keyboard preview of the messages an answer
+ * answers, anchored to the trigger that spreads `triggerProps`.
+ */
+function useReferencePreview(
+  messageCount: number,
+  referencedMessages: readonly ThreadResponseReferencedUserMessage[] | undefined,
+) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,8 +186,8 @@ export function ThreadResponseCoverageBadge({
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
   const [openMode, setOpenMode] = useState<"hover" | "explicit" | null>(null);
   const [position, setPosition] = useState<CoveragePreviewPosition | null>(null);
-  const label = `Answers ${messageCount} ${messageCount === 1 ? "message" : "messages"}`;
-  const previewAvailable = hasCompletePreview(messageCount, referencedMessages);
+  const previewMessages = hasCompletePreview(messageCount, referencedMessages) ? referencedMessages : null;
+  const previewAvailable = previewMessages !== null;
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -279,33 +319,39 @@ export function ThreadResponseCoverageBadge({
     if (!previewAvailable && openMode) close();
   }, [close, openMode, previewAvailable]);
 
-  if (messageCount <= 0) return null;
-
-  const badgeClass =
-    "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap bg-cc-primary/10 px-2 py-1 text-[11px] leading-none font-medium text-cc-primary";
-  const content = (
-    <>
-      <ReplyIcon />
-      {label}
-    </>
-  );
-  if (!previewAvailable) {
-    return (
-      <div className={badgeClass} data-testid="thread-response-answer-count">
-        {content}
-      </div>
-    );
-  }
-
   const isOpen = openMode !== null;
-  const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
-    if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
-    clearCloseTimer();
-    if (openMode !== "explicit") open("hover");
+  const triggerProps = {
+    ref: buttonRef,
+    type: "button" as const,
+    "aria-haspopup": "dialog" as const,
+    "aria-expanded": isOpen,
+    "aria-controls": previewId,
+    "aria-describedby": openMode === "hover" ? previewId : undefined,
+    onBlur: keepExplicitFocusWithinPreview,
+    onPointerEnter: (event: PointerEvent<HTMLElement>) => {
+      if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+      clearCloseTimer();
+      if (openMode !== "explicit") open("hover");
+    },
+    onPointerLeave: (event: PointerEvent<HTMLElement>) => {
+      if (event.pointerType === "mouse" || event.pointerType === "pen") scheduleHoverClose();
+    },
+    onPointerDown: (event: PointerEvent<HTMLElement>) => event.stopPropagation(),
+    onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+      if ((event.key === "Enter" || event.key === " ") && openMode !== "explicit") {
+        focusPreviewOnOpenRef.current = true;
+      }
+    },
+    onClick: (event: ReactMouseEvent<HTMLElement>) => {
+      event.stopPropagation();
+      clearCloseTimer();
+      if (openMode === "explicit") close();
+      else open("explicit", focusPreviewOnOpenRef.current || event.detail === 0);
+    },
   };
 
   const preview =
-    isOpen && openMode
+    previewMessages && openMode
       ? createPortal(
           <div
             ref={previewRef}
@@ -315,7 +361,7 @@ export function ThreadResponseCoverageBadge({
             tabIndex={openMode === "explicit" ? -1 : undefined}
             data-testid="thread-response-coverage-preview"
             data-placement={position?.placement}
-            className="fixed z-[90] overflow-y-auto rounded-lg border border-cc-border bg-cc-card/98 p-2.5 text-left shadow-xl backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-cc-primary/35"
+            className="fixed z-[90] overflow-y-auto rounded-xl border border-cc-border bg-cc-card px-4 py-3 text-left shadow-xl focus:outline-none focus:ring-2 focus:ring-cc-primary/35"
             style={{
               left: position?.left ?? 0,
               top: position?.top ?? 0,
@@ -343,108 +389,124 @@ export function ThreadResponseCoverageBadge({
               if (event.pointerType === "mouse" || event.pointerType === "pen") scheduleHoverClose();
             }}
           >
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
-              Referenced {messageCount === 1 ? "message" : "messages"}
-            </div>
-            <div className="space-y-2">
-              {referencedMessages.map((message, index) => (
-                <div
-                  key={message.historyMessageId}
-                  data-testid="thread-response-covered-message"
-                  data-message-id={message.historyMessageId}
-                  className="rounded-md border border-cc-border/60 bg-cc-bg/70 px-2.5 py-2"
-                >
-                  <div className="mb-1 font-mono-code text-[10px] text-cc-primary">
-                    {message.userMessageId}
-                    {messageCount > 1 ? ` · ${index + 1} of ${messageCount}` : ""}
-                  </div>
-                  {message.annotations?.map((annotation, commentIndex) => (
-                    <div
-                      key={annotation.id}
-                      className="mb-1.5 text-[12px] leading-relaxed"
-                      data-testid="thread-response-covered-message-comment"
-                    >
-                      <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-2 text-cc-muted">
-                        {annotation.selectedText}
-                      </blockquote>
-                      <div className="mt-0.5 whitespace-pre-wrap break-words text-cc-fg">
-                        {message.annotations!.length > 1 && (
-                          <span className="mr-1 text-[10px] text-cc-muted">Comment {commentIndex + 1}:</span>
-                        )}
-                        {annotation.comment}
-                      </div>
-                    </div>
-                  ))}
-                  {message.content.trim() && (
-                    <div
-                      className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-cc-fg"
-                      data-testid="thread-response-covered-message-content"
-                    >
-                      {message.content}
-                    </div>
-                  )}
-                  {(message.attachmentCount ?? 0) > 0 && (
-                    <div
-                      className="mt-1 text-[11px] text-cc-muted"
-                      data-testid="thread-response-covered-message-images"
-                    >
-                      {message.attachmentCount} image {message.attachmentCount === 1 ? "attachment" : "attachments"}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <ReferencedMessagesPreview messages={previewMessages} />
           </div>,
           document.body,
         )
       : null;
 
+  return { previewAvailable, triggerProps, preview };
+}
+
+/** The answered messages in full, at reading size, one after another. */
+function ReferencedMessagesPreview({ messages }: { messages: readonly ThreadResponseReferencedUserMessage[] }) {
+  return (
+    <div className="divide-y divide-cc-border/60">
+      {messages.map((message) => (
+        <div
+          key={message.historyMessageId}
+          data-testid="thread-response-covered-message"
+          data-message-id={message.historyMessageId}
+          className="py-2.5 first:pt-0 last:pb-0"
+        >
+          {message.annotations?.map((annotation, commentIndex) => (
+            <div
+              key={annotation.id}
+              className="mb-2 text-[14px] leading-relaxed"
+              data-testid="thread-response-covered-message-comment"
+            >
+              <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-2 text-cc-muted">
+                {annotation.selectedText}
+              </blockquote>
+              <div className="mt-0.5 whitespace-pre-wrap break-words text-cc-fg">
+                {message.annotations!.length > 1 && (
+                  <span className="mr-1 text-[11px] text-cc-muted">Comment {commentIndex + 1}:</span>
+                )}
+                {annotation.comment}
+              </div>
+            </div>
+          ))}
+          {message.content.trim() && (
+            <div
+              className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-cc-fg"
+              data-testid="thread-response-covered-message-content"
+            >
+              {message.content}
+            </div>
+          )}
+          {(message.attachmentCount ?? 0) > 0 && (
+            <div className="mt-1 text-[12px] text-cc-muted" data-testid="thread-response-covered-message-images">
+              {message.attachmentCount} image {message.attachmentCount === 1 ? "attachment" : "attachments"}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What an answer answers, above the answer: a reply quote of the answered
+ * messages that opens them in full on hover or tap. An answer right under the
+ * message it answers points up instead of repeating it, and an answer naming
+ * no message is marked as a new result.
+ */
+export function AnswerReference({ answer }: { answer: AnswerChrome }) {
+  const { previewAvailable, triggerProps, preview } = useReferencePreview(
+    answer.messageCount,
+    answer.referencedMessages,
+  );
+  // Every form carries the same test hooks: what kind of reference it is and how many messages it answers.
+  const hooks = (variant: "quote" | "above" | "new-result" | "count") => ({
+    "data-testid": "thread-response-answer-reference",
+    "data-variant": variant,
+    "data-answer-count": answer.messageCount,
+  });
+  const line = (variant: "above" | "new-result" | "count", icon: ReactNode, text: string) => (
+    <div className="mb-1.5 flex items-center gap-1 text-[12px] leading-none text-cc-muted" {...hooks(variant)}>
+      {icon}
+      <span className="min-w-0 truncate">{text}</span>
+    </div>
+  );
+  if (answer.messageCount <= 0) return line("new-result", <NewResultIcon />, "New result");
+  if (answer.answersMessageAbove) return line("above", <UpIcon />, "Answers the message above");
+  const countLabel = `Answers ${answer.messageCount} ${answer.messageCount === 1 ? "message" : "messages"}`;
+  if (!previewAvailable) return line("count", <ReplyIcon />, countLabel);
+
+  const messages = answer.referencedMessages!;
+  const shown = messages.slice(0, 3);
   return (
     <>
       <button
-        ref={buttonRef}
-        type="button"
-        className={`${badgeClass} cursor-pointer transition-colors hover:bg-cc-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/35`}
-        data-testid="thread-response-answer-count"
-        aria-label={`${label}; preview referenced ${messageCount === 1 ? "message" : "messages"}`}
-        aria-haspopup="dialog"
-        aria-expanded={isOpen}
-        aria-controls={previewId}
-        aria-describedby={openMode === "hover" ? previewId : undefined}
-        onBlur={keepExplicitFocusWithinPreview}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={(event) => {
-          if (event.pointerType === "mouse" || event.pointerType === "pen") scheduleHoverClose();
-        }}
-        onPointerDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if ((event.key === "Enter" || event.key === " ") && openMode !== "explicit") {
-            focusPreviewOnOpenRef.current = true;
-          }
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-          clearCloseTimer();
-          if (openMode === "explicit") close();
-          else open("explicit", focusPreviewOnOpenRef.current || event.detail === 0);
-        }}
+        {...triggerProps}
+        {...hooks("quote")}
+        aria-label={`${countLabel}; preview referenced ${answer.messageCount === 1 ? "message" : "messages"}`}
+        className="mb-2 block w-full cursor-pointer rounded-r-md border-l-2 border-cc-primary/50 py-0.5 pr-2 pl-2.5 text-left text-[13px] leading-snug text-cc-muted transition-colors hover:bg-cc-hover/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/35"
       >
-        {content}
+        {shown.map((message) => (
+          <span
+            key={message.historyMessageId}
+            className={`break-words ${messages.length === 1 ? "line-clamp-2" : "line-clamp-1"}`}
+          >
+            {referencedMessageExcerpt(message)}
+          </span>
+        ))}
+        {messages.length > shown.length && (
+          <span className="block text-[12px]">+{messages.length - shown.length} more</span>
+        )}
       </button>
       {preview}
     </>
   );
 }
 
-/**
- * An answer message under its header line: the thread link joined with the
- * answered-message chip. The message bubble inside skips its own thread link.
- */
 /** What an answer's header shows: its thread and the messages it answers. */
 export interface AnswerChrome {
   message: ChatMessage;
   messageCount: number;
   referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
+  /** The answer directly follows the one message it answers, with nothing between them. */
+  answersMessageAbove?: boolean;
 }
 
 /**
@@ -472,16 +534,9 @@ export function AnsweredMessage({
         <MessageThreadHeader
           threadKey={getMessageThreadLinkKey(answer.message, currentThreadKey)}
           onSelectThread={onSelectThread}
-          answerChip={
-            answer.messageCount > 0 ? (
-              <ThreadResponseCoverageBadge
-                messageCount={answer.messageCount}
-                referencedMessages={answer.referencedMessages}
-              />
-            ) : null
-          }
         />
       )}
+      {answer && <AnswerReference answer={answer} />}
       <MessageThreadHeaderOwnedContext.Provider value={outerHeaderOwned || answer !== null}>
         <HidePawContext.Provider value={outerHidePaw || answer !== null}>{children}</HidePawContext.Provider>
       </MessageThreadHeaderOwnedContext.Provider>

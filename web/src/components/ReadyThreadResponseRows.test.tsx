@@ -82,8 +82,8 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.getByText("Current polished response")).toBeVisible();
-    const coverage = screen.getByTestId("thread-response-answer-count");
-    expect(coverage).toHaveTextContent("Answers 2 messages");
+    const coverage = screen.getByTestId("thread-response-answer-reference");
+    expect(coverage).toHaveAttribute("data-answer-count", "2");
     fireEvent.click(coverage);
     expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 1");
     expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 2");
@@ -104,7 +104,7 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(screen.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
   });
 
   it("leaves intermediate activity hidden for the parent turn footer to reveal", () => {
@@ -250,7 +250,7 @@ describe("ReadyThreadResponseRows", () => {
     expect(container.querySelectorAll('[data-message-id="prompt-first"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-message-id="prompt-second"]')).toHaveLength(1);
     expect(screen.getAllByTestId("thread-response-needs-input-prompt")).toHaveLength(2);
-    expect(screen.getAllByTestId("thread-response-answer-count")).toHaveLength(1);
+    expect(screen.getAllByTestId("thread-response-answer-reference")).toHaveLength(1);
   });
 
   it("does not duplicate an unresolved anchor that is already the current response", () => {
@@ -271,7 +271,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(container.querySelectorAll('[data-message-id="response-current"]')).toHaveLength(1);
     expect(screen.queryByTestId("thread-response-needs-input-prompt")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("thread-response-answer-count")).toHaveLength(1);
+    expect(screen.getAllByTestId("thread-response-answer-reference")).toHaveLength(1);
   });
 
   it("releases the pin when the message no longer anchors one of the thread's needs-input prompts", () => {
@@ -306,10 +306,10 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.getByText("Current polished response")).toBeVisible();
   });
 
-  it("joins the cross-thread link and the answer chip in one header without repeating the link", () => {
+  it("puts the cross-thread link above what the answer answers without repeating the link", () => {
     // An answer from q-9 viewed in the q-2 tab: the row header shows the
-    // thread link first, joined with the answered chip. The real bubble
-    // inside must not render its own copy of the link.
+    // thread link, and the reference to the answered message follows it.
+    // The real bubble inside must not render its own copy of the link.
     const current = presentation(["u1"]);
     const answer = current.currentResponses[0]!.collapsedMessageEntry;
     answer.msg.metadata = { threadKey: "q-9" };
@@ -332,19 +332,19 @@ describe("ReadyThreadResponseRows", () => {
 
     const header = screen.getByTestId("message-thread-header");
     const link = screen.getByTestId("thread-source-badge");
-    const chip = screen.getByTestId("thread-response-answer-count");
+    const chip = screen.getByTestId("thread-response-answer-reference");
     expect(screen.getAllByTestId("thread-source-badge")).toHaveLength(1);
     expect(header).toContainElement(link);
-    expect(header).toContainElement(chip);
-    expect(link.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(header).not.toContainElement(chip);
+    expect(header.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(link).toHaveTextContent("thread:q-9");
-    expect(chip).toHaveTextContent("Answers 1 message");
+    expect(chip).toHaveAttribute("data-answer-count", "1");
 
     fireEvent.click(link);
     expect(onSelectThread).toHaveBeenCalledWith("q-9");
   });
 
-  it("shows only the answer chip for an answer from the viewed thread", () => {
+  it("shows no header line for an answer from the viewed thread", () => {
     const current = presentation(["u1"]);
     const answer = current.currentResponses[0]!.collapsedMessageEntry;
     answer.msg.metadata = { threadKey: "q-2" };
@@ -359,9 +359,8 @@ describe("ReadyThreadResponseRows", () => {
       />,
     );
 
-    expect(screen.getByTestId("message-thread-header")).toContainElement(
-      screen.getByTestId("thread-response-answer-count"),
-    );
+    expect(screen.getByTestId("thread-response-answer-reference")).toBeInTheDocument();
+    expect(screen.queryByTestId("message-thread-header")).not.toBeInTheDocument();
     expect(screen.queryByTestId("thread-source-badge")).not.toBeInTheDocument();
   });
 });

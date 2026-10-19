@@ -15,8 +15,9 @@ import { createWsMessageHandler } from "../ws-handlers.js";
 import { MessageFeed } from "./MessageFeed.js";
 
 // Completed quest threads show a "Quest complete" card built from the quest's final
-// debrief, so a wrap-up turn holding only a Quiz still explains the outcome. Without a
-// Quiz the card stays where the quest completed instead of following the thread's end.
+// debrief, so a wrap-up turn holding only a Quiz still explains the outcome. The card
+// sits where the quest completed, in time order among that turn's messages, instead of
+// following the thread's or the turn's end.
 
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../ws.js", () => ({ sendToSession }));
@@ -238,6 +239,48 @@ describe("MessageFeed quest completion summary", () => {
     expect(cards[0]).toHaveTextContent(TLDR);
     fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(turn).getByTestId("quest-completion-summary")).toHaveTextContent(TLDR);
+  });
+
+  it("places the card at the completion time, between an earlier answer and a later new result", () => {
+    // The reported case: a leader answered, the quest completed, and an hour later
+    // the leader posted a new result (an answer naming no message) in the same turn.
+    // Ending the turn with the card put the older debrief under the newer result.
+    const history = wrapUpHistory(QUIZ_DIRECTIVE);
+    const laterResult = assistant("later-result", "The change is now merged.", history.length);
+    laterResult.timestamp = COMPLETED_AT + 60 * 60_000;
+    laterResult.leaderThreadRole = "answer";
+    laterResult.leaderAnswerUserMessageIds = [];
+    laterResult.leaderAnswerObservedHistoryLength = history.length;
+    history.push(laterResult);
+    expect(
+      finalizeRoutedLeaderResponseMessage({ id: SESSION_ID, messageHistory: history }, laterResult).finalized,
+    ).toBe(true);
+    installHistory(history, doneQuest());
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = wrapUpTurn();
+    const assertTimeOrder = () => {
+      const answer = within(turn).getByText("Writes are fast now; Memory is closing the quest.");
+      const card = within(turn).getByTestId("quest-completion-summary");
+      const result = within(turn).getByText("The change is now merged.");
+      expect(answer.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(card.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The first answer sits right under the request it answers, expanded or collapsed.
+      expect(within(turn).getAllByTestId("thread-response-answer-reference")[0]).toHaveAttribute(
+        "data-variant",
+        "above",
+      );
+    };
+
+    assertTimeOrder();
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
+    assertTimeOrder();
+    // In the collapsed card the result is marked as new, set off from the answer above it.
+    const newResult = within(turn)
+      .getAllByTestId("thread-response-answer-reference")
+      .find((reference) => reference.dataset.variant === "new-result");
+    expect(newResult).toBeDefined();
+    expect(newResult!.closest('[data-testid="thread-response-current"]')).toHaveClass("border-t");
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
   });
 
   it("keeps the card in the turn where the quest completed when later messages follow", () => {

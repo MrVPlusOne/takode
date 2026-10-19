@@ -4,7 +4,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ThreadResponseCoverageBadge } from "./ThreadResponsePresentationChrome.js";
+import { AnswerReference } from "./ThreadResponsePresentationChrome.js";
+import type { ThreadResponseReferencedUserMessage } from "./thread-response-presentation.js";
 
 const storeMocks = vi.hoisted(() => ({ zoomLevel: 1 }));
 
@@ -25,6 +26,23 @@ const referencedMessages = [
   },
 ] as const;
 
+const ANSWER_MESSAGE = { id: "answer", role: "assistant" as const, content: "The answer.", timestamp: 1 };
+
+/** The reference line above an answer that answers `messageCount` messages. */
+function ThreadResponseCoverageBadge({
+  messageCount,
+  referencedMessages,
+  answersMessageAbove,
+}: {
+  messageCount: number;
+  referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
+  answersMessageAbove?: boolean;
+}) {
+  return (
+    <AnswerReference answer={{ message: ANSWER_MESSAGE, messageCount, referencedMessages, answersMessageAbove }} />
+  );
+}
+
 function rect(left: number, top: number, width: number, height: number): DOMRect {
   return {
     left,
@@ -39,7 +57,7 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
   } as DOMRect;
 }
 
-describe("ThreadResponseCoverageBadge", () => {
+describe("AnswerReference", () => {
   beforeEach(() => {
     storeMocks.zoomLevel = 1;
   });
@@ -63,12 +81,12 @@ describe("ThreadResponseCoverageBadge", () => {
     const messages = within(preview).getAllByTestId("thread-response-covered-message");
     expect(messages).toHaveLength(2);
     expect(messages[0]).toHaveAttribute("data-message-id", "raw-u7");
-    expect(messages[0]).toHaveTextContent("u7 · 1 of 2");
+    // The preview shows the messages themselves, not their model-facing u-numbers.
+    expect(preview).not.toHaveTextContent("u7");
     expect(within(messages[0]!).getByTestId("thread-response-covered-message-content").textContent).toBe(
       referencedMessages[0].content,
     );
     expect(messages[1]).toHaveAttribute("data-message-id", "raw-u8");
-    expect(messages[1]).toHaveTextContent("u8 · 2 of 2");
     expect(messages[1]).toHaveTextContent("Also include the later clarification.");
 
     await user.keyboard("{Escape}");
@@ -143,7 +161,7 @@ describe("ThreadResponseCoverageBadge", () => {
     const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement,
     ) {
-      if (this.dataset.testid === "thread-response-answer-count") return rect(350, 500, 40, 20);
+      if (this.dataset.testid === "thread-response-answer-reference") return rect(350, 500, 40, 20);
       if (this.dataset.testid === "thread-response-coverage-preview") return rect(0, 0, 384, 240);
       return rect(0, 0, 0, 0);
     });
@@ -178,7 +196,6 @@ describe("ThreadResponseCoverageBadge", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Answers 1 message; preview referenced message" }));
     const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
-    expect(preview).toHaveTextContent("u9");
     expect(within(preview).getByTestId("thread-response-covered-message-images")).toHaveTextContent(
       "1 image attachment",
     );
@@ -250,8 +267,84 @@ describe("ThreadResponseCoverageBadge", () => {
   ])("fails closed to a noninteractive compact badge for %s preview evidence", (_label, messages) => {
     render(<ThreadResponseCoverageBadge messageCount={2} referencedMessages={messages} />);
 
-    expect(screen.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const reference = screen.getByTestId("thread-response-answer-reference");
+    expect(reference).toHaveAttribute("data-variant", "count");
+    expect(reference).toHaveTextContent("Answers 2 messages");
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("thread-response-coverage-preview")).not.toBeInTheDocument();
+  });
+});
+
+describe("AnswerReference lines", () => {
+  it("quotes the answered message as one line of text, whitespace collapsed", () => {
+    // The quote must identify the request without hovering: paragraphs become one
+    // clamped run of text, and the whole quote is the preview trigger.
+    render(<ThreadResponseCoverageBadge messageCount={1} referencedMessages={[referencedMessages[0]]} />);
+
+    const quote = screen.getByTestId("thread-response-answer-reference");
+    expect(quote).toHaveAttribute("data-variant", "quote");
+    expect(quote.textContent).toBe("Please preserve the exact first request. It has a second paragraph.");
+    expect(quote.querySelector(".line-clamp-2")).not.toBeNull();
+  });
+
+  it("gives several answered messages one line each and counts the rest past three", () => {
+    const many = ["one", "two", "three", "four", "five"].map((word, index) => ({
+      historyMessageId: `raw-${index}`,
+      userMessageId: `u${index + 1}`,
+      content: `Request ${word}`,
+    }));
+    render(<ThreadResponseCoverageBadge messageCount={5} referencedMessages={many} />);
+
+    const quote = screen.getByRole("button", { name: "Answers 5 messages; preview referenced messages" });
+    expect(quote.querySelectorAll(".line-clamp-1")).toHaveLength(3);
+    expect(quote).toHaveTextContent("Request three+2 more");
+    expect(quote).not.toHaveTextContent("Request four");
+  });
+
+  it("quotes a comment-only or image-only message by its comment or image count", () => {
+    render(
+      <>
+        <ThreadResponseCoverageBadge
+          messageCount={1}
+          referencedMessages={[
+            {
+              historyMessageId: "raw-comment",
+              userMessageId: "u4",
+              content: "",
+              annotations: [{ id: "c1", selectedText: "quoted text", comment: "Please fix this." }],
+            },
+          ]}
+        />
+        <ThreadResponseCoverageBadge
+          messageCount={1}
+          referencedMessages={[{ historyMessageId: "raw-image", userMessageId: "u9", content: "", attachmentCount: 2 }]}
+        />
+      </>,
+    );
+
+    const quotes = screen.getAllByTestId("thread-response-answer-reference");
+    expect(quotes.map((quote) => quote.textContent)).toEqual(["Please fix this.", "2 images"]);
+  });
+
+  it("points up instead of quoting when the answer sits right under the message it answers", () => {
+    render(
+      <ThreadResponseCoverageBadge messageCount={1} referencedMessages={[referencedMessages[0]]} answersMessageAbove />,
+    );
+
+    const reference = screen.getByTestId("thread-response-answer-reference");
+    expect(reference).toHaveAttribute("data-variant", "above");
+    expect(reference).toHaveTextContent("Answers the message above");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("marks an answer that names no message as a new result", () => {
+    // A leader's unrequested result shares a card with earlier answers; without
+    // this line it read as more paragraphs of the answer above it.
+    render(<ThreadResponseCoverageBadge messageCount={0} />);
+
+    const reference = screen.getByTestId("thread-response-answer-reference");
+    expect(reference).toHaveAttribute("data-variant", "new-result");
+    expect(reference).toHaveTextContent("New result");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

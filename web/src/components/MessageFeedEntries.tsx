@@ -643,6 +643,7 @@ export const FeedEntries = memo(function FeedEntries({
   questLinkSurface = "legacy",
   threadResponsePresentation,
   endsFeed = false,
+  followsMessageId,
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -660,6 +661,8 @@ export const FeedEntries = memo(function FeedEntries({
   threadResponsePresentation?: ThreadResponsePresentation | null;
   /** These entries end the feed, so a trailing activity group is still active. */
   endsFeed?: boolean;
+  /** The user message rendered right above these entries, which an answer leading them may answer. */
+  followsMessageId?: string;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const inboxNotifications = useStore((state) => state.sessionNotifications?.get(sessionId));
@@ -960,6 +963,11 @@ export const FeedEntries = memo(function FeedEntries({
                       message: entry.msg,
                       messageCount: currentResponse.response.answerUserMessageIds.length,
                       referencedMessages: currentResponse.referencedUserMessages,
+                      answersMessageAbove:
+                        result.length === 0 &&
+                        followsMessageId !== undefined &&
+                        currentResponse.response.referencedUserMessageIds.length === 1 &&
+                        currentResponse.response.referencedUserMessageIds[0] === followsMessageId,
                     }
                   : null
               }
@@ -980,6 +988,7 @@ export const FeedEntries = memo(function FeedEntries({
     compactToolActivity,
     endsFeed,
     entries,
+    followsMessageId,
     isCodexSession,
     currentThreadKey,
     minuteBoundaryLabels,

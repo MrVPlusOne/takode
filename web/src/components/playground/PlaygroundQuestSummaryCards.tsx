@@ -221,10 +221,10 @@ export function PlaygroundQuestCompletionSummary() {
   return (
     <Section
       title="Quest Complete Summary"
-      description="A completed quest's leader thread shows its final debrief TLDR, expandable to the full debrief, above the Quiz, or at the end of the turn where the quest completed when no Quiz was posted, so later messages stay below it. Both stay visible when the wrap-up turn is collapsed."
+      description="A completed quest's leader thread shows its final debrief TLDR, expandable to the full debrief, at the moment the quest completed: in time order among the messages of the turn that was running then, so later answers and messages stay below it. It stays visible when that turn is collapsed."
     >
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <Card label="Quiz-only wrap-up turn · summary above Quiz">
+        <Card label="Quiz-only wrap-up turn · summary before the wrap-up and its Quiz">
           <QuestThread
             questId={QUEST_ID}
             history={wrapUpHistory(`{[(Quest Quiz: ${QUEST_ID})]}`)}

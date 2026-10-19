@@ -1,4 +1,4 @@
-import { memo, useMemo, type ComponentProps, type ReactNode } from "react";
+import { Fragment, memo, useMemo, type ComponentProps, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getEntryId, isUserBoundaryEntry, type FeedEntry, type Turn } from "../hooks/use-feed-model.js";
@@ -27,14 +27,16 @@ import {
   readyThreadResponseRows,
   readyThreadResponseTurnHasContent,
   readyThreadResponseTurnHasMessage,
+  firstEntryAfter,
   type CollapsedTurnRow,
+  type TimedCard,
 } from "./ReadyThreadResponseRows.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
-import { QuestCompletionSummaryCard, QuestCompletionSummaryContext } from "./QuestCompletionSummaryCard.js";
+import { QuestCompletionSummaryCard } from "./QuestCompletionSummaryCard.js";
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
@@ -96,27 +98,23 @@ function turnStartTimestamp(turn: Turn): number | null {
 }
 
 /**
- * Where a completed quest's summary card belongs in its leader quest thread: above the
- * latest Quiz for that quest, otherwise at the end of the turn that was running or
- * latest when the quest completed, so later messages never push it down. Leader turns
- * start only at human messages, so that turn also holds the herd events reporting the
- * completion. A host that may sit in an unloaded section gives no card.
+ * The turn a completed quest's summary card belongs in: the one that was running or
+ * latest when the quest completed. Inside it the card sits at the completion time,
+ * so later answers in the same turn render below it. Leader turns start only at
+ * human messages, so that turn also holds the herd events reporting the completion.
+ * A host that may sit in an unloaded section gives no card.
  */
 function questCompletionSummaryHost(
   turns: readonly Turn[],
-  questId: string,
   completedAt: number | null,
   hasOlderSections: boolean,
   hasNewerSections: boolean,
-): { turnId: string; withQuiz: boolean } | null {
-  for (let index = turns.length - 1; index >= 0; index--) {
-    if (turnQuestQuizIds(turns[index]).includes(questId)) return { turnId: turns[index].id, withQuiz: true };
-  }
+): string | null {
   if (completedAt === null || turns.length === 0) return null;
   const nextIndex = turns.findIndex((turn) => (turnStartTimestamp(turn) ?? -Infinity) > completedAt);
-  if (nextIndex === -1) return hasNewerSections ? null : { turnId: turns[turns.length - 1].id, withQuiz: false };
-  if (nextIndex === 0) return hasOlderSections ? null : { turnId: turns[0].id, withQuiz: false };
-  return { turnId: turns[nextIndex - 1].id, withQuiz: false };
+  if (nextIndex === -1) return hasNewerSections ? null : turns[turns.length - 1].id;
+  if (nextIndex === 0) return hasOlderSections ? null : turns[0].id;
+  return turns[nextIndex - 1].id;
 }
 
 function CollapsedTurnContent({
@@ -133,6 +131,7 @@ function CollapsedTurnContent({
   needsInputAnchorMessageIds,
   preserveHostQuestQuiz,
   unansweredMessageEntry,
+  completionCard,
 }: {
   turn: Turn;
   sessionId: string;
@@ -147,6 +146,7 @@ function CollapsedTurnContent({
   needsInputAnchorMessageIds: ReadonlySet<string>;
   preserveHostQuestQuiz: boolean;
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
+  completionCard: TimedCard | null;
 }) {
   const renderEntry = (entry: FeedEntry) =>
     isCompactableHerdEventEntry(entry) ? (
@@ -186,6 +186,7 @@ function CollapsedTurnContent({
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
       questLinkSurface={questLinkSurface}
+      timedCard={completionCard}
     />
   );
 }
@@ -232,63 +233,91 @@ interface TurnEntryRun {
   key: string;
   activity: boolean;
   entries: FeedEntry[];
+  /** The turn's timed card goes right before this run. */
+  startsAfterCard?: boolean;
 }
 
-function groupTurnActivity(turn: Turn, presentation?: ThreadResponsePresentation | null): TurnEntryRun[] {
+function groupTurnActivity(
+  turn: Turn,
+  presentation?: ThreadResponsePresentation | null,
+  cardAt?: number,
+): TurnEntryRun[] {
   // System events' separate collapse policy must not split the surrounding
   // activity guide. Retained answers and decisions remain layout boundaries.
   const guidedEntryIds = new Set([...turn.agentEntries, ...turn.systemEntries].map(getEntryId));
   const retainedIds = new Set(turn.subConclusions.map((item) => getEntryId(item.entry)));
   for (const response of presentation?.currentResponses ?? []) retainedIds.add(response.response.currentMessageId);
   const runs: TurnEntryRun[] = [];
+  const entries = turnPresentationEntries(turn);
+  const cardIndex = cardAt === undefined ? -1 : firstEntryAfter(entries, cardAt);
 
   // Group only adjacent activity; an answer or decision breaks the guide without
   // moving any entry across it. Existing feed classification owns visibility.
-  for (const entry of turnPresentationEntries(turn)) {
+  entries.forEach((entry, index) => {
     const key = getEntryId(entry);
     const activity = guidedEntryIds.has(key) && !retainedIds.has(key);
     const previous = runs.at(-1);
-    if (previous?.activity === activity) previous.entries.push(entry);
+    if (index === cardIndex) runs.push({ key, activity, entries: [entry], startsAfterCard: true });
+    else if (previous?.activity === activity) previous.entries.push(entry);
     else runs.push({ key, activity, entries: [entry] });
-  }
+  });
   return runs;
 }
 
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   threadStatusFooter,
+  timedCard = null,
   isLatestTurn = false,
   ...feedProps
 }: {
   turn: Turn;
   threadStatusFooter?: ReactNode;
+  /** Placed before the first entry written after its time, else after the entries. */
+  timedCard?: TimedCard | null;
   /** The feed's last turn, whose trailing activity group is still active. */
   isLatestTurn?: boolean;
-} & Omit<ComponentProps<typeof FeedEntries>, "entries" | "endsFeed">) {
+} & Omit<ComponentProps<typeof FeedEntries>, "entries" | "endsFeed" | "followsMessageId">) {
+  const cardAt = timedCard?.at;
   const runs = useMemo(
-    () => groupTurnActivity(turn, feedProps.threadResponsePresentation),
-    [turn, feedProps.threadResponsePresentation],
+    () => groupTurnActivity(turn, feedProps.threadResponsePresentation, cardAt),
+    [turn, feedProps.threadResponsePresentation, cardAt],
   );
+  const card = timedCard && (
+    <div key="timed-card" className="min-w-0 pl-9 empty:hidden" data-testid="expanded-turn-timed-card">
+      {timedCard.node}
+    </div>
+  );
+  const turnMessageId = turn.userEntry?.kind === "message" ? turn.userEntry.msg.id : undefined;
+  // One flat keyed list, so the card and every run keep their elements when the card's place changes.
+  const items: ReactNode[] = [];
+  runs.forEach((run, runIndex) => {
+    const content = (
+      <FeedEntries
+        {...feedProps}
+        entries={run.entries}
+        endsFeed={isLatestTurn && runIndex === runs.length - 1}
+        followsMessageId={runIndex === 0 ? turnMessageId : undefined}
+      />
+    );
+    const runElement = (
+      <div
+        key={run.key}
+        className={
+          run.activity ? "space-y-2 border-l border-cc-border/70 pl-7 sm:space-y-3 sm:pl-9" : "space-y-2 sm:space-y-3"
+        }
+        data-turn-activity={run.activity ? "true" : undefined}
+      >
+        {run.activity ? <HidePawContext.Provider value={true}>{content}</HidePawContext.Provider> : content}
+      </div>
+    );
+    if (run.startsAfterCard) items.push(card);
+    items.push(runElement);
+  });
+  if (!runs.some((run) => run.startsAfterCard)) items.push(card);
   return (
     <>
-      {runs.map((run, runIndex) => {
-        const content = (
-          <FeedEntries {...feedProps} entries={run.entries} endsFeed={isLatestTurn && runIndex === runs.length - 1} />
-        );
-        return (
-          <div
-            key={run.key}
-            className={
-              run.activity
-                ? "space-y-2 border-l border-cc-border/70 pl-7 sm:space-y-3 sm:pl-9"
-                : "space-y-2 sm:space-y-3"
-            }
-            data-turn-activity={run.activity ? "true" : undefined}
-          >
-            {run.activity ? <HidePawContext.Provider value={true}>{content}</HidePawContext.Provider> : content}
-          </div>
-        );
-      })}
+      {items}
       {threadStatusFooter}
     </>
   );
@@ -350,11 +379,8 @@ export const TurnEntries = memo(function TurnEntries({
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
   const threadQuest = useQuestRecord(threadQuestId);
   const completedAt = threadQuest?.status === "done" ? threadQuest.completedAt : null;
-  const completionSummaryHost = useMemo(
-    () =>
-      threadQuestId
-        ? questCompletionSummaryHost(turns, threadQuestId, completedAt, hasOlderSections, hasNewerSections)
-        : null,
+  const completionSummaryHostTurnId = useMemo(
+    () => (threadQuestId ? questCompletionSummaryHost(turns, completedAt, hasOlderSections, hasNewerSections) : null),
     [threadQuestId, completedAt, hasOlderSections, hasNewerSections, turns],
   );
   const latestThreadResponseUpdatedAt = Math.max(
@@ -444,17 +470,23 @@ export const TurnEntries = memo(function TurnEntries({
           collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ?? false;
         const turnSummaryDuration = getTurnSummaryDurationMs(turn);
         const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
-        const isCompletionHost = completionSummaryHost?.turnId === turn.id;
+        const completionCard: TimedCard | null =
+          threadQuestId && completedAt !== null && completionSummaryHostTurnId === turn.id
+            ? {
+                at: completedAt,
+                node: (
+                  <QuestCompletionSummaryCard
+                    questId={threadQuestId}
+                    sessionId={sessionId}
+                    questLinkSurface={questLinkSurface}
+                  />
+                ),
+              }
+            : null;
+        // Without entries or collapsed rows to sit among, the card ends the turn.
+        const hasEntryRows = isActivityExpanded ? turnPresentationEntries(turn).length > 0 : hasCollapsedContent;
         const completionSummaryCard =
-          threadQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
-            <div className="min-w-0 pl-9">
-              <QuestCompletionSummaryCard
-                questId={threadQuestId}
-                sessionId={sessionId}
-                questLinkSurface={questLinkSurface}
-              />
-            </div>
-          ) : null;
+          completionCard && !hasEntryRows ? <div className="min-w-0 pl-9">{completionCard.node}</div> : null;
         const threadStatusFooter =
           showThreadStatusFooter || completionSummaryCard ? (
             <>
@@ -472,10 +504,7 @@ export const TurnEntries = memo(function TurnEntries({
           ) : null;
 
         return (
-          <QuestCompletionSummaryContext.Provider
-            key={turn.id}
-            value={isCompletionHost && completionSummaryHost.withQuiz ? threadQuestId : null}
-          >
+          <Fragment key={turn.id}>
             <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
               <div
                 data-turn-id={turn.id}
@@ -518,6 +547,7 @@ export const TurnEntries = memo(function TurnEntries({
                       sessionId={sessionId}
                       currentThreadKey={currentThreadKey}
                       threadStatusFooter={threadStatusFooter}
+                      timedCard={completionCard}
                       minuteBoundaryLabels={minuteBoundaryLabels}
                       isCodexSession={isCodexSession}
                       activeCodexTerminalIds={activeCodexTerminalIds}
@@ -572,6 +602,7 @@ export const TurnEntries = memo(function TurnEntries({
                             needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                             preserveHostQuestQuiz={preserveHostQuestQuiz}
                             unansweredMessageEntry={unansweredMessageEntry}
+                            completionCard={completionCard}
                           />
                         </div>
                       </div>
@@ -581,7 +612,7 @@ export const TurnEntries = memo(function TurnEntries({
                 {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
               </div>
             </div>
-          </QuestCompletionSummaryContext.Provider>
+          </Fragment>
         );
       })}
     </InlineMessageTimingVisibilityContext.Provider>

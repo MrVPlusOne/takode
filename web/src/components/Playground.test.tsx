@@ -161,10 +161,10 @@ describe("Playground", { timeout: 30_000 }, () => {
       "aria-expanded",
       "false",
     );
-    const groupedCoverage = withTools.getAllByTestId("thread-response-answer-count");
+    const groupedCoverage = withTools.getAllByTestId("thread-response-answer-reference");
     expect(groupedCoverage).toHaveLength(2);
-    expect(groupedCoverage[0]).toHaveTextContent("Answers 2 messages");
-    expect(groupedCoverage[1]).toHaveTextContent("Answers 2 messages");
+    expect(groupedCoverage[0]).toHaveAttribute("data-answer-count", "2");
+    expect(groupedCoverage[1]).toHaveAttribute("data-answer-count", "2");
     expect(withTools.getByText(/detailed accepted-Work answer/)).toBeVisible();
     expect(withTools.getByText(/later answer adds the final mobile result/)).toBeVisible();
     fireEvent.click(groupedCoverage[0]!);
@@ -183,7 +183,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(withoutToolsCard).toHaveClass("min-w-0", "w-full", "max-w-[320px]", "overflow-hidden");
     const withoutTools = within(withoutToolsCard);
     expect(withoutTools.getByRole("button", { name: /Show turn activity/ })).toHaveAttribute("aria-expanded", "false");
-    expect(withoutTools.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(withoutTools.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
     expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
 
@@ -192,19 +192,17 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(handoff.getByTestId("thread-response-unanswered-message")).toHaveTextContent(/I'll follow the fix there/);
     expect(handoff.queryByTestId("thread-response-current")).not.toBeInTheDocument();
 
-    // An answer from another thread joins its thread link and answer chip in one header tag.
-    const crossThreadHeader = within(routedFinalStates.getByTestId("playground-cross-thread-answer")).getByTestId(
-      "message-thread-header",
-    );
-    expect(within(crossThreadHeader).getByTestId("thread-source-badge")).toHaveTextContent("thread:q-2043");
-    expect(within(crossThreadHeader).getByTestId("thread-response-answer-count")).toHaveTextContent(
-      "Answers 1 message",
-    );
+    // An answer from another thread shows its thread link, then what it answers.
+    const crossThread = within(routedFinalStates.getByTestId("playground-cross-thread-answer"));
+    expect(
+      within(crossThread.getByTestId("message-thread-header")).getByTestId("thread-source-badge"),
+    ).toHaveTextContent("thread:q-2043");
+    expect(crossThread.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
 
     const associatedMainCard = routedFinalStates.getByTestId("playground-associated-main-answer");
     expect(associatedMainCard).toHaveClass("min-w-0", "w-full", "max-w-[430px]", "overflow-hidden");
     const associatedMain = within(associatedMainCard);
-    expect(associatedMain.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(associatedMain.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-answer-count", "1");
     expect(associatedMain.getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
     expect(associatedMain.getByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveAttribute(
       "aria-expanded",
@@ -218,8 +216,8 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
     const expanded = within(expandedCard);
     expect(expanded.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
-    const expandedCoverage = expanded.getByTestId("thread-response-answer-count");
-    expect(expandedCoverage).toHaveTextContent("Answers 2 messages");
+    const expandedCoverage = expanded.getByTestId("thread-response-answer-reference");
+    expect(expandedCoverage).toHaveAttribute("data-answer-count", "2");
     fireEvent.click(expandedCoverage);
     expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
       "Please include the mobile behavior too.",
@@ -239,8 +237,8 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(expandedMessageRow.children).toHaveLength(1);
 
     const sharedAnswer = within(routedFinalStates.getByTestId("playground-multi-owner-answer"));
-    const sharedCoverage = sharedAnswer.getByTestId("thread-response-answer-count");
-    expect(sharedCoverage).toHaveTextContent("Answers 2 messages");
+    const sharedCoverage = sharedAnswer.getByTestId("thread-response-answer-reference");
+    expect(sharedCoverage).toHaveAttribute("data-answer-count", "2");
     fireEvent.click(sharedCoverage);
     expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
       "Please handle my Main request.",
@@ -252,13 +250,13 @@ describe("Playground", { timeout: 30_000 }, () => {
     // The pinned decision fixture reuses both answers but renders its source
     // Quiz only once beside the retained prompt and notification.
     const pinnedDecision = within(routedFinalStates.getByTestId("playground-pinned-quiz-source"));
-    expect(pinnedDecision.getAllByTestId("thread-response-answer-count")).toHaveLength(2);
+    expect(pinnedDecision.getAllByTestId("thread-response-answer-reference")).toHaveLength(2);
     expect(pinnedDecision.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     expect(pinnedDecision.getByText("Choose whether the follow-up should remain parked.")).toBeVisible();
     expect(pinnedDecision.getByText("Choose the follow-up boundary")).toBeVisible();
     // A request sent only as a comment keeps a previewable answer label showing the comment.
     const commentOnly = within(routedFinalStates.getByTestId("playground-comment-only-answer"));
-    const commentBadge = commentOnly.getByTestId("thread-response-answer-count");
+    const commentBadge = commentOnly.getByTestId("thread-response-answer-reference");
     fireEvent.click(commentBadge);
     expect(
       within(screen.getByRole("dialog", { name: "Referenced user messages" })).getByTestId(
@@ -269,15 +267,25 @@ describe("Playground", { timeout: 30_000 }, () => {
     // A report published before the answer stays visible in the collapsed turn.
     const reportAnswer = within(routedFinalStates.getByTestId("playground-report-answer"));
     expect(reportAnswer.getByTestId("thread-response-report")).toHaveTextContent("Daily briefing: Tuesday");
-    // The leader's answer presenting the report names no request, so it has no answer-count chip.
+    // The leader's answer presenting the report names no request, so it is marked as a new result.
     expect(reportAnswer.getByText(/Today's 10 AM briefing is the report above/)).toBeVisible();
-    expect(reportAnswer.queryByTestId("thread-response-answer-count")).not.toBeInTheDocument();
+    expect(reportAnswer.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-variant", "new-result");
     // An answered decision stays visible, with its context, after the turn's answer.
     const answeredDecision = within(routedFinalStates.getByTestId("playground-collapsed-answered-decision"));
     expect(answeredDecision.getByTestId("thread-response-needs-input-prompt")).toHaveTextContent(
       "Writing it to shared storage needs your go-ahead.",
     );
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(11);
+    // Answers an hour apart: the later one is a separated new result, and the Quest
+    // complete card sits between them at its completion time.
+    const apart = routedFinalStates.getByTestId("playground-answers-apart");
+    const [draftReference, mergedReference] = within(apart).getAllByTestId("thread-response-answer-reference");
+    expect(draftReference).toHaveAttribute("data-variant", "above");
+    expect(mergedReference).toHaveAttribute("data-variant", "new-result");
+    const completionCard = within(apart).getByTestId("quest-completion-summary");
+    expect(draftReference!.compareDocumentPosition(completionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(completionCard.compareDocumentPosition(mergedReference!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Every retained answer row says what it answers, the report's new result included.
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-reference")).toHaveLength(14);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
