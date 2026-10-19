@@ -100,6 +100,7 @@ import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
+import { AnswerReferencesContext, allThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
@@ -583,6 +584,14 @@ export function MessageFeed({
     normalizedThreadKey,
     isLeaderSession,
     feedMessageModel.messagesAvailableForDerivation,
+  );
+  // All Threads has no thread projection, so its answers take their chrome from their own metadata.
+  const allThreadsAnswers = useMemo(
+    () =>
+      isLeaderSession && isAllThreadsKey(normalizedThreadKey)
+        ? allThreadsAnswerReferences(feedMessageModel.messagesAvailableForDerivation)
+        : null,
+    [isLeaderSession, normalizedThreadKey, feedMessageModel.messagesAvailableForDerivation],
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
@@ -1872,28 +1881,30 @@ export function MessageFeed({
                     </div>
                   )}
                   <MessageTimeLabelContext.Provider value={messageTimeLabels}>
-                    <TurnEntries
-                      sections={visibleSections}
-                      sessionId={sessionId}
-                      currentThreadKey={threadKey}
-                      leaderSession={isLeaderSession}
-                      showInlineMessageTiming={!isLeaderSession}
-                      isCodexSession={isCodexSession}
-                      activeCodexTerminalIds={activeCodexTerminalIds}
-                      onOpenCodexTerminal={setSelectedCodexTerminalId}
-                      onSelectThread={onSelectThread}
-                      turnStates={turnStates}
-                      toggleTurn={toggleTurn}
-                      userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
-                      questLinkSurface="chat-feed"
-                      threadResponsePresentation={threadResponsePresentation}
-                      needsInputAnchorMessageIds={needsInputAnchorMessageIds}
-                      visibleThreadStatuses={visibleThreadStatuses}
-                      workerPreviewTarget={workerPreviewTarget}
-                      onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
-                      hasOlderSections={hasOlderSections}
-                      hasNewerSections={hasNewerSections}
-                    />
+                    <AnswerReferencesContext.Provider value={allThreadsAnswers}>
+                      <TurnEntries
+                        sections={visibleSections}
+                        sessionId={sessionId}
+                        currentThreadKey={threadKey}
+                        leaderSession={isLeaderSession}
+                        showInlineMessageTiming={!isLeaderSession}
+                        isCodexSession={isCodexSession}
+                        activeCodexTerminalIds={activeCodexTerminalIds}
+                        onOpenCodexTerminal={setSelectedCodexTerminalId}
+                        onSelectThread={onSelectThread}
+                        turnStates={turnStates}
+                        toggleTurn={toggleTurn}
+                        userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
+                        questLinkSurface="chat-feed"
+                        threadResponsePresentation={threadResponsePresentation}
+                        needsInputAnchorMessageIds={needsInputAnchorMessageIds}
+                        visibleThreadStatuses={visibleThreadStatuses}
+                        workerPreviewTarget={workerPreviewTarget}
+                        onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
+                        hasOlderSections={hasOlderSections}
+                        hasNewerSections={hasNewerSections}
+                      />
+                    </AnswerReferencesContext.Provider>
                   </MessageTimeLabelContext.Provider>
                   {hasNewerSections && (
                     <div className="flex justify-center pt-1" aria-live="polite">

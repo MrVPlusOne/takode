@@ -1064,13 +1064,16 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
     )!;
     expect(within(expandedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
-    // This quest only displays the Main-owned answer; current-answer chrome
-    // follows the selected thread's own request coverage.
-    expect(
-      screen
-        .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
-        .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
-    ).not.toBeInTheDocument();
+    // This quest only displays the Main-owned answer and has no coverage for it,
+    // yet it is that request's current answer, so it looks like one in every tab.
+    const expandedFrame = screen
+      .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
+      .closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
+    expect(expandedFrame).toBeInTheDocument();
+    expect(within(expandedFrame).getByTestId("thread-response-answer-reference")).toHaveAttribute(
+      "data-answer-count",
+      "1",
+    );
     expect(within(questTurn).getByRole("button", { name: /Hide turn activity/ })).toBeVisible();
     expect(within(questTurn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 

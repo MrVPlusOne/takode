@@ -34,6 +34,7 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
+import { withLeaderUserMessageIds } from "../leader-user-message-id.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
 import { projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
 import { projectFeedAttentionUpdateForBrowsers } from "./feed-attention-lists.js";
@@ -1217,6 +1218,7 @@ export function sendHistoryWindowSync(
     messages = session.messageHistory.slice();
   }
   messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
+  messages = withLeaderUserMessageIds(messages, session.messageHistory);
   const windowHash = computeHistoryPayloadSyncHash({ startIdx, messages });
   const cacheHit = options.cachedWindowHash === windowHash;
 

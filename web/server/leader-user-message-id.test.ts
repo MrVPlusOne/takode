@@ -4,6 +4,7 @@ import {
   buildLeaderUserMessageIdentities,
   findLeaderUserMessageById,
   nextLeaderUserMessageId,
+  withLeaderUserMessageIds,
 } from "./leader-user-message-id.js";
 
 function human(id: string, leaderUserMessageId?: string): BrowserIncomingMessage {
@@ -58,5 +59,31 @@ describe("leader user-message IDs", () => {
     expect(buildLeaderUserMessageIdentities([synthetic, child, old, human("direct")])).toMatchObject([
       { userMessageId: "u1", historyMessageId: "direct" },
     ]);
+  });
+
+  it("gives a history window's human rows the IDs the whole history assigns them", () => {
+    // A window holds only recent rows, but legacy rows' IDs count from the start of
+    // the session, so the browser could not derive them; the window carries them.
+    const history = [human("legacy-a"), human("legacy-b"), human("new-c", "u3")] as BrowserIncomingMessage[];
+    const assistant = { type: "assistant", message: { id: "reply" } } as BrowserIncomingMessage;
+    const window = [history[1]!, assistant, history[2]!];
+
+    const withIds = withLeaderUserMessageIds(window, [...history, assistant]);
+    expect(withIds.map((message) => (message.type === "user_message" ? message.leaderUserMessageId : null))).toEqual([
+      "u2",
+      null,
+      "u3",
+    ]);
+    // Rows that need nothing keep their identity, and stored history is never rewritten.
+    expect(withIds[1]).toBe(assistant);
+    expect(withIds[2]).toBe(history[2]);
+    expect(history[1]).not.toHaveProperty("leaderUserMessageId");
+  });
+
+  it("leaves windows without leader coverage rows untouched", () => {
+    // Worker sessions have no coverage rows, so their windows skip the history pass.
+    const plain = { type: "user_message", id: "w", content: "w", timestamp: 1 } as BrowserIncomingMessage;
+    const window = [plain];
+    expect(withLeaderUserMessageIds(window, window)).toBe(window);
   });
 });

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type {
@@ -56,6 +56,8 @@ import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { SubagentSectionHeader } from "./SubagentSectionHeader.js";
 import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ExpandedCurrentThreadResponse } from "./ThreadResponsePresentationChrome.js";
+import { MessageThreadHeaderOwnedContext } from "./MessageThreadHeader.js";
+import { AnswerReferencesContext, answerChromeFor, presentationAnswerReferences } from "./answer-references.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -676,6 +678,19 @@ export const FeedEntries = memo(function FeedEntries({
     () => new Set(Object.values(sideChats ?? {}).map((sideChat) => sideChat.anchorMessageId)),
     [sideChats],
   );
+  // The selected thread's projection when there is one, else the All Threads references.
+  // A collapsed row that already drew the answer's header owns its chrome.
+  const contextAnswerReferences = useContext(AnswerReferencesContext);
+  const headerOwned = useContext(MessageThreadHeaderOwnedContext);
+  const answerReferences = useMemo(
+    () =>
+      headerOwned
+        ? null
+        : threadResponsePresentation
+          ? presentationAnswerReferences(threadResponsePresentation)
+          : contextAnswerReferences,
+    [headerOwned, threadResponsePresentation, contextAnswerReferences],
+  );
   const rendered = useMemo(() => {
     const assistantIsRenderable = (message: ChatMessage) =>
       isAssistantMessageRenderable(message, {
@@ -930,9 +945,6 @@ export const FeedEntries = memo(function FeedEntries({
       } else {
         const isTimed = isTimedChatMessage(entry.msg);
         const markerLabel = isTimed ? minuteBoundaryLabels?.get(entry.msg.id) : undefined;
-        const currentResponse = threadResponsePresentation?.currentResponses.find(
-          (item) => item.response.coveredUserMessageIds.length > 0 && item.response.currentMessageId === entry.msg.id,
-        );
         const bubble = (
           <MessageBubble
             message={entry.msg}
@@ -957,20 +969,7 @@ export const FeedEntries = memo(function FeedEntries({
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             <ExpandedCurrentThreadResponse
-              answer={
-                currentResponse
-                  ? {
-                      message: entry.msg,
-                      messageCount: currentResponse.response.answerUserMessageIds.length,
-                      referencedMessages: currentResponse.referencedUserMessages,
-                      answersMessageAbove:
-                        result.length === 0 &&
-                        followsMessageId !== undefined &&
-                        currentResponse.response.referencedUserMessageIds.length === 1 &&
-                        currentResponse.response.referencedUserMessageIds[0] === followsMessageId,
-                    }
-                  : null
-              }
+              answer={answerChromeFor(entry.msg, answerReferences, result.length === 0 ? followsMessageId : undefined)}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
             >
@@ -998,7 +997,7 @@ export const FeedEntries = memo(function FeedEntries({
     questLinkSurface,
     sessionId,
     suppressThreadSystemMarkers,
-    threadResponsePresentation,
+    answerReferences,
     toolResultOverrides,
     toolResultScope,
     visibleAssistantChildMessageIds,

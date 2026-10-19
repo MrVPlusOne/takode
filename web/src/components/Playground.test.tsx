@@ -212,6 +212,12 @@ describe("Playground", { timeout: 30_000 }, () => {
       1,
     );
 
+    // Expanded, an answer this tab only displays still looks like an answer: the
+    // request is owned elsewhere, but the answer is that request's current one.
+    const associatedExpanded = within(routedFinalStates.getByTestId("playground-associated-main-answer-expanded"));
+    expect(associatedExpanded.getByTestId("thread-response-current-expanded")).toBeInTheDocument();
+    expect(associatedExpanded.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-variant", "above");
+
     const expandedCard = routedFinalStates.getByTestId("playground-turn-summary-expanded");
     expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
     const expanded = within(expandedCard);
@@ -285,7 +291,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(draftReference!.compareDocumentPosition(completionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(completionCard.compareDocumentPosition(mergedReference!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Every retained answer row says what it answers, the report's new result included.
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-reference")).toHaveLength(14);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-reference")).toHaveLength(15);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

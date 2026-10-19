@@ -719,6 +719,24 @@ export function PlaygroundThreadResponseSection() {
               />
             </div>
           </Card>
+          <Card label="Expanded quest projection · associated Main answer, no coverage here">
+            <div
+              className="min-w-0 max-w-[430px] space-y-3 rounded-xl border border-cc-border/30 bg-cc-card/20 p-3"
+              data-testid="playground-associated-main-answer-expanded"
+            >
+              <TurnActivityDisclosure stats={ASSOCIATED_MAIN_TURN.stats} durationMs={null} expanded onToggle={NOOP} />
+              <TurnEntriesExpanded
+                turn={ASSOCIATED_MAIN_TURN}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                isCodexSession={false}
+                activeCodexTerminalIds={new Set()}
+                onOpenCodexTerminal={NOOP}
+                questLinkSurface="chat-feed"
+                threadResponsePresentation={ASSOCIATED_MAIN_PRESENTATION}
+              />
+            </div>
+          </Card>
           <Card label="Expanded active thread · complete chronology">
             <div
               className="min-w-0 max-w-[430px] space-y-3 rounded-xl border border-cc-border/30 bg-cc-card/20 p-3"

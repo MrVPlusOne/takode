@@ -1,4 +1,4 @@
-import { Fragment, memo, useMemo, type ComponentProps, type ReactNode } from "react";
+import { Fragment, memo, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getEntryId, isUserBoundaryEntry, type FeedEntry, type Turn } from "../hooks/use-feed-model.js";
@@ -37,6 +37,7 @@ import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestCompletionSummaryCard } from "./QuestCompletionSummaryCard.js";
+import { AnswerReferencesContext, answerChromeFor, type AnswerReferenceData } from "./answer-references.js";
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
@@ -148,6 +149,7 @@ function CollapsedTurnContent({
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
   completionCard: TimedCard | null;
 }) {
+  const answerReferences = useContext(AnswerReferencesContext);
   const renderEntry = (entry: FeedEntry) =>
     isCompactableHerdEventEntry(entry) ? (
       <CompactFeedActivity
@@ -176,7 +178,7 @@ function CollapsedTurnContent({
   // row (and its loaded images) when the answer presentation comes and goes.
   const { rows, quizQuestIds } = threadResponsePresentation
     ? readyThreadResponseRows(turn, threadResponsePresentation, needsInputAnchorMessageIds, unansweredMessageEntry)
-    : fallbackCollapsedRows(turn, preserveHostQuestQuiz, unansweredMessageEntry);
+    : fallbackCollapsedRows(turn, preserveHostQuestQuiz, unansweredMessageEntry, answerReferences);
   return (
     <CollapsedTurnRows
       rows={rows}
@@ -196,6 +198,7 @@ function fallbackCollapsedRows(
   turn: Turn,
   preserveHostQuestQuiz: boolean,
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null,
+  answerReferences: ReadonlyMap<string, AnswerReferenceData> | null,
 ): { rows: CollapsedTurnRow[]; quizQuestIds: string[] } {
   const rows: CollapsedTurnRow[] = [
     // Sub-conclusions lead the card, set slightly apart from the rows below.
@@ -208,6 +211,13 @@ function fallbackCollapsedRows(
       row.kind === "entry" ? [{ key: `entry:${getEntryId(row.entry)}`, entry: row.entry }] : [],
     ),
   ];
+  // All Threads has no thread projection; its answers carry the same chrome from their own metadata.
+  const turnMessageId = turn.userEntry?.kind === "message" ? turn.userEntry.msg.id : undefined;
+  rows.forEach((row, index) => {
+    if (row.entry.kind !== "message") return;
+    const answer = answerChromeFor(row.entry.msg, answerReferences, index === 0 ? turnMessageId : undefined);
+    if (answer) row.answer = answer;
+  });
   if (unansweredMessageEntry) {
     rows.push({
       key: `entry:${unansweredMessageEntry.msg.id}`,
