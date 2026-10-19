@@ -4,7 +4,7 @@ import {
   buildLeaderUserMessageIdentities,
   findLeaderUserMessageById,
   nextLeaderUserMessageId,
-  withLeaderUserMessageIds,
+  prepareLeaderHistoryWindow,
 } from "./leader-user-message-id.js";
 
 function human(id: string, leaderUserMessageId?: string): BrowserIncomingMessage {
@@ -68,22 +68,56 @@ describe("leader user-message IDs", () => {
     const assistant = { type: "assistant", message: { id: "reply" } } as BrowserIncomingMessage;
     const window = [history[1]!, assistant, history[2]!];
 
-    const withIds = withLeaderUserMessageIds(window, [...history, assistant]);
-    expect(withIds.map((message) => (message.type === "user_message" ? message.leaderUserMessageId : null))).toEqual([
+    const { messages } = prepareLeaderHistoryWindow(window, [...history, assistant]);
+    expect(messages.map((message) => (message.type === "user_message" ? message.leaderUserMessageId : null))).toEqual([
       "u2",
       null,
       "u3",
     ]);
     // Rows that need nothing keep their identity, and stored history is never rewritten.
-    expect(withIds[1]).toBe(assistant);
-    expect(withIds[2]).toBe(history[2]);
+    expect(messages[1]).toBe(assistant);
+    expect(messages[2]).toBe(history[2]);
     expect(history[1]).not.toHaveProperty("leaderUserMessageId");
   });
 
-  it("leaves windows without leader coverage rows untouched", () => {
-    // Worker sessions have no coverage rows, so their windows skip the history pass.
+  it("sends the messages a window's answers answer when they lie outside it", () => {
+    // All Threads loads a bounded window; an answer to an older request still
+    // needs that request's text to quote it. Requests inside the window and
+    // requests no answer names are not sent.
+    const older = {
+      ...human("older"),
+      content: "Older request",
+      images: [{ imageId: "img-1", media_type: "image/png" }],
+      annotations: [{ id: "c1", selectedText: "quoted", comment: "comment" }],
+    } as BrowserIncomingMessage;
+    const unrelated = human("unrelated");
+    const recent = human("recent");
+    const answer = {
+      type: "assistant",
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u1", "u3"], observedHistoryLength: 3 },
+      message: { id: "answer" },
+    } as BrowserIncomingMessage;
+    const history = [older, unrelated, recent, answer];
+
+    const { answeredMessages } = prepareLeaderHistoryWindow([recent, answer], history);
+    expect(answeredMessages).toEqual([
+      {
+        history_message_id: "older",
+        user_message_id: "u1",
+        content: "Older request",
+        attachment_count: 1,
+        annotations: [{ id: "c1", selectedText: "quoted", comment: "comment" }],
+      },
+    ]);
+  });
+
+  it("leaves windows without leader coverage rows or answers untouched", () => {
+    // Worker sessions have neither, so their windows skip the history pass.
     const plain = { type: "user_message", id: "w", content: "w", timestamp: 1 } as BrowserIncomingMessage;
     const window = [plain];
-    expect(withLeaderUserMessageIds(window, window)).toBe(window);
+    const prepared = prepareLeaderHistoryWindow(window, window);
+    expect(prepared.messages).toBe(window);
+    expect(prepared.answeredMessages).toEqual([]);
   });
 });

@@ -86,6 +86,28 @@ describe("allThreadsAnswerReferences", () => {
   });
 });
 
+describe("allThreadsAnswerReferences with the window's answered messages", () => {
+  it("quotes a request outside the window from the answered messages the window sends", () => {
+    // The loaded copy wins when both exist; a request in neither leaves the count.
+    const references = allThreadsAnswerReferences(
+      [user("recent", "u2", "Recent request"), answer("reply", 5, ["u1", "u2"]), answer("missing", 6, ["u9"])],
+      [
+        { history_message_id: "older", user_message_id: "u1", content: "Older request", attachment_count: 2 },
+        { history_message_id: "recent", user_message_id: "u2", content: "Recent request" },
+      ],
+    );
+
+    expect(references.get("reply")).toMatchObject({
+      referencedHistoryIds: ["older", "recent"],
+      referencedMessages: [
+        { historyMessageId: "older", userMessageId: "u1", content: "Older request", attachmentCount: 2 },
+        { historyMessageId: "recent", userMessageId: "u2", content: "Recent request" },
+      ],
+    });
+    expect(references.get("missing")?.referencedMessages).toBeUndefined();
+  });
+});
+
 describe("answerChromeFor", () => {
   it("points up only when the one answered message is the one rendered above", () => {
     const references = allThreadsAnswerReferences([user("q", "u1"), answer("reply", 2, ["u1"])]);

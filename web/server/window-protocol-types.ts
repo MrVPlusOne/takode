@@ -1,3 +1,5 @@
+import type { ConversationAnnotation } from "../shared/conversation-annotations.js";
+
 export interface HistoryWindowState {
   from_turn: number;
   turn_count: number;
@@ -11,6 +13,22 @@ export interface HistoryWindowState {
   window_hash?: string;
   /** Stable target looked up for this delivery, even if it could not be found. */
   target_message_id?: string;
+  /**
+   * Messages that answers in this window answer but that lie outside it, so
+   * leader answer cards can quote them. Sent with every delivery, cache hits
+   * included, since the window hash covers only the messages.
+   */
+  answered_messages?: AnsweredMessageReference[];
+}
+
+/** A direct human message an answer answers, as much as its quote and preview need. */
+export interface AnsweredMessageReference {
+  history_message_id: string;
+  /** Session-scoped `uN` ID. */
+  user_message_id: string;
+  content: string;
+  attachment_count?: number;
+  annotations?: ConversationAnnotation[];
 }
 
 export interface ThreadWindowState {

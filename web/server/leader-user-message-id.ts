@@ -4,7 +4,7 @@ import {
   LEADER_USER_MESSAGE_ID_RE,
 } from "../shared/leader-user-message-id.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
-import type { BrowserIncomingMessage } from "./session-types.js";
+import type { AnsweredMessageReference, BrowserIncomingMessage } from "./session-types.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
 
 export { isCanonicalLeaderUserMessageId, LEADER_USER_MESSAGE_ID_RE };
@@ -77,25 +77,52 @@ export function findLeaderUserMessageById(
   return buildLeaderUserMessageIdentities(history).find((entry) => entry.userMessageId === userMessageId) ?? null;
 }
 
+/** At most this many answered messages ride along with one history window. */
+const MAX_ANSWERED_MESSAGE_REFERENCES = 64;
+
 /**
- * Give a history window's direct human messages their session-scoped `uN` IDs.
- * Older rows store none and their IDs follow from the whole history, which the
- * browser never holds, so views without a thread projection (All Threads)
- * could not match an answer to the messages it answers.
+ * Prepare a history window (All Threads) for leader answers: give its direct
+ * human messages their session-scoped `uN` IDs, and collect the messages its
+ * answers answer that lie outside it, so every answer can quote them. Older
+ * rows store no ID and their IDs follow from the whole history, which the
+ * browser never holds. Windows without coverage rows or answers (worker
+ * sessions) come back unchanged.
  */
-export function withLeaderUserMessageIds(
+export function prepareLeaderHistoryWindow(
   windowMessages: BrowserIncomingMessage[],
   history: ReadonlyArray<BrowserIncomingMessage>,
-): BrowserIncomingMessage[] {
+): { messages: BrowserIncomingMessage[]; answeredMessages: AnsweredMessageReference[] } {
   const needsId = (message: BrowserIncomingMessage) =>
     message.type === "user_message" && message.leaderResponseCoverageVersion === 1 && !message.leaderUserMessageId;
-  // Only leader sessions have coverage rows; skip the full-history pass elsewhere.
-  if (!windowMessages.some(needsId)) return windowMessages;
-  const ids = new Map(buildLeaderUserMessageIdentities(history).map((entry) => [entry.message, entry.userMessageId]));
-  return windowMessages.map((message) => {
+  const answeredIds = windowMessages.flatMap((message) =>
+    message.type === "assistant" && message.leaderThreadRole === "answer"
+      ? (message.threadAnswer?.answerUserMessageIds ?? [])
+      : [],
+  );
+  if (answeredIds.length === 0 && !windowMessages.some(needsId))
+    return { messages: windowMessages, answeredMessages: [] };
+
+  const identities = buildLeaderUserMessageIdentities(history);
+  const idByMessage = new Map(identities.map((entry) => [entry.message, entry.userMessageId]));
+  const messages = windowMessages.map((message) => {
     const id = needsId(message)
-      ? ids.get(message as Extract<BrowserIncomingMessage, { type: "user_message" }>)
+      ? idByMessage.get(message as Extract<BrowserIncomingMessage, { type: "user_message" }>)
       : undefined;
     return id ? { ...message, leaderUserMessageId: id } : message;
   });
+
+  const inWindow = new Set(windowMessages);
+  const wanted = new Set(answeredIds);
+  const answeredMessages = identities
+    .filter((entry) => wanted.has(entry.userMessageId) && !inWindow.has(entry.message))
+    // The newest answered messages matter most when the bound cuts the list.
+    .slice(-MAX_ANSWERED_MESSAGE_REFERENCES)
+    .map(({ message, historyMessageId, userMessageId }) => ({
+      history_message_id: historyMessageId,
+      user_message_id: userMessageId,
+      content: message.content,
+      ...(message.images?.length ? { attachment_count: message.images.length } : {}),
+      ...(message.annotations?.length ? { annotations: message.annotations } : {}),
+    }));
+  return { messages, answeredMessages };
 }

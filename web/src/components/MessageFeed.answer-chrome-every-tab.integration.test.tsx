@@ -176,12 +176,12 @@ function installThreadWindow(
 }
 
 /** Deliver the All Threads history window through the server's own sender. */
-function installHistoryWindow(messages: BrowserIncomingMessage[]): void {
+function installHistoryWindow(messages: BrowserIncomingMessage[], fromTurn = 0): void {
   const sent: BrowserIncomingMessage[] = [];
   sendHistoryWindowSync(
     { messageHistory: messages },
     { send: (data: string) => sent.push(JSON.parse(data) as BrowserIncomingMessage) },
-    { fromTurn: 0, turnCount: 10, sectionTurnCount: 10, visibleSectionCount: 1 },
+    { fromTurn, turnCount: 10, sectionTurnCount: 10, visibleSectionCount: 1 },
   );
   expect(sent.map((message) => message.type)).toEqual(["history_window_sync"]);
   act(() => {
@@ -238,5 +238,18 @@ describe("leader answer chrome in every tab", () => {
     expect(reference).toHaveTextContent(QUEST_REQUEST);
     // The quote belongs to the answer row once, not again inside it.
     expect(screen.getAllByTestId("thread-response-answer-reference")).toHaveLength(1);
+  });
+
+  it("quotes a request outside the loaded All Threads window from the window's answered messages", () => {
+    // Load only the quest turn: the Main request it answers is older than the
+    // window, so the window sends it alongside instead of as a feed message.
+    installHistoryWindow(history(), 1);
+    render(<MessageFeed sessionId={SESSION_ID} threadKey="all" />);
+
+    expect(document.querySelector('[data-message-id="main-request"]')).toBeNull();
+    const reference = answerReference();
+    expect(reference).toHaveAttribute("data-variant", "quote");
+    expect(reference).toHaveTextContent(MAIN_REQUEST);
+    expect(reference).toHaveTextContent(QUEST_REQUEST);
   });
 });

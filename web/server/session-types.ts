@@ -98,7 +98,12 @@ export type {
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
 } from "./leader-projection-types.js";
-export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
+export type {
+  AnsweredMessageReference,
+  HistoryWindowState,
+  InitialThreadWindowRequest,
+  ThreadWindowState,
+} from "./window-protocol-types.js";
 export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 export type { CodexMessagePhase } from "../shared/codex-message-phase.js";

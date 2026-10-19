@@ -1,6 +1,6 @@
-import { createContext } from "react";
+import { createContext, useMemo } from "react";
 import { isCanonicalLeaderUserMessageId } from "../../shared/leader-user-message-id.js";
-import type { ChatMessage } from "../types.js";
+import type { AnsweredMessageReference, ChatMessage } from "../types.js";
 import type {
   ThreadResponsePresentation,
   ThreadResponseReferencedUserMessage,
@@ -74,16 +74,41 @@ export function presentationAnswerReferences(
 
 /**
  * Current answers among loaded messages, from their own settled metadata. The
- * answered messages are matched by their persisted `uN` IDs; when one is not
- * loaded, the answer shows only its count.
+ * answered messages are matched by their `uN` IDs among loaded messages, then
+ * among the answered messages the history window sends for requests outside
+ * it; when one is in neither, the answer shows only its count.
  */
-export function allThreadsAnswerReferences(messages: readonly ChatMessage[]): Map<string, AnswerReferenceData> {
-  const userMessages = new Map<string, ChatMessage | null>();
+export function allThreadsAnswerReferences(
+  messages: readonly ChatMessage[],
+  answeredMessages: readonly AnsweredMessageReference[] = [],
+): Map<string, AnswerReferenceData> {
+  // A duplicated ID proves nothing about which message it names.
+  const requests = new Map<string, ThreadResponseReferencedUserMessage | null>();
+  const addRequest = (request: ThreadResponseReferencedUserMessage) =>
+    requests.set(request.userMessageId, requests.has(request.userMessageId) ? null : request);
   for (const message of messages) {
     const userMessageId = message.metadata?.leaderUserMessageId;
     if (message.role !== "user" || !userMessageId) continue;
-    // A duplicated ID proves nothing about which message it names.
-    userMessages.set(userMessageId, userMessages.has(userMessageId) ? null : message);
+    const attachmentCount = Math.max(message.images?.length ?? 0, message.localImages?.length ?? 0);
+    const annotations = message.metadata?.annotations;
+    addRequest({
+      historyMessageId: message.id,
+      userMessageId,
+      content: message.content,
+      ...(attachmentCount > 0 ? { attachmentCount } : {}),
+      ...(annotations?.length ? { annotations } : {}),
+    });
+  }
+  for (const answered of answeredMessages) {
+    // The window sends only requests outside it; a loaded copy is the same message.
+    if (requests.get(answered.user_message_id)?.historyMessageId === answered.history_message_id) continue;
+    addRequest({
+      historyMessageId: answered.history_message_id,
+      userMessageId: answered.user_message_id,
+      content: answered.content,
+      ...(answered.attachment_count ? { attachmentCount: answered.attachment_count } : {}),
+      ...(answered.annotations?.length ? { annotations: answered.annotations } : {}),
+    });
   }
 
   const answers: Array<AnswerIds & { message: ChatMessage }> = [];
@@ -107,27 +132,31 @@ export function allThreadsAnswerReferences(messages: readonly ChatMessage[]): Ma
   const references = new Map<string, AnswerReferenceData>();
   for (const { message, answerIds } of answers) {
     if (superseded.has(message.id)) continue;
-    const referenced = answerIds.map((id) => userMessages.get(id));
-    const complete = referenced.every((user): user is ChatMessage => user != null);
+    const referenced = answerIds.map((id) => requests.get(id));
+    const complete = referenced.every((request): request is ThreadResponseReferencedUserMessage => request != null);
     references.set(message.id, {
       answerCount: answerIds.length,
-      referencedHistoryIds: complete ? referenced.map((user) => user!.id) : [],
-      referencedMessages: complete
-        ? referenced.map((user, index) => {
-            const attachmentCount = Math.max(user!.images?.length ?? 0, user!.localImages?.length ?? 0);
-            const annotations = user!.metadata?.annotations;
-            return {
-              historyMessageId: user!.id,
-              userMessageId: answerIds[index]!,
-              content: user!.content,
-              ...(attachmentCount > 0 ? { attachmentCount } : {}),
-              ...(annotations?.length ? { annotations } : {}),
-            };
-          })
-        : undefined,
+      referencedHistoryIds: complete ? referenced.map((request) => request!.historyMessageId) : [],
+      referencedMessages: complete ? (referenced as ThreadResponseReferencedUserMessage[]) : undefined,
     });
   }
   return references;
+}
+
+/**
+ * All Threads' answer references, or null when `enabled` is false (other tabs
+ * take theirs from the thread projection). `answeredMessages` are the requests
+ * outside the loaded window that its history window sends.
+ */
+export function useAllThreadsAnswerReferences(
+  enabled: boolean,
+  messages: readonly ChatMessage[],
+  answeredMessages: readonly AnsweredMessageReference[] | undefined,
+): ReadonlyMap<string, AnswerReferenceData> | null {
+  return useMemo(
+    () => (enabled ? allThreadsAnswerReferences(messages, answeredMessages) : null),
+    [enabled, messages, answeredMessages],
+  );
 }
 
 /**
