@@ -952,6 +952,15 @@ export function PlaygroundInteractiveSections() {
                   updatedAt: Date.now() - 60000,
                 },
                 {
+                  questId: "q-48",
+                  title: "Launch the nightly eval",
+                  worker: "ghi789",
+                  workerNum: 7,
+                  status: "WORKING",
+                  waitFor: ["#9"],
+                  updatedAt: Date.now() - 45000,
+                },
+                {
                   questId: "q-55",
                   title: "Add dark mode toggle",
                   worker: "def456",

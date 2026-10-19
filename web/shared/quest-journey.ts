@@ -42,6 +42,16 @@ export function formatWaitForRefLabel(ref: string): string {
   return getWaitForRefKind(ref) === "free-worker" ? "free worker" : ref;
 }
 
+/**
+ * Board states in which a row may wait on a helper session or another quest
+ * (`--wait-for #N` / `q-N`) while its worker stays assigned: Work, and a User
+ * Checkpoint inside it. Queued rows use wait-for for dispatch dependencies instead.
+ */
+export function canBoardStatusHoldWorkWait(status: string | undefined): boolean {
+  const normalized = (status || "").trim().toUpperCase();
+  return normalized === "WORKING" || normalized === "USER_CHECKPOINTING";
+}
+
 export interface BoardQueueWarning {
   questId: string;
   title?: string;

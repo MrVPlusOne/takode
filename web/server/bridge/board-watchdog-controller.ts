@@ -1,4 +1,5 @@
 import {
+  canBoardStatusHoldWorkWait,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   FREE_WORKER_WAIT_FOR_TOKEN,
   formatWaitForRefLabel,
@@ -44,6 +45,7 @@ import {
 } from "./board-user-checkpoint.js";
 import {
   assessLeaseWait,
+  assessWorkRowWaits,
   backgroundWaitEndsAt,
   formatBoardSessionRef,
   formatOverdueBackgroundJobs,
@@ -301,12 +303,21 @@ function getBoardRowWaitForInputIds(row: Pick<BoardRow, "waitForInput"> | null |
   return normalizeBoardWaitForInput(row?.waitForInput) ?? [];
 }
 
-function applyBoardWaitStateInvariant(row: Pick<BoardRow, "status" | "waitFor" | "waitForInput">): void {
+/**
+ * Queued rows wait on dispatch dependencies, active rows on linked user questions.
+ * A row in Work may also wait on helper sessions or quests: that wait ends when the
+ * row leaves Work, and queue dependencies end when the row leaves the queue
+ * (`previousStatus`), so they never turn into a Work wait.
+ */
+function applyBoardWaitStateInvariant(
+  row: Pick<BoardRow, "status" | "waitFor" | "waitForInput">,
+  previousStatus?: string,
+): void {
   if (isQueuedBoardRowStatus(row.status)) {
     row.waitForInput = undefined;
     return;
   }
-  row.waitFor = undefined;
+  if (isQueuedBoardRowStatus(previousStatus) || !canBoardStatusHoldWorkWait(row.status)) row.waitFor = undefined;
 }
 
 function clearBoardRowWaitForInputIds(row: BoardRow | null | undefined): string[] {
@@ -833,8 +844,10 @@ export function clearResolvedQuestWaitFor(session: SessionLike, resolvedQuestIds
       dep === FREE_WORKER_WAIT_FOR_TOKEN ? FREE_WORKER_WAIT_FOR_TOKEN : dep,
     );
     const normalizedWaitFor = deduped.length > 0 ? deduped : [FREE_WORKER_WAIT_FOR_TOKEN];
-    if (arraysEqual(row.waitFor, normalizedWaitFor)) continue;
-    row.waitFor = normalizedWaitFor;
+    // A queued row keeps an explicit reason; a row in Work simply stops waiting.
+    const nextRowWaitFor = isQueuedBoardRowStatus(row.status) ? normalizedWaitFor : deduped;
+    if (arraysEqual(row.waitFor, nextRowWaitFor)) continue;
+    row.waitFor = nextRowWaitFor.length > 0 ? nextRowWaitFor : undefined;
     session.board.set(row.questId, row);
     changed = true;
   }
@@ -968,7 +981,8 @@ export function upsertBoardRow(
   const activationAt = updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
   const becameNeverStartedScheduled =
     !isNeverStartedScheduledLeaderThreadTabRow(existing) && isNeverStartedScheduledLeaderThreadTabRow(merged);
-  applyBoardWaitStateInvariant(merged);
+  // A wait supplied with the update belongs to the new state; an inherited one follows the transition.
+  applyBoardWaitStateInvariant(merged, row.waitFor !== undefined ? undefined : existing?.status);
   // Promoting a proposal consumes the approval questions it was held on. Any other dropped link
   // leaves its question open for the user, no longer blocking: only answers and `notify resolve`
   // resolve a question.
@@ -1268,7 +1282,7 @@ export function advanceBoardRow(
         },
         nextPhase.boardState,
       );
-      applyBoardWaitStateInvariant(row);
+      applyBoardWaitStateInvariant(row, previousState);
       applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
       row.updatedAt = now;
       const activationAt = updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
@@ -1289,7 +1303,7 @@ export function advanceBoardRow(
   const now = Date.now();
   row.status = currentIdx === -1 ? "QUEUED" : states[currentIdx + 1];
   row.journey = normalizeBoardRowJourneyPlan(row, row.status);
-  applyBoardWaitStateInvariant(row);
+  applyBoardWaitStateInvariant(row, previousState);
   applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
   row.updatedAt = now;
   const activationAt = updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
@@ -1815,6 +1829,14 @@ function buildBoardStallCandidate(
     if (deps.isLandingActive?.(workerSessionId)) return null;
     // An idle Claude worker resumes when its background job's completion notice arrives.
     if (backgroundWaitEndsAt(workerRuntime) > now) return null;
+    // The worker waits for a helper session or another quest, whose result the leader passes on.
+    const workWait = assessWorkRowWaits(
+      row,
+      { ...deps, isQuestBlocking: (questId) => isQuestDependencyBlocked(session, questId, deps) },
+      session,
+      now,
+    );
+    if (workWait === "progressing") return null;
     const leaseWait =
       workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set(), now);
     // A queued worker resumes on the Resource Lease promotion message, so its
@@ -1857,6 +1879,28 @@ function buildBoardStallCandidate(
         stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, backgroundWaitEndsAt(workerRuntime)),
         reason: `worker ${workerRuntime.status} with ${formatOverdueBackgroundJobs(workerRuntime.backgroundJobs)}`,
         action: "inspect worker; check whether its background job is hung, stop it, or resume Work",
+      };
+    }
+    // Every helper the worker waits on has stopped: its result (or its question) has to reach the worker.
+    if (workWait) {
+      const helperLabels = workWait.map((helper) => `${helper.ref} ${helper.status}`);
+      return {
+        signature: `${row.questId}|${stage}|helper:${workWait
+          .map((helper) => helper.ref)
+          .sort()
+          .join(",")}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(
+          workerRuntime.lastActivityAt,
+          ...workWait.map((helper) => helper.lastActivityAt),
+        ),
+        reason: `worker waiting on ${helperLabels.length > 1 ? "helpers" : "helper"} ${helperLabels.join(", ")}`,
+        action: "inspect the helper; pass its result to the worker, or clear the wait (board set --clear-wait-for)",
       };
     }
     return {

@@ -1,6 +1,7 @@
 /**
  * Runtime state of the sessions a board stall check looks at: a row's worker
- * and reviewer, and the holders of lease pools a worker is queued in. Decides
+ * and reviewer, helper sessions a row in Work waits on, and the holders of lease
+ * pools a worker is queued in. Decides
  * which idle sessions are legitimately waiting (timers, background jobs,
  * landing runs, progressing lease queues) and which have stopped.
  */
@@ -9,6 +10,7 @@ import type { BackgroundTaskInfo, BackgroundTaskSnapshot } from "./adapter-inter
 import type { BoardRow } from "../session-types.js";
 import { findUserCheckpointQuestsForWorker } from "./board-user-checkpoint.js";
 import type { SessionWait } from "../../shared/session-waits.js";
+import { getWaitForRefKind } from "../../shared/quest-journey.js";
 
 type SessionLike = any;
 
@@ -120,14 +122,8 @@ export function assessLeaseWait(
       sessionId: holderId,
       ...getBoardParticipantRuntime(holderId, deps, currentSession),
     }));
-    const progressing = holders.some(
-      (holder) =>
-        holder.status === "running" ||
-        holder.hasActiveTimer ||
-        backgroundWaitEndsAt(holder) > now ||
-        deps.isLandingActive?.(holder.sessionId) ||
-        (!chain.has(holder.sessionId) &&
-          assessLeaseWait(holder.sessionId, deps, currentSession, chain, now) === "progressing"),
+    const progressing = holders.some((holder) =>
+      isParticipantProgressing(holder.sessionId, holder, deps, currentSession, chain, now),
     );
     if (!progressing) {
       return {
@@ -142,6 +138,66 @@ export function assessLeaseWait(
     }
   }
   return "progressing";
+}
+
+/**
+ * Whether a session someone waits on is still making progress: running, waiting
+ * on a timer, a background job within its plausible run time or an active
+ * landing run, or itself in a progressing lease wait. `path` holds the sessions
+ * already on the wait chain, so a cycle never counts as progress.
+ */
+export function isParticipantProgressing(
+  sessionId: string,
+  runtime: BoardParticipantRuntime,
+  deps: BoardParticipantDeps,
+  currentSession: SessionLike,
+  path: ReadonlySet<string>,
+  now: number,
+): boolean {
+  return (
+    runtime.status === "running" ||
+    runtime.hasActiveTimer ||
+    backgroundWaitEndsAt(runtime) > now ||
+    !!deps.isLandingActive?.(sessionId) ||
+    (!path.has(sessionId) && assessLeaseWait(sessionId, deps, currentSession, path, now) === "progressing")
+  );
+}
+
+/** A helper session a row in Work waits on that has stopped making progress. */
+export interface StoppedWorkWaitHelper {
+  ref: string;
+  status: BoardStallStatus;
+  lastActivityAt: number;
+}
+
+/**
+ * Classify the waits of a row in Work (`--wait-for #N` helper sessions and
+ * `q-N` quests). Returns null when it has none, "progressing" while a waited
+ * quest is unfinished or a helper is still making progress, and otherwise the
+ * helpers, all of which have stopped: the worker then needs their result.
+ */
+export function assessWorkRowWaits(
+  row: Pick<BoardRow, "waitFor">,
+  deps: BoardParticipantDeps & {
+    resolveSessionId: (ref: string) => string | null | undefined;
+    isQuestBlocking: (questId: string) => boolean;
+  },
+  currentSession: SessionLike,
+  now: number,
+): "progressing" | StoppedWorkWaitHelper[] | null {
+  const stopped: StoppedWorkWaitHelper[] = [];
+  for (const ref of row.waitFor ?? []) {
+    const kind = getWaitForRefKind(ref);
+    if (kind === "quest" && deps.isQuestBlocking(ref)) return "progressing";
+    if (kind !== "session") continue;
+    const sessionId = deps.resolveSessionId(ref.slice(1)) ?? undefined;
+    const runtime = getBoardParticipantRuntime(sessionId, deps, currentSession);
+    if (sessionId && isParticipantProgressing(sessionId, runtime, deps, currentSession, new Set(), now)) {
+      return "progressing";
+    }
+    stopped.push({ ref, status: runtime.status, lastActivityAt: runtime.lastActivityAt });
+  }
+  return stopped.length > 0 ? stopped : null;
 }
 
 export function formatBoardSessionRef(sessionId: string, deps: BoardParticipantDeps): string {

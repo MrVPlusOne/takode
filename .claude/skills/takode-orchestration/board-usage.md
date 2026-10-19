@@ -73,6 +73,15 @@ Queue pre-active work on dependencies:
 takode board set q-12 --status QUEUED --wait-for q-9,#14,free-worker
 ```
 
+While a row is in Work, `--wait-for` names helper sessions (`#N`) or quests (`q-N`) its worker waits on, such as a helper on another machine running one step of the quest (see Helper Sessions in `leader-dispatch`):
+
+```bash
+takode board set q-12 --wait-for #31   # replaces the list
+takode board set q-12 --clear-wait-for
+```
+
+While a helper is busy (running, on a timer, a background job or a progressing lease wait) or a waited quest is unfinished, the idle worker is not reported stalled. Once every helper has stopped, `board_stalled` names them, so their result still reaches the worker. The wait stays through a User Checkpoint and ends when the row leaves Work; queue dependencies never carry into Work. `free-worker` is a queue-only token.
+
 A question you post in a quest's thread pauses its Work by itself (see Automatic User Checkpoints in `quest-journey.md`). By hand:
 
 ```bash

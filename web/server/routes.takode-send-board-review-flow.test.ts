@@ -1057,23 +1057,60 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("rejects wait-for dependencies on explicit active rows", async () => {
+  it("lets a row in Work wait on a helper session next to its linked questions, and clears that wait", async () => {
+    // A quest's worker may hand a machine-bound step to a helper session and wait on it
+    // (`board set q-N --wait-for #N`), while a user question can still pause the same Work.
     setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "needs-input", summary: "Need answer", timestamp: 1000, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].board = new Map([
+      ["q-9", { questId: "q-9", title: "Launch run", status: "WORKING", createdAt: 1, updatedAt: 1 }],
+    ]);
+    const post = (body: Record<string, unknown>) =>
+      app.request("/api/sessions/orch-1/board", {
+        method: "POST",
+        headers: authHeaders("orch-1", "tok-1"),
+        body: JSON.stringify({ questId: "q-9", ...body }),
+      });
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "WORKING",
-        waitFor: ["q-1"],
-      }),
+    const res = await post({ waitFor: ["#31"], waitForInput: ["1"] });
+    expect(res.status).toBe(200);
+    // Linking the question pauses Work in a User Checkpoint; the helper wait stays.
+    expect((await res.json()).board[0]).toMatchObject({
+      status: "USER_CHECKPOINTING",
+      waitFor: ["#31"],
+      waitForInput: ["n-1"],
     });
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("wait-for is only valid on QUEUED board rows"),
-    });
+    // An empty list (CLI --clear-wait-for) ends the wait without touching the linked question.
+    const cleared = await post({ waitFor: [] });
+    const clearedRow = (await cleared.json()).board[0];
+    expect(clearedRow.waitFor).toBeUndefined();
+    expect(clearedRow.waitForInput).toEqual(["n-1"]);
+  });
+
+  it("rejects wait-for outside the queue and Work, and free-worker on a row in Work", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      ["q-9", { questId: "q-9", title: "Close out", status: "MEMORY", createdAt: 1, updatedAt: 1 }],
+      ["q-10", { questId: "q-10", title: "Launch run", status: "WORKING", createdAt: 1, updatedAt: 1 }],
+    ]);
+    const post = (questId: string, waitFor: string[]) =>
+      app.request("/api/sessions/orch-1/board", {
+        method: "POST",
+        headers: authHeaders("orch-1", "tok-1"),
+        body: JSON.stringify({ questId, waitFor }),
+      });
+
+    const memory = await post("q-9", ["#31"]);
+    expect(memory.status).toBe(400);
+    expect((await memory.json()).error).toContain("wait-for is only valid on QUEUED rows, or on a row in Work");
+
+    // free-worker is a dispatch dependency; it says nothing about a running Work.
+    const freeWorker = await post("q-10", ["free-worker"]);
+    expect(freeWorker.status).toBe(400);
+    expect((await freeWorker.json()).error).toContain("a row in Work waits on #N or q-N");
   });
 
   it("keeps removed wait-for-input notifications open as non-blocking questions when a row is updated", async () => {
@@ -1169,7 +1206,7 @@ describe("Takode server-authoritative auth", () => {
     );
   });
 
-  it("clears stale queue wait-for metadata when an active row is updated with wait-for-input", async () => {
+  it("drops queue dependencies when a queued row starts Work, so they never become a Work wait", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [
       { id: "n-2", category: "needs-input", summary: "Need answer two", timestamp: 1001, messageId: null, done: false },
@@ -1180,7 +1217,7 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "WORKING",
+          status: "QUEUED",
           waitFor: ["q-1"],
           createdAt: 1,
           updatedAt: 1,
@@ -1193,6 +1230,7 @@ describe("Takode server-authoritative auth", () => {
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({
         questId: "q-9",
+        status: "WORKING",
         waitForInput: ["2"],
       }),
     });

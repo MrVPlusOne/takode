@@ -4,6 +4,7 @@ import type { BoardRow, SessionAttentionRecord } from "../session-types.js";
 import type { BackgroundTaskInfo } from "./adapter-interface.js";
 import {
   advanceBoardRow,
+  clearResolvedQuestWaitFor,
   completeDoneBoardRowsForQuestInAllSessions,
   completeQueuedBoardRowsForQuestInAllSessions,
   getBoard,
@@ -423,6 +424,92 @@ describe("Work Board stall check for background jobs", () => {
         "worker queued for port:takode:jiayi; lease holder #11 idle with background job running over 30m (Run full gate)",
       signature: `q-90|WORKING|lease:port:takode:jiayi|holder|since:${30 * MINUTE}`,
     });
+  });
+});
+
+describe("Work Board stall check for rows waiting on a helper", () => {
+  // A quest's worker hands a step it cannot run (another machine or backend) to a
+  // helper session, and the leader records the wait with `board set q-N --wait-for #N`.
+  function setupHelperWait(helper: FakeRuntime) {
+    const fixture = setupIdleWorkerStall({ worker: { sessionNum: 10 }, helper }, {});
+    fixture.deps.resolveSessionId = vi.fn((ref: string) => (ref === "11" ? "helper" : undefined));
+    fixture.leader.board.get("q-90")!.waitFor = ["#11"];
+    return fixture;
+  }
+
+  it("does not flag the idle worker while its helper is running or waiting on a timer", () => {
+    for (const helper of [
+      { sessionNum: 11, isGenerating: true },
+      { sessionNum: 11, timers: 1 },
+    ]) {
+      const { emitted, sweepPastThreshold } = setupHelperWait(helper);
+      sweepPastThreshold();
+      expect(emitted).toHaveLength(0);
+    }
+  });
+
+  it("names the helper once it stops, counting from the helper's last activity", () => {
+    // The reported case: the helper ended its turn with a result the worker still needs.
+    const { leader, deps, emitted } = setupHelperWait({ sessionNum: 11, lastActivityAt: 100_000 });
+    sweepBoardStallWarnings([leader], 100_000, deps);
+    sweepBoardStallWarnings([leader], 200_000, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 280_001, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      reason: "worker waiting on helper #11 idle",
+      signature: "q-90|WORKING|helper:#11|since:100000",
+    });
+  });
+
+  it("does not flag the idle worker while a quest it waits on is unfinished", () => {
+    const { leader, emitted, sweepPastThreshold } = setupIdleWorkerStall({ worker: { sessionNum: 10 } }, {});
+    leader.board.get("q-90")!.waitFor = ["q-91"];
+    leader.board.set("q-91", {
+      questId: "q-91",
+      status: "QUEUED",
+      waitFor: ["free-worker"],
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
+  });
+});
+
+describe("Work Board waits on rows in Work", () => {
+  const row = (status: string, waitFor: string[], questId = "q-5"): BoardRow => ({
+    questId,
+    status,
+    worker: "worker-1",
+    waitFor,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  it("keeps a helper wait through a User Checkpoint and drops it when the row leaves Work", () => {
+    const session = createSession();
+    session.board.set("q-5", row("WORKING", ["#11"]));
+    upsertBoardRow(session, { questId: "q-5", status: "USER_CHECKPOINTING" }, createDeps());
+    expect(session.board.get("q-5")?.waitFor).toEqual(["#11"]);
+    upsertBoardRow(session, { questId: "q-5", status: "MEMORY" }, createDeps());
+    expect(session.board.get("q-5")?.waitFor).toBeUndefined();
+  });
+
+  it("does not turn queue dependencies into a Work wait when the row starts Work", () => {
+    const session = createSession();
+    session.board.set("q-5", row("QUEUED", ["q-7"]));
+    upsertBoardRow(session, { questId: "q-5", status: "WORKING" }, createDeps());
+    expect(session.board.get("q-5")?.waitFor).toBeUndefined();
+  });
+
+  it("ends a Work wait on a quest when that quest completes, instead of queuing for a free worker", () => {
+    const session = createSession();
+    session.board.set("q-5", row("WORKING", ["q-7"]));
+    session.board.set("q-6", row("QUEUED", ["q-7"], "q-6"));
+    clearResolvedQuestWaitFor(session, ["q-7"]);
+    expect(session.board.get("q-5")?.waitFor).toBeUndefined();
+    expect(session.board.get("q-6")?.waitFor).toEqual(["free-worker"]);
   });
 });
 

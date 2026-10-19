@@ -1,6 +1,6 @@
 ---
 name: leader-dispatch
-description: "Dispatch and worker-context workflow for leader/orchestrator sessions. Use when dispatching or assigning a quest, choosing, spawning, or reusing workers, recording or forwarding human feedback, sending phase, correction, or recovery handoffs, or deciding whether a tiny follow-up qualifies as a direct worker errand. Triggers: 'dispatch', 'send quest', 'assign worker', 'spawn worker', 'which worker', 'reuse or spawn', 'human feedback', 'phase handoff', 'correction', 'recovery steering', 'direct worker errand', 'quick follow-up'."
+description: "Dispatch and worker-context workflow for leader/orchestrator sessions. Use when dispatching or assigning a quest, choosing, spawning, or reusing workers, recording or forwarding human feedback, sending phase, correction, or recovery handoffs, spawning a helper session for a step another machine must run, or deciding whether a tiny follow-up qualifies as a direct worker errand. Triggers: 'dispatch', 'send quest', 'assign worker', 'spawn worker', 'which worker', 'reuse or spawn', 'helper session', 'laptop helper', 'human feedback', 'phase handoff', 'correction', 'recovery steering', 'direct worker errand', 'quick follow-up'."
 ---
 
 # Leader Dispatch Workflow
@@ -169,6 +169,17 @@ When all worker slots are used, compare active board work to your herd. If ready
 - Do not infer dirty state from the worktree badge or treat every displayed ahead count as proof of unported work. `takode info` and sidebar counts may use a session diff base that differs from the live replacement preflight base. If counts are surprising, use replacement preflight or explicit current target-ref verification as the safety authority; never discard uncertain state.
 
 For approved Work that needs a shared lease, dispatch the worker into Work and let the worker run the documented lease acquire flow. Do not externally queue already-approved Work merely because a lease is currently held.
+
+### Helper Sessions
+
+A quest keeps one owner. When a step inside the quest's approved scope needs a machine or backend its worker lacks (submitting a job from the user's laptop, a sign-in in the user's browser, computer use from a Codex session), spawn a helper session for that step instead of a second quest:
+
+- In the helper's dispatch, name the quest and its owner and say not to claim the quest. Ask it to record its result on the quest with `quest feedback add q-N --kind artifact`, which works from any machine, and to report back.
+- Record the wait: `takode board set q-N --wait-for #<helper>`. While the helper is busy, the idle owner is not reported stalled; once the helper stops, `board_stalled` names it, so a forgotten result still surfaces. The board shows which quest the helper serves. Clear the wait with `--clear-wait-for` when it no longer applies; it also ends when the row leaves Work.
+- When the helper finishes, point the owner at its feedback entry so the Work note links it rather than restating it. The owner still writes the Work note and makes the Work -> Memory transition.
+- A helper uses a worker slot like any herded session. Archive it once its result is recorded.
+
+Use a separate quest instead when the work is a parallel piece with its own deliverable, or would carry its own approval or Work note.
 
 ## Shell-Safe Commands
 

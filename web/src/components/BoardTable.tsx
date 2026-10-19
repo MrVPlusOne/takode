@@ -549,13 +549,12 @@ export const BoardTable = memo(function BoardTable({
                     </span>
                   ) : (
                     <>
-                      {(isQueuedRowStatus(row.status) && row.waitFor && row.waitFor.length > 0) ||
+                      {(row.waitFor?.length ?? 0) > 0 ||
                       (!isQueuedRowStatus(row.status) &&
                         ((row.waitForInput?.length ?? 0) > 0 || (row.openQuestions?.length ?? 0) > 0)) ? (
                         <span className="flex gap-1.5 flex-wrap">
-                          {isQueuedRowStatus(row.status) ? (
-                            row.waitFor?.map((dep) => <WaitForRef key={dep} depRef={dep} />)
-                          ) : (
+                          {/* A row in Work can wait on helper sessions as well as on the user's questions. */}
+                          {!isQueuedRowStatus(row.status) && (
                             <>
                               {row.waitForInput?.map((notificationId) => (
                                 <WaitForInputRef key={notificationId} notificationId={notificationId} />
@@ -565,6 +564,9 @@ export const BoardTable = memo(function BoardTable({
                               ))}
                             </>
                           )}
+                          {row.waitFor?.map((dep) => (
+                            <WaitForRef key={dep} depRef={dep} />
+                          ))}
                         </span>
                       ) : (
                         <span className="text-cc-muted">{"\u2014"}</span>

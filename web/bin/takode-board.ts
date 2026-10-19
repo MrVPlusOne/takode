@@ -86,6 +86,7 @@ Examples:
   takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
+  takode board set q-12 --wait-for #31   # the Work row waits on helper session #31
   takode board advance q-12 --skip-optional-checkpoint "Work confirmed the approved skip condition"
   takode board advance q-12
   takode board rm q-12
@@ -96,8 +97,8 @@ export const BOARD_DETAIL_HELP = `Usage: takode board detail <quest-id> [--json]
 Show full board-owned Quest Journey details, notes, timings, and revision metadata for one quest row.
 `;
 
-export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
+export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
 
 Add or update a board row for a quest. Use this to create the initial Journey; once a row already has a Journey, use takode board revise for phase-plan changes.
 
@@ -107,6 +108,9 @@ Quest Journey phases:
   --journey-file <path|-> reads { phases: [{ id, note? }] } JSON for initial Journey creation
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
+  --wait-for on a QUEUED row lists its dispatch dependencies: q-N (quest done), #N (session idle) or ${FREE_WORKER_WAIT_FOR_TOKEN}
+  --wait-for on a row in Work (or its User Checkpoint) names helper sessions #N or quests q-N the worker waits on: while one is still busy the idle worker is not reported stalled, and once every helper stops, the stall alert names them; it replaces the list, and the wait ends when the row leaves Work
+  --clear-wait-for removes the row's wait-for list
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3) as blocking questions; it replaces the list
   --clear-wait-for-input stops the linked questions blocking; they stay open for the user (resolve one with takode notify resolve)
   --status WORKING on a User Checkpoint ends it by hand and resumes the Work after it; its questions stay open, not blocking
@@ -455,14 +459,21 @@ function formatBoardRowWaitForState(row: BoardRow, context: BoardRowDecisionCont
   const isQueuedRow = (row.status || "").trim().toUpperCase() === "QUEUED";
   const linkedInputWaits = row.waitForInput || [];
   const blockedDeps = getBoardRowBlockedDeps(row, context);
-  if (!isQueuedRow && linkedInputWaits.length > 0) {
-    return `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
+  if (!isQueuedRow) {
+    // A row in Work can wait on helpers and the user's questions at once; show both.
+    const parts = [
+      ...(linkedInputWaits.length > 0 ? [`input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`] : []),
+      ...(linkedInputWaits.length === 0 && (row.openQuestions?.length ?? 0) > 0
+        ? [`open questions ${formatBoardWaitForInputNotificationList(row.openQuestions!)}`]
+        : []),
+      ...((row.waitFor?.length ?? 0) > 0
+        ? [`wait ${row.waitFor!.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`]
+        : []),
+    ];
+    return parts.length > 0 ? parts.join("; ") : "--";
   }
-  if (!isQueuedRow && (row.openQuestions?.length ?? 0) > 0) {
-    return `open questions ${formatBoardWaitForInputNotificationList(row.openQuestions!)}`;
-  }
-  if (isQueuedRow && context.dispatchableQuestIds.has(row.questId)) return "ready";
-  if (isQueuedRow && blockedDeps.length > 0) {
+  if (context.dispatchableQuestIds.has(row.questId)) return "ready";
+  if (blockedDeps.length > 0) {
     return `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
   }
   return "--";
@@ -958,7 +969,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
         ? `Usage: takode board propose <quest-id> [--title "..."] (--summary <text> | --summary-file <path|->) [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
-          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
+          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -1070,11 +1081,12 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
         );
       body.waitFor = waitFor;
     }
+    if (flags["clear-wait-for"] === true) {
+      if (typeof flags["wait-for"] === "string") err("Use either --wait-for or --clear-wait-for, not both.");
+      body.waitFor = [];
+    }
     if (flags["clear-wait-for-input"] === true && typeof flags["wait-for-input"] === "string") {
       err("Use either --wait-for-input or --clear-wait-for-input, not both.");
-    }
-    if (typeof flags["wait-for"] === "string" && typeof flags["wait-for-input"] === "string") {
-      err("Invalid board update: --wait-for and --wait-for-input cannot be combined on the same row.");
     }
     let explicitStatus = typeof flags.status === "string" ? flags.status.trim().toUpperCase() : null;
     if (isProposalCommand) {
@@ -1083,9 +1095,6 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     } else if (isPromoteCommand && typeof flags["wait-for"] === "string" && !explicitStatus) {
       body.status = "QUEUED";
       explicitStatus = "QUEUED";
-    }
-    if (typeof flags["wait-for"] === "string" && explicitStatus && explicitStatus !== "QUEUED") {
-      err("Invalid board update: --wait-for is only valid on QUEUED rows.");
     }
     if (typeof flags["wait-for-input"] === "string" && explicitStatus === "QUEUED") {
       err("Invalid board update: --wait-for-input is only valid on active rows.");

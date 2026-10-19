@@ -222,16 +222,18 @@ describe("takode board --wait-for validation (q-N, #N, and free-worker)", () => 
     expect(capturedBodies).toHaveLength(0);
   });
 
-  it("rejects combining --wait-for with --wait-for-input", async () => {
+  it("sends a helper wait together with linked questions for a row in Work", async () => {
+    // A row in Work may wait on a helper session while a user question also pauses it;
+    // the server decides which states accept the wait.
     const result = await runTakode(
       [
         "board",
         "set",
         "q-1",
         "--status",
-        "IMPLEMENTING",
+        "WORKING",
         "--wait-for",
-        "q-2",
+        "#31",
         "--wait-for-input",
         "n-7",
         "--port",
@@ -244,23 +246,23 @@ describe("takode board --wait-for validation (q-N, #N, and free-worker)", () => 
       },
     );
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("--wait-for and --wait-for-input cannot be combined");
-    expect(capturedBodies).toHaveLength(0);
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0]).toMatchObject({ status: "WORKING", waitFor: ["#31"], waitForInput: ["n-7"] });
   });
 
-  it("rejects --wait-for on explicit active rows", async () => {
-    const result = await runTakode(
-      ["board", "set", "q-1", "--status", "IMPLEMENTING", "--wait-for", "q-2", "--port", String(port)],
-      {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      },
-    );
+  it("sends an empty wait-for list for --clear-wait-for, and rejects it next to --wait-for", async () => {
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-1", COMPANION_AUTH_TOKEN: "auth-1" };
+    const cleared = await runTakode(["board", "set", "q-1", "--clear-wait-for", "--port", String(port)], env);
+    expect(cleared.status).toBe(0);
+    expect(capturedBodies[0].waitFor).toEqual([]);
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("--wait-for is only valid on QUEUED rows");
-    expect(capturedBodies).toHaveLength(0);
+    const both = await runTakode(
+      ["board", "set", "q-1", "--clear-wait-for", "--wait-for", "#31", "--port", String(port)],
+      env,
+    );
+    expect(both.status).toBe(1);
+    expect(both.stderr).toContain("Use either --wait-for or --clear-wait-for");
+    expect(capturedBodies).toHaveLength(1);
   });
 });

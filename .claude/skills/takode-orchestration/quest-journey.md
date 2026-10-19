@@ -149,7 +149,7 @@ takode board work-to-memory q-12 --work-note 3 --commits "abc1234,def5678"
 takode board work-to-memory q-12 --work-note 3 --no-code
 ```
 
-Use `takode board propose --summary ... --phases work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` only for pre-active scheduling/dependency waits. Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification; Takode links your quest-thread questions to Work rows by itself (see Automatic User Checkpoints).
+Use `takode board propose --summary ... --phases work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` for pre-active scheduling/dependency waits, and `--wait-for #N` on a row in Work only for a helper session the worker waits on (Helper Sessions in `leader-dispatch`). Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification; Takode links your quest-thread questions to Work rows by itself (see Automatic User Checkpoints).
 
 Legacy v1 phase IDs are rejected for new active rows and revisions. Existing persisted legacy rows, completed historical runs, phase notes, and timings remain readable exactly as stored so they can finish without a rewrite.
 

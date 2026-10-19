@@ -308,6 +308,17 @@ describe("takode board output modes", () => {
                 createdAt: 1,
                 updatedAt: 2,
               },
+              // A row in Work waiting on a helper session shows that wait too.
+              {
+                questId: "q-13",
+                title: "Submit from the laptop",
+                worker: "worker-2",
+                workerNum: 6,
+                status: "WORKING",
+                waitFor: ["#31"],
+                createdAt: 1,
+                updatedAt: 3,
+              },
             ],
             rowSessionStatuses: {
               "q-12": {
@@ -337,6 +348,7 @@ describe("takode board output modes", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("input 3, 8");
+      expect(result.stdout).toContain("wait #31");
       expect(result.stdout).toContain("wait for user input (3, 8)");
     } finally {
       server.close();

@@ -6,6 +6,7 @@ import {
 } from "../../shared/quest-code-commit-evidence.js";
 import { workEvidenceHost } from "../work-evidence-replacement.js";
 import {
+  canBoardStatusHoldWorkWait,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
@@ -13,6 +14,7 @@ import {
   getQuestJourneyPhaseIndices,
   getInvalidQuestJourneyPhaseIds,
   getQuestJourneyProposalSignature,
+  getWaitForRefKind,
   isLegacyQuestJourneyPhaseId,
   isQuestJourneyOptionalUserCheckpoint,
   isValidQuestId,
@@ -1583,22 +1585,24 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         400,
       );
     }
-    if (waitFor && waitFor.length > 0 && waitForInput && waitForInput.length > 0) {
-      return c.json(
-        {
-          error:
-            "wait-for and wait-for-input cannot both be set on the same row. Use wait-for for QUEUED rows or wait-for-input for active rows.",
-        },
-        400,
-      );
-    }
     if (!mergedIsQueued && waitFor && waitFor.length > 0) {
-      return c.json(
-        {
-          error: "wait-for is only valid on QUEUED board rows; clear it before moving a row active.",
-        },
-        400,
-      );
+      if (!canBoardStatusHoldWorkWait(mergedStatusUpper)) {
+        return c.json(
+          {
+            error:
+              "wait-for is only valid on QUEUED rows, or on a row in Work to wait on a helper session (#N) or quest (q-N).",
+          },
+          400,
+        );
+      }
+      if (waitFor.some((ref) => getWaitForRefKind(ref) === "free-worker")) {
+        return c.json(
+          {
+            error: `${FREE_WORKER_WAIT_FOR_TOKEN} is a dispatch dependency for QUEUED rows; a row in Work waits on #N or q-N.`,
+          },
+          400,
+        );
+      }
     }
     if (targetMode === "active" && mergedStatusUpper === "PROPOSED") {
       return c.json({ error: "Active Journey rows cannot keep status PROPOSED." }, 400);

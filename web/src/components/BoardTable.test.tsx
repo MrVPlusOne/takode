@@ -626,7 +626,8 @@ describe("BoardTable", () => {
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 
-  it("renders only linked wait-for-input ids for active rows", () => {
+  it("renders linked questions and the helper waits of a row in Work", () => {
+    // A row in Work can wait on a helper session or quest while a user question pauses it.
     const board: BoardRowData[] = [
       {
         questId: "q-1",
@@ -641,7 +642,7 @@ describe("BoardTable", () => {
 
     expect(screen.getByText("input 3")).toBeInTheDocument();
     expect(screen.getByText("input 8")).toBeInTheDocument();
-    expect(screen.queryByText("q-2")).not.toBeInTheDocument();
+    expect(screen.getByText("q-2")).toBeInTheDocument();
   });
 
   it("lists open questions that do not pause Work after the blocking ones", () => {
