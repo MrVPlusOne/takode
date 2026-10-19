@@ -169,6 +169,19 @@ export function PlaygroundTodoLinkDemo() {
         }),
       undoCompletion: async (itemId) =>
         updateItem(itemId, (item) => setStatus(item, statusBeforeDone.current.get(itemId) ?? "todo")),
+      moveItem: async (itemId, input) => {
+        const reference = stateRef.current.items.find((item) => item.id === (input.beforeItemId ?? input.afterItemId));
+        return updateItem(itemId, (item) => ({
+          ...item,
+          categoryId: input.categoryId ?? reference?.categoryId ?? item.categoryId,
+          rank: reference ? reference.rank + (input.beforeItemId ? -0.5 : 0.5) : item.rank,
+        }));
+      },
+      setItemArchived: async (itemId, archived) =>
+        updateItem(itemId, (item) => {
+          const { archivedAt: _archivedAt, ...rest } = item;
+          return archived ? { ...rest, archivedAt: Date.now() } : rest;
+        }),
     };
   }, []);
 

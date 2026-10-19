@@ -6,6 +6,7 @@ import {
   TODO_STATUSES,
   type TodoCompletionUndoHandle,
   type TodoItem,
+  type TodoItemMoveInput,
   type TodoState,
   type TodoStateMutationResponse,
   type TodoStatus,
@@ -17,7 +18,8 @@ import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
-import { CalendarIcon, formatTodoDue, TodoDueEditor } from "./TodoDueControls.js";
+import { TODO_SELECT_CLASS } from "./TodoComposer.js";
+import { CalendarIcon, formatTodoDue, TodoDueQuickPicks } from "./TodoDueControls.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
 import {
   applyTodoItemSummaries,
@@ -37,6 +39,9 @@ export interface TodoLinkSource {
   /** Set a due date, or clear it with `null`. */
   setItemDue: (itemId: string, due: string | null) => Promise<TodoStateMutationResponse>;
   undoCompletion: (itemId: string, token: string) => Promise<TodoStateMutationResponse>;
+  /** Move to another category or position. */
+  moveItem: (itemId: string, input: TodoItemMoveInput) => Promise<TodoStateMutationResponse>;
+  setItemArchived: (itemId: string, archived: boolean) => Promise<TodoStateMutationResponse>;
 }
 
 const SERVER_TODO_LINK_SOURCE: TodoLinkSource = {
@@ -46,6 +51,8 @@ const SERVER_TODO_LINK_SOURCE: TodoLinkSource = {
   editItem: (itemId, markdown) => api.editTodoItem(itemId, { markdown }),
   setItemDue: (itemId, due) => api.setTodoItemDue(itemId, due),
   undoCompletion: (itemId, token) => api.undoTodoCompletion(itemId, token),
+  moveItem: (itemId, input) => api.moveTodoItem(itemId, input),
+  setItemArchived: (itemId, archived) => (archived ? api.archiveTodoItem(itemId) : api.restoreTodoItem(itemId)),
 };
 
 export const TodoLinkSourceContext = createContext<TodoLinkSource>(SERVER_TODO_LINK_SOURCE);
@@ -174,7 +181,34 @@ const MARKER_COLORS: Record<TodoLinkStatus, string> = {
   missing: "text-cc-muted",
 };
 
-function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () => void }) {
+/**
+ * The to-do sheet opened from a row of the To-dos page: the link preview, plus moving the to-do up
+ * or down in its category, and without the way on to the page it is already on.
+ */
+export function TodoItemSheet({
+  itemId,
+  onClose,
+  onState,
+}: {
+  itemId: string;
+  onClose: () => void;
+  /** The page's own list, kept in step with changes made in the sheet. */
+  onState: (state: TodoState) => void;
+}) {
+  return <TodoPreview target={{ kind: "item", id: itemId }} onClose={onClose} onPage onState={onState} />;
+}
+
+function TodoPreview({
+  target,
+  onClose,
+  onPage = false,
+  onState,
+}: {
+  target: TodoLinkTarget;
+  onClose: () => void;
+  onPage?: boolean;
+  onState?: (state: TodoState) => void;
+}) {
   const source = useContext(TodoLinkSourceContext);
   const [state, setState] = useState<TodoState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -187,8 +221,9 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
       setState((current) => (!current || next.revision >= current.revision ? next : current));
       // Keep link markers and the overdue count in step with the preview, e.g. right after marking it done.
       applyTodoItemSummaries(source.itemSummaries, summarizeTodoItems(next));
+      onState?.(next);
     },
-    [source],
+    [onState, source],
   );
 
   useEffect(() => {
@@ -263,7 +298,14 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
           </button>
         </div>
         {state && item ? (
-          <ItemPreview item={item} state={state} onState={applyState} onClose={onClose} onEditingChange={setEditing} />
+          <ItemPreview
+            item={item}
+            state={state}
+            onPage={onPage}
+            onState={applyState}
+            onClose={onClose}
+            onEditingChange={setEditing}
+          />
         ) : (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
@@ -279,7 +321,7 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
             </div>
             {state && (
               <div className="border-t border-cc-border/60 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
-                <PreviewFooter onClose={onClose} />
+                <PreviewFooter onClose={onClose} onPage={onPage} />
               </div>
             )}
           </>
@@ -291,13 +333,15 @@ function TodoPreview({ target, onClose }: { target: TodoLinkTarget; onClose: () 
 }
 
 /** The preview's status line and the way on to the full list. */
-function PreviewFooter({ children, onClose }: { children?: ReactNode; onClose: () => void }) {
+function PreviewFooter({ children, onClose, onPage }: { children?: ReactNode; onClose: () => void; onPage: boolean }) {
   return (
     <div className="flex min-h-11 items-center justify-between gap-3 text-[13px] text-cc-muted">
       <span data-testid="todo-preview-footer-status">{children}</span>
-      <a href={TODOS_PAGE_HASH} onClick={onClose} className="text-cc-primary hover:underline">
-        Open to-dos
-      </a>
+      {!onPage && (
+        <a href={TODOS_PAGE_HASH} onClick={onClose} className="text-cc-primary hover:underline">
+          Open to-dos
+        </a>
+      )}
     </div>
   );
 }
@@ -307,6 +351,9 @@ const STATUS_SELECTED_TONES: Record<TodoStatus, string> = {
   doing: "bg-cc-primary/15 text-cc-primary",
   done: "bg-cc-success/15 text-cc-success",
 };
+
+const SMALL_BUTTON_CLASS =
+  "inline-flex min-h-8 items-center justify-center rounded-lg border border-cc-border px-2 text-[13px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40 pointer-coarse:min-h-10";
 
 const SECONDARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center rounded-lg border border-cc-border px-4 text-sm text-cc-fg hover:bg-cc-hover disabled:opacity-60";
@@ -320,12 +367,14 @@ const SECONDARY_BUTTON_CLASS =
 function ItemPreview({
   item,
   state,
+  onPage,
   onState,
   onClose,
   onEditingChange,
 }: {
   item: TodoItem;
   state: TodoState;
+  onPage: boolean;
   onState: (state: TodoState) => void;
   onClose: () => void;
   onEditingChange: (editing: boolean) => void;
@@ -335,14 +384,20 @@ function ItemPreview({
   // Which control started the running action, so only that one shows it is waiting.
   const [busyControl, setBusyControl] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
-  const [dueOpen, setDueOpen] = useState(false);
   const [undo, setUndo] = useState<TodoCompletionUndoHandle | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editing = draft !== null;
   const current = !item.archivedAt && item.status !== "done";
   const now = useTodoDueNow(current && item.due ? [item.due] : []);
   const overdue = isTodoOverdue(item, now);
-  const category = state.categories.find((candidate) => candidate.id === item.categoryId)?.name ?? item.categoryId;
+  const categories = state.categories.filter((candidate) => !candidate.archivedAt || candidate.id === item.categoryId);
+  // Neighbours in the same category, in the page's order, for moving up and down.
+  const siblings = state.items
+    .filter(
+      (candidate) => candidate.categoryId === item.categoryId && !candidate.archivedAt && candidate.status !== "done",
+    )
+    .sort((a, b) => a.rank - b.rank || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const index = siblings.findIndex((candidate) => candidate.id === item.id);
   const quests = (item.questIds ?? []).map((id) => `[${id}](quest:${id})`).join(", ");
   // The receipt expires on a timer below; it only applies while the to-do is still Done.
   const canUndo = !!undo && item.status === "done";
@@ -441,44 +496,103 @@ function ItemPreview({
         ) : (
           <TodoBody markdown={item.markdown} />
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 text-[13px] text-cc-muted">
-          <span>In {category}</span>
-          {current && (
-            <button
-              type="button"
-              onClick={() => setDueOpen((open) => !open)}
-              aria-expanded={dueOpen}
-              className={`-mx-1 inline-flex min-h-8 items-center gap-1 rounded-md px-1 hover:bg-cc-hover ${
-                overdue ? "text-cc-error" : item.due ? "text-cc-fg" : "text-cc-muted hover:text-cc-fg"
-              }`}
-              data-testid="todo-preview-due"
+        {/* Label and control columns, so every setting lines up. */}
+        <div className="mt-3 grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-[13px]">
+          <span className="text-cc-muted">Category</span>
+          {item.archivedAt ? (
+            <span className="text-cc-fg">
+              {categories.find((candidate) => candidate.id === item.categoryId)?.name ?? item.categoryId}
+            </span>
+          ) : (
+            <select
+              aria-label="Category"
+              value={item.categoryId}
+              disabled={action.pending}
+              onChange={(event) => run("category", () => source.moveItem(item.id, { categoryId: event.target.value }))}
+              className={`${TODO_SELECT_CLASS} w-full`}
             >
-              <CalendarIcon className="h-3.5 w-3.5" />
-              {item.due ? `${overdue ? "Overdue" : "Due"} ${formatTodoDue(item.due, now)}` : "Add due date"}
-            </button>
+              {categories.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {current && (
+            <>
+              <span className="self-start pt-1.5 text-cc-muted pointer-coarse:pt-2.5">Due</span>
+              <div className="space-y-2">
+                <TodoDueQuickPicks
+                  due={item.due}
+                  busy={action.pending}
+                  now={now}
+                  onSet={(due) => run("due", () => source.setItemDue(item.id, due))}
+                />
+                {item.due && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 ${overdue ? "text-cc-error" : "text-cc-fg"}`}
+                      data-testid="todo-preview-due"
+                    >
+                      <CalendarIcon className="h-3.5 w-3.5" />
+                      {`${overdue ? "Overdue" : "Due"} ${formatTodoDue(item.due, now)}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={action.pending}
+                      onClick={() => run("due", () => source.setItemDue(item.id, null))}
+                      className="rounded-md px-1.5 py-0.5 text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {quests && (
+            <>
+              <span className="text-cc-muted">Quests</span>
+              <MarkdownContent text={quests} size="md" />
+            </>
           )}
         </div>
-        {current && dueOpen && (
-          <div className="mt-2 rounded-lg border border-cc-border p-2.5">
-            <TodoDueEditor
-              key={item.due ?? ""}
-              due={item.due}
-              busy={action.pending}
-              onSet={(due) =>
-                run(
-                  "due",
-                  () => source.setItemDue(item.id, due),
-                  () => setDueOpen(false),
-                )
-              }
-            />
+        {onPage && (
+          <div className={`mt-3 grid gap-1.5 ${current ? "grid-cols-3" : "grid-cols-1"}`}>
+            {current && (
+              <>
+                <button
+                  type="button"
+                  disabled={action.pending || index <= 0}
+                  onClick={() => run("up", () => source.moveItem(item.id, { beforeItemId: siblings[index - 1]!.id }))}
+                  className={SMALL_BUTTON_CLASS}
+                >
+                  ↑ Move up
+                </button>
+                <button
+                  type="button"
+                  disabled={action.pending || index < 0 || index >= siblings.length - 1}
+                  onClick={() => run("down", () => source.moveItem(item.id, { afterItemId: siblings[index + 1]!.id }))}
+                  className={SMALL_BUTTON_CLASS}
+                >
+                  ↓ Move down
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              disabled={action.pending}
+              onClick={() => run("archive", () => source.setItemArchived(item.id, !item.archivedAt))}
+              className={SMALL_BUTTON_CLASS}
+            >
+              {item.archivedAt ? "Restore" : "Archive"}
+            </button>
           </div>
         )}
-        {quests && <MarkdownContent text={`Linked quests: ${quests}`} size="md" className="mt-1 text-cc-muted" />}
         <TodoProvenance item={item} onNavigate={onClose} className="mt-2 space-y-0.5 text-[12px] text-cc-muted" />
       </div>
       <div className="border-t border-cc-border/60 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
-        <PreviewFooter onClose={onClose}>
+        <PreviewFooter onClose={onClose} onPage={onPage}>
           {canUndo ? (
             <>
               Moved to Done ·{" "}

@@ -83,6 +83,8 @@ function renderLink(source: PreviewSource, text = "Ready to [reply to Alice](tod
     editItem: vi.fn(),
     setItemDue: vi.fn(),
     undoCompletion: vi.fn(),
+    moveItem: vi.fn(),
+    setItemArchived: vi.fn(),
     ...source,
   };
   return render(
@@ -136,7 +138,7 @@ describe("to-do links", () => {
     const dialog = await screen.findByRole("dialog", { name: "To-do" });
     await screen.findByText("Reply to Alice");
     expect(dialog.textContent).toContain("Old detail");
-    expect(dialog.textContent).toContain("In Inbox");
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Category").value).toBe("cat-inbox");
     expect(screen.getByRole("link", { name: "q-7" }).getAttribute("href")).toContain("q-7");
     // The status control at the bottom shows the status; there is no separate status chip.
     expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true");
@@ -190,7 +192,7 @@ describe("to-do links", () => {
     fingerTap(screen.getByRole("link", { name: "PR 98888 review" }));
     const dialog = await screen.findByRole("dialog", { name: "To-do" });
     await screen.findByText("Review Junhong's PR 98888");
-    expect(dialog.textContent).toContain("In Work");
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Category").value).toBe("cat-work");
     expect(screen.getByTestId("todo-provenance").textContent).toContain("you approved its proposal");
     fireEvent.keyDown(document, { key: "Escape" });
 
@@ -375,19 +377,22 @@ describe("to-do links", () => {
     expect(due.textContent).toMatch(/^Overdue /);
     expect(due.className).toContain("text-cc-error");
 
-    // The due date is its own control: tapping it opens the same date and time inputs as the To-dos page.
-    fingerTap(due);
+    // Date… opens the same date and time inputs as the To-dos page; Set saves and closes them.
+    fingerTap(screen.getByRole("button", { name: "Date…" }));
     expect(screen.getByLabelText<HTMLInputElement>("Due date").value).toBe("2020-01-02");
     fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2099-05-01" } });
-    fingerTap(screen.getByRole("button", { name: "Change due date" }));
+    fingerTap(screen.getByRole("button", { name: "Set" }));
     await waitFor(() => expect(screen.getByTestId("todo-preview-due").textContent).toMatch(/^Due /));
     expect(setItemDue).toHaveBeenLastCalledWith("td-1", "2099-05-01");
     expect(screen.getByTestId("todo-preview-due").className).not.toContain("text-cc-error");
     expect(screen.queryByLabelText("Due date")).toBeNull();
 
-    fingerTap(screen.getByTestId("todo-preview-due"));
+    // One tap for the common days, and Clear removes the date.
+    fingerTap(screen.getByRole("button", { name: "Tomorrow" }));
+    await waitFor(() => expect(setItemDue).toHaveBeenCalledTimes(2));
+    expect(setItemDue.mock.calls[1]![1]).toMatch(/^\d{4}-\d\d-\d\d$/);
     fingerTap(screen.getByRole("button", { name: "Clear" }));
-    await waitFor(() => expect(screen.getByTestId("todo-preview-due").textContent).toBe("Add due date"));
+    await waitFor(() => expect(screen.queryByTestId("todo-preview-due")).toBeNull());
     expect(setItemDue).toHaveBeenLastCalledWith("td-1", null);
   });
 

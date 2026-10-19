@@ -15,12 +15,14 @@ const EXTRA_STATUS_LABELS: Partial<Record<TodoLinkedQuest["status"], string>> = 
 export function TodoQuestChips({
   questIds,
   linkedQuests,
+  className = "mt-1 flex",
 }: {
   questIds: string[];
   linkedQuests: ReadonlyMap<string, TodoLinkedQuest>;
+  className?: string;
 }) {
   return (
-    <div className="mt-1 flex flex-wrap gap-1" aria-label="Linked quests">
+    <div className={`flex-wrap gap-1 ${className}`} aria-label="Linked quests">
       {questIds.map((questId) => {
         const linked = linkedQuests.get(questId);
         const theme = linked ? getQuestStatusTheme(linked.status) : null;
