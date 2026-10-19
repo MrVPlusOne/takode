@@ -159,7 +159,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     const terminalElement = screen.getByTestId("playground-codex-turn-recovery-action-required");
     const terminal = within(terminalElement);
     expect(useStore.getState().sessionStatus.get(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID)).toBe("idle");
-    expect(terminal.getByText("Pending delivery")).toBeInTheDocument();
+    expect(terminal.getByTestId("pending-input-status")).toBeInTheDocument();
     expect(terminal.getByText("Check whether the settings change still needs follow-up.")).toBeInTheDocument();
     expect(terminalElement.querySelector('[data-feed-activity-row="true"]')).toBeNull();
     expect(terminal.queryByTestId("codex-turn-recovery-chip")).toBeNull();

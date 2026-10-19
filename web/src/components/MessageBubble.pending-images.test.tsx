@@ -120,13 +120,12 @@ describe("MessageBubble pending image attachments", () => {
         message={userMessage({
           localImages: [{ name: "origin.png", mediaType: "image/png", base64: "ZmFrZQ==" }],
           images: [{ imageId: "stored-copy", media_type: "image/png", sourceName: "origin.png" }],
-          pendingState: "delivering",
+          pendingState: "queued",
         })}
         sessionId="session-1"
       />,
     );
 
-    expect(screen.getByText("Sending…")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Open image origin.png" })).toHaveLength(1);
     expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
     const thumbnail = screen.getByTestId("image-preview-thumbnail-image");

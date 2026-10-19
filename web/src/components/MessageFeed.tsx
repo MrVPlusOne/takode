@@ -4,8 +4,9 @@ import { useStore } from "../store.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
+import { ElapsedTimer, FeedStatusPill } from "./MessageFeedStatus.js";
 import { FeedFooter } from "./MessageFeedEntries.js";
+import { PendingMessages } from "./PendingMessages.js";
 import { TurnEntries } from "./MessageFeedTurns.js";
 import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { useScrollActivity } from "./message-feed-scroll-activity.js";
@@ -33,6 +34,7 @@ import {
   EMPTY_MESSAGES,
   collectFeedBlockIdsFromNode,
   escapeSelectorValue,
+  EMPTY_PENDING_CODEX_INPUTS,
   formatElapsed,
   buildMinuteBoundaryLabelMap,
   getApprovalBatchFeedBlockId,
@@ -236,6 +238,7 @@ export function MessageFeed({
   const leaderProjection = useStore((s) => s.leaderProjections?.get(sessionId) ?? null);
   const starredMessages = useStore((s) => s.sessions.get(sessionId)?.starredMessages);
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
+
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const toolResults = useStore((s) => s.toolResults.get(sessionId));
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
@@ -1911,17 +1914,12 @@ export function MessageFeed({
                       )}
                     </div>
                   )}
-                  {pendingUserUploads.length > 0 && (
-                    <PendingUserUploadList
-                      sessionId={sessionId}
-                      uploads={pendingUserUploads}
-                      showTimestamp={!isLeaderSession}
-                      questLinkSurface="chat-feed"
-                    />
-                  )}
-                  {isCodexSession && pendingCodexInputs.length > 0 && (
-                    <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
-                  )}
+                  <PendingMessages
+                    sessionId={sessionId}
+                    uploads={pendingUserUploads}
+                    codexInputs={isCodexSession ? pendingCodexInputs : EMPTY_PENDING_CODEX_INPUTS}
+                    questLinkSurface="chat-feed"
+                  />
                   <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
                   <MessageFeedEndSlack {...feedEndSlackProps} />
                 </div>

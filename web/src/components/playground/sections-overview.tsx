@@ -20,6 +20,7 @@ import { PlaygroundMarkdownImages } from "./PlaygroundMarkdownImages.js";
 import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
 import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
+import { PlaygroundPendingMessageStates } from "./PlaygroundPendingMessageStates.js";
 import {
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
@@ -569,7 +570,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Codex Pending Inputs"
-        description="Pending human and background messages follow their known destination, including quest routes with an empty primary field. Unknown destinations remain visible across tabs, and All Threads retains every input. Prepared local sends are replaced by their server-owned row; failure and cancellation actions keep the same input identity."
+        description="Pending human and background messages follow their known destination, including quest routes with an empty primary field. Unknown destinations remain visible across tabs, and All Threads retains every input. Prepared local sends are replaced by their server-owned bubble; failure and cancellation actions keep the same input identity."
       >
         <div className="mb-2 flex flex-wrap gap-2" aria-label="Pending input thread preview">
           {["main", "q-1958", "q-1952", "all"].map((threadKey) => (
@@ -592,30 +593,7 @@ export function PlaygroundOverviewSections() {
         </div>
       </Section>
 
-      <Section
-        title="Codex Image Preparation and Delivery"
-        description="Attachment preparation stays distinct from model delivery: unfinished preparation may say Uploading, while a prepared message awaiting Codex uses the canonical Pending delivery row above."
-      >
-        <div className="space-y-4">
-          <Card label="Unfinished attachment preparation">
-            <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card p-4">
-              <div className="flex justify-end">
-                <div className="max-w-[85%] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
-                  <div className="flex gap-2 flex-wrap mb-2">
-                    <img
-                      src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z1WQAAAAASUVORK5CYII="
-                      alt="attachment-1.png"
-                      className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover"
-                    />
-                  </div>
-                  <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">Uploading image…</div>
-                  <div className="text-sm">Compare this screenshot with the current mobile header state.</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </Section>
+      <PlaygroundPendingMessageStates />
 
       <PlaygroundChatViewRecoveryStates />
 

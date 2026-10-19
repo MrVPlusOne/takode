@@ -331,19 +331,6 @@ function setStoreToolResults(
   mockStoreValues.toolResults = map;
 }
 
-function setStoreSdkSessionRole(sessionId: string, overrides: { isOrchestrator?: boolean; herdedBy?: string } = {}) {
-  mockStoreValues.sdkSessions = [
-    {
-      sessionId,
-      state: "connected",
-      cwd: "/test",
-      createdAt: Date.now(),
-      ...(overrides.isOrchestrator ? { isOrchestrator: true } : {}),
-      ...(overrides.herdedBy ? { herdedBy: overrides.herdedBy } : {}),
-    },
-  ];
-}
-
 function setStoreScrollToTurn(sessionId: string, turnId: string) {
   const map = new Map();
   map.set(sessionId, turnId);
@@ -511,7 +498,7 @@ describe("MessageFeed - empty state", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText("Queued")).toBeTruthy();
     expect(screen.getByText(/Steer the active turn toward auth fixes/)).toBeTruthy();
   });
 
@@ -563,16 +550,17 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText("Unrouted pending request")).toBeTruthy();
     expect(screen.queryByText("Replaced local send")).toBeNull();
 
-    const humanRow = screen.getByText("Queued human request").closest("[data-delivery-state]")!;
-    fireEvent.click(within(humanRow as HTMLElement).getByRole("button", { name: "Cancel pending message" }));
+    const humanRow = screen.getByText("Queued human request").closest("[data-pending-status]")!;
+    fireEvent.click(within(humanRow as HTMLElement).getByRole("button", { name: "Cancel" }));
     expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "cancel_pending_codex_input", id: "human-owner" });
 
     view.rerender(<MessageFeed sessionId={sid} threadKey="q-42" />);
     expect(screen.queryByText("Queued human request")).toBeNull();
     expect(screen.getByText("Queued background event")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Pending message is already being delivered" }).hasAttribute("disabled"),
-    ).toBe(true);
+    // Server-owned background input cannot be withdrawn, so it offers no action.
+    const backgroundRow = screen.getByText("Queued background event").closest("[data-pending-status]")!;
+    expect(backgroundRow.getAttribute("data-pending-status")).toBe("delivering");
+    expect(within(backgroundRow as HTMLElement).queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(screen.getByText("Unrouted pending request")).toBeTruthy();
 
     view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
@@ -606,7 +594,7 @@ describe("MessageFeed - empty state", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1546" />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText("Queued")).toBeTruthy();
     expect(screen.getByText(/Continue q-1546 implementation/)).toBeTruthy();
   });
 
@@ -627,7 +615,7 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="q-1536" />);
 
-    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.queryByTestId("pending-input-status")).toBeNull();
     expect(screen.queryByText(/Continue q-1546 implementation/)).toBeNull();
     expect(screen.getByText("Start a conversation")).toBeTruthy();
   });
@@ -649,7 +637,7 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="main" />);
 
-    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.queryByTestId("pending-input-status")).toBeNull();
     expect(screen.queryByText(/Continue q-1546 implementation/)).toBeNull();
     expect(screen.getByText("Start a conversation")).toBeTruthy();
   });
@@ -671,7 +659,7 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="all" />);
 
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText("Queued")).toBeTruthy();
     expect(screen.getByText(/Continue q-1546 implementation/)).toBeTruthy();
   });
 
@@ -690,38 +678,33 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="q-1536" />);
 
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText("Queued")).toBeTruthy();
     expect(screen.getByText(/Preserve unknown-route pending input/)).toBeTruthy();
   });
 
-  it("shows no time on pending local messages in normal or Leader feeds", () => {
-    // A message still being delivered has no sent time yet; it gets its corner time once the
-    // server confirms it.
-    const sid = "test-pending-upload-inline-timing";
-    const timestamp = new Date(2026, 8, 4, 11, 48).getTime();
+  it("keeps a pending message's corner time invisible but holds its space", () => {
+    // Delivered user bubbles reserve room for their corner time even when it is hidden,
+    // so a pending bubble holds the same room and landing changes no line breaks.
+    const sid = "test-pending-upload-time-space";
     setStoreMessages(sid, []);
     setStorePendingUserUploads(sid, [
       {
         id: "pending-upload-timing",
         content: "Pending timing boundary",
-        timestamp,
+        timestamp: new Date(2026, 8, 4, 11, 48).getTime(),
         stage: "delivering",
         images: [],
       },
     ]);
 
-    const normalFeed = render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("Pending timing boundary")).toBeTruthy();
-    expect(screen.queryByTestId("message-timestamp")).toBeNull();
-    expect(screen.queryByTestId("message-time-label")).toBeNull();
-
-    normalFeed.unmount();
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Pending timing boundary")).toBeTruthy();
     expect(screen.queryByTestId("message-time-label")).toBeNull();
+    const placeholder = screen.getByTestId("message-time-placeholder");
+    expect(placeholder.className).toContain("invisible");
+    // The last line reserves room for the time, as it does for a delivered message.
+    expect(document.querySelector(".message-time-trail")).toBeTruthy();
   });
 
   it("renders prepared local messages as pending delivery while awaiting server acknowledgement", () => {
@@ -752,7 +735,6 @@ describe("MessageFeed - empty state", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
     expect(screen.getByText("Sending…")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open image attachment-1.png" }).hasAttribute("disabled")).toBe(false);
     expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
@@ -778,7 +760,7 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
 
-    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(screen.getAllByTestId("pending-input-status")).toHaveLength(1);
     expect(
       screen.getByText("Codex input is too large to queue safely. The message was not sent to Codex."),
     ).toBeTruthy();
@@ -881,7 +863,7 @@ describe("MessageFeed - empty state", () => {
 
     const originBrowser = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
 
-    expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
+    expect(screen.getAllByTestId("pending-input-status")).toHaveLength(1);
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
     expect(screen.queryByText("Sending…")).toBeNull();
     expect(screen.queryByAltText("attachment-1.png")).toBeNull();
@@ -897,7 +879,7 @@ describe("MessageFeed - empty state", () => {
     setStorePendingUserUploads(sid, []);
     setStorePendingUserUploadRestorations(sid, []);
     render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
-    expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
+    expect(screen.getAllByTestId("pending-input-status")).toHaveLength(1);
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Loading image img-/ })).toHaveLength(4);
   });
@@ -934,7 +916,7 @@ describe("MessageFeed - empty state", () => {
 
     const originBrowser = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
 
-    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(screen.getAllByTestId("pending-input-status")).toHaveLength(1);
     expect(screen.getByText("Codex rejected this input before delivery.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "retry_pending_codex_input", id: failedInput.id });
@@ -946,7 +928,7 @@ describe("MessageFeed - empty state", () => {
     originBrowser.unmount();
     setStorePendingUserUploadRestorations(sid, []);
     render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
-    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(screen.getAllByTestId("pending-input-status")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -973,7 +955,7 @@ describe("MessageFeed - empty state", () => {
 
     rerender(<MessageFeed sessionId={sid} threadKey="q-1952" />);
     expect(screen.queryByText("Only q-1958 should show this")).toBeNull();
-    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.queryByTestId("pending-input-status")).toBeNull();
     expect(screen.getByText("Start a conversation")).toBeTruthy();
   });
 });

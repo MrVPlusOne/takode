@@ -230,11 +230,14 @@ describe("MessageBubble - user messages", () => {
     expect(screen.getByTestId("user-message-content").className).not.toContain("message-time-trail");
   });
 
-  it("shows no time on a user message that is still sending", () => {
-    const msg = makeMessage({ role: "user", content: "Sending", timestamp: 1700000000000, pendingState: "delivering" });
+  it("holds a pending user message's time space without showing a time", () => {
+    // The pending bubble must match its delivered form's layout, so the time's room is kept invisibly.
+    const msg = makeMessage({ role: "user", content: "Sending", timestamp: 1700000000000, pendingState: "queued" });
     render(<MessageBubble message={msg} />);
 
     expect(screen.queryByTestId("message-time-label")).toBeNull();
+    expect(screen.getByTestId("message-time-placeholder").className).toContain("invisible");
+    expect(screen.getByTestId("user-message-content").className).toContain("message-time-trail");
   });
 
   it("renders the stable thread source badge for user messages", () => {

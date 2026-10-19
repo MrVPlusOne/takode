@@ -58,6 +58,7 @@ import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import {
   InlineMessageTimingVisibilityContext,
   MessageTimeLabel,
+  MessageTimePlaceholder,
   formatMessageTimeLabel,
   isValidMessageTimestamp,
   messageTimeLabelReserve,
@@ -97,6 +98,18 @@ function useFeedStarredMessage(sessionId: string | undefined, message: ChatMessa
     Boolean(sessionId && message.id && s.sessions.get(sessionId)?.starredMessages?.[message.id]),
   );
   return starred && isStarActionableMessage(message);
+}
+
+/** Whether a user-role message draws as a right-side user bubble rather than a left-side event card. */
+export function rendersAsUserBubble(message: ChatMessage): boolean {
+  if (message.role !== "user") return false;
+  const sourceId = message.agentSource?.sessionId;
+  if (sourceId === "herd-events" || sourceId?.startsWith("timer:")) return false;
+  return (
+    !buildInjectedEventMessageViewModel(message) &&
+    !isStandaloneReminderMessage(message) &&
+    !buildThreadOutcomeReminderViewModel(message)
+  );
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -877,19 +890,16 @@ function UserMessage({
   }, [message.id]);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
+  // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
   const timeLabel =
-    showTimestamp && !message.pendingState && isValidMessageTimestamp(message.timestamp) ? (
-      <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} />
+    showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
+      message.pendingState ? (
+        <MessageTimePlaceholder timestamp={message.timestamp} />
+      ) : (
+        <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} />
+      )
     ) : null;
   const timeLabelReserve = timeLabel ? messageTimeLabelReserve(formatMessageTimeLabel(message.timestamp)) : undefined;
-  const pendingLabel =
-    message.pendingState === "uploading"
-      ? "Uploading image…"
-      : message.pendingState === "delivering"
-        ? "Sending…"
-        : message.pendingState === "failed"
-          ? message.pendingError || "Send failed"
-          : null;
 
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
@@ -943,7 +953,6 @@ function UserMessage({
           onLocalPreviewReleased={handleLocalPreviewReleased}
           size="message"
         />
-        {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
         <CollapsibleContent trailing={transcribed ? null : timeLabel} trailingReserve={timeLabelReserve}>
           {message.metadata?.annotations?.length ? (
             <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
@@ -968,6 +977,8 @@ function UserMessage({
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       )}
+      {/* Holds the menu's place so the bubble does not shift sideways when the message lands. */}
+      {!readOnly && message.pendingState && <span aria-hidden="true" className="w-[22px] shrink-0" />}
       {lightboxSelection && (
         <Lightbox src={lightboxSelection.src} alt="attachment" onClose={() => setLightboxSelection(null)} />
       )}

@@ -359,9 +359,8 @@ export interface ChatMessage {
   };
   /** Browser-only message not present in server messageHistory; excluded from sync hash verification. */
   ephemeral?: boolean;
-  /** Browser-only pending upload/send state for local user messages. */
-  pendingState?: "uploading" | "delivering" | "failed";
-  pendingError?: string;
+  /** Browser-only: drawn for a message not yet delivered to the agent; its status shows beside the bubble. */
+  pendingState?: "queued";
   clientMsgId?: string;
   /** Raw server messageHistory index, used for Takode CLI-compatible message links. */
   historyIndex?: number;

@@ -138,6 +138,24 @@ export function MessageTimeLabel({
   );
 }
 
+/**
+ * Holds a time label's space without showing it, for a message that has not landed yet.
+ * It stays out of the feed's label clustering, which only counts delivered messages.
+ */
+export function MessageTimePlaceholder({ timestamp }: { timestamp: number }) {
+  const text = formatMessageTimeLabel(timestamp);
+  if (!text) return null;
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="message-time-placeholder"
+      className="invisible whitespace-nowrap text-[11px] leading-4 tabular-nums"
+    >
+      {text}
+    </span>
+  );
+}
+
 /** Label text: the clock time, plus the turn's duration where the feed shows durations. */
 export function formatMessageTimeLabel(timestamp: number, turnDurationMs?: number): string {
   const time = formatMessageClockTime(timestamp);
