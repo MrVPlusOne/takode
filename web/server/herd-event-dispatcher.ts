@@ -53,6 +53,13 @@ import {
 import { sessionTag } from "./session-tag.js";
 import { getStableHerdEventKey } from "./herd-event-keys.js";
 import { formatCompactAgentLabel } from "../shared/takode-constants.js";
+import {
+  formatHeldQuietTurn,
+  isHeldQuietTurn,
+  mergeHeldQuietTurn,
+  overrideQuietForBoardChange,
+  withRideAlongQuietEntries,
+} from "./herd-quiet-turns.js";
 
 export interface BufferedTakodeEventState {
   takodeSubscribers: Set<TakodeEventSubscriber>;
@@ -299,7 +306,8 @@ interface DeliveryRecord {
   sessionName: string;
   ts: number;
   deliveredAt: number | null;
-  status: "pending" | "held" | "queued" | "in_flight" | "confirmed" | "redelivered" | "suppressed";
+  /** `merged`: a held quiet turn folded into a later quiet turn from the same worker. */
+  status: "pending" | "held" | "queued" | "in_flight" | "confirmed" | "redelivered" | "suppressed" | "merged";
 }
 
 interface HerdInbox {
@@ -601,6 +609,11 @@ export class HerdEventDispatcher {
       return;
     }
 
+    // A quiet turn waits for the next real event instead of waking the leader.
+    event = overrideQuietForBoardChange(event, this.wsBridge.getSession(orchId)?.board);
+    const quiet = isHeldQuietTurn(event);
+    if (quiet) event = this.mergeEarlierHeldQuietTurn(inbox, event);
+
     // Append to inbox (pure in-memory, never fails)
     const seq = inbox.nextSeq++;
     const entry: InboxEntry = { event, seq, threadRoute: this.resolveEventThreadRoute(event) };
@@ -612,6 +625,7 @@ export class HerdEventDispatcher {
     this.traceDelivery(orchId, policy.kind === "hold" ? "held" : "accepted", event, {
       seq,
       pending: this.pendingCount(inbox),
+      quiet: quiet || undefined,
     });
 
     // Track in delivery history
@@ -657,7 +671,7 @@ export class HerdEventDispatcher {
       this.recomputeInboxWatermarks(inbox);
     }
 
-    if (policy.kind === "hold" || serverWorkAdmission.isStopping() || this.isHostOffline(orchId)) return;
+    if (policy.kind === "hold" || quiet || serverWorkAdmission.isStopping() || this.isHostOffline(orchId)) return;
 
     // If orchestrator is idle, schedule delivery
     if (this.isSessionIdle(orchId)) {
@@ -906,7 +920,7 @@ export class HerdEventDispatcher {
       inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
       this.recomputeInboxWatermarks(inbox);
     }
-    return deliverable;
+    return withRideAlongQuietEntries(deliverable);
   }
 
   private deliverPendingEntries(
@@ -1005,9 +1019,26 @@ export class HerdEventDispatcher {
     }
   }
 
-  /** Count of events waiting to be delivered. */
+  /** Count of events waiting to be delivered that wake the leader; held quiet turns only ride along. */
   private pendingCount(inbox: HerdInbox): number {
-    return this.getPendingEntries(inbox).length;
+    return this.getPendingEntries(inbox).filter((entry) => !isHeldQuietTurn(entry.event)).length;
+  }
+
+  /** Keep one held quiet entry per worker: fold its pending one into the new turn. */
+  private mergeEarlierHeldQuietTurn(inbox: HerdInbox, event: TakodeEvent): TakodeEvent {
+    if (!isHeldQuietTurn(event)) return event;
+    const previous = inbox.entries.find(
+      (entry) =>
+        entry.deliveryOwnerId === undefined &&
+        entry.event.sessionId === event.sessionId &&
+        isHeldQuietTurn(entry.event),
+    );
+    if (!previous) return event;
+    inbox.entries = inbox.entries.filter((entry) => entry !== previous);
+    this.markDeliveryHistoryStatus(inbox, previous, "merged");
+    this.rememberDeliveredEventKeys(inbox, [previous.event]);
+    this.recomputeInboxWatermarks(inbox);
+    return mergeHeldQuietTurn(previous.event, event);
   }
 
   private getRestartPrepDeliveryPolicy(
@@ -1282,7 +1313,7 @@ export class HerdEventDispatcher {
         if (inbox.debounceTimer) clearTimeout(inbox.debounceTimer);
         inbox.debounceTimer = null;
         this.pruneStaleBoardStallEntries(orchId, inbox);
-        const pending = this.getPendingEntries(inbox);
+        const pending = withRideAlongQuietEntries(this.getPendingEntries(inbox));
         if (pending.length && this.deliverPendingEntries(orchId, inbox, pending).status !== "sent") {
           throw new Error(`Buffered events for ${orchId} have not reached durable pending input`);
         }
@@ -1401,6 +1432,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
   const ageSuffix = age ? ` | ${age}` : "";
   switch (evt.event) {
     case "turn_end": {
+      if (evt.data.quiet) return formatHeldQuietTurn(evt, label, ageSuffix);
       const duration = formatDuration(evt.data.duration_ms);
       const tools = formatToolCounts(evt.data.tools);
       const resultPreview =
@@ -1435,8 +1467,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
       const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
       const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote, qc?.questId ?? evt.data.questId);
+      const quietIgnored = evt.data.quiet_ignored ? ` | quiet marker ignored: ${evt.data.quiet_ignored}` : "";
 
-      const statusLine = `${label} | turn_end | ${success} ${duration}${lifecycle}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
+      const statusLine = `${label} | turn_end | ${success} ${duration}${lifecycle}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${quietIgnored}${resultPreview}${ageSuffix}`;
 
       // Auto-inject peek-style activity summary between events
       const activity = buildActivityForEvent(evt, options);

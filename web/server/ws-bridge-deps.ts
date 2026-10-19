@@ -11,6 +11,8 @@ import {
 import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
+import { resolveQuietTurn as resolveQuietTurnController } from "./bridge/quiet-turn.js";
+import { listSessionWaits } from "./bridge/board-stall-participants.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
@@ -1918,5 +1920,17 @@ export function getGenerationLifecycleDeps(host: any) {
         isSystemSourceTag,
       }),
     isHerdedWorker: (session: Session) => host.isHerdedWorkerSession(session),
+    resolveQuietTurn: (session: Session, turn: TakodeTurnEndEventData, turnStartedAt: number | null) =>
+      resolveQuietTurnController(session, turn, turnStartedAt, {
+        hasResumeSource: (sessionId) =>
+          (host.timerManager?.listTimers(sessionId).length ?? 0) > 0 ||
+          listSessionWaits(sessionId, {
+            getLeaseWaits: (id) => host.resourceLeaseManager?.getLeaseWaits(id) ?? [],
+            getBackgroundTasks: (id) =>
+              (host.sessions.get(id) as Session | undefined)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
+            isLandingActive: (id) => host.landingQueue?.isLandingActive(id) ?? false,
+            listBoardSessions: () => host.sessions.values(),
+          }).length > 0,
+      }),
   };
 }

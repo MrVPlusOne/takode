@@ -1,4 +1,5 @@
 import { extractThreadStatusMarkersFromText } from "../../shared/thread-status-marker.js";
+import { extractQuietMarkerFromText } from "../../shared/quiet-turn-marker.js";
 import { parseThreadTextPrefix } from "../../shared/thread-routing.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { stripRootCodexThinkingBlocks } from "./assistant-content-blocks.js";
@@ -18,6 +19,8 @@ export interface AssistantMessageRenderProjection {
   hasTextBlock: boolean;
   hasThinkingBlock: boolean;
   shouldRenderContentFallback: boolean;
+  /** Summary of the worker's quiet marker, shown as a note instead of the raw marker line. */
+  quietSummary: string | null;
   renderable: boolean;
 }
 
@@ -26,7 +29,7 @@ export function isToolHiddenFromChat(name: string): boolean {
 }
 
 function projectAssistantVisibleText(text: string): string {
-  const withoutStatuses = extractThreadStatusMarkersFromText(text).text;
+  const withoutStatuses = extractQuietMarkerFromText(extractThreadStatusMarkersFromText(text).text).text;
   const routed = parseThreadTextPrefix(withoutStatuses);
   return routed.ok ? routed.body : withoutStatuses;
 }
@@ -77,6 +80,7 @@ export function projectAssistantMessageForRendering(
     : projectAssistantVisibleText(message.content ?? "");
   const shouldRenderContentFallback =
     fallbackText.trim().length > 0 && !hasTextBlock && !hasThinkingBlock && !hasSuppressedRootCodexThinkingBlock;
+  const quietSummary = findQuietSummary(message);
   const hasVisibleBlock = blocks.length > 0;
   const hasVisibleChild =
     message.notification != null ||
@@ -84,6 +88,7 @@ export function projectAssistantMessageForRendering(
     context.hasVisibleSideChat === true ||
     (message.images?.length ?? 0) > 0 ||
     (message.localImages?.length ?? 0) > 0 ||
+    quietSummary !== null ||
     message.metadata?.attentionRecord != null ||
     message.metadata?.codexReasoningDetail != null;
 
@@ -94,8 +99,19 @@ export function projectAssistantMessageForRendering(
     hasTextBlock,
     hasThinkingBlock,
     shouldRenderContentFallback,
+    quietSummary,
     renderable: message.role !== "assistant" || hasVisibleBlock || shouldRenderContentFallback || hasVisibleChild,
   };
+}
+
+function findQuietSummary(message: ChatMessage): string | null {
+  if (message.role !== "assistant") return null;
+  const texts = message.contentBlocks?.length
+    ? message.contentBlocks.flatMap((block) => (block.type === "text" ? [block.text] : []))
+    : [message.content ?? ""];
+  let summary: string | null = null;
+  for (const text of texts) summary = extractQuietMarkerFromText(text).summary ?? summary;
+  return summary;
 }
 
 export function getAssistantVisibleMarkdown(message: ChatMessage, context: AssistantMessageRenderContext = {}): string {

@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { buildToolSummary } from "./takode-messages.js";
+import { extractQuietMarkerFromText } from "../shared/quiet-turn-marker.js";
 
 export const SESSION_ACTIVITY_PREVIEW_LINE_LIMIT = 4;
 /** History entries scanned from the tail; keeps the preview cheap on very long sessions. */
@@ -9,7 +10,8 @@ const MAX_LINE_TEXT_LENGTH = 160;
 export interface SessionActivityPreviewLine {
   /** messageHistory index of the message that produced this line, for deep links. */
   historyIndex: number;
-  kind: "tool" | "message";
+  /** `quiet`: the summary of a quiet marker the worker ended a turn with. */
+  kind: "tool" | "message" | "quiet";
   /** Tool name for tool lines. */
   toolName?: string;
   /** One-line tool summary or assistant text excerpt. */
@@ -60,11 +62,14 @@ export function buildSessionActivityPreview(
           timestamp,
         });
       } else if (block.type === "text") {
-        const text = oneLine(firstNonEmptyLine(block.text));
+        const quiet = extractQuietMarkerFromText(block.text);
+        const text = oneLine(firstNonEmptyLine(quiet.text));
         const key = `${message.message.id}\u0000${text}`;
-        if (!text || seenTexts.has(key)) continue;
+        if (seenTexts.has(key)) continue;
         seenTexts.add(key);
-        lines.push({ historyIndex: index, kind: "message", text, timestamp });
+        // The marker ends the text, so its line is the newer of the two.
+        if (quiet.summary) lines.push({ historyIndex: index, kind: "quiet", text: oneLine(quiet.summary), timestamp });
+        if (text && lines.length < limit) lines.push({ historyIndex: index, kind: "message", text, timestamp });
       }
     }
   }

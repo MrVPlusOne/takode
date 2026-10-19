@@ -103,6 +103,12 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   getCurrentTurnTriggerSource?: (session: S) => "user" | "leader" | "system" | "unknown";
   /** Returns true if the session is a herded worker (owned by an orchestrator). */
   isHerdedWorker?: (session: S) => boolean;
+  /** Whether a quiet-marked turn may be held from the leader (see `resolveQuietTurn`). */
+  resolveQuietTurn?: (
+    session: S,
+    turn: TakodeTurnEndEventData,
+    turnStartedAt: number | null,
+  ) => Pick<TakodeTurnEndEventData, "quiet" | "quiet_ignored">;
 }
 
 export interface StuckWatchdogSession extends GenerationLifecycleSession {
@@ -596,10 +602,10 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.activeReasoningAttributionRoute = null;
     session.activeCodexReasoningPreview = null;
     if (!SUPPRESSED_TAKODE_TURN_END_REASONS.has(reason)) {
-      deps.emitTakodeEvent(session.id, "turn_end", {
+      const turnEnd: TakodeTurnEndEventData = {
         reason,
         duration_ms: elapsed,
-        ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
+        ...(interrupted ? { interrupted: true, interrupt_source: interruptSource ?? "system" } : {}),
         ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
         ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
         ...(compacted ? { compacted: true } : {}),
@@ -608,6 +614,10 @@ export function setGenerating<S extends GenerationLifecycleSession>(
         turn_source: turnSource,
         ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
         ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
+      };
+      deps.emitTakodeEvent(session.id, "turn_end", {
+        ...turnEnd,
+        ...deps.resolveQuietTurn?.(session, turnEnd, generationStartedAt),
       });
 
       deps.onOrchestratorTurnEnd?.(session.id, reason);

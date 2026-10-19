@@ -78,6 +78,14 @@ export interface TakodeTurnEndEventData {
     index?: number;
     tldr?: string;
   };
+  /** The worker ended the turn with an accepted quiet marker: the leader's inbox holds the event instead of waking it. */
+  quiet?: {
+    summary: string;
+    /** Quiet turns this held event stands for, when earlier held ones were merged into it. */
+    count?: number;
+  };
+  /** Why a quiet-marked turn was delivered normally anyway. */
+  quiet_ignored?: string;
 }
 
 export interface TakodeWorkerStreamEventData

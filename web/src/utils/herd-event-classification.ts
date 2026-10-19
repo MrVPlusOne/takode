@@ -142,6 +142,8 @@ export function getHerdEventHeaderSummary(header: string): string {
   if (status.includes(HERD_EVENT_LIFECYCLE_LABELS.failed)) {
     return `${parts[0]} | ${parts[1]} | ${HERD_EVENT_LIFECYCLE_LABELS.failed}`;
   }
+  // Held quiet turns (`#N | turn_end | quiet | summary`) keep their quiet label collapsed.
+  if (status === "quiet") return `${parts[0]} | ${parts[1]} | quiet`;
   const firstStatusCode = status.codePointAt(0);
   const statusToken =
     firstStatusCode === 10007 || status.startsWith("!") || status.toLowerCase().includes("interrupt")

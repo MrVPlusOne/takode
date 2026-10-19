@@ -186,6 +186,16 @@ export function PlaygroundHerdEventStates() {
             />
           </div>
         </Card>
+        <Card label="Held quiet turns riding along with a real event (one line per worker)">
+          <div className="py-2">
+            <PlaygroundHerdEventDemo
+              id="herd-quiet-demo"
+              content={
+                '2 events from 2 sessions\n\n#2978 | turn_end | quiet | 3 quiet turns, latest: 2 PM check, nothing new | 4m ago\n#3042 | turn_end | ok 22.1s | tools: 3 | [410]-[418] | "Reviewer replied on the PR"\n  [418] ok "Reviewer replied on the PR; one change requested"'
+              }
+            />
+          </div>
+        </Card>
         <Card label="Event chip with activity (click #8 to navigate, rest expands)">
           <div className="py-2">
             <PlaygroundHerdEventDemo

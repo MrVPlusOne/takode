@@ -46,6 +46,7 @@ import { FILE_TOOL_NAMES } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { NotificationMarker } from "./NotificationMarker.js";
+import { QuietTurnNote } from "./QuietTurnNote.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { ImagePathLinkContext, useImagePathLinks } from "./image-path-links.js";
 import {
@@ -1292,6 +1293,7 @@ function AssistantMessage({
               onSelectThread={onSelectThread}
             />
           )}
+          {projection.quietSummary && <QuietTurnNote summary={projection.quietSummary} />}
           {ownLineTime}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>
@@ -1461,6 +1463,7 @@ function AssistantMessage({
             onSelectThread={onSelectThread}
           />
         )}
+        {projection.quietSummary && <QuietTurnNote summary={projection.quietSummary} />}
         {ownLineTime}
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
       </div>

@@ -282,6 +282,14 @@ export function WaitingWorkerPreviewPanel({
 
 function PreviewLineText({ line }: { line: SessionActivityPreview["lines"][number] }) {
   if (line.kind === "message") return <span className="text-cc-fg/80">{line.text}</span>;
+  if (line.kind === "quiet") {
+    return (
+      <span title="The worker marked this turn quiet, so it did not wake the leader">
+        <span className="font-mono-code text-cc-muted/80">quiet</span>
+        <span className="ml-1.5 text-cc-fg/80">{line.text}</span>
+      </span>
+    );
+  }
   return (
     <>
       <span className="font-mono-code text-cc-primary/80">{line.toolName}</span>

@@ -459,6 +459,29 @@ describe("setGenerating(false) — queued turn handling", () => {
     );
   });
 
+  it("adds the quiet decision to turn_end using the finished turn's data and start time", () => {
+    // The resolver sees the same turn data the leader would get, so its overrides
+    // (failed, asked, changed quest, ...) judge the actual turn.
+    const resolveQuietTurn = vi.fn(() => ({ quiet: { summary: "nothing new" } }));
+    deps = makeDeps({ resolveQuietTurn, buildTurnToolSummary: vi.fn(() => ({ msgRange: { from: 1, to: 4 } })) });
+    deps.sessions.set(session.id, session);
+
+    markRunningFromUserDispatch(deps, session, "timer", null, 0);
+    const startedAt = session.generationStartedAt;
+    setGenerating(deps, session, false, "result");
+
+    expect(resolveQuietTurn).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ reason: "result", msgRange: { from: 1, to: 4 } }),
+      startedAt,
+    );
+    expect(deps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      session.id,
+      "turn_end",
+      expect.objectContaining({ reason: "result", quiet: { summary: "nothing new" } }),
+    );
+  });
+
   it("labels a same-route decision pause and only the first later leader response turn as resumed", () => {
     const route = { threadKey: "q-2011", questId: "q-2011" };
     const notification: SessionNotification = {

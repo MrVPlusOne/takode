@@ -86,6 +86,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 | `turn_end (✓)` | Worker completed successfully | Peek at output and inspect the board phase. If Work just entered `MEMORY`, confirm tracked Work commits are already structured quest metadata, report the accepted Work outcome, and send final Memory without waiting for closure; missing code evidence returns to Work. In `PLANNING`, this may contain a plain-text alignment read-in that should be reviewed and answered with normal `takode send` rather than `takode answer` |
 | `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
 | `turn_end (⊘)` | Worker was interrupted by a user, leader, or system | Check whether it is terminal; system or `recovery pending` cases may still recover |
+| `turn_end \| quiet` | Turns the worker marked quiet, mostly periodic timer runs or repeated checks that found nothing for you; they never wake you and arrive only alongside a real event, one line per worker with a count and the latest summary | No reply and no relay to the user needed |
 | `permission_request` | Worker needs approval | For `AskUserQuestion`/`ExitPlanMode`, answer with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
 | `permission_resolved` | Worker was unblocked | No action needed |
 | `session_error` | Session-level error | Investigate, decide whether to retry |

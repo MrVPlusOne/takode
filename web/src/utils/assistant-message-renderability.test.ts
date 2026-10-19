@@ -59,6 +59,28 @@ describe("assistant message renderability", () => {
     expect(projection.renderable).toBe(false);
   });
 
+  it("hides a worker's quiet marker line and keeps its summary for the quiet note", () => {
+    // The raw marker never shows; a marker-only message still renders because of its note.
+    const withProse = projectAssistantMessageForRendering(
+      assistant({
+        content: "No alert.\n\n{[(Quiet: 2 PM check, nothing new)]}",
+        contentBlocks: [{ type: "text", text: "No alert.\n\n{[(Quiet: 2 PM check, nothing new)]}" }],
+      }),
+    );
+    expect(withProse.blocks).toEqual([{ type: "text", text: "No alert." }]);
+    expect(withProse.quietSummary).toBe("2 PM check, nothing new");
+
+    const markerOnly = projectAssistantMessageForRendering(
+      assistant({
+        content: "{[(Quiet: nothing new)]}",
+        contentBlocks: [{ type: "text", text: "{[(Quiet: nothing new)]}" }],
+      }),
+    );
+    expect(markerOnly.blocks).toEqual([]);
+    expect(markerOnly.quietSummary).toBe("nothing new");
+    expect(markerOnly.renderable).toBe(true);
+  });
+
   it("keeps prose, tools, results, thinking, images, notifications, and rendered child state", () => {
     const cases = [
       assistant({ contentBlocks: [{ type: "text", text: "Visible prose" }] }),

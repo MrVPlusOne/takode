@@ -4,7 +4,9 @@ import { TurnThreadStatusFooter } from "../MessageFeedThreadStatus.js";
 import { WaitingWorkerPreviewPanel, type WaitingWorkerTarget } from "../WaitingWorkerPreview.js";
 import type { ToolMsgGroup } from "../../hooks/use-feed-model.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
-import { PlaygroundSectionGroup, Section } from "./shared.js";
+import { MessageBubble } from "../MessageBubble.js";
+import type { ChatMessage } from "../../types.js";
+import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const NOW = Date.now();
 const MINUTE = 60_000;
@@ -49,6 +51,48 @@ const IDLE_PREVIEW: SessionActivityPreview = {
     },
   ],
   lastActivityAt: NOW - 8 * MINUTE,
+};
+
+// A watching worker whose checks found nothing: its quiet turns did not wake the leader.
+const QUIET_PREVIEW: SessionActivityPreview = {
+  lines: [
+    {
+      historyIndex: 120,
+      kind: "tool",
+      toolName: "Bash",
+      text: "Check the PR for new comments",
+      timestamp: NOW - 41 * MINUTE,
+    },
+    { historyIndex: 121, kind: "quiet", text: "1 PM check: no reply yet", timestamp: NOW - 40 * MINUTE },
+    {
+      historyIndex: 130,
+      kind: "tool",
+      toolName: "Bash",
+      text: "Check the PR for new comments",
+      timestamp: NOW - 21 * MINUTE,
+    },
+    {
+      historyIndex: 131,
+      kind: "quiet",
+      text: "1:20 PM check: no reply yet; next check at 1:40",
+      timestamp: NOW - 20 * MINUTE,
+    },
+  ],
+  lastActivityAt: NOW - 20 * MINUTE,
+};
+
+// The worker's own feed: the quiet marker line becomes a note under the message.
+const QUIET_WORKER_MESSAGE: ChatMessage = {
+  id: "playground-quiet-worker-message",
+  role: "assistant",
+  content: "No new comments on the PR since 1 PM.\n\n{[(Quiet: 1:20 PM check: no reply yet; next check at 1:40)]}",
+  contentBlocks: [
+    {
+      type: "text",
+      text: "No new comments on the PR since 1 PM.\n\n{[(Quiet: 1:20 PM check: no reply yet; next check at 1:40)]}",
+    },
+  ],
+  timestamp: NOW - 20 * MINUTE,
 };
 
 // The leader's own activity just before the preview: the same faint card, so the
@@ -117,7 +161,7 @@ export function PlaygroundWaitingWorkerPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Waiting Worker Preview"
-        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working (pulsing dot and a live timer of the worker's current turn, no status pill) and idle-while-waiting (idle pill with time since the last activity). The title bar shows only the worker number, its turn timer while working, and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
+        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working (pulsing dot and a live timer of the worker's current turn, no status pill), idle-while-waiting (idle pill with time since the last activity), and idle with quiet turns (each quiet line is a turn the worker marked quiet, which did not wake the leader). The title bar shows only the worker number, its turn timer while working, and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
       >
         <div className="space-y-4" data-testid="playground-waiting-worker-preview">
           <FeedFooterDemo target={WORKING} preview={WORKING_PREVIEW} summary="#2781 implementing the preview" />
@@ -126,7 +170,20 @@ export function PlaygroundWaitingWorkerPreviewSection() {
             preview={IDLE_PREVIEW}
             summary="#2781 running the full suite"
           />
+          <FeedFooterDemo
+            target={{ ...WORKING, workerStatus: "idle", turnStartedAt: null }}
+            preview={QUIET_PREVIEW}
+            summary="#2781 watching the PR for a reply"
+          />
         </div>
+      </Section>
+      <Section
+        title="Quiet Worker Turn"
+        description="A worker message that ended with the quiet marker: the raw marker line is hidden and its summary shows as a quiet note, so the reader knows this turn did not wake the leader."
+      >
+        <Card label="Worker message marked quiet">
+          <MessageBubble message={QUIET_WORKER_MESSAGE} />
+        </Card>
       </Section>
     </PlaygroundSectionGroup>
   );

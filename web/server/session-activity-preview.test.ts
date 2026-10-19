@@ -70,6 +70,20 @@ describe("buildSessionActivityPreview", () => {
   it("reports an empty preview for histories without assistant activity", () => {
     expect(buildSessionActivityPreview([])).toEqual({ lines: [], lastActivityAt: null });
   });
+
+  it("shows a quiet marker as its own line after the message text, without the raw marker", () => {
+    // The leader's worker preview shows what the quiet turn reported.
+    const history: BrowserIncomingMessage[] = [
+      assistant("a1", [tool("t1", "Bash", { command: "gh pr view", description: "Check the PR" })], 1),
+      assistant("a2", [{ type: "text", text: "No reply yet.\n\n{[(Quiet: 1 PM check: no reply yet)]}" }], 2),
+    ];
+
+    expect(buildSessionActivityPreview(history).lines).toEqual([
+      { historyIndex: 0, kind: "tool", toolName: "Bash", text: "Check the PR", timestamp: 1 },
+      { historyIndex: 1, kind: "message", text: "No reply yet.", timestamp: 2 },
+      { historyIndex: 1, kind: "quiet", text: "1 PM check: no reply yet", timestamp: 2 },
+    ]);
+  });
 });
 
 describe("GET /sessions/:id/activity-preview", () => {
