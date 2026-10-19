@@ -296,8 +296,11 @@ export function AssistantMessageMenu({
 
   return (
     <>
+      {/* Raised above the text it floats in: that text's wrapper is positioned for the corner
+          time, and a positioned box paints, and takes clicks, over a plain float. On a one-line
+          message the time itself sits under the button. */}
       <span
-        className="float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+        className="relative z-20 float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
         data-message-action-menu-placement="first-line"
         data-message-action-menu-row
       >
