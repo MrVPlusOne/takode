@@ -702,6 +702,68 @@ describe("explicit answer presentation", () => {
     });
   });
 
+  it("names the home thread of an answered message the viewed tab does not show", () => {
+    // An answer can quote a request that this tab only holds as proof. Its "open"
+    // link must jump to the thread the request was sent in, not search this tab.
+    const shownHere: ChatMessage = {
+      id: "raw-u25",
+      role: "user",
+      content: "Attached Main request",
+      timestamp: 10,
+      historyIndex: 10,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u25",
+        threadKey: "main",
+        threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+      },
+    };
+    const proofOnly: ChatMessage = {
+      id: "raw-u26",
+      role: "user",
+      content: "Main-only request",
+      timestamp: 11,
+      historyIndex: 11,
+      metadata: { leaderResponseCoverageVersion: 1, leaderUserMessageId: "u26", threadKey: "main" },
+    };
+    const mainAnswer: ChatMessage = {
+      id: "answer-main-group",
+      role: "assistant",
+      content: "One Main answer covers both requests",
+      timestamp: 12,
+      historyIndex: 12,
+      metadata: {
+        leaderThreadRole: "answer",
+        threadKey: "main",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u25", "u26"], observedHistoryLength: 12 },
+      },
+    };
+    const state = projection({
+      cutoverHistoryIndex: 10,
+      currentAnswers: [
+        {
+          ...answerState({
+            id: mainAnswer.id,
+            answerIds: ["u25", "u26"],
+            referencedIds: [shownHere.id, proofOnly.id],
+            coveredAnswerIds: [],
+            coveredIds: [],
+            historyIndex: 12,
+          }),
+          threadKey: "main",
+          questId: undefined,
+        },
+      ],
+    });
+
+    const result = resolveThreadResponses(sections([shownHere, mainAnswer]), state, THREAD_KEY, true, [proofOnly]);
+
+    expect(result?.currentResponses[0]?.referencedUserMessages).toEqual([
+      { historyMessageId: "raw-u25", userMessageId: "u25", content: "Attached Main request" },
+      { historyMessageId: "raw-u26", userMessageId: "u26", content: "Main-only request", homeThreadKey: "main" },
+    ]);
+  });
+
   it("fails closed when a projected Main answer loses its selected-thread association", () => {
     const detachedMainUser: ChatMessage = {
       id: "raw-u25",

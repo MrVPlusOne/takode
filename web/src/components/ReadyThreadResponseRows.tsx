@@ -220,6 +220,7 @@ export function CollapsedTurnRows({
         <HidePawContext.Provider value={true}>
           <AnsweredMessage
             answer={row.answer ?? null}
+            sessionId={sessionId}
             currentThreadKey={currentThreadKey}
             onSelectThread={onSelectThread}
           >

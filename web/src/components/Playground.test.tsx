@@ -42,6 +42,19 @@ installPlaygroundTestEnvironment();
 
 // A full-catalog render costs about 4-8 s of CPU on its own, so several concurrent
 // suite runs need more than the default 10 s; tests with larger needs set their own.
+/**
+ * Hovers the `index`th quoted line's "open" link in an answer reference and returns a
+ * copy of its preview, dismissed again with Escape so the next hover finds only its own.
+ */
+function hoverQuotedMessage(reference: HTMLElement, index: number): HTMLElement {
+  fireEvent.pointerEnter(within(reference).getAllByRole("button", { name: "Open the quoted message" })[index]!, {
+    pointerType: "mouse",
+  });
+  const preview = screen.getByRole("tooltip", { name: "Referenced user messages" }).cloneNode(true) as HTMLElement;
+  fireEvent.keyDown(document, { key: "Escape" });
+  return preview;
+}
+
 describe("Playground", { timeout: 30_000 }, () => {
   it("contrasts one-message-per-destination Recent browsing with exhaustive scoped Messages hits", async () => {
     // The paired fixture makes the product boundary inspectable without relying on live session history.
@@ -167,16 +180,17 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(groupedCoverage[1]).toHaveAttribute("data-answer-count", "2");
     expect(withTools.getByText(/detailed accepted-Work answer/)).toBeVisible();
     expect(withTools.getByText(/later answer adds the final mobile result/)).toBeVisible();
-    fireEvent.click(groupedCoverage[0]!);
-    const coveragePreview = screen.getByRole("dialog", { name: "Referenced user messages" });
-    expect(coveragePreview).toHaveTextContent("Please foreground the polished result when this work is ready.");
-    expect(coveragePreview).toHaveTextContent("Please include the mobile behavior too.");
+    // jsdom has no touch screen, so quotes take their mouse form: each quoted line's
+    // "open" link previews just that message on hover.
+    expect(hoverQuotedMessage(groupedCoverage[0]!, 0)).toHaveTextContent(
+      "Please foreground the polished result when this work is ready.",
+    );
+    expect(hoverQuotedMessage(groupedCoverage[0]!, 1)).toHaveTextContent("Please include the mobile behavior too.");
     expect(withTools.getByRole("button", { name: /Show turn activity.*2 tool/ })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
-    fireEvent.click(groupedCoverage[0]!);
-    expect(screen.queryByRole("dialog", { name: "Referenced user messages" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tooltip", { name: "Referenced user messages" })).not.toBeInTheDocument();
     expect(withTools.getAllByRole("button", { name: "Message options" })).toHaveLength(2);
 
     const withoutToolsCard = routedFinalStates.getByTestId("playground-turn-summary-without-tools");
@@ -224,12 +238,8 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(expanded.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
     const expandedCoverage = expanded.getByTestId("thread-response-answer-reference");
     expect(expandedCoverage).toHaveAttribute("data-answer-count", "2");
-    fireEvent.click(expandedCoverage);
-    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
-      "Please include the mobile behavior too.",
-    );
+    expect(hoverQuotedMessage(expandedCoverage, 1)).toHaveTextContent("Please include the mobile behavior too.");
     expect(expanded.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(expandedCoverage);
     const expandedCurrent = expanded
       .getByText("The later answer adds the final mobile result without compressing the detailed answer above it.")
       .closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
@@ -245,14 +255,10 @@ describe("Playground", { timeout: 30_000 }, () => {
     const sharedAnswer = within(routedFinalStates.getByTestId("playground-multi-owner-answer"));
     const sharedCoverage = sharedAnswer.getByTestId("thread-response-answer-reference");
     expect(sharedCoverage).toHaveAttribute("data-answer-count", "2");
-    fireEvent.click(sharedCoverage);
-    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
-      "Please handle my Main request.",
-    );
-    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
+    expect(hoverQuotedMessage(sharedCoverage, 0)).toHaveTextContent("Please handle my Main request.");
+    expect(hoverQuotedMessage(sharedCoverage, 1)).toHaveTextContent(
       "Please include this quest's request in the same answer.",
     );
-    fireEvent.click(sharedCoverage);
     // The pinned decision fixture reuses both answers but renders its source
     // Quiz only once beside the retained prompt and notification.
     const pinnedDecision = within(routedFinalStates.getByTestId("playground-pinned-quiz-source"));
@@ -263,13 +269,15 @@ describe("Playground", { timeout: 30_000 }, () => {
     // A request sent only as a comment keeps a previewable answer label showing the comment.
     const commentOnly = within(routedFinalStates.getByTestId("playground-comment-only-answer"));
     const commentBadge = commentOnly.getByTestId("thread-response-answer-reference");
-    fireEvent.click(commentBadge);
     expect(
-      within(screen.getByRole("dialog", { name: "Referenced user messages" })).getByTestId(
-        "thread-response-covered-message-comment",
-      ),
+      within(hoverQuotedMessage(commentBadge, 0)).getByTestId("thread-response-covered-message-comment"),
     ).toHaveTextContent("Also is this something we can properly fix?");
-    fireEvent.click(commentBadge);
+    // Several long requests: one quoted line each, every line ending in its own "open" link.
+    const longQuote = within(routedFinalStates.getByTestId("playground-long-quote-answer")).getByTestId(
+      "thread-response-answer-reference",
+    );
+    expect(longQuote).toHaveAttribute("data-answer-count", "3");
+    expect(within(longQuote).getAllByRole("button", { name: "Open the quoted message" })).toHaveLength(3);
     // A report published before the answer stays visible in the collapsed turn.
     const reportAnswer = within(routedFinalStates.getByTestId("playground-report-answer"));
     expect(reportAnswer.getByTestId("thread-response-report")).toHaveTextContent("Daily briefing: Tuesday");
@@ -291,7 +299,7 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(draftReference!.compareDocumentPosition(completionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(completionCard.compareDocumentPosition(mergedReference!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Every retained answer row says what it answers, the report's new result included.
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-reference")).toHaveLength(15);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-reference")).toHaveLength(16);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

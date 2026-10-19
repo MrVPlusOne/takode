@@ -970,6 +970,7 @@ export const FeedEntries = memo(function FeedEntries({
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             <ExpandedCurrentThreadResponse
               answer={answerChromeFor(entry.msg, answerReferences, result.length === 0 ? followsMessageId : undefined)}
+              sessionId={sessionId}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
             >

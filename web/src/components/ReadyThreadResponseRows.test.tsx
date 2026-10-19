@@ -7,6 +7,12 @@ import type { ThreadResponsePresentation } from "./thread-response-presentation.
 import { MessageBubble } from "./MessageBubble.js";
 import { ReadyThreadResponseRows } from "./ReadyThreadResponseRows.js";
 
+const routingMocks = vi.hoisted(() => ({ navigateToSessionMessageId: vi.fn() }));
+vi.mock("../utils/routing.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/routing.js")>()),
+  navigateToSessionMessageId: routingMocks.navigateToSessionMessageId,
+}));
+
 function entry(id: string, content: string, historyIndex?: number): Extract<FeedEntry, { kind: "message" }> {
   return {
     kind: "message",
@@ -84,9 +90,19 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.getByText("Current polished response")).toBeVisible();
     const coverage = screen.getByTestId("thread-response-answer-reference");
     expect(coverage).toHaveAttribute("data-answer-count", "2");
-    fireEvent.click(coverage);
+    expect(coverage).toHaveTextContent("Referenced request 1");
+    expect(coverage).toHaveTextContent("Referenced request 2");
+    // With a mouse (jsdom has no touch screen), each quoted line's "open" link previews
+    // its message on hover and jumps to it within the row's session on click.
+    const [firstLink] = screen.getAllByRole("button", { name: "Open the quoted message" });
+    fireEvent.pointerEnter(firstLink!, { pointerType: "mouse" });
     expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 1");
-    expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 2");
+    fireEvent.click(firstLink!);
+    expect(routingMocks.navigateToSessionMessageId).toHaveBeenCalledWith(
+      "leader",
+      expect.any(String),
+      expect.anything(),
+    );
     expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit|Save new version|Versions/i })).not.toBeInTheDocument();
   });
@@ -122,7 +138,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.queryByText("Hidden intermediate prose")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
+    expect(screen.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-variant", "quote");
   });
 
   it("keeps a published report visible beside the answer in history order", () => {
@@ -167,7 +183,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.queryByText("Hidden system detail")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
+    expect(screen.getByTestId("thread-response-answer-reference")).toHaveAttribute("data-variant", "quote");
   });
 
   it("keeps answers in their source turns even when their request references overlap", () => {

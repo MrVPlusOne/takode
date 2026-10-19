@@ -4,5 +4,5 @@
  * composer behavior: Enter inserts newline, blur after send.
  */
 export function isTouchDevice(): boolean {
-  return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+  return typeof window.matchMedia === "function" && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 }

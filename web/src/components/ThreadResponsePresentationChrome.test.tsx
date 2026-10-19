@@ -13,6 +13,19 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (state: { zoomLevel: number }) => unknown) => selector(storeMocks),
 }));
 
+const routingMocks = vi.hoisted(() => ({ navigateToSessionMessageId: vi.fn() }));
+vi.mock("../utils/routing.js", () => routingMocks);
+
+/** Makes the component see a touch screen (no hover, coarse pointer) or a mouse. */
+function useTouchScreen(touch: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: touch && query === "(hover: none) and (pointer: coarse)",
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+}
+
 const referencedMessages = [
   {
     historyMessageId: "raw-u7",
@@ -39,7 +52,11 @@ function ThreadResponseCoverageBadge({
   answersMessageAbove?: boolean;
 }) {
   return (
-    <AnswerReference answer={{ message: ANSWER_MESSAGE, messageCount, referencedMessages, answersMessageAbove }} />
+    <AnswerReference
+      answer={{ message: ANSWER_MESSAGE, messageCount, referencedMessages, answersMessageAbove }}
+      sessionId="session-1"
+      currentThreadKey="q-5"
+    />
   );
 }
 
@@ -57,9 +74,11 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
   } as DOMRect;
 }
 
-describe("AnswerReference", () => {
+describe("AnswerReference on touch screens", () => {
+  // Phones get one tappable quote: per-line links would be too small to tap.
   beforeEach(() => {
     storeMocks.zoomLevel = 1;
+    useTouchScreen(true);
   });
 
   it("opens the ordered exact-message preview by explicit activation without activating its parent", async () => {
@@ -109,39 +128,19 @@ describe("AnswerReference", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("opens on fine-pointer hover while touch relies on explicit activation", () => {
+  it("opens only when tapped, never on hover", () => {
     render(<ThreadResponseCoverageBadge messageCount={1} referencedMessages={[referencedMessages[0]]} />);
 
     const trigger = screen.getByRole("button", { name: "Answers 1 message; preview referenced message" });
-    fireEvent.pointerEnter(trigger, { pointerType: "touch" });
+    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+    fireEvent.pointerEnter(trigger, { pointerType: "pen" });
     expect(screen.queryByRole("tooltip", { name: "Referenced user messages" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("thread-response-quote-link")).not.toBeInTheDocument();
     fireEvent.pointerDown(trigger, { pointerType: "touch" });
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toBeVisible();
-    fireEvent.click(trigger);
-
-    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
-    expect(screen.getByRole("tooltip", { name: "Referenced user messages" })).toHaveTextContent(
+    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
       "Please preserve the exact first request.",
     );
-  });
-
-  it("dismisses a hover preview with Escape without consuming the key or stealing focus", () => {
-    render(
-      <>
-        <input aria-label="Composer" />
-        <ThreadResponseCoverageBadge messageCount={1} referencedMessages={[referencedMessages[0]]} />
-      </>,
-    );
-    const composer = screen.getByRole("textbox", { name: "Composer" });
-    const trigger = screen.getByRole("button", { name: "Answers 1 message; preview referenced message" });
-    composer.focus();
-    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
-    expect(screen.getByRole("tooltip", { name: "Referenced user messages" })).toBeVisible();
-
-    expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(true);
-    expect(screen.queryByRole("tooltip", { name: "Referenced user messages" })).not.toBeInTheDocument();
-    expect(composer).toHaveFocus();
   });
 
   it("uses visual-viewport bounds, measured dimensions, and Takode zoom for portal placement", async () => {
@@ -276,6 +275,9 @@ describe("AnswerReference", () => {
 });
 
 describe("AnswerReference lines", () => {
+  // The quote text is the same with a mouse; the touch form has no link words in it.
+  beforeEach(() => useTouchScreen(true));
+
   it("quotes the answered message as one line of text, whitespace collapsed", () => {
     // The quote must identify the request without hovering: paragraphs become one
     // clamped run of text, and the whole quote is the preview trigger.
@@ -346,5 +348,92 @@ describe("AnswerReference lines", () => {
     expect(reference).toHaveAttribute("data-variant", "new-result");
     expect(reference).toHaveTextContent("New result");
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+describe("AnswerReference with a mouse", () => {
+  // Desktop: the quote itself is inert; each quoted line ends in an "open" link that
+  // previews just its message on hover and jumps to it on click, so no tall card
+  // covering the feed opens just from moving the mouse over the quote.
+  beforeEach(() => {
+    storeMocks.zoomLevel = 1;
+    useTouchScreen(false);
+    routingMocks.navigateToSessionMessageId.mockClear();
+  });
+
+  it("ends every quoted line with an open link and leaves the quote itself inert", () => {
+    render(<ThreadResponseCoverageBadge messageCount={2} referencedMessages={referencedMessages} />);
+
+    const quote = screen.getByTestId("thread-response-answer-reference");
+    expect(quote.tagName).toBe("DIV");
+    expect(quote).toHaveAttribute("data-variant", "quote");
+    const links = within(quote).getAllByRole("button", { name: "Open the quoted message" });
+    expect(links).toHaveLength(2);
+    expect(links.map((link) => link.textContent)).toEqual(["open", "open"]);
+    fireEvent.pointerEnter(quote, { pointerType: "mouse" });
+    expect(screen.queryByTestId("thread-response-coverage-preview")).not.toBeInTheDocument();
+  });
+
+  it("previews only the hovered link's message, in a smaller card, and not on touch", async () => {
+    render(<ThreadResponseCoverageBadge messageCount={2} referencedMessages={referencedMessages} />);
+    const second = screen.getAllByRole("button", { name: "Open the quoted message" })[1]!;
+
+    fireEvent.pointerEnter(second, { pointerType: "touch" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(second, { pointerType: "mouse" });
+    const preview = screen.getByRole("tooltip", { name: "Referenced user messages" });
+    const messages = within(preview).getAllByTestId("thread-response-covered-message");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toHaveAttribute("data-message-id", "raw-u8");
+    // jsdom's viewport (1024x768) is larger than the link card, so the card's own limits apply.
+    await waitFor(() => expect(preview).toHaveStyle({ width: "460px", maxHeight: "280px" }));
+  });
+
+  it("dismisses a hover preview with Escape without consuming the key or stealing focus", () => {
+    render(
+      <>
+        <input aria-label="Composer" />
+        <ThreadResponseCoverageBadge messageCount={1} referencedMessages={[referencedMessages[0]]} />
+      </>,
+    );
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    composer.focus();
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Open the quoted message" }), { pointerType: "mouse" });
+    expect(screen.getByRole("tooltip", { name: "Referenced user messages" })).toBeVisible();
+
+    expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(true);
+    expect(screen.queryByRole("tooltip", { name: "Referenced user messages" })).not.toBeInTheDocument();
+    expect(composer).toHaveFocus();
+  });
+
+  it("jumps to the message in this tab, or in its own thread when this tab does not show it", async () => {
+    const user = userEvent.setup();
+    const parentClick = vi.fn();
+    render(
+      <div onClick={parentClick}>
+        <ThreadResponseCoverageBadge
+          messageCount={2}
+          referencedMessages={[referencedMessages[0], { ...referencedMessages[1], homeThreadKey: "main" }]}
+        />
+      </div>,
+    );
+    const [shownHere, shownInMain] = screen.getAllByRole("button", { name: "Open the quoted message" });
+
+    fireEvent.pointerEnter(shownHere!, { pointerType: "mouse" });
+    await user.click(shownHere!);
+    expect(routingMocks.navigateToSessionMessageId).toHaveBeenLastCalledWith("session-1", "raw-u7", {
+      threadKey: "q-5",
+      preserveMainThreadRoute: true,
+    });
+    // Jumping closes the hover card and does not toggle the answer's turn.
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(parentClick).not.toHaveBeenCalled();
+
+    await user.click(shownInMain!);
+    expect(routingMocks.navigateToSessionMessageId).toHaveBeenLastCalledWith("session-1", "raw-u8", {
+      threadKey: "main",
+      preserveMainThreadRoute: true,
+    });
   });
 });

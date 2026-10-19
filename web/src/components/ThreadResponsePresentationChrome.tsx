@@ -16,6 +16,8 @@ import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { useStore } from "../store.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
+import { isTouchDevice } from "../utils/mobile.js";
+import { navigateToSessionMessageId } from "../utils/routing.js";
 import type { ChatMessage } from "../types.js";
 import {
   getMessageThreadLinkKey,
@@ -54,6 +56,9 @@ function nextFocusableAfter(element: HTMLElement): HTMLElement | null {
 /** Wide enough on desktop to read a long message comfortably; phones use their full width. */
 const PREVIEW_MAX_WIDTH = 640;
 const PREVIEW_MAX_HEIGHT = 480;
+/** A quoted line's "open" link previews one message in a smaller card, like message-link hover cards. */
+const LINK_PREVIEW_MAX_WIDTH = 460;
+const LINK_PREVIEW_MAX_HEIGHT = 280;
 
 interface CoveragePreviewPosition {
   left: number;
@@ -71,13 +76,14 @@ function coveragePreviewPosition(
   anchor: HTMLElement,
   preview: HTMLElement,
   zoomLevel: number,
+  limits: { maxWidth: number; maxHeight: number },
 ): CoveragePreviewPosition {
   const viewport = getVisualViewportRect();
   const safeZoom = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
   const gutter = 8;
   const gap = 6;
-  const width = Math.min(PREVIEW_MAX_WIDTH, Math.max(1, (viewport.width - gutter * 2) / safeZoom));
-  const maxHeight = Math.min(PREVIEW_MAX_HEIGHT, Math.max(1, (viewport.height - gutter * 2) / safeZoom));
+  const width = Math.min(limits.maxWidth, Math.max(1, (viewport.width - gutter * 2) / safeZoom));
+  const maxHeight = Math.min(limits.maxHeight, Math.max(1, (viewport.height - gutter * 2) / safeZoom));
 
   preview.style.width = `${width}px`;
   preview.style.maxHeight = `${maxHeight}px`;
@@ -171,12 +177,14 @@ function NewResultIcon() {
 }
 
 /**
- * Hover (fine pointer) and click/tap/keyboard preview of the messages an answer
- * answers, anchored to the trigger that spreads `triggerProps`.
+ * Preview of the messages an answer answers, anchored to the trigger that
+ * spreads `triggerProps`: click/tap/keyboard opens it as a dialog, and with
+ * `hoverOpens` a mouse or pen hover opens it as a tooltip.
  */
 function useReferencePreview(
   messageCount: number,
   referencedMessages: readonly ThreadResponseReferencedUserMessage[] | undefined,
+  { hoverOpens = false, maxWidth = PREVIEW_MAX_WIDTH, maxHeight = PREVIEW_MAX_HEIGHT } = {},
 ) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -232,9 +240,9 @@ function useReferencePreview(
       close();
       return;
     }
-    const next = coveragePreviewPosition(anchor, preview, zoomLevel);
+    const next = coveragePreviewPosition(anchor, preview, zoomLevel, { maxWidth, maxHeight });
     setPosition((current) => (samePosition(current, next) ? current : next));
-  }, [close, zoomLevel]);
+  }, [close, maxHeight, maxWidth, zoomLevel]);
 
   const scheduleHoverClose = useCallback(() => {
     clearCloseTimer();
@@ -331,7 +339,7 @@ function useReferencePreview(
     onPointerEnter: (event: PointerEvent<HTMLElement>) => {
       if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
       clearCloseTimer();
-      if (openMode !== "explicit") open("hover");
+      if (hoverOpens && openMode !== "explicit") open("hover");
     },
     onPointerLeave: (event: PointerEvent<HTMLElement>) => {
       if (event.pointerType === "mouse" || event.pointerType === "pen") scheduleHoverClose();
@@ -395,7 +403,7 @@ function useReferencePreview(
         )
       : null;
 
-  return { previewAvailable, triggerProps, preview };
+  return { triggerProps, preview, close };
 }
 
 /** The answered messages in full, at reading size, one after another. */
@@ -447,15 +455,21 @@ function ReferencedMessagesPreview({ messages }: { messages: readonly ThreadResp
 
 /**
  * What an answer answers, above the answer: a reply quote of the answered
- * messages that opens them in full on hover or tap. An answer right under the
- * message it answers points up instead of repeating it, and an answer naming
- * no message is marked as a new result.
+ * messages. With a mouse, each quoted line ends in an "open" link that previews
+ * its message on hover and jumps to it on click; on touch screens, where such
+ * links are too small to tap, tapping the quote opens the messages in full. An
+ * answer right under the message it answers points up instead of repeating it,
+ * and an answer naming no message is marked as a new result.
  */
-export function AnswerReference({ answer }: { answer: AnswerChrome }) {
-  const { previewAvailable, triggerProps, preview } = useReferencePreview(
-    answer.messageCount,
-    answer.referencedMessages,
-  );
+export function AnswerReference({
+  answer,
+  sessionId,
+  currentThreadKey,
+}: {
+  answer: AnswerChrome;
+  sessionId?: string;
+  currentThreadKey?: string;
+}) {
   // Every form carries the same test hooks: what kind of reference it is and how many messages it answers.
   const hooks = (variant: "quote" | "above" | "new-result" | "count") => ({
     "data-testid": "thread-response-answer-reference",
@@ -471,29 +485,113 @@ export function AnswerReference({ answer }: { answer: AnswerChrome }) {
   if (answer.messageCount <= 0) return line("new-result", <NewResultIcon />, "New result");
   if (answer.answersMessageAbove) return line("above", <UpIcon />, "Answers the message above");
   const countLabel = `Answers ${answer.messageCount} ${answer.messageCount === 1 ? "message" : "messages"}`;
-  if (!previewAvailable) return line("count", <ReplyIcon />, countLabel);
+  if (!hasCompletePreview(answer.messageCount, answer.referencedMessages)) {
+    return line("count", <ReplyIcon />, countLabel);
+  }
 
   const messages = answer.referencedMessages!;
   const shown = messages.slice(0, 3);
+  const lineClamp = messages.length === 1 ? "line-clamp-2" : "line-clamp-1";
+  const more = messages.length > shown.length ? `+${messages.length - shown.length} more` : null;
+  if (isTouchDevice()) {
+    return (
+      <TappableQuote messages={messages} label={countLabel} hooks={hooks("quote")}>
+        {shown.map((message) => (
+          <span key={message.historyMessageId} className={`break-words ${lineClamp}`}>
+            {referencedMessageExcerpt(message)}
+          </span>
+        ))}
+        {more && <span className="block text-[12px]">{more}</span>}
+      </TappableQuote>
+    );
+  }
+  return (
+    <div
+      {...hooks("quote")}
+      className="mb-2 border-l-2 border-cc-primary/50 py-0.5 pr-2 pl-2.5 text-[13px] leading-snug text-cc-muted"
+    >
+      {shown.map((message) => (
+        <div key={message.historyMessageId} className="flex items-end gap-1.5">
+          <span className={`min-w-0 break-words ${lineClamp}`}>{referencedMessageExcerpt(message)}</span>
+          <QuotedMessageLink message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
+        </div>
+      ))}
+      {more && <div className="text-[12px]">{more}</div>}
+    </div>
+  );
+}
+
+/** The quote as one button that opens the answered messages in full when tapped. */
+function TappableQuote({
+  messages,
+  label,
+  hooks,
+  children,
+}: {
+  messages: readonly ThreadResponseReferencedUserMessage[];
+  label: string;
+  hooks: Record<string, string | number>;
+  children: ReactNode;
+}) {
+  const { triggerProps, preview } = useReferencePreview(messages.length, messages);
   return (
     <>
       <button
         {...triggerProps}
-        {...hooks("quote")}
-        aria-label={`${countLabel}; preview referenced ${answer.messageCount === 1 ? "message" : "messages"}`}
+        {...hooks}
+        aria-label={`${label}; preview referenced ${messages.length === 1 ? "message" : "messages"}`}
         className="mb-2 block w-full cursor-pointer rounded-r-md border-l-2 border-cc-primary/50 py-0.5 pr-2 pl-2.5 text-left text-[13px] leading-snug text-cc-muted transition-colors hover:bg-cc-hover/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/35"
       >
-        {shown.map((message) => (
-          <span
-            key={message.historyMessageId}
-            className={`break-words ${messages.length === 1 ? "line-clamp-2" : "line-clamp-1"}`}
-          >
-            {referencedMessageExcerpt(message)}
-          </span>
-        ))}
-        {messages.length > shown.length && (
-          <span className="block text-[12px]">+{messages.length - shown.length} more</span>
-        )}
+        {children}
+      </button>
+      {preview}
+    </>
+  );
+}
+
+/**
+ * The "open" link after a quoted line: hovering previews that one message,
+ * clicking jumps to it, in this tab when it shows the message, otherwise in the
+ * thread the message was sent in.
+ */
+function QuotedMessageLink({
+  message,
+  sessionId,
+  currentThreadKey,
+}: {
+  message: ThreadResponseReferencedUserMessage;
+  sessionId?: string;
+  currentThreadKey?: string;
+}) {
+  const { triggerProps, preview, close } = useReferencePreview(1, [message], {
+    hoverOpens: true,
+    maxWidth: LINK_PREVIEW_MAX_WIDTH,
+    maxHeight: LINK_PREVIEW_MAX_HEIGHT,
+  });
+  const threadKey = message.homeThreadKey ?? currentThreadKey;
+  return (
+    <>
+      <button
+        ref={triggerProps.ref}
+        type="button"
+        aria-describedby={triggerProps["aria-describedby"]}
+        onPointerEnter={triggerProps.onPointerEnter}
+        onPointerLeave={triggerProps.onPointerLeave}
+        onPointerDown={triggerProps.onPointerDown}
+        onClick={(event) => {
+          event.stopPropagation();
+          close();
+          if (!sessionId) return;
+          navigateToSessionMessageId(sessionId, message.historyMessageId, {
+            ...(threadKey ? { threadKey, preserveMainThreadRoute: true } : {}),
+          });
+        }}
+        disabled={!sessionId}
+        aria-label="Open the quoted message"
+        className="shrink-0 cursor-pointer text-[12px] text-cc-primary hover:underline focus:outline-none focus-visible:underline disabled:cursor-default disabled:no-underline"
+        data-testid="thread-response-quote-link"
+      >
+        open
       </button>
       {preview}
     </>
@@ -517,11 +615,14 @@ export interface AnswerChrome {
  */
 export function AnsweredMessage({
   answer,
+  sessionId,
   currentThreadKey,
   onSelectThread,
   children,
 }: {
   answer: AnswerChrome | null;
+  /** The feed's session, which the quote's "open" links jump within. */
+  sessionId?: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   children: ReactNode;
@@ -536,7 +637,7 @@ export function AnsweredMessage({
           onSelectThread={onSelectThread}
         />
       )}
-      {answer && <AnswerReference answer={answer} />}
+      {answer && <AnswerReference answer={answer} sessionId={sessionId} currentThreadKey={currentThreadKey} />}
       <MessageThreadHeaderOwnedContext.Provider value={outerHeaderOwned || answer !== null}>
         <HidePawContext.Provider value={outerHidePaw || answer !== null}>{children}</HidePawContext.Provider>
       </MessageThreadHeaderOwnedContext.Provider>

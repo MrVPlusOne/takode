@@ -85,7 +85,10 @@ describe("chronological collapsed answers", () => {
     // the implementation answer quotes the older request and previews it.
     const references = within(sourceTurn).getAllByTestId("thread-response-answer-reference");
     expect(references.map((reference) => reference.dataset.variant)).toEqual(["above", "quote"]);
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Answers 1 message; preview referenced message" }));
+    // With a mouse (jsdom has no touch screen) the quoted line's "open" link previews it on hover.
+    fireEvent.pointerEnter(within(sourceTurn).getByRole("button", { name: "Open the quoted message" }), {
+      pointerType: "mouse",
+    });
     expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent(FIRST_REQUEST);
     expect(screen.getByTestId("thread-response-coverage-preview")).not.toHaveTextContent(LATER_QUESTION);
     fireEvent.keyDown(document, { key: "Escape" });

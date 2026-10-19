@@ -216,6 +216,67 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
   quizGroups: [],
   layoutSignature: "playground-answer-only-r1",
 };
+// Long requests quoted above one answer. With a mouse each quoted line ends in an
+// "open" link that previews just that message; on touch screens the quote is one
+// button that opens them in full.
+const LONG_QUOTED_MESSAGES = [
+  {
+    historyMessageId: "playground-long-quote-first",
+    userMessageId: "u11",
+    content:
+      "No, I think the proposal feels a little bit complex and too specific to the timers. It would be nice to give a worker some general control mechanism where it can use that mechanism to notify the leader when the work is done.\n\nSomething like a special marker syntax is needed whenever a worker gets halted, and it must provide this status before it can go idle. Otherwise, we send a reminder message.\n\nA corner case to cover is that sometimes a session started as a normal session, and then it got turned into a worker session.",
+  },
+  {
+    historyMessageId: "playground-long-quote-second",
+    userMessageId: "u12",
+    content:
+      "I'm not entirely sure whether this design is good, because sometimes a worker has meaningful updates even when it is not done, and the leader should still hear about those.",
+  },
+  {
+    historyMessageId: "playground-long-quote-third",
+    userMessageId: "u13",
+    content: "Which way? Answer: Opt-in quiet marker",
+  },
+] as const;
+const LONG_QUOTE_RESPONSE = assistantEntry(
+  "playground-long-quote-answer",
+  "The opt-in quiet marker you chose is built and passed the full test check.",
+  "answer",
+);
+const LONG_QUOTE_TURN: Turn = {
+  ...ANSWER_ONLY_TURN,
+  id: "playground-long-quote-turn",
+  userEntry: {
+    kind: "message",
+    msg: { id: "playground-long-quote-turn", role: "user", content: "Worker event", timestamp: 1 },
+  },
+  allEntries: [LONG_QUOTE_RESPONSE],
+  presentationEntries: [LONG_QUOTE_RESPONSE],
+  notificationEntries: [LONG_QUOTE_RESPONSE],
+  responseEntry: LONG_QUOTE_RESPONSE,
+  collapsedEntries: [{ kind: "entry", key: "entry:playground-long-quote-answer", entry: LONG_QUOTE_RESPONSE }],
+};
+const LONG_QUOTE_PRESENTATION: ThreadResponsePresentation = {
+  ...ANSWER_ONLY_PRESENTATION,
+  currentResponses: [
+    {
+      response: {
+        ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!.response,
+        answerUserMessageIds: ["u11", "u12", "u13"],
+        referencedUserMessageIds: LONG_QUOTED_MESSAGES.map((message) => message.historyMessageId),
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
+        currentMessageId: LONG_QUOTE_RESPONSE.msg.id,
+      },
+      sourceTurnId: LONG_QUOTE_TURN.id,
+      messageEntry: LONG_QUOTE_RESPONSE,
+      collapsedMessageEntry: LONG_QUOTE_RESPONSE,
+      referencedUserMessages: LONG_QUOTED_MESSAGES,
+    },
+  ],
+  currentResponseMessageIds: new Set([LONG_QUOTE_RESPONSE.msg.id]),
+  layoutSignature: "playground-long-quote-r1",
+};
 const CROSS_THREAD_RESPONSE_BASE = assistantEntry(
   "playground-cross-thread-answer",
   "Done. The follow-up landed in its own quest, so this answer links back to that thread.",
@@ -602,6 +663,22 @@ export function PlaygroundThreadResponseSection() {
               <ReadyThreadResponseRows
                 turn={ANSWER_ONLY_TURN}
                 presentation={ANSWER_ONLY_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed answer · long quoted messages: mouse gets per-line open links, touch taps the quote">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-long-quote-answer"
+            >
+              <ReadyThreadResponseRows
+                turn={LONG_QUOTE_TURN}
+                presentation={LONG_QUOTE_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"

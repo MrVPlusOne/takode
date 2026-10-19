@@ -1,5 +1,6 @@
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import {
+  leaderMessageThreadKey,
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
@@ -20,6 +21,8 @@ export interface ThreadResponseReferencedUserMessage {
   attachmentCount?: number;
   /** Comments sent with the message; a comment-only message has empty content. */
   annotations?: readonly ConversationAnnotation[];
+  /** The thread the message was sent in, set when the viewed thread does not show it. */
+  homeThreadKey?: string;
 }
 
 export interface CurrentThreadResponsePresentationItem {
@@ -409,12 +412,16 @@ export function resolveThreadResponses(
       referencedUserMessages: referencedAnchors.map((anchor) => {
         const attachmentCount = Math.max(anchor!.message.images?.length ?? 0, anchor!.message.localImages?.length ?? 0);
         const annotations = anchor!.message.metadata?.annotations;
+        const homeThreadKey = visibleTargets.has(anchor!.message.id)
+          ? undefined
+          : leaderMessageThreadKey(anchor!.message.metadata ?? {});
         return {
           historyMessageId: anchor!.message.id,
           userMessageId: anchor!.userMessageId,
           content: anchor!.message.content,
           ...(attachmentCount > 0 ? { attachmentCount } : {}),
           ...(annotations?.length ? { annotations } : {}),
+          ...(homeThreadKey ? { homeThreadKey } : {}),
         };
       }),
     });
