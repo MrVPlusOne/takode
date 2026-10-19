@@ -44,6 +44,12 @@ export const HOST_IMMEDIATE_UPDATE_SETTLE_MS = 5_000;
  */
 export const HOST_UPDATE_RESTART_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * How long a host may take to answer `prepare_update`: it may fetch from its
+ * remote (up to 5 minutes) and import the Git objects this coordinator sent.
+ */
+const HOST_UPDATE_PREPARE_TIMEOUT_MS = 10 * 60_000;
+
 /** The host could not be asked: it is offline or the link dropped before it answered. */
 export class HostUnavailableError extends Error {
   constructor(hostName: string) {
@@ -126,6 +132,12 @@ interface HostLink {
   network: boolean;
   build: string | null;
   autoUpdate: boolean;
+  /** The host answers `prepare_update`; older hosts are sent `update` without it. */
+  preparesUpdates: boolean;
+  /** A `prepare_update` for this coordinator's commit is under way. */
+  preparing: boolean;
+  /** Commit the current host instance said it has and can switch to. */
+  preparedCommit: string | null;
   /** When the host last connected or this coordinator last started a process on it. */
   lastStartAt: number;
   /** Commit this coordinator asked the current host instance to switch to. */
@@ -206,6 +218,12 @@ export class HostLinkManager {
    * when it has none) and return the name it goes by, which `welcome` carries.
    */
   nameHost: ((hostId: string, reportedName: string | null) => string | null) | null = null;
+  /**
+   * A Git bundle of `commit` holding what a host lacks, given commits it has
+   * (`createUpdateBundle` on this coordinator's checkout). Without it a host
+   * that cannot get the commit from its own remote is not updated.
+   */
+  updateBundle: ((commit: string, hostHaves: string[]) => Promise<Buffer>) | null = null;
   private readonly now: () => number;
 
   constructor(options: { epoch?: number; build?: string | null; now?: () => number } = {}) {
@@ -245,7 +263,9 @@ export class HostLinkManager {
       updateError: link?.updateError ?? null,
       updateWaitingFor:
         link && this.wantsUpdate(link) && link.updateRequested !== this.build
-          ? (this.updateBlocker?.(hostId, this.updateMode(link)) ?? null)
+          ? link.preparing
+            ? "the new code has reached it"
+            : (this.updateBlocker?.(hostId, this.updateMode(link)) ?? null)
           : null,
       commandOverrides: { ...link?.commandOverrides },
     };
@@ -556,6 +576,9 @@ export class HostLinkManager {
       link.hostInstanceId = hello.instanceId;
       link.build = hello.build ?? null;
       link.autoUpdate = hello.autoUpdate === true;
+      link.preparesUpdates = hello.preparesUpdates === true;
+      link.preparing = false;
+      link.preparedCommit = null;
       link.updateRequested = null;
       link.updateSent = false;
       link.updateError = null;
@@ -623,16 +646,21 @@ export class HostLinkManager {
    * coordinator's commit, once per host instance, when nothing started there
    * recently and nothing the update must wait for is under way: right after
    * the user's Restart Server even while sessions are in turns, otherwise only
-   * when none is. Its sessions are stopped first. A failed attempt is not
-   * repeated until the host restarts.
+   * when none is. The host first makes sure it has the commit
+   * ({@link prepareUpdate}); only then are its sessions stopped and the update
+   * sent. A failed attempt is not repeated until the host restarts.
    */
   private maybeUpdate(hostId: string, link: HostLink): void {
-    if (!this.wantsUpdate(link) || link.updateRequested === this.build) return;
+    if (!this.wantsUpdate(link) || link.updateRequested === this.build || link.preparing) return;
     const mode = this.updateMode(link);
     const settleMs = mode === "immediate" ? HOST_IMMEDIATE_UPDATE_SETTLE_MS : HOST_UPDATE_SETTLE_MS;
     if (this.now() - link.lastStartAt < settleMs) return;
     if (!this.updateBlocker || this.updateBlocker(hostId, mode) !== null) return;
     const commit = this.build!;
+    if (link.preparesUpdates && link.preparedCommit !== commit) {
+      void this.prepareUpdate(hostId, link, commit);
+      return;
+    }
     const instanceId = link.hostInstanceId;
     link.updateRequested = commit;
     link.updateError = null;
@@ -654,6 +682,52 @@ export class HostLinkManager {
         link.updateSentAt = this.now();
         this.send(link.socket, { t: "update", commit });
       });
+  }
+
+  /**
+   * Make sure the host has `commit` before anything there is stopped for it:
+   * the host uses the commit it has or fetches from its remote, and otherwise
+   * gets the Git objects from this coordinator over the link (a commit this
+   * coordinator runs may never have been pushed). The host checks them and
+   * keeps running its build. Once it is ready the update goes ahead if it
+   * still may; a host that cannot get ready keeps its sessions and reports why.
+   */
+  private async prepareUpdate(hostId: string, link: HostLink, commit: string): Promise<void> {
+    const instanceId = link.hostInstanceId;
+    const current = () => link.hostInstanceId === instanceId && this.build === commit;
+    link.preparing = true;
+    this.notifyStatus(hostId);
+    let failure: string | null = null;
+    try {
+      let answer = await this.request(hostId, { kind: "prepare_update", commit }, HOST_UPDATE_PREPARE_TIMEOUT_MS);
+      if (!answer.ready && current()) {
+        if (!this.updateBundle) throw new Error(`The host cannot get ${shortCommit(commit)} from its remote`);
+        const bundle = await this.updateBundle(commit, answer.haves);
+        console.log(
+          `[host-link] Host ${hostId} lacks ${shortCommit(commit)}; sending it ${Math.ceil(bundle.length / 1024)} KB of Git objects`,
+        );
+        answer = await this.request(
+          hostId,
+          { kind: "prepare_update", commit, bundle: bundle.toString("base64") },
+          HOST_UPDATE_PREPARE_TIMEOUT_MS,
+        );
+        if (!answer.ready) throw new Error(`The host still lacks ${shortCommit(commit)} after importing it`);
+      }
+      if (current()) link.preparedCommit = commit;
+    } catch (error) {
+      // A host that dropped off is asked again once it is back.
+      if (!(error instanceof HostUnavailableError)) failure = error instanceof Error ? error.message : String(error);
+    }
+    if (!current()) return;
+    link.preparing = false;
+    if (failure !== null) {
+      // As after a failed update: not tried again until the node restarts.
+      link.updateRequested = commit;
+      link.updateError = failure;
+      console.warn(`[host-link] Host ${hostId} could not get ready to update to ${shortCommit(commit)}: ${failure}`);
+    }
+    this.notifyStatus(hostId);
+    if (link.preparedCommit === commit) this.maybeUpdate(hostId, link);
   }
 
   private handleEvent(
@@ -730,6 +804,9 @@ export class HostLinkManager {
         network: true,
         build: null,
         autoUpdate: false,
+        preparesUpdates: false,
+        preparing: false,
+        preparedCommit: null,
         lastStartAt: 0,
         updateRequested: null,
         updateSent: false,

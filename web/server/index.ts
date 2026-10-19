@@ -88,7 +88,7 @@ import { flushHeldSdkMessages } from "./bridge/claude-sdk-adapter-lifecycle-cont
 import { HostUpdateSessions } from "./remote-host/host-update-sessions.js";
 import { hostPortFor, hostPortGate, mainPortHostRefusal } from "./remote-host/host-port.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
-import { readCheckoutCommit } from "./remote-host/host-update.js";
+import { createUpdateBundle, readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
 import { configureMachines } from "./remote-host/machines.js";
 import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
@@ -416,6 +416,7 @@ const hostUpdateSessions = new HostUpdateSessions({
 hostLinks.updateBlocker = (hostId, mode) => hostUpdateSessions.blocker(hostId, mode);
 hostLinks.prepareHostUpdate = (hostId, mode) => hostUpdateSessions.prepare(hostId, mode);
 hostLinks.onHostRestarted = (hostId) => hostUpdateSessions.hostRestarted(hostId);
+hostLinks.updateBundle = (commit, hostHaves) => createUpdateBundle(packageRoot, commit, hostHaves);
 hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
 configureMachines({
   local: () => ({ name: thisMachine.name, ...thisMachineDetails() }),

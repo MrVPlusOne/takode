@@ -152,7 +152,15 @@ export type HostRequest =
    * Run one of the named operations a session's machine performs on its own
    * repos and files (see `host-operations.ts`), with JSON arguments.
    */
-  | { kind: "operation"; name: string; args: unknown[] };
+  | { kind: "operation"; name: string; args: unknown[] }
+  /**
+   * Get the host's Takode checkout ready to switch to `commit` without
+   * changing what it runs (see `update`). Without `bundle` the host uses the
+   * commit it has or fetches from its own remote; if it still lacks it, it
+   * answers with commits it has, and the coordinator asks again with `bundle`:
+   * a base64 Git bundle of the commit holding only what those commits lack.
+   */
+  | { kind: "prepare_update"; commit: string; bundle?: string };
 
 export type HostResponse =
   | { kind: "exec"; code: number | null; signal: string | null; stdout: string; stderr: string; truncated: boolean }
@@ -161,7 +169,10 @@ export type HostResponse =
   | { kind: "stat"; stat: { size: number; isFile: boolean; isDirectory: boolean; mtimeMs: number } | null }
   | { kind: "write_file" }
   | { kind: "prepare_codex"; launchId: string; adapterSettings: Record<string, unknown> }
-  | { kind: "operation"; result: unknown };
+  | { kind: "operation"; result: unknown }
+  /** `ready`: the checkout has the commit and can switch to it. Otherwise `haves` are commits it has. */
+  | { kind: "prepare_update"; ready: true }
+  | { kind: "prepare_update"; ready: false; haves: string[] };
 
 export type HostToCoordinator =
   | {
@@ -183,6 +194,12 @@ export type HostToCoordinator =
        * coordinator's own commit (`takode node --auto-update`).
        */
       autoUpdate?: boolean;
+      /**
+       * Whether this host answers `prepare_update`, so the coordinator makes
+       * sure it has the commit before stopping its sessions for `update`.
+       * Absent from older hosts, which are sent `update` straight away.
+       */
+      preparesUpdates?: boolean;
       /**
        * Programs this node was told to run by role on its command line
        * (`--claude`, `--codex`); they win over the coordinator's `settings`.
@@ -252,7 +269,9 @@ export type CoordinatorToHost =
   | { t: "machine_name"; name: string }
   /**
    * Switch to this commit and restart, sent only to hosts that offered
-   * `autoUpdate` and only while none of their sessions is in a turn. Restarting
-   * ends the host's processes; their sessions relaunch with their resume ids.
+   * `autoUpdate`, after a `prepare_update` that answered `ready` (for hosts
+   * that offer `preparesUpdates`) and after the coordinator stopped the host's
+   * sessions. Restarting ends the host's processes; their sessions relaunch
+   * with their resume ids.
    */
   | { t: "update"; commit: string };

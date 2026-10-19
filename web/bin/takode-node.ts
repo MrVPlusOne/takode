@@ -12,10 +12,12 @@
  *
  * It reports the Git commit of this machine's Takode checkout, so the
  * coordinator can show hosts that run another build. With `--auto-update`, the
- * coordinator also switches the checkout to its own commit when none of this
- * host's sessions is in a turn: the node checks out that commit (fetching it
- * if needed, and never over uncommitted changes), runs a frozen install and
- * restarts, which ends its session processes; their sessions relaunch.
+ * coordinator also switches the checkout to its own commit: the node first
+ * makes sure it has that commit (fetching it from its remote, or taking the
+ * Git objects from the coordinator when the commit was never pushed) and
+ * refuses uncommitted changes, all before the coordinator stops its sessions;
+ * then it checks the commit out, runs a frozen install and restarts, which
+ * ends its session processes; their sessions relaunch.
  *
  * `--shared-checkout` is how a coordinator starts its own machine's node (see
  * `local-node.ts`): the node runs from the coordinator's checkout, so it leaves
@@ -42,6 +44,7 @@ import { HostAgent, insecureCoordinatorUrlProblem, startApiProxy } from "../serv
 import { readMachineName, saveMachineName } from "../server/machine-identity.js";
 import {
   NODE_RESTART_EXIT_CODE,
+  prepareCheckoutForCommit,
   readCheckoutCommit,
   switchCheckoutToCommit,
 } from "../server/remote-host/host-update.js";
@@ -129,17 +132,21 @@ async function main(): Promise<void> {
     saveMachineName: (name) => saveMachineName(name),
     ...(sharedCheckout
       ? {
+          // The coordinator's own checkout: there is nothing to fetch, only the code to restart on.
+          prepareUpdate: async () => {
+            await sharedCheckoutCommit(packageRoot, build);
+            return { ready: true as const };
+          },
           update: async () => {
-            const current = await readCheckoutCommit(packageRoot);
-            if (current === build) {
-              throw new Error("It already runs the checkout's current code; restart the server to match it");
-            }
+            const current = await sharedCheckoutCommit(packageRoot, build);
             console.log(`[takode node] Restarting to run ${current ?? "the checkout's current code"}`);
             restart();
           },
         }
       : autoUpdate
         ? {
+            prepareUpdate: (commit: string, bundle: Buffer | null) =>
+              prepareCheckoutForCommit(packageRoot, commit, bundle),
             update: async (commit: string) => {
               await switchCheckoutToCommit(packageRoot, commit);
               console.log(`[takode node] Switched to ${commit}; restarting`);
@@ -161,6 +168,15 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+/** The commit of the shared checkout the node would restart on; throws when the node already runs it. */
+async function sharedCheckoutCommit(packageRoot: string, build: string | null): Promise<string | null> {
+  const current = await readCheckoutCommit(packageRoot);
+  if (current === build) {
+    throw new Error("It already runs the checkout's current code; restart the server to match it");
+  }
+  return current;
 }
 
 /**

@@ -8,6 +8,7 @@ import { getEnrichedPath } from "../path-resolver.js";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
+import type { UpdatePreparation } from "./host-update.js";
 import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import { thisMachineDetails } from "../machine-identity.js";
@@ -77,6 +78,13 @@ export interface HostAgentOptions {
    * throwing); omit it to keep the coordinator from updating this host.
    */
   update?: (commit: string) => Promise<void>;
+  /**
+   * Answer the coordinator's `prepare_update` before it stops this host's
+   * sessions for `update`: whether this machine can switch to the commit
+   * (with `bundle`, the Git objects the coordinator sent for it), without
+   * changing what runs. Throws when it cannot.
+   */
+  prepareUpdate?: (commit: string, bundle: Buffer | null) => Promise<UpdatePreparation>;
   /** Link features to offer the coordinator; all this build knows unless a test stands in for an older host. */
   linkFeatures?: readonly HostLinkFeature[];
   /** First reconnect delay after a link drop; doubles up to 15s (2s for a coordinator on this machine). */
@@ -211,6 +219,7 @@ export class HostAgent {
         features: [...(this.options.linkFeatures ?? HOST_LINK_FEATURES)],
         ...(this.options.build ? { build: this.options.build } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
+        ...(this.options.update && this.options.prepareUpdate ? { preparesUpdates: true } : {}),
         ...(this.options.commands && Object.keys(this.options.commands).length > 0
           ? { commandOverrides: this.options.commands }
           : {}),
@@ -418,11 +427,22 @@ export class HostAgent {
   private async answer(id: string, request: HostRequest): Promise<void> {
     try {
       const response =
-        request.kind === "prepare_codex" ? await this.prepareCodex(request) : await performHostRequest(request);
+        request.kind === "prepare_codex"
+          ? await this.prepareCodex(request)
+          : request.kind === "prepare_update"
+            ? await this.prepareUpdate(request)
+            : await performHostRequest(request);
       this.send({ t: "response", id, ok: true, response });
     } catch (error) {
       this.send({ t: "response", id, ok: false, error: errorMessage(error) });
     }
+  }
+
+  private async prepareUpdate(request: Extract<HostRequest, { kind: "prepare_update" }>): Promise<HostResponse> {
+    if (!this.options.update || !this.options.prepareUpdate) throw new Error("This host does not accept updates");
+    const bundle = request.bundle === undefined ? null : Buffer.from(request.bundle, "base64");
+    if (bundle) this.log(`Importing ${Math.ceil(bundle.length / 1024)} KB of Git objects for ${request.commit}`);
+    return { kind: "prepare_update", ...(await this.options.prepareUpdate(request.commit, bundle)) };
   }
 
   /**
@@ -768,6 +788,8 @@ export async function performHostRequest(request: HostRequest): Promise<HostResp
     }
     case "prepare_codex":
       throw new Error("Codex launches are prepared by the host agent");
+    case "prepare_update":
+      throw new Error("Updates are prepared by the host agent");
     case "operation":
       return { kind: "operation", result: await performHostOperation(request.name, request.args) };
     case "write_file":

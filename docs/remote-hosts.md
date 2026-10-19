@@ -310,12 +310,18 @@ host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.
 
 Start `takode node` with `--auto-update` to let the coordinator keep it in
-step. When the host runs another commit, the coordinator stops the host's
-sessions and the node checks out the coordinator's commit (fetching it from
-the checkout's remote if needed), runs a frozen install and restarts. Its
-sessions relaunch on their next message. It refuses to update a checkout with
-uncommitted changes, so give the node a checkout of its own rather than one you
-work in. When the update happens:
+step. When the host runs another commit, the node first gets ready without
+changing what it runs: it makes sure its checkout has the coordinator's commit,
+fetching it from the checkout's remote if needed. A commit the coordinator runs
+without having pushed it (a private fix, an experiment, a fork) comes from the
+coordinator itself: it sends the Git objects the host's checkout lacks over the
+host link (up to 32 MB), and the node checks and imports them. Only once the
+host is ready does the coordinator stop its sessions; the node then checks out
+the commit, runs a frozen install and restarts, and the sessions relaunch on
+their next message. A host that cannot get ready keeps its sessions running and
+shows why. It refuses to update a checkout with uncommitted changes, so give
+the node a checkout of its own rather than one you work in, and a checkout that
+shares no history with the coordinator's. When the update happens:
 
 - **After Restart Server**, every such host (and the coordinator's own node)
   updates right away, so all sessions run the new build as on a single
