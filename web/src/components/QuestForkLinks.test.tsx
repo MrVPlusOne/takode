@@ -159,8 +159,17 @@ describe("Started from link", () => {
   });
 });
 
-describe("Continued in links", () => {
-  it("adds a link under a handed-off message to the quest it moved into", async () => {
+/** The row under the source message for one quest, and its parts. */
+function forkRow(questId: string, scope: HTMLElement = document.body): HTMLElement {
+  const row = within(scope)
+    .getAllByTestId("quest-fork-link")
+    .find((element) => element.dataset.questId === questId);
+  if (!row) throw new Error(`no fork link for ${questId}`);
+  return row;
+}
+
+describe("Quest fork links under the source message", () => {
+  it("adds Continued in, the quest number and the title under a handed-off message", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -176,10 +185,16 @@ describe("Continued in links", () => {
     );
 
     const bubble = screen.getByTestId("user-message-bubble");
-    await waitFor(() =>
-      expect(within(bubble).getByTestId("continued-in-link")).toHaveTextContent("Continued in Relay timeout"),
+    await waitFor(() => expect(within(bubble).getByTestId("quest-fork-link")).toBeVisible());
+    const row = forkRow(QUEST_ID, bubble);
+    expect(row).toHaveAttribute("data-mode", "continued");
+    expect(within(row).getByText("Continued in")).toBeVisible();
+    // The number is an ordinary quest link (previews the quest); the title opens its thread.
+    expect(within(row).getByRole("link", { name: QUEST_ID })).toHaveAttribute(
+      "href",
+      expect.stringContaining(QUEST_ID),
     );
-    fireEvent.click(within(bubble).getByTestId("continued-in-link"));
+    fireEvent.click(within(row).getByTestId("quest-fork-thread-link"));
     expect(onSelectThread).toHaveBeenCalledWith(QUEST_ID);
   });
 
@@ -200,27 +215,18 @@ describe("Continued in links", () => {
         </div>
       </StartedQuestsProvider>,
     );
-    await waitFor(() => expect(within(screen.getByTestId("in-main")).getByTestId("continued-in-link")).toBeVisible());
+    await waitFor(() => expect(within(screen.getByTestId("in-main")).getByTestId("quest-fork-link")).toBeVisible());
     expect(within(screen.getByTestId("in-quest")).queryByTestId("continued-in-links")).not.toBeInTheDocument();
   });
-  it("shows a supporting quest's phase under the request and previews it instead of switching tabs", async () => {
-    // q-9 supports the Main request, which stays in Main and is answered there; q-10 already finished.
-    const supporting = (questId: string, title: string) => ({ questId, title, startedFrom: STARTED_FROM });
+
+  it("marks side quests and opens their thread too, since a side quest can grow into a conversation", async () => {
+    // q-9 and q-10 support the Main request, which stays in Main and is answered there.
+    const sideQuest = (questId: string, title: string) => ({ questId, title, startedFrom: STARTED_FROM });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        Response.json({ quests: [supporting(QUEST_ID, "Relay timeout"), supporting("q-10", "Relay logs")] }),
+        Response.json({ quests: [sideQuest(QUEST_ID, "Relay timeout"), sideQuest("q-10", "Relay logs")] }),
       ),
-    );
-    act(() =>
-      useStore.setState((state) => ({
-        sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
-          { questId: QUEST_ID, status: "WORKING", updatedAt: 1 },
-        ]),
-        sessionCompletedBoards: new Map(state.sessionCompletedBoards).set(SESSION_ID, [
-          { questId: "q-10", status: "COMPLETED", updatedAt: 2 },
-        ]),
-      })),
     );
     const onSelectThread = vi.fn();
     render(
@@ -229,16 +235,18 @@ describe("Continued in links", () => {
       </StartedQuestsProvider>,
     );
 
-    await waitFor(() => expect(screen.getAllByTestId("supporting-quest-link")).toHaveLength(2));
-    const [running, done] = screen.getAllByTestId("supporting-quest-link");
-    expect(running).toHaveTextContent("Work · Relay timeout");
-    expect(done).toHaveTextContent("Done · Relay logs");
-    expect(screen.queryByTestId("continued-in-link")).not.toBeInTheDocument();
-    fireEvent.click(within(running).getByText("Relay timeout"));
-    expect(onSelectThread).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getAllByTestId("quest-fork-link")).toHaveLength(2));
+    for (const questId of [QUEST_ID, "q-10"]) {
+      const row = forkRow(questId);
+      expect(row).toHaveAttribute("data-mode", "side-quest");
+      expect(within(row).getByText("Side quest")).toBeVisible();
+      expect(within(row).getByRole("link", { name: questId })).toBeVisible();
+    }
+    fireEvent.click(within(forkRow("q-10")).getByTestId("quest-fork-thread-link"));
+    expect(onSelectThread).toHaveBeenCalledWith("q-10");
   });
 
-  it("turns a supporting row into Continued in when the request is handed off after the quests loaded", async () => {
+  it("turns a side quest into Continued in when the request is handed off after the quests loaded", async () => {
     // The leader files q-9 and moves the request into it moments later. The started quests
     // load when q-9's thread appears, before the handoff, and are not loaded again; the
     // updated message alone must switch the row.
@@ -246,25 +254,18 @@ describe("Continued in links", () => {
       Response.json({ quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM }] }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    act(() =>
-      useStore.setState((state) => ({
-        sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
-          { questId: QUEST_ID, status: "WORKING", updatedAt: 1 },
-        ]),
-      })),
-    );
     installThread("main", HISTORY);
     render(
       <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
         <MessageFeed sessionId={SESSION_ID} threadKey="main" onSelectThread={vi.fn()} />
       </StartedQuestsProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("supporting-quest-link")).toHaveTextContent("Work · Relay timeout"));
+    await waitFor(() => expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "side-quest"));
 
     installThread("main", HANDED_OFF_HISTORY);
 
-    expect(screen.getByTestId("continued-in-link")).toHaveTextContent("Continued in Relay timeout");
-    expect(screen.queryByTestId("supporting-quest-link")).not.toBeInTheDocument();
+    expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued");
+    expect(within(forkRow(QUEST_ID)).getByText("Continued in")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

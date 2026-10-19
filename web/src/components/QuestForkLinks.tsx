@@ -1,19 +1,17 @@
 /**
  * Links between the two ends of a conversation fork: a quest filed from one of the user's
- * messages opens its thread with "Started from your message in …", and that message gets
- * "Continued in …" links to the quests it started. The user can then follow a
+ * messages opens its thread with "Started from your message in …", and that message links
+ * on to each quest it started ("Continued in …" or "Side quest …"). The user can then follow a
  * conversation that moved to another tab from either end.
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { QuestStartedFrom } from "../../server/quest-types.js";
 import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { fetchStartedQuests, type StartedQuest } from "../api/started-quests.js";
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
 import { formatMessageTimestamp } from "./MessageTimestamp.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
@@ -60,10 +58,10 @@ export function StartedQuestsProvider({
 
 /**
  * Under a user's message: the quests it started, except the one whose thread is on screen.
- * A request moved into its quest (Main-to-quest handoff) continues there; any other
- * quest supports a request that stays and is answered where it was asked. The message's
- * own route decides which, because it updates as soon as a handoff lands, while the
- * started quests were often loaded just before it, when the quest was filed.
+ * A request moved into its quest (Main-to-quest handoff) continues there; any other quest
+ * is a side quest, supporting a request that stays and is answered where it was asked.
+ * The message's own route decides which, because it updates as soon as a handoff lands,
+ * while the started quests were often loaded just before it, when the quest was filed.
  */
 export function ContinuedInLinks({
   message,
@@ -81,58 +79,53 @@ export function ContinuedInLinks({
   const owner = leaderResponseOwnerThreadKey(message.metadata ?? {});
   return (
     <div className="mt-1.5 flex flex-col items-end gap-0.5" data-testid="continued-in-links">
-      {shown.map((quest) =>
-        normalizeThreadKey(quest.questId) !== owner ? (
-          <SupportingQuestLink key={quest.questId} quest={quest} />
-        ) : (
-          <button
-            key={quest.questId}
-            type="button"
-            onClick={() => onSelectThread(normalizeThreadKey(quest.questId))}
-            className="inline-flex max-w-full items-center gap-0.5 whitespace-pre text-[12px] text-cc-muted hover:text-cc-fg"
-            data-testid="continued-in-link"
-            data-quest-id={quest.questId}
-          >
-            <span className="shrink-0">Continued in </span>
-            <span className="min-w-0 truncate text-cc-primary">{quest.title}</span>
-            <ArrowGlyph />
-          </button>
-        ),
-      )}
+      {shown.map((quest) => (
+        <QuestForkLink
+          key={quest.questId}
+          quest={quest}
+          continued={normalizeThreadKey(quest.questId) === owner}
+          onSelectThread={onSelectThread}
+        />
+      ))}
     </div>
   );
 }
 
 /**
- * A supporting quest under the request it helps answer: its current phase and title.
- * The request stays here and is answered here, so the title previews the quest in place
- * (a tap, or the eye on desktop) instead of switching to the quest's tab.
+ * "Continued in q-N Title ›" or "Side quest q-N Title ›": the number previews the quest
+ * like any quest link, and the title opens the quest's thread either way, since a side
+ * quest's thread can grow into a conversation of its own.
  */
-function SupportingQuestLink({ quest }: { quest: StartedQuest }) {
-  // A primitive keeps the selector stable: "done", the board row's state, or null when off the board.
-  const boardState = useStore((state) => {
-    const isQuest = (row: { questId: string }) => row.questId.toLowerCase() === quest.questId.toLowerCase();
-    if (state.sessionCompletedBoards.get(quest.startedFrom.sessionId)?.some(isQuest)) return "done";
-    return state.sessionBoards.get(quest.startedFrom.sessionId)?.find(isQuest)?.status ?? null;
-  });
-  const done = boardState === "done";
-  const phase = done ? null : getQuestJourneyPhaseForState(boardState);
-  const label = done ? "Done" : (getQuestJourneyPresentation(boardState)?.label ?? phase?.label);
+function QuestForkLink({
+  quest,
+  continued,
+  onSelectThread,
+}: {
+  quest: StartedQuest;
+  continued: boolean;
+  onSelectThread: (threadKey: string) => void;
+}) {
   return (
     <span
       className="inline-flex max-w-full items-center gap-1 whitespace-pre text-[12px] text-cc-muted"
-      data-testid="supporting-quest-link"
+      title={continued ? "The conversation continues in this quest's thread" : "Side quest: the answer comes back here"}
+      data-testid="quest-fork-link"
       data-quest-id={quest.questId}
+      data-mode={continued ? "continued" : "side-quest"}
     >
-      {phase && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={getQuestPhaseDotStyle(phase)} />}
-      {label && <span className={`shrink-0 ${done ? "text-cc-success" : ""}`}>{label} · </span>}
-      <QuestInlineLink
-        questId={quest.questId}
-        surface="chat-feed"
-        className="min-w-0 truncate text-cc-fg/80 hover:text-cc-fg hover:underline"
-      >
-        {quest.title}
+      <span className="shrink-0">{continued ? "Continued in" : "Side quest"}</span>
+      <QuestInlineLink questId={quest.questId} surface="chat-feed" className="cc-quest-link hover:underline">
+        {quest.questId}
       </QuestInlineLink>
+      <button
+        type="button"
+        onClick={() => onSelectThread(normalizeThreadKey(quest.questId))}
+        className="group inline-flex min-w-0 items-center gap-0.5 hover:text-cc-fg"
+        data-testid="quest-fork-thread-link"
+      >
+        <span className="min-w-0 truncate text-cc-primary group-hover:underline">{quest.title}</span>
+        <ArrowGlyph />
+      </button>
     </span>
   );
 }

@@ -345,20 +345,13 @@ export function PlaygroundQuestDescriptionSummary() {
           description:
             "## Background\nLeader quest threads often begin with nothing but tool activity, so the feed never says what the quest is about. Completed threads already end with a Quest complete card built from the final debrief, and this quest adds the matching card at the start of the thread.\n\n## Goal\nShow the description TLDR, expandable to the full description.",
         }),
-      // The supporting quests' rows read their state from this leader's boards.
-      sessionBoards: new Map(state.sessionBoards).set(SESSION_ID, [
-        { questId: SUPPORTING_RUNNING_ID, status: "WORKING", updatedAt: messageTimestamp(4) },
-      ]),
-      sessionCompletedBoards: new Map(state.sessionCompletedBoards).set(SESSION_ID, [
-        { questId: SUPPORTING_DONE_ID, status: "COMPLETED", updatedAt: messageTimestamp(5) },
-      ]),
     }));
   }, []);
 
   return (
     <Section
       title="Quest Description Summary"
-      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded; a quest thread with no messages shows it in place of the empty placeholder. A quest filed from one of the user's messages opens with a link back to that message, and the message links on to the quest (Continued in)."
+      description="A leader quest thread opens with what the quest is about: the description TLDR, expandable to the full description, or a description excerpt when the quest has no TLDR. It shows once, before the first turn, and only when the thread's first section is loaded; a quest thread with no messages shows it in place of the empty placeholder. A quest filed from one of the user's messages opens with a link back to that message, and the message links on to the quest (Continued in, or Side quest when the answer comes back where it was asked)."
     >
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <Card label="Dispatch-only thread · description TLDR, started from a message">
@@ -390,7 +383,7 @@ export function PlaygroundQuestDescriptionSummary() {
             />
           </StartedQuestsContext.Provider>
         </Card>
-        <Card label="Supporting quests under the request · their phase, previewed in place">
+        <Card label="Side quests under the request · each opens its thread">
           <StartedQuestsContext.Provider value={SUPPORTING_QUESTS}>
             <QuestThread
               questId={EXCERPT_QUEST_ID}
