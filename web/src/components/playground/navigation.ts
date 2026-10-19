@@ -105,7 +105,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Thread Tab Groups",
     "Diff Access from the Quest Banner",
     "Quest Status Panel",
-    "Questmaster Compact Table",
+    "Questmaster List",
     "Personal To-dos",
     "Codex Developer Instructions",
     "Timer Chip + Modal",

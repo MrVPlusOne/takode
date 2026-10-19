@@ -13,31 +13,9 @@ const RELATIONSHIP_LABELS: Record<DisplayedQuestRelationshipKind, string> = {
 
 const RELATIONSHIP_ORDER: DisplayedQuestRelationshipKind[] = ["follow_up_of", "has_follow_up", "referenced_by"];
 
-export function QuestRelationshipLinks({
-  quest,
-  variant = "detail",
-}: {
-  quest: QuestmasterTask | QuestListPreview;
-  variant?: "detail" | "inline";
-}) {
+export function QuestRelationshipLinks({ quest }: { quest: QuestmasterTask | QuestListPreview }) {
   const groups = groupRelatedQuests(quest.relatedQuests ?? []);
   if (groups.length === 0) return null;
-
-  if (variant === "inline") {
-    return (
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-cc-muted">
-        {groups.map(([kind, entries]) => (
-          <span key={kind} className="inline-flex min-w-0 items-center gap-1">
-            <span className="text-cc-muted/70">{RELATIONSHIP_LABELS[kind]}</span>
-            {entries.map((entry) => (
-              <RelatedQuestLink key={entry.questId} entry={entry} />
-            ))}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
   return <QuestRelationshipChip groups={groups} />;
 }
 

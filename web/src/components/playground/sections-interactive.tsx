@@ -34,7 +34,7 @@ import { PlaygroundReasoningDetailStates } from "./ReasoningDetailStates.js";
 import { PlaygroundLeaderActivityStates } from "./LeaderActivityStates.js";
 import { PlaygroundJourneyProposal } from "./PlaygroundJourneyProposal.js";
 import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.js";
-import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
+import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
 import { PlaygroundStreamingComposerStates } from "./StreamingComposerStates.js";
@@ -1630,7 +1630,7 @@ export function PlaygroundInteractiveSections() {
       </Section>
 
       <PlaygroundQuestStatusPanelSection />
-      <PlaygroundQuestmasterCompactSection />
+      <PlaygroundQuestmasterSection />
 
       <Section
         title="Codex Reasoning Details"

@@ -33,12 +33,10 @@ export function mockApiModule() {
   };
 }
 
-export function mockViewStateModule(actual: typeof import("../utils/questmaster-view-state.js")) {
+export function mockViewStateModule() {
   return {
-    VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
     loadQuestmasterViewState: () => null,
     saveQuestmasterViewState: vi.fn(),
-    toggleStatusFilter: actual.toggleStatusFilter,
   };
 }
 
@@ -76,11 +74,9 @@ type MockStoreState = {
   questOverlaySearchHighlight: string | null;
   questmasterSearchQuery: string;
   questmasterSelectedTags: string[];
-  questmasterViewMode: "cards" | "compact" | null;
   questmasterCompactSort: { column: string; direction: "asc" | "desc" } | null;
   setQuestmasterSearchQuery: ReturnType<typeof vi.fn>;
   setQuestmasterSelectedTags: ReturnType<typeof vi.fn>;
-  setQuestmasterViewMode: ReturnType<typeof vi.fn>;
   setQuestmasterCompactSort: ReturnType<typeof vi.fn>;
   openQuestOverlay: ReturnType<typeof vi.fn>;
   closeQuestOverlay: ReturnType<typeof vi.fn>;
@@ -187,16 +183,12 @@ export function resetState(overrides: Partial<MockStoreState> = {}) {
     questOverlaySearchHighlight: null,
     questmasterSearchQuery: "",
     questmasterSelectedTags: [] as string[],
-    questmasterViewMode: null as "cards" | "compact" | null,
     questmasterCompactSort: null,
     setQuestmasterSearchQuery: vi.fn((query: string) => {
       mockState.questmasterSearchQuery = query;
     }),
     setQuestmasterSelectedTags: vi.fn((tags: string[]) => {
       mockState.questmasterSelectedTags = tags;
-    }),
-    setQuestmasterViewMode: vi.fn((mode: "cards" | "compact") => {
-      mockState.questmasterViewMode = mode;
     }),
     setQuestmasterCompactSort: vi.fn((sort: { column: string; direction: "asc" | "desc" }) => {
       mockState.questmasterCompactSort = sort;
@@ -357,18 +349,10 @@ export function expectLastQuestPageCall(options: Partial<MockQuestPageOptions>) 
   expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining(options), expect.any(AbortSignal));
 }
 
-export function compactRowQuestIds(): string[] {
-  return screen
-    .getAllByRole("button")
-    .map((el) => el.getAttribute("data-quest-id"))
-    .filter((questId): questId is string => !!questId);
-}
-
 export function renderedQuestIds(): string[] {
-  const compactRows = Array.from(document.querySelectorAll<HTMLElement>("tr[data-quest-id]"));
-  const questElements =
-    compactRows.length > 0 ? compactRows : Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]"));
-  return questElements.map((el) => el.dataset.questId).filter((questId): questId is string => !!questId);
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]"))
+    .map((el) => el.dataset.questId)
+    .filter((questId): questId is string => !!questId);
 }
 
 /**
@@ -444,15 +428,10 @@ export function installQuestmasterPageTestHooks() {
         }) as QuestmasterTask,
     );
     mockGetSettings.mockResolvedValue({
-      questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
     });
     mockUpdateSettings.mockImplementation(
-      async (input: {
-        questmasterViewMode?: "cards" | "compact";
-        questmasterCompactSort?: { column: string; direction: "asc" | "desc" };
-      }) => ({
-        questmasterViewMode: input.questmasterViewMode ?? mockState.questmasterViewMode ?? "cards",
+      async (input: { questmasterCompactSort?: { column: string; direction: "asc" | "desc" } }) => ({
         questmasterCompactSort: input.questmasterCompactSort ??
           mockState.questmasterCompactSort ?? { column: "updated", direction: "desc" },
       }),

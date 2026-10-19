@@ -73,7 +73,6 @@ describe("settings-manager", () => {
       editorConfig: { editor: "none" },
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
-      questmasterViewMode: "cards",
       sidebarViewMode: "spaces",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
@@ -450,18 +449,14 @@ describe("settings-manager", () => {
     expect(getSettings().transcriptionConfig.voiceCaptureMode).toBe("append");
   });
 
-  it("persists Questmaster view mode across reloads", async () => {
-    // Questmaster layout is a server preference so multiple browser tabs share it.
-    updateSettings({ questmasterViewMode: "compact" });
-
-    await _flushForTest();
-
-    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
-    expect(savedSettings.questmasterViewMode).toBe("compact");
-
+  it("drops the retired Questmaster view mode from saved settings", () => {
+    // Questmaster once saved a Cards/Compact choice; its layout now follows the
+    // viewport, so a value left in an older settings file must not load back.
+    writeFileSync(settingsPath, JSON.stringify({ questmasterViewMode: "compact", sidebarViewMode: "recent" }), "utf-8");
     _resetForTest(settingsPath);
 
-    expect(getSettings().questmasterViewMode).toBe("compact");
+    expect(getSettings()).not.toHaveProperty("questmasterViewMode");
+    expect(getSettings().sidebarViewMode).toBe("recent");
   });
 
   it("persists Questmaster compact sort across reloads", async () => {
@@ -678,7 +673,6 @@ describe("settings-manager", () => {
       editorConfig: { editor: "none" },
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
-      questmasterViewMode: "cards",
       sidebarViewMode: "spaces",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,

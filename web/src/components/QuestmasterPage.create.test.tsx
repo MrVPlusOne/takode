@@ -9,8 +9,8 @@ import {
 } from "./QuestmasterPage.test-harness.js";
 
 vi.mock("../api.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockApiModule());
-vi.mock("../utils/questmaster-view-state.js", async (importOriginal) =>
-  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(await importOriginal()),
+vi.mock("../utils/questmaster-view-state.js", async () =>
+  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(),
 );
 vi.mock("../utils/highlight.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockHighlightModule());
 vi.mock("../store.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockStoreModule());

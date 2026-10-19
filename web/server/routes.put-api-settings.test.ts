@@ -120,7 +120,6 @@ vi.mock("./settings-manager.js", () => ({
     editorConfig: { editor: "none" },
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
-    questmasterViewMode: "cards",
     questmasterCompactSort: { column: "updated", direction: "desc" },
     codexLeaderContextWindowOverrideTokens: 1_000_000,
     codexLeaderRecycleThresholdTokens: 260_000,
@@ -156,7 +155,6 @@ vi.mock("./settings-manager.js", () => ({
     editorConfig: patch.editorConfig ?? { editor: "none" },
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
-    questmasterViewMode: patch.questmasterViewMode ?? "cards",
     questmasterCompactSort: patch.questmasterCompactSort ?? { column: "updated", direction: "desc" },
     codexLeaderContextWindowOverrideTokens: patch.codexLeaderContextWindowOverrideTokens ?? 1_000_000,
     codexLeaderRecycleThresholdTokens: patch.codexLeaderRecycleThresholdTokens ?? 260_000,
@@ -592,7 +590,6 @@ describe("PUT /api/settings", () => {
       editorConfig: undefined,
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
-      questmasterViewMode: undefined,
       questmasterCompactSort: undefined,
       codexLeaderContextWindowOverrideTokens: undefined,
       codexLeaderRecycleThresholdTokens: undefined,
@@ -620,7 +617,6 @@ describe("PUT /api/settings", () => {
       editorConfig: { editor: "none" },
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
-      questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexLeaderRecycleThresholdTokens: 260_000,
@@ -682,7 +678,6 @@ describe("PUT /api/settings", () => {
       editorConfig: undefined,
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
-      questmasterViewMode: undefined,
       questmasterCompactSort: undefined,
       codexLeaderContextWindowOverrideTokens: undefined,
       codexLeaderRecycleThresholdTokens: undefined,
@@ -764,7 +759,6 @@ describe("PUT /api/settings", () => {
       editorConfig: undefined,
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
-      questmasterViewMode: undefined,
       questmasterCompactSort: undefined,
       codexLeaderContextWindowOverrideTokens: undefined,
       codexLeaderRecycleThresholdTokens: undefined,
@@ -1027,7 +1021,6 @@ describe("PUT /api/settings", () => {
       editorConfig: undefined,
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
-      questmasterViewMode: undefined,
       questmasterCompactSort: undefined,
       codexLeaderContextWindowOverrideTokens: undefined,
       codexLeaderRecycleThresholdTokens: undefined,
@@ -1208,39 +1201,6 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toEqual({ error: "chatMessageLineHeight must be a number between 1.3 and 1.7" });
-  });
-
-  it("updates Questmaster view mode setting", async () => {
-    vi.mocked(settingsManager.updateSettings).mockReturnValue({
-      ...settingsManager.getSettings(),
-      questmasterViewMode: "compact",
-      updatedAt: Date.now(),
-    });
-
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questmasterViewMode: "compact" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ questmasterViewMode: "compact" }),
-    );
-    const json = await res.json();
-    expect(json.questmasterViewMode).toBe("compact");
-  });
-
-  it("returns 400 for invalid Questmaster view mode", async () => {
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questmasterViewMode: "grid" }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json).toEqual({ error: 'questmasterViewMode must be "cards" or "compact"' });
   });
 
   it("updates Questmaster compact sort setting", async () => {

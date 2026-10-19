@@ -119,7 +119,6 @@ vi.mock("./settings-manager.js", () => ({
     editorConfig: { editor: "none" },
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
-    questmasterViewMode: "cards",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -144,7 +143,6 @@ vi.mock("./settings-manager.js", () => ({
     editorConfig: patch.editorConfig ?? { editor: "none" },
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
-    questmasterViewMode: patch.questmasterViewMode ?? "cards",
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),

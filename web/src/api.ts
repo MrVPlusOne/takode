@@ -678,7 +678,6 @@ export interface AppSettings {
   editorConfig: EditorConfig;
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
-  questmasterViewMode: QuestmasterViewMode;
   sidebarViewMode: "spaces" | "recent";
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
@@ -713,7 +712,6 @@ export interface PushoverEventFilters {
   overdueTodos: boolean;
 }
 
-export type QuestmasterViewMode = "cards" | "compact";
 export type QuestmasterCompactSortColumn = "quest" | "title" | "owner" | "leader" | "status" | "feedback" | "updated";
 export type QuestmasterCompactSortDirection = "asc" | "desc";
 export interface QuestmasterCompactSort {
@@ -1426,7 +1424,6 @@ export const api = {
     editorConfig?: EditorConfig;
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
-    questmasterViewMode?: QuestmasterViewMode;
     sidebarViewMode?: "spaces" | "recent";
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;

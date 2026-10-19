@@ -11,8 +11,8 @@ import {
 } from "./QuestmasterPage.test-harness.js";
 
 vi.mock("../api.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockApiModule());
-vi.mock("../utils/questmaster-view-state.js", async (importOriginal) =>
-  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(await importOriginal()),
+vi.mock("../utils/questmaster-view-state.js", async () =>
+  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(),
 );
 vi.mock("../utils/highlight.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockHighlightModule());
 vi.mock("../store.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockStoreModule());
@@ -66,60 +66,6 @@ describe("QuestmasterPage search and tag filters", () => {
     await enterBackendSearch(searchInput, "implementation");
     expect(document.querySelector('[data-quest-id="q-30"]')).toBeTruthy();
     expect(document.querySelector('[data-quest-id="q-31"]')).toBeNull();
-  });
-
-  it("shows phase TLDR scan lines in quest list results", () => {
-    mockState.quests = [
-      {
-        ...buildVerificationQuest({ id: "q-40-v1", questId: "q-40", title: "Phase documented quest" }),
-        journeyRuns: [
-          {
-            runId: "run-1",
-            source: "board",
-            phaseIds: ["alignment", "implement"],
-            status: "completed",
-            createdAt: 1,
-            updatedAt: 2,
-            phaseOccurrences: [
-              {
-                occurrenceId: "run-1:p1",
-                phaseId: "alignment",
-                phaseIndex: 0,
-                phasePosition: 1,
-                phaseOccurrence: 1,
-                status: "completed",
-              },
-              {
-                occurrenceId: "run-1:p2",
-                phaseId: "implement",
-                phaseIndex: 1,
-                phasePosition: 2,
-                phaseOccurrence: 1,
-                status: "completed",
-              },
-            ],
-          },
-        ],
-        feedback: [
-          {
-            author: "agent",
-            text: "Full implementation detail should stay out of the compact list.",
-            tldr: "Implementation phase scanline.",
-            ts: Date.now(),
-            journeyRunId: "run-1",
-            phaseOccurrenceId: "run-1:p2",
-            phaseId: "implement",
-            phasePosition: 2,
-          },
-        ],
-      } as QuestmasterTask,
-    ];
-
-    renderQuestmaster({ isActive: true });
-
-    expect(screen.getByText(/Implement phase 2:/)).toBeInTheDocument();
-    expect(screen.getByText(/Implementation phase scanline/)).toBeInTheDocument();
-    expect(screen.queryByText(/Full implementation detail should stay out/)).toBeNull();
   });
 
   it("preserves plain-text title search while ignoring negated-tag syntax", async () => {
@@ -423,9 +369,9 @@ describe("QuestmasterPage search and tag filters", () => {
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
     fireEvent.change(searchInput, { target: { value: "auth !#mobile" } });
 
-    const cardButton = document.querySelector('[data-quest-id="q-91"] [role="button"]') as HTMLElement | null;
-    expect(cardButton).toBeTruthy();
-    fireEvent.click(cardButton!);
+    const row = document.querySelector('[data-quest-id="q-91"]') as HTMLElement | null;
+    expect(row).toBeTruthy();
+    fireEvent.click(row!);
 
     expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-91", "auth");
   });

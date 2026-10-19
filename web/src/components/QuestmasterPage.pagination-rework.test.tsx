@@ -28,15 +28,10 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-vi.mock("../utils/questmaster-view-state.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../utils/questmaster-view-state.js")>();
-  return {
-    VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
-    loadQuestmasterViewState: () => null,
-    saveQuestmasterViewState: vi.fn(),
-    toggleStatusFilter: actual.toggleStatusFilter,
-  };
-});
+vi.mock("../utils/questmaster-view-state.js", () => ({
+  loadQuestmasterViewState: () => null,
+  saveQuestmasterViewState: vi.fn(),
+}));
 
 vi.mock("../utils/highlight.js", () => ({
   getHighlightParts: (text: string, query: string) => {
@@ -109,16 +104,12 @@ function resetState(overrides: Record<string, unknown> = {}) {
     questOverlaySearchHighlight: null,
     questmasterSearchQuery: "",
     questmasterSelectedTags: [],
-    questmasterViewMode: null,
     questmasterCompactSort: null,
     setQuestmasterSearchQuery: vi.fn((query: string) => {
       mockState.questmasterSearchQuery = query;
     }),
     setQuestmasterSelectedTags: vi.fn((tags: string[]) => {
       mockState.questmasterSelectedTags = tags;
-    }),
-    setQuestmasterViewMode: vi.fn((mode: "cards" | "compact") => {
-      mockState.questmasterViewMode = mode;
     }),
     setQuestmasterCompactSort: vi.fn((sort: { column: string; direction: "asc" | "desc" }) => {
       mockState.questmasterCompactSort = sort;
@@ -272,15 +263,10 @@ beforeEach(() => {
     makeQuest({ questId: "q-created", title: input.title, description: input.description, tags: input.tags }),
   );
   mockGetSettings.mockResolvedValue({
-    questmasterViewMode: "cards",
     questmasterCompactSort: { column: "updated", direction: "desc" },
   });
   mockUpdateSettings.mockImplementation(
-    async (input: {
-      questmasterViewMode?: "cards" | "compact";
-      questmasterCompactSort?: { column: string; direction: "asc" | "desc" };
-    }) => ({
-      questmasterViewMode: input.questmasterViewMode ?? mockState.questmasterViewMode ?? "cards",
+    async (input: { questmasterCompactSort?: { column: string; direction: "asc" | "desc" } }) => ({
       questmasterCompactSort: input.questmasterCompactSort ??
         mockState.questmasterCompactSort ?? { column: "updated", direction: "desc" },
     }),
@@ -300,10 +286,8 @@ afterEach(() => {
 
 describe("QuestmasterPage paged browsing rework", () => {
   it("refreshes the current loaded window instead of replacing it with page one", async () => {
-    mockState.questmasterViewMode = "compact";
     mockState.questmasterCompactSort = { column: "quest", direction: "asc" };
     mockGetSettings.mockResolvedValue({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "quest", direction: "asc" },
     });
     mockState.quests = Array.from({ length: 200 }, (_, index) => {
@@ -365,10 +349,8 @@ describe("QuestmasterPage paged browsing rework", () => {
   });
 
   it("loads the previous page on upward boundary scroll and preserves the current anchor row", async () => {
-    mockState.questmasterViewMode = "compact";
     mockState.questmasterCompactSort = { column: "quest", direction: "asc" };
     mockGetSettings.mockResolvedValue({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "quest", direction: "asc" },
     });
     mockState.quests = Array.from({ length: 200 }, (_, index) => {

@@ -4,7 +4,7 @@ import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
 import {
   buildVerificationQuest,
-  compactRowQuestIds,
+  renderedQuestIds,
   enterBackendSearch,
   expectLastQuestPageCall,
   hasButtonNamed,
@@ -13,14 +13,13 @@ import {
   mockListQuestPage,
   mockState,
   mockUpdateSettings,
-  renderedQuestIds,
   scrollNearQuestmasterBottom,
   settleLatestQuestPageRequest,
 } from "./QuestmasterPage.test-harness.js";
 
 vi.mock("../api.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockApiModule());
-vi.mock("../utils/questmaster-view-state.js", async (importOriginal) =>
-  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(await importOriginal()),
+vi.mock("../utils/questmaster-view-state.js", async () =>
+  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(),
 );
 vi.mock("../utils/highlight.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockHighlightModule());
 vi.mock("../store.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockStoreModule());
@@ -72,11 +71,10 @@ describe("QuestmasterPage paging and sorting", () => {
     }
   });
 
-  it("lazily loads later pages while keeping rendered compact rows bounded", async () => {
+  it("lazily loads later pages while keeping rendered rows bounded", async () => {
     // Loading more can browse past the first backend page, but the mounted list
     // should stay capped so long sessions do not rebuild hundreds of rows.
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "quest", direction: "asc" },
     });
     mockState.quests = Array.from({ length: 175 }, (_, index) => {
@@ -131,9 +129,8 @@ describe("QuestmasterPage paging and sorting", () => {
     });
   });
 
-  it("orders compact rows by newest update without grouping by status", async () => {
-    // Compact mode is one updated-time-sorted work-board-style table, independent of quest status buckets.
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("orders rows by newest update without grouping by status", async () => {
+    // The list is sorted by updated time by default, independent of quest status.
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-20-v1", questId: "q-20", title: "Old verification" }),
@@ -161,18 +158,16 @@ describe("QuestmasterPage paging and sorting", () => {
 
     renderQuestmaster({ isActive: true });
 
-    await screen.findByRole("button", { name: /q-21 Newest refined/ });
+    await screen.findByRole("button", { name: /Newest refined/ });
     await waitFor(() => {
       expectLastQuestPageCall({ sortColumn: "updated", sortDirection: "desc" });
-      expect(compactRowQuestIds()).toEqual(["q-21", "q-22", "q-20"]);
+      expect(renderedQuestIds()).toEqual(["q-21", "q-22", "q-20"]);
     });
-    expect(screen.getAllByRole("table")).toHaveLength(1);
   });
 
-  it("loads the server-persisted compact sort and applies it after default filtering", async () => {
-    // The server-owned compact sort should hydrate with view mode and order the flat table.
+  it("loads the server-persisted sort and applies it after default filtering", async () => {
+    // The server-owned sort should hydrate on activation and order the list.
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "title", direction: "asc" },
     });
     mockState.quests = [
@@ -190,18 +185,17 @@ describe("QuestmasterPage paging and sorting", () => {
 
     renderQuestmaster({ isActive: true });
 
-    await screen.findByRole("button", { name: /q-41 Alpha task/ });
+    await screen.findByRole("button", { name: /Alpha task/ });
     await waitFor(() => {
       expectLastQuestPageCall({ sortColumn: "title", sortDirection: "asc" });
-      expect(compactRowQuestIds()).toEqual(["q-41", "q-40"]);
+      expect(renderedQuestIds()).toEqual(["q-41", "q-40"]);
     });
   });
 
-  it("keeps compact column sorting when search is empty, then ranks non-empty searches by relevance", async () => {
-    // Empty search should honor the selected compact sort, but typing a query
+  it("keeps column sorting when search is empty, then ranks non-empty searches by relevance", async () => {
+    // Empty search should honor the selected sort, but typing a query
     // should let exact word matches beat title-only prefix matches.
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "title", direction: "asc" },
     });
     mockState.quests = [
@@ -228,21 +222,20 @@ describe("QuestmasterPage paging and sorting", () => {
     ];
 
     renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-71 Alpha background note/ });
+    await screen.findByRole("button", { name: /Alpha background note/ });
     await waitFor(() => {
       expectLastQuestPageCall({ sortColumn: "title", sortDirection: "asc" });
-      expect(compactRowQuestIds()).toEqual(["q-71", "q-70"]);
+      expect(renderedQuestIds()).toEqual(["q-71", "q-70"]);
     });
 
     await enterBackendSearch(screen.getByPlaceholderText("Search or #tag..."), "new tab");
 
-    expect(compactRowQuestIds()).toEqual(["q-71", "q-70"]);
+    expect(renderedQuestIds()).toEqual(["q-71", "q-70"]);
   });
 
-  it("toggles compact table headers, persists the choice, and updates row order", async () => {
+  it("toggles column headers, persists the choice, and updates row order", async () => {
     // Header buttons should advertise the next direction and save the selected sort server-side.
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "updated", direction: "desc" },
     });
     mockState.quests = [
@@ -259,9 +252,9 @@ describe("QuestmasterPage paging and sorting", () => {
     ];
 
     renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-50 Zulu task/ });
+    await screen.findByRole("button", { name: /Zulu task/ });
 
-    fireEvent.click(screen.getByRole("button", { name: "Sort by Title ascending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Quest ascending" }));
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({
@@ -269,22 +262,21 @@ describe("QuestmasterPage paging and sorting", () => {
       });
       // The re-sorted page arrives after the settings save; wait for it rather
       // than reading the rows of the previous page.
-      expect(compactRowQuestIds()).toEqual(["q-51", "q-50"]);
+      expect(renderedQuestIds()).toEqual(["q-51", "q-50"]);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Sort by Title descending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Quest descending" }));
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenLastCalledWith({
         questmasterCompactSort: { column: "title", direction: "desc" },
       });
-      expect(compactRowQuestIds()).toEqual(["q-50", "q-51"]);
+      expect(renderedQuestIds()).toEqual(["q-50", "q-51"]);
     });
   });
 
-  it("filters first, then sorts compact rows by quest id numeric suffix", async () => {
+  it("filters first, then sorts rows by quest id numeric suffix", async () => {
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "compact",
       questmasterCompactSort: { column: "quest", direction: "asc" },
     });
     mockState.quests = [
@@ -303,52 +295,18 @@ describe("QuestmasterPage paging and sorting", () => {
     ];
 
     renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-2 Keep early id/ });
+    await screen.findByRole("button", { name: /Keep early id/ });
 
     await enterBackendSearch(screen.getByPlaceholderText("Search or #tag..."), "Keep");
 
-    expect(compactRowQuestIds()).toEqual(["q-2", "q-10"]);
-    expect(screen.queryByRole("button", { name: /q-1 Drop this row/ })).toBeNull();
+    expect(renderedQuestIds()).toEqual(["q-2", "q-10"]);
+    expect(screen.queryByRole("button", { name: /Drop this row/ })).toBeNull();
   });
 
-  it("does not apply compact-table sort to Cards view", async () => {
-    // Cards remain grouped and recency-sorted even when a compact sort preference exists.
+  it("ranks search results by relevance instead of the saved sort", async () => {
+    // Search should put the best match first, so an exact description match
+    // beats a title-only prefix match.
     mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "cards",
-      questmasterCompactSort: { column: "title", direction: "asc" },
-    });
-    mockState.quests = [
-      {
-        ...buildVerificationQuest({ id: "q-60-v1", questId: "q-60", title: "Zulu newer card" }),
-        status: "refined",
-        createdAt: 8_000,
-        statusChangedAt: 8_000,
-        updatedAt: 9_000,
-      } as QuestmasterTask,
-      {
-        ...buildVerificationQuest({ id: "q-61-v1", questId: "q-61", title: "Alpha older card" }),
-        status: "refined",
-        createdAt: 500,
-        statusChangedAt: 500,
-        updatedAt: 1_000,
-      } as QuestmasterTask,
-    ];
-
-    renderQuestmaster({ isActive: true });
-
-    await screen.findByText("Zulu newer card");
-    expectLastQuestPageCall({ sortColumn: "cards", sortDirection: "asc" });
-    expect(
-      Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId),
-    ).toEqual(["q-60", "q-61"]);
-    expect(screen.queryAllByRole("columnheader", { name: "Title" })).toHaveLength(0);
-  });
-
-  it("globally ranks card search results instead of preserving status section order", async () => {
-    // Search should put the best match first across all statuses, so an exact
-    // description match beats a title-only prefix match.
-    mockGetSettings.mockResolvedValueOnce({
-      questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
     });
     mockState.quests = [
@@ -384,8 +342,7 @@ describe("QuestmasterPage paging and sorting", () => {
     ).toEqual(["q-81", "q-80"]);
   });
 
-  it("applies the existing status dropdown filter to the flat compact table", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("applies the status chip filter to the list", async () => {
     mockState.quests = [
       { ...buildVerificationQuest({ id: "q-30-v1", questId: "q-30", title: "Verification row" }) } as QuestmasterTask,
       {
@@ -395,37 +352,14 @@ describe("QuestmasterPage paging and sorting", () => {
     ];
 
     renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-30 Verification row/ });
+    await screen.findByRole("button", { name: /Verification row/ });
 
-    fireEvent.click(screen.getByRole("button", { name: /^All2/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Actionable1$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Actionable\s*1$/ }));
 
     await waitFor(() => {
       expectLastQuestPageCall({ status: "refined" });
-      expect(screen.queryByRole("button", { name: /q-30 Verification row/ })).toBeNull();
-      expect(screen.getByRole("button", { name: /q-31 Refined row/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Verification row/ })).toBeNull();
+      expect(screen.getByRole("button", { name: /Refined row/ })).toBeInTheDocument();
     });
-    expect(screen.getAllByRole("table")).toHaveLength(1);
-  });
-
-  it("saves the compact/cards toggle to server settings", async () => {
-    // Toggling should persist the view and request the matching server-owned ordering without overwriting compact sort.
-    renderQuestmaster({ isActive: true });
-
-    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
-
-    await waitFor(() => {
-      expect(mockUpdateSettings).toHaveBeenCalledWith({ questmasterViewMode: "compact" });
-      expectLastQuestPageCall({ sortColumn: "updated", sortDirection: "desc" });
-    });
-    expect(screen.getAllByRole("columnheader", { name: "Feedback" })).toHaveLength(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Cards" }));
-
-    await waitFor(() => {
-      expect(mockUpdateSettings).toHaveBeenLastCalledWith({ questmasterViewMode: "cards" });
-      expectLastQuestPageCall({ sortColumn: "cards", sortDirection: "asc" });
-    });
-    expect(screen.queryAllByRole("columnheader", { name: "Feedback" })).toHaveLength(0);
   });
 });

@@ -1,5 +1,4 @@
 import {
-  memo,
   useState,
   useEffect,
   useCallback,
@@ -10,46 +9,27 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { useStore } from "../store.js";
-import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { api } from "../api.js";
 import { questOverlayTargetFromHash, withoutQuestIdInHash } from "../utils/routing.js";
-import { SessionNumChip } from "./SessionNumChip.js";
-import {
-  loadQuestmasterViewState,
-  saveQuestmasterViewState,
-  toggleStatusFilter,
-} from "../utils/questmaster-view-state.js";
-import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
-import { QUEST_STATUS_THEME, type QuestStatusTheme } from "../utils/quest-status-theme.js";
-import {
-  timeAgo,
-  getQuestDisplayOwner,
-  getQuestOwnerSessionId,
-  getQuestLeaderSessionId,
-  CopyableQuestId,
-} from "../utils/quest-helpers.js";
-import { buildQuestJourneyContextByQuestId, type QuestJourneyContext } from "../utils/quest-journey-context.js";
-import { getQuestDebriefTldr } from "../utils/quest-editor-helpers.js";
-import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
-import { MarkdownContent } from "./MarkdownContent.js";
+import { loadQuestmasterViewState, saveQuestmasterViewState } from "../utils/questmaster-view-state.js";
+import { buildQuestJourneyContextByQuestId } from "../utils/quest-journey-context.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { QuestmasterCreateForm } from "./QuestmasterCreateForm.js";
-import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
-import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
+
 import {
-  CompactQuestTable,
-  QuestStatusHoverTarget,
-  getQuestmasterDisplayStatus,
   nextCompactSort,
   normalizeCompactSort,
-  questRecencyTs,
-  renderSearchHighlightText,
-} from "./QuestmasterCompactTable.js";
+  QuestmasterColumnHeader,
+  QuestmasterQuestRow,
+  QuestmasterSortSelect,
+  QuestmasterStatusFilter,
+  type QuestmasterLayout,
+} from "./QuestmasterQuestList.js";
 import type {
   QuestListPage,
   QuestListPageOptions,
   QuestmasterCompactSort,
   QuestmasterCompactSortColumn,
-  QuestmasterViewMode,
 } from "../api.js";
 import type { QuestListPreview, QuestmasterTask, QuestStatus } from "../types.js";
 import { multiWordMatch } from "../../shared/search-utils.js";
@@ -59,27 +39,6 @@ import {
   summarizeQuestPhaseDocumentation,
 } from "../../shared/quest-phase-documentation-summary.js";
 import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
-
-// ─── Status config ──────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<QuestStatus, QuestStatusTheme> = {
-  ...QUEST_STATUS_THEME,
-  refined: { ...QUEST_STATUS_THEME.refined, label: "Actionable" },
-  done: { ...QUEST_STATUS_THEME.done, label: "Completed" },
-};
-
-const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
-
-// Display order: most-needs-attention → least
-const DISPLAY_ORDER: QuestStatus[] = ["in_progress", "refined", "idea", "done"];
-
-const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "idea", label: "Idea" },
-  { value: "refined", label: "Actionable" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Completed" },
-];
 
 const QUEST_PAGE_SIZE = 50;
 const MAX_RENDERED_QUESTS = 150;
@@ -271,14 +230,13 @@ function questMatchesCurrentPageCorpus(
 
 function questMatchesCurrentVisibleFilters(
   quest: QuestListPreview,
-  filter: Set<QuestStatus>,
-  allSelected: boolean,
+  statusFilter: QuestStatus | null,
   selectedTags: Set<string>,
   negatedTags: Set<string>,
   searchText: string,
 ) {
   if (!questMatchesCurrentPageCorpus(quest, selectedTags, negatedTags, searchText)) return false;
-  return allSelected || filter.has(quest.status);
+  return statusFilter === null || statusFilter === quest.status;
 }
 
 function questPageRequestKey(options: QuestListPageOptions): string {
@@ -294,33 +252,6 @@ function questPageRequestKey(options: QuestListPageOptions): string {
     sortColumn: options.sortColumn ?? "",
     sortDirection: options.sortDirection ?? "",
   });
-}
-
-function QuestTldrMarkdown({
-  text,
-  searchText,
-  className = "",
-}: {
-  text: string;
-  searchText: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`truncate text-cc-muted [&_.markdown-body]:truncate [&_.markdown-body]:text-inherit [&_.markdown-body]:leading-snug [&_.markdown-body_p]:mb-0 [&_.markdown-body_p]:truncate ${className}`}
-      onClick={(event) => {
-        const target = event.target instanceof HTMLElement ? event.target : null;
-        if (target?.closest("a,button")) event.stopPropagation();
-      }}
-    >
-      <MarkdownContent
-        text={text}
-        size="sm"
-        variant="conservative"
-        searchHighlight={searchText ? { query: searchText, mode: "strict", isCurrent: false } : null}
-      />
-    </div>
-  );
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -343,7 +274,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   );
   const storeQuests = useStore((s) => s.quests);
   const upsertQuestDetail = useStore((s) => s.upsertQuestDetail);
-  const questOverlayId = useStore((s) => s.questOverlayId);
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const currentSessionSpaceSlug = useStore((s) => {
@@ -356,12 +286,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     );
   });
 
-  const [filter, setFilter] = useState<Set<QuestStatus>>(() => {
-    const persisted = initialViewState?.statusFilter;
-    return persisted ? new Set(persisted) : new Set(ALL_STATUSES);
-  });
-  const allSelected = filter.size === ALL_STATUSES.length;
-  const [viewModeSaving, setViewModeSaving] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<QuestStatus | null>(initialViewState?.statusFilter ?? null);
+  const layout: QuestmasterLayout = useDesktopShellLayout() ? "desktop" : "phone";
   const [compactSortSaving, setCompactSortSaving] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const initialPage = useMemo(() => fallbackQuestPage(storeQuests), []);
@@ -384,14 +310,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     scrollTop: number;
   } | null>(null);
 
-  // Search, tags, and view mode -- local state initialized from store, synced back on every change.
+  // Search, tags, and sort -- local state initialized from store, synced back on every change.
   // Local state ensures React re-renders on every keystroke; store persists across navigation.
   const [searchQuery, setSearchQueryLocal] = useState(() => useStore.getState().questmasterSearchQuery ?? "");
   const [selectedTags, setSelectedTagsLocal] = useState<Set<string>>(
     () => new Set(useStore.getState().questmasterSelectedTags ?? []),
-  );
-  const [viewMode, setViewModeLocal] = useState<QuestmasterViewMode>(
-    () => useStore.getState().questmasterViewMode ?? "cards",
   );
   const [compactSort, setCompactSortLocal] = useState<QuestmasterCompactSort>(() =>
     normalizeCompactSort(useStore.getState().questmasterCompactSort),
@@ -407,10 +330,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       return next;
     });
   }, []);
-  const setViewMode = useCallback((mode: QuestmasterViewMode) => {
-    setViewModeLocal((current) => (current === mode ? current : mode));
-    useStore.getState().setQuestmasterViewMode(mode);
-  }, []);
   const setCompactSort = useCallback((sort: QuestmasterCompactSort) => {
     const normalized = normalizeCompactSort(sort);
     setCompactSortLocal((current) =>
@@ -419,10 +338,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     useStore.getState().setQuestmasterCompactSort(normalized);
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // Status dropdown state
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
 
   // Hashtag autocomplete state
   const [hashtagQuery, setHashtagQuery] = useState("");
@@ -433,10 +348,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // Error state
   const [error, setError] = useState("");
 
-  // Collapsed phase groups
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestmasterCollapsedGroup>>(
-    () => new Set(initialViewState?.collapsedGroups ?? []),
-  );
   const parsedSearch = useMemo(() => parseQuestSearchQuery(searchQuery), [searchQuery]);
   const searchText = parsedSearch.searchText;
   const negatedTags = parsedSearch.negatedTags;
@@ -481,15 +392,15 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       setError("");
 
       try {
-        const status = allSelected ? undefined : Array.from(filter).join(",");
+        const status = statusFilter ?? undefined;
         const pageOptions: Omit<QuestListPageOptions, "offset"> = {
           limit: pageLimit,
           status,
           tags: Array.from(selectedTags),
           excludeTags: negatedTagList,
           text: debouncedSearchText,
-          sortColumn: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.column : "cards",
-          sortDirection: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.direction : "asc",
+          sortColumn: debouncedSearchText ? undefined : compactSort.column,
+          sortDirection: debouncedSearchText ? undefined : compactSort.direction,
         };
         let pageRequest: QuestListPageOptions = { ...pageOptions, offset };
         let requestKey = questPageRequestKey(pageRequest);
@@ -551,7 +462,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         }
       }
     },
-    [allSelected, compactSort, debouncedSearchText, filter, negatedTagList, selectedTags, viewMode],
+    [compactSort, debouncedSearchText, negatedTagList, selectedTags, statusFilter],
   );
 
   const refreshVisibleQuestWindow = useCallback(() => {
@@ -611,15 +522,14 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const refreshServerQuestmasterSettings = useCallback(async () => {
     try {
       const settings = await api.getSettings();
-      setViewMode(settings.questmasterViewMode);
       setCompactSort(normalizeCompactSort(settings.questmasterCompactSort));
     } catch (err) {
       console.warn("[questmaster] failed to load server Questmaster settings", err);
     }
   }, [setCompactSort]);
 
-  // The compact/card preference is server-owned. Refresh it on page activation
-  // and on focus so multiple browser tabs converge to the latest saved mode.
+  // The sort is server-owned. Refresh it on page activation and on focus so
+  // multiple browser tabs converge to the latest saved sort.
   useEffect(() => {
     if (!isActive) return;
     refreshServerQuestmasterSettings();
@@ -664,8 +574,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       if (!hasHydratedViewStateRef.current) return;
       saveQuestmasterViewState({
         scrollTop: el.scrollTop,
-        collapsedGroups: Array.from(collapsedGroups),
-        statusFilter: Array.from(filter),
+        statusFilter: statusFilter ?? undefined,
       });
     };
 
@@ -683,25 +592,24 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       if (rafId !== null) cancelAnimationFrame(rafId);
       persistNow();
     };
-  }, [isActive, collapsedGroups, filter]);
+  }, [isActive, statusFilter]);
 
-  // Persist immediately when collapse state or filter changes.
+  // Persist immediately when the filter changes.
   useEffect(() => {
     if (!isActive) return;
     if (!hasHydratedViewStateRef.current) return;
     saveQuestmasterViewState({
       scrollTop: scrollContainerRef.current?.scrollTop ?? 0,
-      collapsedGroups: Array.from(collapsedGroups),
-      statusFilter: Array.from(filter),
+      statusFilter: statusFilter ?? undefined,
     });
-  }, [isActive, collapsedGroups, filter]);
+  }, [isActive, statusFilter]);
   // Deep-link support: any hash with ?quest=q-123 should focus and expand that quest.
   useEffect(() => {
     const target = questOverlayTargetFromHash(hash);
     if (!target) return;
     const targetQuestId = target.questId;
     const targetQuest = pagedQuests.find((q) => q.questId === targetQuestId);
-    setFilter(new Set(ALL_STATUSES));
+    setStatusFilter(null);
     // Ensure deep-linked quests are visible in the list as well as the modal.
     const store = useStore.getState();
     if (
@@ -724,12 +632,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           setPagedQuests((current) =>
             current.some((existing) => existing.questId === quest.questId) ? current : [preview, ...current],
           );
-          setCollapsedGroups((prev) => {
-            if (!prev.has(quest.status)) return prev;
-            const next = new Set(prev);
-            next.delete(quest.status);
-            return next;
-          });
         })
         .catch(() => undefined);
       return () => {
@@ -737,13 +639,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       };
     }
 
-    setCollapsedGroups((prev) => {
-      const targetGroup = targetQuest.status;
-      if (!prev.has(targetGroup)) return prev;
-      const next = new Set(prev);
-      next.delete(targetGroup);
-      return next;
-    });
     const scrollFrameId = window.requestAnimationFrame(() => {
       const el = document.querySelector(`[data-quest-id="${targetQuestId}"]`);
       if (el instanceof HTMLElement && typeof el.scrollIntoView === "function") {
@@ -779,8 +674,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       const matchesCurrentCorpus = questMatchesCurrentPageCorpus(createdPreview, selectedTags, negatedTags, searchText);
       const matchesVisibleFilters = questMatchesCurrentVisibleFilters(
         createdPreview,
-        filter,
-        allSelected,
+        statusFilter,
         selectedTags,
         negatedTags,
         searchText,
@@ -814,28 +708,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       setShowCreateForm(false);
       useStore.getState().openQuestOverlay(createdQuest.questId);
     },
-    [allSelected, filter, negatedTags, searchText, selectedTags, upsertQuestDetail, windowOffset],
+    [negatedTags, searchText, selectedTags, statusFilter, upsertQuestDetail, windowOffset],
   );
   const handleCreateQuestCancel = useCallback(() => {
     setShowCreateForm(false);
   }, []);
-
-  async function handleViewModeChange(nextMode: QuestmasterViewMode) {
-    if (nextMode === viewMode) return;
-    const previousMode = viewMode;
-    setViewMode(nextMode);
-    setViewModeSaving(true);
-    setError("");
-    try {
-      const settings = await api.updateSettings({ questmasterViewMode: nextMode });
-      setViewMode(settings.questmasterViewMode);
-    } catch (err) {
-      setViewMode(previousMode);
-      setError(err instanceof Error ? err.message : "Failed to save Questmaster view mode");
-    } finally {
-      setViewModeSaving(false);
-    }
-  }
 
   async function handleCompactSortChange(column: QuestmasterCompactSortColumn) {
     const previousSort = compactSort;
@@ -868,17 +745,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     }
   }, [allTags, selectedTags]);
 
-  // Close status dropdown on an outside press or Escape
-  useOutsidePress([statusDropdownRef], () => setStatusDropdownOpen(false), statusDropdownOpen);
-  useEffect(() => {
-    if (!statusDropdownOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStatusDropdownOpen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [statusDropdownOpen]);
-
   // Compute autocomplete matches for hashtag query
   const autocompleteMatches = useMemo(() => {
     const activeSearchToken = getTrailingQuestSearchToken(searchQuery);
@@ -900,57 +766,21 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const counts: Record<string, number> = pageInfo.counts;
   const filtered = pagedQuests;
 
-  // Pre-compute the single selected status (if exactly one) for the filter pill label
-  const singleFilterStatus = filter.size === 1 ? [...filter][0] : null;
-  const filterPillCount = allSelected
-    ? (counts.all ?? 0)
-    : singleFilterStatus
-      ? (counts[singleFilterStatus] ?? 0)
-      : ALL_STATUSES.reduce((sum, s) => sum + (filter.has(s) ? (counts[s] ?? 0) : 0), 0);
-
-  type QuestSection = {
-    key: string;
-    label: string;
-    dotClass: string;
-    textClass: string;
-    quests: QuestListPreview[];
-    collapseGroup?: QuestmasterCollapsedGroup;
-  };
-
-  const sortByRecencyDesc = (items: QuestListPreview[]): QuestListPreview[] =>
-    [...items].sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
   const journeyContextByQuestId = useMemo(
     () => buildQuestJourneyContextByQuestId(pagedQuests, sessionBoards, sessionCompletedBoards),
     [pagedQuests, sessionBoards, sessionCompletedBoards],
   );
-  const compactQuests = filtered;
 
-  const questSections: QuestSection[] = [];
-  if (searchNormalized) {
-    questSections.push({
-      key: "search_results",
-      label: "Search Results",
-      dotClass: "bg-cc-primary",
-      textClass: "text-cc-fg",
-      quests: filtered,
-    });
-  }
-
-  for (const status of searchNormalized ? [] : allSelected ? DISPLAY_ORDER : ALL_STATUSES) {
-    const sectionQuests = filtered.filter((q) => q.status === status);
-    if (sectionQuests.length === 0) continue;
-    const cfg = STATUS_CONFIG[status];
-    questSections.push({
-      key: status,
-      label: cfg.label,
-      dotClass: cfg.dot,
-      textClass: cfg.text,
-      quests: sortByRecencyDesc(sectionQuests),
-      // Enable collapsible groups when multiple statuses are visible
-      ...(filter.size > 1 ? { collapseGroup: status } : {}),
-    });
-  }
-
+  const renderRow = (quest: QuestListPreview) => (
+    <QuestmasterQuestRow
+      key={quest.id}
+      quest={quest}
+      layout={layout}
+      searchText={searchText}
+      journeyContext={journeyContextByQuestId.get(quest.questId.toLowerCase())}
+      onOpenQuest={handleExpand}
+    />
+  );
   const previousPageOffset = windowOffset > 0 ? Math.max(0, windowOffset - QUEST_PAGE_SIZE) : null;
   const nextPageOffset = windowOffset + pagedQuests.length < pageInfo.total ? windowOffset + pagedQuests.length : null;
 
@@ -1024,6 +854,20 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // ─── Render ───────────────────────────────────────────────────────────
 
+  const sortable = !searchNormalized;
+  const boundary = (position: "top" | "bottom") => (
+    <QuestPageBoundaryStatus
+      position={position}
+      total={pageInfo.total}
+      limit={pageInfo.limit}
+      windowOffset={windowOffset}
+      renderedCount={pagedQuests.length}
+      loadingDirection={loadingMoreDirection}
+      canLoadPrevious={previousPageOffset !== null}
+      canLoadNext={nextPageOffset !== null}
+    />
+  );
+
   return (
     <div
       ref={scrollContainerRef}
@@ -1032,138 +876,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       onWheel={handleAutoPageWheel}
       className="h-full bg-cc-bg overflow-y-auto"
     >
-      {/* ─── Sticky header ─────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-cc-bg">
-        <div className="max-w-5xl mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
-          {/* Title row + New Quest button */}
-          <div className="mb-3 flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-semibold text-cc-fg">Quests</h1>
-              <p className="mt-0.5 text-xs sm:text-sm text-cc-muted hidden sm:block">
-                Track tasks from idea to completion. Sessions claim quests to work on.
-              </p>
-            </div>
-            <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="py-2 px-3 text-sm font-medium rounded-[10px] bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shrink-0"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-                <path d="M8 3v10M3 8h10" />
-              </svg>
-              <span className="hidden sm:inline">New Quest</span>
-            </button>
-          </div>
-
-          {/* Status dropdown + Search bar */}
+      {/* ─── Sticky toolbar ────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-cc-bg border-b border-cc-border/40">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 pt-3 pb-2 space-y-2">
           <div className="flex items-center gap-2">
-            {/* Server-persisted view mode toggle */}
-            <div
-              className="flex items-center rounded-lg border border-cc-border bg-cc-input-bg p-0.5 shrink-0"
-              aria-label="Quest view mode"
-            >
-              {(["cards", "compact"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => handleViewModeChange(mode)}
-                  disabled={viewModeSaving}
-                  aria-pressed={viewMode === mode}
-                  className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer disabled:cursor-wait ${
-                    viewMode === mode
-                      ? "bg-cc-hover text-cc-fg shadow-sm"
-                      : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover/50"
-                  }`}
-                >
-                  {mode === "cards" ? "Cards" : "Compact"}
-                </button>
-              ))}
-            </div>
-
-            {/* Status filter dropdown (multi-select) */}
-            <div ref={statusDropdownRef} className="relative shrink-0">
-              <button
-                onClick={() => setStatusDropdownOpen((v) => !v)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-cc-hover border border-cc-border hover:border-cc-border text-cc-fg transition-colors cursor-pointer"
-              >
-                {/* Filter pill label: All / single status / multi dots */}
-                {allSelected ? (
-                  <span>All</span>
-                ) : singleFilterStatus ? (
-                  <>
-                    <span className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[singleFilterStatus].dot}`} />
-                    <span>{STATUS_CONFIG[singleFilterStatus].label}</span>
-                  </>
-                ) : (
-                  <span className="flex items-center gap-0.5">
-                    {ALL_STATUSES.filter((s) => filter.has(s)).map((s) => (
-                      <span key={s} className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[s].dot}`} />
-                    ))}
-                  </span>
-                )}
-                <span className="text-[10px] text-cc-muted">{filterPillCount}</span>
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="w-3 h-3 text-cc-muted"
-                >
-                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-48 bg-cc-card border border-cc-border rounded-lg shadow-xl z-30 py-1 overflow-hidden">
-                  {FILTER_TABS.map((tab) => {
-                    const isAll = tab.value === "all";
-                    const isActive = isAll ? allSelected : filter.has(tab.value as QuestStatus);
-                    const count = counts[tab.value] ?? 0;
-                    return (
-                      <button
-                        key={tab.value}
-                        onClick={() => {
-                          if (isAll) {
-                            setFilter(new Set(ALL_STATUSES));
-                          } else {
-                            setFilter((prev) => toggleStatusFilter(prev, tab.value as QuestStatus));
-                          }
-                        }}
-                        className={`w-full px-3 py-1.5 text-xs flex items-center gap-2 transition-colors cursor-pointer ${
-                          isActive ? "bg-cc-primary/10 text-cc-primary" : "text-cc-fg hover:bg-cc-hover"
-                        }`}
-                      >
-                        {/* Checkbox indicator */}
-                        {isAll ? (
-                          <span className="w-3.5 h-3.5 flex items-center justify-center">
-                            {allSelected ? (
-                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-primary">
-                                <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
-                              </svg>
-                            ) : (
-                              <span className="w-3 h-3 rounded-sm border border-cc-border" />
-                            )}
-                          </span>
-                        ) : (
-                          <span className="w-3.5 h-3.5 flex items-center justify-center">
-                            {isActive ? (
-                              <span className={`w-2 h-2 rounded-full ${STATUS_CONFIG[tab.value as QuestStatus].dot}`} />
-                            ) : (
-                              <span
-                                className={`w-2 h-2 rounded-full border ${STATUS_CONFIG[tab.value as QuestStatus].dot} opacity-25`}
-                              />
-                            )}
-                          </span>
-                        )}
-                        <span className="flex-1 text-left">{tab.label}</span>
-                        <span className={`text-[10px] ${isActive ? "text-cc-primary/70" : "text-cc-muted"}`}>
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             {/* Unified search bar with hashtag chips */}
             <div className="relative flex-1 min-w-0">
               <div
@@ -1351,15 +1067,36 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                 </div>
               )}
             </div>
+            {layout === "phone" && sortable && (
+              <QuestmasterSortSelect
+                sort={compactSort}
+                disabled={compactSortSaving}
+                onSortChange={handleCompactSortChange}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              aria-label="New quest"
+              className="h-8 px-3 text-sm rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+              <span>New</span>
+            </button>
           </div>
+          <QuestmasterStatusFilter
+            statusFilter={statusFilter}
+            counts={counts}
+            layout={layout}
+            onSelect={setStatusFilter}
+          />
         </div>
-        {/* Bottom border separator */}
-        <div className="border-b border-cc-border/30 mt-3" />
       </div>
 
       {/* ─── Scrollable content ────────────────────────────────────────── */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-8 pb-6 sm:pb-10 pt-4">
-        {/* Error banner */}
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 pb-6 sm:pb-10 pt-3">
         {error && (
           <div className="mb-4 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-center justify-between">
             <span>{error}</span>
@@ -1371,7 +1108,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           </div>
         )}
 
-        {/* Create form */}
         <QuestmasterCreateForm
           isVisible={showCreateForm}
           allTags={allTags}
@@ -1380,119 +1116,32 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           onCancel={handleCreateQuestCancel}
         />
 
-        {/* Quest list */}
-        <div className="space-y-2">
-          {questsLoading && pagedQuests.length === 0 ? (
-            <div className="text-sm text-cc-muted text-center py-12">Loading quests...</div>
-          ) : filtered.length === 0 ? (
-            <div className="text-sm text-cc-muted text-center py-12">
-              {pageInfo.total === 0 && counts.all === 0
-                ? "No quests yet. Create one to get started."
-                : searchText || selectedTags.size > 0
-                  ? "No quests match your search."
-                  : "No quests match this filter."}
-            </div>
-          ) : (
-            <>
-              <QuestPageBoundaryStatus
-                position="top"
-                total={pageInfo.total}
-                limit={pageInfo.limit}
-                windowOffset={windowOffset}
-                renderedCount={pagedQuests.length}
-                loadingDirection={loadingMoreDirection}
-                canLoadPrevious={previousPageOffset !== null}
-                canLoadNext={nextPageOffset !== null}
-              />
-              {viewMode === "compact" && (
-                <CompactQuestTable
-                  quests={compactQuests}
-                  onOpenQuest={handleExpand}
-                  searchText={searchText}
-                  journeyContextByQuestId={journeyContextByQuestId}
+        {questsLoading && pagedQuests.length === 0 ? (
+          <div className="text-sm text-cc-muted text-center py-12">Loading quests...</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-sm text-cc-muted text-center py-12">
+            {pageInfo.total === 0 && counts.all === 0
+              ? "No quests yet. Create one to get started."
+              : searchText || selectedTags.size > 0
+                ? "No quests match your search."
+                : "No quests match this filter."}
+          </div>
+        ) : (
+          <>
+            {boundary("top")}
+            <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card divide-y divide-cc-border/60">
+              {layout === "desktop" && (
+                <QuestmasterColumnHeader
                   sort={compactSort}
                   sortSaving={compactSortSaving}
-                  onSortChange={handleCompactSortChange}
+                  onSortChange={sortable ? handleCompactSortChange : undefined}
                 />
               )}
-              <div
-                className={viewMode === "compact" ? "hidden" : "contents"}
-                aria-hidden={viewMode === "compact"}
-                style={viewMode === "compact" ? { display: "none" } : undefined}
-              >
-                {questSections.map((section) => {
-                  const isCollapsible = !!section.collapseGroup;
-                  const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
-                  const showSectionHeader = filter.size > 1;
-                  return (
-                    <div key={section.key}>
-                      {showSectionHeader &&
-                        (isCollapsible ? (
-                          <button
-                            onClick={() =>
-                              setCollapsedGroups((prev) => {
-                                const next = new Set(prev);
-                                if (section.collapseGroup && next.has(section.collapseGroup))
-                                  next.delete(section.collapseGroup);
-                                else if (section.collapseGroup) next.add(section.collapseGroup);
-                                return next;
-                              })
-                            }
-                            className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 cursor-pointer group/gh w-full text-left"
-                          >
-                            <svg
-                              viewBox="0 0 16 16"
-                              fill="currentColor"
-                              className={`w-3 h-3 text-cc-muted/40 group-hover/gh:text-cc-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-                            >
-                              <path d="M6 3l5 5-5 5V3z" />
-                            </svg>
-                            <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
-                            <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
-                            <span className="text-[10px] text-cc-muted/50">
-                              {counts[section.collapseGroup ?? section.key] ?? section.quests.length}
-                            </span>
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 px-0.5">
-                            <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
-                            <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
-                            <span className="text-[10px] text-cc-muted/50">
-                              {counts[section.collapseGroup ?? section.key] ?? section.quests.length}
-                            </span>
-                          </div>
-                        ))}
-                      {(!isCollapsed || viewMode === "compact") && (
-                        <div className="space-y-2">
-                          {section.quests.map((quest) => (
-                            <QuestCard
-                              key={quest.id}
-                              quest={quest}
-                              isExpanded={questOverlayId === quest.questId}
-                              onOpenQuest={handleExpand}
-                              searchText={searchText}
-                              journeyContext={journeyContextByQuestId.get(quest.questId.toLowerCase())}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <QuestPageBoundaryStatus
-                position="bottom"
-                total={pageInfo.total}
-                limit={pageInfo.limit}
-                windowOffset={windowOffset}
-                renderedCount={pagedQuests.length}
-                loadingDirection={loadingMoreDirection}
-                canLoadPrevious={previousPageOffset !== null}
-                canLoadNext={nextPageOffset !== null}
-              />
-            </>
-          )}
-        </div>
+              {filtered.map(renderRow)}
+            </div>
+            {boundary("bottom")}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1546,161 +1195,3 @@ function QuestPageBoundaryStatus({
     </div>
   );
 }
-
-const QuestCard = memo(function QuestCard({
-  quest,
-  isExpanded,
-  onOpenQuest,
-  searchText,
-  journeyContext,
-}: {
-  quest: QuestListPreview;
-  isExpanded: boolean;
-  onOpenQuest: (quest: QuestListPreview) => void;
-  searchText: string;
-  journeyContext?: QuestJourneyContext;
-}) {
-  const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-  const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
-  const vProgress = quest.verificationProgress ?? null;
-  const questOwner = getQuestDisplayOwner(quest);
-  const questSessionId = getQuestOwnerSessionId(quest);
-  const leaderSessionId = getQuestLeaderSessionId(quest);
-  const debriefTldr = getQuestDebriefTldr(quest);
-  const unaddressedFeedbackCount = quest.feedbackSummary?.humanUnaddressed ?? 0;
-  const addressedFeedbackCount = quest.feedbackSummary?.humanAddressed ?? 0;
-
-  return (
-    <div>
-      <div
-        data-quest-id={quest.questId}
-        className={`border rounded-xl transition-colors ${
-          isExpanded
-            ? "bg-cc-card border-cc-primary/30"
-            : `bg-cc-card border-cc-border hover:border-cc-border/80 ${isCancelled ? "opacity-60" : ""}`
-        }`}
-      >
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => onOpenQuest(quest)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onOpenQuest(quest);
-            }
-          }}
-          className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
-        >
-          <span
-            className={`w-2 h-2 rounded-full shrink-0 ${displayStatus.dotClass ?? ""}`}
-            style={displayStatus.dotStyle}
-          />
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span
-                className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
-              >
-                {renderSearchHighlightText(quest.title, searchText)}
-              </span>
-              {quest.parentId && (
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
-                  sub:{quest.parentId}
-                </span>
-              )}
-            </div>
-            {quest.tldr && <QuestTldrMarkdown text={quest.tldr} searchText={searchText} className="mt-0.5 text-xs" />}
-            {debriefTldr && (
-              <div className="mt-0.5 truncate text-xs text-cc-muted">
-                <span className="text-cc-muted/70">Debrief: </span>
-                {renderSearchHighlightText(debriefTldr, searchText)}
-              </div>
-            )}
-            <QuestPhaseScanLines quest={quest} searchText={searchText} className="mt-0.5" />
-            <QuestRelationshipLinks quest={quest} variant="inline" />
-            <div className="flex items-center gap-2 mt-0.5">
-              <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50 shrink-0">
-                {renderSearchHighlightText(quest.questId, searchText)}
-              </CopyableQuestId>
-              <QuestStatusHoverTarget quest={quest}>
-                <span className={`inline-flex items-center gap-1 ${displayStatus.textClass}`}>
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${displayStatus.dotClass ?? ""}`}
-                    style={displayStatus.dotStyle}
-                  />
-                  <span>{displayStatus.label}</span>
-                </span>
-              </QuestStatusHoverTarget>
-              {questOwner?.kind === "codex" ? (
-                <CodexQuestOwnerChip owner={questOwner} stopPropagation />
-              ) : (
-                questSessionId && <SessionNumChip sessionId={questSessionId} />
-              )}
-              {leaderSessionId && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                  <span>Leader</span>
-                  <SessionNumChip sessionId={leaderSessionId} threadKey={quest.questId} />
-                </span>
-              )}
-              {vProgress && (
-                <span className="text-[10px] text-cc-muted flex items-center gap-1">
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                    <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                  </svg>
-                  {vProgress.checked}/{vProgress.total}
-                </span>
-              )}
-              {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
-                <span className="text-[10px] flex items-center gap-1.5">
-                  {unaddressedFeedbackCount > 0 && (
-                    <span
-                      className="flex items-center gap-0.5 text-amber-400"
-                      aria-label={`${unaddressedFeedbackCount} pending feedback`}
-                    >
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                      </svg>
-                      {unaddressedFeedbackCount}
-                    </span>
-                  )}
-                  {addressedFeedbackCount > 0 && (
-                    <span
-                      className="flex items-center gap-0.5 text-emerald-400/70"
-                      aria-label={`${addressedFeedbackCount} addressed feedback`}
-                    >
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                      </svg>
-                      {addressedFeedbackCount}
-                    </span>
-                  )}
-                </span>
-              )}
-              <span className="text-[10px] text-cc-muted/50">{timeAgo(questRecencyTs(quest))}</span>
-            </div>
-            {quest.tags && quest.tags.length > 0 && (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {quest.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
-                    {tag.toLowerCase()}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className={`w-3.5 h-3.5 text-cc-muted/40 group-hover:text-cc-muted transition-transform ${
-              isExpanded ? "rotate-90" : ""
-            }`}
-          >
-            <path d="M6 4l4 4-4 4" />
-          </svg>
-        </div>
-      </div>
-    </div>
-  );
-});

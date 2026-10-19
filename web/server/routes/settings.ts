@@ -27,7 +27,6 @@ import {
   type SttModel,
   type EditorConfig,
   type EnhancementMode,
-  type QuestmasterViewMode,
   type QuestmasterCompactSort,
   type QuestmasterCompactSortColumn,
   type ShortcutSettings,
@@ -990,10 +989,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return { editor: "none" };
   }
 
-  function normalizeQuestmasterViewMode(mode: unknown): QuestmasterViewMode {
-    return mode === "compact" ? "compact" : "cards";
-  }
-
   function normalizeQuestmasterCompactSort(sort: unknown): QuestmasterCompactSort {
     if (!sort || typeof sort !== "object" || Array.isArray(sort)) return DEFAULT_QUESTMASTER_COMPACT_SORT;
     const raw = sort as Record<string, unknown>;
@@ -1060,7 +1055,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       editorConfig: settings.editorConfig,
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
-      questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       sidebarViewMode: settings.sidebarViewMode === "recent" ? "recent" : "spaces",
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
@@ -1286,13 +1280,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: "sleepInhibitorDurationMinutes must be an integer between 1 and 30" }, 400);
     }
-    if (
-      body.questmasterViewMode !== undefined &&
-      body.questmasterViewMode !== "cards" &&
-      body.questmasterViewMode !== "compact"
-    ) {
-      return c.json({ error: 'questmasterViewMode must be "cards" or "compact"' }, 400);
-    }
     if (body.sidebarViewMode !== undefined && body.sidebarViewMode !== "spaces" && body.sidebarViewMode !== "recent") {
       return c.json({ error: 'sidebarViewMode must be "spaces" or "recent"' }, 400);
     }
@@ -1435,7 +1422,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "editorConfig",
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
-      "questmasterViewMode",
       "sidebarViewMode",
       "questmasterCompactSort",
       "chatMessageLineHeight",
@@ -1481,10 +1467,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
         typeof body.restartUpdatesCheckout === "boolean" ? body.restartUpdatesCheckout : undefined,
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
-      questmasterViewMode:
-        body.questmasterViewMode === "cards" || body.questmasterViewMode === "compact"
-          ? body.questmasterViewMode
-          : undefined,
       sidebarViewMode:
         body.sidebarViewMode === "spaces" || body.sidebarViewMode === "recent" ? body.sidebarViewMode : undefined,
       questmasterCompactSort:

@@ -88,11 +88,9 @@ export interface CompanionSettings {
   sleepInhibitorEnabled: boolean;
   /** Duration in minutes for each caffeinate engagement (default: 5, minimum: 1) */
   sleepInhibitorDurationMinutes: number;
-  /** Preferred Questmaster list layout. Optional for backward-compatible tests/mocks. */
-  questmasterViewMode?: QuestmasterViewMode;
   /** Session sidebar layout, shared by every browser. Optional for backward-compatible tests/mocks. */
   sidebarViewMode?: SidebarViewMode;
-  /** Preferred Questmaster compact-table sort. Optional for backward-compatible tests/mocks. */
+  /** Preferred Questmaster list sort. Optional for backward-compatible tests/mocks. */
   questmasterCompactSort?: QuestmasterCompactSort;
   /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
   chatMessageLineHeight?: number;
@@ -135,7 +133,6 @@ export interface ShortcutSettings {
   overrides: Partial<Record<ShortcutActionId, string | null>>;
 }
 
-export type QuestmasterViewMode = "cards" | "compact";
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
 export type SidebarViewMode = "spaces" | "recent";
 export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
@@ -266,7 +263,6 @@ let settings: CompanionSettings = {
   editorConfig: { editor: "none" },
   sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
-  questmasterViewMode: "cards",
   sidebarViewMode: "spaces",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
@@ -549,10 +545,6 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.sleepInhibitorDurationMinutes === "number" && raw.sleepInhibitorDurationMinutes >= 1
         ? Math.floor(raw.sleepInhibitorDurationMinutes)
         : 5,
-    questmasterViewMode:
-      raw?.questmasterViewMode === "compact" || raw?.questmasterViewMode === "cards"
-        ? raw.questmasterViewMode
-        : "cards",
     sidebarViewMode: raw?.sidebarViewMode === "recent" ? "recent" : "spaces",
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
@@ -706,7 +698,6 @@ export function updateSettings(
       | "editorConfig"
       | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
-      | "questmasterViewMode"
       | "sidebarViewMode"
       | "questmasterCompactSort"
       | "chatMessageLineHeight"

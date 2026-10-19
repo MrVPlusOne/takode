@@ -228,11 +228,9 @@ export interface AppState {
   questOverlayFeedbackTarget: import("./utils/quest-link-target.js").QuestFeedbackTargetRequest | null;
   questmasterSearchQuery: string;
   questmasterSelectedTags: string[];
-  questmasterViewMode: import("./api.js").QuestmasterViewMode | null;
   questmasterCompactSort: import("./api.js").QuestmasterCompactSort | null;
   setQuestmasterSearchQuery: (query: string) => void;
   setQuestmasterSelectedTags: (tags: string[]) => void;
-  setQuestmasterViewMode: (mode: import("./api.js").QuestmasterViewMode) => void;
   setQuestmasterCompactSort: (sort: import("./api.js").QuestmasterCompactSort) => void;
   activeTab: "chat" | "diff";
   /** The session and thread whose diff chip opened the diff view, resolved live by resolveDiffTarget. */

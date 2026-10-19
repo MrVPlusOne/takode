@@ -1,4 +1,4 @@
-import { PlaygroundQuestmasterCompactDemo } from "./PlaygroundQuestmasterCompactDemo.js";
+import { PlaygroundQuestmasterDemo, PlaygroundQuestmasterPhoneRows } from "./PlaygroundQuestmasterDemo.js";
 import { PlaygroundQuestStatusPanelDemo } from "./PlaygroundQuestStatusPanelDemo.js";
 import { Card, Section } from "./shared.js";
 
@@ -20,15 +20,20 @@ export function PlaygroundQuestStatusPanelSection() {
   );
 }
 
-export function PlaygroundQuestmasterCompactSection() {
+export function PlaygroundQuestmasterSection() {
   return (
     <Section
-      title="Questmaster Compact Table"
-      description="Compact Questmaster rows with generalized status, feedback, and markdown TLDR rendering."
+      title="Questmaster List"
+      description="Questmaster's list: status chips, Journey-phase status, open feedback and one-line TLDRs, laid out for phone or desktop by window width."
     >
-      <Card label="Status, feedback, and title cell content">
-        <PlaygroundQuestmasterCompactDemo />
-      </Card>
+      <div className="space-y-4">
+        <Card label="Page at this window's width">
+          <PlaygroundQuestmasterDemo />
+        </Card>
+        <Card label="Phone rows">
+          <PlaygroundQuestmasterPhoneRows />
+        </Card>
+      </div>
     </Section>
   );
 }

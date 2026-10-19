@@ -107,7 +107,7 @@ describe("QuestRelationshipLinks", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("hides forward detected references in inline Questmaster placements", () => {
+  it("hides forward detected references", () => {
     const followUp = quest({
       questId: "q-2",
       title: "Follow-up",
@@ -123,7 +123,7 @@ describe("QuestRelationshipLinks", () => {
     const backlink = quest({ questId: "q-5", title: "Backlink" });
     useStore.setState({ quests: [followUp, forwardReference, backlink] });
 
-    const { container } = render(<QuestRelationshipLinks quest={followUp} variant="inline" />);
+    const { container } = render(<QuestRelationshipLinks quest={followUp} />);
 
     expect(screen.getByText("Referenced by")).toBeTruthy();
     expect(screen.getByText("q-5").closest("a")?.getAttribute("href")).toContain("quest=q-5");

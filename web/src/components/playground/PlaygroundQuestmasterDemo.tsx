@@ -1,7 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { QuestListPreview } from "../../types.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import { useStore } from "../../store.js";
+import { buildQuestJourneyContextByQuestId } from "../../utils/quest-journey-context.js";
 import { QuestmasterPage } from "../QuestmasterPage.js";
+import { QuestmasterQuestRow } from "../QuestmasterQuestList.js";
 
 const JOURNEY_PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
@@ -9,7 +12,9 @@ function buildLongJourneyPhaseIds(): QuestJourneyPhaseId[] {
   return Array.from({ length: 38 }, (_, index) => JOURNEY_PHASE_CYCLE[index % JOURNEY_PHASE_CYCLE.length]);
 }
 
-export function PlaygroundQuestmasterCompactDemo() {
+/** Seeds the demo quests and board once; returns true after they are in the store. */
+function usePlaygroundQuestmasterState(): boolean {
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     useStore.setState((state) => {
       const now = Date.now();
@@ -47,9 +52,9 @@ export function PlaygroundQuestmasterCompactDemo() {
             id: "q-901-v3",
             questId: "q-901",
             version: 3,
-            title: "Completed quest keeps compact rows calm",
+            title: "Completed quest keeps rows calm",
             status: "done" as const,
-            description: "Keep completed rows focused after removing the compact User review checks column.",
+            description: "Keep completed rows focused on the title and one summary line.",
             tldr: "Completed row references [q-986](quest:q-986) while omitting the old review-check progress column, even when this TLDR wraps across authoring lines.",
             createdAt: now - 300_000,
             statusChangedAt: now - 200_000,
@@ -67,7 +72,8 @@ export function PlaygroundQuestmasterCompactDemo() {
               { questId: "q-803", kind: "has_follow_up" as const, explicit: true },
               { questId: "q-804", kind: "referenced_by" as const, explicit: false },
             ],
-            debriefTldr: "This debrief is intentionally absent from compact title cells.",
+            debriefTldr: "This debrief is intentionally absent from rows.",
+            feedbackSummary: { humanTotal: 2, humanUnaddressed: 1, humanAddressed: 1 },
             tags: ["ui", "questmaster"],
           },
           {
@@ -111,17 +117,53 @@ export function PlaygroundQuestmasterCompactDemo() {
             archived: false,
           },
         ],
-        questmasterViewMode: "compact" as const,
         questmasterCompactSort: { column: "updated" as const, direction: "desc" as const },
         questmasterSearchQuery: "",
         questmasterSelectedTags: [],
       };
     });
+    setReady(true);
   }, []);
+  return ready;
+}
 
+/** The whole page, laid out for this window's width (phone below 768 px, desktop above). */
+export function PlaygroundQuestmasterDemo() {
+  // The page takes its first rows from the store when it mounts, so it waits for the seeded quests.
+  const ready = usePlaygroundQuestmasterState();
   return (
     <div className="h-[520px] overflow-hidden rounded-xl border border-cc-border bg-cc-bg">
-      <QuestmasterPage isActive={false} />
+      {ready && <QuestmasterPage isActive={false} />}
+    </div>
+  );
+}
+
+/** Phone rows at phone width, whatever this window's width, so both layouts can be compared. */
+export function PlaygroundQuestmasterPhoneRows() {
+  usePlaygroundQuestmasterState();
+  const allQuests = useStore((state) => state.quests);
+  const sessionBoards = useStore((state) => state.sessionBoards);
+  const sessionCompletedBoards = useStore((state) => state.sessionCompletedBoards);
+  const quests = useMemo(
+    () => allQuests.filter((quest) => ["q-901", "q-902"].includes(quest.questId)) as unknown as QuestListPreview[],
+    [allQuests],
+  );
+  const journeyContexts = useMemo(
+    () => buildQuestJourneyContextByQuestId(quests, sessionBoards, sessionCompletedBoards),
+    [quests, sessionBoards, sessionCompletedBoards],
+  );
+  return (
+    <div className="w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border bg-cc-card divide-y divide-cc-border/60">
+      {quests.map((quest) => (
+        <QuestmasterQuestRow
+          key={quest.id}
+          quest={quest}
+          layout="phone"
+          journeyContext={journeyContexts.get(quest.questId.toLowerCase())}
+          searchText=""
+          onOpenQuest={() => undefined}
+        />
+      ))}
     </div>
   );
 }

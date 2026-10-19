@@ -9,7 +9,6 @@ vi.mock("./settings-manager.js", () => ({
     namerConfig: { backend: "claude" },
     transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true },
     editorConfig: { editor: "none" },
-    questmasterViewMode: "cards",
   })),
   updateSettings: vi.fn(() => ({})),
   getServerName: vi.fn(() => ""),

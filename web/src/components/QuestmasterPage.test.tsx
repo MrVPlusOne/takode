@@ -15,8 +15,8 @@ import {
 } from "./QuestmasterPage.test-harness.js";
 
 vi.mock("../api.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockApiModule());
-vi.mock("../utils/questmaster-view-state.js", async (importOriginal) =>
-  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(await importOriginal()),
+vi.mock("../utils/questmaster-view-state.js", async () =>
+  (await import("./QuestmasterPage.test-harness.js")).mockViewStateModule(),
 );
 vi.mock("../utils/highlight.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockHighlightModule());
 vi.mock("../store.js", async () => (await import("./QuestmasterPage.test-harness.js")).mockStoreModule());
@@ -69,83 +69,78 @@ describe("QuestmasterPage status display", () => {
     expect(window.location.hash).toBe("#/session/4?thread=q-50");
   });
 
-  it("collapses and expands the completed section without an inbox split", () => {
-    // Completed remains a normal status group even when quests have verification metadata.
+  it("filters to one status with the segmented status bar", async () => {
+    // One cell selected at a time, All included; choosing All shows every quest again.
+    mockState.quests = [
+      ...mockState.quests,
+      {
+        ...buildVerificationQuest({ id: "q-5-v1", questId: "q-5", title: "Idea quest" }),
+        status: "idea",
+      } as QuestmasterTask,
+    ];
     renderQuestmaster({ isActive: true });
+    await screen.findByText("Idea quest");
 
-    const completedHeader = screen.getByRole("button", { name: /^Completed2$/ });
-    expect(screen.getByText("Fresh verification quest")).toBeInTheDocument();
+    const bar = screen.getByRole("group", { name: "Filter quests by status" });
+    const ideas = within(bar).getByRole("button", { name: /^Ideas\s*1$/ });
+    fireEvent.click(ideas);
+    await waitFor(() => expect(screen.queryByText("Fresh verification quest")).toBeNull());
+    expect(screen.getByText("Idea quest")).toBeInTheDocument();
+    expect(ideas).toHaveAttribute("aria-pressed", "true");
+    expect(mockListQuestPage.mock.lastCall?.[0]).toMatchObject({ status: "idea" });
 
-    fireEvent.click(completedHeader);
-    expect(screen.queryByText("Fresh verification quest")).toBeNull();
-    expect(screen.queryByText("Regular verification quest")).toBeNull();
+    // Choosing the selected cell again keeps it, as in any segmented control.
+    fireEvent.click(ideas);
+    expect(ideas).toHaveAttribute("aria-pressed", "true");
 
-    fireEvent.click(completedHeader);
-    expect(screen.getByText("Fresh verification quest")).toBeInTheDocument();
-    expect(screen.getByText("Regular verification quest")).toBeInTheDocument();
+    const all = within(bar).getByRole("button", { name: /^All\s*3$/ });
+    fireEvent.click(all);
+    await screen.findByText("Fresh verification quest");
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    expect(mockListQuestPage.mock.lastCall?.[0]?.status).toBeUndefined();
   });
 
-  it("orders quests within a group by recency (updatedAt fallback to createdAt)", () => {
-    const olderCreatedButRecentlyUpdated = {
-      ...buildVerificationQuest({
-        id: "q-10-v3",
-        questId: "q-10",
-        title: "Older create, newer update",
-        verificationInboxUnread: false,
-      }),
-      createdAt: 1_000,
-      updatedAt: 5_000,
-      verificationInboxUnread: false,
-    } as QuestmasterTask;
-    const newerCreatedButNotUpdated = {
-      ...buildVerificationQuest({
-        id: "q-11-v3",
-        questId: "q-11",
-        title: "Newer create, older update",
-        verificationInboxUnread: false,
-      }),
-      createdAt: 4_000,
-      updatedAt: 4_000,
-      verificationInboxUnread: false,
-    } as QuestmasterTask;
-
-    mockState.quests = [newerCreatedButNotUpdated, olderCreatedButRecentlyUpdated];
+  it("renders one flat list with sortable column headers and no layout toggle", async () => {
+    // The layout follows the viewport (desktop here), so the old Cards/Compact toggle is gone.
     renderQuestmaster({ isActive: true });
 
-    const order = Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId);
-    expect(order).toEqual(["q-10", "q-11"]);
-  });
-
-  it("loads the server-persisted compact view and renders quests as dense rows", async () => {
-    // View mode is a server setting: activating Questmaster should hydrate the compact table without localStorage.
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
-
-    renderQuestmaster({ isActive: true });
-
-    expect(await screen.findAllByRole("columnheader", { name: "Quest" })).toHaveLength(1);
-    expect(screen.getAllByRole("columnheader", { name: "Owner" })).toHaveLength(1);
-    expect(screen.getAllByRole("columnheader", { name: "Leader" })).toHaveLength(1);
-    expect(screen.queryByRole("columnheader", { name: "User review checks" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("table")).toHaveLength(1);
+    await screen.findByRole("button", { name: /Fresh verification quest/ });
+    expect(screen.queryByRole("button", { name: "Cards" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Compact" })).not.toBeInTheDocument();
     expect(screen.queryByText("Review Inbox")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /q-1 Fresh verification quest/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /q-2 Regular verification quest/ })).toBeInTheDocument();
+    for (const column of ["Quest", "Status", "Owner", "Leader", "Updated"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^Sort by ${column} `) })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: /Regular verification quest/ })).toBeInTheDocument();
   });
 
-  it("shows Completed status without inbox text or the removed User review checks column", async () => {
-    // Status no longer encodes review inbox state; the compact table also omits review-check progress.
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("uses the phone layout below the desktop width, with a sort picker instead of column headers", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
+    try {
+      renderQuestmaster({ isActive: true });
+
+      const row = await screen.findByRole("button", { name: /Fresh verification quest/ });
+      expect(screen.queryByRole("button", { name: /^Sort by / })).not.toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Sort quests" })).toHaveValue("updated");
+      expect(within(row).queryByTestId("quest-row-leader")).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("shows Completed status without inbox text or the removed User review checks progress", async () => {
+    // Status no longer encodes review inbox state; rows also omit review-check progress.
 
     renderQuestmaster({ isActive: true });
 
-    await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
+    await screen.findByRole("button", { name: /Fresh verification quest/ });
     expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
     expect(screen.queryByText("Inbox")).not.toBeInTheDocument();
     expect(screen.queryByText("0/1")).not.toBeInTheDocument();
   });
 
-  it("shows the active Journey phase as compact Status and opens the shared Journey hover card", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("shows the active Journey phase as Status and opens the shared Journey hover card", async () => {
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-88-v1", questId: "q-88", title: "Active Journey quest" }),
@@ -178,7 +173,7 @@ describe("QuestmasterPage status display", () => {
 
     renderQuestmaster({ isActive: true });
 
-    const row = await screen.findByRole("button", { name: /q-88 Active Journey quest/ });
+    const row = await screen.findByRole("button", { name: /Active Journey quest/ });
     const status = within(row).getByText("Implement");
     expect(within(row).queryByText("In Progress")).not.toBeInTheDocument();
 
@@ -187,8 +182,7 @@ describe("QuestmasterPage status display", () => {
     expect(screen.getByTestId("quest-hover-status-row")).toHaveTextContent("Implement");
   });
 
-  it("uses persisted Journey runs for compact Status and Status hover previews", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("uses persisted Journey runs for Status and Status hover previews", async () => {
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-89-v1", questId: "q-89", title: "Persisted Journey quest" }),
@@ -230,7 +224,7 @@ describe("QuestmasterPage status display", () => {
 
     renderQuestmaster({ isActive: true });
 
-    const row = await screen.findByRole("button", { name: /q-89 Persisted Journey quest/ });
+    const row = await screen.findByRole("button", { name: /Persisted Journey quest/ });
     const status = within(row).getByText("Implement");
     expect(within(row).queryByText("In Progress")).not.toBeInTheDocument();
 
@@ -238,8 +232,7 @@ describe("QuestmasterPage status display", () => {
     expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();
   });
 
-  it("keeps done quests Completed in compact Status despite stale Journey phase context", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("keeps done quests Completed in Status despite stale Journey phase context", async () => {
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-93-v1", questId: "q-93", title: "Done quest with stale board row" }),
@@ -299,13 +292,13 @@ describe("QuestmasterPage status display", () => {
 
     renderQuestmaster({ isActive: true });
 
-    const staleBoardRow = await screen.findByRole("button", { name: /q-93 Done quest with stale board row/ });
+    const staleBoardRow = await screen.findByRole("button", { name: /Done quest with stale board row/ });
     const staleBoardStatus = within(staleBoardRow).getByText("Completed");
     expect(staleBoardStatus).toBeInTheDocument();
     expect(within(staleBoardRow).queryByText("Port")).not.toBeInTheDocument();
     expect(within(staleBoardRow).queryByText("0/1")).not.toBeInTheDocument();
 
-    const staleRunRow = screen.getByRole("button", { name: /q-94 Done quest with stale run/ });
+    const staleRunRow = screen.getByRole("button", { name: /Done quest with stale run/ });
     expect(within(staleRunRow).getByText("Completed")).toBeInTheDocument();
     expect(within(staleRunRow).queryByText("Port")).not.toBeInTheDocument();
     expect(within(staleRunRow).queryByText("0/1")).not.toBeInTheDocument();
@@ -317,20 +310,20 @@ describe("QuestmasterPage status display", () => {
     expect(screen.getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
   });
 
-  it("limits compact title cells to title, tags, and one plain-text description TLDR string", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+  it("limits rows to the title, quest number and one plain-text TLDR line", async () => {
+    // Rows lead with the title; tags, debriefs and phase notes stay out of the list.
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-90-v1", questId: "q-90", title: "Markdown TLDR quest" }),
         tldr: [
-          "Use [q-986](quest:q-986) direction for the compact table.",
+          "Use [q-986](quest:q-986) direction for the list.",
           "Keep this second line in the same truncated string instead of a second rendered line.",
         ].join("\n"),
-        debriefTldr: "Debrief should not appear in compact title cells.",
+        debriefTldr: "Debrief should not appear in rows.",
         feedback: [
           {
             author: "agent",
-            text: "Full phase summary should not appear in compact title cells.",
+            text: "Full phase summary should not appear in rows.",
             tldr: "Phase summary should not appear.",
             ts: Date.now(),
             kind: "phase_summary",
@@ -342,84 +335,75 @@ describe("QuestmasterPage status display", () => {
 
     renderQuestmaster({ isActive: true });
 
-    const row = await screen.findByRole("button", { name: /q-90 Markdown TLDR quest/ });
-    const tldr = within(row).getByTestId("quest-compact-tldr");
+    const row = await screen.findByRole("button", { name: /Markdown TLDR quest/ });
+    const tldr = within(row).getByTestId("quest-row-tldr");
     expect(tldr).toHaveTextContent(
-      "Use q-986 direction for the compact table. Keep this second line in the same truncated string instead of a second rendered line.",
+      "Use q-986 direction for the list. Keep this second line in the same truncated string instead of a second rendered line.",
     );
     expect(within(tldr).queryByRole("link", { name: "q-986" })).not.toBeInTheDocument();
-    expect(within(row).getByText("#ui")).toBeInTheDocument();
-    expect(within(row).getByText("#questmaster")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "q-90" })).toBeInTheDocument();
+    expect(within(row).queryByText("#ui")).not.toBeInTheDocument();
     expect(within(row).queryByText(/Debrief should not appear/)).not.toBeInTheDocument();
     expect(within(row).queryByText(/Phase summary should not appear/)).not.toBeInTheDocument();
   });
 
-  it("splits compact Owner and Leader into separate columns", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
-    mockState.sdkSessions = [
+  it("shows only open human feedback, not addressed feedback", async () => {
+    mockState.quests = [
+      // The list endpoint sends feedback as counts (feedbackSummary), not entries.
       {
-        sessionId: "worker-1347",
-        sessionNum: 1347,
-        state: "idle",
-        cwd: "/tmp",
-        createdAt: 1,
-        archived: false,
-      },
+        ...buildVerificationQuest({ id: "q-95-v1", questId: "q-95", title: "Open feedback quest" }),
+        feedbackSummary: { humanTotal: 2, humanUnaddressed: 1, humanAddressed: 1 },
+      } as unknown as QuestmasterTask,
       {
-        sessionId: "leader-1286",
-        sessionNum: 1286,
-        state: "idle",
-        cwd: "/tmp",
-        createdAt: 1,
-        archived: false,
-      },
+        ...buildVerificationQuest({ id: "q-96-v1", questId: "q-96", title: "Addressed feedback quest" }),
+        feedbackSummary: { humanTotal: 1, humanUnaddressed: 0, humanAddressed: 1 },
+      } as unknown as QuestmasterTask,
     ];
+
+    renderQuestmaster({ isActive: true });
+
+    const openRow = await screen.findByRole("button", { name: /Open feedback quest/ });
+    expect(within(openRow).getByText("1 open")).toBeInTheDocument();
+    const addressedRow = screen.getByRole("button", { name: /Addressed feedback quest/ });
+    expect(within(addressedRow).queryByText(/open|addressed/)).not.toBeInTheDocument();
+  });
+
+  it("shows Owner and Leader in separate columns and leaves out unknown sessions", async () => {
+    mockState.sdkSessions = [sessionRow("worker-1347", 1347, "Worker"), sessionRow("leader-1286", 1286, "Leader")];
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-91-v1", questId: "q-91", title: "Split owner leader quest" }),
         sessionId: "worker-1347",
         leaderSessionId: "leader-1286",
       } as QuestmasterTask,
-    ];
-
-    renderQuestmaster({ isActive: true });
-
-    const row = await screen.findByRole("button", { name: /q-91 Split owner leader quest/ });
-    const cells = row.querySelectorAll("td");
-    expect(cells[2]).toHaveTextContent("#1347");
-    expect(cells[2]).not.toHaveTextContent("Leader");
-    expect(cells[2]).not.toHaveTextContent("#1286");
-    expect(cells[3]).toHaveTextContent("#1286");
-  });
-
-  it("does not intercept keyboard activation on compact quest ID links", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
-    mockState.quests = [
       {
-        ...buildVerificationQuest({ id: "q-92-v1", questId: "q-92", title: "Quest ID link quest" }),
+        ...buildVerificationQuest({ id: "q-97-v1", questId: "q-97", title: "Removed owner quest" }),
+        sessionId: "removed-session",
       } as QuestmasterTask,
     ];
 
     renderQuestmaster({ isActive: true });
 
-    await screen.findByRole("button", { name: /q-92 Quest ID link quest/ });
-    const questLink = screen.getByRole("link", { name: "q-92" });
-    questLink.focus();
-    expect(questLink).toHaveFocus();
+    const row = await screen.findByRole("button", { name: /Split owner leader quest/ });
+    expect(within(row).getByTestId("quest-row-owner")).toHaveTextContent("#1347");
+    expect(within(row).getByTestId("quest-row-owner")).not.toHaveTextContent("#1286");
+    expect(within(row).getByTestId("quest-row-leader")).toHaveTextContent("#1286");
+    // A session that is no longer known has nothing to open, so its "#?" placeholder is left out.
+    const removedRow = screen.getByRole("button", { name: /Removed owner quest/ });
+    expect(within(removedRow).getByTestId("quest-row-owner")).toBeEmptyDOMElement();
+  });
 
-    const enterEvent = createEvent.keyDown(questLink, { key: "Enter" });
-    fireEvent(questLink, enterEvent);
-    expect(enterEvent.defaultPrevented).toBe(false);
+  it("keeps keyboard activation on the quest number for copying instead of opening the quest", async () => {
+    renderQuestmaster({ isActive: true });
 
-    const spaceEvent = createEvent.keyDown(questLink, { key: " " });
-    fireEvent(questLink, spaceEvent);
-    expect(spaceEvent.defaultPrevented).toBe(false);
+    const row = await screen.findByRole("button", { name: /Fresh verification quest/ });
+    const questId = within(row).getByRole("button", { name: "q-1" });
+    fireEvent.keyDown(questId, { key: "Enter" });
+    fireEvent.keyDown(questId, { key: " " });
     expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
-    expect(mockState.questOverlayId).toBeNull();
 
-    fireEvent.click(questLink);
-    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-92");
-    expect(mockState.questOverlayId).toBe("q-92");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1", undefined);
   });
 
   it("pauses fallback polling while the tab is hidden and resumes on visibility", async () => {
@@ -455,15 +439,12 @@ describe("QuestmasterPage status display", () => {
     }
   });
 
-  it("opens quest overlay via store when clicking a compact row", async () => {
-    // Clicking a compact row should set questOverlayId on the store so
+  it("opens quest overlay via store when clicking a row", async () => {
+    // Clicking a row should set questOverlayId on the store so
     // QuestDetailPanel renders the detail modal globally.
     renderQuestmaster({ isActive: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
-    await screen.findAllByRole("columnheader", { name: "Quest" });
-
-    fireEvent.click(screen.getByRole("button", { name: /q-1 Fresh verification quest/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Fresh verification quest/ }));
 
     expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1", undefined);
     expect(mockState.questOverlayId).toBe("q-1");
@@ -480,74 +461,6 @@ describe("QuestmasterPage status display", () => {
     expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
     expect(mockState.questOverlayId).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Copied!" })).toBeInTheDocument());
-  });
-
-  it("opens compact quest id links with hover previews and copies from the adjacent icon", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
-
-    renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
-
-    const questLink = screen.getByRole("link", { name: "q-1" });
-    fireEvent.mouseEnter(questLink);
-    expect(await screen.findByTestId("quest-hover-card")).toBeInTheDocument();
-
-    fireEvent.click(questLink);
-    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1");
-    expect(mockState.questOverlayId).toBe("q-1");
-
-    mockState.openQuestOverlay.mockClear();
-    mockState.questOverlayId = null;
-    fireEvent.click(screen.getByRole("button", { name: "Copy quest ID q-1" }));
-
-    await waitFor(() => {
-      expect(mockClipboardWriteText).toHaveBeenCalledWith("q-1");
-    });
-    expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
-    expect(mockState.questOverlayId).toBeNull();
-  });
-
-  it("blocks compact row keyboard open when compact quest id controls are focused", async () => {
-    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
-
-    renderQuestmaster({ isActive: true });
-    await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
-
-    const questLink = screen.getByRole("link", { name: "q-1" });
-    const copyButton = screen.getByRole("button", { name: "Copy quest ID q-1" });
-
-    fireEvent.keyDown(questLink, { key: " " });
-    expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
-    expect(mockState.questOverlayId).toBeNull();
-
-    // JSDOM does not synthesize the native button click from Enter, so assert
-    // the keydown does not bubble to the row, then emulate activation click.
-    fireEvent.keyDown(copyButton, { key: "Enter" });
-    expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
-    expect(mockState.questOverlayId).toBeNull();
-
-    fireEvent.click(copyButton);
-
-    await waitFor(() => {
-      expect(mockClipboardWriteText).toHaveBeenCalledWith("q-1");
-    });
-    expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
-    expect(mockState.questOverlayId).toBeNull();
-  });
-
-  it("opens compact rows even when their Cards-mode section is collapsed", async () => {
-    // Compact view is flat: a previously-collapsed Cards group must not prevent overlay.
-    renderQuestmaster({ isActive: true });
-
-    fireEvent.click(screen.getByRole("button", { name: /^Completed2$/ }));
-    expect(screen.queryByText("Fresh verification quest")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
-    await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
-
-    fireEvent.click(screen.getByRole("button", { name: /q-1 Fresh verification quest/ }));
-
-    expect(mockState.questOverlayId).toBe("q-1");
   });
 
   it("opens quest overlay via deep-link", () => {
@@ -576,16 +489,6 @@ describe("QuestmasterPage status display", () => {
       requestFrameSpy.mockRestore();
       cancelFrameSpy.mockRestore();
     }
-  });
-
-  it("highlights card with primary border when overlay is open for that quest", () => {
-    // The card's appearance should reflect the overlay state from the store.
-    mockState.questOverlayId = "q-1";
-    renderQuestmaster({ isActive: true });
-
-    const card = document.querySelector('[data-quest-id="q-1"]');
-    expect(card).toBeTruthy();
-    expect(card!.className).toContain("border-cc-primary");
   });
 
   it("toggles quest overlay closed when clicking an already-expanded quest card", () => {
