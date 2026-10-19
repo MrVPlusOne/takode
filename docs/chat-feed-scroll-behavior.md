@@ -6,7 +6,7 @@ This file is the source of truth for Takode chat-feed scrolling behavior.
 
 - Keep scroll behavior simple and predictable.
 - Preserve the user’s reading position when they scroll away from the bottom.
-- Follow new content only when the user is already near the bottom.
+- Follow new content only when the user is at the bottom.
 
 ## Canonical Behavior
 
@@ -19,7 +19,7 @@ The new user message is appended to the conversation like any other message.
 
 After send, the feed behaves according to the normal bottom-follow rule:
 
-- if the user was already near the bottom, keep following the bottom
+- if the user was at the bottom, keep following the bottom
 - if the user was scrolled up, preserve their current reading position
 
 There is no dedicated "scroll the new user message to the top" path.
@@ -28,13 +28,18 @@ There is no dedicated "scroll the new user message to the top" path.
 
 The feed maintains a simple sticky-bottom model:
 
-- when the user is near the bottom, new content should keep the feed near the
+- when the user is at the bottom, new content should keep the feed at the
   bottom
-- when the user is not near the bottom, new content should not force the
-  viewport to move
+- when the user is anywhere above the bottom, even a few pixels, new content
+  should not force the viewport to move
 
-Near-bottom detection and automatic following use the real conversation bottom,
-excluding trailing space reserved for overlays and explicit passage navigation.
+"At the bottom" means the real conversation bottom, excluding trailing space
+reserved for overlays and explicit passage navigation. Scrolling up stops
+following. Following resumes only when the user scrolls back down to that real
+bottom (or uses the jump-to-bottom control); getting close to it is not enough.
+Slow scrolls arrive in steps of a few pixels, and content that updates below a
+reader every second, such as a waiting worker's live preview in a leader quest
+thread, would otherwise pull them back down on every update.
 
 On desktop, the expanded composer overlays a fixed compact dock. Its measured
 overlap adds manual scroll range so the last passage can be read above it;
@@ -48,7 +53,7 @@ reserve additional composer space.
 
 During streaming:
 
-- if the user is near the bottom, the feed may keep up with streaming output
+- if the user is at the bottom, the feed may keep up with streaming output
   using immediate bottom alignment
 - if the user has scrolled up, do not auto-follow continuously
 
