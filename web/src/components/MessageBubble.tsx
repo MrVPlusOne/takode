@@ -1207,10 +1207,15 @@ function AssistantMessage({
       : null;
   const trailingTime = (index: number) =>
     trailingTextIndex === index ? <span className="absolute bottom-0.5 right-0 z-10">{timeLabel}</span> : null;
+  // On phones the "⋯" button always shows, floating at the top right of the first text
+  // block. When the time trails that same block, a one-line message would put the time
+  // under the button, so the block is made tall enough for the time to get a line below it:
+  // two text lines at the default line height, so longer messages keep their height.
+  const timeBesideMenu = !readOnly && hasTextContent && trailingTextIndex === firstContentGroupIndex;
   const trailingProps = (index: number) =>
     trailingTextIndex === index
       ? {
-          className: "relative message-time-trail",
+          className: `relative message-time-trail${timeBesideMenu ? " max-sm:min-h-10" : ""}`,
           style: { "--message-time-reserve": timeLabelReserve } as React.CSSProperties,
         }
       : { className: "relative" };

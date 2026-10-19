@@ -1381,6 +1381,68 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.queryByTestId("message-time-own-line")).toBeNull();
   });
 
+  it("on phones, makes room for the time below the options button when both share the first text block", () => {
+    // The "⋯" button floats at the top right of the first text block and always shows on
+    // phones. A one-line message would put the trailing time under it, so that block gets a
+    // phone-only minimum height that pushes the time to a line below the button. The class
+    // is set from the message's structure at render, never from measurement, so the feed
+    // does not shift. Real-browser geometry is checked at validation; jsdom has no layout.
+    const PHONE_TIME_ROOM = "max-sm:min-h-10";
+    const trailOf = () => screen.getByTestId("message-time-label").closest(".message-time-trail")!;
+
+    const short = render(
+      <MessageBubble
+        message={makeMessage({ role: "assistant", content: "Quest closed.", timestamp: 1700000003000 })}
+      />,
+    );
+    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(true);
+    short.unmount();
+
+    // Tool activity first: the button floats in the first text block, which the time also trails.
+    const afterTool = render(
+      <MessageBubble
+        message={makeMessage({
+          role: "assistant",
+          content: "",
+          timestamp: 1700000003000,
+          contentBlocks: [
+            { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
+            { type: "text", text: "Done." },
+          ],
+        })}
+      />,
+    );
+    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(true);
+    afterTool.unmount();
+
+    // The time trails a later text block than the button's: they cannot meet.
+    const twoBlocks = render(
+      <MessageBubble
+        message={makeMessage({
+          role: "assistant",
+          content: "",
+          timestamp: 1700000003000,
+          contentBlocks: [
+            { type: "text", text: "Checking." },
+            { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
+            { type: "text", text: "Done." },
+          ],
+        })}
+      />,
+    );
+    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(false);
+    twoBlocks.unmount();
+
+    // Read-only views have no options button.
+    render(
+      <MessageBubble
+        message={makeMessage({ role: "assistant", content: "Quest closed.", timestamp: 1700000003000 })}
+        interactionMode="read-only"
+      />,
+    );
+    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(false);
+  });
+
   it("gives the assistant time its own line when the message ends with something other than text", () => {
     // A trailing tool card would sit under a time placed on the last text line, so the
     // time moves below the whole message instead.
