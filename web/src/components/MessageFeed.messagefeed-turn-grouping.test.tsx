@@ -495,15 +495,20 @@ describe("MessageFeed - turn grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    const timing = screen.getByTestId("message-timestamp");
-    expect(timing.textContent).toContain(
+    // Both sides get a time; the turn-ending answer keeps its duration in normal feeds.
+    const [userTime, answerTime] = screen.getAllByTestId("message-time-label");
+    expect(userTime.textContent).toBe(
+      new Date(timestamp - 4_200).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    );
+    expect(answerTime.textContent).toContain(
       new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
     );
-    expect(timing.textContent).toContain("· 4.2s");
+    expect(answerTime.textContent).toContain("· 4.2s");
   });
 
-  it("hides inline message timing in Leader feeds while preserving date dividers", () => {
-    // Leader feeds remove only the per-message time/duration line; calendar boundaries remain visible.
+  it("shows message times without durations in Leader feeds, alongside date dividers", () => {
+    // Leader feeds show each message's clock time in its corner but not generation durations;
+    // the day comes from the date dividers.
     const sid = "test-leader-inline-timing";
     const firstDay = new Date(2026, 8, 3, 17, 10).getTime();
     const secondDay = new Date(2026, 8, 4, 9, 15).getTime();
@@ -531,7 +536,9 @@ describe("MessageFeed - turn grouping", () => {
 
     expect(screen.getByText("First day answer")).toBeTruthy();
     expect(screen.getByText("Second day answer")).toBeTruthy();
-    expect(screen.queryByTestId("message-timestamp")).toBeNull();
+    const labels = screen.getAllByTestId("message-time-label").map((item) => item.textContent ?? "");
+    expect(labels).toContain(new Date(firstDay).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    expect(labels.some((label) => label.includes("·"))).toBe(false);
     expect(screen.getAllByTestId("minute-boundary-timestamp").map((item) => item.textContent)).toEqual([
       new Date(firstDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
       new Date(secondDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),

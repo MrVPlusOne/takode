@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { type MessageTimeSide, useMessageTimeLabelHidden } from "./message-time-labels.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -87,4 +88,60 @@ export function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: num
       {durationText ? `${timestampText} · ${durationText}` : timestampText}
     </time>
   );
+}
+
+/** The clock time a feed label shows ("4:35 PM"); the day comes from the feed's date dividers. */
+export function formatMessageClockTime(timestamp: number): string {
+  return isValidMessageTimestamp(timestamp) ? formatMessageTime(timestamp) : "";
+}
+
+/**
+ * Room the label needs at the end of a message's last line, as a CSS length. Labels use
+ * 11px digits, roughly 6px per character.
+ */
+export function messageTimeLabelReserve(text: string): string {
+  return `${text.length * 6 + 10}px`;
+}
+
+/**
+ * A message's time in the feed. When a newer message from the same side covers it, the
+ * label turns invisible but keeps its space, so nothing in the feed moves.
+ */
+export function MessageTimeLabel({
+  id,
+  side,
+  timestamp,
+  turnDurationMs,
+  className = "",
+}: {
+  id: string;
+  side: MessageTimeSide;
+  timestamp: number;
+  turnDurationMs?: number;
+  className?: string;
+}) {
+  const hidden = useMessageTimeLabelHidden(id, side, timestamp);
+  const showDuration = useContext(InlineMessageTimingVisibilityContext);
+  const text = formatMessageTimeLabel(timestamp, showDuration ? turnDurationMs : undefined);
+  if (!text) return null;
+  return (
+    <time
+      data-testid="message-time-label"
+      data-hidden={hidden ? "true" : undefined}
+      dateTime={new Date(timestamp).toISOString()}
+      title={formatExactMessageTimestamp(timestamp)}
+      aria-hidden={hidden ? true : undefined}
+      className={`whitespace-nowrap text-[11px] leading-4 tabular-nums text-cc-muted/70 ${hidden ? "invisible" : ""} ${className}`}
+    >
+      {text}
+    </time>
+  );
+}
+
+/** Label text: the clock time, plus the turn's duration where the feed shows durations. */
+export function formatMessageTimeLabel(timestamp: number, turnDurationMs?: number): string {
+  const time = formatMessageClockTime(timestamp);
+  if (!time) return "";
+  const duration = typeof turnDurationMs === "number" ? formatTurnDuration(turnDurationMs) : "";
+  return duration ? `${time} · ${duration}` : time;
 }

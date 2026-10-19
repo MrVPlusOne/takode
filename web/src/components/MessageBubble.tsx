@@ -55,7 +55,13 @@ import {
 } from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
-import { MessageTimestamp } from "./MessageTimestamp.js";
+import {
+  InlineMessageTimingVisibilityContext,
+  MessageTimeLabel,
+  formatMessageTimeLabel,
+  isValidMessageTimestamp,
+  messageTimeLabelReserve,
+} from "./MessageTimestamp.js";
 import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
@@ -353,7 +359,19 @@ export const MessageBubble = memo(function MessageBubble({
  *  Shows a gradient fade and "Show more" pill when collapsed. */
 const COLLAPSE_THRESHOLD = 300;
 
-function CollapsibleContent({ children }: { children: React.ReactNode }) {
+/**
+ * Clips long user messages behind Show more. `trailing` (the message time) sits in the
+ * lower-right corner: on the last text line, or on the Show more row while clipped.
+ */
+function CollapsibleContent({
+  children,
+  trailing,
+  trailingReserve,
+}: {
+  children: React.ReactNode;
+  trailing?: React.ReactNode;
+  trailingReserve?: string;
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [needsCollapse, setNeedsCollapse] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
@@ -380,7 +398,12 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative">
       <div style={isCollapsed ? { maxHeight: COLLAPSE_THRESHOLD, overflow: "hidden" } : undefined}>
-        <div ref={contentRef} data-testid="user-message-content">
+        <div
+          ref={contentRef}
+          data-testid="user-message-content"
+          className={trailing ? "message-time-trail" : undefined}
+          style={trailing ? ({ "--message-time-reserve": trailingReserve } as React.CSSProperties) : undefined}
+        >
           {children}
         </div>
       </div>
@@ -398,6 +421,7 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       )}
+      {trailing && <span className="absolute bottom-0.5 right-0 z-10">{trailing}</span>}
     </div>
   );
 }
@@ -853,6 +877,11 @@ function UserMessage({
   }, [message.id]);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
+  const timeLabel =
+    showTimestamp && !message.pendingState && isValidMessageTimestamp(message.timestamp) ? (
+      <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} />
+    ) : null;
+  const timeLabelReserve = timeLabel ? messageTimeLabelReserve(formatMessageTimeLabel(message.timestamp)) : undefined;
   const pendingLabel =
     message.pendingState === "uploading"
       ? "Uploading image…"
@@ -915,7 +944,7 @@ function UserMessage({
           size="message"
         />
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
-        <CollapsibleContent>
+        <CollapsibleContent trailing={transcribed ? null : timeLabel} trailingReserve={timeLabelReserve}>
           {message.metadata?.annotations?.length ? (
             <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
           ) : null}
@@ -928,8 +957,12 @@ function UserMessage({
             questLinkSurface={questLinkSurface}
           />
         </CollapsibleContent>
-        {transcribed && <TranscriptionTagMarker testId="user-message-transcribed-tag" />}
-        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
+        {transcribed && (
+          <div className="flex items-center justify-between gap-3">
+            <TranscriptionTagMarker testId="user-message-transcribed-tag" />
+            {timeLabel}
+          </div>
+        )}
         <ContinuedInLinks message={message} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
       {!readOnly && !message.pendingState && (
@@ -1083,6 +1116,7 @@ function AssistantMessage({
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
+  const showDuration = useContext(InlineMessageTimingVisibilityContext);
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
@@ -1128,6 +1162,53 @@ function AssistantMessage({
     />
   );
 
+  const timeLabel =
+    showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
+      <MessageTimeLabel
+        id={message.id}
+        side="assistant"
+        timestamp={message.timestamp}
+        turnDurationMs={message.turnDurationMs}
+      />
+    ) : null;
+  const timeLabelReserve = timeLabel
+    ? messageTimeLabelReserve(
+        formatMessageTimeLabel(message.timestamp, showDuration ? message.turnDurationMs : undefined),
+      )
+    : undefined;
+  // The time trails the last line of text when the message ends with text; otherwise it
+  // gets its own line under the message.
+  const lastGroup = renderedGroups[renderedGroups.length - 1];
+  const nothingAfterText =
+    !collapseRejectedText &&
+    assistantImagePreviewItems.length === 0 &&
+    !(!readOnly && resolvedNotification) &&
+    !(!readOnly && compactInlineNotificationCategory) &&
+    !(showSideChatActions && sideChat);
+  const trailingTextIndex =
+    timeLabel && nothingAfterText
+      ? blocks.length === 0 && projection.shouldRenderContentFallback
+        ? -1
+        : lastGroup?.kind === "content" && lastGroup.block.type === "text"
+          ? renderedGroups.length - 1
+          : null
+      : null;
+  const trailingTime = (index: number) =>
+    trailingTextIndex === index ? <span className="absolute bottom-0.5 right-0 z-10">{timeLabel}</span> : null;
+  const trailingProps = (index: number) =>
+    trailingTextIndex === index
+      ? {
+          className: "relative message-time-trail",
+          style: { "--message-time-reserve": timeLabelReserve } as React.CSSProperties,
+        }
+      : { className: "relative" };
+  const ownLineTime =
+    timeLabel && trailingTextIndex === null ? (
+      <div data-testid="message-time-own-line" className="!mt-1 text-right">
+        {timeLabel}
+      </div>
+    ) : null;
+
   if (!projection.renderable) return null;
 
   if (blocks.length === 0 && projection.shouldRenderContentFallback) {
@@ -1161,23 +1242,26 @@ function AssistantMessage({
                     showSideChatActions={showSideChatActions}
                   />
                 )}
-                {readOnly ? (
-                  <MarkdownContent
-                    text={projection.fallbackText}
-                    sessionId={sessionId}
-                    searchHighlight={searchHighlight}
-                    fileLinkMode="text-only"
-                    questLinkSurface={questLinkSurface}
-                  />
-                ) : (
-                  <AssistantQuestQuizContent
-                    text={projection.fallbackText}
-                    sessionId={sessionId}
-                    searchHighlight={searchHighlight}
-                    enableChatSelectionMenu
-                    questLinkSurface={questLinkSurface}
-                  />
-                )}
+                <div {...trailingProps(-1)}>
+                  {readOnly ? (
+                    <MarkdownContent
+                      text={projection.fallbackText}
+                      sessionId={sessionId}
+                      searchHighlight={searchHighlight}
+                      fileLinkMode="text-only"
+                      questLinkSurface={questLinkSurface}
+                    />
+                  ) : (
+                    <AssistantQuestQuizContent
+                      text={projection.fallbackText}
+                      sessionId={sessionId}
+                      searchHighlight={searchHighlight}
+                      enableChatSelectionMenu
+                      questLinkSurface={questLinkSurface}
+                    />
+                  )}
+                  {trailingTime(-1)}
+                </div>
               </>
             )}
             <ImagePreviewGroup
@@ -1197,7 +1281,7 @@ function AssistantMessage({
               onSelectThread={onSelectThread}
             />
           )}
-          {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
+          {ownLineTime}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>
       </div>
@@ -1270,6 +1354,15 @@ function AssistantMessage({
                   questLinkSurface={questLinkSurface}
                 />
               );
+              const textBlock =
+                trailingTextIndex === i ? (
+                  <div {...trailingProps(i)}>
+                    {renderedBlock}
+                    {trailingTime(i)}
+                  </div>
+                ) : (
+                  renderedBlock
+                );
               if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
                 return (
                   <div key={i} className="flow-root">
@@ -1282,11 +1375,11 @@ function AssistantMessage({
                         showSideChatActions={showSideChatActions}
                       />
                     )}
-                    {renderedBlock}
+                    {textBlock}
                   </div>
                 );
               }
-              return renderedBlock;
+              return trailingTextIndex === i ? <div key={i}>{textBlock}</div> : renderedBlock;
             }
             if (group.kind === "tool_activity") {
               return (
@@ -1357,7 +1450,7 @@ function AssistantMessage({
             onSelectThread={onSelectThread}
           />
         )}
-        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
+        {ownLineTime}
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
       </div>
     </div>

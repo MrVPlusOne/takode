@@ -934,7 +934,7 @@ export const FeedEntries = memo(function FeedEntries({
           <MessageBubble
             message={entry.msg}
             sessionId={sessionId}
-            showTimestamp={isTimed && entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number"}
+            showTimestamp={isTimed}
             currentThreadKey={currentThreadKey}
             onSelectThread={onSelectThread}
             interactionMode={interactionMode}

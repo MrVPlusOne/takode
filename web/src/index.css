@@ -1431,3 +1431,23 @@ select {
     z-index: 30;
   }
 }
+
+/*
+ * Message time labels sit in the lower-right corner of a message, on its last line of
+ * text when there is room (like a phone messenger). An invisible spacer at the end of the
+ * last paragraph or list item keeps that room free; when the line is full the spacer wraps
+ * and the time gets the new line. Text that ends some other way (code, a table, a quote)
+ * gets a line for the time below it.
+ */
+.message-time-trail .markdown-body > p:last-child::after,
+.message-time-trail .markdown-body > :is(ul, ol):last-child > li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: var(--message-time-reserve, 3.5rem);
+}
+
+.message-time-trail .markdown-body:not(:has(> :is(p, ul, ol):last-child))::after {
+  content: "";
+  display: block;
+  height: 1rem;
+}

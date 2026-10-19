@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { closeAllThreadTabs, listedThreadTab } from "../test-fixtures/thread-tab-rows.js";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 // Mock markdown renderer used by MessageBubble/PermissionBanner
@@ -30,15 +30,27 @@ installPlaygroundTestEnvironment();
 // A full-catalog render costs about 4-8 s of CPU on its own, so several concurrent
 // suite runs need more than the default 10 s; tests with larger needs set their own.
 describe("Playground", { timeout: 30_000 }, () => {
-  it("documents Leader-only inline timing suppression without losing menu time metadata", () => {
+  it("documents corner message times, clustering and menu time metadata", async () => {
     useStore.getState().reset();
     render(<PlaygroundOverviewOnly />);
 
     const normalTiming = within(screen.getByTestId("playground-normal-inline-timing"));
-    expect(normalTiming.getByTestId("message-timestamp")).toHaveTextContent("· 42s");
+    expect(normalTiming.getByTestId("message-time-label")).toHaveTextContent("· 42s");
 
     const leaderTiming = within(screen.getByTestId("playground-leader-inline-timing"));
-    expect(leaderTiming.queryByTestId("message-timestamp")).not.toBeInTheDocument();
+    expect(leaderTiming.getByTestId("message-time-label")).not.toHaveTextContent("·");
+
+    // In the clustered exchange, the older message of each close pair keeps an invisible label.
+    const clustered = within(screen.getByTestId("playground-clustered-message-times"));
+    await waitFor(() => {
+      expect(clustered.getAllByTestId("message-time-label").map((label) => label.dataset.hidden === "true")).toEqual([
+        true,
+        false,
+        true,
+        false,
+        false,
+      ]);
+    });
     fireEvent.click(leaderTiming.getByRole("button", { name: "Message options" }));
     const leaderMetadata = screen.getByTestId("message-time-assistant-menu-metadata");
     expect(leaderMetadata).toHaveAttribute("role", "note");

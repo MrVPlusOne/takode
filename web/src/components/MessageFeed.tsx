@@ -7,6 +7,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
 import { FeedFooter } from "./MessageFeedEntries.js";
 import { TurnEntries } from "./MessageFeedTurns.js";
+import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { useScrollActivity } from "./message-feed-scroll-activity.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
 import { type FeedViewportPosition, getFeedViewportKey } from "../utils/thread-viewport.js";
@@ -206,6 +207,7 @@ export function MessageFeed({
   const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
   const routeScrollToMessageId = getRouteMessageTargetForThread(normalizedThreadKey);
   const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
+  const [messageTimeLabels] = useState(() => new MessageTimeLabelStore());
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
   const sideChats = useStore((s) => s.sessions.get(sessionId)?.slackThreads);
@@ -1866,28 +1868,30 @@ export function MessageFeed({
                       )}
                     </div>
                   )}
-                  <TurnEntries
-                    sections={visibleSections}
-                    sessionId={sessionId}
-                    currentThreadKey={threadKey}
-                    leaderSession={isLeaderSession}
-                    showInlineMessageTiming={!isLeaderSession}
-                    isCodexSession={isCodexSession}
-                    activeCodexTerminalIds={activeCodexTerminalIds}
-                    onOpenCodexTerminal={setSelectedCodexTerminalId}
-                    onSelectThread={onSelectThread}
-                    turnStates={turnStates}
-                    toggleTurn={toggleTurn}
-                    userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
-                    questLinkSurface="chat-feed"
-                    threadResponsePresentation={threadResponsePresentation}
-                    needsInputAnchorMessageIds={needsInputAnchorMessageIds}
-                    visibleThreadStatuses={visibleThreadStatuses}
-                    workerPreviewTarget={workerPreviewTarget}
-                    onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
-                    hasOlderSections={hasOlderSections}
-                    hasNewerSections={hasNewerSections}
-                  />
+                  <MessageTimeLabelContext.Provider value={messageTimeLabels}>
+                    <TurnEntries
+                      sections={visibleSections}
+                      sessionId={sessionId}
+                      currentThreadKey={threadKey}
+                      leaderSession={isLeaderSession}
+                      showInlineMessageTiming={!isLeaderSession}
+                      isCodexSession={isCodexSession}
+                      activeCodexTerminalIds={activeCodexTerminalIds}
+                      onOpenCodexTerminal={setSelectedCodexTerminalId}
+                      onSelectThread={onSelectThread}
+                      turnStates={turnStates}
+                      toggleTurn={toggleTurn}
+                      userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
+                      questLinkSurface="chat-feed"
+                      threadResponsePresentation={threadResponsePresentation}
+                      needsInputAnchorMessageIds={needsInputAnchorMessageIds}
+                      visibleThreadStatuses={visibleThreadStatuses}
+                      workerPreviewTarget={workerPreviewTarget}
+                      onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
+                      hasOlderSections={hasOlderSections}
+                      hasNewerSections={hasNewerSections}
+                    />
+                  </MessageTimeLabelContext.Provider>
                   {hasNewerSections && (
                     <div className="flex justify-center pt-1" aria-live="polite">
                       {isLoadingNewerSection ? (

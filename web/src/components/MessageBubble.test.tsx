@@ -54,6 +54,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { MessageBubble } from "./MessageBubble.js";
+import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { HidePawContext } from "./PawTrail.js";
 import { useStore } from "../store.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
@@ -207,14 +208,33 @@ describe("MessageBubble - user messages", () => {
     expect(screen.queryByTestId("user-message-transcribed-tag")).toBeNull();
   });
 
-  it("renders a timestamp for user messages", () => {
+  it("puts the user message time at the end of the last text line", () => {
+    // Without a footer line the time trails the text: the content reserves room for it at
+    // the end of its last line (message-time-trail), so it usually costs no extra height.
     const ts = 1700000000000;
     const msg = makeMessage({ role: "user", content: "With timestamp", timestamp: ts });
     render(<MessageBubble message={msg} />);
 
-    const time = screen.getByTestId("message-timestamp");
+    const time = screen.getByTestId("message-time-label");
     expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
-    expect((time.textContent || "").length).toBeGreaterThan(0);
+    expect(time.textContent).toBe(new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    expect(screen.getByTestId("user-message-content").className).toContain("message-time-trail");
+  });
+
+  it("shares the transcribed line with the user message time instead of adding a line", () => {
+    const msg = makeMessage({ role: "user", content: "Dictated request\n[transcribed]", timestamp: 1700000000000 });
+    render(<MessageBubble message={msg} />);
+
+    const tag = screen.getByTestId("user-message-transcribed-tag");
+    expect(tag.parentElement?.contains(screen.getByTestId("message-time-label"))).toBe(true);
+    expect(screen.getByTestId("user-message-content").className).not.toContain("message-time-trail");
+  });
+
+  it("shows no time on a user message that is still sending", () => {
+    const msg = makeMessage({ role: "user", content: "Sending", timestamp: 1700000000000, pendingState: "delivering" });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.queryByTestId("message-time-label")).toBeNull();
   });
 
   it("renders the stable thread source badge for user messages", () => {
@@ -1347,17 +1367,35 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdownBlocks[1].textContent).toBe("Final status for user @to(user)");
   });
 
-  it("renders a timestamp for assistant messages", () => {
+  it("puts the assistant message time at the end of its last text line", () => {
     const ts = 1700000003000;
     const msg = makeMessage({ role: "assistant", content: "Timed response", timestamp: ts });
     render(<MessageBubble message={msg} />);
 
-    const time = screen.getByTestId("message-timestamp");
+    const time = screen.getByTestId("message-time-label");
     expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
-    expect((time.textContent || "").length).toBeGreaterThan(0);
+    expect(time.closest(".message-time-trail")).not.toBeNull();
+    expect(screen.queryByTestId("message-time-own-line")).toBeNull();
   });
 
-  it("shows assistant turn duration next to the timestamp when present", () => {
+  it("gives the assistant time its own line when the message ends with something other than text", () => {
+    // A trailing tool card would sit under a time placed on the last text line, so the
+    // time moves below the whole message instead.
+    const msg = makeMessage({
+      role: "assistant",
+      content: "",
+      timestamp: 1700000003000,
+      contentBlocks: [
+        { type: "text", text: "Running it" },
+        { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
+      ],
+    });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByTestId("message-time-own-line").contains(screen.getByTestId("message-time-label"))).toBe(true);
+  });
+
+  it("shows assistant turn duration next to the time when present", () => {
     const ts = 1700000003000;
     const msg = makeMessage({
       role: "assistant",
@@ -1367,8 +1405,28 @@ describe("MessageBubble - assistant messages", () => {
     });
     render(<MessageBubble message={msg} />);
 
-    const time = screen.getByTestId("message-timestamp");
-    expect(time.textContent).toContain("5.2s");
+    expect(screen.getByTestId("message-time-label").textContent).toContain("5.2s");
+  });
+
+  it("hides the time of a message a newer one on the same side covers, keeping its space", () => {
+    // Two answers a minute apart: only the newer keeps a visible time. The older label
+    // stays in the layout (invisible) so the feed never shifts when a close message arrives.
+    const store = new MessageTimeLabelStore();
+    const older = makeMessage({ id: "a-older", role: "assistant", content: "First", timestamp: 1700000000000 });
+    const newer = makeMessage({ id: "a-newer", role: "assistant", content: "Second", timestamp: 1700000060000 });
+    render(
+      <MessageTimeLabelContext.Provider value={store}>
+        <MessageBubble message={older} />
+        <MessageBubble message={newer} />
+      </MessageTimeLabelContext.Provider>,
+    );
+
+    return waitFor(() => {
+      const [olderTime, newerTime] = screen.getAllByTestId("message-time-label");
+      expect(olderTime.className).toContain("invisible");
+      expect(olderTime.getAttribute("data-hidden")).toBe("true");
+      expect(newerTime.className).not.toContain("invisible");
+    });
   });
 
   it("renders assistant message with text content blocks", () => {
