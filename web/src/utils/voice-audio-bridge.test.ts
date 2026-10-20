@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { createVoiceAudioBridge } from "./voice-audio-bridge.js";
+import { canRecordThroughVoiceAudioBridge, createVoiceAudioBridge } from "./voice-audio-bridge.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -86,4 +86,26 @@ it("cleans up partial setup and allows direct recording when the bridge API is a
   vi.spyOn(console, "warn").mockImplementation(() => {});
   expect(createVoiceAudioBridge()).toBeNull();
   expect(context.close).toHaveBeenCalledOnce();
+});
+
+it("keeps recordings off the bridge in WebKit, whose Web Audio breaks when a headset mic changes the audio route", () => {
+  const ua = {
+    iPhoneSafari:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1",
+    // Every iPhone browser runs on WebKit; Chrome there says "CriOS", not "Chrome/".
+    iPhoneChrome:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+    macSafari:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
+    macChrome:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    firefox: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+  };
+  expect(canRecordThroughVoiceAudioBridge(ua.iPhoneSafari)).toBe(false);
+  expect(canRecordThroughVoiceAudioBridge(ua.iPhoneChrome)).toBe(false);
+  expect(canRecordThroughVoiceAudioBridge(ua.macSafari)).toBe(false);
+  expect(canRecordThroughVoiceAudioBridge(ua.macChrome)).toBe(true);
+  expect(canRecordThroughVoiceAudioBridge(ua.edge)).toBe(true);
+  expect(canRecordThroughVoiceAudioBridge(ua.firefox)).toBe(true);
 });

@@ -72,7 +72,10 @@ class MockMediaRecorder {
   onstop: (() => void) | null = null;
   onerror: (() => void) | null = null;
 
-  constructor(_stream?: MediaStream, options: MediaRecorderOptions = {}) {
+  constructor(
+    readonly stream?: MediaStream,
+    options: MediaRecorderOptions = {},
+  ) {
     MockMediaRecorder.lastInstance = this;
     this.options = options;
     if (options.mimeType) this.mimeType = options.mimeType;
@@ -137,6 +140,12 @@ class MockAudioContext {
 
 let getUserMediaMock: ReturnType<typeof vi.fn>;
 
+// jsdom's user agent looks like WebKit, which records without the live-switching bridge.
+const CHROME_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const IPHONE_SAFARI_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1";
+
 // Volume monitor uses requestAnimationFrame/cancelAnimationFrame which may not exist in jsdom.
 // Define them once at module level so they survive through React cleanup (unmount) which
 // fires stopVolumeMonitor -> cancelAnimationFrame after the test's afterEach runs.
@@ -161,6 +170,7 @@ beforeEach(() => {
   ]);
   MockMediaRecorder.isTypeSupported.mockClear();
 
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: CHROME_USER_AGENT });
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
     value: true,
@@ -1341,4 +1351,71 @@ it("releases a microphone granted after preparing was cancelled", async () => {
   expect(stream.getTracks()[0].stop).toHaveBeenCalledOnce();
   expect(result.current.isRecording).toBe(false);
   expect(MockMediaRecorder.lastInstance).toBeNull();
+});
+
+describe("useVoiceInput — WebKit records the microphone track directly", () => {
+  // WebKit's Web Audio keeps the output rate it started with. With AirPods worn, opening a mic moves
+  // the iPhone to the headset's call route, and recordings routed through Web Audio came out at about
+  // a third of real time and near-silent, whichever mic was chosen. So WebKit records the mic track
+  // and starts the level meter's audio context only after capture has opened.
+  beforeEach(() => {
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: IPHONE_SAFARI_USER_AGENT });
+  });
+
+  it("records the mic track and meters it with an audio context started after capture opened", async () => {
+    const order: string[] = [];
+    vi.stubGlobal(
+      "AudioContext",
+      class extends MockAudioContext {
+        constructor() {
+          super();
+          order.push("audio-context");
+        }
+      },
+    );
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    MockAudioContext.sampleAmplitude = 32;
+    const mic = makeMockStream("live", "AirPods Pro");
+    let grant!: (stream: MediaStream) => void;
+    getUserMediaMock.mockImplementationOnce(async () => {
+      order.push("microphone");
+      return new Promise<MediaStream>((resolve) => {
+        grant = resolve;
+      });
+    });
+    const { result } = renderHook(() => useVoiceInput());
+
+    act(() => {
+      result.current.startRecording();
+    });
+    expect(order).toEqual(["microphone"]);
+
+    await act(async () => grant(mic));
+    expect(order).toEqual(["microphone", "audio-context"]);
+    expect(result.current.isRecording).toBe(true);
+    expect(MockMediaRecorder.lastInstance?.stream).toBe(mic);
+
+    act(() => frames.shift()?.(0));
+    expect(result.current.volumeLevel).toBeGreaterThan(0);
+  });
+
+  it("saves a mid-recording mic pick for the next recording without opening it", async () => {
+    // Opening the other mic would change the route under the running recording.
+    const mic = makeMockStream("live", "AirPods Pro");
+    getUserMediaMock.mockResolvedValueOnce(mic);
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+
+    let selection!: "switched" | "next-recording";
+    await act(async () => {
+      selection = await result.current.microphoneSelection.select({ deviceId: "built-in", label: "iPhone Microphone" });
+    });
+    expect(selection).toBe("next-recording");
+    expect(getUserMediaMock).toHaveBeenCalledOnce();
+    expect(mic.getTracks()[0].stop).not.toHaveBeenCalled();
+    expect(MockMediaRecorder.lastInstance?.state).toBe("recording");
+  });
 });

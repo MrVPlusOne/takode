@@ -11,7 +11,11 @@ import {
   type VoiceMicrophone,
   type VoiceMicrophoneSelection,
 } from "../utils/voice-microphone.js";
-import { createVoiceAudioBridge, type VoiceAudioBridge } from "../utils/voice-audio-bridge.js";
+import {
+  canRecordThroughVoiceAudioBridge,
+  createVoiceAudioBridge,
+  type VoiceAudioBridge,
+} from "../utils/voice-audio-bridge.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
@@ -363,8 +367,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, []);
 
   /** Poll the same audio graph that feeds the recorder, so switching keeps the meter current. */
-  const startVolumeMonitor = useCallback((analyser: AnalyserNode | undefined) => {
-    if (!analyser) return;
+  const startVolumeMonitor = useCallback((analyser: AnalyserNode) => {
     analyserRef.current = analyser;
     previousLevelRef.current = 0;
     const dataArray = new Uint8Array(analyser.fftSize);
@@ -387,6 +390,27 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     };
     animFrameRef.current = requestAnimationFrame(poll);
   }, []);
+
+  /**
+   * Meters a recording made straight from the microphone track. Its audio context starts only
+   * now, with capture open, so it runs at the audio route the microphone chose (see
+   * canRecordThroughVoiceAudioBridge). The recording never waits for it.
+   */
+  const meterDirectRecording = useCallback(
+    (stream: MediaStream) => {
+      const meter = createVoiceAudioBridge();
+      audioBridgeRef.current = meter;
+      if (!meter) return;
+      void meter.ready
+        .then(async (ready) => {
+          if (!ready || audioBridgeRef.current !== meter) return;
+          await meter.setInput(stream);
+          if (audioBridgeRef.current === meter) startVolumeMonitor(meter.analyser);
+        })
+        .catch((error) => console.warn("Could not start the microphone level meter", error));
+    },
+    [startVolumeMonitor],
+  );
 
   /** Stop volume monitoring and clean up Web Audio resources */
   const stopVolumeMonitor = useCallback(() => {
@@ -577,7 +601,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
       // but before awaiting it: WebKit grants the first wake lock only while the tap is recent.
       releaseScreenWakeLockRef.current ??= holdScreenWakeLock();
-      const bridge = createVoiceAudioBridge();
+      const bridge = canRecordThroughVoiceAudioBridge() ? createVoiceAudioBridge() : null;
       audioBridgeRef.current = bridge;
       const stream = await streamRequest;
       const bridgeReady = bridge ? await bridge.ready : false;
@@ -616,10 +640,12 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       attachTrackListeners(stream);
 
       // Start volume metering
-      startVolumeMonitor(audioBridgeRef.current?.analyser);
+      const recorderInput = audioBridgeRef.current?.stream ?? stream;
+      if (audioBridgeRef.current) startVolumeMonitor(audioBridgeRef.current.analyser);
+      else meterDirectRecording(stream);
 
       const recorderOptions = resolveVoiceRecorderOptions();
-      const recorder = new MediaRecorder(audioBridgeRef.current?.stream ?? stream, recorderOptions);
+      const recorder = new MediaRecorder(recorderInput, recorderOptions);
       recorderRef.current = recorder;
       const audioInputLabel = stream.getAudioTracks()[0]?.label || undefined;
       setInputDeviceLabel(formatInputDeviceLabel(audioInputLabel));
@@ -788,6 +814,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, [
     attachTrackListeners,
     detachTrackListeners,
+    meterDirectRecording,
     releaseScreenWakeLock,
     releaseCachedStream,
     startVolumeMonitor,
@@ -805,7 +832,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       rememberMicrophone(microphone);
       const recorder = recorderRef.current;
       const bridge = audioBridgeRef.current;
-      if (!recorder || recorder.state !== "recording" || !bridge) return "next-recording";
+      // A direct recording's bridge only meters it; its recorder cannot change input.
+      if (!recorder || recorder.state !== "recording" || !bridge || recorder.stream !== bridge.stream) {
+        return "next-recording";
+      }
       let next: MediaStream;
       try {
         // This real request is made directly in the pick's click, while the old mic keeps recording.

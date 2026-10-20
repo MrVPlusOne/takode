@@ -8,9 +8,24 @@ export interface VoiceAudioBridge {
 }
 
 /**
+ * Whether a recording may go through the bridge, which is what makes live microphone switching work.
+ *
+ * WebKit, the engine of Safari and every iPhone browser, fixes an AudioContext's output rate when
+ * the context starts and does not follow later audio route changes. Opening a Bluetooth headset
+ * microphone such as AirPods, or the built-in mic while AirPods are worn, moves the phone to a
+ * lower-rate call route, so a context started before or across that change runs at a fraction of
+ * real time and records near-silence. WebKit therefore records the microphone track directly.
+ */
+export function canRecordThroughVoiceAudioBridge(userAgent = navigator.userAgent): boolean {
+  // iPhone Chrome, Edge and Firefox identify as "CriOS", "EdgiOS" and "FxiOS", never "Chrome/".
+  return !userAgent.includes("AppleWebKit/") || /\b(Chrome|Chromium)\//.test(userAgent);
+}
+
+/**
  * Prepares a continuous recorder input during the recording click. Swapping sources leaves
  * MediaRecorder's track set and encoded file intact. Unsupported or blocked Web Audio lets
  * the caller keep direct capture and apply microphone picks to the next recording instead.
+ * A direct recording uses a bridge created once capture is open only for its level meter.
  */
 export function createVoiceAudioBridge(): VoiceAudioBridge | null {
   let context: AudioContext | undefined;
