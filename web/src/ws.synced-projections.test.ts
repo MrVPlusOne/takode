@@ -411,10 +411,14 @@ describe("synced projection WebSocket carrier", () => {
       known: { generation: "generation-a", revision: 3 },
     });
 
+    // The ack names the current subscription by its place in the request.
+    const workerIndex = subscribe.synced_projection_subscriptions.findIndex(
+      (subscription) => subscription.projection === SESSION_ATTENTION_PROJECTION && subscription.key === "worker",
+    );
     fire(carrier, {
       type: "synced_projection_subscriptions_ack",
       subscriptions: [{ projection: SESSION_ATTENTION_PROJECTION, key: "worker" }],
-      current: [{ projection: SESSION_ATTENTION_PROJECTION, key: "worker", generation: "generation-a", revision: 3 }],
+      current_indexes: [workerIndex],
       complete: true,
     });
 

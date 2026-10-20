@@ -74,19 +74,40 @@ describe("KeyedListVersions", () => {
     expect(receive(browser(held), sync)).toEqual(after);
   });
 
-  it("sends the whole list when the order changed beyond appending, or ids repeat", () => {
+  // A completed board gains its newest row first, and a thread window can gain
+  // a marker between held entries: those go as changes plus the ids in order.
+  it("sends changes with the order when entries move or arrive before held ones", () => {
     const versions = new KeyedListVersions<Entry>(idOf, 8);
     const list = [entry(1), entry(2), entry(3)];
     versions.sync(list, undefined);
     const held = snapshotPartHash(list);
 
     const reordered = [list[1]!, list[0]!, list[2]!];
-    expect(versions.sync(reordered, held)).toMatchObject({ list: reordered });
-    // A new entry placed before held ones cannot be appended either.
+    const moved = versions.sync(reordered, held);
+    expect(moved.delta).toEqual({
+      base: held,
+      hash: snapshotPartHash(reordered),
+      upserts: [],
+      removed: [],
+      order: ["n-2", "n-1", "n-3"],
+    });
+    expect(receive(browser(list), moved)).toEqual(reordered);
+
     const inserted = [entry(9), ...list];
-    expect(versions.sync(inserted, held)).toMatchObject({ list: inserted });
+    const insert = versions.sync(inserted, held);
+    expect(insert.delta).toMatchObject({ upserts: [entry(9)], order: ["n-9", "n-1", "n-2", "n-3"] });
+    expect(receive(browser(list), insert)).toEqual(inserted);
+  });
+
+  it("sends the whole list when ids repeat or every entry changed", () => {
+    const versions = new KeyedListVersions<Entry>(idOf, 8);
+    const list = [entry(1), entry(2), entry(3)];
+    versions.sync(list, undefined);
+    const held = snapshotPartHash(list);
     const repeated = [...list, entry(1, "duplicate id")];
     expect(versions.sync(repeated, held)).toMatchObject({ list: repeated });
+    const rewritten = list.map((item) => ({ ...item, done: true }));
+    expect(versions.sync(rewritten, held)).toMatchObject({ list: rewritten });
   });
 
   it("forgets versions beyond its limit and then sends the whole list", () => {

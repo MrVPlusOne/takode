@@ -1,6 +1,8 @@
 import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
 import type { QuestStartedFrom } from "./quest-types.js";
 import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
+import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
+import { viewportHandoffStateMessage } from "./bridge/browser-subscribe-snapshots.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
@@ -1550,10 +1552,12 @@ export class WsBridge {
     const read = this.viewportHandoffReader;
     if (!read) return;
     const socket = ws as ServerWebSocket<SocketData>;
+    // Named in the subscribe, which forgets its held parts once its snapshot is out; read it before waiting.
+    const held = (socket.data as { knownSnapshotParts?: KnownSnapshotParts }).knownSnapshotParts?.viewport_handoff;
     void read(sessionId)
       .then((state) => {
         if (!state || (socket.data as BrowserSocketData).sessionId !== sessionId) return;
-        sendToBrowser(socket, viewportHandoffStateMessage(state));
+        sendToBrowser(socket, viewportHandoffStateMessage(state, held));
       })
       .catch((error) => console.warn(`[viewport-handoff] Failed to read state for ${sessionTag(sessionId)}:`, error));
   }
@@ -1983,8 +1987,4 @@ export class WsBridge {
     if (captureSessionNavigationSourceMessage(session, msg))
       this.syncedProjections.invalidateSessionNavigation(session);
   }
-}
-
-function viewportHandoffStateMessage(state: ViewportHandoffSessionState): BrowserIncomingMessage {
-  return { type: "viewport_handoff_state", state, serverNow: Math.max(Date.now(), state.updatedAt) };
 }

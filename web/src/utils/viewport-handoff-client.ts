@@ -2,6 +2,7 @@ import {
   normalizeViewportHandoffPosition,
   normalizeViewportHandoffSessionState,
   normalizeViewportHandoffThreadKey,
+  viewportHandoffStateIdentity,
   type ViewportHandoffPosition,
   type ViewportHandoffReadResponse,
   type ViewportHandoffRecord,
@@ -679,6 +680,24 @@ export function applyPushedViewportHandoffState(sessionId: string, value: unknow
   clientState.baselineState = newerBaselineState(clientState.baselineState, incoming);
   correctHeldEntry(scope, sessionId, incoming, serverNow);
   for (const settleWithPush of [...(pushWaiters.get(key) ?? [])]) settleWithPush();
+}
+
+/**
+ * The server found the state this browser named in its subscribe still
+ * current and sent only its identity: use the held state as if pushed again.
+ * A state no longer held is left to the usual read.
+ */
+export function confirmHeldViewportHandoffState(sessionId: string, identity: string, serverNow: number): void {
+  const held = pushedStates.get(sessionCacheKey(currentServerScope(), sessionId));
+  if (held && viewportHandoffStateIdentity(held.state) === identity) {
+    applyPushedViewportHandoffState(sessionId, held.state, serverNow);
+  }
+}
+
+/** Identity of the handoff state this browser holds for a session, named in its subscribe. */
+export function heldViewportHandoffStateIdentity(sessionId: string): string | undefined {
+  const held = pushedStates.get(sessionCacheKey(currentServerScope(), sessionId));
+  return held ? viewportHandoffStateIdentity(held.state) : undefined;
 }
 
 /**

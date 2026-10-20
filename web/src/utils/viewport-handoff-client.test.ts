@@ -12,11 +12,13 @@ import { getFeedViewportKey, readLeaderSelectedThreadKey, readLeaderViewportPosi
 import {
   applyPushedViewportHandoffState,
   clearPushedViewportHandoffState,
+  confirmHeldViewportHandoffState,
   getViewportHandoffEntryCorrection,
   getViewportHandoffBaselineState,
   getViewportHandoffSessionEntryState,
   getViewportHandoffThreadEntryRecord,
   getViewportHandoffThreadEntryStatus,
+  heldViewportHandoffStateIdentity,
   inspectViewportHandoffClientForTest,
   loadViewportHandoffSession,
   loadViewportHandoffThread,
@@ -161,6 +163,26 @@ describe("viewport handoff client", () => {
 
     expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("phone-anchor");
     expect(getViewportHandoffEntryCorrection("session-1", "q-2035")).toBe(1);
+  });
+
+  // A reconnecting tab names the state it holds; when it is still current the
+  // server sends only its identity, and the held state counts as pushed again:
+  // entries are live, so a later push is an ordinary update, not a correction.
+  it("treats a held state the server confirmed as current like a fresh push", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    applyPushedViewportHandoffState("session-1", state(3, "main", [record("q-2035", 3, "held-anchor")]), 5_100);
+    clearPushedViewportHandoffState("session-1");
+    expect(heldViewportHandoffStateIdentity("session-1")).toBe("3:5003");
+
+    // An identity that does not match the held state changes nothing.
+    confirmHeldViewportHandoffState("session-1", "2:5002", 6_000);
+    confirmHeldViewportHandoffState("session-1", "3:5003", 6_000);
+    await loadViewportHandoffThread("session-1", "q-2035", { entryId: "reconnected" });
+    expect(readLeaderViewportPosition("session-1", "q-2035")?.anchorMessageId).toBe("held-anchor");
+
+    applyPushedViewportHandoffState("session-1", state(4, "main", [record("q-2035", 4, "phone-anchor")]), 6_100);
+    expect(getViewportHandoffEntryCorrection("session-1", "q-2035")).toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   // The departure written while the socket moves to another session is never

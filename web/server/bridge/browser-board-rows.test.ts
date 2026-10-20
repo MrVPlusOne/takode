@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { BoardRow } from "../session-types.js";
-import { browserBoardRows, projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
+import type { BoardListFields, BoardRow } from "../session-types.js";
+import { receiveSyncedList } from "../../src/utils/synced-lists.js";
+import { boardListFields, browserBoardRows, projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
 
 // Every work-board change used to re-send the whole completed board, hundreds of
 // KB on a busy leader, most of it debrief text browsers never read. Browsers now
-// get rows without the parked completion, and the completed board only when it
-// changed since the session's previous board update.
+// get rows without the parked completion, and the completed board only as what
+// changed since a copy they hold.
 
 function row(questId: string, extra: Partial<BoardRow> = {}): BoardRow {
   return { questId, title: questId, createdAt: 1, updatedAt: 1, ...extra } as BoardRow;
@@ -40,21 +41,65 @@ describe("browserBoardRows", () => {
   });
 });
 
+/** The completed board a browser ends with after a board message, through its real receiving code. */
+function receiveCompletedBoard(browser: string, fields: BoardListFields): BoardRow[] | null {
+  return receiveSyncedList(
+    "completed_board",
+    browser,
+    JSON.parse(
+      JSON.stringify({
+        list: fields.completedBoard,
+        delta: fields.completedBoardDelta,
+        hash: fields.completedBoardHash,
+      }),
+    ),
+    (row: BoardRow) => row.questId,
+  );
+}
+
 describe("projectBoardUpdateForBrowsers", () => {
-  it("sends the completed board only when it changed since the session's previous update", () => {
+  it("sends the completed board as what changed since the session's previous update", () => {
     const session = {};
     const first = projectBoardUpdateForBrowsers(session, update([row("q-3")], [LANDED]));
     expect(first.completedBoard).toEqual(browserBoardRows([LANDED]));
 
-    // An active-board change with the same completed board leaves it out.
+    expect(receiveCompletedBoard("live", first)).toEqual(browserBoardRows([LANDED]));
+
+    // An active-board change with the same completed board names it by hash only.
     const second = projectBoardUpdateForBrowsers(session, update([row("q-3", { updatedAt: 5 })], [LANDED]));
     expect(second).not.toHaveProperty("completedBoard");
+    expect(second).not.toHaveProperty("completedBoardDelta");
     expect(second.board).toEqual([row("q-3", { updatedAt: 5 })]);
 
-    // A quest finishing changes the completed board, so it is sent again.
+    expect(receiveCompletedBoard("live", second)).toEqual(browserBoardRows([LANDED]));
+
+    // A quest finishing adds its row first: only that row travels, with the order.
     const done = row("q-3", { completedAt: 6 });
     const third = projectBoardUpdateForBrowsers(session, update([], [done, LANDED]));
-    expect(third.completedBoard).toEqual(browserBoardRows([done, LANDED]));
+    expect(third).not.toHaveProperty("completedBoard");
+    expect(third.completedBoardDelta).toMatchObject({
+      upserts: [done],
+      removed: [],
+      order: ["q-3", "q-1"],
+    });
+    expect(receiveCompletedBoard("live", third)).toEqual(browserBoardRows([done, LANDED]));
+  });
+
+  it("sends a returning browser only what changed since the copy it names, and a stale one the whole board", () => {
+    const session = {};
+    const rows = [row("q-1"), row("q-2")];
+    const before = boardListFields(session, rows, {}, undefined);
+    expect(receiveCompletedBoard("phone", before)).toEqual(rows);
+
+    const after = [row("q-4"), row("q-1"), row("q-2", { title: "renamed" })];
+    const statuses = { "q-4": { worker: { status: "running" } } } as never;
+    const fields = boardListFields(session, after, statuses, {
+      completed_board: before.completedBoardHash,
+    });
+    expect(fields.completedBoard).toBeUndefined();
+    expect(fields.completedBoardDelta?.upserts).toEqual([after[0], after[2]]);
+    expect(receiveCompletedBoard("phone", fields)).toEqual(after);
+    expect(boardListFields(session, after, statuses, { completed_board: "unknown" }).completedBoard).toEqual(after);
   });
 
   it("tracks each session separately", () => {

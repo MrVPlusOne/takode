@@ -60,6 +60,19 @@ describe("subscribe snapshot parts the browser already holds", () => {
     expect(sent(none)[0].completedBoard).toEqual(COMPLETED);
   });
 
+  it("leaves out the active board when the held copy hashes the same", () => {
+    const active = [{ questId: "q-5", title: "Active work", status: "WORK" }];
+    const board = deps();
+    board.getBoard = vi.fn(() => active);
+    const held = socket({ knownSnapshotParts: { board: snapshotPartHash(active) } });
+    sendStateSnapshot(session(), held, board);
+    expect(sent(held)[0]).not.toHaveProperty("board");
+
+    const stale = socket({ knownSnapshotParts: { board: snapshotPartHash([]) } });
+    sendStateSnapshot(session(), stale, board);
+    expect(sent(stale)[0].board).toEqual(active);
+  });
+
   // Completed rows keep final Memory's parked completion (debrief text) on the
   // server. Browsers never read it, so the snapshot sends rows without it, and
   // the held-copy hash is of that browser form: a browser holding exactly what

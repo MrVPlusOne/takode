@@ -3,6 +3,7 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { refreshBrowserConversationViews, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import { recordBoundedConversationViewUpdate } from "./browser-conversation-window-policy.js";
+import { createThreadWindowReceiver } from "../test-fixtures/thread-window-receiver.js";
 
 function threadSocket(threadKey: string) {
   return {
@@ -79,13 +80,19 @@ function assistant(id: string): Extract<BrowserIncomingMessage, { type: "assista
   };
 }
 
+const receivers = new WeakMap<object, ReturnType<typeof createThreadWindowReceiver>>();
+
+/** The window a refresh leaves the socket's browser with; later refreshes may send only what changed. */
 function refreshedWindow(session: BrowserTransportSessionLike, socket: ReturnType<typeof threadSocket>) {
   socket.send.mockClear();
   refreshBrowserConversationViews(session);
-  return parseCalls(socket).find((message) => message.type === "thread_window_sync") as Extract<
+  const sync = parseCalls(socket).find((message) => message.type === "thread_window_sync") as Extract<
     BrowserIncomingMessage,
     { type: "thread_window_sync" }
   >;
+  let receiver = receivers.get(socket);
+  if (!receiver) receivers.set(socket, (receiver = createThreadWindowReceiver()));
+  return receiver.receive(sync);
 }
 
 function deliveredIds(window: ReturnType<typeof refreshedWindow>) {

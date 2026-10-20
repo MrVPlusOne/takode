@@ -1,11 +1,20 @@
 import { snapshotPartHash, type KnownSnapshotParts } from "../../shared/snapshot-part-hash.js";
 import { useStore } from "../store.js";
-import { receivedListHash } from "./synced-lists.js";
+import { receivedListHash, type SyncedListKind } from "./synced-lists.js";
+import { heldViewportHandoffStateIdentity } from "./viewport-handoff-client.js";
 
-// Hashing the completed board (hundreds of KB) on every switch would be wasted
-// work: the store replaces these values whenever they change, so each value is
-// hashed once.
-const completedBoardHashes = new WeakMap<object, string>();
+// The store replaces these values whenever they change, so each value is hashed once.
+const boardHashes = new WeakMap<object, string>();
+
+/** Snapshot parts named by the hash the server sent with the list (see `synced-lists.ts`). */
+const RECEIVED_LIST_PARTS: ReadonlyArray<[keyof KnownSnapshotParts, SyncedListKind]> = [
+  ["notifications", "notifications"],
+  ["attention_records", "attention_records"],
+  ["completed_board", "completed_board"],
+  ["row_session_statuses", "row_session_statuses"],
+  ["thread_summaries", "thread_summaries"],
+  ["message_attention_records", "message_attention_records"],
+];
 const treeGroupHashes = new WeakMap<object, { assignments: object; nodeOrder: object; hash: string }>();
 
 /**
@@ -17,19 +26,21 @@ const treeGroupHashes = new WeakMap<object, { assignments: object; nodeOrder: ob
 export function heldSnapshotParts(sessionId: string): KnownSnapshotParts {
   const state = useStore.getState();
   const parts: KnownSnapshotParts = {};
-  const notifications = receivedListHash("notifications", sessionId);
-  if (notifications) parts.notifications = notifications;
-  const attentionRecords = receivedListHash("attention_records", sessionId);
-  if (attentionRecords) parts.attention_records = attentionRecords;
-  const completedBoard = state.sessionCompletedBoards.get(sessionId);
-  if (completedBoard) {
-    let hash = completedBoardHashes.get(completedBoard);
-    if (!hash) {
-      hash = snapshotPartHash(completedBoard);
-      completedBoardHashes.set(completedBoard, hash);
-    }
-    parts.completed_board = hash;
+  for (const [part, kind] of RECEIVED_LIST_PARTS) {
+    const hash = receivedListHash(kind, sessionId);
+    if (hash) parts[part] = hash;
   }
+  const board = state.sessionBoards.get(sessionId);
+  if (board) {
+    let hash = boardHashes.get(board);
+    if (!hash) {
+      hash = snapshotPartHash(board);
+      boardHashes.set(board, hash);
+    }
+    parts.board = hash;
+  }
+  const viewportHandoff = heldViewportHandoffStateIdentity(sessionId);
+  if (viewportHandoff) parts.viewport_handoff = viewportHandoff;
   if (state.treeGroups.length > 0) parts.tree_groups = heldTreeGroupsHash();
   return parts;
 }

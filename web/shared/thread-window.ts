@@ -402,7 +402,7 @@ function addCurrentThreadResponseSupport(
   const addRequired = (message: BrowserIncomingMessage, historyIndex: number): boolean => {
     if (includeMessage && !includeMessage(message, historyIndex)) return false;
     const item = { order: historyIndex, entry: { message, history_index: historyIndex } };
-    required.set(entryKey(item.entry), item);
+    required.set(threadWindowEntryId(item.entry), item);
     return true;
   };
 
@@ -528,7 +528,7 @@ function addCurrentThreadResponseSupport(
   }
 
   const quizItems = latestQuestQuizSupportItems(messages, threadKey, projection.cutoverHistoryIndex, includeMessage);
-  for (const item of quizItems) required.set(entryKey(item.entry), item);
+  for (const item of quizItems) required.set(threadWindowEntryId(item.entry), item);
 
   const sourceBoundaryItems =
     threadKey === MAIN_THREAD_KEY
@@ -738,7 +738,7 @@ function deriveLeadingTurnId(items: FeedItem[], entries: ThreadWindowEntry[]): s
   for (const entry of entries) {
     if (!threadWindowEntryRendersChatRow(entry.message)) continue;
     if (leadingKeys.size > 0 && isLeaderTurnBoundary(entry.message)) break;
-    leadingKeys.add(entryKey(entry));
+    leadingKeys.add(threadWindowEntryId(entry));
   }
   if (leadingKeys.size === 0) return undefined;
 
@@ -762,7 +762,7 @@ function deriveLeadingTurnId(items: FeedItem[], entries: ThreadWindowEntry[]): s
       // unidentified until a real human boundary supplies the exact identity.
       currentTurn ??= { id: messageId ? `turn-a-${messageId}` : undefined, startIndex: historyIndex };
     }
-    if (!leadingKeys.delete(entryKey(item.entry))) continue;
+    if (!leadingKeys.delete(threadWindowEntryId(item.entry))) continue;
     // Response/tool support can prepend discontiguous source rows. A scalar
     // hint is valid only when the delivered prefix belongs to one source turn.
     if (leadingTurn && leadingTurn.startIndex !== currentTurn.startIndex) return undefined;
@@ -789,12 +789,12 @@ function deriveThreadWindowAvailability(input: {
 
   const itemIndexByKey = new Map<string, number>();
   input.items.forEach((item, index) => {
-    itemIndexByKey.set(entryKey(item.entry), index);
+    itemIndexByKey.set(threadWindowEntryId(item.entry), index);
   });
 
   const representedItemIndexes = new Set<number>();
   input.entries.forEach((entry) => {
-    const index = itemIndexByKey.get(entryKey(entry));
+    const index = itemIndexByKey.get(threadWindowEntryId(entry));
     if (index !== undefined) representedItemIndexes.add(index);
   });
 
@@ -1129,10 +1129,10 @@ function collectSelectedMainAttachmentMarkers(
   selectedItems: FeedItem[],
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ) {
-  const selectedKeys = new Set(selectedItems.map((item) => entryKey(item.entry)));
+  const selectedKeys = new Set(selectedItems.map((item) => threadWindowEntryId(item.entry)));
   const selectedItemIndexes: number[] = [];
   allItems.forEach((item, index) => {
-    if (selectedKeys.has(entryKey(item.entry))) selectedItemIndexes.push(index);
+    if (selectedKeys.has(threadWindowEntryId(item.entry))) selectedItemIndexes.push(index);
   });
   if (selectedItemIndexes.length === 0) return [];
 
@@ -1179,7 +1179,7 @@ function expandToolClosureItems(
     }
   }
 
-  const selectedEntryKeys = new Set(selectedItems.map((item) => entryKey(item.entry)));
+  const selectedEntryKeys = new Set(selectedItems.map((item) => threadWindowEntryId(item.entry)));
   const retainedSelectedSupportKeys = new Set<string>();
   let supportRecordCount = 0;
   for (let index = selectedItems.length - 1; index >= 0; index--) {
@@ -1187,13 +1187,13 @@ function expandToolClosureItems(
     const message = item.entry.message;
     if (message.type === "tool_result_preview" || threadWindowEntryRendersChatRow(message)) continue;
     if (supportRecordCount >= THREAD_WINDOW_SUPPORT_RECORD_LIMIT) continue;
-    retainedSelectedSupportKeys.add(entryKey(item.entry));
+    retainedSelectedSupportKeys.add(threadWindowEntryId(item.entry));
     supportRecordCount += 1;
   }
   const retainedSelectedItems = selectedItems.filter((item) => {
     const message = item.entry.message;
     if (message.type === "tool_result_preview") return false;
-    return threadWindowEntryRendersChatRow(message) || retainedSelectedSupportKeys.has(entryKey(item.entry));
+    return threadWindowEntryRendersChatRow(message) || retainedSelectedSupportKeys.has(threadWindowEntryId(item.entry));
   });
 
   const previewRelations = options.orphanPreviewFallback
@@ -1270,7 +1270,7 @@ function expandToolClosureItems(
     );
     if (relationKeys.length === 0) continue;
     relationKeys.forEach((relationKey) => closureRelations.add(relationKey));
-    if (selectedEntryKeys.has(entryKey({ message, history_index: index }))) continue;
+    if (selectedEntryKeys.has(threadWindowEntryId({ message, history_index: index }))) continue;
     supportRecordCount += 1;
     supportItems.push({ order: index, entry: { message, history_index: index } });
   }
@@ -1322,7 +1322,7 @@ function dedupeFeedItems(items: FeedItem[]): FeedItem[] {
   const seen = new Set<string>();
   const deduped: FeedItem[] = [];
   for (const item of items.sort((a, b) => a.order - b.order)) {
-    const key = entryKey(item.entry);
+    const key = threadWindowEntryId(item.entry);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(item);
@@ -1334,7 +1334,7 @@ function dedupeEntries(items: FeedItem[]): ThreadWindowEntry[] {
   const seen = new Set<string>();
   const entries: ThreadWindowEntry[] = [];
   for (const item of items.sort((a, b) => a.order - b.order)) {
-    const key = entryKey(item.entry);
+    const key = threadWindowEntryId(item.entry);
     if (seen.has(key)) continue;
     seen.add(key);
     entries.push(item.entry);
@@ -1342,7 +1342,8 @@ function dedupeEntries(items: FeedItem[]): ThreadWindowEntry[] {
   return entries;
 }
 
-function entryKey(entry: ThreadWindowEntry): string {
+/** The id of a thread window entry, unique within a window: windows are deduplicated by it. */
+export function threadWindowEntryId(entry: ThreadWindowEntry): string {
   return `${entry.history_index}:${rawMessageId(entry.message, entry.history_index)}`;
 }
 

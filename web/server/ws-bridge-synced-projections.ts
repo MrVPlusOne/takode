@@ -13,10 +13,12 @@ import {
   type SyncedProjectionEnvelopeFor,
   type SyncedProjectionId,
 } from "../shared/synced-projection-registry.js";
-import type {
-  SyncedProjectionSnapshotMessage,
-  SyncedProjectionSubscription,
-  SyncedProjectionSubscriptionsAckMessage,
+import {
+  syncedProjectionEntryId,
+  type SyncedProjectionSnapshotMessage,
+  type SyncedProjectionSubscription,
+  type SyncedProjectionSubscriptionIdentity,
+  type SyncedProjectionSubscriptionsAckMessage,
 } from "../shared/synced-projection.js";
 import { sendToBrowser, type BrowserTransportSocketLike } from "./bridge/browser-transport-controller.js";
 import { handleLeaderThreadTabsUpdate } from "./bridge/browser-synced-projection-coordinator.js";
@@ -367,12 +369,7 @@ export class WsBridgeSyncedProjectionController {
     });
     return [
       ...replacement.snapshots.map((envelope) => ({ type: "synced_projection_snapshot" as const, ...envelope })),
-      {
-        type: "synced_projection_subscriptions_ack",
-        subscriptions: replacement.acceptedSubscriptions,
-        ...(replacement.currentSubscriptions.length > 0 ? { current: replacement.currentSubscriptions } : {}),
-        complete: true,
-      },
+      compactSubscriptionsAck(subscriptions, replacement.acceptedSubscriptions, replacement.currentSubscriptions),
     ];
   }
 
@@ -406,4 +403,38 @@ export class WsBridgeSyncedProjectionController {
   flushForTest(): Promise<void> {
     return this.runtime.flushForTest();
   }
+}
+/**
+ * The acknowledgement of a subscription request, naming subscriptions by
+ * their position in it: a browser subscribes to a few hundred, and listing
+ * them all again on every reconnect cost about 25 KB.
+ */
+function compactSubscriptionsAck(
+  requested: readonly SyncedProjectionSubscription[],
+  accepted: readonly SyncedProjectionSubscriptionIdentity[],
+  current: readonly SyncedProjectionSubscriptionIdentity[],
+): SyncedProjectionSubscriptionsAckMessage {
+  if (!Array.isArray(requested))
+    return {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [],
+      complete: true,
+    };
+  const indexes = new Map<string, number>();
+  requested.forEach((subscription, index) => {
+    const id = syncedProjectionEntryId(String(subscription?.projection), String(subscription?.key));
+    if (!indexes.has(id)) indexes.set(id, index);
+  });
+  // Every request accepted once each: a repeated or rejected one leaves an accepted list to spell out.
+  const allAccepted = accepted.length === requested.length;
+  return {
+    type: "synced_projection_subscriptions_ack",
+    ...(allAccepted ? { all_accepted: true } : { subscriptions: [...accepted] }),
+    ...(current.length > 0
+      ? {
+          current_indexes: current.map(({ projection, key }) => indexes.get(syncedProjectionEntryId(projection, key))!),
+        }
+      : {}),
+    complete: true,
+  };
 }

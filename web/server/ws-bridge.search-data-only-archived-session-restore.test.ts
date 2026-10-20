@@ -899,7 +899,7 @@ describe("search-data-only archived session restore", () => {
     expect(
       restoredLeaderMessages.filter((message: any) => message.type === "synced_projection_subscriptions_ack").at(-1),
     ).toMatchObject({
-      subscriptions: [{ projection: "leader-thread-tabs", key: restoredLeaderId }],
+      all_accepted: true,
       complete: true,
     });
     expect(restoredLeaderMessages).toContainEqual(

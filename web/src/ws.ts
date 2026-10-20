@@ -221,6 +221,8 @@ handleIncomingMessage = createWsMessageHandler({
     transport.resolveSyncedProjectionResync(carrierSessionId, projection, key),
   noteAcceptedSyncedProjectionSnapshot: (carrierSessionId, projection, key) =>
     transport.noteAcceptedSyncedProjectionSnapshot(carrierSessionId, projection, key),
+  pendingSyncedProjectionSubscriptions: (carrierSessionId) =>
+    transport.pendingSyncedProjectionSubscriptions(carrierSessionId),
   consumeSyncedProjectionSubscriptionsAck: (carrierSessionId, subscriptions) =>
     transport.consumeSyncedProjectionSubscriptionsAck(carrierSessionId, subscriptions),
 });

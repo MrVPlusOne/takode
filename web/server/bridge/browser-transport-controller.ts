@@ -33,6 +33,8 @@ import { hasPendingMemoryCatalog } from "./memory-catalog-prelude.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { syncThreadWindowEntries } from "./thread-window-versions.js";
+import { leaderProjectionMessage } from "./leader-projection-lists.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { prepareLeaderHistoryWindow } from "../leader-user-message-id.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
@@ -1040,10 +1042,8 @@ export function sendLeaderProjectionSnapshot(
   deps: Pick<BrowserTransportDeps, "getLauncherSessionInfo">,
 ): void {
   if (!isLeaderSession(session, deps)) return;
-  sendToBrowser(ws, {
-    type: "leader_projection_snapshot",
-    projection: buildLeaderProjectionSnapshotForSession(session),
-  } as BrowserIncomingMessage);
+  const held = (ws.data as BrowserTransportSocketData | undefined)?.knownSnapshotParts;
+  sendToBrowser(ws, leaderProjectionMessage(session, buildLeaderProjectionSnapshotForSession(session), held));
 }
 
 /** Yield so large history hashing does not monopolize the event loop. */
@@ -1282,25 +1282,48 @@ export function sendThreadWindowSync(
     includeMessage: isRootAgentHistoryMessage,
     currentThreadResponseProjection: responseState.projection,
   });
+  // The answer state is covered too, so a cache hit can leave it out.
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,
     entries: sync.entries,
+    responseState: sync.threadResponseProjection ?? null,
   });
   const cacheHit = options.cachedWindowHash === windowHash;
+
+  const delivered = syncThreadWindowEntries(
+    session,
+    sync.threadKey,
+    sync.entries,
+    windowHash,
+    options.cachedWindowHash,
+  );
 
   const window = {
     ...sync.window,
     window_hash: windowHash,
   };
 
-  sendToBrowser(ws, {
+  const sent = sendToBrowser(ws, {
     type: "thread_window_sync",
     thread_key: sync.threadKey,
-    entries: cacheHit ? [] : sync.entries,
+    entries: cacheHit ? [] : delivered.entries,
+    ...(!cacheHit && delivered.delta ? { entries_delta: delivered.delta } : {}),
     window,
-    ...(sync.threadResponseProjection ? { response_state: sync.threadResponseProjection } : {}),
+    ...(sync.threadResponseProjection && !cacheHit ? { response_state: sync.threadResponseProjection } : {}),
     ...(cacheHit ? { cache_hit: true } : {}),
   } as BrowserIncomingMessage);
+  if (sent) noteThreadWindowHeld(ws, sync.threadKey, windowHash);
+}
+
+/**
+ * The socket's browser now holds the window just sent, so a later refresh of
+ * the same thread view validates against it (a small cache hit, or only what
+ * changed) instead of against the window named when the view was opened.
+ */
+function noteThreadWindowHeld(ws: BrowserTransportSocketLike, threadKey: string, windowHash: string): void {
+  const view = ((ws.data ??= {}) as BrowserTransportSocketData).conversationView;
+  if (view?.kind !== "thread" || normalizeSelectedFeedThreadKey(view.request.threadKey) !== threadKey) return;
+  view.request = { ...view.request, cachedWindowHash: windowHash };
 }
 
 function sendBoundedConversationView(

@@ -42,6 +42,13 @@ export interface ViewportHandoffSessionState {
   handoffs: Record<string, ViewportHandoffRecord>;
 }
 
+/** Identifies a session's handoff state: every accepted change advances its revision and time. */
+export function viewportHandoffStateIdentity(
+  state: Pick<ViewportHandoffSessionState, "revision" | "updatedAt">,
+): string {
+  return `${state.revision}:${state.updatedAt}`;
+}
+
 export interface ViewportHandoffReadResponse {
   state: ViewportHandoffSessionState;
   serverNow: number;

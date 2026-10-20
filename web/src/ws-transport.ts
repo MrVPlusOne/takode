@@ -117,6 +117,8 @@ export interface WsTransport {
   hasPendingSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => boolean;
   resolveSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => void;
   noteAcceptedSyncedProjectionSnapshot: (carrierSessionId: string, projection: string, key: string) => void;
+  /** The subscription request the next acknowledgement answers. */
+  pendingSyncedProjectionSubscriptions: (carrierSessionId: string) => readonly SyncedProjectionSubscription[] | null;
   consumeSyncedProjectionSubscriptionsAck: (
     carrierSessionId: string,
     subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
@@ -143,6 +145,8 @@ function syncedProjectionSubscriptionInventorySignature(
 
 interface PendingSyncedProjectionSubscriptionAck {
   signature: string;
+  /** The subscription request as sent; its acknowledgement names subscriptions by position in it. */
+  requested: readonly SyncedProjectionSubscription[];
   expected: Map<string, SyncedProjectionSubscriptionIdentity>;
   acceptedSnapshots: Set<string>;
 }
@@ -338,11 +342,18 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const pending = pendingSyncedProjectionSubscriptionAcks.get(sessionId);
     const entry: PendingSyncedProjectionSubscriptionAck = {
       signature: syncedProjectionSubscriptionInventorySignature(subscriptions),
+      requested: subscriptions,
       expected,
       acceptedSnapshots: new Set(),
     };
     if (pending) pending.push(entry);
     else pendingSyncedProjectionSubscriptionAcks.set(sessionId, [entry]);
+  }
+
+  function pendingSyncedProjectionSubscriptions(
+    carrierSessionId: string,
+  ): readonly SyncedProjectionSubscription[] | null {
+    return pendingSyncedProjectionSubscriptionAcks.get(carrierSessionId)?.[0]?.requested ?? null;
   }
 
   function noteAcceptedSyncedProjectionSnapshot(carrierSessionId: string, projection: string, key: string): void {
@@ -1031,6 +1042,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     hasPendingSyncedProjectionResync,
     resolveSyncedProjectionResync,
     noteAcceptedSyncedProjectionSnapshot,
+    pendingSyncedProjectionSubscriptions,
     consumeSyncedProjectionSubscriptionsAck,
     hasSocket,
     getSocketState,

@@ -1336,8 +1336,9 @@ describe("bounded conversation reconnect protocol", () => {
 
     const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
     expect(calls.map((message) => message.type)).toEqual(["thread_window_sync", "conversation_sync_complete"]);
+    // The browser holds the window the subscribe sent, so the refresh carries only the new entry.
+    expect(calls[0].entries_delta).toMatchObject({ removed: [] });
     expect(calls[0].entries).toEqual([
-      expect.objectContaining({ message: expect.objectContaining({ id: "selected" }) }),
       expect.objectContaining({ message: expect.objectContaining({ id: "selected-new" }) }),
     ]);
     expect(JSON.stringify(calls)).not.toContain("main-noise");

@@ -26,10 +26,19 @@ export function snapshotTextHash(text: string): string {
   return `${(h2 >>> 0).toString(36)}-${(h1 >>> 0).toString(36)}-${text.length.toString(36)}`;
 }
 
-/** Parts of the subscribe snapshot a browser may already hold, by the hash of its copy. */
+/**
+ * Parts of the subscribe snapshot a browser may already hold, by the hash of
+ * its copy. Lists sent as changes are named by the hash the server sent with
+ * them; `viewport_handoff` names the held state's `revision:updatedAt`.
+ */
 export interface KnownSnapshotParts {
+  board?: string;
   completed_board?: string;
+  row_session_statuses?: string;
   tree_groups?: string;
   notifications?: string;
   attention_records?: string;
+  thread_summaries?: string;
+  message_attention_records?: string;
+  viewport_handoff?: string;
 }

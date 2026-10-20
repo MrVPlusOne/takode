@@ -1,5 +1,6 @@
 import type { ConversationAnnotation, AnnotationMessage } from "../shared/conversation-annotations.js";
 import type {
+  BoardListFields,
   BoardParticipantStatus,
   BoardRow,
   BoardRowSessionStatus,
@@ -107,6 +108,7 @@ import type {
 } from "../server/quest-types.js";
 
 export type {
+  BoardListFields,
   BoardParticipantStatus,
   BoardRow,
   BoardRowSessionStatus,

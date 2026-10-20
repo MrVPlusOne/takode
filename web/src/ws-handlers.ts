@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   SdkSessionInfo,
   TaskItem,
+  ThreadWindowEntry,
 } from "./types.js";
 import { getRecoveryModelDeliveryContent } from "./utils/injected-event-message.js";
 import {
@@ -29,9 +30,11 @@ import {
 import {
   cacheHistoryWindow,
   cacheThreadWindow,
+  findCachedThreadWindowEntries,
   resolveCachedHistoryWindowMessages,
-  resolveCachedThreadWindowEntries,
+  resolveCachedThreadWindow,
 } from "./utils/history-window-cache.js";
+import { threadWindowEntryId } from "../shared/thread-window.js";
 import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
 import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
@@ -40,7 +43,7 @@ import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
-import { applyPushedViewportHandoffState } from "./utils/viewport-handoff-client.js";
+import { applyPushedViewportHandoffState, confirmHeldViewportHandoffState } from "./utils/viewport-handoff-client.js";
 import {
   handleAttentionAlertMessage,
   handleNotificationUpdateMessage,
@@ -61,7 +64,8 @@ import { recordLiveAnswerArrival } from "./utils/live-answer-arrivals.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 import { applyKeyedListDelta } from "../shared/keyed-list-delta.js";
 import { heldTreeGroupsHash } from "./utils/held-snapshot-parts.js";
-import { receivedListHash, receiveSyncedList, type SyncedListKind } from "./utils/synced-lists.js";
+import { receiveSyncedList } from "./utils/synced-lists.js";
+import { applyBoardLists, applyLeaderProjectionSnapshot, requestListResync } from "./ws-synced-list-handlers.js";
 import {
   handleSyncedProjectionMessage,
   type SyncedProjectionMessageHandlerDeps,
@@ -730,16 +734,8 @@ function resolveTreeAssignments(
   if (held === data.treeGroupsHash) return undefined;
   const delta = data.treeAssignmentsDelta;
   if (!delta || held !== delta.base) return null;
-  return Object.fromEntries(applyKeyedListDelta([...useStore.getState().treeAssignments], delta, ([id]) => id));
-}
-
-/** Asks the server for a list again after an update that builds on a list this browser does not hold. */
-function requestListResync(sessionId: string, list: SyncedListKind | "tree_groups", deps: WsMessageHandlerDeps): void {
-  deps.sendToSession(sessionId, {
-    type: "list_resync",
-    list,
-    held: (list === "tree_groups" ? heldTreeGroupsHash() : receivedListHash(list, sessionId)) ?? "",
-  });
+  const assignments = applyKeyedListDelta([...useStore.getState().treeAssignments], delta, ([id]) => id);
+  return assignments && Object.fromEntries(assignments);
 }
 
 function resetAuthoritativeHistoryState(
@@ -797,6 +793,25 @@ function requestUncachedHistoryWindow(
     ...(data.window.target_message_id ? { target_message_id: data.window.target_message_id } : {}),
     activate_view: true,
   });
+}
+
+/**
+ * The window a `thread_window_sync` sent as changes describes, built from the
+ * cached window it names as its base; null when that window is no longer
+ * cached, and the browser then asks for the window whole.
+ */
+function applyThreadWindowDelta(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>,
+): ThreadWindowEntry[] | null {
+  const delta = data.entries_delta!;
+  const base = findCachedThreadWindowEntries(sessionId, data.thread_key, delta.base);
+  if (!base) return null;
+  return applyKeyedListDelta(
+    base,
+    { upserts: data.entries, removed: delta.removed, order: delta.order },
+    threadWindowEntryId,
+  );
 }
 
 function requestUncachedThreadWindow(
@@ -1437,16 +1452,13 @@ function handleParsedMessage(
       // Update Zustand board state so the persistent WorkBoardBar widget
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
-      // Left out when unchanged since the previous update: keep the copy held.
-      if (data.completedBoard) store.setSessionCompletedBoard(sessionId, data.completedBoard);
-      if (data.rowSessionStatuses) {
-        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
-      }
+      applyBoardLists(sessionId, data, deps);
       break;
     }
 
     case "viewport_handoff_state": {
-      applyPushedViewportHandoffState(sessionId, data.state, data.serverNow);
+      if (data.state) applyPushedViewportHandoffState(sessionId, data.state, data.serverNow);
+      else if (data.held) confirmHeldViewportHandoffState(sessionId, data.held, data.serverNow);
       break;
     }
 
@@ -1516,16 +1528,11 @@ function handleParsedMessage(
         // have started a browser-local timer at replay time, so overwrite it.
         store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
       }
-      // Sync board state from server on connect/reconnect
+      // Sync board state from server on connect/reconnect; parts the browser holds are left out.
       if (data.board) {
         store.setSessionBoard(sessionId, data.board);
       }
-      if (data.completedBoard) {
-        store.setSessionCompletedBoard(sessionId, data.completedBoard);
-      }
-      if (data.rowSessionStatuses) {
-        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
-      }
+      applyBoardLists(sessionId, data, deps);
       // Drafts shared by the user's browsers; replace this tab's copy except edits it is still sending.
       applySessionDraftsSnapshot(sessionId, data.drafts);
       // Sync notification inbox from server on connect/reconnect
@@ -1811,14 +1818,21 @@ function handleParsedMessage(
     }
 
     case "thread_window_sync": {
+      const cached = data.cache_hit === true ? resolveCachedThreadWindow(sessionId, data.window) : null;
       const sourceEntries =
-        data.cache_hit === true ? resolveCachedThreadWindowEntries(sessionId, data.window) : data.entries;
+        data.cache_hit === true
+          ? (cached?.entries ?? null)
+          : data.entries_delta
+            ? applyThreadWindowDelta(sessionId, data)
+            : data.entries;
+      // A cache hit leaves out the answer state its hash covers; the cached window has it.
+      const responseState = data.response_state ?? cached?.responseState ?? null;
       if (!sourceEntries) {
         requestUncachedThreadWindow(sessionId, data, deps);
         break;
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
-      store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages, data.response_state ?? null);
+      store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages, responseState);
       reconcileLocalPreviewCopiesWithAuthoritativeMessages(
         sessionId,
         sourceEntries.map((entry) => entry.message),
@@ -1832,13 +1846,13 @@ function handleParsedMessage(
         sourceEntries.map((entry) => entry.message),
       );
       if (data.cache_hit !== true) {
-        cacheThreadWindow(sessionId, data.window, data.entries);
+        cacheThreadWindow(sessionId, data.window, sourceEntries, responseState);
       }
       break;
     }
 
     case "leader_projection_snapshot": {
-      store.setLeaderProjection(sessionId, data.projection);
+      applyLeaderProjectionSnapshot(sessionId, data, deps);
       break;
     }
   }

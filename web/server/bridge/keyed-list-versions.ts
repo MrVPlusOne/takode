@@ -61,16 +61,24 @@ export class KeyedListVersions<T> {
   }
 
   private remember(list: readonly T[], hash: string | undefined): ListVersion {
+    // A list identified by a hash of its own (a thread window) is often sent again unchanged; skip re-serializing it.
+    const known = hash === undefined ? undefined : this.versions.find((version) => version.hash === hash);
+    if (known) return known;
     const texts = list.map((entry) => JSON.stringify(entry));
     const listHash = hash ?? snapshotTextHash(`[${texts.join(",")}]`);
     const latest = this.versions.at(-1);
     if (latest?.hash === listHash) return latest;
-    const ids = list.map(this.idOf);
-    // Unchanged entries share the previous version's hash strings, so a long list costs little per version.
-    const previous = latest && new Map(latest.ids.map((id, index) => [id, latest.entryHashes[index]!]));
+    // Entries the previous version also had share its id and hash strings, so a long list costs little per version.
+    const previous = latest && new Map(latest.ids.map((id, index) => [id, index]));
+    const ids = list.map((entry) => {
+      const id = this.idOf(entry);
+      const previousIndex = previous?.get(id);
+      return previousIndex === undefined ? id : latest!.ids[previousIndex]!;
+    });
     const entryHashes = texts.map((text, index) => {
       const entryHash = snapshotTextHash(text);
-      const previousHash = previous?.get(ids[index]!);
+      const previousIndex = previous?.get(ids[index]!);
+      const previousHash = previousIndex === undefined ? undefined : latest!.entryHashes[previousIndex];
       return previousHash === entryHash ? previousHash : entryHash;
     });
     const version = { hash: listHash, ids, entryHashes, keyed: new Set(ids).size === ids.length };
@@ -79,13 +87,18 @@ export class KeyedListVersions<T> {
     return version;
   }
 
-  /** The delta from `base` to `current`, when `applyKeyedListDelta` can express it and it is smaller than the list. */
+  /**
+   * The delta from `base` to `current`, when it is smaller than the list.
+   * Held entries that stay in their order with new ones after them need no
+   * `order`; any other arrangement sends the ids in order.
+   */
   private delta(base: ListVersion, current: ListVersion, list: readonly T[]): KeyedListDelta<T> | undefined {
     if (!base.keyed || !current.keyed) return undefined;
     const baseIndexes = new Map(base.ids.map((id, index) => [id, index]));
     const upserts: T[] = [];
     let previousBaseIndex = -1;
     let appending = false;
+    let ordered = true;
     for (let index = 0; index < current.ids.length; index++) {
       const baseIndex = baseIndexes.get(current.ids[index]!);
       if (baseIndex === undefined) {
@@ -93,14 +106,27 @@ export class KeyedListVersions<T> {
         upserts.push(list[index]!);
         continue;
       }
-      // Applying keeps held entries in their order and appends new ones; any other order needs the whole list.
-      if (appending || baseIndex < previousBaseIndex) return undefined;
+      if (appending || baseIndex < previousBaseIndex) ordered = false;
       previousBaseIndex = baseIndex;
       if (base.entryHashes[baseIndex] !== current.entryHashes[index]) upserts.push(list[index]!);
     }
     if (upserts.length === list.length && list.length > 0) return undefined;
     const currentIds = new Set(current.ids);
     const removed = base.ids.filter((id) => !currentIds.has(id));
-    return { base: base.hash, hash: current.hash, upserts, removed };
+    return { base: base.hash, hash: current.hash, upserts, removed, ...(ordered ? {} : { order: current.ids }) };
   }
+}
+/** The versions of one owner's (a session's) list, created on first use. */
+export function versionsFor<T>(
+  map: WeakMap<object, KeyedListVersions<T>>,
+  owner: object,
+  idOf: (entry: T) => string,
+  limit: number,
+): KeyedListVersions<T> {
+  let versions = map.get(owner);
+  if (!versions) {
+    versions = new KeyedListVersions<T>(idOf, limit);
+    map.set(owner, versions);
+  }
+  return versions;
 }

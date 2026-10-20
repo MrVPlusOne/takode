@@ -1,6 +1,12 @@
-import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from "../session-types.js";
+import type {
+  BoardRow,
+  BrowserIncomingMessage,
+  BrowserOutgoingMessage,
+  SessionAttentionRecord,
+} from "../session-types.js";
 import { snapshotPartHash, type KnownSnapshotParts } from "../../shared/snapshot-part-hash.js";
-import { browserBoardRows } from "./browser-board-rows.js";
+import { viewportHandoffStateIdentity, type ViewportHandoffSessionState } from "../../shared/viewport-handoff.js";
+import { boardListFields, browserBoardRows } from "./browser-board-rows.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import { getSessionDraftsSnapshot, type DraftSession } from "./session-drafts-controller.js";
@@ -14,6 +20,7 @@ import { treeGroupUpdates } from "./tree-group-updates.js";
 import {
   deriveActiveTurnRoute,
   deriveSessionStatus,
+  sendLeaderProjectionSnapshot,
   sendToBrowser,
   type BrowserTransportDeps,
   type BrowserTransportSessionLike,
@@ -60,8 +67,9 @@ function feedAttentionLists(session: BrowserTransportSessionLike, known: KnownSn
 
 /**
  * The session's authoritative state, last in the subscribe. Parts the browser
- * already holds are left out: the completed work board when the browser's copy
- * hashes the same (the browser then keeps its copy), and the notifications and
+ * already holds are left out: the active board when the browser's copy
+ * hashes the same, the completed board and row statuses when it holds the current
+ * ones (or sent as changes from a recent copy), and the notifications and
  * attention records when this subscribe already sent them in the feed
  * attention snapshot (later changes reach the subscribed socket live).
  */
@@ -77,9 +85,8 @@ export function sendStateSnapshot(
   delete data.feedAttentionSent;
   const board = deps.getBoard(session.id) as BoardRow[];
   const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
-  const browserCompletedBoard = browserBoardRows(completedBoard);
-  const completedBoardHeld =
-    !!known?.completed_board && known.completed_board === snapshotPartHash(browserCompletedBoard);
+  const browserBoard = browserBoardRows(board);
+  const boardHeld = !!known?.board && known.board === snapshotPartHash(browserBoard);
   const notificationStatus = getNotificationStatusSnapshot(session);
   sendToBrowser(ws, {
     type: "state_snapshot",
@@ -92,9 +99,13 @@ export function sendStateSnapshot(
     activeTurnRoute: deriveActiveTurnRoute(session),
     ...codexReasoningSnapshotFields(session),
     codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-    board: browserBoardRows(board),
-    ...(completedBoardHeld ? {} : { completedBoard: browserCompletedBoard }),
-    rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
+    ...(boardHeld ? {} : { board: browserBoard }),
+    ...boardListFields(
+      session,
+      completedBoard,
+      deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
+      known,
+    ),
     ...(feedAttentionSent ? {} : feedAttentionLists(session, known)),
     drafts: getSessionDraftsSnapshot(session as DraftSession),
     notificationUrgency: notificationStatus.notificationUrgency,
@@ -136,10 +147,35 @@ export async function sendInitialTreeGroupState(ws: BrowserTransportSocketLike):
 export async function answerListResync(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
-  list: "notifications" | "attention_records" | "tree_groups",
+  list: Extract<BrowserOutgoingMessage, { type: "list_resync" }>["list"],
   held: string,
-  deps: Pick<BrowserTransportDeps, "getTreeGroupState">,
+  deps: Pick<
+    BrowserTransportDeps,
+    "getTreeGroupState" | "getBoard" | "getCompletedBoard" | "getBoardRowSessionStatuses" | "getLauncherSessionInfo"
+  >,
 ): Promise<void> {
+  if (list === "leader_projection") {
+    sendLeaderProjectionSnapshot(session, ws, deps);
+    return;
+  }
+  if (list === "completed_board" || list === "row_session_statuses") {
+    const board = deps.getBoard(session.id) as BoardRow[];
+    const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
+    const fields = boardListFields(
+      session,
+      completedBoard,
+      deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
+      { [list]: held },
+    );
+    // Only the list asked for: the browser's copy of the other one is not in question.
+    const prefix = list === "completed_board" ? "completedBoard" : "rowSessionStatuses";
+    sendToBrowser(ws, {
+      type: "board_updated",
+      board: browserBoardRows(board),
+      ...Object.fromEntries(Object.entries(fields).filter(([key]) => key.startsWith(prefix))),
+    } as BrowserIncomingMessage);
+    return;
+  }
   if (list === "notifications") {
     sendToBrowser(ws, {
       type: "notification_update",
@@ -157,4 +193,14 @@ export async function answerListResync(
   }
   const update = treeGroupUpdates.forBrowser(await deps.getTreeGroupState(), held);
   if (update) sendToBrowser(ws, update);
+}
+
+/** The scroll-position state, or only its identity when the browser named it as held: a busy leader's is about 17 KB. */
+export function viewportHandoffStateMessage(state: ViewportHandoffSessionState, held?: string): BrowserIncomingMessage {
+  const identity = viewportHandoffStateIdentity(state);
+  return {
+    type: "viewport_handoff_state",
+    ...(held === identity ? { held: identity } : { state }),
+    serverNow: Math.max(Date.now(), state.updatedAt),
+  };
 }

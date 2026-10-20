@@ -146,6 +146,32 @@ describe("viewport handoff state over the browser socket", () => {
     expect(unsubscribed.send).not.toHaveBeenCalled();
   });
 
+  // A phone reconnecting names the state it holds; an unchanged state (about
+  // 17 KB on a busy leader) is answered with its identity only.
+  it("sends only the identity of a state the subscribe named as held", async () => {
+    const bridge = new WsBridge();
+    bridge.getOrCreateSession("leader");
+    const state = { ...createEmptyViewportHandoffSessionState("leader"), revision: 3, updatedAt: 50 };
+    bridge.setViewportHandoffReader(async () => state);
+    const subscribeHolding = (held: string) =>
+      JSON.stringify({ ...JSON.parse(subscribe), known_snapshot_parts: { viewport_handoff: held } });
+
+    const current = browserSocket("leader");
+    bridge.handleBrowserOpen(current, "leader");
+    await bridge.handleBrowserMessage(current, subscribeHolding("3:50"));
+    const stale = browserSocket("leader");
+    bridge.handleBrowserOpen(stale, "leader");
+    await bridge.handleBrowserMessage(stale, subscribeHolding("2:40"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(messages(current).filter((message) => message.type === "viewport_handoff_state")).toEqual([
+      { type: "viewport_handoff_state", held: "3:50", serverNow: expect.any(Number) },
+    ]);
+    expect(messages(stale).filter((message) => message.type === "viewport_handoff_state")).toEqual([
+      { type: "viewport_handoff_state", state, serverNow: expect.any(Number) },
+    ]);
+  });
+
   it("drops a state read that finishes after the socket switched sessions", async () => {
     const bridge = new WsBridge();
     bridge.getOrCreateSession("leader");

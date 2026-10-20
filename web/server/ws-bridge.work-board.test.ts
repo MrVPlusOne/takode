@@ -1841,7 +1841,8 @@ describe("work board", () => {
     const lastUpdate = boardUpdates[boardUpdates.length - 1];
     expect(lastUpdate.completedBoard).toHaveLength(1);
     expect(lastUpdate.completedBoard[0].questId).toBe("q-1");
-    expect(lastUpdate.rowSessionStatuses).toBeDefined();
+    // Unchanged row statuses are named by hash only; browsers keep the copy they hold.
+    expect(lastUpdate.rowSessionStatusesHash).toBeDefined();
     expect(lastUpdate).not.toHaveProperty("leaderActivePhaseSummary");
   });
 
@@ -1871,7 +1872,7 @@ describe("work board", () => {
         waitFor: ["#9"],
       }),
     ]);
-    expect(lastUpdate.rowSessionStatuses).toBeDefined();
+    expect(lastUpdate.rowSessionStatusesHash).toBeDefined();
     expect(lastUpdate).not.toHaveProperty("leaderActivePhaseSummary");
     expect(lastUpdate.completedBoard).toEqual([expect.objectContaining({ questId: "q-2" })]);
   });

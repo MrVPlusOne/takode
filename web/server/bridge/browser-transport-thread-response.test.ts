@@ -360,7 +360,9 @@ describe("explicit answer selected-window authority", () => {
     expect(message.entries.length).toBeLessThan(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
   });
 
-  it("sends response state even on a cache hit", () => {
+  // The window hash covers the response state, so a cache hit means the
+  // browser's cached window already has it and the hit leaves it out.
+  it("leaves the response state out of a cache hit, whose window hash covers it", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1)] };
     const earlier = createResponse(session, "main", "Earlier answer.");
     session.messageHistory.push(human("u2", 3));
@@ -376,9 +378,9 @@ describe("explicit answer selected-window authority", () => {
 
     expect(cached.cache_hit).toBe(true);
     expect(cached.entries).toEqual([]);
-    expect(cached.response_state?.currentAnswers).toMatchObject([{ currentMessageId: response.message.id }]);
-    expect(cached.response_state).toEqual(first.response_state);
-    expect(cached.response_state?.currentAnswers.some((answer) => answer.currentMessageId === earlier.message.id)).toBe(
+    expect(cached).not.toHaveProperty("response_state");
+    expect(first.response_state?.currentAnswers).toMatchObject([{ currentMessageId: response.message.id }]);
+    expect(first.response_state?.currentAnswers.some((answer) => answer.currentMessageId === earlier.message.id)).toBe(
       false,
     );
   });

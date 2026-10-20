@@ -1,4 +1,10 @@
-import type { BrowserIncomingMessage, HistoryWindowState, ThreadWindowEntry, ThreadWindowState } from "../types.js";
+import type {
+  BrowserIncomingMessage,
+  HistoryWindowState,
+  LeaderThreadResponseProjection,
+  ThreadWindowEntry,
+  ThreadWindowState,
+} from "../types.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 
 const MAX_HISTORY_ENTRIES_PER_SESSION = 12;
@@ -27,6 +33,8 @@ interface ThreadWindowCacheEntry {
   visibleItemCount: number;
   windowHash: string;
   entries: ThreadWindowEntry[];
+  /** The window's leader answer state; covered by its hash, so a cache hit leaves it out. */
+  responseState: LeaderThreadResponseProjection | null;
   updatedAt: number;
 }
 
@@ -90,7 +98,12 @@ export function cacheHistoryWindow(sessionId: string, window: HistoryWindowState
   );
 }
 
-export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, entries: ThreadWindowEntry[]) {
+export function cacheThreadWindow(
+  sessionId: string,
+  window: ThreadWindowState,
+  entries: ThreadWindowEntry[],
+  responseState: LeaderThreadResponseProjection | null = null,
+) {
   purgeLegacyPersistedWindowCaches();
   if (!window.window_hash || entries.length === 0) return;
   const lookup = {
@@ -106,6 +119,7 @@ export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, 
     threadKey: normalizeThreadKey(lookup.threadKey),
     windowHash: window.window_hash,
     entries,
+    responseState,
     updatedAt: Date.now(),
   };
   writeBoundedCache(
@@ -147,6 +161,14 @@ export function resolveCachedThreadWindowEntries(
   sessionId: string,
   window: ThreadWindowState,
 ): ThreadWindowEntry[] | null {
+  return resolveCachedThreadWindow(sessionId, window)?.entries ?? null;
+}
+
+/** The cached window a cache hit names: its entries and leader answer state. */
+export function resolveCachedThreadWindow(
+  sessionId: string,
+  window: ThreadWindowState,
+): Pick<ThreadWindowCacheEntry, "entries" | "responseState"> | null {
   purgeLegacyPersistedWindowCaches();
   if (!window.window_hash) return null;
   const lookup = {
@@ -156,10 +178,26 @@ export function resolveCachedThreadWindowEntries(
     sectionItemCount: window.section_item_count,
     visibleItemCount: window.visible_item_count,
   };
-  const entry = readThreadCache(sessionId, window.thread_key).entries.find(
-    (candidate) => candidate.key === threadEntryKey(lookup) && candidate.windowHash === window.window_hash,
+  const cached = readThreadCache(sessionId, window.thread_key).entries;
+  const entry =
+    cached.find(
+      (candidate) => candidate.key === threadEntryKey(lookup) && candidate.windowHash === window.window_hash,
+    ) ??
+    // The hash covers the thread and every entry, so a window cached for another range with this hash has the same entries.
+    cached.find((candidate) => candidate.windowHash === window.window_hash);
+  return entry ?? null;
+}
+
+/** The entries of a cached window of the thread by its hash, whatever range it was cached for. */
+export function findCachedThreadWindowEntries(
+  sessionId: string,
+  threadKey: string,
+  windowHash: string,
+): ThreadWindowEntry[] | null {
+  purgeLegacyPersistedWindowCaches();
+  return (
+    readThreadCache(sessionId, threadKey).entries.find((entry) => entry.windowHash === windowHash)?.entries ?? null
   );
-  return entry?.entries ?? null;
 }
 
 /** Forget every cached history and thread window of a session. */

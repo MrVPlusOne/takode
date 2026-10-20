@@ -1,7 +1,22 @@
 import { applyKeyedListDelta, type KeyedListDelta } from "../../shared/keyed-list-delta.js";
 
 /** The per-session lists the server sends as changes from the copy a browser holds. */
-export type SyncedListKind = "notifications" | "attention_records";
+export type SyncedListKind =
+  | "notifications"
+  | "attention_records"
+  | "completed_board"
+  | "row_session_statuses"
+  | "thread_summaries"
+  | "message_attention_records";
+
+const SYNCED_LIST_KINDS: readonly SyncedListKind[] = [
+  "notifications",
+  "attention_records",
+  "completed_board",
+  "row_session_statuses",
+  "thread_summaries",
+  "message_attention_records",
+];
 
 /** A list as a server message carries it: whole, as changes, or not at all because the browser holds it. */
 export interface SyncedList<T> {
@@ -55,6 +70,5 @@ export function receiveSyncedList<T>(
 
 /** Drops a removed session's received lists. */
 export function forgetReceivedLists(sessionId: string): void {
-  receivedLists.delete(receivedKey("notifications", sessionId));
-  receivedLists.delete(receivedKey("attention_records", sessionId));
+  for (const kind of SYNCED_LIST_KINDS) receivedLists.delete(receivedKey(kind, sessionId));
 }

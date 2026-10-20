@@ -18,6 +18,11 @@ import { trafficStats } from "./traffic-stats.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import {
+  expandSyncedProjectionSubscriptionsAck,
+  type SyncedProjectionSubscription,
+  type SyncedProjectionSubscriptionIdentity,
+} from "../shared/synced-projection.js";
 
 function browserSocket(sessionId: string) {
   return {
@@ -50,6 +55,22 @@ function answer(questId: string, timestamp: number) {
     questId,
     threadAnswer: { version: 2, answerUserMessageIds: ["u1"], authoredThreadKey: questId },
   } as any;
+}
+
+/**
+ * What each acknowledgement the socket received accepted, read against the
+ * subscription requests it answered, in order: acks name subscriptions by
+ * their place in the request.
+ */
+function acceptedByAcks(
+  socket: Parameters<typeof messages>[0],
+  requests: SyncedProjectionSubscription[][],
+): SyncedProjectionSubscriptionIdentity[][] {
+  return messages(socket)
+    .filter((message: any) => message.type === "synced_projection_subscriptions_ack")
+    .map(
+      (ack: any, index: number) => expandSyncedProjectionSubscriptionsAck(ack, requests[index] ?? [])!.subscriptions,
+    );
 }
 
 describe("WsBridge synchronized projections", () => {
@@ -94,9 +115,10 @@ describe("WsBridge synchronized projections", () => {
     expect(ackIndex).toBeGreaterThan(snapshotIndex);
     expect(stateIndex).toBeGreaterThan(ackIndex);
     expect(stateIndex).toBeGreaterThan(snapshotIndex);
+    // Every requested subscription was accepted, so the ack does not list them again.
     expect(initial[ackIndex]).toEqual({
       type: "synced_projection_subscriptions_ack",
-      subscriptions: [{ projection: "session-attention", key: "worker" }],
+      all_accepted: true,
       complete: true,
     });
     const firstSnapshot = initial[snapshotIndex];
@@ -173,7 +195,7 @@ describe("WsBridge synchronized projections", () => {
       messages(reconnected).find((message: any) => message.type === "synced_projection_subscriptions_ack"),
     ).toEqual({
       type: "synced_projection_subscriptions_ack",
-      subscriptions: [{ projection: "session-attention", key: "worker" }],
+      all_accepted: true,
       complete: true,
     });
   });
@@ -403,9 +425,10 @@ describe("WsBridge synchronized projections", () => {
     await Promise.all([reconnect, refresh]);
 
     expect(
-      messages(socket)
-        .filter((message: any) => message.type === "synced_projection_subscriptions_ack")
-        .map((message: any) => message.subscriptions),
+      acceptedByAcks(socket, [
+        [{ projection: "session-attention", key: "first-target" }],
+        [{ projection: "session-attention", key: "latest-target" }],
+      ]),
     ).toEqual([
       [{ projection: "session-attention", key: "first-target" }],
       [{ projection: "session-attention", key: "latest-target" }],
@@ -461,11 +484,12 @@ describe("WsBridge synchronized projections", () => {
     releaseLoad();
     await Promise.all([reconnect, refresh]);
 
-    expect(
-      messages(socket)
-        .filter((message: any) => message.type === "synced_projection_subscriptions_ack")
-        .map((message: any) => message.subscriptions),
-    ).toEqual([[], [], [{ projection: "leader-thread-tabs", key: carrier.id }]]);
+    const tabs = [{ projection: "leader-thread-tabs", key: carrier.id }];
+    expect(acceptedByAcks(socket, [[{ projection: "session-attention", key: carrier.id }], tabs, tabs])).toEqual([
+      [],
+      [],
+      tabs,
+    ]);
     expect(
       messages(socket).filter(
         (message: any) =>
@@ -517,12 +541,12 @@ describe("WsBridge synchronized projections", () => {
     expect(sent.filter((message: any) => message.type === "synced_projection_snapshot")).toEqual([
       expect.objectContaining({ key: "changed" }),
     ]);
-    expect(sent.find((message: any) => message.type === "synced_projection_subscriptions_ack")).toMatchObject({
-      subscriptions: [
-        { projection: "session-attention", key: "held" },
-        { projection: "session-attention", key: "changed" },
-      ],
-      current: [{ projection: "session-attention", key: "held", revision: held.revision }],
+    // Both accepted; the held one, first in the request, is current, so its value was not resent.
+    expect(sent.find((message: any) => message.type === "synced_projection_subscriptions_ack")).toEqual({
+      type: "synced_projection_subscriptions_ack",
+      all_accepted: true,
+      current_indexes: [0],
+      complete: true,
     });
   });
 
@@ -559,9 +583,10 @@ describe("WsBridge synchronized projections", () => {
     await Promise.all([reconnect, refresh]);
 
     expect(
-      messages(socket)
-        .filter((message: any) => message.type === "synced_projection_subscriptions_ack")
-        .map((message: any) => message.subscriptions),
+      acceptedByAcks(socket, [
+        [{ projection: "session-attention", key: "first-target" }],
+        [{ projection: "session-attention", key: "latest-target" }],
+      ]),
     ).toEqual([
       [{ projection: "session-attention", key: "first-target" }],
       [{ projection: "session-attention", key: "latest-target" }],

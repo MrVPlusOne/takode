@@ -1,10 +1,15 @@
 import type {
   SyncedProjectionSnapshotMessage,
+  SyncedProjectionSubscription,
   SyncedProjectionSubscriptionIdentity,
   SyncedProjectionSubscriptionsAckMessage,
   SyncedProjectionUpdateMessage,
 } from "../shared/synced-projection.js";
-import { isValidSyncedProjectionIdentity, syncedProjectionEntryId } from "../shared/synced-projection.js";
+import {
+  expandSyncedProjectionSubscriptionsAck,
+  isValidSyncedProjectionIdentity,
+  syncedProjectionEntryId,
+} from "../shared/synced-projection.js";
 import { isSyncedProjectionId } from "../shared/synced-projection-registry.js";
 import type { AppState } from "./store-types.js";
 import {
@@ -24,6 +29,7 @@ export interface SyncedProjectionMessageHandlerDeps {
   hasPendingSyncedProjectionResync?: (carrierSessionId: string, projection: string, key: string) => boolean;
   resolveSyncedProjectionResync?: (carrierSessionId: string, projection: string, key: string) => void;
   noteAcceptedSyncedProjectionSnapshot?: (carrierSessionId: string, projection: string, key: string) => void;
+  pendingSyncedProjectionSubscriptions?: (carrierSessionId: string) => readonly SyncedProjectionSubscription[] | null;
   consumeSyncedProjectionSubscriptionsAck?: (
     carrierSessionId: string,
     subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
@@ -100,10 +106,15 @@ export function handleSyncedProjectionMessage(
   }
 
   if (data.type === "synced_projection_subscriptions_ack") {
-    const ack = data as SyncedProjectionSubscriptionsAckMessage;
-    if (ack.complete !== true || !Array.isArray(ack.subscriptions)) return true;
+    const compact = data as SyncedProjectionSubscriptionsAckMessage;
+    if (compact.complete !== true) return true;
+    const ack = expandSyncedProjectionSubscriptionsAck(
+      compact,
+      deps.pendingSyncedProjectionSubscriptions?.(sessionId) ?? [],
+    );
+    if (!ack) return true;
     // Entries the server found current were not resent; the held value covers them.
-    for (const current of Array.isArray(ack.current) ? ack.current : []) {
+    for (const current of ack.current) {
       if (!isValidSyncedProjectionIdentity(current?.projection) || !isValidSyncedProjectionIdentity(current?.key)) {
         continue;
       }

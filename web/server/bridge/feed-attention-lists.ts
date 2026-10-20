@@ -1,5 +1,5 @@
 import type { BrowserIncomingMessage, SessionAttentionRecord, SessionNotification } from "../session-types.js";
-import { KeyedListVersions, type KeyedListSync } from "./keyed-list-versions.js";
+import { versionsFor, type KeyedListSync, type KeyedListVersions } from "./keyed-list-versions.js";
 
 /**
  * The notification list and attention records browsers place feed chips and
@@ -11,6 +11,8 @@ import { KeyedListVersions, type KeyedListSync } from "./keyed-list-versions.js"
 
 /** Versions browsers may hold stay usable for about this many changes, to cover a phone away for a while. */
 const RECENT_LIST_VERSIONS = 32;
+
+const idOf = (entry: { id: string }) => entry.id;
 
 const notificationVersions = new WeakMap<object, KeyedListVersions<SessionNotification>>();
 const attentionRecordVersions = new WeakMap<object, KeyedListVersions<SessionAttentionRecord>>();
@@ -30,7 +32,9 @@ export function notificationListFields(
   notifications: SessionNotification[],
   held: string | undefined,
 ): NotificationListFields {
-  return notificationFields(versionsOf(notificationVersions, session).sync(notifications, held));
+  return notificationFields(
+    versionsFor(notificationVersions, session, idOf, RECENT_LIST_VERSIONS).sync(notifications, held),
+  );
 }
 
 /** Attention record fields for a browser holding the records hashed `held`. */
@@ -39,7 +43,9 @@ export function attentionRecordFields(
   attentionRecords: SessionAttentionRecord[],
   held: string | undefined,
 ): AttentionRecordFields {
-  return attentionFields(versionsOf(attentionRecordVersions, session).sync(attentionRecords, held));
+  return attentionFields(
+    versionsFor(attentionRecordVersions, session, idOf, RECENT_LIST_VERSIONS).sync(attentionRecords, held),
+  );
 }
 
 /**
@@ -52,25 +58,23 @@ export function projectFeedAttentionUpdateForBrowsers(
 ): BrowserIncomingMessage {
   if (msg.type === "notification_update" && msg.notifications) {
     const { notifications, ...rest } = msg;
-    return { ...rest, ...notificationFields(versionsOf(notificationVersions, session).broadcast(notifications)) };
+    return {
+      ...rest,
+      ...notificationFields(
+        versionsFor(notificationVersions, session, idOf, RECENT_LIST_VERSIONS).broadcast(notifications),
+      ),
+    };
   }
   if (msg.type === "attention_records_update" && msg.attentionRecords) {
     const { attentionRecords, ...rest } = msg;
-    return { ...rest, ...attentionFields(versionsOf(attentionRecordVersions, session).broadcast(attentionRecords)) };
+    return {
+      ...rest,
+      ...attentionFields(
+        versionsFor(attentionRecordVersions, session, idOf, RECENT_LIST_VERSIONS).broadcast(attentionRecords),
+      ),
+    };
   }
   return msg;
-}
-
-function versionsOf<T extends { id: string }>(
-  map: WeakMap<object, KeyedListVersions<T>>,
-  session: object,
-): KeyedListVersions<T> {
-  let versions = map.get(session);
-  if (!versions) {
-    versions = new KeyedListVersions<T>((entry) => entry.id, RECENT_LIST_VERSIONS);
-    map.set(session, versions);
-  }
-  return versions;
 }
 
 function notificationFields(sync: KeyedListSync<SessionNotification>): NotificationListFields {

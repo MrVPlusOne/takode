@@ -716,8 +716,14 @@ export type BrowserOutgoingMessage =
   | {
       /** A list update applied to a list this browser no longer holds; the server sends the list again. */
       type: "list_resync";
-      list: "notifications" | "attention_records" | "tree_groups";
-      /** Hash of the list the browser holds. */
+      list:
+        | "notifications"
+        | "attention_records"
+        | "tree_groups"
+        | "completed_board"
+        | "row_session_statuses"
+        | "leader_projection";
+      /** Hash of the list the browser holds (unused for the leader projection, which is resent whole). */
       held: string;
     }
   | {
@@ -962,6 +968,22 @@ export interface BoardRowSessionStatus {
   reviewer?: BoardParticipantStatus | null;
 }
 
+/**
+ * The completed work board and the board rows' session statuses as a board
+ * update or state snapshot carries them: whole, as changes from a copy the
+ * browser holds, or neither when it holds the current one; the hash names the
+ * current list (see server/bridge/browser-board-rows.ts). Statuses travel as
+ * `[questId, status]` entries in their changes and hash.
+ */
+export interface BoardListFields {
+  completedBoard?: BoardRow[];
+  completedBoardDelta?: KeyedListDelta<BoardRow>;
+  completedBoardHash?: string;
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+  rowSessionStatusesDelta?: KeyedListDelta<[string, BoardRowSessionStatus]>;
+  rowSessionStatusesHash?: string;
+}
+
 export interface ThreadWindowEntry {
   message: BrowserIncomingMessage;
   history_index: number;
@@ -1191,16 +1213,40 @@ export type BrowserIncomingMessageBase =
   | {
       type: "thread_window_sync";
       thread_key: string;
+      /** The window's entries, or with `entries_delta` its new and changed entries in window order. */
       entries: ThreadWindowEntry[];
+      /**
+       * Present when the window is sent as changes from the window hashed `base`
+       * that the browser named as held: drop `removed` entries, replace and add
+       * `entries` by `threadWindowEntryId`, arranged by `order` when given.
+       */
+      entries_delta?: { base: string; removed: string[]; order?: string[] };
       window: ThreadWindowState;
+      /** Left out on a cache hit: the window hash covers it, so the browser's cached window has it. */
       response_state?: import("./leader-thread-response-types.js").LeaderThreadResponseProjection;
       cache_hit?: boolean;
     }
-  | { type: "leader_projection_snapshot"; projection: LeaderProjectionSnapshot }
+  | {
+      type: "leader_projection_snapshot";
+      /**
+       * Each list is present whole, or left out when the browser holds the
+       * current one or `<list>Delta` carries the changes from the copy it
+       * named (see server/bridge/leader-projection-lists.ts).
+       */
+      projection: Omit<LeaderProjectionSnapshot, "threadSummaries" | "messageAttentionRecords"> &
+        Partial<Pick<LeaderProjectionSnapshot, "threadSummaries" | "messageAttentionRecords">>;
+      threadSummariesHash?: string;
+      threadSummariesDelta?: KeyedListDelta<import("./leader-projection-types.js").LeaderProjectionThreadSummary>;
+      messageAttentionRecordsHash?: string;
+      messageAttentionRecordsDelta?: KeyedListDelta<SessionAttentionRecord>;
+    }
   | {
       /** The session's scroll-position handoffs, sent on subscribe and after each accepted change. */
       type: "viewport_handoff_state";
-      state: import("../shared/viewport-handoff.js").ViewportHandoffSessionState;
+      /** Absent on a subscribe whose browser named the current state as held. */
+      state?: import("../shared/viewport-handoff.js").ViewportHandoffSessionState;
+      /** Instead of `state`: the identity of the held state, which is current. */
+      held?: string;
       serverNow: number;
     }
   | SyncedProjectionSnapshotMessage
@@ -1272,7 +1318,7 @@ export type BrowserIncomingMessageBase =
       idle_for_ms: number;
       timestamp: number;
     }
-  | {
+  | ({
       type: "state_snapshot";
       sessionStatus: string | null;
       permissionMode: string;
@@ -1289,10 +1335,9 @@ export type BrowserIncomingMessageBase =
       activeTurnRoute?: ActiveTurnRoute | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
+      /** Left out when the browser named an identical copy in its subscribe. */
       board?: BoardRow[];
-      completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
-      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       /** Left out with its records when the feed attention snapshot of the same subscribe sent them. */
       notifications?: SessionNotification[];
       notificationsDelta?: KeyedListDelta<SessionNotification>;
@@ -1309,7 +1354,7 @@ export type BrowserIncomingMessageBase =
       mutedNeedsInputNotificationCount?: number;
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
-    }
+    } & BoardListFields)
   | {
       /** Sent before a subscribe's conversation window, so the feed's first render
        *  already has the notification chips and attention rows placed in it. */
@@ -1369,14 +1414,11 @@ export type BrowserIncomingMessageBase =
       messageId: string | null;
       notification: TakodeNotificationPayload;
     }
-  | {
+  | ({
       type: "board_updated";
       board: BoardRow[];
-      /** Absent when unchanged since the session's previous board update; browsers keep the copy they hold. */
-      completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
-      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
-    }
+    } & BoardListFields)
   | {
       type: "notification_update";
       /** Whole, or as a delta from the list the previous update sent; the hash names the current list. */
