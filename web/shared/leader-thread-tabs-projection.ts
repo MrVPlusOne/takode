@@ -94,6 +94,11 @@ export interface LeaderThreadTabsProjectionTab {
    * message in the tab and the leader's last answer to the user shown in it.
    */
   groupChangedAt: number;
+  /**
+   * Set for a side quest: a quest filed from one of this leader's requests that is still
+   * answered where it was asked. The thread that owns that request ("main" or a quest ID).
+   */
+  sideQuestOf?: string;
 }
 
 export interface LeaderThreadTabsProjectionValue {
@@ -217,7 +222,9 @@ function isTab(value: unknown): value is LeaderThreadTabsProjectionTab {
     typeof candidate.canClose === "boolean" &&
     isAttention(candidate.attention) &&
     isNonNegativeNumber(candidate.updatedAt) &&
-    isNonNegativeNumber(candidate.groupChangedAt)
+    isNonNegativeNumber(candidate.groupChangedAt) &&
+    (candidate.sideQuestOf === undefined ||
+      isBoundedString(candidate.sideQuestOf, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH))
   );
 }
 

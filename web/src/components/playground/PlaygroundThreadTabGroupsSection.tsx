@@ -52,11 +52,16 @@ const MAIN: PrimaryThreadChip = {
 const TABS: PrimaryThreadChip[] = [
   questTab("q-9482", "Redesign thread tabs around what the user scans", "work"),
   questTab("q-9481", "Thumb-reachable mobile layout for top-bar actions", "user-checkpoint", { needsInput: true }),
-  questTab("q-9480", "Keep the screen awake while recording voice", "memory"),
+  // A side quest: its answer is given in q-9482, so the lists mark it with the branch icon.
+  questTab("q-9480", "Keep the screen awake while recording voice", "memory", { sideQuestOf: "q-9482" }),
   questTab("q-9476", "Fix login-shell PATH capture on remote hosts", "landing"),
   questTab("q-9479", "Walk the paw down the feed as answers arrive", null, { blueNudge: true }),
   ...["Attribute a dismissed question to the leader", "Board dots contrast in light theme", "Sync unsent drafts"].map(
-    (title, index) => questTab(`q-${9470 - index}`, title, null, { updatedAt: NOW - (index + 2) * 60 * MINUTE }),
+    (title, index) =>
+      questTab(`q-${9470 - index}`, title, null, {
+        updatedAt: NOW - (index + 2) * 60 * MINUTE,
+        ...(index === 1 ? { sideQuestOf: "main" } : {}),
+      }),
   ),
 ];
 

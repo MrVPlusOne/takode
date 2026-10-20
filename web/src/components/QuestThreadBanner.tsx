@@ -33,6 +33,7 @@ import {
 } from "./quest-participant-chip-style.js";
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { DiffChip } from "./DiffChip.js";
+import { SideQuestIcon } from "./SideQuestCue.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
@@ -449,9 +450,12 @@ export function QuestThreadBanner({
   monitorSessionId,
   diffSessionId,
   onCloseTab,
+  sideQuestOf,
 }: {
   row?: QuestThreadBannerRow;
   threadKey: string;
+  /** Set when this quest is a side quest: the thread ("main" or a quest ID) where its answer is given. */
+  sideQuestOf?: string;
   variant?: QuestBannerVariant;
   currentSessionId?: string;
   monitorSessionId?: string;
@@ -519,6 +523,11 @@ export function QuestThreadBanner({
             >
               {questId}
             </QuestInlineLink>
+            {sideQuestOf && (
+              <span className="inline-flex shrink-0 self-center text-cc-muted">
+                <SideQuestIcon sideQuestOf={sideQuestOf} />
+              </span>
+            )}
             {title && (
               <span className="min-w-0 truncate text-xs font-medium text-cc-fg sm:text-[13px]" title={title}>
                 {title}

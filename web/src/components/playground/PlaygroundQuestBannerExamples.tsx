@@ -310,10 +310,12 @@ export function PlaygroundQuestBannerExamples() {
           currentSessionId="playground-worker-banner"
           diffSessionId="playground-worker-banner"
         />
+        {/* A side quest: the branch icon after the number says its answer is given in Main. */}
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[5].row}
           threadKey={compactQuestThreadBannerRows[5].threadKey}
           diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
+          sideQuestOf="main"
         />
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[7].row}

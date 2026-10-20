@@ -41,6 +41,9 @@ import {
 import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from "./session-types.js";
+import type { QuestStartedFrom } from "./quest-types.js";
+import { questSources } from "./quest-source-index.js";
+import { sideQuestSourceThreads } from "./supporting-quest.js";
 import {
   leaderMessageThreadKey,
   leaderResponseAssociatedThreadKeys,
@@ -190,6 +193,8 @@ interface CurrentQuestClaim {
 
 interface CurrentQuestStateOptions {
   sessions?: Iterable<Session>;
+  /** The message a quest was filed from, to mark side quests; defaults to the server's index. */
+  getQuestSource?: (questId: string) => QuestStartedFrom | undefined;
   isCurrentQuestSourceSession?: (session: Session) => boolean;
   isCurrentQuestLeaderSession?: (session: Session) => boolean;
 }
@@ -803,6 +808,20 @@ function collectThreadChatTimes(history: ReadonlyArray<BrowserIncomingMessage>):
   return chatAt;
 }
 
+/** The open quest tabs that are side quests of this leader's requests, with the thread each one supports. */
+function collectSideQuestSources(
+  session: Session,
+  threadKeys: ReadonlyArray<string>,
+  getQuestSource: (questId: string) => QuestStartedFrom | undefined = (questId) => questSources.get(questId),
+): Map<string, string> {
+  const sources = new Map<string, QuestStartedFrom>();
+  for (const threadKey of threadKeys) {
+    const source = /^q-\d+$/.test(threadKey) ? getQuestSource(threadKey) : undefined;
+    if (source) sources.set(threadKey, source);
+  }
+  return sideQuestSourceThreads(session.messageHistory, session.id, sources);
+}
+
 export function buildLeaderThreadTabsProjectionValue(
   session: Session,
   options: CurrentQuestStateOptions = {},
@@ -840,6 +859,7 @@ export function buildLeaderThreadTabsProjectionValue(
   const orderedOpenThreadKeys = buildEffectiveOpenKeys(existingState, orderingRows, attentionVisualInputs);
   const threadStatuses = relevantThreadStatuses(session.state.leaderThreadStatuses ?? {}, orderedOpenThreadKeys);
   const chatAtByThread = collectThreadChatTimes(session.messageHistory);
+  const sideQuestOf = collectSideQuestSources(session, orderedOpenThreadKeys, options.getQuestSource);
   const tabState: LeaderThreadTabsProjectionTabState | null = existingState
     ? { version: LEADER_OPEN_THREAD_TABS_VERSION }
     : null;
@@ -896,6 +916,7 @@ export function buildLeaderThreadTabsProjectionValue(
         completed ? nonNegativeNumber(row?.completedAt) : 0,
         chatAtByThread.get(threadKey) ?? 0,
       ),
+      ...(sideQuestOf.has(threadKey) ? { sideQuestOf: sideQuestOf.get(threadKey) } : {}),
     };
   });
 

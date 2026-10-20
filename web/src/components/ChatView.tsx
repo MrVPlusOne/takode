@@ -6,6 +6,7 @@ import { api } from "../api.js";
 import { connectSession, sendToSession } from "../ws.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { StartedQuestsProvider } from "./QuestForkLinks.js";
+import { useSideQuestOf } from "./SideQuestCue.js";
 import { Composer } from "./Composer.js";
 import { ComposerFeedLayout } from "./ComposerFeedLayout.js";
 import { SideChatPanel } from "./SideChatPanel.js";
@@ -617,6 +618,7 @@ export function ChatView({
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
     selectedThreadKey.toLowerCase() !== ALL_THREADS_KEY &&
     isQuestThreadKey(selectedThreadKey);
+  const selectedSideQuestOf = useSideQuestOf(showQuestThreadBanner ? sessionId : undefined, selectedThreadKey);
   const sessionQuestBannerRow = useMemo(
     () =>
       !isLeaderSession
@@ -1101,6 +1103,7 @@ export function ChatView({
                   <QuestThreadBanner
                     row={selectedThreadRow}
                     threadKey={selectedThreadKey}
+                    sideQuestOf={selectedSideQuestOf}
                     monitorSessionId={sessionId}
                     diffSessionId={sessionId}
                     onCloseTab={closeSelectedThreadTab}

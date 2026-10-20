@@ -261,6 +261,20 @@ describe("ThreadTabGroupBar", () => {
     expect(within(screen.getByTestId("thread-tab-switcher")).queryByTestId("thread-tab-close-all")).toBeNull();
   });
 
+  it("marks side quests with the branch icon in group lists and Find, naming where their answer goes", () => {
+    // q-13 is a side quest of Main: its answer is given there, so its tab can be skipped.
+    renderBar({
+      tabs: TABS.map((item) => (item.threadKey === "q-13" ? { ...item, sideQuestOf: "main" } : item)),
+    });
+    fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
+    const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+    const marked = rows.filter((row) => within(row).queryByTestId("side-quest-icon"));
+    expect(marked.map((row) => row.dataset.threadKey)).toEqual(["q-13"]);
+    expect(within(marked[0]!).getByRole("img", { name: "Side quest of Main" })).toBeTruthy();
+    // The rows keep their order: side quests are marked, not moved.
+    expect(rows.map((row) => row.dataset.threadKey)).toEqual(["q-13", "q-14", "q-15"]);
+  });
+
   it("switches to Main in one tap and marks it as current there", () => {
     const { onSelect } = renderBar({ currentThreadKey: "main" });
     const main = screen.getByTestId("thread-tab-group-main");

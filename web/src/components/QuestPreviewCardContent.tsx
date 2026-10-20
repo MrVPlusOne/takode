@@ -29,6 +29,7 @@ import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { HoverCardSuppressionProvider } from "./hover-card-suppression-context.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
 import { descriptionExcerpt } from "./QuestDescriptionSummaryCard.js";
+import { sideQuestOfText, useSideQuestOf } from "./SideQuestCue.js";
 
 export interface QuestPreviewCardContentProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -174,6 +175,7 @@ export function QuestPreviewCardContent({
     [quest, journeyContext, sdkSessions],
   );
   const reviewerParticipant = journeyContext?.rowStatus?.reviewer ?? null;
+  const sideQuestOf = useSideQuestOf(leaderSessionId ?? undefined, quest.questId);
 
   const journeyStatus =
     isCompletedJourneyPresentationStatus(quest.status) || journeyContext?.completed ? "done" : journeyBoardRow?.status;
@@ -221,6 +223,11 @@ export function QuestPreviewCardContent({
               />
               {status.label}
             </span>
+            {sideQuestOf && (
+              <span data-testid="quest-hover-side-quest" className="min-w-0 truncate text-xs text-cc-muted">
+                {sideQuestOfText(sideQuestOf)}
+              </span>
+            )}
             {queuedWaitForReason && (
               <span data-testid="quest-hover-wait-for-reason" className="min-w-0 truncate text-xs text-cc-muted">
                 {queuedWaitForReason}

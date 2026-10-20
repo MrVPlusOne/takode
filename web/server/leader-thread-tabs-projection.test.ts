@@ -1661,3 +1661,41 @@ describe("leader thread tab chat times", () => {
     expect(groupChangedAt).toEqual({ "q-1": 500, "q-2": 600, "q-3": 700, "q-4": 100 });
   });
 });
+
+describe("side quests in leader tabs", () => {
+  it("marks a quest filed from a request that stays in another thread, with that thread", () => {
+    // q-11 was filed from a request asked in Main that the leader answers there; q-13 was
+    // filed from a Main request that was then moved into it; q-15 names no source message.
+    const request = (id: string, threadRefs?: unknown[]) => ({
+      type: "user_message",
+      id,
+      content: "Check the run.",
+      timestamp: 5,
+      leaderResponseCoverageVersion: 1,
+      threadKey: "main",
+      ...(threadRefs ? { threadRefs } : {}),
+    });
+    const session = makeSession({
+      board: new Map([
+        ["q-11", boardRow("q-11", "WORKING")],
+        ["q-13", boardRow("q-13", "WORKING")],
+        ["q-15", boardRow("q-15", "WORKING")],
+      ]),
+      messageHistory: [
+        request("side-ask"),
+        request("moved-ask", [{ threadKey: "q-13", questId: "q-13", source: "explicit", attachedAt: 6 }]),
+      ] as unknown as Session["messageHistory"],
+    });
+    const source = (messageId: string) => ({ sessionId: "leader", messageId, threadKey: "main", timestamp: 5 });
+    const sources: Record<string, ReturnType<typeof source>> = {
+      "q-11": source("side-ask"),
+      "q-13": source("moved-ask"),
+    };
+
+    const value = buildLeaderThreadTabsProjectionValue(session, { getQuestSource: (questId) => sources[questId] });
+
+    const sideQuestOf = Object.fromEntries(value.tabs.map((tab) => [tab.threadKey, tab.sideQuestOf]));
+    expect(sideQuestOf).toEqual({ "q-11": "main", "q-13": undefined, "q-15": undefined });
+    expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
+  });
+});

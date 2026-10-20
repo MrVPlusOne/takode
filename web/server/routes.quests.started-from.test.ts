@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as questStore from "./quest-store.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { createQuestRoutes } from "./routes/quests.js";
+import { questSources } from "./quest-source-index.js";
 
 // The leader's conversation: the user wrote u1 in Main and u2 in q-7's thread.
 const HISTORY = [
@@ -28,6 +29,8 @@ const HISTORY = [
 
 const QUEST = { id: "q-9", questId: "q-9", version: 1, title: "Relay fix", status: "idea", createdAt: 1 };
 
+const invalidateLeaderThreadTabsForQuestIds = vi.fn();
+
 function makeApp() {
   const app = new Hono();
   app.route(
@@ -38,6 +41,7 @@ function makeApp() {
         _sessions: {},
         getSession: vi.fn((id: string) => (id === "leader-1" ? { id, state: {}, messageHistory: HISTORY } : null)),
         broadcastGlobal: vi.fn(),
+        invalidateLeaderThreadTabsForQuestIds,
       },
       imageStore: undefined,
       authenticateCompanionCallerOptional: vi.fn(() => ({ callerId: "leader-1", caller: {} })),
@@ -84,6 +88,21 @@ describe("quests filed from a user's message", () => {
     expect(patch.mock.calls[0]![1]).toEqual({
       relationships: { startedFrom: { sessionId: "leader-1", messageId: "msg-a", threadKey: "main", timestamp: 100 } },
     });
+  });
+
+  it("remembers the source for the leader's tabs and refreshes the tabs that show the quest", async () => {
+    // The leader tab projection is built synchronously, so it reads sources from memory;
+    // recording one can turn the quest's open tab into a side quest.
+    const startedFrom = { sessionId: "leader-1", messageId: "msg-b", threadKey: "q-7", timestamp: 200 };
+    vi.spyOn(questStore, "patchQuest").mockResolvedValue({
+      ...QUEST,
+      questId: "q-90",
+      relationships: { startedFrom },
+    } as QuestmasterTask);
+    await send(makeApp(), "PATCH", "/api/quests/q-90", { startedFromUserMessageId: "u2" });
+
+    expect(questSources.get("q-90")).toEqual(startedFrom);
+    expect(invalidateLeaderThreadTabsForQuestIds).toHaveBeenCalledWith(["q-90"]);
   });
 
   it("rejects an ID the caller's conversation does not have, without writing", async () => {

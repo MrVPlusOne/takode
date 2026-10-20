@@ -96,6 +96,8 @@ export interface PrimaryThreadChip {
   stateLabel?: string;
   /** Server time the tab last changed status group; the phone groups list the newest first. */
   groupChangedAt?: number;
+  /** Set for a side quest: the thread ("main" or a quest ID) where its answer is given. */
+  sideQuestOf?: string;
 }
 
 function displayThreadTabTitleColor(

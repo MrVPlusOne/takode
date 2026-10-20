@@ -194,6 +194,7 @@ function buildProjectedThreadTabs(
       stateLabel: ownershipNote ?? (finished ? "Done" : projectedThreadTabDetail(tab)),
       completed: finished,
       groupChangedAt: tab.groupChangedAt,
+      ...(tab.sideQuestOf ? { sideQuestOf: tab.sideQuestOf } : {}),
       projectedCurrentState: true,
       canClose: tab.canClose,
       updatedAt: tab.updatedAt,

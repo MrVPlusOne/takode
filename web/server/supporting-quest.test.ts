@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { handoffThreadRef } from "./leader-thread-handoff.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
-import { findSupportingQuestAnswer, findSupportingQuestSource, indexLeaderRequests } from "./supporting-quest.js";
+import { QuestSourceIndex } from "./quest-source-index.js";
+import {
+  findSupportingQuestAnswer,
+  findSupportingQuestSource,
+  indexLeaderRequests,
+  sideQuestSourceThreads,
+} from "./supporting-quest.js";
 
 // Producer-shaped leader history rows: a human request with its persisted uN,
 // herd events and timer firings (which start leader turns), and settled answers.
@@ -94,6 +100,44 @@ describe("findSupportingQuestSource", () => {
       findSupportingQuestSource(indexLeaderRequests(history), "leader", "q-11", { ...startedFrom, messageId: "gone" }),
     ).toBeNull();
     expect(findSupportingQuestSource(indexLeaderRequests(history), "leader", "q-11", undefined)).toBeNull();
+  });
+});
+
+describe("sideQuestSourceThreads", () => {
+  it("maps each side quest to the thread that still owns its request, in one pass for many quests", () => {
+    // q-11 and q-12 were filed from a request asked in q-10; q-13 from a Main request that
+    // was then handed off to it, so q-13 is the conversation, not a side quest.
+    const moved = request("main-ask", "u8", 1100, "main");
+    (moved as { threadRefs?: unknown[] }).threadRefs = [handoffThreadRef("q-13", 2000, "leader")];
+    const history = [request("ask", "u7", 1000, "q-10"), moved];
+    const sources = new Map([
+      ["q-11", startedFrom],
+      ["q-12", startedFrom],
+      ["q-13", { ...startedFrom, messageId: "main-ask", threadKey: "main" }],
+      // Filed in another leader's conversation: not this leader's side quest.
+      ["q-14", { ...startedFrom, sessionId: "other-leader" }],
+    ]);
+    expect(sideQuestSourceThreads(history, "leader", sources)).toEqual(
+      new Map([
+        ["q-11", "q-10"],
+        ["q-12", "q-10"],
+      ]),
+    );
+  });
+});
+
+describe("QuestSourceIndex", () => {
+  it("reports a change only when a quest's source is new or different", () => {
+    // The leader tabs are refreshed only on a change, so repeats must report none.
+    const index = new QuestSourceIndex();
+    const quest = { questId: "Q-11", relationships: { startedFrom } };
+    expect(index.record([quest, { questId: "q-12", relationships: {} }])).toBe(true);
+    expect(index.get("q-11")).toEqual(startedFrom);
+    expect(index.get("q-12")).toBeUndefined();
+    expect(index.record([quest])).toBe(false);
+    expect(index.record([{ ...quest, relationships: { startedFrom: { ...startedFrom, messageId: "other" } } }])).toBe(
+      true,
+    );
   });
 });
 

@@ -47,7 +47,8 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
-import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
+import { bootstrapQuestStore, getActiveQuestForSession, getQuest, listQuests } from "./quest-store.js";
+import { questSources } from "./quest-source-index.js";
 import {
   clearLegacyMachineSettings,
   getLegacyMachineSettings,
@@ -267,6 +268,8 @@ if (coordinatorMove) {
 await bootstrapQuestStore({
   log: (message) => serverLog.info(message),
 });
+// Leader tabs mark side quests from the message each quest was filed from.
+questSources.record(await listQuests());
 const serverId = getServerId();
 const serverSlug = getServerSlug();
 const codexSidecarRegistry = new CodexSidecarRegistry({ port, serverId });

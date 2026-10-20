@@ -57,6 +57,37 @@ export function findSupportingQuestSource(
 }
 
 /**
+ * For quests filed from this leader's messages, the thread each one is a side quest of:
+ * the thread that still owns the request it was filed from. Applies the same rule as
+ * findSupportingQuestSource with one pass over the history for many quests; a quest whose
+ * request moved into it, or whose source is elsewhere, is left out.
+ */
+export function sideQuestSourceThreads(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  leaderSessionId: string,
+  sources: ReadonlyMap<string, QuestStartedFrom>,
+): Map<string, string> {
+  const questsByMessageId = new Map<string, string[]>();
+  for (const [questId, startedFrom] of sources) {
+    if (startedFrom.sessionId !== leaderSessionId) continue;
+    questsByMessageId.set(startedFrom.messageId, [
+      ...(questsByMessageId.get(startedFrom.messageId) ?? []),
+      questId.toLowerCase(),
+    ]);
+  }
+  const result = new Map<string, string>();
+  if (questsByMessageId.size === 0) return result;
+  for (const message of history) {
+    if (message.type !== "user_message" || !message.id) continue;
+    const questIds = questsByMessageId.get(message.id);
+    if (!questIds) continue;
+    const owner = authoritativeMessageOwner(message).threadKey;
+    for (const questId of questIds) if (owner !== questId) result.set(questId, owner);
+  }
+  return result;
+}
+
+/**
  * The latest answer to a supporting quest's request written outside the quest's own
  * thread, in a leader turn that started after the quest was filed. An answer in the
  * filing turn ("filed it") came before the quest's result, so it does not count.

@@ -33,7 +33,7 @@ import {
   setSessionClaimedQuest as setSessionClaimedQuestController,
   updateQuestTaskEntries as updateQuestTaskEntriesController,
 } from "../bridge/session-registry-controller.js";
-import { broadcastQuestUpdate, buildQuestTitlePreview } from "./quest-helpers.js";
+import { broadcastQuestUpdate, buildQuestTitlePreview, recordQuestSource } from "./quest-helpers.js";
 import { registerStartedQuestsRoute, resolveQuestStartedFrom } from "./quest-started-from.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { sessionMachineName } from "../remote-host/machines.js";
@@ -1153,6 +1153,7 @@ export function createQuestRoutes(ctx: RouteContext) {
               ...(auth?.caller.memorySessionSpaceSlug ? { sessionSpaceSlug: auth.caller.memorySessionSpaceSlug } : {}),
             };
       const quest = await questStore.createQuest(createInput);
+      if (source) recordQuestSource(wsBridge, quest);
       broadcastQuestUpdate(wsBridge);
       setDescriptionTldrWarningHeaderForAgentWrite(c, auth, body.description, body.tldr);
       return c.json(quest, 201);
@@ -1177,6 +1178,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     try {
       const quest = await questStore.patchQuest(c.req.param("questId"), withoutInternalQuestPatchFields(body));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      if (source) recordQuestSource(wsBridge, quest);
       const ownerSessionId = getTakodeQuestOwnerSessionId(quest);
       if (
         typeof body.title === "string" &&
