@@ -1,8 +1,8 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { summarizeTodoItems } from "../../../shared/todo-link.js";
 import type { TodoItem, TodoMutationProvenance, TodoState, TodoStatus } from "../../../shared/todo-types.js";
 import { MarkdownContent } from "../MarkdownContent.js";
-import { type TodoLinkSource, TodoLinkSourceContext } from "../TodoInlineLink.js";
+import { TodoItemSheet, type TodoLinkSource, TodoLinkSourceContext } from "../TodoInlineLink.js";
 
 const SYSTEM = { actor: { kind: "system" as const }, authorization: { kind: "bootstrap" as const }, at: 1 };
 const BRIEFING = { kind: "session" as const, label: "Daily briefing" };
@@ -126,11 +126,14 @@ function demoState(): TodoState {
  * not found): tapping one opens its preview, where the to-do can be changed and an agent-added one
  * shows who added it, from where, and on what authority it was last changed. Links to retired
  * proposals from older messages stand for the to-do the proposal created, or say it never was.
+ * The button opens a to-do's sheet as the To-dos page does, with moving and archiving. On a desktop
+ * screen the sheet puts the text beside a side panel of controls; on a phone it is one column.
  */
 export function PlaygroundTodoLinkDemo() {
   // Changes affect only this demo's in-memory copy, never the real list.
   const stateRef = useRef<TodoState>(demoState());
   const statusBeforeDone = useRef(new Map<string, TodoStatus>());
+  const [pageSheetOpen, setPageSheetOpen] = useState(false);
   const source = useMemo<TodoLinkSource>(() => {
     const updateItem = (itemId: string, change: (item: TodoItem) => TodoItem) => {
       const current = stateRef.current;
@@ -188,6 +191,14 @@ export function PlaygroundTodoLinkDemo() {
   return (
     <TodoLinkSourceContext.Provider value={source}>
       <MarkdownContent text="To-dos: [Ship the export feature](todo:td-31) (doing, linked quest), [Reply to Alice about the offsite](todo:td-30) (overdue), [Check Junhong's QA-grading PR](todo:td-32) (added by an agent, marked done under a standing approval) and [Book the team dinner](todo:td-34) (archived). Older proposal links: [PR 98888 review](todo:tp-36) (opens the to-do it created) and [file the September expense report](todo:tp-35) (never added)." />
+      <button
+        type="button"
+        onClick={() => setPageSheetOpen(true)}
+        className="mt-2 rounded-md border border-cc-border px-2.5 py-1 text-xs text-cc-fg hover:bg-cc-hover"
+      >
+        Open as on the To-dos page
+      </button>
+      {pageSheetOpen && <TodoItemSheet itemId="td-30" onClose={() => setPageSheetOpen(false)} onState={() => {}} />}
     </TodoLinkSourceContext.Provider>
   );
 }

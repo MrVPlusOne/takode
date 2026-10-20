@@ -146,13 +146,57 @@ describe("to-do links", () => {
     expect(dialog.textContent).toContain("Old detail");
     expect(within(dialog).getByLabelText<HTMLSelectElement>("Category").value).toBe("cat-inbox");
     expect(screen.getByRole("link", { name: "q-7" }).getAttribute("href")).toContain("q-7");
-    // The status control at the bottom shows the status; there is no separate status chip.
+    // The status control shows the status; there is no separate status chip.
     expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true");
     expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("false");
     expect(screen.queryByTestId("todo-preview-status")).toBeNull();
     // The user made this to-do, so there is no provenance line.
     expect(screen.queryByTestId("todo-provenance")).toBeNull();
     expect(screen.getByRole("link", { name: "Open to-dos" }).getAttribute("href")).toBe("#/scheduled");
+  });
+
+  it("lays the preview out for the screen: one column on a phone, text beside a side panel of controls on desktop", async () => {
+    const width = vi.spyOn(window, "innerWidth", "get");
+    const open = async () => {
+      const view = renderLink({ loadState: async () => withItem({ questIds: ["q-7"] }) });
+      fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+      const dialog = await screen.findByRole("dialog", { name: "To-do" });
+      await within(dialog).findByText("Reply to Alice");
+      return { dialog, unmount: view.unmount };
+    };
+
+    // A phone keeps its one-column sheet, with Edit and the status control at the bottom, under the thumb.
+    width.mockReturnValue(430);
+    const phone = await open();
+    expect(within(phone.dialog).queryByRole("complementary")).toBeNull();
+    const edit = within(phone.dialog).getByRole("button", { name: "Edit" });
+    const status = within(phone.dialog).getByRole("group", { name: "Status" });
+    expect(edit.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(phone.dialog).getByText("Reply to Alice").compareDocumentPosition(edit)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    phone.unmount();
+
+    // Desktop: the text and Edit on the left, every control in the side panel on the right.
+    width.mockReturnValue(1440);
+    const desktop = await open();
+    const panel = within(desktop.dialog).getByRole("complementary");
+    expect(within(panel).getByRole("group", { name: "Status" })).toBeTruthy();
+    expect(within(panel).getByLabelText("Category")).toBeTruthy();
+    expect(within(panel).getByRole("group", { name: "Due date shortcuts" })).toBeTruthy();
+    expect(within(panel).getByRole("link", { name: "q-7" })).toBeTruthy();
+    expect(within(panel).getByRole("link", { name: "Open to-dos" })).toBeTruthy();
+    expect(within(panel).queryByText("Reply to Alice")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
+
+    // Editing happens in place, with Save and Cancel right under the editor.
+    fireEvent.click(within(desktop.dialog).getByRole("button", { name: "Edit" }));
+    const editor = within(desktop.dialog).getByLabelText("To-do text");
+    expect(editor.compareDocumentPosition(within(desktop.dialog).getByTestId("todo-preview-save"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(within(panel).queryByTestId("todo-preview-save")).toBeNull();
+    width.mockRestore();
   });
 
   it("shows who added a to-do, from where, and the standing approval behind an agent's last change", async () => {

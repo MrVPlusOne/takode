@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { summarizeTodoItems, todoLinkSummary, type TodoLinkTarget } from "../../shared/todo-link.js";
 import { isTodoOverdue } from "../../shared/todo-due.js";
 import {
-  TODO_STATUSES,
   type TodoCompletionUndoHandle,
   type TodoItem,
   type TodoItemMoveInput,
@@ -13,6 +12,7 @@ import {
 } from "../../shared/todo-types.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import { api } from "../api.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { timeAgo } from "../utils/quest-helpers.js";
@@ -28,6 +28,7 @@ import {
   type TodoItemSummarySource,
   useTodoItemSummaries,
 } from "./todo-item-summaries.js";
+import { TodoItemDesktopLayout, type TodoItemParts, TodoStatusControl } from "./TodoItemDesktopLayout.js";
 import { TodoProvenance } from "./TodoProvenance.js";
 
 /** Where to-do links read statuses and the list and change a to-do; the Playground swaps in mock data. */
@@ -252,6 +253,8 @@ function TodoPreview({
   }, [onClose]);
 
   usePreviewSheetHistoryEntry(true, panelRef, onClose);
+  // The desktop shell gets the wide side-panel layout; phones keep the one-column sheet.
+  const desktop = useDesktopShellLayout();
 
   // A retired proposal link shows the to-do its approval created; the to-do records the proposal.
   const item =
@@ -273,7 +276,7 @@ function TodoPreview({
         aria-modal="true"
         aria-label="To-do"
         tabIndex={-1}
-        className="flex max-h-[85dvh] w-full flex-col rounded-t-2xl border border-cc-border bg-cc-card text-left shadow-2xl focus:outline-none sm:max-w-md sm:rounded-2xl"
+        className={`flex max-h-[85dvh] w-full flex-col rounded-t-2xl border border-cc-border bg-cc-card text-left shadow-2xl focus:outline-none sm:rounded-2xl ${desktop ? "sm:max-w-[60rem]" : "sm:max-w-md"}`}
         data-testid="todo-preview"
       >
         <div className="flex items-center gap-2 px-4 pt-3 text-[11px] text-cc-muted">
@@ -300,6 +303,7 @@ function TodoPreview({
         </div>
         {state && item ? (
           <ItemPreview
+            desktop={desktop}
             item={item}
             state={state}
             onPage={onPage}
@@ -322,7 +326,7 @@ function TodoPreview({
             </div>
             {state && (
               <div className="border-t border-cc-border/60 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
-                <PreviewFooter onClose={onClose} onPage={onPage} />
+                <PreviewFooter pageLink={onPage ? null : <OpenTodosLink onClose={onClose} />} />
               </div>
             )}
           </>
@@ -333,25 +337,24 @@ function TodoPreview({
   );
 }
 
-/** The preview's status line and the way on to the full list. */
-function PreviewFooter({ children, onClose, onPage }: { children?: ReactNode; onClose: () => void; onPage: boolean }) {
+/** The preview's status line and, outside the To-dos page, the way on to the full list. */
+function PreviewFooter({ children, pageLink }: { children?: ReactNode; pageLink: ReactNode }) {
   return (
     <div className="flex min-h-11 items-center justify-between gap-3 text-[13px] text-cc-muted">
       <span data-testid="todo-preview-footer-status">{children}</span>
-      {!onPage && (
-        <a href={TODOS_PAGE_HASH} onClick={onClose} className="text-cc-primary hover:underline">
-          Open to-dos
-        </a>
-      )}
+      {pageLink}
     </div>
   );
 }
 
-const STATUS_SELECTED_TONES: Record<TodoStatus, string> = {
-  todo: "bg-cc-hover text-cc-fg",
-  doing: "bg-cc-primary/15 text-cc-primary",
-  done: "bg-cc-success/15 text-cc-success",
-};
+/** The way on from a to-do link's preview to the full list. */
+function OpenTodosLink({ onClose }: { onClose: () => void }) {
+  return (
+    <a href={TODOS_PAGE_HASH} onClick={onClose} className="text-cc-primary hover:underline">
+      Open to-dos
+    </a>
+  );
+}
 
 const SMALL_BUTTON_CLASS =
   "inline-flex min-h-8 items-center justify-center rounded-lg border border-cc-border px-2 text-[13px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40 pointer-coarse:min-h-10";
@@ -363,9 +366,10 @@ const SECONDARY_BUTTON_CLASS =
  * An existing to-do: its text, where it lives, its due date and linked quests, with the changes the
  * To-dos page offers for it: edit the text, move it between Todo, Doing and Done (with a short Undo
  * after completing it) and set or clear the due date. These are the user's own actions, like the
- * page's. The status control sits at the bottom right, under the right thumb on a phone.
+ * page's. It builds each part once and lays them out for a phone or a desktop screen.
  */
 function ItemPreview({
+  desktop,
   item,
   state,
   onPage,
@@ -373,6 +377,8 @@ function ItemPreview({
   onClose,
   onEditingChange,
 }: {
+  /** Lay the sheet out for a desktop screen rather than a phone. */
+  desktop: boolean;
   item: TodoItem;
   state: TodoState;
   onPage: boolean;
@@ -471,178 +477,222 @@ function ItemPreview({
     );
   };
 
+  const editor = (
+    <textarea
+      ref={textareaRef}
+      value={draft ?? ""}
+      disabled={busy("save")}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        requestAnimationFrame(resizeEditor);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          // Escape leaves the editor, not the whole preview, as on the To-dos page.
+          event.preventDefault();
+          event.stopPropagation();
+          setDraft(null);
+        } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          saveDraft();
+        }
+      }}
+      aria-label="To-do text"
+      placeholder={"Title\nOptional Markdown details"}
+      className="mt-1 block max-h-80 min-h-11 w-full resize-none overflow-y-auto rounded-lg border border-cc-primary/35 bg-cc-bg px-3 py-2 text-sm leading-relaxed text-cc-fg outline-none focus:border-cc-primary disabled:opacity-70"
+    />
+  );
+  const parts: TodoItemParts = {
+    editing,
+    pending: action.pending,
+    content: editing ? editor : <TodoBody markdown={item.markdown} />,
+    category: item.archivedAt ? (
+      <span className="text-cc-fg">
+        {categories.find((candidate) => candidate.id === item.categoryId)?.name ?? item.categoryId}
+      </span>
+    ) : (
+      <select
+        aria-label="Category"
+        value={item.categoryId}
+        disabled={action.pending}
+        onChange={(event) => run("category", () => source.moveItem(item.id, { categoryId: event.target.value }))}
+        className={`${TODO_SELECT_CLASS} w-full`}
+      >
+        {categories.map((candidate) => (
+          <option key={candidate.id} value={candidate.id}>
+            {candidate.name}
+          </option>
+        ))}
+      </select>
+    ),
+    due: current ? (
+      <div className="space-y-2">
+        <TodoDueQuickPicks
+          due={item.due}
+          busy={action.pending}
+          now={now}
+          onSet={(due) => run("due", () => source.setItemDue(item.id, due))}
+        />
+        {item.due && (
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={`inline-flex items-center gap-1 ${overdue ? "text-cc-error" : "text-cc-fg"}`}
+              data-testid="todo-preview-due"
+            >
+              <CalendarIcon className="h-3.5 w-3.5" />
+              {`${overdue ? "Overdue" : "Due"} ${formatTodoDue(item.due, now)}`}
+            </span>
+            <button
+              type="button"
+              disabled={action.pending}
+              onClick={() => run("due", () => source.setItemDue(item.id, null))}
+              className="rounded-md px-1.5 py-0.5 text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null,
+    quests: quests ? <MarkdownContent text={quests} size="md" /> : null,
+    // Moving and archiving are the page's own changes, so the link preview leaves them out.
+    moveUp:
+      onPage && current
+        ? {
+            disabled: action.pending || index <= 0,
+            run: () => run("up", () => source.moveItem(item.id, { beforeItemId: siblings[index - 1]!.id })),
+          }
+        : null,
+    moveDown:
+      onPage && current
+        ? {
+            disabled: action.pending || index < 0 || index >= siblings.length - 1,
+            run: () => run("down", () => source.moveItem(item.id, { afterItemId: siblings[index + 1]!.id })),
+          }
+        : null,
+    archive: onPage
+      ? {
+          label: item.archivedAt ? "Restore" : "Archive",
+          disabled: action.pending,
+          run: () => run("archive", () => source.setItemArchived(item.id, !item.archivedAt)),
+        }
+      : null,
+    provenance: <TodoProvenance item={item} onNavigate={onClose} className="space-y-0.5 text-[12px] text-cc-muted" />,
+    footerStatus: canUndo ? (
+      <>
+        Moved to Done ·{" "}
+        <button
+          type="button"
+          onClick={() =>
+            run(
+              "undo",
+              () => source.undoCompletion(item.id, undo!.token),
+              () => setUndo(null),
+            )
+          }
+          disabled={action.pending}
+          aria-busy={busy("undo") || undefined}
+          className="text-cc-primary hover:underline"
+        >
+          Undo
+        </button>
+      </>
+    ) : item.completedAt ? (
+      `Done ${timeAgo(item.completedAt)}`
+    ) : (
+      `Updated ${timeAgo(item.updatedAt)}`
+    ),
+    pageLink: onPage ? null : <OpenTodosLink onClose={onClose} />,
+    error: action.error ? (
+      <p role="alert" className="text-xs text-cc-error">
+        {action.error}
+      </p>
+    ) : null,
+    startEdit: () => {
+      action.clearError();
+      setDraft(item.markdown);
+    },
+    cancelEdit: () => setDraft(null),
+    saveEdit: { disabled: action.pending || !draftValid, busy: busy("save"), run: saveDraft },
+    status: item.archivedAt
+      ? null
+      : {
+          value: item.status,
+          set: setStatus,
+          disabled: (status) => action.pending && !busy(`status:${status}`),
+          busy: (status) => busy(`status:${status}`),
+        },
+  };
+
+  return desktop ? <TodoItemDesktopLayout parts={parts} /> : <PhoneItemLayout parts={parts} />;
+}
+
+/** The phone layout: one column, with Edit and the status control at the bottom, under the thumb. */
+function PhoneItemLayout({ parts }: { parts: TodoItemParts }) {
+  const { content, category, due, quests, moveUp, moveDown, archive, status } = parts;
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-1">
-        {editing ? (
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            disabled={busy("save")}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              requestAnimationFrame(resizeEditor);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                // Escape leaves the editor, not the whole preview, as on the To-dos page.
-                event.preventDefault();
-                event.stopPropagation();
-                setDraft(null);
-              } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                saveDraft();
-              }
-            }}
-            aria-label="To-do text"
-            placeholder={"Title\nOptional Markdown details"}
-            className="mt-1 block max-h-80 min-h-11 w-full resize-none overflow-y-auto rounded-lg border border-cc-primary/35 bg-cc-bg px-3 py-2 text-sm leading-relaxed text-cc-fg outline-none focus:border-cc-primary disabled:opacity-70"
-          />
-        ) : (
-          <TodoBody markdown={item.markdown} />
-        )}
+        {content}
         {/* Label and control columns, so every setting lines up. */}
         <div className="mt-3 grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-[13px]">
           <span className="text-cc-muted">Category</span>
-          {item.archivedAt ? (
-            <span className="text-cc-fg">
-              {categories.find((candidate) => candidate.id === item.categoryId)?.name ?? item.categoryId}
-            </span>
-          ) : (
-            <select
-              aria-label="Category"
-              value={item.categoryId}
-              disabled={action.pending}
-              onChange={(event) => run("category", () => source.moveItem(item.id, { categoryId: event.target.value }))}
-              className={`${TODO_SELECT_CLASS} w-full`}
-            >
-              {categories.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                </option>
-              ))}
-            </select>
-          )}
-          {current && (
+          {category}
+          {due && (
             <>
               <span className="self-start pt-1.5 text-cc-muted pointer-coarse:pt-2.5">Due</span>
-              <div className="space-y-2">
-                <TodoDueQuickPicks
-                  due={item.due}
-                  busy={action.pending}
-                  now={now}
-                  onSet={(due) => run("due", () => source.setItemDue(item.id, due))}
-                />
-                {item.due && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`inline-flex items-center gap-1 ${overdue ? "text-cc-error" : "text-cc-fg"}`}
-                      data-testid="todo-preview-due"
-                    >
-                      <CalendarIcon className="h-3.5 w-3.5" />
-                      {`${overdue ? "Overdue" : "Due"} ${formatTodoDue(item.due, now)}`}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={action.pending}
-                      onClick={() => run("due", () => source.setItemDue(item.id, null))}
-                      className="rounded-md px-1.5 py-0.5 text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-              </div>
+              {due}
             </>
           )}
           {quests && (
             <>
               <span className="text-cc-muted">Quests</span>
-              <MarkdownContent text={quests} size="md" />
+              {quests}
             </>
           )}
         </div>
-        {onPage && (
-          <div className={`mt-3 grid gap-1.5 ${current ? "grid-cols-3" : "grid-cols-1"}`}>
-            {current && (
+        {archive && (
+          <div className={`mt-3 grid gap-1.5 ${moveUp ? "grid-cols-3" : "grid-cols-1"}`}>
+            {moveUp && moveDown && (
               <>
-                <button
-                  type="button"
-                  disabled={action.pending || index <= 0}
-                  onClick={() => run("up", () => source.moveItem(item.id, { beforeItemId: siblings[index - 1]!.id }))}
-                  className={SMALL_BUTTON_CLASS}
-                >
+                <button type="button" disabled={moveUp.disabled} onClick={moveUp.run} className={SMALL_BUTTON_CLASS}>
                   ↑ Move up
                 </button>
                 <button
                   type="button"
-                  disabled={action.pending || index < 0 || index >= siblings.length - 1}
-                  onClick={() => run("down", () => source.moveItem(item.id, { afterItemId: siblings[index + 1]!.id }))}
+                  disabled={moveDown.disabled}
+                  onClick={moveDown.run}
                   className={SMALL_BUTTON_CLASS}
                 >
                   ↓ Move down
                 </button>
               </>
             )}
-            <button
-              type="button"
-              disabled={action.pending}
-              onClick={() => run("archive", () => source.setItemArchived(item.id, !item.archivedAt))}
-              className={SMALL_BUTTON_CLASS}
-            >
-              {item.archivedAt ? "Restore" : "Archive"}
+            <button type="button" disabled={archive.disabled} onClick={archive.run} className={SMALL_BUTTON_CLASS}>
+              {archive.label}
             </button>
           </div>
         )}
-        <TodoProvenance item={item} onNavigate={onClose} className="mt-2 space-y-0.5 text-[12px] text-cc-muted" />
+        <div className="mt-2 empty:hidden">{parts.provenance}</div>
       </div>
       <div className="border-t border-cc-border/60 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
-        <PreviewFooter onClose={onClose} onPage={onPage}>
-          {canUndo ? (
-            <>
-              Moved to Done ·{" "}
-              <button
-                type="button"
-                onClick={() =>
-                  run(
-                    "undo",
-                    () => source.undoCompletion(item.id, undo!.token),
-                    () => setUndo(null),
-                  )
-                }
-                disabled={action.pending}
-                aria-busy={busy("undo") || undefined}
-                className="text-cc-primary hover:underline"
-              >
-                Undo
-              </button>
-            </>
-          ) : item.completedAt ? (
-            `Done ${timeAgo(item.completedAt)}`
-          ) : (
-            `Updated ${timeAgo(item.updatedAt)}`
-          )}
-        </PreviewFooter>
-        {action.error && (
-          <p role="alert" className="mb-2 text-xs text-cc-error">
-            {action.error}
-          </p>
-        )}
-        {editing ? (
+        <PreviewFooter pageLink={parts.pageLink}>{parts.footerStatus}</PreviewFooter>
+        {parts.error && <div className="mb-2">{parts.error}</div>}
+        {parts.editing ? (
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setDraft(null)}
-              disabled={action.pending}
+              onClick={parts.cancelEdit}
+              disabled={parts.pending}
               className={SECONDARY_BUTTON_CLASS}
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={saveDraft}
-              disabled={action.pending || !draftValid}
-              aria-busy={busy("save") || undefined}
+              onClick={parts.saveEdit.run}
+              disabled={parts.saveEdit.disabled}
+              aria-busy={parts.saveEdit.busy || undefined}
               className="inline-flex min-h-11 items-center rounded-lg bg-cc-primary px-5 text-sm font-semibold text-white hover:bg-cc-primary-hover disabled:opacity-60"
               data-testid="todo-preview-save"
             >
@@ -651,35 +701,10 @@ function ItemPreview({
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                action.clearError();
-                setDraft(item.markdown);
-              }}
-              className={SECONDARY_BUTTON_CLASS}
-            >
+            <button type="button" onClick={parts.startEdit} className={SECONDARY_BUTTON_CLASS}>
               Edit
             </button>
-            {!item.archivedAt && (
-              <div role="group" aria-label="Status" className="flex rounded-lg border border-cc-border p-0.5">
-                {TODO_STATUSES.map((status) => (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={(event) => setStatus(status, event.currentTarget)}
-                    disabled={action.pending && !busy(`status:${status}`)}
-                    aria-pressed={item.status === status}
-                    aria-busy={busy(`status:${status}`) || undefined}
-                    className={`inline-flex min-h-10 items-center rounded-md px-3.5 text-sm disabled:opacity-60 ${
-                      item.status === status ? STATUS_SELECTED_TONES[status] : "text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    {STATUS_LABELS[status]}
-                  </button>
-                ))}
-              </div>
-            )}
+            {status && <TodoStatusControl status={status} size="phone" />}
           </div>
         )}
       </div>
