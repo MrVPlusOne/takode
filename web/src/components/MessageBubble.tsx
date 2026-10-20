@@ -1246,6 +1246,7 @@ function AssistantMessage({
               <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
             )}
             <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+            {!readOnly && <ReadAloudPlayer messageId={message.id} />}
             {rejectedRouteHeader && (
               <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
             )}
@@ -1288,7 +1289,6 @@ function AssistantMessage({
               testId="assistant-image-preview-group"
             />
           </ImagePathLinkContext.Provider>
-          {!readOnly && <ReadAloudPlayer messageId={message.id} />}
           {!readOnly && resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
@@ -1324,6 +1324,7 @@ function AssistantMessage({
             <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
           )}
           <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+          {!readOnly && <ReadAloudPlayer messageId={message.id} />}
           {rejectedRouteHeader}
           {projection.shouldRenderContentFallback && !collapseRejectedText && (
             <div className="flow-root">
@@ -1450,7 +1451,6 @@ function AssistantMessage({
             testId="assistant-image-preview-group"
           />
         </ImagePathLinkContext.Provider>
-        {!readOnly && <ReadAloudPlayer messageId={message.id} />}
         {!readOnly && resolvedNotification && (
           <NotificationMarker
             category={resolvedNotification.category}

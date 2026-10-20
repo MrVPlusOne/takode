@@ -295,7 +295,7 @@ describe("SettingsPage groups and search", () => {
     ).toEqual([
       "Appearance",
       "Keyboard",
-      "Voice Input",
+      "Voice",
       "Notifications",
       "Sessions",
       "Editor",

@@ -70,7 +70,12 @@ describe("AssistantMessageMenu read aloud", () => {
   });
 
   it("shows a failure next to the button and dismisses it on tap", () => {
-    player.state = { messageId: "assistant-1", sessionId: "s1", status: "error", error: "Read aloud failed. quota" };
+    player.state = {
+      messageId: "assistant-1",
+      sessionId: "s1",
+      status: "error",
+      error: "Read aloud failed. quota",
+    };
     renderMenu();
 
     fireEvent.click(screen.getByRole("alert"));

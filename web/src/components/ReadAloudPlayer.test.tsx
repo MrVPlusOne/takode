@@ -61,16 +61,16 @@ describe("ReadAloudPlayer", () => {
     expect(player.toggle).toHaveBeenCalled();
     fireEvent.change(screen.getByRole("combobox", { name: "Playback speed" }), { target: { value: "1.5" } });
     expect(player.setRate).toHaveBeenCalledWith(1.5);
-    // The voice menu offers the four chosen voices.
+    // The voice menu offers the four voices Jiayi chose.
     const voice = screen.getByRole("combobox", { name: "Voice" });
     expect([...voice.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
       "Marin",
       "Cedar",
-      "Nova",
-      "Onyx",
+      "Coral",
+      "Ash",
     ]);
-    fireEvent.change(voice, { target: { value: "onyx" } });
-    expect(player.setVoice).toHaveBeenCalledWith("onyx");
+    fireEvent.change(voice, { target: { value: "ash" } });
+    expect(player.setVoice).toHaveBeenCalledWith("ash");
     fireEvent.click(screen.getByRole("button", { name: "Stop reading aloud" }));
     expect(player.stop).toHaveBeenCalled();
   });

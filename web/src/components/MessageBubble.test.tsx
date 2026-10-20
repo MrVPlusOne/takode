@@ -1208,7 +1208,7 @@ describe("MessageBubble - assistant messages", () => {
 
     expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
     fireEvent.click(screen.getByTitle("Message options"));
-    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 
   it("renders deprecated @to(user) tags as raw text", () => {
@@ -1531,7 +1531,9 @@ describe("MessageBubble - assistant messages", () => {
       render(<MessageBubble message={msg} sessionId="session-abc" />);
 
       fireEvent.click(screen.getByTitle("Message options"));
-      fireEvent.click(screen.getByText("Copy message link"));
+      // Copy actions of assistant messages sit in one Copy submenu.
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      fireEvent.click(screen.getByRole("button", { name: "Message link" }));
 
       await waitFor(() => {
         expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/52");

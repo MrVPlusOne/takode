@@ -8,13 +8,28 @@ export interface ReadAloudRecordDetail {
   replays: ReadAloudRecord[];
   defaults: ReadAloudSettings;
   voices: string[];
+  /** Speech models to compare, each with the voices it accepts. */
+  speechModels: Array<{ model: string; voices: string[] }>;
 }
 
-/** Fetch MP3 audio of one assistant message read aloud (rewritten for listening when needed). */
+export interface ReadAloudAudio {
+  blob: Blob;
+  /** The debug record holding this audio, for reporting the browser's timing. */
+  recordId: string | null;
+  /** True when the server played back audio it had already made. */
+  cached: boolean;
+  /** From sending the request until the response started arriving. */
+  waitMs: number;
+  /** Downloading the audio. */
+  downloadMs: number;
+}
+
+/** Fetch MP3 audio of one message or report read aloud (rewritten for listening when needed). */
 export async function fetchReadAloudAudio(
   input: { sessionId: string; messageId: string; text: string; historyIndex?: number; voice: string },
   signal: AbortSignal,
-): Promise<Blob> {
+): Promise<ReadAloudAudio> {
+  const startedAt = performance.now();
   const res = await request(`/sessions/${encodeURIComponent(input.sessionId)}/read-aloud`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -26,7 +41,27 @@ export async function fetchReadAloudAudio(
     }),
     signal,
   });
-  return res.blob();
+  const headersAt = performance.now();
+  const blob = await res.blob();
+  return {
+    blob,
+    recordId: res.headers.get("X-Read-Aloud-Record"),
+    cached: res.headers.get("X-Read-Aloud-Cached") === "1",
+    waitMs: headersAt - startedAt,
+    downloadMs: performance.now() - headersAt,
+  };
+}
+
+/** Attach what this browser measured to the read's debug record. Failures are only logged. */
+export function reportReadAloudTiming(
+  recordId: string,
+  timing: { waitMs: number; downloadMs: number; startMs: number; cached: boolean },
+): void {
+  request(`/read-aloud/records/${encodeURIComponent(recordId)}/client-timing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(timing),
+  }).catch((error: unknown) => console.warn("[read-aloud] Could not report playback timing:", error));
 }
 
 export async function listReadAloudRecords(): Promise<ReadAloudRecordSummary[]> {

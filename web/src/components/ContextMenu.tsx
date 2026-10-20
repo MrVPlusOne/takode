@@ -224,31 +224,46 @@ function SubmenuItem({
   // Position from the rendered submenu dimensions so long quest titles and
   // dense target lists remain inside narrow mobile viewports.
   const [subStyle, setSubStyle] = useState<React.CSSProperties>({});
+  // On a narrow screen with no room beside the menu, the submenu would cover the row
+  // that opened it (and a second tap could pick a child), so it opens inside the menu.
+  const [inline, setInline] = useState(false);
   useLayoutEffect(() => {
-    if (!isOpen || !rowRef.current || !subRef.current) return;
+    if (!isOpen) {
+      setInline(false);
+      return;
+    }
+    if (inline || !rowRef.current || !subRef.current) return;
     const rowRect = rowRef.current.getBoundingClientRect();
     const subRect = subRef.current.getBoundingClientRect();
-    let left = rowRect.right + 2;
-    if (left + subRect.width > window.innerWidth - 8) {
-      left = Math.max(8, rowRect.left - subRect.width - 2);
+    const fitsRight = rowRect.right + 2 + subRect.width <= window.innerWidth - 8;
+    const fitsLeft = rowRect.left - subRect.width - 2 >= 8;
+    if (!fitsRight && !fitsLeft) {
+      setInline(true);
+      return;
     }
+    const left = fitsRight ? rowRect.right + 2 : rowRect.left - subRect.width - 2;
     const top = Math.max(8, Math.min(rowRect.top, window.innerHeight - subRect.height - 8));
     setSubStyle({ position: "fixed", left, top });
-  }, [isOpen, item.children?.length]);
+  }, [isOpen, inline, item.children?.length]);
 
   return (
     <div
       ref={rowRef}
       className="relative"
-      onMouseEnter={onOpen}
-      onMouseLeave={(e) => {
+      // Mouse hover only: a tap's emulated hover would open the submenu just before its
+      // click toggles it, so taps go through the click alone.
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse") onOpen();
+      }}
+      onPointerLeave={(e) => {
         // Don't close if moving into the submenu panel
-        if (subRef.current?.contains(e.relatedTarget as Node)) return;
+        if (e.pointerType !== "mouse" || subRef.current?.contains(e.relatedTarget as Node)) return;
         onClose();
       }}
     >
       <button
-        onClick={onOpen}
+        // Hover opens a side submenu, so a click only opens; an inline one also closes on a second tap.
+        onClick={isOpen && inline ? onClose : onOpen}
         className={`${MENU_STYLES.item} ${itemClassName ?? ""} flex items-center justify-between`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
@@ -265,7 +280,21 @@ function SubmenuItem({
           <path d="M6 4l4 4-4 4" />
         </svg>
       </button>
-      {isOpen && item.children && (
+      {isOpen && item.children && inline && (
+        <div ref={subRef} className="pl-3" data-testid="context-submenu-inline">
+          {item.children.map((child, ci) => (
+            <button
+              key={`${child.label}-${ci}`}
+              onClick={() => onAction(child)}
+              className={`${MENU_STYLES.item} ${itemClassName ?? ""}`}
+              title={child.label}
+            >
+              {child.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {isOpen && item.children && !inline && (
         <div ref={subRef} className={MENU_STYLES.submenuContainer} style={subStyle} onMouseLeave={() => onClose()}>
           {item.children.map((child, ci) => (
             <button

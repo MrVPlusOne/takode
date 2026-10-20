@@ -210,9 +210,10 @@ describe("MessageBubble timestamp menu affordances", () => {
     fireEvent.click(trigger);
 
     expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy as Rich Text" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy as Plain Text" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.getByRole("button", { name: "Markdown" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rich Text" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Plain Text" })).toBeTruthy();
 
     const metadata = screen.getByRole("note", { name: "Message time" });
     expect(metadata).toBe(screen.getByTestId("message-time-assistant-menu-metadata"));

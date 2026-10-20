@@ -142,13 +142,13 @@ describe("read-aloud player", () => {
 
   it("remembers voice and speed for the next visit", async () => {
     act(() => {
-      player.setReadAloudVoice("onyx");
+      player.setReadAloudVoice("ash");
       player.setReadAloudPlaybackRate(1.25);
     });
     vi.resetModules();
     const reloaded = await import("./read-aloud-player.js");
     const { result } = renderHook(() => reloaded.useReadAloudPreferences());
-    expect(result.current).toEqual({ voice: "onyx", playbackRate: 1.25 });
+    expect(result.current).toEqual({ voice: "ash", playbackRate: 1.25 });
   });
 
   it("changing the voice reads the same message again from the same point", async () => {
@@ -180,7 +180,7 @@ describe("read-aloud player", () => {
     Object.defineProperty(audio, "ended", { configurable: true, value: true });
     audio.currentTime = 40;
 
-    act(() => player.setReadAloudVoice("nova"));
+    act(() => player.setReadAloudVoice("coral"));
     await respond(mp3());
     // No resume point to wait for: the new audio plays right away, from the start.
     expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2");

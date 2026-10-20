@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
-import { fetchReadAloudAudio } from "./api/read-aloud.js";
+import { fetchReadAloudAudio, reportReadAloudTiming } from "./api/read-aloud.js";
 
 /** The voices offered in the player, in menu order. */
-export const READ_ALOUD_PLAYER_VOICES = ["marin", "cedar", "nova", "onyx"] as const;
+export const READ_ALOUD_PLAYER_VOICES = ["marin", "cedar", "coral", "ash"] as const;
 export type ReadAloudVoice = (typeof READ_ALOUD_PLAYER_VOICES)[number];
 export const READ_ALOUD_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 const SKIP_SECONDS = 5;
@@ -147,10 +147,12 @@ function load(input: ReadAloudInput, resumeFraction: number): void {
   currentRead = request;
   currentInput = input;
   playback = IDLE_PLAYBACK;
-  setState({ messageId: input.messageId, sessionId: input.sessionId, status: "preparing" });
+  const read = { messageId: input.messageId, sessionId: input.sessionId };
+  setState({ ...read, status: "preparing" });
   fetchReadAloudAudio({ ...input, voice: preferences.voice }, request.signal)
-    .then(async (blob) => {
+    .then(async ({ blob, recordId, cached, waitMs, downloadMs }) => {
       if (currentRead !== request) return;
+      const loadedAt = performance.now();
       audioUrl = URL.createObjectURL(blob);
       element.src = audioUrl;
       element.playbackRate = preferences.playbackRate;
@@ -160,7 +162,9 @@ function load(input: ReadAloudInput, resumeFraction: number): void {
         element.currentTime = resumeFraction * element.duration;
       }
       await element.play();
-      setState({ messageId: input.messageId, sessionId: input.sessionId, status: "ready" });
+      if (recordId)
+        reportReadAloudTiming(recordId, { waitMs, downloadMs, startMs: performance.now() - loadedAt, cached });
+      setState({ ...read, status: "ready" });
       showOnLockScreen();
     })
     .catch((error: unknown) => {
@@ -169,8 +173,7 @@ function load(input: ReadAloudInput, resumeFraction: number): void {
       currentRead = null;
       releaseAudio();
       setState({
-        messageId: input.messageId,
-        sessionId: input.sessionId,
+        ...read,
         status: "error",
         error: error instanceof Error ? error.message : String(error),
       });

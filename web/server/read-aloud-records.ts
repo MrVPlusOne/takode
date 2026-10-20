@@ -6,6 +6,9 @@ import { getSettings } from "./settings-manager.js";
 import { readAloudKeptOriginal, type ReadAloudTrace } from "./read-aloud.js";
 
 const LIST_LIMIT = 50;
+/** Newest records scanned once after a restart to find earlier audio for replays. */
+const CACHE_SEED_RECORDS = 200;
+const CLIENT_TIMINGS_KEPT = 20;
 const PREVIEW_CHARS = 160;
 const RECORD_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 
@@ -24,6 +27,23 @@ export interface ReadAloudRecord {
   trace: ReadAloudTrace;
   error: string | null;
   audioBytes: number;
+  /** Identifies the same message read with the same settings, whose audio can be played again. */
+  cacheKey?: string;
+  /** What browsers measured when they played this record's audio, newest last. */
+  clientTimings?: ReadAloudClientTiming[];
+}
+
+/** One playback as the browser saw it. */
+export interface ReadAloudClientTiming {
+  at: number;
+  /** From the tap until the response started arriving: server work plus network delay. */
+  waitMs: number;
+  /** Downloading the audio. */
+  downloadMs: number;
+  /** From having the audio until it started playing (decoding and starting playback). */
+  startMs: number;
+  /** True when the server sent saved audio instead of making it again. */
+  cached: boolean;
 }
 
 /** A list row: no message, context or prompts beyond a one-line preview. */
@@ -46,6 +66,10 @@ export interface ReadAloudRecordSummary {
  * like transcription recordings so prompts and audio can be inspected and replayed.
  */
 export class ReadAloudRecordStore {
+  private readonly idsByCacheKey = new Map<string, string>();
+  private cacheSeeded: Promise<void> | null = null;
+  private writes: Promise<unknown> = Promise.resolve();
+
   /** Without a root, the default folder is resolved on each use, after settings load. */
   constructor(private readonly rootOverride?: string) {}
 
@@ -64,11 +88,26 @@ export class ReadAloudRecordStore {
     await mkdir(this.dir(id), { recursive: true });
     if (audio) await writeFile(join(this.dir(id), "audio.mp3"), audio);
     await this.write(record);
-    if (input.sourceId) {
-      const source = await this.get(input.sourceId);
-      if (source) await this.write({ ...source, replayIds: [...source.replayIds, id] });
-    }
+    if (audio && record.cacheKey) this.idsByCacheKey.set(record.cacheKey, id);
+    if (input.sourceId)
+      await this.update(input.sourceId, (source) => ({ ...source, replayIds: [...source.replayIds, id] }));
     return record;
+  }
+
+  /** The newest successful record read with this cache key, if its audio is still there. */
+  async findCached(cacheKey: string): Promise<ReadAloudRecord | null> {
+    this.cacheSeeded ??= this.seedCache();
+    await this.cacheSeeded;
+    const id = this.idsByCacheKey.get(cacheKey);
+    const record = id ? await this.get(id) : null;
+    return record && !record.error && record.audioBytes > 0 ? record : null;
+  }
+
+  async addClientTiming(id: string, timing: ReadAloudClientTiming): Promise<boolean> {
+    return this.update(id, (record) => ({
+      ...record,
+      clientTimings: [...(record.clientTimings ?? []), timing].slice(-CLIENT_TIMINGS_KEPT),
+    }));
   }
 
   async get(id: string): Promise<ReadAloudRecord | null> {
@@ -93,19 +132,49 @@ export class ReadAloudRecordStore {
 
   /** The most recent reads started from a message (replays appear inside their source). */
   async listRecent(): Promise<ReadAloudRecordSummary[]> {
-    const names = await readdir(this.root).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return [] as string[];
-      throw error;
-    });
     const summaries: ReadAloudRecordSummary[] = [];
-    // Folder names start with an ISO time, so name order is time order.
-    for (const name of names.sort().reverse()) {
+    for (const name of await this.recordNames()) {
       if (summaries.length >= LIST_LIMIT) break;
       const record = await this.get(name);
       if (!record || record.sourceId) continue;
       summaries.push(summarize(record));
     }
     return summaries;
+  }
+
+  /** Read-modify-write one record, one change at a time. Returns false when it does not exist. */
+  private update(id: string, change: (record: ReadAloudRecord) => ReadAloudRecord): Promise<boolean> {
+    const next = this.writes.then(async () => {
+      const record = await this.get(id);
+      if (!record) return false;
+      await this.write(change(record));
+      return true;
+    });
+    this.writes = next.catch(() => {});
+    return next;
+  }
+
+  /** After a restart, remember the cache keys of recent reads so their audio can be played again. */
+  private async seedCache(): Promise<void> {
+    const names = await this.recordNames();
+    for (const name of names.slice(0, CACHE_SEED_RECORDS)) {
+      const record = await this.get(name).catch(() => null);
+      if (record?.cacheKey && !record.error && record.audioBytes > 0 && !this.idsByCacheKey.has(record.cacheKey)) {
+        this.idsByCacheKey.set(record.cacheKey, record.id);
+      }
+    }
+  }
+
+  /** Record folder names, newest first (names start with an ISO time). */
+  private async recordNames(): Promise<string[]> {
+    const names = await readdir(this.root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [] as string[];
+      throw error;
+    });
+    return names
+      .filter((name) => RECORD_ID_PATTERN.test(name))
+      .sort()
+      .reverse();
   }
 
   private dir(id: string): string {

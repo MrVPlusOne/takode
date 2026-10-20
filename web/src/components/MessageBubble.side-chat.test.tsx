@@ -193,7 +193,7 @@ describe("MessageBubble Side Chat actions", () => {
     expect(screen.queryByRole("button", { name: /Open Side Chat with/i })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Message options" }));
     expect(screen.queryByText("Start Side Chat")).toBeNull();
-    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 
   it("keeps Side Chat creation in a first-line hover and focus menu for native-eligible root assistant messages", async () => {
@@ -301,6 +301,6 @@ describe("MessageBubble Side Chat actions", () => {
 
     expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Message options" }));
-    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 });

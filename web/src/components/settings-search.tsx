@@ -102,9 +102,9 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     id: "voice",
-    title: "Voice Input",
-    description: "Speech-to-text for dictating messages, with optional cleanup by an LLM.",
-    aliases: ["dictation", "microphone", "speech"],
+    title: "Voice",
+    description: "Speech-to-text for dictating messages, and reading replies aloud.",
+    aliases: ["voice input", "dictation", "microphone", "speech", "read aloud", "text to speech", "tts"],
     items: [
       { id: "voice-microphone", text: "Microphone learned order reset system input device external USB headset" },
       {
@@ -115,6 +115,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "voice-enhancement", text: "Enhancement Style prose bullet points" },
       { id: "voice-vocabulary", text: "Custom Vocabulary terms model mishears vocabulary hints" },
       { id: "voice-tester", text: "Enhancement Tester debug panel" },
+      { id: "voice-read-aloud", text: "Read Aloud Debug text-to-speech rewrite prompt voice replay timing" },
     ],
   },
   {

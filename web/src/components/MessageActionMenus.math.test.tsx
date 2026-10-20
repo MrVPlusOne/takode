@@ -33,7 +33,8 @@ describe("AssistantMessageMenu math source copy", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
-    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
   });

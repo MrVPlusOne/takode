@@ -4,6 +4,8 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { ReportCard } from "./ReportCard.js";
+import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
+import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
 
 /**
  * A source-labelled snapshot with the ordinary chat selection scope. Reports can
@@ -14,35 +16,81 @@ export function MarkdownReport({ message, readOnly = false }: { message: ChatMes
   const contentRef = useRef<HTMLDivElement>(null);
   const source = message.metadata!.markdownReport!;
   return (
-    <ReportCard>
-      <article className="relative min-w-0 space-y-3" data-markdown-report-source={JSON.stringify(source)}>
-        <div className="group/code flex items-start gap-2 text-xs text-cc-muted">
-          <div className="min-w-0 flex-1">
-            <div className="font-medium text-cc-fg">Markdown report</div>
-            <div className="break-all">{source.sourcePath}</div>
-            <details>
-              <summary className="cursor-pointer">
-                Saved snapshot · {new Date(message.timestamp).toLocaleString()}
-              </summary>
-              <div className="break-all">{source.sha256}</div>
-            </details>
+    <>
+      {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+      <ReportCard>
+        <article className="relative min-w-0 space-y-3" data-markdown-report-source={JSON.stringify(source)}>
+          <div className="group/code flex items-start gap-2 text-xs text-cc-muted">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-cc-fg">Markdown report</div>
+              <div className="break-all">{source.sourcePath}</div>
+              <details>
+                <summary className="cursor-pointer">
+                  Saved snapshot · {new Date(message.timestamp).toLocaleString()}
+                </summary>
+                <div className="break-all">{source.sha256}</div>
+              </details>
+            </div>
+            {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
+            <CodeCopyButton text={message.content} label="Copy Markdown" />
           </div>
-          <CodeCopyButton text={message.content} label="Copy Markdown" />
-        </div>
-        <div ref={contentRef} className="relative min-w-0 mr-5">
-          <MarkdownContent
-            text={message.content}
-            sessionId={source.responsibleWorkerId ?? source.sessionId}
-            enableChatSelectionMenu={!readOnly}
-            fileLinkMode={readOnly ? "text-only" : "interactive"}
-            fileBasePath={source.sourcePath}
-            questLinkSurface="chat-feed"
-          />
-          {!readOnly && (
-            <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
-          )}
-        </div>
-      </article>
-    </ReportCard>
+          <div ref={contentRef} className="relative min-w-0 mr-5">
+            <MarkdownContent
+              text={message.content}
+              sessionId={source.responsibleWorkerId ?? source.sessionId}
+              enableChatSelectionMenu={!readOnly}
+              fileLinkMode={readOnly ? "text-only" : "interactive"}
+              fileBasePath={source.sourcePath}
+              questLinkSurface="chat-feed"
+            />
+            {!readOnly && (
+              <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
+            )}
+          </div>
+        </article>
+      </ReportCard>
+    </>
+  );
+}
+
+/** Reports have no message menu, so their header carries Read aloud (and Stop while reading). */
+function ReportReadAloudButton({ message, sessionId }: { message: ChatMessage; sessionId: string }) {
+  const readAloud = useReadAloudState(message.id);
+  const reading = readAloud?.status === "preparing" || readAloud?.status === "ready";
+  const label = reading ? "Stop reading aloud" : "Read aloud";
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() =>
+          reading
+            ? stopReadAloud()
+            : startReadAloud({
+                sessionId,
+                messageId: message.id,
+                text: message.content,
+                historyIndex: message.historyIndex,
+              })
+        }
+        aria-label={label}
+        title={label}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-cc-hover ${reading ? "text-cc-primary" : "text-cc-muted hover:text-cc-fg"}`}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+          <path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" strokeLinejoin="round" />
+          <path d="M11 5.5a3.5 3.5 0 010 5M12.8 3.5a6 6 0 010 9" strokeLinecap="round" />
+        </svg>
+      </button>
+      {readAloud?.status === "error" && (
+        <button
+          type="button"
+          role="alert"
+          onClick={stopReadAloud}
+          className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-cc-error/40 bg-cc-card px-2.5 py-1.5 text-left text-xs text-cc-error shadow-md"
+        >
+          {readAloud.error}
+        </button>
+      )}
+    </span>
   );
 }

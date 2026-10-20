@@ -1,8 +1,8 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { buildTranscriptionContext } from "./transcription-enhancer.js";
 import { findStableStarTarget } from "./starred-messages.js";
-import { buildProjectedThreadEntries } from "../shared/thread-window.js";
-import { Mp3Encoder } from "@breezystack/lamejs";
+import { MAIN_THREAD_KEY, buildProjectedThreadEntries } from "../shared/thread-window.js";
+import { SpeechJob, concatBytes } from "./read-aloud-speech.js";
 
 /** The voices OpenAI's speech endpoint offers. */
 export const READ_ALOUD_VOICES = [
@@ -20,24 +20,38 @@ export const READ_ALOUD_VOICES = [
   "shimmer",
   "verse",
 ] as const;
+/** Voices the Realtime models accept; Nova, Onyx and Fable are speech-endpoint only. */
+export const READ_ALOUD_REALTIME_VOICES = [
+  "marin",
+  "cedar",
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+] as const;
+
+/** Speech models the debug panel can compare, with the voices each accepts. */
+export const READ_ALOUD_SPEECH_MODELS: ReadonlyArray<{ model: string; voices: readonly string[] }> = [
+  { model: "gpt-realtime-2.1-mini", voices: READ_ALOUD_REALTIME_VOICES },
+  { model: "gpt-4o-mini-tts", voices: READ_ALOUD_VOICES },
+];
+
 /** The model's whole answer when the message already reads well aloud. */
 const UNCHANGED_MARKER = "UNCHANGED";
 /**
- * Speech requests take at most 4,096 characters. Smaller pieces are synthesized in
- * parallel so a long message is ready about as fast as a short one.
+ * Speech requests take at most 4,096 characters, but a message's audio is ready only
+ * when every piece is, and the time grows with piece size (gpt-realtime-2.1-mini,
+ * October 2026: about 3.5 s for 350 characters, 4.7 s for 600, 7.4 s for 1,000,
+ * 25 s for 4,000). Pieces of about 600 characters, synthesized in parallel, keep a
+ * long message nearly as fast as a short one with fewer requests (Jiayi's choice).
  */
-const TTS_CHUNK_TARGET_CHARS = 350;
+const TTS_CHUNK_TARGET_CHARS = 600;
 const TTS_CHUNK_MAX_CHARS = 4096;
 const OPENAI_TIMEOUT_MS = 60_000;
-/**
- * OpenAI's own MP3 is 128 kbps, about 1 MB a minute. Speech is fetched as raw PCM and
- * encoded here at 48 kbps (about 0.36 MB a minute) for slow phone connections; at
- * 32 kbps this encoder produced unusable audio.
- */
-const SPEECH_SAMPLE_RATE = 24_000;
-const MP3_KBPS = 48;
-/** Samples encoded between event-loop yields (about 2.4 s of audio, a few ms of CPU). */
-const MP3_ENCODE_BLOCK_SAMPLES = 1152 * 50;
 /** Rewrites kept so reading a message again, such as in another voice, skips the rewrite. */
 const REWRITE_CACHE_LIMIT = 50;
 const rewriteCache = new Map<string, string>();
@@ -64,7 +78,10 @@ export interface ReadAloudSettings {
   rewriteModel: string;
   /** System prompt of the rewrite; null skips the rewrite and reads the message as written. */
   rewriteSystemPrompt: string | null;
-  /** Non-realtime OpenAI text-to-speech model. OpenAI plans to retire gpt-4o-mini-tts on January 6, 2027. */
+  /**
+   * Speech model: a Realtime model used as a plain reader (gpt-realtime-*), or the speech
+   * endpoint's gpt-4o-mini-tts, which OpenAI plans to retire on January 6, 2027.
+   */
   ttsModel: string;
   voice: string;
   /** Speaking instructions sent with every speech request. */
@@ -75,7 +92,8 @@ export interface ReadAloudSettings {
 export const DEFAULT_READ_ALOUD_SETTINGS: ReadAloudSettings = {
   rewriteModel: "gpt-5.5",
   rewriteSystemPrompt: REWRITE_SYSTEM_PROMPT,
-  ttsModel: "gpt-4o-mini-tts",
+  // Faster and far steadier than gpt-4o-mini-tts in October 2026, and its named replacement.
+  ttsModel: "gpt-realtime-2.1-mini",
   voice: "marin",
   voiceStyle: "Speak in a natural, warm, conversational tone at a comfortable, unhurried pace.",
 };
@@ -100,8 +118,14 @@ export interface ReadAloudTrace {
   /** The text the voice read. Empty when the read failed before speech. */
   spokenText: string;
   speechParts: number;
+  /** Time from the start until the rewrite was complete (0 when skipped or cached). */
   rewriteMs: number;
+  /** Time after the rewrite until the audio was ready; speech starts while the rewrite is still streaming. */
   speechMs: number;
+  /** Speech requests sent, including duplicates sent to dodge slow ones. Missing on older records. */
+  speechRequests?: number;
+  /** CPU time spent encoding the MP3, part of the time above. Missing on older records. */
+  encodeMs?: number;
 }
 
 export interface ReadAloudRun {
@@ -131,32 +155,71 @@ export async function runReadAloud(
     rewriteMs: 0,
     speechMs: 0,
   };
+  const realtime = isRealtimeSpeechModel(settings.ttsModel);
+  const speech = new SpeechJob(
+    (text, signal) =>
+      realtime
+        ? synthesizeRealtimeSpeech(text, settings, { ...config, signal })
+        : synthesizeSpeech(text, settings, { ...config, signal }),
+    // The Realtime models rarely stream slowly, so they skip the up-front duplicate.
+    { signal: config.signal, initialRequests: realtime ? 1 : 2 },
+  );
   try {
     const startedAt = Date.now();
-    if (settings.rewriteSystemPrompt !== null) {
-      trace.rewriteUserPrompt = buildRewriteUserPrompt(input);
-      const cacheKey = JSON.stringify([settings.rewriteModel, settings.rewriteSystemPrompt, trace.rewriteUserPrompt]);
-      const cached = rewriteCache.get(cacheKey);
-      trace.rewriteCached = cached !== undefined;
-      trace.rewriteOutput = cached ?? (await rewriteForListening(trace.rewriteUserPrompt, settings, config));
-      rememberRewrite(cacheKey, trace.rewriteOutput);
-      trace.rewriteMs = Date.now() - startedAt;
-    }
-    const output = trace.rewriteOutput;
-    trace.spokenText = output === null || output === UNCHANGED_MARKER ? input.messageText : output;
-    const chunks = splitTextForSpeech(trace.spokenText);
-    trace.speechParts = chunks.length;
+    trace.spokenText = await produceSpokenText(input, settings, config, trace, (piece) => speech.add(piece));
+    trace.rewriteMs = trace.rewriteOutput === null || trace.rewriteCached ? 0 : Date.now() - startedAt;
     const speechStartedAt = Date.now();
-    const parts = await Promise.all(chunks.map((chunk) => synthesizeSpeech(chunk, settings, config)));
-    const audio = await encodeMp3(concatBytes(parts));
+    const audio = await speech.finish();
     trace.speechMs = Date.now() - speechStartedAt;
+    trace.speechParts = speech.pieces;
+    trace.speechRequests = speech.requests;
+    trace.encodeMs = Math.round(speech.encodeMs);
     console.log(
-      `[read-aloud] ${input.messageText.length} chars -> ${trace.spokenText.length} spoken, rewrite ${trace.rewriteMs}ms, speech ${trace.speechMs}ms in ${chunks.length} part(s)`,
+      `[read-aloud] ${input.messageText.length} chars -> ${trace.spokenText.length} spoken, rewrite ${trace.rewriteMs}ms, then speech ${trace.speechMs}ms (${speech.pieces} parts, ${speech.requests} requests, encoding ${trace.encodeMs}ms)`,
     );
     return { trace, audio, error: null };
   } catch (error) {
+    speech.cancel();
     return { trace, audio: null, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * The text to speak, handed to `onPiece` in speech-sized pieces as soon as each is
+ * known: while a fresh rewrite is still streaming, or all at once for a cached
+ * rewrite or the message as written. Fills in the rewrite part of `trace`.
+ */
+async function produceSpokenText(
+  input: { messageText: string; conversationContext: string },
+  settings: ReadAloudSettings,
+  config: ReadAloudOpenAIConfig,
+  trace: ReadAloudTrace,
+  onPiece: (piece: string) => void,
+): Promise<string> {
+  const speakAll = (text: string) => {
+    for (const piece of splitTextForSpeech(text)) onPiece(piece);
+    return text;
+  };
+  if (settings.rewriteSystemPrompt === null) return speakAll(input.messageText);
+
+  trace.rewriteUserPrompt = buildRewriteUserPrompt(input);
+  const cacheKey = JSON.stringify([settings.rewriteModel, settings.rewriteSystemPrompt, trace.rewriteUserPrompt]);
+  const cached = rewriteCache.get(cacheKey);
+  if (cached !== undefined) {
+    trace.rewriteCached = true;
+    trace.rewriteOutput = cached;
+    rememberRewrite(cacheKey, cached);
+    return speakAll(cached === UNCHANGED_MARKER ? input.messageText : cached);
+  }
+
+  // The marker is far shorter than a piece, so no piece is sent before the answer turns out to be it.
+  const pieces = new SpeechPieceStream(onPiece);
+  const output = await streamRewrite(trace.rewriteUserPrompt, settings, config, (delta) => pieces.push(delta));
+  trace.rewriteOutput = output;
+  rememberRewrite(cacheKey, output);
+  if (output === UNCHANGED_MARKER) return speakAll(input.messageText);
+  pieces.end();
+  return output;
 }
 
 /** True when the rewrite model judged the message fine to read as written. */
@@ -165,77 +228,88 @@ export function readAloudKeptOriginal(trace: ReadAloudTrace): boolean {
 }
 
 /**
- * The conversation leading up to a message, as context for its rewrite. For leader
- * thread messages only that thread counts. Falls back to the latest conversation
- * when the message is not in the history.
+ * The conversation leading up to a message or published report, as context for its
+ * rewrite. For leader thread messages only that thread counts. Falls back to the
+ * latest conversation when the message is not in the history.
  */
 export function buildReadAloudContext(
   history: ReadonlyArray<BrowserIncomingMessage>,
   messageId: string,
   historyIndex?: number,
 ): string {
-  const target = findStableStarTarget(history, messageId, historyIndex);
+  const target = locateMessage(history, messageId, historyIndex);
   if (!target) return buildTranscriptionContext([...history]);
   const earlier = history.slice(0, target.historyIndex);
-  const threadHistory = buildProjectedThreadEntries(earlier, target.sourceThreadKey).map((entry) => entry.message);
+  const threadHistory = buildProjectedThreadEntries(earlier, target.threadKey).map((entry) => entry.message);
   return buildTranscriptionContext(threadHistory);
 }
 
-/**
- * Split text into pieces of at most TTS_CHUNK_MAX_CHARS, packing whole sentences up to
- * about TTS_CHUNK_TARGET_CHARS so every piece ends at a natural pause and long
- * messages turn into many small requests that run in parallel.
- */
-export function splitTextForSpeech(text: string): string[] {
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .map((paragraph) =>
-      paragraph
-        .split(/(?<=[.!?])\s+|(?<=[。！？])/)
-        .flatMap((sentence) => splitLongUnit(sentence, /\s+/))
-        .filter(Boolean),
-    );
-
-  const chunks: string[] = [];
-  let current = "";
-  for (const sentences of paragraphs) {
-    sentences.forEach((sentence, index) => {
-      const separator = index === 0 ? "\n\n" : " ";
-      const joined = current ? `${current}${separator}${sentence}` : sentence;
-      if (current && joined.length > TTS_CHUNK_TARGET_CHARS) {
-        chunks.push(current);
-        current = sentence;
-      } else {
-        current = joined;
-      }
-    });
-  }
-  if (current) chunks.push(current);
-  return chunks;
+function locateMessage(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  messageId: string,
+  historyIndex?: number,
+): { historyIndex: number; threadKey: string } | null {
+  const target = findStableStarTarget(history, messageId, historyIndex);
+  if (target) return { historyIndex: target.historyIndex, threadKey: target.sourceThreadKey };
+  // Published reports are not message-menu targets, so the star locator skips them.
+  const reportIndex = history.findIndex((entry) => entry.type === "markdown_report" && entry.id === messageId);
+  if (reportIndex < 0) return null;
+  const report = history[reportIndex] as Extract<BrowserIncomingMessage, { type: "markdown_report" }>;
+  return { historyIndex: reportIndex, threadKey: report.threadKey || MAIN_THREAD_KEY };
 }
 
-/** Break a unit longer than the hard limit at the given separator, falling back to a hard cut. */
-function splitLongUnit(unit: string, separator: RegExp): string[] {
-  if (unit.length <= TTS_CHUNK_MAX_CHARS) return [unit];
+/**
+ * Split text into speech pieces of at most `size` characters (never above the
+ * 4,096-character request limit). Each piece is cut at the best break before the
+ * limit: a blank line, else a line break, else a sentence end (English or Chinese),
+ * else a space, else a plain cut. A break is only used if it keeps the piece at least
+ * half full; failing all that, the best break anywhere wins.
+ */
+export function splitTextForSpeech(text: string, size = TTS_CHUNK_TARGET_CHARS): string[] {
   const pieces: string[] = [];
-  let current = "";
-  for (const part of unit.split(separator)) {
-    const joined = current ? `${current} ${part}` : part;
-    if (joined.length <= TTS_CHUNK_MAX_CHARS) {
-      current = joined;
-      continue;
-    }
-    if (current) pieces.push(current);
-    current = part;
-    while (current.length > TTS_CHUNK_MAX_CHARS) {
-      pieces.push(current.slice(0, TTS_CHUNK_MAX_CHARS));
-      current = current.slice(TTS_CHUNK_MAX_CHARS);
+  let rest = normalizeSpeechText(text);
+  while (rest.length > Math.min(size, TTS_CHUNK_MAX_CHARS)) {
+    const cut = findSpeechCut(rest, size);
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) pieces.push(rest);
+  return pieces.filter(Boolean);
+}
+
+/** Speech breaks, best first: blank line, line break, sentence end, space. */
+const SPEECH_BREAKS = [/\n\n/g, /\n/g, /[.!?](?=\s)|[。！？]/g, / /g];
+
+/** Where to end the first piece of `text`, which is longer than `size`. */
+function findSpeechCut(text: string, size: number): number {
+  const limit = Math.min(size, TTS_CHUNK_MAX_CHARS);
+  const window = text.slice(0, limit + 1);
+  for (const minimum of [limit / 2, 1]) {
+    for (const pattern of SPEECH_BREAKS) {
+      let best = 0;
+      for (const match of window.matchAll(pattern)) {
+        const end = match.index + match[0].length;
+        if (end <= limit && end >= minimum) best = end;
+      }
+      if (best > 0) return best;
     }
   }
-  if (current) pieces.push(current);
-  return pieces;
+  return limit;
+}
+
+/** Trims lines, drops empty runs, and keeps single and blank-line breaks. */
+function normalizeSpeechText(text: string): string {
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+/g, " ").trim())
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function rememberRewrite(key: string, output: string): void {
@@ -253,11 +327,15 @@ function buildRewriteUserPrompt(input: { messageText: string; conversationContex
     .join("\n\n");
 }
 
-/** Returns the rewrite model's answer: the text to speak, or the UNCHANGED marker. */
-async function rewriteForListening(
+/**
+ * Streams the rewrite, passing each text delta to `onDelta`, and returns the whole
+ * answer: the text to speak, or the UNCHANGED marker.
+ */
+async function streamRewrite(
   userPrompt: string,
   settings: ReadAloudSettings,
   config: ReadAloudOpenAIConfig,
+  onDelta: (delta: string) => void,
 ): Promise<string> {
   const res = await openAIRequest("/chat/completions", config, {
     model: settings.rewriteModel,
@@ -266,13 +344,151 @@ async function rewriteForListening(
       { role: "user", content: userPrompt },
     ],
     reasoning_effort: "none",
+    stream: true,
   });
-  const json = (await res.json()) as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };
-  const choice = json.choices?.[0];
-  const text = choice?.message?.content?.trim();
-  if (!text) throw new Error("The rewrite model returned no text");
-  if (choice?.finish_reason !== "stop") throw new Error("The rewrite model stopped before finishing");
-  return text;
+  let text = "";
+  let finishReason: string | null = null;
+  for await (const event of readServerSentEvents(res)) {
+    if (event === "[DONE]") break;
+    const chunk = JSON.parse(event) as {
+      choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+    };
+    const choice = chunk.choices?.[0];
+    const delta = choice?.delta?.content;
+    if (delta) {
+      text += delta;
+      onDelta(delta);
+    }
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+  }
+  if (!text.trim()) throw new Error("The rewrite model returned no text");
+  if (finishReason !== "stop") throw new Error("The rewrite model stopped before finishing");
+  return text.trim();
+}
+
+/** The `data:` payloads of a server-sent event stream. */
+async function* readServerSentEvents(res: Response): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(bytes, { stream: true });
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line.startsWith("data:")) yield line.slice(5).trim();
+      newline = buffer.indexOf("\n");
+    }
+  }
+}
+
+/**
+ * Cuts streamed text into speech pieces as it arrives: once more than a piece has
+ * arrived, the first piece is cut by the same rule splitTextForSpeech uses.
+ */
+class SpeechPieceStream {
+  private pending = "";
+
+  constructor(
+    private readonly onPiece: (piece: string) => void,
+    private readonly size = TTS_CHUNK_TARGET_CHARS,
+  ) {}
+
+  push(delta: string): void {
+    this.pending += delta;
+    // Wait for the text after the cut too, so a break at the very end is known to be one.
+    while (this.pending.length > Math.min(this.size, TTS_CHUNK_MAX_CHARS) + 1) {
+      const normalized = normalizeSpeechText(this.pending);
+      if (normalized.length <= Math.min(this.size, TTS_CHUNK_MAX_CHARS)) return;
+      const cut = findSpeechCut(normalized, this.size);
+      const piece = normalized.slice(0, cut).trim();
+      if (piece) this.onPiece(piece);
+      // Normalizing trims the end; keep it, or the next delta could join the last word.
+      this.pending = normalized.slice(cut) + (this.pending.match(/\s*$/)?.[0] ?? "");
+    }
+  }
+
+  end(): void {
+    for (const piece of splitTextForSpeech(this.pending, this.size)) this.onPiece(piece);
+    this.pending = "";
+  }
+}
+
+/** The Realtime models speak through a WebSocket instead of the speech endpoint. */
+export function isRealtimeSpeechModel(model: string): boolean {
+  return model.startsWith("gpt-realtime");
+}
+
+const REALTIME_READER_INSTRUCTIONS =
+  "You are a text-to-speech voice. Read the user's text aloud exactly as written, word for word, from start to end. Do not answer, comment on, summarize, skip or add anything.";
+
+/**
+ * Speech from a Realtime model used as a plain reader: one response to the text as a
+ * user message, audio only, collected as 24 kHz 16-bit PCM.
+ */
+function synthesizeRealtimeSpeech(
+  text: string,
+  settings: ReadAloudSettings,
+  config: ReadAloudOpenAIConfig,
+): Promise<Uint8Array> {
+  const url = `${config.baseUrl.replace(/\/+$/, "").replace(/^http/, "ws")}/realtime?model=${encodeURIComponent(settings.ttsModel)}`;
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    // Bun's WebSocket takes request headers, which the browser one cannot.
+    const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${config.apiKey}` } } as unknown as string[]);
+    const fail = (error: Error) => {
+      cleanup();
+      ws.close();
+      reject(error);
+    };
+    const onAbort = () => fail(new Error("Read aloud was cancelled"));
+    const timer = setTimeout(() => fail(new Error("Realtime speech timed out")), OPENAI_TIMEOUT_MS);
+    const cleanup = () => {
+      clearTimeout(timer);
+      config.signal?.removeEventListener("abort", onAbort);
+    };
+    if (config.signal?.aborted) return onAbort();
+    config.signal?.addEventListener("abort", onAbort, { once: true });
+    ws.onopen = () => {
+      const instructions = [REALTIME_READER_INSTRUCTIONS, settings.voiceStyle.trim()].filter(Boolean).join(" ");
+      const audio = { output: { voice: settings.voice, format: { type: "audio/pcm", rate: 24_000 } } };
+      ws.send(
+        JSON.stringify({
+          type: "session.update",
+          session: { type: "realtime", output_modalities: ["audio"], instructions, audio },
+        }),
+      );
+      ws.send(
+        JSON.stringify({
+          type: "conversation.item.create",
+          item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+        }),
+      );
+      ws.send(JSON.stringify({ type: "response.create" }));
+    };
+    ws.onmessage = (event) => {
+      const message = JSON.parse(String(event.data)) as {
+        type: string;
+        delta?: string;
+        error?: { message?: string };
+        response?: { status?: string };
+      };
+      if (message.type === "response.output_audio.delta" && message.delta) {
+        chunks.push(Buffer.from(message.delta, "base64"));
+      } else if (message.type === "error") {
+        fail(new Error(`OpenAI realtime speech failed: ${message.error?.message ?? "unknown error"}`));
+      } else if (message.type === "response.done") {
+        cleanup();
+        ws.close();
+        if (message.response?.status !== "completed") {
+          reject(new Error(`OpenAI realtime speech ended as ${message.response?.status ?? "unknown"}`));
+          return;
+        }
+        resolve(concatBytes(chunks));
+      }
+    };
+    ws.onerror = () => fail(new Error("OpenAI realtime speech connection failed"));
+  });
 }
 
 async function synthesizeSpeech(
@@ -303,27 +519,4 @@ async function openAIRequest(path: string, config: ReadAloudOpenAIConfig, body: 
     throw new Error(`OpenAI ${path} failed with ${res.status}: ${detail.slice(0, 300) || res.statusText}`);
   }
   return res;
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
-/** Encode 24 kHz 16-bit mono PCM as MP3, yielding between blocks so other requests keep flowing. */
-async function encodeMp3(pcm: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
-  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
-  const encoder = new Mp3Encoder(1, SPEECH_SAMPLE_RATE, MP3_KBPS);
-  const frames: Uint8Array[] = [];
-  for (let start = 0; start < samples.length; start += MP3_ENCODE_BLOCK_SAMPLES) {
-    frames.push(encoder.encodeBuffer(samples.subarray(start, start + MP3_ENCODE_BLOCK_SAMPLES)));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  frames.push(encoder.flush());
-  return concatBytes(frames);
 }

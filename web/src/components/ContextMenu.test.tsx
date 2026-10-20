@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
@@ -49,5 +49,44 @@ describe("useMenuButton", () => {
     fingerTap(button);
     const menu = screen.getByRole("button", { name: "Copy" }).closest("[data-context-menu]");
     expect(menu).toHaveStyle({ left: "40px", top: "104px" });
+  });
+});
+
+describe("ContextMenu submenus", () => {
+  it("open inside the menu on a narrow screen with no room beside it, and close on a second tap", () => {
+    // A side submenu that cannot fit would cover the row that opened it.
+    const innerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 300 });
+    const rect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      bottom: 130,
+      left: 40,
+      right: 260,
+      width: 220,
+      height: 30,
+      x: 40,
+      y: 100,
+      toJSON: () => ({}),
+    });
+    const copyMarkdown = vi.fn();
+    try {
+      render(
+        <ContextMenu
+          x={40}
+          y={100}
+          onClose={() => {}}
+          items={[{ label: "Copy", onClick: () => {}, children: [{ label: "Markdown", onClick: copyMarkdown }] }]}
+        />,
+      );
+      fingerTap(screen.getByRole("button", { name: "Copy" }));
+      expect(screen.getByTestId("context-submenu-inline")).toContainElement(
+        screen.getByRole("button", { name: "Markdown" }),
+      );
+      fingerTap(screen.getByRole("button", { name: "Copy" }));
+      expect(screen.queryByRole("button", { name: "Markdown" })).toBeNull();
+    } finally {
+      rect.mockRestore();
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: innerWidth });
+    }
   });
 });

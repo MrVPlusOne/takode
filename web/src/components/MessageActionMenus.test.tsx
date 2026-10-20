@@ -48,9 +48,11 @@ describe("AssistantMessageMenu", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
 
-    expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy as Plain Text" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy message link" })).toBeVisible();
+    // The copy actions share one Copy submenu, which keeps the phone menu short.
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.getByRole("button", { name: "Markdown" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Plain Text" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Message link" })).toBeVisible();
   });
 
   it("keeps reply actions available in Main even when the leader board has quests", () => {
@@ -71,7 +73,8 @@ describe("AssistantMessageMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
 
     expect(screen.getByRole("button", { name: "Reply to this message" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy message link" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.getByRole("button", { name: "Message link" })).toBeVisible();
   });
 
   it("closes when the options button is tapped again", () => {
@@ -89,8 +92,8 @@ describe("AssistantMessageMenu", () => {
     const options = screen.getByRole("button", { name: "Message options" });
 
     fingerTap(options);
-    expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeVisible();
     fingerTap(options);
-    expect(screen.queryByRole("button", { name: "Copy as Markdown" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
   });
 });

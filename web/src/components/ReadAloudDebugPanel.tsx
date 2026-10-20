@@ -12,7 +12,7 @@ import {
 import { usePendingAction } from "../hooks/usePendingAction.js";
 
 /**
- * Settings > Voice Input > Read Aloud Debug: every read aloud with its exact rewrite
+ * Settings > Voice > Read Aloud Debug: every read aloud with its exact rewrite
  * prompts, rewrite answer, spoken text, settings and audio, and a form to read the
  * same message again with another voice, speaking style, rewrite model or prompt.
  */
@@ -176,20 +176,10 @@ function ReadAloudRun({ record, label, open }: { record: ReadAloudRecord; label:
           Voice <span className="font-mono text-cc-fg">{settings.voice}</span>
         </span>
         <span className="text-cc-muted">
-          Speech <span className="font-mono text-cc-fg">{settings.ttsModel}</span> {formatMs(trace.speechMs)} in{" "}
-          {trace.speechParts} {trace.speechParts === 1 ? "part" : "parts"}
-        </span>
-        <span className="text-cc-muted">
-          {settings.rewriteSystemPrompt === null ? (
-            "Rewrite skipped"
-          ) : (
-            <>
-              Rewrite <span className="font-mono text-cc-fg">{settings.rewriteModel}</span>{" "}
-              {trace.rewriteCached ? "reused from an identical earlier rewrite" : formatMs(trace.rewriteMs)}
-            </>
-          )}
+          Speech <span className="font-mono text-cc-fg">{settings.ttsModel}</span>
         </span>
       </div>
+      <ReadAloudTimings record={record} />
       {record.error ? <ErrorBox message={record.error} /> : <RecordAudio id={record.id} />}
       <TextBlock title="Spoken text" text={trace.spokenText || "(none)"} open={open} />
       <TextBlock title="Speaking style" text={settings.voiceStyle || "(none)"} />
@@ -213,7 +203,10 @@ function TryOtherSettings({
   onReplay: (record: ReadAloudRecord) => void;
 }) {
   const base = detail.record.trace.settings;
+  const [ttsModel, setTtsModel] = useState(base.ttsModel);
   const [voice, setVoice] = useState(base.voice);
+  const voices = detail.speechModels.find((entry) => entry.model === ttsModel)?.voices ?? detail.voices;
+  const modelOptions = [...new Set([...detail.speechModels.map((entry) => entry.model), base.ttsModel])];
   const [voiceStyle, setVoiceStyle] = useState(base.voiceStyle);
   const [rewriteModel, setRewriteModel] = useState(base.rewriteModel);
   const [skipRewrite, setSkipRewrite] = useState(base.rewriteSystemPrompt === null);
@@ -224,6 +217,7 @@ function TryOtherSettings({
     void replay.run(async () => {
       onReplay(
         await replayReadAloudRecord(detail.record.id, {
+          ttsModel,
           voice,
           voiceStyle,
           rewriteModel,
@@ -237,13 +231,32 @@ function TryOtherSettings({
       <h4 className="text-xs font-semibold text-cc-fg">Read the same message with other settings</h4>
       <div className="flex flex-wrap gap-3 text-xs">
         <label className="flex items-center gap-2 text-cc-muted">
+          Speech model
+          <select
+            value={ttsModel}
+            onChange={(event) => {
+              const model = event.target.value;
+              setTtsModel(model);
+              const accepted = detail.speechModels.find((entry) => entry.model === model)?.voices;
+              if (accepted && !accepted.includes(voice)) setVoice(accepted[0]);
+            }}
+            className="rounded border border-cc-border bg-cc-input-bg px-2 py-1 font-mono text-cc-fg"
+          >
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-cc-muted">
           Voice
           <select
             value={voice}
             onChange={(event) => setVoice(event.target.value)}
             className="rounded border border-cc-border bg-cc-input-bg px-2 py-1 text-cc-fg"
           >
-            {detail.voices.map((name) => (
+            {voices.map((name) => (
               <option key={name} value={name}>
                 {name}
               </option>
@@ -297,6 +310,40 @@ function TryOtherSettings({
       </div>
     </section>
   );
+}
+
+/** Where the time went: the server's steps, then what browsers measured for each playback. */
+function ReadAloudTimings({ record }: { record: ReadAloudRecord }) {
+  const { trace } = record;
+  const rewrite =
+    trace.settings.rewriteSystemPrompt === null
+      ? "rewrite skipped"
+      : trace.rewriteCached
+        ? "rewrite reused from an identical earlier read"
+        : `rewrite ${formatMs(trace.rewriteMs)}`;
+  const requests = trace.speechRequests === undefined ? "" : `, ${trace.speechRequests} requests`;
+  const encoding = trace.encodeMs === undefined ? "" : `, of which ${formatMs(trace.encodeMs)} encoding`;
+  return (
+    <div className="space-y-0.5 text-xs text-cc-muted" data-testid="read-aloud-debug-timing">
+      <div>
+        Server: <span className="text-cc-fg">{formatMs(trace.rewriteMs + trace.speechMs)}</span> ({rewrite}, then speech{" "}
+        {formatMs(trace.speechMs)} for {trace.speechParts} {trace.speechParts === 1 ? "part" : "parts"}
+        {requests}
+        {encoding}) · {formatBytes(record.audioBytes)}
+      </div>
+      {(record.clientTimings ?? []).map((timing) => (
+        <div key={timing.at}>
+          Played {new Date(timing.at).toLocaleTimeString()}
+          {timing.cached ? " (saved audio)" : ""}: waited {formatMs(timing.waitMs)}, downloaded in{" "}
+          {formatMs(timing.downloadMs)}, started playing after {formatMs(timing.startMs)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Plays a record's audio from a blob, so it works without range requests. */

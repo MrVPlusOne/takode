@@ -900,7 +900,7 @@ describe("SettingsPage", () => {
 
   it("loads and saves custom enhancer instructions", async () => {
     // The instructions are free-form text for the enhancement model; they round-trip through
-    // the Voice Input section's Save like the other transcription settings.
+    // the Voice section's Save like the other transcription settings.
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
@@ -926,7 +926,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Input");
+    const voiceSection = settingsSection("Voice");
     await waitFor(() => {
       expect(within(voiceSection).getByLabelText("Custom Instructions")).toHaveValue("Keep it short.");
     });
@@ -974,7 +974,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Input");
+    const voiceSection = settingsSection("Voice");
     await waitFor(() => {
       expect(within(voiceSection).getByLabelText("STT Model")).toHaveValue("__custom__");
       expect(within(voiceSection).getByLabelText("Custom STT Model")).toHaveValue("whisper-large-v3");
@@ -1003,7 +1003,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Input");
+    const voiceSection = settingsSection("Voice");
     expect(within(voiceSection).getByText("Expected Languages")).toBeInTheDocument();
     await waitFor(() => {
       expect(
@@ -1095,7 +1095,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Input");
+    const voiceSection = settingsSection("Voice");
     const trigger = await within(voiceSection).findByRole("button", {
       name: "Add expected language",
     });
@@ -1152,7 +1152,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const voiceSection = settingsSection("Voice Input");
+    const voiceSection = settingsSection("Voice");
     await waitFor(() => {
       expect(within(voiceSection).getByLabelText("STT Model")).toBeInTheDocument();
     });

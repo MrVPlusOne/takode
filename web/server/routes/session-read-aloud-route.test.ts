@@ -100,7 +100,7 @@ describe("POST /sessions/:id/read-aloud", () => {
     const { post, run } = makeApp();
     const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Hi" });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain("Settings > Voice Input");
+    expect((await res.json()).error).toContain("Settings > Voice ");
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -117,6 +117,52 @@ describe("POST /sessions/:id/read-aloud", () => {
     expect((await res.json()).error).toBe("Read aloud failed. OpenAI /audio/speech failed with 500: boom");
     const [summary] = await waitForRecords(records, 1);
     expect(summary.error).toContain("boom");
+  });
+});
+
+describe("playing a message again", () => {
+  it("sends the recorded audio for the same message, text and voice instead of making it again", async () => {
+    const { post, run } = makeApp();
+    const first = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it.", voice: "cedar" });
+    const recordId = first.headers.get("X-Read-Aloud-Record");
+    expect(first.headers.get("X-Read-Aloud-Cached")).toBe("0");
+
+    const again = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it.", voice: "cedar" });
+    expect(again.headers.get("X-Read-Aloud-Cached")).toBe("1");
+    expect(again.headers.get("X-Read-Aloud-Record")).toBe(recordId);
+    expect(new TextDecoder().decode(await again.arrayBuffer())).toBe("cedar");
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // Another voice is new audio.
+    await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it.", voice: "coral" });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("finds earlier audio after a restart, and never reuses a failed read", async () => {
+    const failing = makeApp(fakeRun(true));
+    await failing.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    const ok = makeApp();
+    await ok.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    expect(ok.run).toHaveBeenCalledTimes(1);
+    // A new store over the same folder stands in for a restarted server.
+    const restarted = makeApp();
+    const res = await restarted.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    expect(res.headers.get("X-Read-Aloud-Cached")).toBe("1");
+    expect(restarted.run).not.toHaveBeenCalled();
+  });
+
+  it("keeps the browser's timing on the record", async () => {
+    const { api, post } = makeApp();
+    const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    const id = res.headers.get("X-Read-Aloud-Record")!;
+    const timing = { waitMs: 7012.4, downloadMs: 840, startMs: 120, cached: false };
+    expect((await post(`/read-aloud/records/${id}/client-timing`, timing)).status).toBe(200);
+    expect((await post(`/read-aloud/records/${id}/client-timing`, { waitMs: -1 })).status).toBe(400);
+    expect((await post("/read-aloud/records/missing/client-timing", timing)).status).toBe(404);
+    const detail = await (await api.request(`/read-aloud/records/${id}`)).json();
+    expect(detail.record.clientTimings).toEqual([
+      { at: expect.any(Number), waitMs: 7012, downloadMs: 840, startMs: 120, cached: false },
+    ]);
   });
 });
 

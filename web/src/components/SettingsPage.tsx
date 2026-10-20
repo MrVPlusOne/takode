@@ -837,7 +837,7 @@ export function SettingsPage({
               />
             </CollapsibleSection>
 
-            {/* ── Voice Input ──────────────────────────────────────── */}
+            {/* ── Voice ──────────────────────────────────────── */}
             <CollapsibleSection {...settingsSearch.sectionProps("voice")}>
               <SettingsVoiceTranscriptionSection
                 loading={loading}

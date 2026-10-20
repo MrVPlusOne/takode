@@ -27,6 +27,14 @@ function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessag
   return absoluteUrlForHash(sessionMessageHash(sessionRef, messageIndex));
 }
 
+/** The message's HTML for a rich-text copy, without a Read aloud player shown inside it. */
+function messageHtmlWithoutPlayer(content: HTMLDivElement | null): string {
+  if (!content) return "";
+  const copy = content.cloneNode(true) as HTMLDivElement;
+  for (const player of copy.querySelectorAll("[data-read-aloud-player]")) player.remove();
+  return copy.innerHTML;
+}
+
 function buildDraftImageName(mediaType: string, index: number): string {
   const ext = mediaType.split("/")[1]?.replace("jpeg", "jpg").replace("svg+xml", "svg") || "bin";
   return `attachment-${index + 1}.${ext}`;
@@ -223,7 +231,7 @@ export function AssistantMessageMenu({
   }, [message, showFeedback]);
 
   const handleCopyRichText = useCallback(() => {
-    copyRichText(contentRef.current?.innerHTML ?? "", getMessagePlainText(message))
+    copyRichText(messageHtmlWithoutPlayer(contentRef.current), getMessagePlainText(message))
       .then(() => showFeedback("Rich text"))
       .catch(console.error);
   }, [message, contentRef, showFeedback]);
@@ -295,12 +303,13 @@ export function AssistantMessageMenu({
       list.push({ label: "Reply to this message", onClick: handleReply });
     }
     if (starAction.actionable) list.push({ label: starAction.label, onClick: starAction.toggleStarred });
-    list.push(
-      { label: "Copy as Markdown", onClick: handleCopyMarkdown },
-      { label: "Copy as Rich Text", onClick: handleCopyRichText },
-      { label: "Copy as Plain Text", onClick: handleCopyPlainText },
-    );
-    if (sessionId) list.push({ label: "Copy message link", onClick: handleCopyLink });
+    const copyItems: ContextMenuItem[] = [
+      { label: "Markdown", onClick: handleCopyMarkdown },
+      { label: "Rich Text", onClick: handleCopyRichText },
+      { label: "Plain Text", onClick: handleCopyPlainText },
+    ];
+    if (sessionId) copyItems.push({ label: "Message link", onClick: handleCopyLink });
+    list.push({ label: "Copy", onClick: () => {}, children: copyItems });
     return list;
   }, [
     handleCopyLink,

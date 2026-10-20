@@ -15,15 +15,21 @@ import {
 } from "../read-aloud-player.js";
 
 /**
- * The Read aloud player, shown under the message being read: seek bar, voice,
- * back and forward 5 seconds, play/pause, speed and close.
+ * The Read aloud player, directly above the message or report being read (Jiayi's
+ * choice over one player above the composer): seek bar, voice, back and forward
+ * 5 seconds, play/pause, speed and close. Not part of the message's text, so
+ * rich-text copies leave it out.
  */
 export function ReadAloudPlayer({ messageId }: { messageId: string }) {
   const read = useCurrentReadAloud();
-  // A failed read shows its error beside the message options button instead.
+  // A failed read shows its error beside the button that started it instead.
   if (!read || read.status === "error" || read.messageId !== messageId) return null;
   return (
-    <div className="mt-2 rounded-xl border border-cc-border bg-cc-card px-3 py-2" data-testid="read-aloud-player">
+    <div
+      className="mb-2 rounded-xl border border-cc-border bg-cc-card px-3 py-2"
+      data-testid="read-aloud-player"
+      data-read-aloud-player
+    >
       <ReadAloudPlayerHeader read={read} />
       <ReadAloudControls read={read} />
     </div>
