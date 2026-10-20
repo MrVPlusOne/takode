@@ -56,6 +56,7 @@ import {
 } from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
+import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import {
   InlineMessageTimingVisibilityContext,
   MessageTimeLabel,
@@ -1287,6 +1288,7 @@ function AssistantMessage({
               testId="assistant-image-preview-group"
             />
           </ImagePathLinkContext.Provider>
+          {!readOnly && <ReadAloudPlayer messageId={message.id} />}
           {!readOnly && resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
@@ -1448,6 +1450,7 @@ function AssistantMessage({
             testId="assistant-image-preview-group"
           />
         </ImagePathLinkContext.Provider>
+        {!readOnly && <ReadAloudPlayer messageId={message.id} />}
         {!readOnly && resolvedNotification && (
           <NotificationMarker
             category={resolvedNotification.category}

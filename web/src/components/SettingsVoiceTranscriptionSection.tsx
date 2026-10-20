@@ -15,6 +15,7 @@ import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../..
 import { SettingsToggle } from "./settings-controls.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
+import { ReadAloudDebugPanel } from "./ReadAloudDebugPanel.js";
 import { SettingsMicrophone } from "./SettingsMicrophone.js";
 
 export const DEFAULT_STT_MODEL = DEFAULT_TRANSCRIPTION_STT_MODEL;
@@ -472,6 +473,7 @@ export function SettingsVoiceTranscriptionSection({
       </div>
 
       <TranscriptionDebugPanel sttModelOptions={replaySttModelOptions} />
+      <ReadAloudDebugPanel />
       <EnhancementTester />
     </>
   );

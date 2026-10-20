@@ -11,6 +11,7 @@ import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.
 import { MessageTimeMenuMetadata, MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
+import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
 
 function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessage, sdkSessions: SdkSessionInfo[]) {
   if (!sessionId) return null;
@@ -196,6 +197,8 @@ export function AssistantMessageMenu({
   const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState<string | null>(null);
   const starAction = useMessageStarActions(sessionId, message);
+  const readAloud = useReadAloudState(message.id);
+  const reading = readAloud?.status === "preparing" || readAloud?.status === "ready";
   const sideChatAction = useSideChatActionState({
     currentThreadKey,
     message,
@@ -244,6 +247,16 @@ export function AssistantMessageMenu({
     store.setReplyContext(sessionId, { messageId: message.id, previewText });
   }, [message, sessionId]);
 
+  const handleReadAloud = useCallback(() => {
+    if (!sessionId) return;
+    startReadAloud({
+      sessionId,
+      messageId: message.id,
+      text: getMessageMarkdown(message),
+      historyIndex: message.historyIndex,
+    });
+  }, [message, sessionId]);
+
   const items = useMemo<ContextMenuItem[]>(() => {
     const list: ContextMenuItem[] = [];
     if (showSideChatActions && sessionId && sideChatAction.available) {
@@ -273,7 +286,14 @@ export function AssistantMessageMenu({
         }
       }
     }
-    if (sessionId) list.push({ label: "Reply to this message", onClick: handleReply });
+    if (sessionId) {
+      list.push(
+        reading
+          ? { label: "Stop reading aloud", onClick: stopReadAloud }
+          : { label: "Read aloud", onClick: handleReadAloud },
+      );
+      list.push({ label: "Reply to this message", onClick: handleReply });
+    }
     if (starAction.actionable) list.push({ label: starAction.label, onClick: starAction.toggleStarred });
     list.push(
       { label: "Copy as Markdown", onClick: handleCopyMarkdown },
@@ -287,7 +307,9 @@ export function AssistantMessageMenu({
     handleCopyMarkdown,
     handleCopyPlainText,
     handleCopyRichText,
+    handleReadAloud,
     handleReply,
+    reading,
     sessionId,
     showSideChatActions,
     sideChatAction,
@@ -300,7 +322,11 @@ export function AssistantMessageMenu({
           time, and a positioned box paints, and takes clicks, over a plain float. On a one-line
           message the time itself sits under the button. */}
       <span
-        className="relative z-20 float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+        className={`relative z-20 float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity ${
+          readAloud?.status === "error"
+            ? ""
+            : "sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+        }`}
         data-message-action-menu-placement="first-line"
         data-message-action-menu-row
       >
@@ -330,6 +356,16 @@ export function AssistantMessageMenu({
             </svg>
           )}
         </MessageTimestampMenuTrigger>
+        {readAloud?.status === "error" && (
+          <button
+            type="button"
+            role="alert"
+            onClick={stopReadAloud}
+            className="absolute right-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-cc-error/40 bg-cc-card px-2.5 py-1.5 text-left text-xs text-cc-error shadow-md"
+          >
+            {readAloud.error}
+          </button>
+        )}
       </span>
       {menu && (
         <ContextMenu

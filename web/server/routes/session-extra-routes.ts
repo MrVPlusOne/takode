@@ -3,6 +3,7 @@ import type { RouteContext } from "./context.js";
 import { registerSessionConfigRoutes } from "./session-config-routes.js";
 import { registerSessionDelegateRoutes } from "./session-delegate-routes.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
+import { registerSessionReadAloudRoute } from "./session-read-aloud-route.js";
 import { registerSessionCodexNativeSubagentRoutes } from "./session-codex-native-subagent-routes.js";
 import {
   readBrowserViewportHandoffState,
@@ -36,6 +37,7 @@ export function registerSessionExtraRoutes(
     });
   });
   registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
+  registerSessionReadAloudRoute(api, { wsBridge, resolveId });
   registerSessionDelegateRoutes(api, {
     launcher,
     wsBridge,
