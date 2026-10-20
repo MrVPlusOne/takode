@@ -419,25 +419,34 @@ describe("MessageFeed local send and follow subscription", () => {
       expect(latestThreadAnnouncement()).toMatchObject({ from: -1, count: 30 });
       const feed = screen.getByTestId("message-feed-scroll-container");
       if (readOlder) {
-        // An explicit Send takes precedence over the saved older-reading anchor.
         act(() => {
           feed.scrollTop = 850;
           fireEvent.scroll(feed);
         });
         expect(latestThreadAnnouncement().from).toBe(0);
       }
+      const readingAnchor = document.querySelector<HTMLElement>('[data-message-id="short-3"]')!;
+      const readingOffset = readingAnchor.getBoundingClientRect().top;
       act(() => useStore.getState().requestBottomAlignOnNextUserMessage(SESSION_ID));
       await act(async () => handleMessage(SESSION_ID, shortHistory(7)[6]!));
       expect(screen.getByText("Short request 7")).toBeTruthy();
       const announced = latestThreadAnnouncement();
-      expect(announced).toMatchObject({ from: -1, count: 30 });
+      // Following keeps the symbolic latest request; a reader of older content keeps
+      // reading, so the numeric bounds of the older position stay announced.
+      expect(announced).toMatchObject({ from: readOlder ? 0 : -1, count: 30 });
       await act(async () =>
         handleMessage(SESSION_ID, shortTailWindow(shortHistory(7), announced.from, announced.count)),
       );
       expect(screen.getByText("Short request 7")).toBeTruthy();
       expect(screen.queryByText("Load newer section")).toBeNull();
-      const sent = document.querySelector<HTMLElement>('[data-message-id="short-7"]')!;
-      expect(sent.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+      if (readOlder) {
+        // Sending while scrolled up leaves the view where the reader was.
+        expect(feed.scrollTop).toBeCloseTo(850, 4);
+        expect(readingAnchor.getBoundingClientRect().top).toBeCloseTo(readingOffset, 4);
+      } else {
+        const sent = document.querySelector<HTMLElement>('[data-message-id="short-7"]')!;
+        expect(sent.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+      }
     } finally {
       view.unmount();
       restoreGeometry();

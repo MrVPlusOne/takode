@@ -1306,8 +1306,65 @@ describe("MessageFeed - scroll behavior", () => {
     expect(scrollTopValue).toBe(1320);
   });
 
-  it("bottom-aligns the next locally sent user message instead of snapping to spacer slack", async () => {
-    const sid = "test-bottom-align-next-user-message";
+  it("keeps following when the browser moves the view up because content below shrank", async () => {
+    // Content below the viewport can shrink while the reader follows the bottom
+    // (a status row or newer-section control disappears). The browser then moves
+    // scrollTop up by itself, but the view is still at the real bottom, so that
+    // upward step must not end following: otherwise the next message or reply,
+    // including the reader's own sent message, would land below the viewport.
+    const sid = "test-content-shrink-keeps-follow";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Short answer" }),
+    ]);
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollHeightValue = 1600;
+    let scrollTopValue = 988;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get() {
+        return scrollHeightValue;
+      },
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    // At the real bottom (1600 minus the 12 px end slack).
+    fireEvent.scroll(scrollContainer);
+
+    // Content shrinks by 60 px and the browser clamps the view up with it.
+    scrollHeightValue = 1540;
+    scrollTopValue = 928;
+    fireEvent.scroll(scrollContainer);
+
+    scrollHeightValue = 1700;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "A longer answer that arrives after the shrink." }),
+    ]);
+    rerender(<MessageFeed sessionId={sid} />);
+    await flushFeedObservers();
+
+    expect(scrollTopValue).toBe(1100);
+  });
+
+  // Lays out a feed whose real content bottom is 1788 (1800 minus the 12 px end slack) in a
+  // 600 px viewport, then sends u2 from the given scroll position. u2 renders at 1500-1540.
+  async function sendFollowUpFrom(sid: string, initialScrollTop: number, scrollUpFirst: boolean) {
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Question" }),
       makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
@@ -1316,7 +1373,7 @@ describe("MessageFeed - scroll behavior", () => {
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
     let scrollHeightValue = 1800;
-    let scrollTopValue = 1000;
+    let scrollTopValue = initialScrollTop;
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -1364,6 +1421,10 @@ describe("MessageFeed - scroll behavior", () => {
 
     try {
       fireEvent.scroll(scrollContainer);
+      if (scrollUpFirst) {
+        scrollTopValue = 400;
+        fireEvent.scroll(scrollContainer);
+      }
       setStoreBottomAlignNextUserMessage(sid);
       setStoreMessages(sid, [
         makeMessage({ id: "u1", role: "user", content: "Question" }),
@@ -1372,12 +1433,27 @@ describe("MessageFeed - scroll behavior", () => {
       ]);
       rerender(<MessageFeed sessionId={sid} />);
       await flushFeedObservers();
-
-      expect(scrollTopValue).toBe(940);
-      expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
+      return scrollTopValue;
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     }
+  }
+
+  it("bottom-aligns the next locally sent user message instead of snapping to spacer slack", async () => {
+    // Sending from the real bottom keeps following: the view lands on the sent
+    // message's bottom edge (1540 - 600), not on the physical end of the spacer.
+    const sid = "test-bottom-align-next-user-message";
+    expect(await sendFollowUpFrom(sid, 1188, false)).toBe(940);
+    expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
+  });
+
+  it("keeps the reading position when a message is sent while scrolled up", async () => {
+    // Sending while reading older content (often a comment on it) must not pull
+    // the reader to the new message; the one-shot send request is still consumed
+    // so it cannot fire later.
+    const sid = "test-send-while-reading-older";
+    expect(await sendFollowUpFrom(sid, 1188, true)).toBe(400);
+    expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
   });
 
   it("keeps the real bottom visible when an older turn collapses at the bottom", () => {

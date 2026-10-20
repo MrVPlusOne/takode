@@ -1211,7 +1211,9 @@ export function MessageFeed({
       // Only reaching the real bottom resumes following. A position just above it is still
       // reading: slow scrolls arrive in steps too small to count as scrolling up, and the
       // per-second updates of a waiting worker's preview would otherwise pull the view down.
-      setAutoFollowEnabled(!scrollingUp && distanceFromBottom <= FOLLOW_RESUME_TOLERANCE_PX && !hasNewerSections);
+      // An upward step still at the real bottom (the browser's own when content shrinks) keeps it on.
+      const atRealBottom = distanceFromBottom <= FOLLOW_RESUME_TOLERANCE_PX && !hasNewerSections;
+      setAutoFollowEnabled(atRealBottom && (!scrollingUp || autoFollowEnabledRef.current));
     }
     isNearBottom.current = nearBottom;
     if (autoFollowEnabledRef.current && nearBottom && !hasNewerSections) {
@@ -1363,6 +1365,11 @@ export function MessageFeed({
 
   useLayoutEffect(() => {
     if (!shouldBottomAlignNextUserMessage) return;
+    // A send while reading older content (often a comment on it) leaves the reader there.
+    if (!autoFollowEnabledRef.current) {
+      useStore.getState().clearBottomAlignOnNextUserMessage(sessionId);
+      return;
+    }
     if (!latestMessage || latestMessage.role !== "user") return;
 
     const alignLatestUserMessage = () => {
@@ -1395,6 +1402,7 @@ export function MessageFeed({
     }
     alignLatestUserMessage();
   }, [
+    autoFollowEnabledRef,
     getFeedBlockBottom,
     getRealContentBottom,
     latestMessage,

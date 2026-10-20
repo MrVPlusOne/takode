@@ -22,6 +22,11 @@ After send, the feed behaves according to the normal bottom-follow rule:
 - if the user was at the bottom, keep following the bottom
 - if the user was scrolled up, preserve their current reading position
 
+This holds for every way of sending (the composer, comments and quick replies
+to questions), in Main and in leader quest threads. People often send while
+scrolled up to comment on what they are reading, so the send must not pull them
+away; the Go to bottom button and latest pill show that newer content exists.
+
 There is no dedicated "scroll the new user message to the top" path.
 
 ### 2. Bottom-follow rule
@@ -40,6 +45,12 @@ bottom (or uses the jump-to-bottom control); getting close to it is not enough.
 Slow scrolls arrive in steps of a few pixels, and content that updates below a
 reader every second, such as a waiting worker's live preview in a leader quest
 thread, would otherwise pull them back down on every update.
+
+An upward step that still ends at the real bottom does not stop following. The
+browser makes such steps itself when content below the viewport shrinks (for
+example after Go to bottom replaces an older window with the newest one); treating
+them as the reader scrolling up silently turned following off while the view sat
+at the bottom.
 
 On desktop, the expanded composer overlays a fixed compact dock. Its measured
 overlap adds manual scroll range so the last passage can be read above it;
