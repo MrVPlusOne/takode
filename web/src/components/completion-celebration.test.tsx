@@ -112,6 +112,67 @@ describe("playCheckPop and playSparkle", () => {
   });
 });
 
+describe("fountain flights", () => {
+  /** Every point the fountain's pieces fly through, in screen pixels from the anchor. */
+  function flightPoints(): Array<Array<[number, number]>> {
+    return animate.mock.calls
+      .map(([keyframes]) => keyframes as Keyframe[])
+      .filter((keyframes) => keyframes.length === 6)
+      .map((keyframes) =>
+        keyframes.map((frame) => {
+          const [, x, y] = /translate\(([-\d.e]+)px, ([-\d.e]+)px\)/.exec(String(frame.transform))!;
+          return [Number(x), Number(y)];
+        }),
+      );
+  }
+
+  function playAt(x: number, y: number) {
+    animate.mockClear();
+    playCompletionCelebration({ x, y, scale: 1, ghost: null });
+    return flightPoints();
+  }
+
+  it("shoots up in open space and never leaves the screen near an edge or corner", () => {
+    setup();
+    // jsdom's window is 1024 x 768.
+    const open = playAt(512, 400);
+    expect(open.length).toBeGreaterThan(10);
+    // In open space the pieces rise before falling back.
+    expect(Math.min(...open.map((path) => Math.min(...path.map(([, dy]) => dy))))).toBeLessThan(-30);
+
+    for (const [x, y] of [
+      [10, 400],
+      [1014, 400],
+      [512, 10],
+      [512, 758],
+      [8, 8],
+      [1016, 760],
+    ] as const) {
+      for (const path of playAt(x, y)) {
+        for (const [dx, dy] of path) {
+          expect(x + dx).toBeGreaterThanOrEqual(5.99);
+          expect(x + dx).toBeLessThanOrEqual(1024 - 5.99);
+          expect(y + dy).toBeGreaterThanOrEqual(5.99);
+          expect(y + dy).toBeLessThanOrEqual(768 - 5.99);
+        }
+      }
+    }
+  });
+
+  it("leans away from a close edge, so a to-do's confetti at the left edge flies right", () => {
+    setup();
+    const ends = (paths: Array<Array<[number, number]>>) =>
+      paths.reduce((sum, path) => sum + path[path.length - 1]![0], 0) / paths.length;
+    expect(ends(playAt(20, 400))).toBeGreaterThan(15);
+    expect(ends(playAt(1004, 400))).toBeLessThan(-15);
+  });
+
+  it("differs from play to play", () => {
+    setup();
+    expect(JSON.stringify(playAt(512, 400))).not.toBe(JSON.stringify(playAt(512, 400)));
+  });
+});
+
 describe("usePlayOnArrival", () => {
   function Event({ id, at, play }: { id: string | null; at?: number; play: () => void }) {
     usePlayOnArrival(id, at, play);

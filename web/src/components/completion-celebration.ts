@@ -4,6 +4,10 @@
  * drawn in its own layer above the page and takes no taps, so nothing waits on it and the
  * page underneath stays usable. They play once for a real event, never for history, and
  * not at all with reduced motion.
+ *
+ * Each is a small firework: pieces shoot up in a fountain and fall back. Every play draws its
+ * own colors, count, angles and speeds, so no two look alike, and the fountain leans away from
+ * screen edges the celebrated element is close to, so nothing flies off screen.
  */
 import { useEffect, useRef } from "react";
 
@@ -21,12 +25,45 @@ export interface CelebrationAnchor {
 /** How recent an event must be when it first shows to count as happening now, not history. */
 export const ARRIVAL_WINDOW_MS = 20_000;
 
-const CONFETTI_COLORS = ["#10b981", "#fbbf24", "#38bdf8", "#f472b6", "#a78bfa"];
 const SUCCESS = "#10b981";
+const PALETTE = ["#10b981", "#fbbf24", "#38bdf8", "#f472b6", "#a78bfa", "#fb923c", "#34d399", "#f87171"];
 const CHECK_SVG =
   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 const STAR_SVG =
   '<svg viewBox="0 0 10 10" width="10" height="10" fill="currentColor"><path d="M5 0 L6 4 L10 5 L6 6 L5 10 L4 6 L0 5 L4 4 Z"/></svg>';
+
+type Shape = "dot" | "rect" | "strip" | "star";
+
+/** One kind of fountain. Speed and gravity are in pixels per whole flight, before the app's zoom. */
+interface Fountain {
+  /** Typical number of pieces; each play varies it. */
+  count: number;
+  shapes: Shape[];
+  /** Launch speed and pull back down: a piece peaks at speed² / (2 × gravity). */
+  speed: number;
+  gravity: number;
+  /** Each piece's size at six even points of its flight. */
+  scales: number[];
+}
+
+/** A to-do's confetti: peaks about 70 pixels out and falls back to where it started. */
+const CONFETTI: Fountain = {
+  count: 18,
+  shapes: ["dot", "rect", "strip", "star"],
+  speed: 280,
+  gravity: 560,
+  scales: [0.6, 1, 1, 0.95, 0.9, 0.8],
+};
+/** Sparks around a check pop. */
+const SPARKS: Fountain = {
+  count: 9,
+  shapes: ["dot", "star"],
+  speed: 150,
+  gravity: 300,
+  scales: [0.6, 1, 1, 0.95, 0.9, 0.8],
+};
+/** Stars that rise from a finished quest's label and twinkle out. */
+const STARS: Fountain = { count: 7, shapes: ["star"], speed: 120, gravity: 160, scales: [0.4, 1.2, 0.8, 1.2, 0.8, 0] };
 
 /**
  * Measures where to celebrate: on `target` (a to-do's status circle, a button, a label),
@@ -47,7 +84,7 @@ export function celebrationAnchor(target: Element | null | undefined, row?: Elem
 
 /**
  * Completing a to-do: the completed row stays in place for a moment, checked and struck
- * through, then slides off to the right while confetti bursts from its check. Without the
+ * through, then slides off to the right while confetti shoots from its check. Without the
  * copy, the celebration would land on the next row, which the list has already moved up.
  * Safe to call many times in a row.
  */
@@ -59,7 +96,7 @@ export function playCompletionCelebration(anchor: CelebrationAnchor | null): voi
   if (ghost) document.body.insertBefore(ghost, layer);
   // The check rides on the copied row, so it leaves with it.
   popCheck(ghost?.querySelector<HTMLElement>("[data-completion-mark]") ?? layer, duration);
-  burstConfetti(layer, duration);
+  launchFountain(layer, anchor, CONFETTI, duration);
   ghost?.animate([{ translate: "0 0" }, { translate: "0 0", offset: 0.5 }, { translate: "100% 0" }], {
     duration,
     easing: "ease-in",
@@ -68,46 +105,31 @@ export function playCompletionCelebration(anchor: CelebrationAnchor | null): voi
   closeLayer(duration, layer, ghost);
 }
 
-/** A green check pops with a ring rippling out: a change landed, a prompt list emptied. */
+/** A green check pops with a ring rippling out and a few sparks: a change landed, a prompt list emptied. */
 export function playCheckPop(anchor: CelebrationAnchor | null): void {
   const layer = openLayer(anchor);
-  if (!layer) return;
+  if (!layer || !anchor) return;
   const duration = 800;
   const ring = piece(layer, 20);
   Object.assign(ring.style, { borderRadius: "9999px", border: `2px solid ${SUCCESS}` });
   ring.animate(
     [
       { transform: "scale(0.8)", opacity: 0.8 },
-      { transform: "scale(2.6)", opacity: 0 },
+      { transform: `scale(${between(2.2, 3)})`, opacity: 0 },
     ],
     { duration: duration * 0.7, easing: "ease-out", fill: "both" },
   );
+  launchFountain(layer, anchor, SPARKS, duration);
   popCheck(layer, duration);
   closeLayer(duration, layer);
 }
 
-/** A few stars twinkle around the anchor: a quest finished. */
+/** A few stars rise from the anchor and twinkle out: a quest finished. */
 export function playSparkle(anchor: CelebrationAnchor | null): void {
   const layer = openLayer(anchor);
-  if (!layer) return;
+  if (!layer || !anchor) return;
   const duration = 900;
-  const count = 6;
-  for (let index = 0; index < count; index++) {
-    // A wide ellipse, so the stars frame a line of text rather than a point.
-    const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-    const dx = Math.cos(angle) * (34 + (index % 2) * 10);
-    const dy = Math.sin(angle) * (14 + (index % 2) * 4);
-    const star = piece(layer, 10, STAR_SVG);
-    star.style.color = index % 2 ? "#fbbf24" : "#34d399";
-    star.animate(
-      [
-        { transform: `translate(${dx * 0.6}px, ${dy * 0.6}px) scale(0) rotate(0deg)`, opacity: 1 },
-        { transform: `translate(${dx}px, ${dy}px) scale(1.1) rotate(45deg)`, opacity: 1, offset: 0.45 },
-        { transform: `translate(${dx * 1.1}px, ${dy * 1.1}px) scale(0) rotate(90deg)`, opacity: 0 },
-      ],
-      { duration: duration - 120, delay: (index % 3) * 60, easing: "ease-out", fill: "both" },
-    );
-  }
+  launchFountain(layer, anchor, STARS, duration);
   closeLayer(duration, layer);
 }
 
@@ -253,30 +275,107 @@ function popCheck(parent: HTMLElement, duration: number): void {
   );
 }
 
-/** Colored bits burst out and fall a little. */
-function burstConfetti(layer: HTMLElement, duration: number): void {
-  const count = 14;
+/**
+ * Shoots `fountain`'s pieces up from the anchor, leaning away from close screen edges, and
+ * lets them fall back. About one play in three splits into two jets.
+ */
+function launchFountain(layer: HTMLElement, anchor: CelebrationAnchor, fountain: Fountain, duration: number): void {
+  const side = openSide(anchor);
+  const up = Math.atan2(side.y * 0.8 - 0.6, side.x * 0.8) + between(-0.25, 0.25);
+  const jets = Math.random() < 0.35 ? [up - 0.4, up + 0.4] : [up];
+  const colors = colorMix();
+  const count = Math.round(fountain.count * between(0.8, 1.2));
+  const speed = fountain.speed * between(0.85, 1.15);
   for (let index = 0; index < count; index++) {
-    const angle = (index / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-    const distance = 26 + Math.random() * 18;
-    const dx = Math.cos(angle) * distance;
-    const dy = Math.sin(angle) * distance;
-    const spin = (Math.random() - 0.5) * 540;
-    const round = index % 3 === 0;
-    const bit = piece(layer, 6);
-    Object.assign(bit.style, {
-      background: CONFETTI_COLORS[index % CONFETTI_COLORS.length],
-      borderRadius: round ? "9999px" : "1px",
-      width: round ? "5px" : "4px",
-      height: round ? "5px" : "7px",
+    const angle = jets[index % jets.length]! + between(-0.35, 0.35);
+    const velocity = speed * between(0.65, 1.1);
+    const path: Array<[number, number]> = [];
+    for (let step = 0; step <= 5; step++) {
+      const t = step / 5;
+      path.push([Math.cos(angle) * velocity * t, Math.sin(angle) * velocity * t + 0.5 * fountain.gravity * t * t]);
+    }
+    flyPiece(layer, pick(fountain.shapes), pick(colors), keepOnScreen(anchor, path), fountain.scales, {
+      spin: between(-360, 360),
+      duration: duration - between(40, 160),
+      delay: between(0, 60),
     });
-    bit.animate(
-      [
-        { transform: "translate(0, 0) rotate(0deg) scale(0.6)", opacity: 1 },
-        { transform: `translate(${dx}px, ${dy}px) rotate(${spin / 2}deg) scale(1)`, opacity: 1, offset: 0.45 },
-        { transform: `translate(${dx * 1.15}px, ${dy + 16}px) rotate(${spin}deg) scale(0.9)`, opacity: 0 },
-      ],
-      { duration: duration - 100 + Math.random() * 100, easing: "cubic-bezier(0.2, 0.7, 0.3, 1)", fill: "both" },
+  }
+}
+
+/**
+ * Which way there is room: a vector pointing away from the screen edges the anchor is within
+ * 150 pixels of, from length 0 in open space up to 1 right at an edge.
+ */
+function openSide(anchor: CelebrationAnchor): { x: number; y: number } {
+  const reach = 150;
+  const push = (distance: number) => Math.max(0, 1 - distance / reach);
+  const x = push(anchor.x) - push(window.innerWidth - anchor.x);
+  const y = push(anchor.y) - push(window.innerHeight - anchor.y);
+  const length = Math.hypot(x, y);
+  return length > 1 ? { x: x / length, y: y / length } : { x, y };
+}
+
+/** Shrinks a flight path, in layer pixels, so every point of it stays on screen. */
+function keepOnScreen(anchor: CelebrationAnchor, path: Array<[number, number]>): Array<[number, number]> {
+  const margin = 6;
+  const limit = (from: number, travel: number, size: number) => {
+    if (from + travel < margin) return (from - margin) / -travel;
+    if (from + travel > size - margin) return (size - margin - from) / travel;
+    return 1;
+  };
+  let factor = 1;
+  for (const [dx, dy] of path) {
+    factor = Math.min(
+      factor,
+      limit(anchor.x, dx * anchor.scale, window.innerWidth),
+      limit(anchor.y, dy * anchor.scale, window.innerHeight),
     );
   }
+  factor = Math.max(0, factor);
+  return factor === 1 ? path : path.map(([dx, dy]) => [dx * factor, dy * factor]);
+}
+
+/** One piece following `path` at an even pace, fading out over its last 40%. */
+function flyPiece(
+  layer: HTMLElement,
+  shape: Shape,
+  color: string,
+  path: Array<[number, number]>,
+  scales: number[],
+  { spin, duration, delay }: { spin: number; duration: number; delay: number },
+): void {
+  const bit = piece(layer, shape === "star" ? Math.round(between(8, 11)) : 6, shape === "star" ? STAR_SVG : "");
+  bit.style.color = color;
+  const sizes = { dot: ["5px", "5px", "9999px"], rect: ["4px", "7px", "1px"], strip: ["2.5px", "11px", "1px"] };
+  if (shape !== "star") {
+    const [width, height, borderRadius] = sizes[shape];
+    Object.assign(bit.style, { background: color, width, height, borderRadius });
+  }
+  const last = path.length - 1;
+  bit.animate(
+    path.map(([dx, dy], index) => ({
+      transform: `translate(${dx}px, ${dy}px) rotate(${(spin * index) / last}deg) scale(${scales[index] ?? 1})`,
+      opacity: Math.min(1, (1 - index / last) / 0.4),
+    })),
+    // Linear timing over evenly spaced points of the arc moves each piece like a thrown one.
+    { duration, delay, easing: "linear", fill: "both" },
+  );
+}
+
+/** Four or five colors of the palette, in a new mix each play. */
+function colorMix(): string[] {
+  const colors = [...PALETTE];
+  for (let index = colors.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [colors[index], colors[other]] = [colors[other]!, colors[index]!];
+  }
+  return colors.slice(0, 4 + Math.floor(Math.random() * 2));
+}
+
+function between(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function pick<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
 }

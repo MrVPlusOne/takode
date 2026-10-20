@@ -35,13 +35,14 @@ export function PlaygroundCelebrationsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Celebrations"
-        description="Small celebrations that play once when something gets done while the user is there, never for history and never with reduced motion. Completing a to-do keeps a struck-through copy of its row in place while confetti bursts from its check, then slides it away. The Quest complete card twinkles when it shows moments after the quest finished; a landed notice pops a check on its badge; and the Needs you group pops a check as its last prompt is answered."
+        description="Small celebrations that play once when something gets done while the user is there, never for history and never with reduced motion. Each is a small firework that shoots up and falls back, with new colors, counts and angles every play, leaning away from nearby screen edges so nothing leaves the screen. Completing a to-do keeps a struck-through copy of its row in place while confetti shoots from its check, then slides it away. Stars rise from the Quest complete card when it shows moments after the quest finished; a landed notice pops a check on its badge; and the Needs you group pops a check as its last prompt is answered."
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <TodoCompletionDemo />
           <QuestCompleteDemo />
           <LandingDemo />
           <PromptsClearedDemo />
+          <ScreenEdgesDemo />
         </div>
       </Section>
     </PlaygroundSectionGroup>
@@ -140,6 +141,28 @@ function PromptsClearedDemo() {
       </div>
       <button type="button" onClick={() => setWaiting((value) => !value)} className={`mt-2 ${BUTTON}`}>
         {waiting ? "Answer the prompt" : "Ask again"}
+      </button>
+    </Card>
+  );
+}
+
+/** The confetti at the screen's corners, edge middles and center at once, to show which way each leans. */
+function ScreenEdgesDemo() {
+  const play = () => {
+    const inset = 22;
+    for (const x of [inset, window.innerWidth / 2, window.innerWidth - inset]) {
+      for (const y of [inset, window.innerHeight / 2, window.innerHeight - inset]) {
+        playCompletionCelebration({ x, y, scale: 1, ghost: null });
+      }
+    }
+  };
+  return (
+    <Card label="Near screen edges">
+      <p className="text-[11px] text-cc-muted">
+        Near an edge the confetti leans away from it; in open space it shoots straight up.
+      </p>
+      <button type="button" onClick={play} className={`mt-2 ${BUTTON}`}>
+        Play at the screen edges
       </button>
     </Card>
   );
