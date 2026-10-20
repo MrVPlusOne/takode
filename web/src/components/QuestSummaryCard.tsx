@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode, type Ref } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
@@ -57,6 +57,7 @@ export function QuestSummaryCard({
   sessionId,
   questLinkSurface,
   detail,
+  labelRef,
 }: {
   quest: QuestmasterTask;
   label: string;
@@ -72,6 +73,7 @@ export function QuestSummaryCard({
   questLinkSurface: QuestLinkSurface;
   /** A line under the title, such as where the quest's result was answered. */
   detail?: ReactNode;
+  labelRef?: Ref<HTMLSpanElement>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = fullText !== "" && fullText !== summary;
@@ -83,7 +85,10 @@ export function QuestSummaryCard({
       data-testid={testId}
     >
       <div className="flex min-w-0 items-baseline gap-1.5 text-[11px] text-cc-muted">
-        <span className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] ${labelClassName}`}>
+        <span
+          ref={labelRef}
+          className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] ${labelClassName}`}
+        >
           {label}
         </span>
         <QuestInlineLink

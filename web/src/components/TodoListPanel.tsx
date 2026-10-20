@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { isTodoOverdue } from "../../shared/todo-due.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import {
@@ -12,6 +22,7 @@ import {
 import { api } from "../api.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
+import { celebrationAnchor, playCompletionCelebration } from "./completion-celebration.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { TodoComposer } from "./TodoComposer.js";
 import { TodoDueLabel } from "./TodoDueControls.js";
@@ -101,14 +112,17 @@ function TodoMarker({
   title,
   disabled,
   onClick,
+  ref,
 }: {
   item: TodoItem;
   title: string;
   disabled: boolean;
   onClick: () => void;
+  ref?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       disabled={disabled}
       aria-label={item.status === "done" ? `Reopen ${title}` : `Complete ${title}`}
@@ -190,9 +204,16 @@ function TodoRow({
     [onError, onState],
   );
 
+  const markerRef = useRef<HTMLButtonElement>(null);
   const toggleCompletion = () => {
+    // Measured now: the completed row leaves the list as soon as the server confirms.
+    const completing = item.status !== "done";
+    const celebrateAt = completing ? celebrationAnchor(markerRef.current, markerRef.current?.closest("article")) : null;
     setBusy(true);
     void onToggleCompletion(item)
+      .then(() => {
+        if (completing) playCompletionCelebration(celebrateAt);
+      })
       .catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))
       .finally(() => setBusy(false));
   };
@@ -255,6 +276,7 @@ function TodoRow({
       {/* Overdue: a red bar on the row's left edge. */}
       {overdue && <span aria-hidden="true" className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-cc-error" />}
       <TodoMarker
+        ref={markerRef}
         item={item}
         title={parts.titleMarkdown}
         disabled={busy || !!item.archivedAt}

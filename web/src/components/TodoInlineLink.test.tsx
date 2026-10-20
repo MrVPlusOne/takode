@@ -8,6 +8,12 @@ import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { type TodoLinkSource, TodoLinkSourceContext } from "./TodoInlineLink.js";
 
+const celebrate = vi.hoisted(() => vi.fn());
+vi.mock("./completion-celebration.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./completion-celebration.js")>()),
+  playCompletionCelebration: celebrate,
+}));
+
 const SYSTEM = { actor: { kind: "system" as const }, authorization: { kind: "bootstrap" as const }, at: 1 };
 const BRIEFING = { kind: "session" as const, sessionId: "session-2978", label: "2978" };
 
@@ -310,9 +316,12 @@ describe("to-do links", () => {
     fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
     await screen.findByText("Reply to Alice");
 
+    celebrate.mockClear();
     fingerTap(statusButton("Done"));
     await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
     expect(setItemStatus).toHaveBeenCalledWith("td-1", "done");
+    // Completing from the sheet celebrates too, once the server confirms it.
+    expect(celebrate).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Moved to Done");
     // A Done to-do has no due date to change, as on the To-dos page.
     expect(screen.queryByTestId("todo-preview-due")).toBeNull();

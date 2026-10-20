@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchSupportingQuestAnswer, type SupportingQuestAnswer } from "../api/started-quests.js";
 import type { QuestmasterTask } from "../types.js";
+import { celebrationAnchor, playSparkle, usePlayOnArrival } from "./completion-celebration.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { ThreadMessageLink } from "./QuestForkLinks.js";
 import { QuestRecordFetchContext, QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
@@ -16,6 +17,9 @@ export const SupportingQuestAnswerContext = createContext<ReadonlyMap<string, Su
  *
  * A supporting quest's result was answered where the user asked, so its card leads with
  * that answer ("Answered in <thread>") and keeps the debrief behind the toggle.
+ *
+ * When the card shows within moments of the quest finishing, a few stars twinkle around
+ * its label once.
  */
 export function QuestCompletionSummaryCard({
   questId,
@@ -28,6 +32,11 @@ export function QuestCompletionSummaryCard({
 }) {
   const quest = useQuestRecord(questId);
   const answer = useSupportingQuestAnswer(quest, sessionId);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const completedAt = quest?.status === "done" && !quest.cancelled ? quest.completedAt : undefined;
+  usePlayOnArrival(completedAt ? `quest-complete:${quest?.questId}:${completedAt}` : null, completedAt, () =>
+    playSparkle(celebrationAnchor(labelRef.current)),
+  );
   if (!quest || quest.status !== "done" || quest.cancelled) return null;
   const debrief = quest.debrief?.trim() ?? "";
   const tldr = quest.debriefTldr?.trim() ?? "";
@@ -42,6 +51,7 @@ export function QuestCompletionSummaryCard({
       fullText={answer ? (debrief || tldr ? `${answer.markdown}\n\n---\n\n${debrief || tldr}` : "") : debrief}
       expandLabel={answer ? "Show debrief" : "Show full debrief"}
       testId="quest-completion-summary"
+      labelRef={labelRef}
       sessionId={sessionId}
       questLinkSurface={questLinkSurface}
       detail={

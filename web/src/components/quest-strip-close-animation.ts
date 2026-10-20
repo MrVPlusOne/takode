@@ -5,7 +5,7 @@
  * tabs can be closed in a row without waiting. Nothing plays with reduced motion.
  */
 
-const SLIDE_MS = 200;
+const SLIDE_MS = 280;
 
 /**
  * Copies `strip` over its own place and slides the copy away. Call before the close

@@ -25,6 +25,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api.js", () => ({ api: mocks }));
+const celebrate = vi.hoisted(() => vi.fn());
+vi.mock("./completion-celebration.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./completion-celebration.js")>()),
+  playCompletionCelebration: celebrate,
+}));
 vi.mock("./MarkdownContent.js", () => ({
   MarkdownContent: ({ text }: { text: string }) => <span data-testid="todo-markdown">{text}</span>,
 }));
@@ -306,6 +311,8 @@ describe("TodoListPanel", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Complete Reply to **Alice**" }));
     await waitFor(() => expect(mocks.setTodoItemStatus).toHaveBeenCalledWith("td-1", "done"));
+    // The small celebration plays once the server confirms the completion.
+    await waitFor(() => expect(celebrate).toHaveBeenCalledTimes(1));
     const toast = await screen.findByRole("status");
     expect(toast).toHaveTextContent("Done: Reply to **Alice**");
     fireEvent.click(within(toast).getByRole("button", { name: "Undo" }));
@@ -421,6 +428,8 @@ describe("TodoListPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Reopen Finished" }));
     await waitFor(() => expect(mocks.setTodoItemStatus).toHaveBeenCalledWith("td-3", "todo"));
     expect(await screen.findByText("Finished")).toBeInTheDocument();
+    // Reopening is not a completion, so nothing celebrates.
+    expect(celebrate).not.toHaveBeenCalled();
   });
 
   it("uses the full row as the drag preview and shows an insertion placeholder", async () => {

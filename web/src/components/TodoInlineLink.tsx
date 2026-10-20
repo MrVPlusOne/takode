@@ -16,6 +16,7 @@ import { api } from "../api.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { timeAgo } from "../utils/quest-helpers.js";
+import { celebrationAnchor, playCompletionCelebration } from "./completion-celebration.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { TODO_SELECT_CLASS } from "./TodoComposer.js";
@@ -444,12 +445,16 @@ function ItemPreview({
   };
   const busy = (control: string) => action.pending && busyControl === control;
 
-  const setStatus = (status: TodoStatus) => {
+  const setStatus = (status: TodoStatus, control: Element) => {
     if (status === item.status) return;
+    const celebrateAt = status === "done" ? celebrationAnchor(control) : null;
     run(
       `status:${status}`,
       () => source.setItemStatus(item.id, status),
-      (response) => setUndo(status === "done" ? (response.completionUndo ?? null) : null),
+      (response) => {
+        setUndo(status === "done" ? (response.completionUndo ?? null) : null);
+        if (status === "done") playCompletionCelebration(celebrateAt);
+      },
     );
   };
   const draftValid = draft !== null && !!deriveTodoMarkdown(draft).titleMarkdown;
@@ -662,7 +667,7 @@ function ItemPreview({
                   <button
                     key={status}
                     type="button"
-                    onClick={() => setStatus(status)}
+                    onClick={(event) => setStatus(status, event.currentTarget)}
                     disabled={action.pending && !busy(`status:${status}`)}
                     aria-pressed={item.status === status}
                     aria-busy={busy(`status:${status}`) || undefined}

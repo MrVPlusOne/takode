@@ -17,7 +17,7 @@ import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { SearchField, SearchModeSwitch, SearchSheet } from "./SearchSheet.js";
 import { ThreadTabRecentMessages, type LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
-import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
+import { useGroupMoveAnimation, usePromptsClearedPop } from "./thread-tab-group-move.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -169,6 +169,7 @@ export function ThreadTabGroupBar({
       ) ?? null);
   const barRef = useRef<HTMLDivElement | null>(null);
   useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
+  usePromptsClearedPop(barRef, groups);
   const select = (threadKey: string) => {
     setOpenGroup(null);
     setSheetOpen(false);

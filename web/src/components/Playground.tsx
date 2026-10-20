@@ -22,6 +22,7 @@ import { PlaygroundNextAttentionSection } from "./playground/PlaygroundNextAtten
 import { PlaygroundWorkboardAccessSection } from "./playground/PlaygroundWorkboardAccessSection.js";
 import { PlaygroundDiffAccessSection } from "./playground/PlaygroundDiffAccessSection.js";
 import { PlaygroundThreadTabGroupsSection } from "./playground/PlaygroundThreadTabGroupsSection.js";
+import { PlaygroundCelebrationsSection } from "./playground/PlaygroundCelebrationsSection.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -122,6 +123,7 @@ export function Playground() {
             <PlaygroundInteractiveSections />
             <PlaygroundWorkboardAccessSection />
             <PlaygroundThreadTabGroupsSection />
+            <PlaygroundCelebrationsSection />
             <PlaygroundDiffAccessSection />
             <PlaygroundStateSections />
           </QuestRecordFetchContext.Provider>

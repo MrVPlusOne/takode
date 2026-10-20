@@ -225,6 +225,8 @@ export function ThreadTabRail({
       data-open-tab-count={tabs.length + 1}
     >
       <ThreadTabGroupBar
+        // A new bar per leader, so motion that compares renders never compares two leaders' tabs.
+        key={sessionId}
         main={mainState}
         tabs={displayedTabs}
         closedTabs={closedTabs}

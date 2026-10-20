@@ -33,6 +33,13 @@ vi.mock("remark-gfm", () => ({
   default: {},
 }));
 
+const checkPop = vi.hoisted(() => vi.fn());
+vi.mock("./completion-celebration.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./completion-celebration.js")>()),
+  playCheckPop: checkPop,
+}));
+
+import { _resetArrivalsForTest } from "./completion-celebration.js";
 import { MessageBubble } from "./MessageBubble.js";
 
 function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
@@ -230,6 +237,36 @@ describe("MessageBubble standalone system reminder messages", () => {
 
     fireEvent.click(chip);
     expect(screen.getByText(/Target SHAs in order: e26ee0c65e679d8342964f9dd4484f4c73d99217/)).toBeTruthy();
+  });
+
+  it("pops a check on the landed badge only for a change that just landed", () => {
+    _resetArrivalsForTest();
+    checkPop.mockClear();
+    const landing = (id: string, timestamp: number, first = "[Landing queue] q-12 landed on jiayi.") =>
+      makeMessage({
+        id,
+        timestamp,
+        content: first,
+        agentSource: { sessionId: "landing-queue", sessionLabel: "Landing Queue" },
+      });
+
+    // A landing that arrives while the user watches.
+    const { unmount } = render(<MessageBubble message={landing("landed-now", Date.now())} showTimestamp={false} />);
+    expect(checkPop).toHaveBeenCalledTimes(1);
+    // The feed remounting the row does not replay it.
+    unmount();
+    render(<MessageBubble message={landing("landed-now", Date.now())} showTimestamp={false} />);
+    expect(checkPop).toHaveBeenCalledTimes(1);
+
+    // History and other outcomes stay quiet.
+    render(<MessageBubble message={landing("landed-yesterday", Date.now() - 86_400_000)} showTimestamp={false} />);
+    render(
+      <MessageBubble
+        message={landing("bounced-now", Date.now(), "[Landing queue] Your change for q-7 bounced.")}
+        showTimestamp={false}
+      />,
+    );
+    expect(checkPop).toHaveBeenCalledTimes(1);
   });
 
   it.each([

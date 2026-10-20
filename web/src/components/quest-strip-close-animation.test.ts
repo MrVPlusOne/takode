@@ -51,7 +51,7 @@ describe("playStripClose", () => {
     // It slides left, uncovering the next strip's close button at the right end first.
     expect(animate).toHaveBeenCalledWith(
       [{ transform: "translateX(0)" }, { transform: "translateX(-100%)" }],
-      expect.objectContaining({ duration: 200 }),
+      expect.objectContaining({ duration: 280 }),
     );
 
     // A timer removes it even if the page never delivers the animation's finish event.

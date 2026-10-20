@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import type { SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
 import { buildNeedsInputResolutionNoticeViewModel } from "../utils/needs-input-resolution-notice.js";
@@ -10,6 +11,7 @@ import {
 } from "../utils/standalone-reminder-message.js";
 import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
 import { useStore } from "../store.js";
+import { celebrationAnchor, playCheckPop, usePlayOnArrival } from "./completion-celebration.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
 import { BookIcon, LandingIcon, LockIcon, RestartIcon, WarningIcon } from "./InjectedMessageIcons.js";
@@ -74,6 +76,7 @@ function buildStandaloneReminderBody(
     return (
       <SystemReminderChip
         reminder={systemReminder}
+        message={message}
         searchHighlight={searchHighlight}
         sessionId={sessionId}
         questLinkSurface={questLinkSurface}
@@ -85,21 +88,30 @@ function buildStandaloneReminderBody(
 
 function SystemReminderChip({
   reminder,
+  message,
   searchHighlight,
   sessionId,
   questLinkSurface,
 }: {
   reminder: SystemReminderViewModel;
+  message: ChatMessage;
   searchHighlight?: SearchHighlightInfo;
   sessionId?: string;
   questLinkSurface: QuestLinkSurface;
 }) {
+  // A change that lands while the user watches gets a check popping on its "landed" badge.
+  const badgeRef = useRef<HTMLSpanElement>(null);
+  const landed = reminder.kind === "landing-queue" && reminder.badge === "landed";
+  usePlayOnArrival(landed ? `landed:${message.id}` : null, message.timestamp, () =>
+    playCheckPop(celebrationAnchor(badgeRef.current)),
+  );
   return (
     <InjectedMessageChip
       title={reminder.title}
       summary={reminder.summary}
       meta={reminder.meta}
       badge={reminder.badge}
+      badgeRef={badgeRef}
       tone={reminder.tone}
       icon={<SystemReminderIcon kind={reminder.kind} />}
       testId="standalone-system-reminder-chip"

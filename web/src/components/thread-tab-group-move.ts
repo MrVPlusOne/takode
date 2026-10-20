@@ -1,4 +1,6 @@
 /**
+ * Motion in the status-group bar that compares one render with the previous one.
+ *
  * When the tab on screen moves to another status group, its selected tab glides from where
  * its old group sat into its new group's place, so the move reads as one motion rather than
  * one tab item losing the selection and another gaining it. That covers a quest finishing
@@ -8,10 +10,14 @@
  */
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { celebrationAnchor, playCheckPop } from "./completion-celebration.js";
 
 const CHIP_SELECTOR = '[data-testid="thread-tab-group-chip"]';
-const GLIDE_MS = 260;
+// Long and even enough to follow: a faster glide spent most of its travel in its first
+// frames and was easy to miss.
+const GLIDE_MS = 560;
 
+/** The glide described above. */
 export function useGroupMoveAnimation(
   barRef: RefObject<HTMLDivElement | null>,
   currentKey: string,
@@ -43,7 +49,37 @@ export function useGroupMoveAnimation(
     const dx = fromLeft - to.getBoundingClientRect().left;
     to.animate([{ transform: `translateX(${dx}px)` }, { transform: "translateX(0)" }], {
       duration: GLIDE_MS,
-      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+      easing: "cubic-bezier(0.35, 0.1, 0.25, 1)",
     });
+  });
+}
+
+/**
+ * When the last prompt waiting on the user is answered or dismissed, a check pops where the
+ * Needs you group sat. It plays only when a tab that waited is still open in another group,
+ * so closing that tab, or the tab list briefly emptying, doesn't count as clearing it.
+ */
+export function usePromptsClearedPop(
+  barRef: RefObject<HTMLDivElement | null>,
+  groups: Readonly<Record<string, ReadonlyArray<{ threadKey: string }>>>,
+): void {
+  // Where the group sat, relative to the bar, so the page scrolling between renders
+  // doesn't misplace the pop.
+  const previous = useRef<{ waiting: string[]; spot: { dx: number; dy: number } | null } | null>(null);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const barRect = bar.getBoundingClientRect();
+    const waiting = (groups["needs-input"] ?? []).map((tab) => normalizeThreadKey(tab.threadKey));
+    const chip = celebrationAnchor(bar.querySelector(`${CHIP_SELECTOR}[data-group="needs-input"]`));
+    const before = previous.current;
+    previous.current = { waiting, spot: chip && { dx: chip.x - barRect.left, dy: chip.y - barRect.top } };
+    if (!before?.spot || before.waiting.length === 0 || waiting.length > 0) return;
+    const stillOpen = Object.values(groups).some((tabs) =>
+      tabs.some((tab) => before.waiting.includes(normalizeThreadKey(tab.threadKey))),
+    );
+    if (!stillOpen) return;
+    const scale = barRect.width / bar.offsetWidth || 1;
+    playCheckPop({ x: barRect.left + before.spot.dx, y: barRect.top + before.spot.dy, scale, ghost: null });
   });
 }

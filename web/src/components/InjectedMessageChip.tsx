@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode, type Ref } from "react";
 import type { SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
@@ -57,6 +57,8 @@ export interface InjectedMessageChipProps {
   badge?: string;
   /** Colors the chip surface, icon and badge. */
   tone?: InjectedMessageChipTone;
+  /** The badge element, for a celebration played on it. */
+  badgeRef?: Ref<HTMLSpanElement>;
   /** Overrides the badge color, for a neutral chip with a colored status. */
   badgeTone?: InjectedMessageChipTone;
   /** Overrides the icon color. */
@@ -76,6 +78,7 @@ export function InjectedMessageChip({
   summary,
   meta,
   badge,
+  badgeRef,
   tone = "neutral",
   badgeTone,
   iconTone,
@@ -125,6 +128,7 @@ export function InjectedMessageChip({
         )}
         {badge && (
           <span
+            ref={badgeRef}
             className={`shrink-0 rounded-full border px-1.5 py-px text-[11px] font-medium ${TONES[badgeTone ?? tone].badge}`}
           >
             {badge}
