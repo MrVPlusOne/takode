@@ -228,6 +228,7 @@ export function SettingsPage({
 
   // Voice transcription state
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
+  const [openAITestApiKey, setOpenAITestApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
   const [transcriptionModel, setTranscriptionModel] = useState("");
   const [sttModel, setSttModel] = useState(DEFAULT_STT_MODEL);
@@ -267,6 +268,7 @@ export function SettingsPage({
         setSessionDefaults(normalizeSessionDefaults(s.sessionDefaults));
         if (s.transcriptionConfig) {
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : s.transcriptionConfig.apiKey || "");
+          setOpenAITestApiKey(s.transcriptionConfig.testApiKey || "");
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
           const configuredSttModel = s.transcriptionConfig.sttModel || DEFAULT_STT_MODEL;
@@ -843,6 +845,8 @@ export function SettingsPage({
                 loading={loading}
                 transcriptionApiKey={transcriptionApiKey}
                 setTranscriptionApiKey={setTranscriptionApiKey}
+                openAITestApiKey={openAITestApiKey}
+                setOpenAITestApiKey={setOpenAITestApiKey}
                 transcriptionBaseUrl={transcriptionBaseUrl}
                 setTranscriptionBaseUrl={setTranscriptionBaseUrl}
                 transcriptionModel={transcriptionModel}

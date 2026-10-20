@@ -26,6 +26,8 @@ interface SettingsVoiceTranscriptionSectionProps {
   loading: boolean;
   transcriptionApiKey: string;
   setTranscriptionApiKey: Dispatch<SetStateAction<string>>;
+  openAITestApiKey: string;
+  setOpenAITestApiKey: Dispatch<SetStateAction<string>>;
   transcriptionBaseUrl: string;
   setTranscriptionBaseUrl: Dispatch<SetStateAction<string>>;
   transcriptionModel: string;
@@ -56,6 +58,8 @@ export function SettingsVoiceTranscriptionSection({
   loading,
   transcriptionApiKey,
   setTranscriptionApiKey,
+  openAITestApiKey,
+  setOpenAITestApiKey,
   transcriptionBaseUrl,
   setTranscriptionBaseUrl,
   transcriptionModel,
@@ -171,6 +175,7 @@ export function SettingsVoiceTranscriptionSection({
     try {
       const config: TranscriptionConfig = {
         apiKey: transcriptionApiKey === "***" ? "***" : transcriptionApiKey,
+        testApiKey: openAITestApiKey,
         baseUrl: transcriptionBaseUrl,
         enhancementEnabled: transcriptionEnhancement,
         enhancementModel: transcriptionModel,
@@ -210,6 +215,26 @@ export function SettingsVoiceTranscriptionSection({
             placeholder="sk-..."
             className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
           />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="openai-test-api-key">
+            Test Key for Agents
+          </label>
+          <input
+            id="openai-test-api-key"
+            type="password"
+            value={openAITestApiKey}
+            onChange={(e) => setOpenAITestApiKey(e.target.value)}
+            onFocus={() => {
+              if (openAITestApiKey === "***") setOpenAITestApiKey("");
+            }}
+            placeholder="sk-..."
+            className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
+          />
+          <p className="mt-1 text-xs text-cc-muted">
+            A separate OpenAI key for agents' tests and experiments (validation servers, probe scripts), so their spend
+            stays off the key above. This server never uses it.
+          </p>
         </div>
         <div>
           <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-base-url">

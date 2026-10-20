@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,11 +11,19 @@ import { _resetCodexModelCatalogCacheForTest, loadCodexModelCatalog } from "../c
 let tempDir: string;
 const mockBroadcastGlobal = vi.fn();
 
+// Stands in for the real session-token check: only requests carrying the agent token count as agents.
+function fakeTakodeAuth(c: Context) {
+  return c.req.header("x-companion-auth-token") === "agent-token"
+    ? { callerId: "agent-session", caller: {} }
+    : { response: c.json({ error: "Missing Takode auth headers" }, 403) };
+}
+
 function createApp(): Hono {
   const app = new Hono();
   app.route(
     "/api",
     createSettingsRoutes({
+      authenticateTakodeCaller: fakeTakodeAuth,
       launcher: {
         listSessions: vi.fn(() => []),
         setServerSlug: vi.fn(),
@@ -220,5 +228,60 @@ describe("settings routes", () => {
       error: "sessionDefaults.leader.claude.maxContextLength currently supports only 1000000 or empty",
     });
     expect(mockBroadcastGlobal).not.toHaveBeenCalled();
+  });
+});
+
+describe("OpenAI test key for agents", () => {
+  async function putTranscriptionConfig(app: Hono, transcriptionConfig: Record<string, unknown>) {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcriptionConfig }),
+    });
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  function getTestKey(app: Hono, headers: Record<string, string> = { "x-companion-auth-token": "agent-token" }) {
+    return app.request("/api/settings/openai-test-key", { headers });
+  }
+
+  it("keeps the test key separate from the live key and masks it for browsers", async () => {
+    // The live server's key and the agents' test key are stored independently;
+    // browsers only ever see "***" for either.
+    const app = createApp();
+    const saved = await putTranscriptionConfig(app, { apiKey: "live-key", testApiKey: "test-key" });
+    expect(saved.transcriptionConfig.apiKey).toBe("***");
+    expect(saved.transcriptionConfig.testApiKey).toBe("***");
+    expect(getSettings().transcriptionConfig.apiKey).toBe("live-key");
+    expect(getSettings().transcriptionConfig.testApiKey).toBe("test-key");
+
+    // Saving the masked form back (the Settings page does this) keeps both keys.
+    await putTranscriptionConfig(app, { apiKey: "***", testApiKey: "***", enhancementModel: "gpt-5-mini" });
+    expect(getSettings().transcriptionConfig.apiKey).toBe("live-key");
+    expect(getSettings().transcriptionConfig.testApiKey).toBe("test-key");
+  });
+
+  it("hands the test key only to agent sessions, never the live key", async () => {
+    const app = createApp();
+    await putTranscriptionConfig(app, { apiKey: "live-key", testApiKey: "test-key" });
+
+    const agent = await getTestKey(app);
+    expect(agent.status).toBe(200);
+    expect(await agent.json()).toEqual({ apiKey: "test-key", baseUrl: "https://api.openai.com/v1" });
+
+    const browser = await getTestKey(app, {});
+    expect(browser.status).toBe(403);
+  });
+
+  it("reports no test key instead of falling back to the live key, and clearing removes it", async () => {
+    const app = createApp();
+    await putTranscriptionConfig(app, { apiKey: "live-key" });
+    expect(await (await getTestKey(app)).json()).toEqual({ apiKey: null, baseUrl: "https://api.openai.com/v1" });
+
+    await putTranscriptionConfig(app, { testApiKey: "test-key" });
+    await putTranscriptionConfig(app, { testApiKey: "" });
+    expect(getSettings().transcriptionConfig.testApiKey).toBeUndefined();
+    expect(getSettings().transcriptionConfig.apiKey).toBe("live-key");
   });
 });

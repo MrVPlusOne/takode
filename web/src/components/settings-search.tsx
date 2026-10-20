@@ -109,7 +109,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "voice-microphone", text: "Microphone learned order reset system input device external USB headset" },
       {
         id: "voice-credentials",
-        text: "Voice Transcription API Key Base URL OpenAI Whisper stt speech transcribe audio",
+        text: "Voice Transcription API Key Test Key for Agents Base URL OpenAI Whisper stt speech transcribe audio",
       },
       { id: "voice-models", text: "STT Model Enhancement Model expected languages hints" },
       { id: "voice-enhancement", text: "Enhancement Style prose bullet points" },

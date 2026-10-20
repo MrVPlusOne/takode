@@ -68,6 +68,21 @@ need the user's approval (each replaced or moved entry is backed up).
 
 <name> is a machine name from takode host list, or "this" for the server's machine.`;
 
+const OPENAI_TEST_KEY_HELP = `Usage: takode openai-test-key [--json]
+
+Print the OpenAI key for tests and experiments that the user set in Settings >
+Voice > Test Key for Agents. Use it for every paid OpenAI call an agent makes
+(validation slots, probe scripts, experiments); never use the live server's
+key. Pass it straight into the command so it stays out of the transcript:
+
+  OPENAI_API_KEY="$(takode openai-test-key)" bun my-probe.ts
+
+Fails when no test key is set; ask the user to add one rather than falling
+back to another key.
+
+Options:
+  --json  Print { "apiKey", "baseUrl" } (apiKey null when unset)`;
+
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
 List sessions.
@@ -591,6 +606,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "user-content":
       console.log(USER_CONTENT_HELP);
       return true;
+    case "openai-test-key":
+      console.log(OPENAI_TEST_KEY_HELP);
+      return true;
     case "land":
       console.log(args[0] === "gate" ? LAND_GATE_HELP : LAND_HELP);
       return true;
@@ -763,6 +781,7 @@ Commands:
   worktree         Register and inspect auxiliary worktree retention
   host             Register machines that run sessions for this server (takode host add <name>)
   user-content     The user's instructions and skills on every machine (status, import, take-over)
+  openai-test-key  OpenAI key for agent tests and experiments (never use the live key)
   bundle           Carry commits to the machine of your port target (takode bundle send|fetch)
   land             Land changes on a shared remote branch through the landing queue (takode land test|submit|finish|gate)
   pending  Show pending questions/plans from a herded session

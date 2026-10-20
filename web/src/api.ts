@@ -762,6 +762,8 @@ export type NamerConfig =
 /** Voice transcription configuration (STT + optional LLM enhancement). */
 export interface TranscriptionConfig {
   apiKey: string;
+  /** OpenAI key for agents' tests and experiments; "***" when set (masked). */
+  testApiKey?: string;
   baseUrl: string;
   enhancementEnabled: boolean;
   enhancementModel: string;

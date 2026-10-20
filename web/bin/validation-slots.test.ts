@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentBrowserSession, devServerSlot } from "./validation-slots.js";
+import { agentBrowserSession, devServerSlot, validationServerEnv } from "./validation-slots.js";
 
 describe("validation slot mapping", () => {
   // Parallel lease holders rely on this mapping to never share a port, a HOME
@@ -24,5 +24,34 @@ describe("validation slot mapping", () => {
       stateDir: "/tmp/takode-validation/dev-server-2",
       home: "/tmp/takode-validation/dev-server-2/home",
     });
+  });
+});
+
+describe("validation server environment", () => {
+  const inherited = {
+    PATH: "/usr/bin",
+    COMPANION_SESSION_ID: "live-session",
+    TAKODE_REMOTE_HOST: "1",
+    OPENAI_API_KEY: "live-key",
+  };
+
+  // Slots must never spend the user's live OpenAI key: an inherited key is
+  // replaced by the test key, and the live server's identity is dropped.
+  it("uses the test key in place of any inherited OpenAI key", () => {
+    const env = validationServerEnv(inherited, devServerSlot(2), "test-key");
+    expect(env).toEqual({
+      PATH: "/usr/bin",
+      OPENAI_API_KEY: "test-key",
+      HOME: "/tmp/takode-validation/dev-server-2/home",
+      PORT: "3472",
+      NODE_ENV: "development",
+    });
+  });
+
+  // Without a test key the slot gets no key at all, so its voice and Read
+  // aloud fail visibly instead of quietly using the live key.
+  it("leaves the slot without an OpenAI key when no test key is set", () => {
+    const env = validationServerEnv(inherited, devServerSlot(2), null);
+    expect(env.OPENAI_API_KEY).toBeUndefined();
   });
 });

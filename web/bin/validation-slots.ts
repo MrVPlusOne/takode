@@ -28,6 +28,27 @@ export function devServerSlot(slot: number): DevServerSlot {
   return { slot, backendPort: 3470 + slot, vitePort: 5180 + slot, stateDir, home: `${stateDir}/home` };
 }
 
+/**
+ * Environment for a slot's backend and Vite. Agent shells inherit the live
+ * server's identity (server ID, frontend snapshot, supervision, session
+ * credentials), which a validation server must not adopt. Its OpenAI calls use
+ * the user's test key; an inherited OPENAI_API_KEY may be the live key, so it
+ * is dropped, and without a test key the slot has none.
+ */
+export function validationServerEnv(
+  inherited: NodeJS.ProcessEnv,
+  res: DevServerSlot,
+  openAITestKey: string | null,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = Object.fromEntries(
+    Object.entries(inherited).filter(
+      ([key]) => !key.startsWith("COMPANION_") && !key.startsWith("TAKODE_") && key !== "OPENAI_API_KEY",
+    ),
+  );
+  if (openAITestKey) env.OPENAI_API_KEY = openAITestKey;
+  return { ...env, HOME: res.home, PORT: String(res.backendPort), NODE_ENV: "development" };
+}
+
 /** agent-browser session name of an `agent-browser` slot. */
 export function agentBrowserSession(slot: number): string {
   return `takode-browser-${slot}`;

@@ -219,3 +219,20 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       );
   }
 }
+
+/** Prints the user's OpenAI test key, failing loudly when none is set so callers never fall back to the live key. */
+export async function handleOpenAITestKey(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  const result = (await apiGet(base, "/settings/openai-test-key")) as { apiKey: string | null; baseUrl: string };
+  if (flags.json === true) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!result.apiKey) {
+    err(
+      "No OpenAI test key is set. Ask the user to add one in Settings > Voice > Test Key for Agents; " +
+        "do not use the live key instead.",
+    );
+  }
+  console.log(result.apiKey);
+}

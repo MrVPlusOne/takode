@@ -154,6 +154,7 @@ cd web && bun --no-install run format:check
 
 - After implementing changes, verify them end-to-end when possible. For CLI tools, run the command in your worktree. For scripts, execute them. For logic changes, write a test that exercises the actual code path.
 - When end-to-end verification requires a shared resource (running dev server, UI), document what should be manually verified post-deploy in the quest's verification items.
+- Paid OpenAI calls made for tests and experiments (probe scripts, model comparisons, replays outside the live UI) use the user's test key, never the live server's key: pass it inline as `OPENAI_API_KEY="$(takode openai-test-key)"` so it stays out of the transcript. Never read keys from the server's settings files. When the command reports no test key, ask the user to add one in Settings > Voice > Test Key for Agents. Validation servers get the test key automatically.
 
 ## Component Playground
 

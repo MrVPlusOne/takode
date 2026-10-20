@@ -27,7 +27,7 @@ import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
 import { handleLatency } from "./takode-latency.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
-import { handleBranch, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
+import { handleBranch, handleOpenAITestKey, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
 import { handleTodo } from "./takode-todo-commands.js";
 import {
   handleAnswer,
@@ -125,6 +125,7 @@ try {
     ["permission", { requireOrchestrator: true }],
     ["worktree-cleanup", { requireOrchestrator: true }],
     ["worktree", {}],
+    ["openai-test-key", {}],
   ]);
   if (!command || command === "-h" || command === "--help") {
     printUsage();
@@ -310,6 +311,9 @@ try {
       break;
     case "land":
       await handleLand(base, args);
+      break;
+    case "openai-test-key":
+      await handleOpenAITestKey(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

@@ -940,7 +940,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   /** Mask sensitive fields in TranscriptionConfig for API responses. */
   function maskTranscriptionConfig(config: TranscriptionConfig): TranscriptionConfig {
-    return { ...config, apiKey: config.apiKey ? "***" : "" };
+    const masked = { ...config, apiKey: config.apiKey ? "***" : "" };
+    if (config.testApiKey) masked.testApiKey = "***";
+    return masked;
   }
 
   /** Parse a transcriptionConfig from a request body.
@@ -952,8 +954,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
       const trimmedApiKey = tc.apiKey.trim();
       apiKey = trimmedApiKey === "***" ? current.apiKey : trimmedApiKey;
     }
+    let testApiKey = current.testApiKey ?? "";
+    if (typeof tc.testApiKey === "string") {
+      const trimmedTestApiKey = tc.testApiKey.trim();
+      testApiKey = trimmedTestApiKey === "***" ? testApiKey : trimmedTestApiKey;
+    }
     return {
       apiKey,
+      ...(testApiKey ? { testApiKey } : {}),
       baseUrl: typeof tc.baseUrl === "string" ? tc.baseUrl.trim() : current.baseUrl,
       enhancementEnabled:
         typeof tc.enhancementEnabled === "boolean" ? tc.enhancementEnabled : current.enhancementEnabled,
@@ -1096,6 +1104,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
     const settings = getSettings();
     const claudeDefaultModel = await getClaudeUserDefaultModel();
     return c.json(buildSettingsResponse(settings, { claudeDefaultModel, includeRuntimeInfo: true }));
+  });
+
+  // Agent sessions only: browsers see the test key masked like every other key.
+  api.get("/settings/openai-test-key", (c) => {
+    const auth = ctx.authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    const { testApiKey, baseUrl } = getSettings().transcriptionConfig;
+    return c.json({ apiKey: testApiKey || null, baseUrl: baseUrl || "https://api.openai.com/v1" });
   });
 
   api.get("/settings/codex-default-model", async (c) => {

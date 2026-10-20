@@ -23,8 +23,10 @@ import {
   type DevServerSlot,
   devServerSlot,
   findHeldSlot,
+  validationServerEnv,
 } from "../bin/validation-slots.js";
 import { homedir } from "node:os";
+import { apiGet, getBase } from "../bin/takode-core.js";
 import { listeningPids } from "./listening-pids.js";
 import {
   addSessionCopy,
@@ -154,12 +156,8 @@ async function start(fresh: boolean): Promise<void> {
 
   if (fresh) await rm(res.home, { recursive: true, force: true });
   await mkdir(res.home, { recursive: true });
-  const env = {
-    ...withoutTakodeEnv(process.env),
-    HOME: res.home,
-    PORT: String(res.backendPort),
-    NODE_ENV: "development",
-  };
+  const testKey = await openAITestKey();
+  const env = validationServerEnv(process.env, res, testKey);
   const record: ServerRecord = {
     ownerSessionId: owner,
     slot,
@@ -184,6 +182,17 @@ async function start(fresh: boolean): Promise<void> {
     fail(`Slot ${slot} servers did not become ready; see ${res.stateDir}/backend.log and vite.log.`);
   }
   printSlot(res, "running");
+  if (!testKey) {
+    console.log(
+      "  OpenAI    no test key set (Settings > Voice > Test Key for Agents); voice and Read aloud report a missing key",
+    );
+  }
+}
+
+/** The user's OpenAI key for agent tests, or null when none is set. */
+async function openAITestKey(): Promise<string | null> {
+  const result = (await apiGet(getBase([]), "/settings/openai-test-key")) as { apiKey: string | null };
+  return result.apiKey;
 }
 
 async function stop(): Promise<void> {
@@ -214,16 +223,6 @@ function sessionId(): string {
   const id = process.env.COMPANION_SESSION_ID;
   if (!id) fail("Run this from a Takode session; COMPANION_SESSION_ID is not set.");
   return id;
-}
-
-/**
- * Agent shells inherit the live server's identity (server ID, frontend snapshot,
- * supervision, session credentials). A validation server must not adopt it.
- */
-function withoutTakodeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(env).filter(([key]) => !key.startsWith("COMPANION_") && !key.startsWith("TAKODE_")),
-  );
 }
 
 async function launch(command: string, args: string[], env: NodeJS.ProcessEnv, logPath: string): Promise<number> {

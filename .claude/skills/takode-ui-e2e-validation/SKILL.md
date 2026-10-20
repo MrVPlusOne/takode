@@ -70,6 +70,7 @@ Slot 2, for example, gets backend `3472`, frontend `http://127.0.0.1:5182` and b
   bun --no-install scripts/validation-server.ts stop
   ```
 
+- `start` gives the slot the user's OpenAI test key (Settings > Voice > Test Key for Agents) as its `OPENAI_API_KEY`, so voice and Read aloud in the slot never spend the live key. It drops any inherited `OPENAI_API_KEY`; without a test key it says so and the slot has no key. Never put the live key into a slot.
 - The slot's state directory belongs to whoever holds the slot. It may contain an earlier holder's state, so use `start --fresh` when you need empty state.
 - To validate on a real session, copy it into your slot with the helper instead of copying files by hand. With the slot server stopped:
 

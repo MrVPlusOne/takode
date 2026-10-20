@@ -361,8 +361,32 @@ describe("settings-manager", () => {
     const savedSecrets = JSON.parse(await readFile(secretsPath, "utf-8"));
     expect(savedSecrets).toEqual({
       namerOpenAIApiKey: "namer-secret",
+      openAITestApiKey: "",
       transcriptionApiKey: "transcription-secret",
     });
+  });
+
+  it("stores the agents' OpenAI test key with the secrets and reloads it", async () => {
+    // The test key must never land in the plain settings file, and must survive a restart.
+    updateSettings({
+      transcriptionConfig: {
+        apiKey: "live-secret",
+        testApiKey: "test-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+    });
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(JSON.stringify(savedSettings)).not.toContain("test-secret");
+    const savedSecrets = JSON.parse(await readFile(secretsPath, "utf-8"));
+    expect(savedSecrets.openAITestApiKey).toBe("test-secret");
+
+    _resetForTest(settingsPath);
+    expect(getSettings().transcriptionConfig.testApiKey).toBe("test-secret");
+    expect(getSettings().transcriptionConfig.apiKey).toBe("live-secret");
   });
 
   it("persists transcription custom vocabulary and enhancer instructions across reloads", async () => {
@@ -623,6 +647,7 @@ describe("settings-manager", () => {
     const savedSecrets = JSON.parse(await readFile(secretsPath, "utf-8"));
     expect(savedSecrets).toEqual({
       namerOpenAIApiKey: "legacy-namer-secret",
+      openAITestApiKey: "",
       transcriptionApiKey: "legacy-transcription-secret",
     });
   });

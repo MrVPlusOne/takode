@@ -166,6 +166,12 @@ export type SttModel = string;
 export interface TranscriptionConfig {
   /** OpenAI-compatible API key (used for both Whisper STT and enhancement) */
   apiKey: string;
+  /**
+   * Separate OpenAI key that agents use for tests and experiments (validation
+   * slots, probe scripts), so their spend never draws on `apiKey`. This server
+   * never calls OpenAI with it; agents fetch it through `takode openai-test-key`.
+   */
+  testApiKey?: string;
   /** Base URL for the enhancement LLM (default: OpenAI) */
   baseUrl: string;
   /** Whether context-aware LLM enhancement is enabled */
@@ -200,6 +206,7 @@ export type NamerConfig =
 interface CompanionSecrets {
   namerOpenAIApiKey: string;
   transcriptionApiKey: string;
+  openAITestApiKey: string;
 }
 
 const DEFAULT_PATH = join(homedir(), ".companion", "settings.json");
@@ -317,6 +324,7 @@ export function isValidServerSlug(slug: string): boolean {
 let secrets: CompanionSecrets = {
   namerOpenAIApiKey: "",
   transcriptionApiKey: "",
+  openAITestApiKey: "",
 };
 
 function deriveSecretsPath(settingsPath: string): string {
@@ -403,6 +411,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       rawVoiceCaptureMode === "edit" || rawVoiceCaptureMode === "append" ? rawVoiceCaptureMode : undefined;
     return {
       apiKey: typeof c.apiKey === "string" ? c.apiKey : "",
+      ...(typeof c.testApiKey === "string" && c.testApiKey ? { testApiKey: c.testApiKey } : {}),
       baseUrl: typeof c.baseUrl === "string" ? c.baseUrl : "https://api.openai.com/v1",
       enhancementEnabled: typeof c.enhancementEnabled === "boolean" ? c.enhancementEnabled : true,
       enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
@@ -470,6 +479,7 @@ function normalizeSecrets(raw: Record<string, unknown> | null | undefined): Comp
   return {
     namerOpenAIApiKey: typeof raw?.namerOpenAIApiKey === "string" ? raw.namerOpenAIApiKey : "",
     transcriptionApiKey: typeof raw?.transcriptionApiKey === "string" ? raw.transcriptionApiKey : "",
+    openAITestApiKey: typeof raw?.openAITestApiKey === "string" ? raw.openAITestApiKey : "",
   };
 }
 
@@ -493,28 +503,32 @@ function mergeSecretsIntoSettings(base: CompanionSettings, nextSecrets: Companio
       base.namerConfig.backend === "openai"
         ? { ...base.namerConfig, apiKey: nextSecrets.namerOpenAIApiKey }
         : base.namerConfig,
-    transcriptionConfig: {
-      ...base.transcriptionConfig,
-      apiKey: nextSecrets.transcriptionApiKey,
-    },
+    transcriptionConfig: withTestApiKey(
+      { ...base.transcriptionConfig, apiKey: nextSecrets.transcriptionApiKey },
+      nextSecrets.openAITestApiKey,
+    ),
   };
+}
+
+/** The test key is present only while set, so settings without one keep their old shape. */
+function withTestApiKey(config: TranscriptionConfig, testApiKey: string): TranscriptionConfig {
+  const { testApiKey: _previous, ...rest } = config;
+  return testApiKey ? { ...rest, testApiKey } : rest;
 }
 
 function stripSecretsFromSettings(base: CompanionSettings): CompanionSettings {
   return {
     ...base,
     namerConfig: base.namerConfig.backend === "openai" ? { ...base.namerConfig, apiKey: "" } : base.namerConfig,
-    transcriptionConfig: {
-      ...base.transcriptionConfig,
-      apiKey: "",
-    },
+    transcriptionConfig: withTestApiKey({ ...base.transcriptionConfig, apiKey: "" }, ""),
   };
 }
 
 function hasInlineSecrets(base: CompanionSettings): boolean {
   return (
     (base.namerConfig.backend === "openai" && base.namerConfig.apiKey.length > 0) ||
-    base.transcriptionConfig.apiKey.length > 0
+    base.transcriptionConfig.apiKey.length > 0 ||
+    !!base.transcriptionConfig.testApiKey
   );
 }
 
@@ -611,6 +625,7 @@ function ensureLoaded(): void {
         persistedSecrets.namerOpenAIApiKey ||
         (normalized.namerConfig.backend === "openai" ? normalized.namerConfig.apiKey : ""),
       transcriptionApiKey: persistedSecrets.transcriptionApiKey || normalized.transcriptionConfig.apiKey,
+      openAITestApiKey: persistedSecrets.openAITestApiKey || normalized.transcriptionConfig.testApiKey || "",
     };
     secretsLoaded = true;
   }
@@ -764,6 +779,7 @@ export function updateSettings(
     secrets = {
       ...secrets,
       transcriptionApiKey: nextTranscriptionConfig.apiKey,
+      openAITestApiKey: nextTranscriptionConfig.testApiKey ?? "",
     };
   }
 
