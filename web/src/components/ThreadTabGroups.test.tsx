@@ -377,68 +377,6 @@ describe("ThreadTabGroupBar group move animation", () => {
   });
 });
 
-describe("ThreadTabGroupBar prompts cleared", () => {
-  // jsdom lays nothing out and runs no animations: give chips a size and record what plays.
-  function setup(reducedMotion = false) {
-    vi.useFakeTimers();
-    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: () => ({}) as Animation });
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(48);
-    vi.spyOn(window, "matchMedia").mockImplementation(
-      (query: string) =>
-        ({
-          matches: reducedMotion && query === "(prefers-reduced-motion: reduce)",
-          media: query,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList,
-    );
-  }
-  afterEach(() => {
-    vi.useRealTimers();
-    delete (HTMLElement.prototype as { animate?: unknown }).animate;
-    document.body.innerHTML = "";
-  });
-  const bar = (tabs: PrimaryThreadChip[]) => (
-    <ThreadTabGroupBar
-      main={MAIN}
-      tabs={tabs}
-      currentThreadKey="main"
-      activeOutputThreadKey={null}
-      onSelect={vi.fn()}
-    />
-  );
-  const waiting = [tab("q-10"), tab("q-11", { needsInput: true })];
-  const answered = [tab("q-10"), tab("q-11")];
-  const popped = () => document.querySelectorAll("[data-celebration]").length;
-
-  it("pops a check once when the last prompt waiting on the user is answered", () => {
-    setup();
-    const { rerender } = render(bar(waiting));
-    expect(popped()).toBe(0);
-    rerender(bar(answered));
-    expect(popped()).toBe(1);
-    rerender(bar(answered));
-    expect(popped()).toBe(1);
-  });
-
-  it("stays still while prompts remain, when the waiting tab is closed, or with reduced motion", () => {
-    setup();
-    const two = [tab("q-10", { needsInput: true }), tab("q-11", { needsInput: true })];
-    const { rerender } = render(bar(two));
-    // One of two prompts answered: Needs you still holds a tab.
-    rerender(bar([tab("q-10"), tab("q-11", { needsInput: true })]));
-    // Closing the tab that waited empties the group without answering anything.
-    rerender(bar([tab("q-10")]));
-    expect(popped()).toBe(0);
-    cleanup();
-
-    setup(true);
-    const reduced = render(bar(waiting));
-    reduced.rerender(bar(answered));
-    expect(popped()).toBe(0);
-  });
-});
-
 describe("ThreadTabRail", () => {
   const defaultWidth = window.innerWidth;
   afterEach(() => {

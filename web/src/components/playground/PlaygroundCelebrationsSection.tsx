@@ -1,7 +1,7 @@
 /**
  * Small celebrations for things that just got done, each driven through the real component
- * it plays in: a to-do completing, the Quest complete card arriving, a change landing, and
- * the last prompt waiting on the user being answered. Each button replays its event.
+ * it plays in: a to-do completing, the Quest complete card arriving, and a change landing.
+ * Each button replays its event.
  */
 import { useRef, useState } from "react";
 import type { ChatMessage, QuestmasterTask } from "../../types.js";
@@ -9,39 +9,22 @@ import { useStore } from "../../store.js";
 import { celebrationAnchor, playCompletionCelebration } from "../completion-celebration.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { QuestCompletionSummaryCard } from "../QuestCompletionSummaryCard.js";
-import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
-import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const QUEST_ID = "q-9530";
 const BUTTON = "rounded-md border border-cc-border px-2.5 py-1 text-xs text-cc-fg hover:bg-cc-hover";
-
-function tab(threadKey: string, title: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
-  return {
-    threadKey,
-    questId: threadKey,
-    title,
-    needsInput: false,
-    mutedNeedsInput: false,
-    blueNudge: false,
-    canClose: false,
-    updatedAt: 0,
-    ...overrides,
-  };
-}
 
 export function PlaygroundCelebrationsSection() {
   return (
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Celebrations"
-        description="Small celebrations that play once when something gets done while the user is there, never for history and never with reduced motion. Each is a small firework that shoots up and falls back, with new colors, counts and angles every play, leaning away from nearby screen edges so nothing leaves the screen. Completing a to-do keeps a struck-through copy of its row in place while confetti shoots from its check, then slides it away. Stars rise from the Quest complete card when it shows moments after the quest finished; a landed notice pops a check on its badge; and the Needs you group pops a check as its last prompt is answered."
+        description="Small celebrations that play once when something gets done while the user is there, never for history and never with reduced motion. Each is a small firework that shoots up and falls back, with new colors, counts and angles every play, leaning away from nearby screen edges so nothing leaves the screen. Completing a to-do keeps a struck-through copy of its row in place while confetti shoots from its check, then slides it away. Stars rise from the Quest complete card when it shows moments after the quest finished, and a landed notice pops a check on its badge."
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <TodoCompletionDemo />
           <QuestCompleteDemo />
           <LandingDemo />
-          <PromptsClearedDemo />
           <ScreenEdgesDemo />
         </div>
       </Section>
@@ -123,24 +106,6 @@ function LandingDemo() {
       )}
       <button type="button" onClick={land} className={`mt-2 ${BUTTON}`}>
         Land a change now
-      </button>
-    </Card>
-  );
-}
-
-function PromptsClearedDemo() {
-  const [waiting, setWaiting] = useState(true);
-  const tabs = [
-    tab("q-9531", "Thumb-reachable top-bar actions", { needsInput: waiting }),
-    tab("q-9532", "Keep the screen awake while recording", { completed: true }),
-  ];
-  return (
-    <Card label="Last prompt answered">
-      <div className="w-[430px] max-w-full">
-        <ThreadTabGroupBar tabs={tabs} currentThreadKey="main" activeOutputThreadKey={null} onSelect={() => {}} />
-      </div>
-      <button type="button" onClick={() => setWaiting((value) => !value)} className={`mt-2 ${BUTTON}`}>
-        {waiting ? "Answer the prompt" : "Ask again"}
       </button>
     </Card>
   );

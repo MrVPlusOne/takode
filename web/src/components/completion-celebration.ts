@@ -105,7 +105,7 @@ export function playCompletionCelebration(anchor: CelebrationAnchor | null): voi
   closeLayer(duration, layer, ghost);
 }
 
-/** A green check pops with a ring rippling out and a few sparks: a change landed, a prompt list emptied. */
+/** A green check pops with a ring rippling out and a few sparks: a change landed. */
 export function playCheckPop(anchor: CelebrationAnchor | null): void {
   const layer = openLayer(anchor);
   if (!layer || !anchor) return;
