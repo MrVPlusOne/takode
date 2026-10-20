@@ -1229,7 +1229,9 @@ describe("MarkdownContent quest links", () => {
     fireEvent.click(screen.getByRole("link", { name: "preview" }));
 
     const image = await screen.findByTestId("lightbox-image");
-    expect(image.getAttribute("src")).toContain("/api/fs/file-link/preview?");
+    // The full-quality image variant, the same one the image viewer shows.
+    expect(image.getAttribute("src")).toContain("/api/fs/file-link/image?");
+    expect(image.getAttribute("src")).toContain("variant=full");
     expect(image.getAttribute("src")).toContain("path=artifacts%2Fpreview.png");
     expect(image.getAttribute("src")).toContain("sessionId=s1");
     expect(mockGetSettings).not.toHaveBeenCalled();
@@ -1718,7 +1720,9 @@ describe("MarkdownContent quest links", () => {
     fireEvent.click(screen.getByText("Preview in Takode"));
 
     const image = await screen.findByTestId("lightbox-image");
-    expect(image.getAttribute("src")).toContain("/api/fs/file-link/preview?");
+    // The full-quality image variant, the same one the image viewer shows.
+    expect(image.getAttribute("src")).toContain("/api/fs/file-link/image?");
+    expect(image.getAttribute("src")).toContain("variant=full");
     expect(image.getAttribute("src")).toContain("path=artifacts%2Fpreview.png");
     expect(image.getAttribute("src")).toContain("sessionId=s1");
   });

@@ -95,6 +95,7 @@ The user runs Takode on a large iPhone (about 430 pt wide), mostly as the Home S
 
 - Show options as real implementations in the app, with screenshots of the main states and interactions, side by side with today's UI. Mockups looked better or worse than the real thing, and details such as bold text or a repeated title only showed up once built.
 - Use phone size (at least 430x932), light theme first (the user's theme), then dark.
+- Make the screenshots sharp enough to read: capture at device scale 2, link the originals rather than the `.takode-agent.` copies, and crop panels for a side-by-side image instead of shrinking them.
 - Show the interactions that matter for the decision: switching, the keyboard opening and closing, sheets and menus.
 - Keep alternatives behind a temporary preview switch on the worker branch, and remove the losers before landing.
 - Say plainly what was not checked. Chromium is not an iPhone, and several phone-only bugs were found only on the real device.

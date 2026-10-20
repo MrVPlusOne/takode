@@ -10,7 +10,6 @@ import { getRipgrepPath } from "../ripgrep.js";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
-import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
 import {
   LocalImageVariantStore,
   type LocalImageVariant,
@@ -34,9 +33,6 @@ const MAX_DIFF_FILES = 500;
 const MAX_FOLDER_CHECKS = 20;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const MAX_FILE_LINK_TEXT_BYTES = 2 * 1024 * 1024;
-const FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
-const FILE_LINK_PREVIEW_MAX_DIM = 1920;
-const FILE_LINK_PREVIEW_JPEG_QUALITY = 82;
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -260,40 +256,6 @@ function fileLinkRequestFromQuery(
     isRelative: isRelative === "1" || isRelative === "true",
     ...(sessionId ? { sessionId } : {}),
   };
-}
-
-async function buildFileLinkPreviewResponse(target: ResolvedFileLinkPath): Promise<{
-  data: Buffer;
-  contentType: string;
-  compressed: boolean;
-}> {
-  if (!target.isImage || !target.mimeType) {
-    throw new Error("file is not a supported image type");
-  }
-  const original = await machineFor(target.hostId).readFile(target.absolutePath);
-  if (original.byteLength <= FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES || target.mimeType === "image/svg+xml") {
-    return { data: original, contentType: target.mimeType, compressed: false };
-  }
-
-  try {
-    const sharp = await requireSharp("file link image previews");
-    const data = await sharp(original)
-      .rotate()
-      .resize({
-        width: FILE_LINK_PREVIEW_MAX_DIM,
-        height: FILE_LINK_PREVIEW_MAX_DIM,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({ quality: FILE_LINK_PREVIEW_JPEG_QUALITY })
-      .toBuffer();
-    return { data, contentType: "image/jpeg", compressed: true };
-  } catch (error) {
-    if (!isSharpUnavailableError(error)) {
-      console.warn("[filesystem] Failed to compress file-link image preview:", error);
-    }
-    return { data: original, contentType: target.mimeType, compressed: false };
-  }
 }
 
 function parseImageVariantKind(raw: string | undefined): LocalImageVariantKind | null {
@@ -579,29 +541,6 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     } catch (error) {
       const status = getLocalPathOpenCapability().canOpenContainingFolder ? 400 : 501;
       return c.json({ error: error instanceof Error ? error.message : "Cannot reveal file link" }, status);
-    }
-  });
-
-  api.get("/fs/file-link/preview", async (c) => {
-    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
-    if (!request) return c.json({ error: "path required" }, 400);
-    try {
-      const target = await resolveFileLinkPath(request, wsBridge);
-      if (!target.exists) return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
-      const preview = await buildFileLinkPreviewResponse(target);
-      const body = preview.data.buffer.slice(
-        preview.data.byteOffset,
-        preview.data.byteOffset + preview.data.byteLength,
-      ) as ArrayBuffer;
-      return c.body(body, 200, {
-        "Content-Type": preview.contentType,
-        "Cache-Control": "private, max-age=30",
-        "X-Takode-Preview-Compressed": preview.compressed ? "1" : "0",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Cannot preview file link";
-      const status = message.includes("supported image") ? 400 : 404;
-      return c.json({ error: message }, status as 400 | 404);
     }
   });
 

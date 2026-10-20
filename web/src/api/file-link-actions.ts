@@ -64,10 +64,6 @@ export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
   return `/file-preview/open?${fileLinkParams(target)}`;
 }
 
-export function buildFileLinkPreviewUrl(target: FileLinkActionTarget): string {
-  return `${BASE}/fs/file-link/preview?${fileLinkParams(target)}`;
-}
-
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {
   const params = new URLSearchParams({
     path: target.path,

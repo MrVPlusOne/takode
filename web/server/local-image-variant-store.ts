@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
-  AGENT_QUALITY,
   createImageThumbnailBuffer,
   fileExists,
   MIME_TO_EXT,
-  optimizeImageBufferForStore,
+  resizeImageBufferForStore,
   SHARP_UNAVAILABLE_MESSAGE,
   isSharpUnavailableError,
+  TAKODE_AGENT_IMAGE_MARKER,
 } from "./image-optimizer.js";
 
 export type LocalImageVariantKind = "thumbnail" | "full";
@@ -24,9 +24,23 @@ export interface LocalImageVariant {
 }
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "image-variants");
-const CACHE_VERSION = "v1";
+/** Bumped per kind when its recipe changes, so stale cached variants are not served. */
+const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v1", full: "v2" };
 const THUMBNAIL_MAX_DIM = 300;
 const THUMBNAIL_QUALITY = 80;
+/**
+ * The full view is where people read an image, so it keeps the original pixels:
+ * re-encoding screenshots as JPEG or shrinking them to the agent-reading size
+ * blurred their text. Only images too large for a browser to show well are scaled down.
+ */
+const FULL_MAX_DIM = 4096;
+/** Formats of the original an agent-readable `.takode-agent.` copy is made from, by extension. */
+const AGENT_COPY_ORIGINAL_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
 
 export class LocalImageVariantStore {
   private readonly baseDir: string;
@@ -41,7 +55,13 @@ export class LocalImageVariantStore {
     sourceContentType: string,
     kind: LocalImageVariantKind,
   ): Promise<LocalImageVariant> {
-    const absolutePath = resolve(sourcePath);
+    let absolutePath = resolve(sourcePath);
+    let contentType = sourceContentType;
+    if (kind === "full") {
+      // Agents often link the reduced copy they read themselves; people get its original.
+      const original = await originalOfAgentCopy(absolutePath);
+      if (original) ({ path: absolutePath, contentType } = original);
+    }
     const sourceStat = await stat(absolutePath);
     if (!sourceStat.isFile()) {
       throw new Error("image path is not a file");
@@ -49,14 +69,8 @@ export class LocalImageVariantStore {
 
     const cacheKey = this.cacheKeyFor(absolutePath, sourceStat.size, sourceStat.mtimeMs, kind);
     const etag = `"${cacheKey.hash}"`;
-    if (sourceContentType === "image/svg+xml") {
-      return {
-        path: absolutePath,
-        contentType: sourceContentType,
-        cacheHit: false,
-        etag,
-      };
-    }
+    const sourceVariant = { path: absolutePath, contentType, cacheHit: false, etag };
+    if (contentType === "image/svg+xml") return sourceVariant;
 
     const cached = await this.findCachedVariant(cacheKey, etag);
     if (cached) {
@@ -66,24 +80,22 @@ export class LocalImageVariantStore {
     await mkdir(this.baseDir, { recursive: true });
     const source = (await readFile(absolutePath)) as Buffer;
     let data: Buffer;
-    let contentType = kind === "thumbnail" ? "image/jpeg" : sourceContentType;
 
     try {
       if (kind === "thumbnail") {
-        data = await createImageThumbnailBuffer(source, sourceContentType, {
+        data = await createImageThumbnailBuffer(source, contentType, {
           maxDim: THUMBNAIL_MAX_DIM,
           jpegQuality: THUMBNAIL_QUALITY,
         });
         contentType = "image/jpeg";
       } else {
-        const optimized = await optimizeImageBufferForStore(source, sourceContentType, {
-          jpegQuality: AGENT_QUALITY,
-        });
-        data = optimized.data;
-        contentType = optimized.mediaType;
+        // Resizing keeps the source format; an image that fits is served as it is.
+        data = await resizeImageBufferForStore(source, contentType, FULL_MAX_DIM);
+        if (data === source) return sourceVariant;
       }
     } catch (error) {
       if (isSharpUnavailableError(error)) {
+        if (kind === "full") return sourceVariant;
         throw new Error(SHARP_UNAVAILABLE_MESSAGE);
       }
       throw error;
@@ -106,7 +118,7 @@ export class LocalImageVariantStore {
     kind: LocalImageVariantKind,
   ): { kind: LocalImageVariantKind; hash: string } {
     const key = createHash("sha256")
-      .update(CACHE_VERSION)
+      .update(CACHE_VERSIONS[kind])
       .update("\0")
       .update(kind)
       .update("\0")
@@ -144,6 +156,18 @@ export class LocalImageVariantStore {
       etag,
     };
   }
+}
+
+/** The original beside a `.takode-agent.` copy (`shot.png` for `shot.takode-agent.jpeg`), if it is still there. */
+async function originalOfAgentCopy(path: string): Promise<{ path: string; contentType: string } | null> {
+  const name = basename(path);
+  const markerAt = name.indexOf(TAKODE_AGENT_IMAGE_MARKER);
+  if (markerAt < 0) return null;
+  const stem = join(dirname(path), name.slice(0, markerAt));
+  for (const [extension, contentType] of Object.entries(AGENT_COPY_ORIGINAL_TYPES)) {
+    if (await fileExists(`${stem}.${extension}`)) return { path: `${stem}.${extension}`, contentType };
+  }
+  return null;
 }
 
 function contentTypeFromExtension(path: string): string {

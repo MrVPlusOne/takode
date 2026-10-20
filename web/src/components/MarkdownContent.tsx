@@ -51,7 +51,7 @@ import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.j
 import { isMarkdownFilePath, openMarkdownFileViewer } from "./MarkdownFileViewer.js";
 import {
   buildFileLinkBrowserUrl,
-  buildFileLinkPreviewUrl,
+  buildFileLinkImageVariantUrl,
   resolveFileLinkAction,
   revealFileLinkInFinder,
   type FileLinkActionTarget,
@@ -1203,7 +1203,7 @@ function FileMarkdownLink({
     try {
       const info = await resolveFileLinkAction(actionTarget);
       if (info.isImage) {
-        setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
+        setPreviewUrl(buildFileLinkImageVariantUrl(actionTarget, "full"));
         return;
       }
     } catch (error) {
@@ -1281,7 +1281,7 @@ function FileMarkdownLink({
     }
   }, [actionTarget]);
   const previewBackendResolvedImage = useCallback(() => {
-    setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
+    setPreviewUrl(buildFileLinkImageVariantUrl(actionTarget, "full"));
   }, [actionTarget]);
   const menuItems = useMemo<ContextMenuItem[]>(() => {
     const items: ContextMenuItem[] = [

@@ -4,15 +4,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const mockRequireSharp = vi.hoisted(() => vi.fn());
-
 vi.mock("./image-optimizer.js", () => ({
-  requireSharp: mockRequireSharp,
   isSharpUnavailableError: vi.fn(() => false),
   createImageThumbnailBuffer: vi.fn(),
   fileExists: vi.fn(async () => false),
-  optimizeImageBufferForStore: vi.fn(),
-  AGENT_QUALITY: 85,
+  resizeImageBufferForStore: vi.fn(),
+  TAKODE_AGENT_IMAGE_MARKER: ".takode-agent.",
   MIME_TO_EXT: { "image/jpeg": "jpeg", "image/png": "png" },
   SHARP_UNAVAILABLE_MESSAGE: "sharp unavailable",
 }));
@@ -55,7 +52,6 @@ describe("file-link filesystem actions", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "file-link-actions-"));
     originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-    mockRequireSharp.mockReset();
   });
 
   afterEach(async () => {
@@ -107,27 +103,6 @@ describe("file-link filesystem actions", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: "Opening local folders is not supported on aix",
     });
-  });
-
-  it("compresses image previews over one megabyte before delivery", async () => {
-    await writeFile(join(tempDir, "preview.png"), Buffer.alloc(1024 * 1024 + 1, 1));
-    const compressed = Buffer.from("compressed-preview");
-    const pipeline = {
-      rotate: vi.fn(() => pipeline),
-      resize: vi.fn(() => pipeline),
-      jpeg: vi.fn(() => pipeline),
-      toBuffer: vi.fn(async () => compressed),
-    };
-    mockRequireSharp.mockResolvedValue(() => pipeline);
-
-    const res = await makeApp(tempDir).request(
-      `/api/fs/file-link/preview?path=${encodeURIComponent("preview.png")}&isRelative=1&sessionId=s1`,
-    );
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("image/jpeg");
-    expect(res.headers.get("X-Takode-Preview-Compressed")).toBe("1");
-    expect(Buffer.from(await res.arrayBuffer()).toString("utf-8")).toBe("compressed-preview");
   });
 
   it("serves stable image variant URLs with revalidating cache headers", async () => {

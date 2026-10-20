@@ -47,18 +47,55 @@ describe("LocalImageVariantStore", () => {
     expect(regenerated.etag).not.toBe(first.etag);
   });
 
-  it("generates reusable full display variants using the shared store optimization policy", async () => {
+  it("serves the original pixels for the full view of an image that fits", async () => {
+    // The full view is where people read screenshots: re-encoding them as JPEG or
+    // shrinking them blurred small text, so an image within the size cap is served untouched.
     const sourcePath = join(tempDir, "full.png");
-    await writeFile(sourcePath, await makePng(800, 600, 64));
+    await writeFile(sourcePath, await makePng(1600, 1200, 64));
 
     const full = await store.getVariant(sourcePath, "image/png", "full");
-    expect(full.contentType).toBe("image/jpeg");
-    expect(full.cacheHit).toBe(false);
+
+    expect(full.path).toBe(sourcePath);
+    expect(full.contentType).toBe("image/png");
+  });
+
+  it("scales only oversized images down for the full view, keeping their format and caching the result", async () => {
+    const sourcePath = join(tempDir, "huge.png");
+    await writeFile(sourcePath, await makePng(5000, 400, 90));
+
+    const full = await store.getVariant(sourcePath, "image/png", "full");
+    expect(full.path).not.toBe(sourcePath);
+    expect(full.contentType).toBe("image/png");
+    const meta = await sharp(await readFile(full.path)).metadata();
+    expect(meta).toMatchObject({ format: "png", width: 4096 });
 
     const reused = await store.getVariant(sourcePath, "image/png", "full");
     expect(reused.path).toBe(full.path);
-    expect(reused.contentType).toBe("image/jpeg");
     expect(reused.cacheHit).toBe(true);
+  });
+
+  it("shows the original behind an agent-readable copy in the full view", async () => {
+    // Agents often link the reduced `.takode-agent.` JPEG they read themselves;
+    // when the original capture sits beside it, people see that instead.
+    const originalPath = join(tempDir, "shot.png");
+    const agentCopyPath = join(tempDir, "shot.takode-agent.jpeg");
+    await writeFile(originalPath, await makePng(860, 1864, 30));
+    await writeFile(
+      agentCopyPath,
+      await sharp(await makePng(430, 932, 30))
+        .jpeg()
+        .toBuffer(),
+    );
+
+    const full = await store.getVariant(agentCopyPath, "image/jpeg", "full");
+    expect(full).toMatchObject({ path: originalPath, contentType: "image/png" });
+
+    // Thumbnails stay small either way, and a copy without its original is shown as it is.
+    const thumbnail = await store.getVariant(agentCopyPath, "image/jpeg", "thumbnail");
+    expect(thumbnail.contentType).toBe("image/jpeg");
+    const loneCopyPath = join(tempDir, "lone.takode-agent.jpeg");
+    await writeFile(loneCopyPath, await readFile(agentCopyPath));
+    expect((await store.getVariant(loneCopyPath, "image/jpeg", "full")).path).toBe(loneCopyPath);
   });
 });
 
