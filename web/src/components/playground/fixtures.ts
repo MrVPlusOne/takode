@@ -617,8 +617,14 @@ The \`getToken()\` function is **not retrying** on network failure. Here's what 
 
 > The current behavior silently drops the error and returns null
 
-# This line starts with a hash
-Also --- this triple dash should not become a rule.
+# This line starts with a hash and stays as typed
+Notes before a divider
+---
+
+| Option | Cost |
+|---|---|
+| Retry | Low |
+| Cache | Medium |
 
 Check [this guide](https://example.com/auth) for reference.`,
   timestamp: Date.now() - 59000,

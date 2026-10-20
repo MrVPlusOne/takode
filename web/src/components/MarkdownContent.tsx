@@ -70,6 +70,12 @@ interface MarkdownAstNode {
   value?: string;
   url?: string;
   title?: string | null;
+  position?: MarkdownAstPosition;
+}
+
+interface MarkdownAstPosition {
+  start: { line: number; offset?: number };
+  end: { line: number; offset?: number };
 }
 
 interface SessionLinkTarget {
@@ -223,6 +229,77 @@ function remarkPlainTakodeReferences() {
   };
 }
 
+/**
+ * Typed text keeps its headings as typed: `# Title` stays a line of text with its `#`, and a line of
+ * text over `===` stays two lines. A line of text over `---` is text followed by a divider, since a
+ * divider is what people mean when they type that.
+ */
+function remarkHeadingsAsTyped() {
+  return (tree: MarkdownAstNode, file: { value: unknown }) => {
+    keepHeadingsAsTyped(tree, String(file.value));
+  };
+}
+
+function keepHeadingsAsTyped(node: MarkdownAstNode, source: string): void {
+  if (!Array.isArray(node.children)) return;
+  for (const child of node.children) keepHeadingsAsTyped(child, source);
+  node.children = mergeAdjacentLineParagraphs(node.children.flatMap((child) => headingAsTyped(child, source)));
+}
+
+function headingAsTyped(node: MarkdownAstNode, source: string): MarkdownAstNode[] {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (node.type !== "heading" || start == null || end == null) return [node];
+  const children = node.children ?? [];
+  const paragraph: MarkdownAstNode = { type: "paragraph", children, position: node.position };
+
+  if (source[start] === "#") {
+    // The parser drops the opening and closing `#` runs; put back exactly what was typed around the text.
+    const textStart = children[0]?.position?.start.offset ?? end;
+    const textEnd = children.at(-1)?.position?.end.offset ?? end;
+    const opening = source.slice(start, textStart);
+    const closing = source.slice(textEnd, end);
+    paragraph.children = [
+      ...(opening ? [{ type: "text", value: opening }] : []),
+      ...children,
+      ...(closing ? [{ type: "text", value: closing }] : []),
+    ];
+    return [paragraph];
+  }
+
+  // The underline line may start with quote markers or list indentation; keep only the run itself.
+  const underlineLine = source.slice(source.lastIndexOf("\n", end - 1) + 1, end);
+  const underline = /(=+|-+)\s*$/.exec(underlineLine)?.[1] ?? underlineLine.trim();
+  if (underline.startsWith("-")) return [paragraph, { type: "thematicBreak" }];
+  paragraph.children = [...children, { type: "break" }, { type: "text", value: underline }];
+  return [paragraph];
+}
+
+/** A heading kept as text sits on its own line, so join it to paragraphs typed on the lines next to it. */
+function mergeAdjacentLineParagraphs(nodes: MarkdownAstNode[]): MarkdownAstNode[] {
+  const merged: MarkdownAstNode[] = [];
+  for (const node of nodes) {
+    const previous = merged.at(-1);
+    const previousEndLine = previous?.position?.end.line;
+    const startLine = node.position?.start.line;
+    if (
+      previous?.type !== "paragraph" ||
+      node.type !== "paragraph" ||
+      previousEndLine == null ||
+      startLine !== previousEndLine + 1
+    ) {
+      merged.push(node);
+      continue;
+    }
+    merged[merged.length - 1] = {
+      ...previous,
+      children: [...(previous.children ?? []), { type: "break" }, ...(node.children ?? [])],
+      position: previous.position && node.position && { start: previous.position.start, end: node.position.end },
+    };
+  }
+  return merged;
+}
+
 interface FileLinkTarget {
   path: string;
   line: number;
@@ -248,6 +325,7 @@ interface FileLinkBaseContext {
 interface MarkdownContentProps {
   text: string;
   size?: "default" | "sm" | "md";
+  /** "conservative" is for text people type: smaller text, and headings stay as typed instead of becoming sections. */
   variant?: "full" | "conservative";
   id?: string;
   "data-testid"?: string;
@@ -773,6 +851,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           remarkMath,
           remarkBreaks,
           remarkNormalizeOrderedListContinuations,
+          ...(isConservative ? [remarkHeadingsAsTyped] : []),
           remarkPlainTakodeReferences,
           ...imagePathLinksPlugin,
           [remarkMathSourceCompatibility, preparedMath],
@@ -785,12 +864,6 @@ export const MarkdownContent = memo(function MarkdownContent({
           rehypeRestoreMathErrors,
         ]}
         urlTransform={transformMarkdownUrl}
-        disallowedElements={
-          isConservative
-            ? ["h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "hr", "img"]
-            : undefined
-        }
-        unwrapDisallowed={isConservative}
         components={{
           span: ({ children, className, node: _node, ...props }) => {
             const rawMathSource = (props as unknown as Record<string, unknown>)["data-math-source"];

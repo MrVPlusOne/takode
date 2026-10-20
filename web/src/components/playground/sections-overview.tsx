@@ -653,7 +653,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Starred user message (side rail star)">
             <MessageBubble message={MSG_STARRED_USER} sessionId={MOCK_SESSION_ID} />
           </Card>
-          <Card label="User message with Markdown (conservative subset)">
+          <Card label="User message with Markdown (headings stay as typed)">
             <MessageBubble message={MSG_USER_MARKDOWN} />
           </Card>
           <Card label="User message dictated with voice transcription">
