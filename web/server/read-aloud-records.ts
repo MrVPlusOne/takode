@@ -24,6 +24,8 @@ export interface ReadAloudRecord {
   replayIds: string[];
   messageText: string;
   conversationContext: string;
+  /** Link facts given to the rewrite; missing on older records. */
+  linkDetails?: string;
   trace: ReadAloudTrace;
   error: string | null;
   audioBytes: number;

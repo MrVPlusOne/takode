@@ -204,6 +204,22 @@ describe("runReadAloud", () => {
     });
   });
 
+  it("gives the rewrite the link details the message text lacks", async () => {
+    mockOpenAI("Spoken with details.");
+    const result = await runReadAloud(
+      {
+        messageText: "Done.",
+        conversationContext: "",
+        linkDetails: '- Commit chip "fix: x": 3 lines added, 1 removed',
+      },
+      config,
+      ENDPOINT,
+    );
+    expect(result.trace.rewriteUserPrompt).toBe(
+      '<LINK_DETAILS>\n- Commit chip "fix: x": 3 lines added, 1 removed\n</LINK_DETAILS>\n\n<MESSAGE>\nDone.\n</MESSAGE>',
+    );
+  });
+
   it("starts speaking the first piece while the rewrite is still streaming", async () => {
     // Four distinct sentences of about 250 characters; two fit in one 600-character piece.
     const [a, b, c, d] = ["alpha", "bravo", "charlie", "delta"].map(

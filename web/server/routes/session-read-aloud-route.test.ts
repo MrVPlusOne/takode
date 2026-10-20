@@ -63,6 +63,8 @@ function makeApp(run = fakeRun()) {
     resolveId: (raw) => (raw === "s1" || raw === "12" ? "s1" : null),
     run,
     records,
+    describeLinks: async (text: string) =>
+      text.includes("commit") ? '- Commit chip "c": 1 lines added, 0 removed' : "",
   });
   const post = (path: string, body: unknown) =>
     api.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -183,6 +185,7 @@ describe("read-aloud debug records", () => {
     expect(run.mock.calls[1][0]).toEqual({
       messageText: "Fixed it.",
       conversationContext: expect.stringContaining("Please fix"),
+      linkDetails: "",
     });
     expect(replay.trace.settings).toMatchObject({
       voice: "cedar",

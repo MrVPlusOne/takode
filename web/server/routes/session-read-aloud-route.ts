@@ -13,6 +13,7 @@ import {
   type ReadAloudSettings,
 } from "../read-aloud.js";
 import { ReadAloudRecordStore } from "../read-aloud-records.js";
+import { describeReadAloudLinks } from "../read-aloud-links.js";
 
 const MAX_MESSAGE_CHARS = 60_000;
 const MAX_SETTING_CHARS = 20_000;
@@ -24,6 +25,7 @@ export interface SessionReadAloudRouteDeps {
   /** Replaceable in tests; default to the real OpenAI pipeline and record folder. */
   run?: typeof runReadAloud;
   records?: ReadAloudRecordStore;
+  describeLinks?: typeof describeReadAloudLinks;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface SessionReadAloudRouteDeps {
  * message read again with the same text and settings plays its recorded audio.
  */
 export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudRouteDeps): void {
-  const { wsBridge, resolveId, run = runReadAloud } = deps;
+  const { wsBridge, resolveId, run = runReadAloud, describeLinks = describeReadAloudLinks } = deps;
   const records = deps.records ?? new ReadAloudRecordStore();
 
   const openAIConfig = (signal: AbortSignal): ReadAloudOpenAIConfig | null => {
@@ -73,7 +75,8 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     if (cached && cachedAudio) return audioResponse(cachedAudio, cached.id, true);
 
     const conversationContext = buildReadAloudContext(session.messageHistory, messageId, historyIndex);
-    const result = await run({ messageText: text, conversationContext }, config, settings);
+    const linkDetails = await describeLinks(text);
+    const result = await run({ messageText: text, conversationContext, linkDetails }, config, settings);
     // Saved before answering so the browser can attach its own timing to this record.
     const record = await records
       .create(
@@ -82,6 +85,7 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
           messageId,
           messageText: text,
           conversationContext,
+          linkDetails,
           cacheKey,
           trace: result.trace,
           error: result.error,
@@ -150,7 +154,11 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     const config = openAIConfig(c.req.raw.signal);
     if (!config) return c.json({ error: MISSING_KEY_ERROR }, 400);
 
-    const input = { messageText: source.messageText, conversationContext: source.conversationContext };
+    const input = {
+      messageText: source.messageText,
+      conversationContext: source.conversationContext,
+      linkDetails: source.linkDetails,
+    };
     const result = await run(input, config, settings);
     const record = await records.create(
       {

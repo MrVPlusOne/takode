@@ -56,18 +56,31 @@ const OPENAI_TIMEOUT_MS = 60_000;
 const REWRITE_CACHE_LIMIT = 50;
 const rewriteCache = new Map<string, string>();
 
-const REWRITE_SYSTEM_PROMPT = `You prepare an AI assistant's chat message to be read aloud by a text-to-speech voice to a listener who cannot see the screen, for example while driving.
+const REWRITE_SYSTEM_PROMPT = `You prepare a message from Takode, an app where AI coding agents work in sessions, to be read aloud by a text-to-speech voice. The listener may not be looking at the screen, for example while driving, but can open the message later.
 
 First decide whether the message needs rewriting to be easy to follow when heard.
-- If it already reads naturally aloud (plain conversational prose with no Markdown, code, links, tables, file paths, IDs or symbols that sound wrong when spoken), output exactly ${UNCHANGED_MARKER} and nothing else.
+- If it already reads naturally aloud (plain conversational prose with no Markdown, links, code, tables, file paths, IDs or symbols that sound wrong when spoken), output exactly ${UNCHANGED_MARKER} and nothing else.
 - Otherwise rewrite it:
   - Keep every key point, decision, question and caveat, with the original meaning and tone. Stay close to the original wording. Do not summarize content away, add information, or answer questions the message asks.
-  - Keep the assistant's voice: first person, speaking to the listener as "you".
+  - Keep the agent's voice: first person, speaking to the listener as "you".
   - Remove Markdown and symbols. Turn lists and tables into short spoken sentences.
-  - Leave out code, commands, URLs, link targets, commit hashes, file paths, line numbers and internal IDs such as quest, session or message numbers. When one matters, describe it briefly in words instead, such as "the settings file" or "that quest".
+  - Leave out code, commands, raw URLs and link targets, commit hashes, file paths, line numbers and other opaque IDs. When one matters, say what it is in words instead, such as "the settings file".
   - Write abbreviations, units and symbols the way a person would say them.
   - Prefer short sentences, with a blank line between topics.
 - Write in the language of the message.
+
+Takode links. Agents write these as Markdown links with fixed kinds of targets, and in the app each one is something the listener can tap:
+- [q-42](quest:q-42): quest 42, a tracked piece of work. The message usually says what it is about.
+- [q-42 feedback #3](quest:q-42:feedback:3): note 3 on quest 42, such as an agent's report on its work.
+- [#5](session:5): session 5, one agent's conversation. [#5 msg 42](session:5:42): one message in it.
+- [summary](session:5:notification:3): a question an agent is waiting for the listener to answer; the label sums it up.
+- [title](todo:td-12): one of the listener's personal to-dos.
+- [title](quest:q-42:delivery:<id>:commit:<sha>): a commit chip, a delivered code change, shown as its commit title with lines added and removed. A title such as "fix(voice): record the mic directly" is a type, an area and a summary; say it as plain words, such as "a voice fix that records the mic directly".
+- [app.ts:42](file:src/app.ts:42): a file that opens when tapped. Say it as "the app.ts file" in words, without the path or line.
+- Ordinary web links: say what they point to, such as "a GitHub pull request".
+Keep what each link means, and briefly tell the listener when something can be opened or tapped, so it is not missed. For example: "The steps are in a notification you can open from this message." or "The change is attached as a commit you can open: a voice fix that records the mic directly, about 150 lines added and 9 removed." Mention each link once and group several of the same kind ("three related quests"); do not repeat the same "you can open it" phrase for every link, since one short note can cover links that come together. Round only large numbers, such as line counts in the hundreds. Say quest and session numbers when the message names them; leave out every other ID.
+
+<LINK_DETAILS>, when present, gives facts the app shows about the message's links but the text does not, such as each commit's size.
 
 <CONVERSATION_CONTEXT> holds earlier messages only to help you understand what the message refers to. Never read it aloud, quote it, or reply to it.
 
@@ -97,6 +110,16 @@ export const DEFAULT_READ_ALOUD_SETTINGS: ReadAloudSettings = {
   voice: "marin",
   voiceStyle: "Speak in a natural, warm, conversational tone at a comfortable, unhurried pace.",
 };
+
+/** What one read aloud speaks, and what the rewrite may use to understand it. */
+export interface ReadAloudInput {
+  /** The message or report as shown (Markdown). */
+  messageText: string;
+  /** Earlier conversation, for the rewrite only. */
+  conversationContext: string;
+  /** Facts the app shows about the message's links but its text lacks, such as commit sizes. */
+  linkDetails?: string;
+}
 
 export interface ReadAloudOpenAIConfig {
   apiKey: string;
@@ -141,7 +164,7 @@ export interface ReadAloudRun {
  * for word. Provider failures come back as `error` with the trace so far.
  */
 export async function runReadAloud(
-  input: { messageText: string; conversationContext: string },
+  input: ReadAloudInput,
   config: ReadAloudOpenAIConfig,
   settings: ReadAloudSettings = DEFAULT_READ_ALOUD_SETTINGS,
 ): Promise<ReadAloudRun> {
@@ -190,7 +213,7 @@ export async function runReadAloud(
  * rewrite or the message as written. Fills in the rewrite part of `trace`.
  */
 async function produceSpokenText(
-  input: { messageText: string; conversationContext: string },
+  input: ReadAloudInput,
   settings: ReadAloudSettings,
   config: ReadAloudOpenAIConfig,
   trace: ReadAloudTrace,
@@ -318,9 +341,10 @@ function rememberRewrite(key: string, output: string): void {
   if (rewriteCache.size > REWRITE_CACHE_LIMIT) rewriteCache.delete(rewriteCache.keys().next().value!);
 }
 
-function buildRewriteUserPrompt(input: { messageText: string; conversationContext: string }): string {
+function buildRewriteUserPrompt(input: ReadAloudInput): string {
   return [
     input.conversationContext ? `<CONVERSATION_CONTEXT>\n${input.conversationContext}\n</CONVERSATION_CONTEXT>` : "",
+    input.linkDetails ? `<LINK_DETAILS>\n${input.linkDetails}\n</LINK_DETAILS>` : "",
     `<MESSAGE>\n${input.messageText}\n</MESSAGE>`,
   ]
     .filter(Boolean)
