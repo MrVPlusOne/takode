@@ -25,8 +25,7 @@ import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { QuestCommitChip } from "./QuestCommitChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
-import { CodeCopyButton } from "./CodeCopyButton.js";
-import { highlightCode } from "../utils/syntax-highlighting.js";
+import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
 import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } from "../utils/quest-link-target.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -1345,55 +1344,5 @@ function FileMarkdownLink({
         <Lightbox src={previewUrl} alt={`Preview of ${target.path}`} onClose={() => setPreviewUrl(null)} />
       )}
     </>
-  );
-}
-
-function CodeBlock({
-  lang,
-  children,
-  wrapLongContent,
-}: {
-  lang: string;
-  children: ReactNode;
-  wrapLongContent: boolean;
-}) {
-  const codeRef = useRef<HTMLElement>(null);
-  const getText = useCallback(() => codeRef.current?.textContent ?? "", []);
-
-  // Syntax highlight when a supported language is specified
-  const highlighted = useMemo(() => {
-    if (!lang) return null;
-    const raw = typeof children === "string" ? children : String(children ?? "");
-    // Strip trailing newline that react-markdown appends to fenced code
-    const code = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
-    return highlightCode(code, lang);
-  }, [lang, children]);
-
-  return (
-    <div className="group/code my-2 rounded-lg overflow-hidden border border-cc-border relative">
-      {lang ? (
-        <div className="flex items-center justify-between px-3 py-1.5 bg-cc-code-bg/80 border-b border-cc-border">
-          <span className="text-[10px] text-cc-muted font-mono-code uppercase tracking-wider">{lang}</span>
-          <CodeCopyButton getText={getText} />
-        </div>
-      ) : (
-        <div className="absolute top-1.5 right-1.5 z-10">
-          <CodeCopyButton getText={getText} />
-        </div>
-      )}
-      <pre
-        className={`px-2 sm:px-3 py-2 sm:py-2.5 bg-cc-code-bg text-cc-code-fg text-[12px] sm:text-[13px] font-mono-code leading-relaxed ${
-          wrapLongContent
-            ? "overflow-x-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-            : "overflow-x-auto"
-        }`}
-      >
-        {highlighted ? (
-          <code ref={codeRef} dangerouslySetInnerHTML={{ __html: highlighted }} />
-        ) : (
-          <code ref={codeRef}>{children}</code>
-        )}
-      </pre>
-    </div>
   );
 }

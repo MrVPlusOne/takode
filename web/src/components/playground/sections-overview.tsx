@@ -11,6 +11,7 @@ import { PlaygroundQuestBannerExamples } from "./PlaygroundQuestBannerExamples.j
 import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
+import { PlaygroundLongCodeBlockSection } from "./PlaygroundLongCodeBlockSection.js";
 import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
 import { PlaygroundWaitingWorkers } from "./PlaygroundWaitingWorkers.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
@@ -894,6 +895,8 @@ export function PlaygroundOverviewSections() {
       </Section>
 
       <PlaygroundMarkdownMathSection />
+
+      <PlaygroundLongCodeBlockSection />
 
       <PlaygroundFileLinkSection />
 
