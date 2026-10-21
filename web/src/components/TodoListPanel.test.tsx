@@ -238,6 +238,40 @@ describe("TodoListPanel", () => {
     expect(mocks.createTodoItem).toHaveBeenCalledTimes(1);
   });
 
+  it("follows the Cmd+Enter send-key setting: Enter is a new line, Cmd/Ctrl+Enter or Add adds", async () => {
+    // The to-do box uses the same send-key setting as the message composer, hint included.
+    useStore.setState({ sendKeyScheme: "mod-enter" });
+    const saved = makeState(2);
+    saved.items.push({ ...saved.items[3]!, id: "td-5", markdown: "Book flights", rank: 4096 });
+    mocks.createTodoItem.mockResolvedValue({ state: saved, item: saved.items.at(-1) });
+    try {
+      render(<TodoListPanel />);
+      await screen.findByText("Reply to **Alice**");
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      const composer = screen.getByTestId("todo-composer");
+      const box = within(composer).getByLabelText("New to-do");
+      expect(composer.textContent).toMatch(/Add: (⌘|Ctrl)\+Enter; New line: Enter/);
+
+      fireEvent.change(box, { target: { value: "Book flights" } });
+      fireEvent.keyDown(box, { key: "Enter" });
+      expect(mocks.createTodoItem).not.toHaveBeenCalled();
+      fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+      await waitFor(() => expect(mocks.createTodoItem).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(within(composer).getByLabelText("New to-do")).toHaveValue(""));
+
+      // The Add button adds too and keeps the box open for the next one; it is disabled while empty.
+      const add = within(composer).getByRole("button", { name: "Add" });
+      expect(add).toBeDisabled();
+      fireEvent.change(within(composer).getByLabelText("New to-do"), { target: { value: "Pack" } });
+      fireEvent.click(add);
+      await waitFor(() => expect(mocks.createTodoItem).toHaveBeenCalledTimes(2));
+      expect(mocks.createTodoItem).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "Pack" }));
+      expect(screen.getByTestId("todo-composer")).toBeInTheDocument();
+    } finally {
+      useStore.setState({ sendKeyScheme: "enter" });
+    }
+  });
+
   it("keeps a draft that failed to save on click-away, with Retry and Copy draft", async () => {
     const saved = makeState(2);
     saved.items.push({ ...saved.items[3]!, id: "td-5", markdown: "Recovered draft", rank: 4096 });

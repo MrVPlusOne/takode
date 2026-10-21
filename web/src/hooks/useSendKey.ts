@@ -4,6 +4,9 @@ import { platformIsMac } from "../shortcuts.js";
 import { useStore } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 
+/** The verb the hint names for the key, e.g. "Add" in the to-do box. */
+type SendKeyAction = "Send" | "Save" | "Add";
+
 type SendKeyEvent = Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey" | "isComposing" | "keyCode">;
 
 interface SendKeyEnvironment {
@@ -25,17 +28,17 @@ export function isSendKeyEvent(event: SendKeyEvent, scheme: SendKeyScheme, env: 
 }
 
 /** Tooltip/hint text describing the active keys, e.g. "Send: Enter; New line: Shift+Enter". */
-export function sendKeyHint(scheme: SendKeyScheme, env: SendKeyEnvironment, action: "Send" | "Save" = "Send"): string {
+export function sendKeyHint(scheme: SendKeyScheme, env: SendKeyEnvironment, action: SendKeyAction = "Send"): string {
   if (env.touchKeyboard) return `${action}: tap button; New line: Enter`;
   if (scheme === "mod-enter") return `${action}: ${platformIsMac(env.platform) ? "⌘" : "Ctrl"}+Enter; New line: Enter`;
   return `${action}: Enter; New line: Shift+Enter`;
 }
 
 /**
- * The user's send-key scheme for multi-line send/save boxes (composer, comments, quick replies).
+ * The user's send-key scheme for multi-line send/save boxes (composer, comments, quick replies, to-dos).
  * `isSendKey` decides whether a keydown should send/save; callers then `preventDefault()` and act.
  */
-export function useSendKey(action: "Send" | "Save" = "Send") {
+export function useSendKey(action: SendKeyAction = "Send") {
   const scheme = useStore((s) => s.sendKeyScheme);
   const env: SendKeyEnvironment = {
     touchKeyboard: isTouchDevice(),

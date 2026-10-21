@@ -32,7 +32,8 @@ export interface TodoItemParts {
   error: ReactNode | null;
   startEdit: () => void;
   cancelEdit: () => void;
-  saveEdit: TodoSheetAction & { busy: boolean };
+  /** `hint` names the save and new-line keys from the send-key setting. */
+  saveEdit: TodoSheetAction & { busy: boolean; hint: string };
   status: TodoStatusControlState | null;
 }
 
@@ -90,7 +91,7 @@ export function TodoStatusControl({ status, size }: { status: TodoStatusControlS
 function EditActions({ parts }: { parts: TodoItemParts }) {
   return (
     <div className="mt-2 flex items-center justify-end gap-2">
-      <span className="mr-auto text-[12px] text-cc-muted">Ctrl+Enter saves · Esc cancels</span>
+      <span className="mr-auto text-[12px] text-cc-muted">{parts.saveEdit.hint}; Cancel: Esc</span>
       <button type="button" onClick={parts.cancelEdit} disabled={parts.pending} className={BUTTON_CLASS}>
         Cancel
       </button>

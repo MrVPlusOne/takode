@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState, type FocusEvent } from "react
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import type { TodoCategory, TodoState } from "../../shared/todo-types.js";
 import { api } from "../api.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 
 export const TODO_SELECT_CLASS =
   "takode-native-select h-8 min-w-0 cursor-pointer rounded-lg border border-cc-border bg-cc-bg px-2 text-[13px] text-cc-fg outline-none focus:border-cc-primary disabled:opacity-60 pointer-coarse:h-10";
 
 /**
  * The box for adding to-dos, at the top of the list (from New), under a category (its +) or under
- * a row (Alt+Enter). Enter adds the to-do and clears the box for the next one; Shift+Enter starts a
- * details line; clicking away adds what was typed and closes the box; Escape discards. A failed save
+ * a row (Alt+Enter). The send key from Settings (Enter, or Cmd/Ctrl+Enter) or the Add button adds the
+ * to-do and clears the box for the next one; the other Enter starts a details line, as in the composer.
+ * Clicking away adds what was typed and closes the box; Escape discards. A failed save
  * keeps the draft with Retry and Copy draft. The category dropdown says where it goes; choosing
  * another category drops the "below this row" position.
  */
@@ -33,6 +35,7 @@ export function TodoComposer({
   const [saveError, setSaveError] = useState("");
   const [recoveryMessage, setRecoveryMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const addKey = useSendKey("Add");
   const savingRef = useRef(false);
 
   const resize = useCallback(() => {
@@ -129,7 +132,7 @@ export function TodoComposer({
           if (event.key === "Escape") {
             event.preventDefault();
             onClose();
-          } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          } else if (addKey.isSendKey(event)) {
             event.preventDefault();
             void save("enter");
           }
@@ -138,7 +141,7 @@ export function TodoComposer({
         placeholder="New to-do"
         className="block max-h-[360px] min-h-9 w-full resize-none overflow-y-auto rounded-lg border border-cc-primary/35 bg-cc-bg px-2.5 py-1.5 text-sm leading-relaxed text-cc-fg outline-none focus:border-cc-primary disabled:opacity-70"
       />
-      <div className="mt-2 flex items-center justify-between gap-3">
+      <div className="mt-2 flex items-center gap-3">
         <select
           aria-label="Category"
           value={categoryId}
@@ -154,9 +157,17 @@ export function TodoComposer({
             </option>
           ))}
         </select>
-        <span className="truncate text-[11px] text-cc-muted">
-          {saving ? "Adding…" : "Enter adds · Shift+Enter for details"}
-        </span>
+        <span className="ml-auto truncate text-[11px] text-cc-muted">{saving ? "Adding…" : addKey.hint}</span>
+        <button
+          type="button"
+          // Keep focus in the box, so the button doesn't count as clicking away (which adds and closes).
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => void save("enter")}
+          disabled={saving || !markdown.trim()}
+          className="h-8 shrink-0 rounded-lg bg-cc-primary px-3 text-[13px] font-medium text-white hover:bg-cc-primary-hover disabled:opacity-50 pointer-coarse:h-10"
+        >
+          Add
+        </button>
       </div>
       {saveError && (
         <div

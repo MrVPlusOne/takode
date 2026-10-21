@@ -420,6 +420,34 @@ describe("to-do links", () => {
     expect(screen.getByRole("dialog", { name: "To-do" }).textContent).toContain("New detail");
   });
 
+  it("saves edits with the send key from Settings", async () => {
+    // The editor follows the composer's send-key setting: with Enter sending, Enter saves and Shift+Enter is a
+    // new line; with Cmd+Enter sending, Enter is a new line and Cmd/Ctrl+Enter saves.
+    const editItem = vi.fn(async (_itemId: string, markdown: string) => ({ state: withItem({ markdown }, 6) }));
+    renderLink({ loadState: async () => withItem({}), editItem }, "[reply to Alice](todo:td-1)");
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    await screen.findByText("Reply to Alice");
+
+    useStore.setState({ sendKeyScheme: "enter" });
+    fingerTap(screen.getByRole("button", { name: "Edit" }));
+    let editor = screen.getByRole("textbox", { name: "To-do text" });
+    fireEvent.change(editor, { target: { value: "Reply to Alice\nFirst" } });
+    fireEvent.keyDown(editor, { key: "Enter", shiftKey: true });
+    expect(editItem).not.toHaveBeenCalled();
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(editItem).toHaveBeenCalledWith("td-1", "Reply to Alice\nFirst"));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "To-do text" })).toBeNull());
+
+    useStore.setState({ sendKeyScheme: "mod-enter" });
+    fingerTap(screen.getByRole("button", { name: "Edit" }));
+    editor = screen.getByRole("textbox", { name: "To-do text" });
+    fireEvent.change(editor, { target: { value: "Reply to Alice\nSecond" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(editItem).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(editItem).toHaveBeenLastCalledWith("td-1", "Reply to Alice\nSecond"));
+  });
+
   it("shows the due date, flagged once overdue, and sets or clears it from the preview", async () => {
     const setItemDue = vi.fn(async (_itemId: string, due: string | null) => ({
       state: withItem(due ? { due } : {}, setItemDue.mock.calls.length + 5),

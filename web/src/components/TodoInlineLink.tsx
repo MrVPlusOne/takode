@@ -14,6 +14,7 @@ import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import { api } from "../api.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { celebrationAnchor, playCompletionCelebration } from "./completion-celebration.js";
@@ -393,6 +394,7 @@ function ItemPreview({
   const [draft, setDraft] = useState<string | null>(null);
   const [undo, setUndo] = useState<TodoCompletionUndoHandle | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const saveKey = useSendKey("Save");
   const editing = draft !== null;
   const current = !item.archivedAt && item.status !== "done";
   const now = useTodoDueNow(current && item.due ? [item.due] : []);
@@ -492,7 +494,7 @@ function ItemPreview({
           event.preventDefault();
           event.stopPropagation();
           setDraft(null);
-        } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        } else if (saveKey.isSendKey(event)) {
           event.preventDefault();
           saveDraft();
         }
@@ -613,7 +615,7 @@ function ItemPreview({
       setDraft(item.markdown);
     },
     cancelEdit: () => setDraft(null),
-    saveEdit: { disabled: action.pending || !draftValid, busy: busy("save"), run: saveDraft },
+    saveEdit: { disabled: action.pending || !draftValid, busy: busy("save"), run: saveDraft, hint: saveKey.hint },
     status: item.archivedAt
       ? null
       : {
