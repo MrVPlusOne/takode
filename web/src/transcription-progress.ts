@@ -78,6 +78,8 @@ export interface VoiceRecordingTiming {
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;
+  /** Why a direct recording's level meter was restarted during it, such as "context interrupted, unmute". */
+  meterRestarts?: string;
   firstTrackEventAt?: number;
   pageVisibility?: DocumentVisibilityState;
 }

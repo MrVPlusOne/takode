@@ -276,6 +276,7 @@ function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming 
     "audioTrackStatesAtStart",
     "audioTrackStatesAtStop",
     "audioInputLabel",
+    "meterRestarts",
   ] as const) {
     const normalized = normalizeStringField(body[key]);
     if (normalized !== undefined && normalized !== null) timing[key] = normalized;

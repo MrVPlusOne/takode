@@ -17,6 +17,11 @@ import {
   type VoiceAudioBridge,
 } from "../utils/voice-audio-bridge.js";
 
+/** How often a direct recording's level meter is checked, how slow its clock may run, and how often it may restart. */
+const METER_CHECK_MS = 1000;
+const METER_MIN_CLOCK_RATE = 0.8;
+const MAX_METER_RESTARTS = 5;
+
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
   onAudioReady?: (blob: Blob, timing?: VoiceRecordingTiming) => void;
@@ -337,6 +342,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     trackMuteEventCount: number;
     trackUnmuteEventCount: number;
     firstTrackEventAt?: number;
+    meterRestarts?: string[];
   } | null>(null);
   const trackListenerCleanupRef = useRef<(() => void) | null>(null);
   const releaseScreenWakeLockRef = useRef<(() => void) | null>(null);
@@ -358,6 +364,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const audioBridgeRef = useRef<VoiceAudioBridge | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
+  const meterCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Restarts a direct recording's level meter; set only while one runs. */
+  const meterRestartRef = useRef<((reason: string) => void) | null>(null);
   const previousLevelRef = useRef(0);
   const lastHistorySampleTimeRef = useRef<number | null>(null);
 
@@ -395,25 +404,63 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
    * Meters a recording made straight from the microphone track. Its audio context starts only
    * now, with capture open, so it runs at the audio route the microphone chose (see
    * canRecordThroughVoiceAudioBridge). The recording never waits for it.
+   *
+   * WebKit can stop that context without stopping the recording: an interruption (a notification
+   * sound, Siri) briefly mutes the microphone and leaves the context suspended or interrupted, and a
+   * route change after it started leaves it running slower than real time. Either way the meter shows
+   * near-silence while the recording is fine. So the meter is checked about once a second, and after
+   * the microphone unmutes, and restarted on a fresh context, which picks up the current route.
    */
   const meterDirectRecording = useCallback(
     (stream: MediaStream) => {
-      const meter = createVoiceAudioBridge();
-      audioBridgeRef.current = meter;
-      if (!meter) return;
-      void meter.ready
-        .then(async (ready) => {
-          if (!ready || audioBridgeRef.current !== meter) return;
-          await meter.setInput(stream);
-          if (audioBridgeRef.current === meter) startVolumeMonitor(meter.analyser);
-        })
-        .catch((error) => console.warn("Could not start the microphone level meter", error));
+      let restarts = 0;
+      let lastClock: { contextTime: number; wallTime: number } | null = null;
+      const start = () => {
+        const meter = createVoiceAudioBridge();
+        audioBridgeRef.current = meter;
+        lastClock = null;
+        if (!meter) return;
+        void meter.ready
+          .then(async (ready) => {
+            if (!ready || audioBridgeRef.current !== meter) return;
+            await meter.setInput(stream);
+            if (audioBridgeRef.current === meter) startVolumeMonitor(meter.analyser);
+          })
+          .catch((error) => console.warn("Could not start the microphone level meter", error));
+      };
+      const restart = (reason: string) => {
+        if (restarts >= MAX_METER_RESTARTS || streamRef.current !== stream) return;
+        restarts += 1;
+        const timing = recordingTimingRef.current;
+        if (timing) timing.meterRestarts = [...(timing.meterRestarts ?? []), reason];
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = 0;
+        audioBridgeRef.current?.close();
+        start();
+      };
+      const check = () => {
+        const context = audioBridgeRef.current?.analyser.context;
+        if (!context || !analyserRef.current) return;
+        if (context.state !== "running") return restart(`context ${context.state}`);
+        const now = { contextTime: context.currentTime, wallTime: performance.now() };
+        const previous = lastClock;
+        lastClock = now;
+        if (!previous || !Number.isFinite(now.contextTime)) return;
+        const rate = (now.contextTime - previous.contextTime) / ((now.wallTime - previous.wallTime) / 1000);
+        if (rate < METER_MIN_CLOCK_RATE) restart(`clock ${rate.toFixed(2)}`);
+      };
+      start();
+      meterCheckTimerRef.current = setInterval(check, METER_CHECK_MS);
+      meterRestartRef.current = restart;
     },
     [startVolumeMonitor],
   );
 
   /** Stop volume monitoring and clean up Web Audio resources */
   const stopVolumeMonitor = useCallback(() => {
+    if (meterCheckTimerRef.current) clearInterval(meterCheckTimerRef.current);
+    meterCheckTimerRef.current = null;
+    meterRestartRef.current = null;
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = 0;
@@ -451,7 +498,11 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
           // direct-recorder behavior: finish the audio already captured instead of recording silence.
           if (stream === streamRef.current && recorderRef.current?.state === "recording") recorderRef.current.stop();
         } else if (type === "mute") timing.trackMuteEventCount += 1;
-        else timing.trackUnmuteEventCount += 1;
+        else {
+          timing.trackUnmuteEventCount += 1;
+          // The interruption that muted the microphone may have stopped the meter's audio context.
+          if (stream === streamRef.current) meterRestartRef.current?.("unmute");
+        }
       };
       for (const track of stream.getAudioTracks()) {
         for (const type of ["ended", "mute", "unmute"] as const) {
@@ -764,6 +815,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
                   trackMuteEventCount: timing.trackMuteEventCount,
                   trackUnmuteEventCount: timing.trackUnmuteEventCount,
                   ...(timing.firstTrackEventAt !== undefined ? { firstTrackEventAt: timing.firstTrackEventAt } : {}),
+                  ...(timing.meterRestarts?.length ? { meterRestarts: timing.meterRestarts.join(", ") } : {}),
                   ...(typeof document !== "undefined" ? { pageVisibility: document.visibilityState } : {}),
                 }
               : undefined;

@@ -1253,6 +1253,8 @@ export interface TranscriptionRecordingTiming {
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;
+  /** Why a direct recording's level meter was restarted during it (browser diagnostic). */
+  meterRestarts?: string;
   firstTrackEventAt?: number;
   pageVisibility?: "visible" | "hidden" | "prerender";
 }

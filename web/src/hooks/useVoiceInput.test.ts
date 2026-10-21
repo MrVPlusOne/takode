@@ -1400,6 +1400,98 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
     expect(result.current.volumeLevel).toBeGreaterThan(0);
   });
 
+  describe("keeps the level meter live while the recording runs", () => {
+    // The meter's own audio context can stop while the recording itself is fine: an interruption
+    // (a notification sound) mutes the mic briefly and leaves WebKit's context interrupted, or a
+    // route change leaves it running slower than real time. The meter then showed near-silence.
+    // It is checked about once a second and restarted on a fresh context.
+    let contexts: Array<MockAudioContext & { currentTime: number }>;
+    let wallTime: number;
+
+    beforeEach(() => {
+      contexts = [];
+      wallTime = 0;
+      vi.spyOn(performance, "now").mockImplementation(() => wallTime);
+      vi.stubGlobal(
+        "AudioContext",
+        class extends MockAudioContext {
+          currentTime = 0;
+          constructor() {
+            super();
+            contexts.push(this);
+          }
+          createAnalyser() {
+            return { ...super.createAnalyser(), context: this };
+          }
+        },
+      );
+    });
+
+    async function startRecording(mic = makeMockStream("live", "iPhone Microphone"), onAudioReady = vi.fn()) {
+      getUserMediaMock.mockResolvedValueOnce(mic);
+      const hook = renderHook(() => useVoiceInput({ onAudioReady }));
+      await act(async () => {
+        hook.result.current.startRecording();
+      });
+      expect(contexts).toHaveLength(1);
+      return { ...hook, mic, recorder: MockMediaRecorder.lastInstance };
+    }
+
+    /** One second passes; `contextSeconds` is how far the audio context's clock moved meanwhile. */
+    async function tick(contextSeconds = 1) {
+      wallTime += 1000;
+      contexts.at(-1)!.currentTime += contextSeconds;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+    }
+
+    it("restarts the meter on a fresh context when WebKit leaves its context interrupted", async () => {
+      const { recorder } = await startRecording();
+      await tick();
+      contexts[0]!.state = "interrupted";
+      await tick();
+      expect(contexts).toHaveLength(2);
+      expect(MockMediaRecorder.lastInstance).toBe(recorder);
+      expect(recorder?.state).toBe("recording");
+    });
+
+    it("restarts the meter when its context runs slower than real time", async () => {
+      await startRecording();
+      await tick(1);
+      await tick(1);
+      expect(contexts).toHaveLength(1);
+      await tick(0.35);
+      expect(contexts).toHaveLength(2);
+    });
+
+    it("restarts the meter when the microphone unmutes after an interruption, and saves why", async () => {
+      const onAudioReady = vi.fn();
+      const { result, mic } = await startRecording(undefined, onAudioReady);
+      const track = mic.getAudioTracks()[0] as unknown as { emit: (type: string) => void };
+      act(() => {
+        track.emit("mute");
+        track.emit("unmute");
+      });
+      expect(contexts).toHaveLength(2);
+
+      await act(async () => {
+        result.current.stopRecording();
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(onAudioReady.mock.calls[0][1]).toEqual(expect.objectContaining({ meterRestarts: "unmute" }));
+    });
+
+    it("stops restarting after a few attempts when a context never runs", async () => {
+      await startRecording();
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        contexts.at(-1)!.state = "suspended";
+        await tick();
+      }
+      expect(contexts).toHaveLength(6);
+    });
+  });
+
   it("saves a mid-recording mic pick for the next recording without opening it", async () => {
     // Opening the other mic would change the route under the running recording.
     const mic = makeMockStream("live", "AirPods Pro");
