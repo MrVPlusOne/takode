@@ -93,6 +93,17 @@ describe("findSupportingQuestSource", () => {
     ).toBeNull();
   });
 
+  it("treats a supporting quest the user wrote in as an ordinary quest", () => {
+    // The user only writes in a side quest's tab to talk about it there, which makes it a
+    // full quest: its completion is unread and it loses the side-quest mark.
+    const history = [request("ask", "u7", 1000, "q-10"), request("follow-up", "u8", 3000, "q-11")];
+    expect(findSupportingQuestSource(indexLeaderRequests(history), "leader", "q-11", startedFrom)).toBeNull();
+    // A herd event, or an answer to a question the leader asked in the tab, does not count.
+    const answer = { ...request("reply", "u9", 3500, "q-11"), replyContext: { notificationId: "n-4" } };
+    const quiet = [request("ask", "u7", 1000, "q-10"), herdEvent(3000, "q-11"), answer as BrowserIncomingMessage];
+    expect(findSupportingQuestSource(indexLeaderRequests(quiet), "leader", "q-11", startedFrom)).not.toBeNull();
+  });
+
   it("does not apply to quests filed in another leader's conversation or from unknown messages", () => {
     const history = [request("ask", "u7", 1000, "q-10")];
     expect(findSupportingQuestSource(indexLeaderRequests(history), "other-leader", "q-11", startedFrom)).toBeNull();
@@ -109,13 +120,15 @@ describe("sideQuestSourceThreads", () => {
     // was then handed off to it, so q-13 is the conversation, not a side quest.
     const moved = request("main-ask", "u8", 1100, "main");
     (moved as { threadRefs?: unknown[] }).threadRefs = [handoffThreadRef("q-13", 2000, "leader")];
-    const history = [request("ask", "u7", 1000, "q-10"), moved];
+    // q-15 was filed from the same request as q-11, but the user has since written in its tab.
+    const history = [request("ask", "u7", 1000, "q-10"), moved, request("in-q-15", "u9", 3000, "q-15")];
     const sources = new Map([
       ["q-11", startedFrom],
       ["q-12", startedFrom],
       ["q-13", { ...startedFrom, messageId: "main-ask", threadKey: "main" }],
       // Filed in another leader's conversation: not this leader's side quest.
       ["q-14", { ...startedFrom, sessionId: "other-leader" }],
+      ["q-15", startedFrom],
     ]);
     expect(sideQuestSourceThreads(history, "leader", sources)).toEqual(
       new Map([

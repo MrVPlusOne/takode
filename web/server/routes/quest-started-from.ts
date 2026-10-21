@@ -3,7 +3,12 @@ import { leaderMessageThreadKey } from "../../shared/leader-thread-response-rout
 import { findLeaderUserMessageById } from "../leader-user-message-id.js";
 import type { QuestStartedFrom, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { findSupportingQuestAnswer, findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
+import {
+  findSupportingQuestAnswer,
+  findSupportingQuestSource,
+  indexLeaderRequests,
+  type LeaderRequestIndex,
+} from "../supporting-quest.js";
 import type { OptionalAuthResult } from "./context.js";
 
 /**
@@ -38,6 +43,8 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
+  /** Whether it is a side (supporting) quest now; see findSupportingQuestSource. */
+  sideQuest: boolean;
 }
 
 /**
@@ -59,10 +66,13 @@ export function registerStartedQuestsRoute(
     const sessionId = deps.resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
     const quests: StartedQuest[] = [];
+    let requests: LeaderRequestIndex | null = null;
     for (const quest of await deps.listQuests()) {
       const startedFrom = quest.relationships?.startedFrom;
       if (startedFrom?.sessionId !== sessionId) continue;
-      quests.push({ questId: quest.questId, title: quest.title, startedFrom });
+      requests ??= indexLeaderRequests(deps.getHistory(sessionId) ?? []);
+      const sideQuest = !!findSupportingQuestSource(requests, sessionId, quest.questId, startedFrom);
+      quests.push({ questId: quest.questId, title: quest.title, startedFrom, sideQuest });
     }
     return c.json({ quests });
   });

@@ -5,6 +5,8 @@ export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
+  /** A side quest: its request is still answered where it was asked, and the user has not written in its thread. */
+  sideQuest: boolean;
 }
 
 /** The leader's answer that delivered a supporting quest's result. */

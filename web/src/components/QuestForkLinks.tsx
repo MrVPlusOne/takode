@@ -58,10 +58,11 @@ export function StartedQuestsProvider({
 
 /**
  * Under a user's message: the quests it started, except the one whose thread is on screen.
- * A request moved into its quest (Main-to-quest handoff) continues there; any other quest
- * is a side quest, supporting a request that stays and is answered where it was asked.
- * The message's own route decides which, because it updates as soon as a handoff lands,
- * while the started quests were often loaded just before it, when the quest was filed.
+ * A request moved into its quest (Main-to-quest handoff) continues there, and so does a
+ * quest the user has written in; any other quest is a side quest, supporting a request
+ * that stays and is answered where it was asked. The message's own route is checked too,
+ * because it updates as soon as a handoff lands, while the started quests were often
+ * loaded just before it, when the quest was filed.
  */
 export function ContinuedInLinks({
   message,
@@ -83,7 +84,7 @@ export function ContinuedInLinks({
         <QuestForkLink
           key={quest.questId}
           quest={quest}
-          continued={normalizeThreadKey(quest.questId) === owner}
+          continued={normalizeThreadKey(quest.questId) === owner || !quest.sideQuest}
           onSelectThread={onSelectThread}
         />
       ))}

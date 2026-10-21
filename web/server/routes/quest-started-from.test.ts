@@ -75,6 +75,8 @@ describe("GET /sessions/:id/started-quests", () => {
           questId: "q-1",
           title: "Title q-1",
           startedFrom: { sessionId: "leader-1", messageId: "m-q-1", threadKey: "main", timestamp: 5 },
+          // Its source message is not in the (empty) history, so it cannot be a side quest.
+          sideQuest: false,
         },
       ],
     });

@@ -173,7 +173,9 @@ describe("Quest fork links under the source message", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        Response.json({ quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM }] }),
+        Response.json({
+          quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM, sideQuest: false }],
+        }),
       ),
     );
     installThread("main", HANDED_OFF_HISTORY);
@@ -200,7 +202,7 @@ describe("Quest fork links under the source message", () => {
 
   it("leaves the link out in the quest's own thread, where the message may also show", async () => {
     // A handed-off message shows in both threads; in the quest itself the link would point to itself.
-    const value = { questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM };
+    const value = { questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM, sideQuest: false };
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({ quests: [value] })),
@@ -221,7 +223,12 @@ describe("Quest fork links under the source message", () => {
 
   it("marks side quests and opens their thread too, since a side quest can grow into a conversation", async () => {
     // q-9 and q-10 support the Main request, which stays in Main and is answered there.
-    const sideQuest = (questId: string, title: string) => ({ questId, title, startedFrom: STARTED_FROM });
+    const sideQuest = (questId: string, title: string) => ({
+      questId,
+      title,
+      startedFrom: STARTED_FROM,
+      sideQuest: true,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -246,12 +253,33 @@ describe("Quest fork links under the source message", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-10");
   });
 
+  it("shows Continued in for a side quest the user has written in, though its request stayed", async () => {
+    // The server reports q-9 as no longer a side quest once the user wrote in its tab; the
+    // request itself was never handed off, so the row must follow the server's verdict.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM, sideQuest: false }],
+        }),
+      ),
+    );
+    render(
+      <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey="main">
+        <ContinuedInLinks message={{ id: "main-ask" }} currentThreadKey="main" onSelectThread={vi.fn()} />
+      </StartedQuestsProvider>,
+    );
+    await waitFor(() => expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued"));
+  });
+
   it("turns a side quest into Continued in when the request is handed off after the quests loaded", async () => {
     // The leader files q-9 and moves the request into it moments later. The started quests
     // load when q-9's thread appears, before the handoff, and are not loaded again; the
     // updated message alone must switch the row.
     const fetchMock = vi.fn(async () =>
-      Response.json({ quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM }] }),
+      Response.json({
+        quests: [{ questId: QUEST_ID, title: "Relay timeout", startedFrom: STARTED_FROM, sideQuest: true }],
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     installThread("main", HISTORY);

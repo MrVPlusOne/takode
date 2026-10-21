@@ -1264,4 +1264,26 @@ describe("session notification status metadata", () => {
       expect.objectContaining({ threadKey: "q-12", unreadReason: "quest-complete" }),
     ]);
   });
+
+  it("keeps the completion unread for a supporting quest the user wrote in", async () => {
+    // q-11 was filed from u7 in q-10, but the user then wrote in q-11's own tab: it became
+    // a full quest, so its completion is unread like any other.
+    const session = makeSession({
+      state: { isOrchestrator: true },
+      messageHistory: [
+        leaderRequest({ id: "ask", userMessageId: "u7", threadKey: "q-10" }),
+        leaderRequest({ id: "follow-up", userMessageId: "u8", threadKey: "q-11" }),
+      ],
+    });
+    const startedFrom: QuestStartedFrom = { sessionId: "s1", messageId: "ask", threadKey: "q-10", timestamp: 1000 };
+    const deps = { ...makeDeps(), resolveQuestStartedFrom: async () => startedFrom };
+
+    expect(
+      await recordQuestCompletionUnreadNotification(
+        session,
+        { questId: "q-11", summary: "q-11", completedAt: 5000 },
+        deps,
+      ),
+    ).toBe(true);
+  });
 });

@@ -23,32 +23,50 @@ export interface SupportingQuestAnswer {
   markdown: string;
 }
 
-/** The leader's user messages by history ID, built once to check many quests. */
-export function indexLeaderRequests(
-  history: ReadonlyArray<BrowserIncomingMessage>,
-): ReadonlyMap<string, LeaderUserMessageIdentity> {
-  return new Map(buildLeaderUserMessageIdentities(history).map((entry) => [entry.historyMessageId, entry]));
+/** The user's messages in a leader's history, built once to check many quests. */
+export interface LeaderRequestIndex {
+  /** The user's messages by history ID. */
+  byMessageId: ReadonlyMap<string, LeaderUserMessageIdentity>;
+  /**
+   * The threads the user has written in: typed messages and comments, not answers to the
+   * leader's questions, which the leader asks in a quest's tab as part of that quest's work.
+   */
+  threadsWithUserMessages: ReadonlySet<string>;
+}
+
+export function indexLeaderRequests(history: ReadonlyArray<BrowserIncomingMessage>): LeaderRequestIndex {
+  const identities = buildLeaderUserMessageIdentities(history);
+  return {
+    byMessageId: new Map(identities.map((entry) => [entry.historyMessageId, entry])),
+    threadsWithUserMessages: new Set(
+      identities
+        .filter((entry) => !entry.message.replyContext?.notificationId)
+        .map((entry) => authoritativeMessageOwner(entry.message).threadKey),
+    ),
+  };
 }
 
 /**
- * A supporting quest was filed (`--source-message uN`) from a user's request that
+ * A supporting (side) quest was filed (`--source-message uN`) from a user's request that
  * still belongs to another thread of the same leader: the leader answers that request
- * where it was asked, so the quest's own thread is never where its result lands and
- * its completion makes nothing unread. A request moved into the quest (Main-to-quest
- * handoff) makes it an ordinary quest. Returns null when the quest is not supporting
- * or the request is not in this history, so callers keep today's behavior.
+ * where it was asked, so the quest's own thread is not where its result lands and its
+ * completion makes nothing unread. The quest is an ordinary one once the conversation
+ * is in its own thread: the request was moved into it (Main-to-quest handoff), or the
+ * user wrote a message there. Returns null when the quest is not supporting or the
+ * request is not in this history, so callers keep today's behavior.
  */
 export function findSupportingQuestSource(
-  requests: ReadonlyMap<string, LeaderUserMessageIdentity>,
+  requests: LeaderRequestIndex,
   leaderSessionId: string,
   questId: string,
   startedFrom: QuestStartedFrom | undefined,
 ): SupportingQuestSource | null {
   if (!startedFrom || startedFrom.sessionId !== leaderSessionId) return null;
-  const identity = requests.get(startedFrom.messageId);
+  const identity = requests.byMessageId.get(startedFrom.messageId);
   if (!identity) return null;
   const threadKey = authoritativeMessageOwner(identity.message).threadKey;
-  if (threadKey === questId.toLowerCase()) return null;
+  const questKey = questId.toLowerCase();
+  if (threadKey === questKey || requests.threadsWithUserMessages.has(questKey)) return null;
   return {
     threadKey,
     userMessageId: identity.userMessageId,
@@ -58,31 +76,20 @@ export function findSupportingQuestSource(
 
 /**
  * For quests filed from this leader's messages, the thread each one is a side quest of:
- * the thread that still owns the request it was filed from. Applies the same rule as
- * findSupportingQuestSource with one pass over the history for many quests; a quest whose
- * request moved into it, or whose source is elsewhere, is left out.
+ * findSupportingQuestSource for many quests over one index of the history.
  */
 export function sideQuestSourceThreads(
   history: ReadonlyArray<BrowserIncomingMessage>,
   leaderSessionId: string,
   sources: ReadonlyMap<string, QuestStartedFrom>,
 ): Map<string, string> {
-  const questsByMessageId = new Map<string, string[]>();
-  for (const [questId, startedFrom] of sources) {
-    if (startedFrom.sessionId !== leaderSessionId) continue;
-    questsByMessageId.set(startedFrom.messageId, [
-      ...(questsByMessageId.get(startedFrom.messageId) ?? []),
-      questId.toLowerCase(),
-    ]);
-  }
   const result = new Map<string, string>();
-  if (questsByMessageId.size === 0) return result;
-  for (const message of history) {
-    if (message.type !== "user_message" || !message.id) continue;
-    const questIds = questsByMessageId.get(message.id);
-    if (!questIds) continue;
-    const owner = authoritativeMessageOwner(message).threadKey;
-    for (const questId of questIds) if (owner !== questId) result.set(questId, owner);
+  const mine = [...sources].filter(([, startedFrom]) => startedFrom.sessionId === leaderSessionId);
+  if (mine.length === 0) return result;
+  const requests = indexLeaderRequests(history);
+  for (const [questId, startedFrom] of mine) {
+    const source = findSupportingQuestSource(requests, leaderSessionId, questId, startedFrom);
+    if (source) result.set(questId.toLowerCase(), source.threadKey);
   }
   return result;
 }

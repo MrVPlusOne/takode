@@ -274,6 +274,7 @@ const STARTED_QUESTS = new Map([
         questId: DESCRIPTION_QUEST_ID,
         title: "Set up the DevBox as a Takode host",
         startedFrom: STARTED_FROM,
+        sideQuest: false,
       },
     ],
   ],
@@ -294,11 +295,20 @@ const SUPPORTING_QUESTS = new Map([
         questId: SUPPORTING_RUNNING_ID,
         title: "QA eval trend numbers from the laptop",
         startedFrom: SUPPORTING_STARTED_FROM,
+        sideQuest: true,
       },
       {
         questId: SUPPORTING_DONE_ID,
         title: "QA eval trend numbers from Condor",
         startedFrom: SUPPORTING_STARTED_FROM,
+        sideQuest: true,
+      },
+      // Filed as a side quest, but the user then wrote in its tab, so the conversation continues there.
+      {
+        questId: "q-9026",
+        title: "Compare the eval prompts across runs",
+        startedFrom: SUPPORTING_STARTED_FROM,
+        sideQuest: false,
       },
     ],
   ],
@@ -383,7 +393,7 @@ export function PlaygroundQuestDescriptionSummary() {
             />
           </StartedQuestsContext.Provider>
         </Card>
-        <Card label="Side quests under the request · each opens its thread">
+        <Card label="Side quests under the request · each opens its thread; one the user wrote in reads Continued in">
           <StartedQuestsContext.Provider value={SUPPORTING_QUESTS}>
             <QuestThread
               questId={EXCERPT_QUEST_ID}

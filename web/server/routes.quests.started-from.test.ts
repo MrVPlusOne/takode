@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import * as questStore from "./quest-store.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { createQuestRoutes } from "./routes/quests.js";
@@ -114,15 +114,33 @@ describe("quests filed from a user's message", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("lists the quests started from a leader's messages", async () => {
+  it("lists the quests started from a leader's messages, saying which are side quests", async () => {
+    // q-9 was filed from u1 in Main and is answered there: a side quest. q-10 was filed from
+    // u2 in q-7's thread, and the user then wrote in q-10's own thread: a full quest.
     const startedFrom = { sessionId: "leader-1", messageId: "msg-a", threadKey: "main", timestamp: 100 };
+    const fromQ7 = { sessionId: "leader-1", messageId: "msg-b", threadKey: "q-7", timestamp: 200 };
     vi.spyOn(questStore, "listQuests").mockResolvedValue([
       { ...QUEST, relationships: { startedFrom } } as QuestmasterTask,
+      { ...QUEST, questId: "q-10", title: "Board change", relationships: { startedFrom: fromQ7 } } as QuestmasterTask,
     ]);
+    HISTORY.push({
+      type: "user_message",
+      id: "msg-c",
+      content: "Keep the board change small",
+      timestamp: 300,
+      leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u3",
+      threadKey: "q-10",
+      questId: "q-10",
+    });
+    onTestFinished(() => void HISTORY.pop());
     const response = await makeApp().request("/api/sessions/leader-1/started-quests");
 
     expect(await response.json()).toEqual({
-      quests: [{ questId: "q-9", title: "Relay fix", startedFrom }],
+      quests: [
+        { questId: "q-9", title: "Relay fix", startedFrom, sideQuest: true },
+        { questId: "q-10", title: "Board change", startedFrom: fromQ7, sideQuest: false },
+      ],
     });
   });
 });
