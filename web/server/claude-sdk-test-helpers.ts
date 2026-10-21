@@ -23,6 +23,9 @@ export interface ClaudeSdkTestBackend {
     setPermissionMode: ReturnType<typeof vi.fn>;
     setModel: ReturnType<typeof vi.fn>;
     applyFlagSettings: ReturnType<typeof vi.fn>;
+    mcpServerStatus: ReturnType<typeof vi.fn>;
+    reconnectMcpServer: ReturnType<typeof vi.fn>;
+    toggleMcpServer: ReturnType<typeof vi.fn>;
   };
   /** Messages Takode routed to the adapter, in order. */
   readonly outgoing: BrowserOutgoingMessage[];
@@ -51,6 +54,9 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
     setPermissionMode: vi.fn(async (_mode: string) => {}),
     setModel: vi.fn(async () => {}),
     applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
+    mcpServerStatus: vi.fn(async (): Promise<unknown[]> => []),
+    reconnectMcpServer: vi.fn(async (_serverName: string) => {}),
+    toggleMcpServer: vi.fn(async (_serverName: string, _enabled: boolean) => {}),
   };
   const internals = adapter as any;
   internals.sdkQuery = { ...query, close: vi.fn() };

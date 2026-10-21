@@ -173,22 +173,21 @@ describe("McpSection status-fetch failures", () => {
 });
 
 describe("McpSection for Claude sessions", () => {
-  it("shows reported servers but hides add, toggle and reconnect controls Claude cannot honor", () => {
-    // Claude reports MCP servers at startup but Takode cannot manage them, so the
-    // panel must not offer controls that would silently do nothing.
+  it("offers toggle, reconnect and sign-in, but not adding servers", () => {
+    // Claude sessions manage their servers through the Agent SDK; only adding a
+    // server from Takode stays Codex-only.
     useStore.setState({
       sessions: new Map([["claude", session("claude", { backend_type: "claude-sdk" })]]),
-      mcpServers: new Map([["claude", [FAILED_SERVER]]]),
+      mcpServers: new Map([["claude", [FAILED_SERVER, { ...FAILED_SERVER, name: "docs", needsSignIn: true }]]]),
       cliConnected: new Map([["claude", true]]),
     });
     render(<McpSection sessionId="claude" />);
 
-    expect(screen.getByRole("button", { name: "database" })).toBeInTheDocument();
     expect(screen.queryByTitle("Add MCP server")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Enable server")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Disable server")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Reconnect server")).not.toBeInTheDocument();
-    // Status refresh stays available.
+    expect(screen.getAllByTitle("Disable server")).toHaveLength(2);
+    expect(screen.getAllByTitle("Reconnect server")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(sendMcpSignIn).toHaveBeenCalledWith("claude", "docs");
     expect(screen.getByTitle("Refresh MCP server status")).toBeInTheDocument();
     expect(sendMcpGetStatus).toHaveBeenCalledWith("claude");
   });
@@ -236,10 +235,5 @@ describe("McpSection sign-in", () => {
     show([{ ...needsSignIn, signIn: { state: "failed", error: "Sign-in failed: access_denied" } }]);
     expect(screen.getByText("Sign-in failed: access_denied")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-  });
-
-  it("offers no sign-in in Claude sessions, which sign in to MCP servers themselves", () => {
-    show([needsSignIn], "claude-sdk");
-    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 });

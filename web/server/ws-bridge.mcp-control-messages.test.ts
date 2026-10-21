@@ -588,59 +588,37 @@ describe("MCP control messages", () => {
     );
   }
 
-  it("mcp_get_status: answers from Claude's reported servers without contacting Claude", () => {
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "mcp_get_status",
-      }),
-    );
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  // Status comes live from Claude Code through the SDK, so tools, plugin sources
+  // and servers waiting for a sign-in show correctly, without a model turn.
+  it("mcp_get_status: answers with Claude's live MCP status", async () => {
+    cli.query.mcpServerStatus.mockResolvedValueOnce([
+      { name: "test-server", status: "connected", scope: "user", tools: [{ name: "read" }] },
+      { name: "plugin:docs:docs", status: "needs-auth", scope: "dynamic", source: "plugin" },
+    ]);
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "mcp_get_status" }));
+    await settle();
 
     expect(cli.userTurns).not.toHaveBeenCalled();
-    expect(browserMessages()).toContainEqual(expect.objectContaining({ type: "mcp_status" }));
-  });
-
-  it("mcp_toggle: is refused for Claude sessions", () => {
-    vi.useFakeTimers();
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "mcp_toggle",
-        serverName: "my-server",
-        enabled: false,
-      }),
-    );
-
-    expectRefusedWithoutContactingClaude();
-    vi.useRealTimers();
-  });
-
-  it("mcp_reconnect: is refused for Claude sessions", () => {
-    vi.useFakeTimers();
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "mcp_reconnect",
-        serverName: "failing-server",
-      }),
-    );
-
-    expectRefusedWithoutContactingClaude();
-    vi.useRealTimers();
-  });
-
-  it("mcp_status reports each server Claude announced at startup", () => {
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "mcp_get_status",
-      }),
-    );
-
     const status = browserMessages().find((m) => m.type === "mcp_status");
-    expect(status.servers).toHaveLength(1);
-    expect(status.servers[0].name).toBe("test-server");
-    expect(status.servers[0].status).toBe("connected");
+    expect(status.servers).toEqual([
+      expect.objectContaining({ name: "test-server", status: "connected", tools: [{ name: "read" }] }),
+      expect.objectContaining({ name: "plugin:docs:docs", needsSignIn: true, scope: "plugin" }),
+    ]);
+  });
+
+  it("mcp_toggle and mcp_reconnect: go to Claude Code through the SDK", async () => {
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "mcp_toggle", serverName: "my-server", enabled: false }),
+    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "mcp_reconnect", serverName: "failing-server" }));
+    await settle();
+
+    expect(cli.query.toggleMcpServer).toHaveBeenCalledWith("my-server", false);
+    expect(cli.query.reconnectMcpServer).toHaveBeenCalledWith("failing-server");
+    expect(cli.userTurns).not.toHaveBeenCalled();
   });
 
   it("mcp_set_servers: is refused for Claude sessions", () => {

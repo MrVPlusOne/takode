@@ -88,7 +88,7 @@ export function PlaygroundMcpStatus() {
           className="rounded border border-cc-border bg-cc-card px-2 py-1 text-cc-fg"
         >
           <option value="codex">Codex (manage servers)</option>
-          <option value="claude-sdk">Claude (status only)</option>
+          <option value="claude-sdk">Claude (cannot add servers)</option>
         </select>
       </label>
       <div className="w-full max-w-[280px] border border-cc-border rounded-xl overflow-hidden bg-cc-card">

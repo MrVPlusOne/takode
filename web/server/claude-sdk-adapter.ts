@@ -32,6 +32,7 @@ import {
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import { trafficStats } from "./traffic-stats.js";
+import { ClaudeMcpManager, type ClaudeMcpQuery } from "./claude-mcp-manager.js";
 import type {
   BackendAdapter,
   BackgroundTaskAwareAdapter,
@@ -41,6 +42,9 @@ import type {
   ClaudeTurnAwareAdapter,
   PendingOutgoingAwareAdapter,
 } from "./bridge/adapter-interface.js";
+
+/** The server an MCP control message from the browser is about. */
+type McpTarget = { serverName: string };
 
 /**
  * Claude Code retries a failed model request 10 times by default (about 3
@@ -207,7 +211,7 @@ export class ClaudeSdkAdapter
   /** True from handing Claude a prompt until its turn's result arrives. */
   private turnInFlight = false;
   /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
-  private cachedMcpServers: Array<{ name: string; status: string }> = [];
+  private mcpManager: ClaudeMcpManager;
   /** Live background tasks of this Claude process, by task id (see `updateBackgroundTasks`). */
   private backgroundTasks = new Map<string, BackgroundTaskInfo>();
   private backgroundTasksChangedAt = 0;
@@ -216,6 +220,11 @@ export class ClaudeSdkAdapter
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
     this.options = options;
+    this.mcpManager = new ClaudeMcpManager(
+      () => this.sdkQuery as unknown as ClaudeMcpQuery | null,
+      (msg) => this.emitBrowserMessage(msg),
+      sessionId,
+    );
     this.started = new Promise((resolve) => {
       this.settleStarted = resolve;
     });
@@ -276,6 +285,7 @@ export class ClaudeSdkAdapter
     this.clearBackgroundTasks();
     try {
       // Ends Claude's input, then stops the process after a short grace period.
+      this.mcpManager.dispose();
       this.sdkQuery?.close();
       this.prompts?.end();
     } catch {
@@ -492,8 +502,8 @@ export class ClaudeSdkAdapter
           };
           this.sessionMetaCb?.(meta);
 
-          // Cache MCP servers for later mcp_get_status queries
-          this.cachedMcpServers = msg.mcp_servers || [];
+          // Shown until the first live status answer.
+          this.mcpManager.seed(msg.mcp_servers || []);
 
           // Forward as session_init
           this.emitBrowserMessage({
@@ -748,29 +758,35 @@ export class ClaudeSdkAdapter
         return true;
       }
 
-      case "mcp_get_status": {
-        // The Claude Code SDK doesn't expose runtime MCP status queries.
-        // Return the cached server list from the last session_init -- this
-        // gives the browser the same data it received on connect, which is
-        // sufficient for UI display.
-        const servers = this.cachedMcpServers.map((s) => ({
-          name: s.name,
-          status: s.status as "connected" | "failed" | "disabled" | "connecting",
-          config: { type: "unknown" },
-          scope: "user",
-        }));
-        this.emitBrowserMessage({ type: "mcp_status", servers } as any);
+      case "mcp_get_status":
+        void this.mcpManager.handleGetStatus();
         return true;
-      }
 
       case "mcp_toggle":
+        void this.mcpManager.handleToggle((msg as McpTarget).serverName, (msg as { enabled: boolean }).enabled);
+        return true;
+
       case "mcp_reconnect":
+        void this.mcpManager.handleReconnect((msg as McpTarget).serverName);
+        return true;
+
+      case "mcp_sign_in":
+        void this.mcpManager.handleSignIn((msg as McpTarget).serverName);
+        return true;
+
+      case "mcp_sign_in_callback":
+        void this.mcpManager.handleSignInCallback(
+          (msg as McpTarget).serverName,
+          (msg as { callbackUrl: string }).callbackUrl,
+        );
+        return true;
+
       case "mcp_set_servers":
         // Consume rather than return false: an unhandled message would be
         // re-queued and replayed on every reconnect.
         this.emitBrowserMessage({
           type: "error",
-          message: "Managing MCP servers from Takode is not supported for Claude sessions.",
+          message: "Adding MCP servers from Takode is not supported for Claude sessions.",
         });
         return true;
 

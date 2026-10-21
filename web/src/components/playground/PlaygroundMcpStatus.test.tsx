@@ -49,8 +49,9 @@ it("shows real panel failure and recovery without transport requests and removes
   expect(sendMcpSetServers).not.toHaveBeenCalled();
 });
 
-it("shows the Claude status-only panel without management controls", () => {
-  // Claude sessions report MCP servers but cannot be managed from Takode.
+it("shows the Claude panel with server controls but no adding", () => {
+  // Claude sessions toggle, reconnect and sign in through the Agent SDK; only
+  // adding servers from Takode stays Codex-only.
   render(<PlaygroundMcpStatus />);
   expect(screen.getByTitle("Add MCP server")).toBeInTheDocument();
 
@@ -58,5 +59,5 @@ it("shows the Claude status-only panel without management controls", () => {
 
   expect(screen.getByRole("button", { name: "filesystem" })).toBeInTheDocument();
   expect(screen.queryByTitle("Add MCP server")).not.toBeInTheDocument();
-  expect(screen.queryByTitle("Reconnect server")).not.toBeInTheDocument();
+  expect(screen.getAllByTitle("Reconnect server").length).toBeGreaterThan(0);
 });
