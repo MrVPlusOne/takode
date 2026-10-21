@@ -27,10 +27,7 @@ export interface SupportingQuestAnswer {
 export interface LeaderRequestIndex {
   /** The user's messages by history ID. */
   byMessageId: ReadonlyMap<string, LeaderUserMessageIdentity>;
-  /**
-   * The threads the user has written in: typed messages and comments, not answers to the
-   * leader's questions, which the leader asks in a quest's tab as part of that quest's work.
-   */
+  /** The threads the user has written in: typed messages, comments and answers to the leader's questions. */
   threadsWithUserMessages: ReadonlySet<string>;
 }
 
@@ -38,11 +35,7 @@ export function indexLeaderRequests(history: ReadonlyArray<BrowserIncomingMessag
   const identities = buildLeaderUserMessageIdentities(history);
   return {
     byMessageId: new Map(identities.map((entry) => [entry.historyMessageId, entry])),
-    threadsWithUserMessages: new Set(
-      identities
-        .filter((entry) => !entry.message.replyContext?.notificationId)
-        .map((entry) => authoritativeMessageOwner(entry.message).threadKey),
-    ),
+    threadsWithUserMessages: new Set(identities.map((entry) => authoritativeMessageOwner(entry.message).threadKey)),
   };
 }
 

@@ -98,9 +98,12 @@ describe("findSupportingQuestSource", () => {
     // full quest: its completion is unread and it loses the side-quest mark.
     const history = [request("ask", "u7", 1000, "q-10"), request("follow-up", "u8", 3000, "q-11")];
     expect(findSupportingQuestSource(indexLeaderRequests(history), "leader", "q-11", startedFrom)).toBeNull();
-    // A herd event, or an answer to a question the leader asked in the tab, does not count.
+    // So does her answer to a question the leader asked in the tab.
     const answer = { ...request("reply", "u9", 3500, "q-11"), replyContext: { notificationId: "n-4" } };
-    const quiet = [request("ask", "u7", 1000, "q-10"), herdEvent(3000, "q-11"), answer as BrowserIncomingMessage];
+    const answered = [request("ask", "u7", 1000, "q-10"), answer as BrowserIncomingMessage];
+    expect(findSupportingQuestSource(indexLeaderRequests(answered), "leader", "q-11", startedFrom)).toBeNull();
+    // A worker's herd event in the tab does not count.
+    const quiet = [request("ask", "u7", 1000, "q-10"), herdEvent(3000, "q-11")];
     expect(findSupportingQuestSource(indexLeaderRequests(quiet), "leader", "q-11", startedFrom)).not.toBeNull();
   });
 
