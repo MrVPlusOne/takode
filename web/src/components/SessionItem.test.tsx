@@ -48,26 +48,7 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
 }));
 
-vi.mock("../api.js", () => ({
-  api: {
-    updateLeaderProfilePortrait: vi.fn(async (_sessionId: string, portraitId: string) => ({
-      ok: true,
-      sessionId: "s1",
-      leaderProfilePortraitId: portraitId,
-      leaderProfilePortrait: {
-        id: portraitId,
-        poolId: portraitId.startsWith("shmi") ? "shmi" : "tako",
-        label: portraitId,
-        smallUrl: `/leader-profile-portraits/test/${portraitId}.96.webp`,
-        largeUrl: `/leader-profile-portraits/test/${portraitId}.320.webp`,
-        smallSize: 96,
-        largeSize: 320,
-        smallBytes: 1,
-        largeBytes: 1,
-      },
-    })),
-  },
-}));
+vi.mock("../api.js", () => ({ api: {} }));
 
 const mockNavigateToSession = vi.fn();
 vi.mock("../utils/routing.js", () => ({
@@ -75,15 +56,12 @@ vi.mock("../utils/routing.js", () => ({
 }));
 
 import { SessionItem } from "./SessionItem.js";
-import { api } from "../api.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
 const TAKO_PORTRAIT = LEADER_PROFILE_PORTRAITS[0];
-const SHMI_PORTRAIT = LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.poolId === "shmi")!;
 
 beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
-  vi.mocked(api.updateLeaderProfilePortrait).mockClear();
   mockStoreState.questNamedSessions.clear();
   mockStoreState.sessions.clear();
   mockStoreState.sessionTaskPreview.clear();
@@ -498,19 +476,26 @@ describe("SessionItem herd role badges", () => {
 });
 
 describe("SessionItem leader profiles", () => {
-  it("renders a clickable portrait for leader sessions", () => {
-    renderSessionItem({
+  it("renders a display-only portrait for leader sessions that opens the session, not the picker", () => {
+    // Changing the portrait is rare and lives in Session Info; a tap on the sidebar portrait was an
+    // easy accident, so it now selects the row like any other tap on it.
+    const { onSelect } = renderSessionItem({
       session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
-    const portraitImage = portraitButton.querySelector("img");
-    expect(portraitButton).toBeInTheDocument();
+    const portrait = screen.getByTestId("session-leader-portrait");
+    const portraitImage = portrait.querySelector("img");
     expect(portraitImage).toHaveAttribute("src", TAKO_PORTRAIT.smallUrl);
     expect(portraitImage).toHaveAttribute("width", String(TAKO_PORTRAIT.smallSize));
     expect(portraitImage).toHaveAttribute("height", String(TAKO_PORTRAIT.smallSize));
     expect(portraitImage).toHaveAttribute("loading", "eager");
     expect(portraitImage).toHaveAttribute("decoding", "async");
+    expect(portrait).not.toHaveAttribute("role");
+    expect(screen.queryByRole("button", { name: /profile/i })).toBeNull();
+
+    fireEvent.click(portrait);
+    expect(onSelect).toHaveBeenCalledWith("s1");
+    expect(screen.queryByRole("dialog", { name: "Leader profile" })).toBeNull();
   });
 
   it("lays out leader portraits across title and metadata rows while showing active Journey phase counts", () => {
@@ -539,9 +524,9 @@ describe("SessionItem leader profiles", () => {
     const layout = screen.getByTestId("session-leader-portrait-layout");
     expect(layout).toHaveClass("grid", "grid-cols-[1.8rem_minmax(0,1fr)]");
 
-    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
-    expect(portraitButton).toHaveClass("h-[1.8rem]", "w-[1.8rem]", "ring-2", "ring-emerald-500/80");
-    expect(portraitButton).toHaveAttribute("data-status", "running");
+    const portrait = screen.getByTestId("session-leader-portrait");
+    expect(portrait).toHaveClass("h-[1.8rem]", "w-[1.8rem]", "ring-2", "ring-emerald-500/80");
+    expect(portrait).toHaveAttribute("data-status", "running");
     expect(screen.queryByTestId("session-status-dot")).not.toBeInTheDocument();
 
     expect(screen.getByTestId("session-title-row")).toHaveClass("col-start-2", "row-start-1");
@@ -567,8 +552,8 @@ describe("SessionItem leader profiles", () => {
       permCount: 0,
     });
 
-    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
-    const timerIcon = within(portraitButton).getByTestId("session-status-waiting-icon");
+    const portrait = screen.getByTestId("session-leader-portrait");
+    const timerIcon = within(portrait).getByTestId("session-status-waiting-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
     expect(timerIcon.parentElement).toHaveClass("absolute", "-bottom-px", "-right-px");
     // No round card-colored disc behind the clock: on the tinted sidebar rows it showed as a large
@@ -671,7 +656,7 @@ describe("SessionItem leader profiles", () => {
       session: makeSession({ isOrchestrator: false, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    expect(screen.queryByRole("button", { name: /open tako 1\.1 profile/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-leader-portrait")).not.toBeInTheDocument();
     expect(screen.queryByTestId("session-leader-portrait-layout")).not.toBeInTheDocument();
   });
 
@@ -747,93 +732,6 @@ describe("SessionItem leader profiles", () => {
       expect(screen.queryByTitle(/^Permissions:/)).not.toBeInTheDocument();
       expect(container.querySelector("svg path[d^='M8 1L2 4v4']")).toBeNull();
       unmount();
-    }
-  });
-
-  it("opens the profile picker from a leader portrait", () => {
-    renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
-
-    expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
-    expect(screen.getByTitle(SHMI_PORTRAIT.label)).toBeInTheDocument();
-  });
-
-  it("groups picker options by the current portrait pool first", () => {
-    renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: SHMI_PORTRAIT }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /open shmi/i }));
-
-    const dialog = screen.getByRole("dialog", { name: "Leader profile" });
-    const shmiGroup = within(dialog).getByRole("region", { name: "Shmi" });
-    const takoGroup = within(dialog).getByRole("region", { name: "Tako" });
-    expect(shmiGroup.compareDocumentPosition(takoGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(shmiGroup).getByTitle(SHMI_PORTRAIT.label)).toBeInTheDocument();
-    expect(within(takoGroup).getByTitle(TAKO_PORTRAIT.label)).toBeInTheDocument();
-  });
-
-  it("changes the leader portrait through the picker", async () => {
-    renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
-    fireEvent.click(screen.getByTitle(SHMI_PORTRAIT.label));
-
-    await waitFor(() => {
-      expect(mockStoreState.updateSdkSession).toHaveBeenCalledWith(
-        "s1",
-        expect.objectContaining({ leaderProfilePortraitId: SHMI_PORTRAIT.id }),
-      );
-    });
-  });
-
-  it("keeps all 96 portrait options selectable from a constrained viewport", async () => {
-    const originalInnerWidth = window.innerWidth;
-    const originalInnerHeight = window.innerHeight;
-    window.innerWidth = 430;
-    window.innerHeight = 640;
-    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      x: 36,
-      y: 600,
-      width: 20,
-      height: 20,
-      top: 600,
-      right: 56,
-      bottom: 620,
-      left: 36,
-      toJSON: () => ({}),
-    });
-
-    try {
-      renderSessionItem({
-        session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
-      });
-
-      fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
-
-      const dialog = screen.getByRole("dialog", { name: "Leader profile" });
-      expect(dialog).toHaveStyle({ top: "108px", width: "300px", maxHeight: "520px" });
-      expect(screen.getByTestId("leader-profile-portrait-grid-scroll")).toHaveClass("min-h-0", "overflow-y-auto");
-      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(96);
-
-      const lastPortrait = LEADER_PROFILE_PORTRAITS[LEADER_PROFILE_PORTRAITS.length - 1];
-      fireEvent.click(screen.getByRole("button", { name: lastPortrait.label }));
-
-      await waitFor(() => {
-        expect(mockStoreState.updateSdkSession).toHaveBeenCalledWith(
-          "s1",
-          expect.objectContaining({ leaderProfilePortraitId: lastPortrait.id }),
-        );
-      });
-    } finally {
-      rectSpy.mockRestore();
-      window.innerWidth = originalInnerWidth;
-      window.innerHeight = originalInnerHeight;
     }
   });
 });

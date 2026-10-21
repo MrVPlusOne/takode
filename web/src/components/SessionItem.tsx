@@ -16,7 +16,7 @@ import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
-import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
+import { LeaderProfilePortraitImage } from "./LeaderProfilePortraitButton.js";
 import { boardSummarySegmentsFromActivePhaseSummary, type BoardSummarySegment } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import { projectedSessionAttentionStatus } from "../utils/session-attention-status.js";
@@ -647,10 +647,10 @@ function SessionItemComponent({
         >
           {usesExpandedLeaderPortrait && s.leaderProfilePortrait && (
             <div className="col-start-1 row-span-2 row-start-1 self-center">
-              <LeaderProfilePortraitButton
-                sessionId={s.id}
+              <LeaderProfilePortraitImage
                 portrait={s.leaderProfilePortrait}
                 size="lg"
+                testId="session-leader-portrait"
                 statusRing={leaderPortraitStatusRing}
                 cornerBadge={
                   showWaitingIcon ? (
@@ -683,7 +683,7 @@ function SessionItemComponent({
               )
             )}
             {!usesExpandedLeaderPortrait && !archived && s.isOrchestrator && s.leaderProfilePortrait && (
-              <LeaderProfilePortraitButton sessionId={s.id} portrait={s.leaderProfilePortrait} />
+              <LeaderProfilePortraitImage portrait={s.leaderProfilePortrait} testId="session-leader-portrait" />
             )}
             {!isEditing && s.isOrchestrator && useStatusBar && (
               <span

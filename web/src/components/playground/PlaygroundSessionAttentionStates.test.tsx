@@ -48,10 +48,7 @@ describe("PlaygroundSessionAttentionStates", () => {
       "data-attention",
       "action",
     );
-    expect(row("leader-checkpoint").getByRole("button", { name: /Open .* profile/ })).toHaveAttribute(
-      "data-status",
-      "idle",
-    );
+    expect(row("leader-checkpoint").getByTestId("session-leader-portrait")).toHaveAttribute("data-status", "idle");
     expect(row("review").getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
     expect(row("muted").getByTestId("session-notification-marker")).toHaveAttribute(
       "data-urgency",

@@ -11,12 +11,9 @@ const PANEL_WIDTH = 300;
 const PANEL_MAX_HEIGHT = 520;
 const PANEL_MIN_HEIGHT = 180;
 
-interface LeaderProfilePortraitButtonProps {
-  sessionId: string;
+interface LeaderProfilePortraitImageProps {
   portrait: LeaderProfilePortrait;
-  size?: "sm" | "md" | "lg";
-  ariaLabel?: string;
-  title?: string;
+  size?: "sm" | "lg";
   statusRing?: {
     className: string;
     status: string;
@@ -24,18 +21,67 @@ interface LeaderProfilePortraitButtonProps {
   };
   /** Small status marker drawn on the portrait's bottom-right corner; it brings its own outline. */
   cornerBadge?: ReactNode;
+  testId?: string;
 }
 
+/**
+ * A leader's round portrait, for display only. Clicks pass through to whatever contains it, so a
+ * sidebar row opens its session when the portrait is tapped.
+ */
+export function LeaderProfilePortraitImage({
+  portrait,
+  size = "sm",
+  statusRing,
+  cornerBadge,
+  testId,
+}: LeaderProfilePortraitImageProps) {
+  const sizeClass = size === "lg" ? "h-[1.8rem] w-[1.8rem]" : "h-5 w-5";
+  const ringClass = statusRing?.className ?? "ring-1 ring-cc-border/70";
+  return (
+    <span
+      className={`relative inline-flex ${sizeClass} shrink-0 items-center justify-center rounded-full ${ringClass}`}
+      data-testid={testId}
+      data-status={statusRing?.status}
+      style={statusRing?.style}
+    >
+      <img
+        src={portrait.smallUrl}
+        alt=""
+        width={portrait.smallSize}
+        height={portrait.smallSize}
+        loading="eager"
+        decoding="async"
+        className="h-full w-full rounded-full object-cover"
+        draggable={false}
+      />
+      {cornerBadge && <span className="absolute -bottom-px -right-px flex">{cornerBadge}</span>}
+    </span>
+  );
+}
+
+interface LeaderProfilePortraitButtonProps {
+  sessionId: string;
+  portrait: LeaderProfilePortrait;
+  ariaLabel: string;
+  title?: string;
+  className?: string;
+  /** Shown after the portrait inside the button, such as the portrait's name. */
+  children?: ReactNode;
+}
+
+/**
+ * The only way to change a leader's portrait: a button showing the portrait that opens the picker.
+ * It lives in Session Info; elsewhere portraits are display-only so a stray tap can't open the picker.
+ */
 export function LeaderProfilePortraitButton({
   sessionId,
   portrait,
-  size = "sm",
   ariaLabel,
-  title = "Leader profile",
-  statusRing,
-  cornerBadge,
+  title,
+  className,
+  children,
 }: LeaderProfilePortraitButtonProps) {
-  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -99,46 +145,26 @@ export function LeaderProfilePortraitButton({
     }
   }
 
-  function openPanel(event: React.MouseEvent | React.KeyboardEvent) {
+  function openPanel(event: React.MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect());
     setOpen(true);
   }
 
-  const triggerSize = size === "lg" ? "h-[1.8rem] w-[1.8rem]" : size === "md" ? "h-7 w-7" : "h-5 w-5";
-  const ringClass = statusRing?.className ?? "ring-1 ring-cc-border/70";
-
   return (
     <>
-      <span
+      <button
         ref={triggerRef}
-        role="button"
-        tabIndex={0}
-        aria-label={ariaLabel ?? `Open ${portrait.label} profile`}
+        type="button"
+        aria-label={ariaLabel}
         title={title}
         onClick={openPanel}
-        onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          openPanel(event);
-        }}
-        className={`relative inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ${ringClass} transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
-        data-status={statusRing?.status}
-        style={statusRing?.style}
+        className={className}
       >
-        <img
-          src={portrait.smallUrl}
-          alt=""
-          width={portrait.smallSize}
-          height={portrait.smallSize}
-          loading="eager"
-          decoding="async"
-          className="h-full w-full rounded-full object-cover"
-          draggable={false}
-        />
-        {cornerBadge && <span className="absolute -bottom-px -right-px flex">{cornerBadge}</span>}
-      </span>
+        <LeaderProfilePortraitImage portrait={portrait} size="lg" />
+        {children}
+      </button>
       {open && panelStyle
         ? createPortal(
             <div

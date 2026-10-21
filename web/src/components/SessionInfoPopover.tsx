@@ -403,19 +403,21 @@ export function SessionInfoPopover({
             </div>
           )}
           {leaderProfilePortrait && (
-            <div className="flex items-center gap-3 rounded-lg border border-cc-border/60 bg-cc-hover/20 px-2.5 py-2">
-              <LeaderProfilePortraitButton
-                sessionId={sessionId}
-                portrait={leaderProfilePortrait}
-                size="lg"
-                ariaLabel="Edit leader profile picture"
-                title="Edit profile picture"
-              />
-              <div className="min-w-0">
-                <div className="truncate text-[12px] font-semibold text-cc-fg">{leaderProfilePortrait.label}</div>
-                <div className="text-[11px] text-cc-muted">Leader profile</div>
-              </div>
-            </div>
+            <LeaderProfilePortraitButton
+              sessionId={sessionId}
+              portrait={leaderProfilePortrait}
+              ariaLabel="Edit leader profile picture"
+              title="Change profile picture"
+              className="flex w-full items-center gap-3 rounded-lg border border-cc-border/60 bg-cc-hover/20 px-2.5 py-2 text-left transition hover:bg-cc-hover/50"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-semibold text-cc-fg">
+                  {leaderProfilePortrait.label}
+                </span>
+                <span className="block text-[11px] text-cc-muted">Leader profile</span>
+              </span>
+              <span className="shrink-0 text-[11px] font-medium text-cc-primary">Change</span>
+            </LeaderProfilePortraitButton>
           )}
         </div>
 

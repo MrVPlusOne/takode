@@ -37,7 +37,7 @@ describe("PlaygroundWaitingWorkers", () => {
     ).toEqual(["timer", "job", "queue", "landing", "job", "answer"]);
 
     // The leader row carries its timer icon on the portrait corner, with no text.
-    const portrait = within(section).getByRole("button", { name: /open .* profile/i });
+    const portrait = within(section).getByTestId("session-leader-portrait");
     expect(within(portrait).getByTestId("session-status-waiting-icon")).toHaveAttribute("title", "1 scheduled timer");
 
     // Board rows resolve worker status from the seeded sessions.
