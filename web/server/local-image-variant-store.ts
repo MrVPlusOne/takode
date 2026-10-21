@@ -7,7 +7,7 @@ import {
   createImageThumbnailBuffer,
   fileExists,
   MIME_TO_EXT,
-  encodeImageForViewing,
+  optimizeImageBufferForStore,
   SHARP_UNAVAILABLE_MESSAGE,
   isSharpUnavailableError,
   TAKODE_AGENT_IMAGE_MARKER,
@@ -25,7 +25,7 @@ export interface LocalImageVariant {
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "image-variants");
 /** Bumped per kind when its recipe changes, so stale cached variants are not served. */
-const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v1", full: "v3" };
+const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v2", full: "v4" };
 const THUMBNAIL_MAX_DIM = 300;
 const THUMBNAIL_QUALITY = 80;
 /**
@@ -83,14 +83,11 @@ export class LocalImageVariantStore {
 
     try {
       if (kind === "thumbnail") {
-        data = await createImageThumbnailBuffer(source, contentType, {
-          maxDim: THUMBNAIL_MAX_DIM,
-          jpegQuality: THUMBNAIL_QUALITY,
-        });
-        contentType = "image/jpeg";
+        data = await createImageThumbnailBuffer(source, { maxDim: THUMBNAIL_MAX_DIM, quality: THUMBNAIL_QUALITY });
+        contentType = "image/webp";
       } else {
-        const viewable = await encodeImageForViewing(source, contentType, FULL_MAX_DIM);
-        if (viewable.data === source) return sourceVariant;
+        const viewable = await optimizeImageBufferForStore(source, contentType, { maxDim: FULL_MAX_DIM });
+        if (!viewable.reencoded) return sourceVariant;
         ({ data, mediaType: contentType } = viewable);
       }
     } catch (error) {

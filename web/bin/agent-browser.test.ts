@@ -66,12 +66,12 @@ describe("agent-browser shim", () => {
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout) as { data: { path: string; originalPath: string } };
     expect(payload.data.originalPath).toBe(originalPath);
-    expect(payload.data.path).toBe(join(tempDir, "shot.takode-agent.jpeg"));
+    expect(payload.data.path).toBe(join(tempDir, "shot.takode-agent.webp"));
     expect(existsSync(originalPath)).toBe(true);
     expect(existsSync(payload.data.path)).toBe(true);
 
     const optimizedMeta = await sharp(readFileSync(payload.data.path)).metadata();
-    expect(optimizedMeta.format).toBe("jpeg");
+    expect(optimizedMeta.format).toBe("webp");
     expect(optimizedMeta.width).toBeLessThanOrEqual(1920);
   });
 
@@ -82,7 +82,7 @@ describe("agent-browser shim", () => {
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout) as { data: { path: string; originalPath: string } };
     expect(payload.data.originalPath).toBe(originalPath);
-    expect(payload.data.path).toBe(join(tempDir, "global-shot.takode-agent.jpeg"));
+    expect(payload.data.path).toBe(join(tempDir, "global-shot.takode-agent.webp"));
     expect(existsSync(originalPath)).toBe(true);
     expect(existsSync(payload.data.path)).toBe(true);
     expect(readFileSync(delegateArgsPath, "utf-8").trim()).toBe(
@@ -90,7 +90,7 @@ describe("agent-browser shim", () => {
     );
 
     const optimizedMeta = await sharp(readFileSync(payload.data.path)).metadata();
-    expect(optimizedMeta.format).toBe("jpeg");
+    expect(optimizedMeta.format).toBe("webp");
     expect(optimizedMeta.width).toBeLessThanOrEqual(1920);
   });
 
@@ -102,7 +102,7 @@ describe("agent-browser shim", () => {
     const payload = JSON.parse(result.stdout) as { data: { path: string } };
     expect(payload.data.path).toBe(originalPath);
     expect(existsSync(originalPath)).toBe(true);
-    expect(existsSync(join(tempDir, "original.takode-agent.jpeg"))).toBe(false);
+    expect(existsSync(join(tempDir, "original.takode-agent.webp"))).toBe(false);
     expect(readFileSync(delegateArgsPath, "utf-8")).not.toContain("--takode-original");
   });
 
@@ -114,7 +114,7 @@ describe("agent-browser shim", () => {
     const payload = JSON.parse(result.stdout) as { data: { path: string } };
     expect(payload.data.path).toBe(originalPath);
     expect(existsSync(originalPath)).toBe(true);
-    expect(existsSync(join(tempDir, "global-original.takode-agent.jpeg"))).toBe(false);
+    expect(existsSync(join(tempDir, "global-original.takode-agent.webp"))).toBe(false);
     expect(readFileSync(delegateArgsPath, "utf-8").trim()).toBe(
       `--session q-1035-explore screenshot ${originalPath} --json`,
     );

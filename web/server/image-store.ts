@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import {
-  AGENT_QUALITY,
   buildStoredImageFilename,
   createImageThumbnailBuffer,
   MIME_TO_EXT,
@@ -21,7 +20,6 @@ import {
 } from "./image-optimizer.js";
 
 export {
-  AGENT_QUALITY,
   buildStoredImageFilename,
   MIME_TO_EXT,
   resetSharpLoaderForTest,
@@ -71,24 +69,24 @@ export class ImageStore {
   }
 
   /**
-   * Store a base64 image to disk (resized to 1920px max, converted to JPEG q85
-   * for lossless formats) and generate a JPEG thumbnail.
+   * Store a base64 image to disk, compressed by the shared optimizer policy (WebP,
+   * at most 1920px), and generate a WebP thumbnail.
    *
-   * The returned `media_type` reflects the actual stored format, which may
-   * differ from the input when lossless-to-JPEG conversion succeeds.
+   * The returned `media_type` reflects the actual stored format, which differs
+   * from the input when the image was re-encoded.
    */
   async store(sessionId: string, base64Data: string, mediaType: string, sourceName?: string): Promise<ImageRef> {
     const dir = this.sessionDir(sessionId);
     await mkdir(dir, { recursive: true });
 
     const imageId = `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
-    const thumbPath = join(dir, `${imageId}.thumb.jpeg`);
+    const thumbPath = join(dir, `${imageId}.thumb.webp`);
 
     const raw = Buffer.from(base64Data, "base64");
     const alreadyOptimized = sourceName ? isTakodeAgentOptimizedPath(sourceName) : false;
     const optimized = alreadyOptimized
-      ? { data: raw, mediaType, resized: false, convertedToJpeg: false }
-      : await optimizeImageBufferForStore(raw, mediaType, { jpegQuality: AGENT_QUALITY });
+      ? { data: raw, mediaType, resized: false, reencoded: false }
+      : await optimizeImageBufferForStore(raw, mediaType);
     const buffer = optimized.data;
     const actualMediaType = optimized.mediaType;
     const storedAsOptimized = alreadyOptimized || wasImageBufferProcessed(optimized);
@@ -101,10 +99,7 @@ export class ImageStore {
 
     // Thumbnails are for browser previews only, so generate them off the
     // critical user-send path. Backend delivery only needs the original file.
-    void createImageThumbnailBuffer(buffer, actualMediaType, {
-      maxDim: THUMB_MAX_DIM,
-      jpegQuality: THUMB_QUALITY,
-    })
+    void createImageThumbnailBuffer(buffer, { maxDim: THUMB_MAX_DIM, quality: THUMB_QUALITY })
       .then((thumbnail) => writeFile(thumbPath, thumbnail))
       .catch((err: unknown) => {
         console.warn(`[image-store] Failed to generate thumbnail for ${imageId}:`, err);
@@ -133,15 +128,18 @@ export class ImageStore {
     return match ? join(dir, match) : null;
   }
 
-  /** Get the disk path for a thumbnail, or null if not found. */
+  /** Get the disk path for a thumbnail, or null if not found. Images stored before WebP have JPEG thumbnails. */
   async getThumbnailPath(sessionId: string, imageId: string): Promise<string | null> {
-    const path = join(this.sessionDir(sessionId), `${imageId}.thumb.jpeg`);
-    try {
-      await access(path);
-      return path;
-    } catch {
-      return null;
+    for (const extension of ["webp", "jpeg"]) {
+      const path = join(this.sessionDir(sessionId), `${imageId}.thumb.${extension}`);
+      try {
+        await access(path);
+        return path;
+      } catch {
+        // No thumbnail with this extension; try the next.
+      }
     }
+    return null;
   }
 
   /** Delete a single stored image and its thumbnail. */

@@ -194,7 +194,7 @@ Use descriptive names:
 - `mobile-permission-banner-denied.png`
 - `playground-tool-block-streaming.png`
 
-Takode's `agent-browser screenshot` wrapper preserves the original screenshot and returns an optimized `.takode-agent.` sibling by default. Read the optimized copy yourself: it is reduced and JPEG-compressed to fit model image limits. For screenshots produced by other local tools, run:
+Takode's `agent-browser screenshot` wrapper preserves the original screenshot and returns an optimized `.takode-agent.` sibling by default. Read the optimized copy yourself: it is reduced to at most 1920 px and WebP-compressed to fit model image limits. For screenshots produced by other local tools, run:
 
 ```bash
 quest optimize-image /tmp/takode-q-N/example.png

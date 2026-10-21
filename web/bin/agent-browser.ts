@@ -83,7 +83,7 @@ async function main(): Promise<void> {
         outputPath: optimized.outputPath,
         alreadyOptimized: optimized.alreadyOptimized,
         resized: optimized.resized,
-        convertedToJpeg: optimized.convertedToJpeg,
+        reencoded: optimized.reencoded,
         before: optimized.before,
         after: optimized.after,
       },

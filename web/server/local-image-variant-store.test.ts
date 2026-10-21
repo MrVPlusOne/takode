@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { LocalImageVariantStore } from "./local-image-variant-store.js";
+import { makeIncompressibleJpeg, makeScreenshotLikePng, meanPixelDifference } from "./test-fixtures/images.js";
 
 describe("LocalImageVariantStore", () => {
   let tempDir: string;
@@ -25,7 +26,7 @@ describe("LocalImageVariantStore", () => {
     await writeFile(sourcePath, await makePng(640, 420, 120));
 
     const first = await store.getVariant(sourcePath, "image/png", "thumbnail");
-    expect(first.contentType).toBe("image/jpeg");
+    expect(first.contentType).toBe("image/webp");
     expect(first.cacheHit).toBe(false);
 
     const firstMeta = await sharp(await readFile(first.path)).metadata();
@@ -78,12 +79,7 @@ describe("LocalImageVariantStore", () => {
   it("serves the original when re-encoding would not make it smaller", async () => {
     // A heavily compressed JPEG is already smaller than a high-quality WebP of it.
     const sourcePath = join(tempDir, "photo.jpeg");
-    await writeFile(
-      sourcePath,
-      await sharp(await makeNoisePng(400, 300))
-        .jpeg({ quality: 30 })
-        .toBuffer(),
-    );
+    await writeFile(sourcePath, await makeIncompressibleJpeg(400, 300));
 
     const full = await store.getVariant(sourcePath, "image/jpeg", "full");
 
@@ -108,7 +104,7 @@ describe("LocalImageVariantStore", () => {
 
     // Thumbnails stay small either way, and a copy without its original is shown from the copy.
     const thumbnail = await store.getVariant(agentCopyPath, "image/jpeg", "thumbnail");
-    expect(thumbnail.contentType).toBe("image/jpeg");
+    expect(thumbnail.contentType).toBe("image/webp");
     const loneCopyPath = join(tempDir, "lone.takode-agent.jpeg");
     await writeFile(loneCopyPath, await readFile(agentCopyPath));
     const lone = await store.getVariant(loneCopyPath, "image/jpeg", "full");
@@ -120,39 +116,4 @@ async function makePng(width: number, height: number, value: number): Promise<Bu
   return sharp(Buffer.alloc(width * height * 3, value), { raw: { width, height, channels: 3 } })
     .png()
     .toBuffer();
-}
-
-/** Flat panels with thin dark lines, roughly like UI text rows: PNG-friendly, as screenshots are. */
-async function makeScreenshotLikePng(width: number, height: number): Promise<Buffer> {
-  const pixels = Buffer.alloc(width * height * 3, 245);
-  for (let y = 0; y < height; y++) {
-    if (y % 18 >= 2) continue;
-    for (let x = 0; x < width; x++) {
-      if (x % 9 < 6) pixels.fill(40 + (x % 120), (y * width + x) * 3, (y * width + x) * 3 + 3);
-    }
-  }
-  return sharp(pixels, { raw: { width, height, channels: 3 } })
-    .png()
-    .toBuffer();
-}
-
-/** Deterministic noise, which no encoder compresses well. */
-async function makeNoisePng(width: number, height: number): Promise<Buffer> {
-  const pixels = Buffer.alloc(width * height * 3);
-  let seed = 7;
-  for (let i = 0; i < pixels.length; i++) {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    pixels[i] = seed >> 23;
-  }
-  return sharp(pixels, { raw: { width, height, channels: 3 } })
-    .png()
-    .toBuffer();
-}
-
-async function meanPixelDifference(left: Buffer, right: Buffer): Promise<number> {
-  const a = await sharp(left).removeAlpha().raw().toBuffer();
-  const b = await sharp(right).removeAlpha().raw().toBuffer();
-  let total = 0;
-  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
-  return total / a.length;
 }

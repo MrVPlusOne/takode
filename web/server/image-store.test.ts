@@ -10,6 +10,7 @@ import {
   setSharpLoaderForTest,
   SharpUnavailableError,
 } from "./image-store.js";
+import { makeAnimatedGif, makeIncompressibleJpeg, makeScreenshotLikePng } from "./test-fixtures/images.js";
 
 let store: ImageStore;
 let tempDir: string;
@@ -50,25 +51,25 @@ async function waitForValue<T>(getter: () => Promise<T | null>, timeoutMs = 1000
 }
 
 describe("ImageStore", () => {
-  // Tests that store() saves processed PNG input as a marked JPEG and generates thumbnail files,
-  // returning a valid ImageRef with a unique imageId and converted media_type.
-  it("store() converts PNG to JPEG and writes .takode-agent file plus thumbnail", async () => {
-    const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
+  // Tests that store() saves a screenshot-like PNG as a marked WebP and generates a WebP thumbnail,
+  // returning a valid ImageRef with a unique imageId and the converted media_type.
+  it("store() converts a PNG screenshot to WebP and writes .takode-agent file plus thumbnail", async () => {
+    const png = await makeScreenshotLikePng(400, 300);
+    const ref = await store.store("sess-1", png.toString("base64"), "image/png");
 
     expect(ref.imageId).toBeTruthy();
-    // PNG input should be converted to JPEG
-    expect(ref.media_type).toBe("image/jpeg");
+    expect(ref.media_type).toBe("image/webp");
     expect(ref.optimized).toBe(true);
 
     // Processed upload should use the shared .takode-agent convention.
     const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
-    expect(origPath!.endsWith(".takode-agent.jpeg")).toBe(true);
-    expect(existsSync(origPath!)).toBe(true);
+    expect(origPath!.endsWith(".takode-agent.webp")).toBe(true);
+    expect(readFileSync(origPath!).length).toBeLessThan(png.length);
 
     // Thumbnail should exist
     const thumbPath = await waitForValue(() => store.getThumbnailPath("sess-1", ref.imageId));
-    expect(thumbPath!.endsWith(".thumb.jpeg")).toBe(true);
+    expect(thumbPath!.endsWith(".thumb.webp")).toBe(true);
     await waitFor(() => existsSync(thumbPath!));
     expect(existsSync(thumbPath!)).toBe(true);
   });
@@ -111,25 +112,19 @@ describe("ImageStore", () => {
     const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
 
-    // Stored image should be resized to fit within 1920x1920 and converted to JPEG
+    // Stored image should be resized to fit within 1920x1920 and converted to WebP
     const meta = await sharpMod(readFileSync(origPath!)).metadata();
     expect(meta.width).toBeLessThanOrEqual(1920);
     expect(meta.height).toBeLessThanOrEqual(1920);
     // Aspect ratio preserved: 3000x2000 → 1920x1280
     expect(meta.width).toBe(1920);
     expect(meta.height).toBe(1280);
-    expect(meta.format).toBe("jpeg");
+    expect(meta.format).toBe("webp");
   });
 
-  // Tests that JPEG input stays as JPEG (no double-compression)
-  it("store() preserves unchanged JPEG input format under the legacy original name", async () => {
-    const sharpMod = (await import("sharp")).default;
-    const jpegBuffer = await sharpMod(Buffer.alloc(100 * 100 * 3), {
-      raw: { width: 100, height: 100, channels: 3 },
-    })
-      .jpeg({ quality: 90 })
-      .toBuffer();
-    const jpegBase64 = jpegBuffer.toString("base64");
+  // A JPEG that a quality-90 WebP would not shrink is kept as it is (no double compression).
+  it("store() keeps a JPEG the WebP encode would not shrink, under the legacy original name", async () => {
+    const jpegBase64 = (await makeIncompressibleJpeg(100, 100)).toString("base64");
 
     const ref = await store.store("sess-1", jpegBase64, "image/jpeg");
 
@@ -160,8 +155,8 @@ describe("ImageStore", () => {
     expect(readFileSync(origPath!)).toEqual(jpegBuffer);
   });
 
-  // Tests that PNG-to-JPEG conversion produces a smaller file than the PNG original
-  it("store() PNG-to-JPEG conversion reduces file size", async () => {
+  // Tests that PNG-to-WebP conversion produces a smaller file than the PNG original
+  it("store() PNG-to-WebP conversion reduces file size", async () => {
     const sharpMod = (await import("sharp")).default;
     // Create a non-trivial image (gradient pattern) where JPEG compression is effective
     const width = 800;
@@ -182,20 +177,13 @@ describe("ImageStore", () => {
     expect(origPath).toBeTruthy();
 
     const storedSize = readFileSync(origPath!).length;
-    // JPEG should be smaller than the original PNG for photographic/gradient content
     expect(storedSize).toBeLessThan(pngBuffer.length);
-    expect(ref.media_type).toBe("image/jpeg");
+    expect(ref.media_type).toBe("image/webp");
   });
 
-  // Tests that GIF input is NOT converted to JPEG (may be animated)
-  it("store() preserves GIF format (not eligible for JPEG conversion)", async () => {
-    const sharpMod = (await import("sharp")).default;
-    const gifBuffer = await sharpMod(Buffer.alloc(10 * 10 * 3), {
-      raw: { width: 10, height: 10, channels: 3 },
-    })
-      .gif()
-      .toBuffer();
-    const gifBase64 = gifBuffer.toString("base64");
+  // Re-encoding would keep only the first frame of an animated GIF.
+  it("store() keeps animated GIFs unchanged", async () => {
+    const gifBase64 = (await makeAnimatedGif(40, 30)).toString("base64");
 
     const ref = await store.store("sess-1", gifBase64, "image/gif");
 

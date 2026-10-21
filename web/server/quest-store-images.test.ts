@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import sharp from "sharp";
+import { makeIncompressibleJpeg, makeScreenshotLikePng } from "./test-fixtures/images.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -55,7 +56,7 @@ describe("saveQuestImage", () => {
     );
   });
 
-  it("resizes and converts images exceeding 1920px to the shared JPEG policy", async () => {
+  it("resizes and converts images exceeding 1920px to the shared WebP policy", async () => {
     // Claude Code's Read tool rejects images >2000x2000px. saveQuestImage
     // should downscale at upload time so workers can read quest screenshots.
     const bigImage = await sharp({
@@ -72,38 +73,30 @@ describe("saveQuestImage", () => {
     // Aspect ratio preserved: 2500x2000 -> 1920x1536
     expect(meta.width).toBe(1920);
     expect(meta.height).toBe(1536);
-    expect(meta.format).toBe("jpeg");
-    expect(result.mimeType).toBe("image/jpeg");
+    expect(meta.format).toBe("webp");
+    expect(result.mimeType).toBe("image/webp");
     expect(result.filename).toBe("big.png");
-    expect(result.path.endsWith(".takode-agent.jpeg")).toBe(true);
+    expect(result.path.endsWith(".takode-agent.webp")).toBe(true);
   });
 
   it("converts small eligible images without resizing", async () => {
     // Images already within the limit should keep their dimensions but still
-    // share the chat upload lossless-to-JPEG compression behavior.
-    const smallImage = await sharp({
-      create: { width: 800, height: 600, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } },
-    })
-      .png()
-      .toBuffer();
+    // share the chat upload compression behavior.
+    const smallImage = await makeScreenshotLikePng(800, 600);
 
     const result = await questStore.saveQuestImage("small.png", smallImage, "image/png");
     const saved = await readFile(result.path);
     const meta = await sharp(saved).metadata();
     expect(meta.width).toBe(800);
     expect(meta.height).toBe(600);
-    expect(meta.format).toBe("jpeg");
-    expect(result.mimeType).toBe("image/jpeg");
+    expect(meta.format).toBe("webp");
+    expect(result.mimeType).toBe("image/webp");
     expect(result.filename).toBe("small.png");
-    expect(result.path.endsWith(".takode-agent.jpeg")).toBe(true);
+    expect(result.path.endsWith(".takode-agent.webp")).toBe(true);
   });
 
-  it("preserves unchanged JPEG uploads under the legacy original name", async () => {
-    const image = await sharp({
-      create: { width: 800, height: 600, channels: 3, background: { r: 20, g: 80, b: 160 } },
-    })
-      .jpeg({ quality: 90 })
-      .toBuffer();
+  it("keeps JPEG uploads the WebP encode would not shrink, under the legacy original name", async () => {
+    const image = await makeIncompressibleJpeg(800, 600);
 
     const result = await questStore.saveQuestImage("photo.jpg", image, "image/jpeg");
     const saved = await readFile(result.path);

@@ -40,7 +40,7 @@ export async function saveQuestImageFile(args: {
   const id = randomBytes(8).toString("hex");
   const alreadyOptimized = isTakodeAgentOptimizedPath(args.filename);
   const optimized = alreadyOptimized
-    ? { data: args.data, mediaType: args.mimeType, resized: false, convertedToJpeg: false }
+    ? { data: args.data, mediaType: args.mimeType, resized: false, reencoded: false }
     : await optimizeImageBufferForStore(args.data, args.mimeType);
   const diskName = buildStoredImageFilename(id, optimized.mediaType, {
     optimized: alreadyOptimized || wasImageBufferProcessed(optimized),

@@ -32,14 +32,14 @@ describe("quest optimize-image", () => {
     const result = runQuest(["optimize-image", inputPath, "--json"]);
 
     expect(result.status).toBe(0);
-    const payload = JSON.parse(result.stdout) as { outputPath: string; wroteOutput: boolean; convertedToJpeg: boolean };
-    expect(payload.outputPath).toBe(join(tempDir, "capture.takode-agent.jpeg"));
+    const payload = JSON.parse(result.stdout) as { outputPath: string; wroteOutput: boolean; reencoded: boolean };
+    expect(payload.outputPath).toBe(join(tempDir, "capture.takode-agent.webp"));
     expect(payload.wroteOutput).toBe(true);
-    expect(payload.convertedToJpeg).toBe(true);
+    expect(payload.reencoded).toBe(true);
     expect(existsSync(inputPath)).toBe(true);
 
     const meta = await sharp(readFileSync(payload.outputPath)).metadata();
-    expect(meta.format).toBe("jpeg");
+    expect(meta.format).toBe("webp");
     expect(meta.width).toBeLessThanOrEqual(1920);
   });
 

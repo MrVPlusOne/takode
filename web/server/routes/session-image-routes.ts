@@ -80,7 +80,7 @@ export function registerSessionImageRoutes(
     const file = Bun.file(path);
     return new Response(file, {
       headers: {
-        "Content-Type": thumbPath ? "image/jpeg" : file.type || "application/octet-stream",
+        "Content-Type": file.type || "application/octet-stream",
         "Cache-Control": thumbPath ? "public, max-age=31536000, immutable" : "no-store",
       },
     });
