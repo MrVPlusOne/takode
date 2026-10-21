@@ -1,5 +1,6 @@
 import type { Context, Hono } from "hono";
 import {
+  getUserVisibleSessionNotifications,
   markAllNotificationsDone as markAllNotificationsDoneController,
   markNotificationDone as markNotificationDoneController,
   setNotificationMuted as setNotificationMutedController,
@@ -202,7 +203,12 @@ export function registerTakodeNotificationInboxRoutes(
   api.get("/sessions/:id/notifications", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
-    const notifications = (wsBridge.getSession(id)?.notifications ?? []).filter(
+    const session = wsBridge.getSession(id);
+    // `visible=1` returns the list browsers hold for the session: results already read or in
+    // closed tabs left out, as when deciding which result an unread thread opens at.
+    const all =
+      c.req.query("visible") === "1" && session ? getUserVisibleSessionNotifications(session) : session?.notifications;
+    const notifications = (all ?? []).filter(
       (notification: { category?: unknown }) =>
         notification.category === "needs-input" || notification.category === "review",
     );

@@ -228,6 +228,35 @@ describe("PushoverNotifier with Web Push", () => {
     expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-2");
   });
 
+  // The link names the message too, so the tap scrolls to the question or result like an
+  // in-app notification link does, not just to the thread.
+  it("links to the message a question or result is anchored to", async () => {
+    makeNotifier();
+    notifier.scheduleNotification("sess-1", "question", "First", undefined, {
+      notificationId: "n-1",
+      threadKey: "q-1",
+      messageId: "msg-first",
+    });
+    notifier.scheduleNotification("sess-1", "question", "Second", undefined, {
+      notificationId: "n-2",
+      threadKey: "q-2",
+      messageId: "msg/second",
+    });
+    // The batch's link follows the question still waiting, thread and message together.
+    notifier.cancelNotification("sess-1", "n-1");
+    await vi.advanceTimersByTimeAsync(30_000);
+    makeNotifier().scheduleNotification("sess-2", "completed", "Answer", undefined, {
+      threadKey: "main",
+      messageId: "answer-1",
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(webPush.alerts.map((alert) => alert.url)).toEqual([
+      "/#/session/sess-1/msg/msg%2Fsecond?thread=q-2",
+      "/#/session/sess-2/msg/answer-1?thread=main",
+    ]);
+  });
+
   // Follow-up reminders summarize every waiting question, so they skip the per-session delay and filters
   // and go straight to both channels, linking to the attention list. Fetch is stubbed: nothing leaves the test.
   it("sends a reminder at once to Web Push and Pushover", async () => {

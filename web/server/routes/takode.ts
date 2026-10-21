@@ -194,7 +194,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       sessionId: string,
       category: "question" | "completed",
       detail: string,
-      options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string },
+      options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string; messageId?: string },
     ) => pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
     cancelScheduledNotification: (sessionId: string, notificationId: string) =>
       pushoverNotifier?.cancelNotification(sessionId, notificationId),

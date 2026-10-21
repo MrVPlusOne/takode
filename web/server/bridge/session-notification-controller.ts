@@ -76,7 +76,7 @@ type NotifyUserDeps = PersistNotificationDeps & {
     sessionId: string,
     category: "question" | "completed",
     detail: string,
-    options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string },
+    options?: { skipReadCheck?: boolean; notificationId?: string; threadKey?: string; messageId?: string },
   ) => void;
 };
 
@@ -537,14 +537,12 @@ export function notifyUser(
   }
 
   if (category === "needs-input" || category === "review") {
-    deps.scheduleNotification?.(
-      session.id,
-      category === "needs-input" ? "question" : "completed",
-      summary,
-      category === "needs-input"
-        ? { skipReadCheck: true, notificationId: notif.id, threadKey: threadRoute.threadKey }
-        : { skipReadCheck: true, threadKey: threadRoute.threadKey },
-    );
+    deps.scheduleNotification?.(session.id, category === "needs-input" ? "question" : "completed", summary, {
+      skipReadCheck: true,
+      ...(category === "needs-input" ? { notificationId: notif.id } : {}),
+      threadKey: threadRoute.threadKey,
+      ...(anchoredMessageId ? { messageId: anchoredMessageId } : {}),
+    });
   }
 
   if (anchor) {
@@ -1019,6 +1017,7 @@ export function wakeDueSnoozedNotifications(
           skipReadCheck: true,
           notificationId: notif.id,
           threadKey: notificationThreadRoute(notif).threadKey,
+          ...(notif.messageId ? { messageId: notif.messageId } : {}),
         });
       }
     }

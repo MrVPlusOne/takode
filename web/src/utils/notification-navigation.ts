@@ -35,3 +35,20 @@ export function navigateToNotification(
     preserveMainThreadRoute: true,
   });
 }
+
+/**
+ * The first result the user hasn't read yet: the oldest open review notification with an
+ * anchor message among those `inThread` accepts. Opening an unread thread lands here.
+ */
+export function firstUnreadResult<T extends Pick<SessionNotification, "category" | "done" | "messageId" | "timestamp">>(
+  notifications: ReadonlyArray<T> | undefined,
+  inThread: (notification: T) => boolean,
+): T | null {
+  let first: T | null = null;
+  for (const notification of notifications ?? []) {
+    if (notification.category !== "review" || notification.done || !notification.messageId) continue;
+    if (!inThread(notification)) continue;
+    if (!first || notification.timestamp < first.timestamp) first = notification;
+  }
+  return first;
+}

@@ -418,10 +418,18 @@ export function navigateToSessionThread(
   options: { preserveMainThreadRoute?: boolean } = {},
 ): void {
   const currentRoute = parseHash(window.location.hash);
-  const currentHash =
-    currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
-      ? window.location.hash
-      : sessionHash(routeSessionId);
+  const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
+  let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);
+  // A message route names a message in the thread on screen; another thread must not inherit it,
+  // or the new thread would try to scroll to that message.
+  if (
+    sameSession &&
+    (threadRouteFromHash(currentHash).threadKey ?? MAIN_THREAD_KEY) !== normalizeThreadKey(threadKey)
+  ) {
+    const { params } = splitHash(currentHash);
+    params.delete("msg");
+    currentHash = joinHash(sessionHash(currentRoute.sessionId), params);
+  }
   const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
     preserveMain: options.preserveMainThreadRoute,
   });

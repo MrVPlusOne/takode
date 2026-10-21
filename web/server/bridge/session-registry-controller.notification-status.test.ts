@@ -860,6 +860,13 @@ describe("session notification status metadata", () => {
       questId: "q-968",
       messageId: session.messageHistory[1].id,
     });
+    // The phone alert links to the same anchor, so tapping it scrolls to the question.
+    expect(deps.scheduleNotification).toHaveBeenCalledWith(
+      "s1",
+      "question",
+      "Need q-968 input",
+      expect.objectContaining({ notificationId: "n-1", threadKey: "q-968", messageId: session.messageHistory[1].id }),
+    );
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
       expect.objectContaining({

@@ -26,11 +26,13 @@ import {
   hasMessageDeepLinkFromHash,
   historyEntryShowsMainThread,
   markHistoryEntryShowsMainThread,
+  navigateToSessionMessageId,
   navigateToSessionThread,
   parseHash,
   threadRouteFromHash,
 } from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
+import { firstUnreadResult } from "../utils/notification-navigation.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
@@ -793,10 +795,31 @@ export function ChatView({
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
-        navigateToSessionThread(sessionId, nextThreadKey);
+        // A thread with unread results opens at the first one, not where it was left.
+        const unreadIds = new Set(
+          reviewNotificationIdsForSelectedThread(sessionNotifications, reviewAttentionRecords, nextThreadKey),
+        );
+        const firstUnread = firstUnreadResult(sessionNotifications, (notification) => unreadIds.has(notification.id));
+        if (firstUnread?.messageId) {
+          navigateToSessionMessageId(sessionId, firstUnread.messageId, {
+            threadKey: nextThreadKey,
+            preserveMainThreadRoute: true,
+          });
+        } else {
+          navigateToSessionThread(sessionId, nextThreadKey);
+        }
       }
     },
-    [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
+    [
+      cachedThreadWindows,
+      isLeaderSession,
+      openThreadTab,
+      preview,
+      reviewAttentionRecords,
+      selectedThreadKey,
+      sessionId,
+      sessionNotifications,
+    ],
   );
   // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);

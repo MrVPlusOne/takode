@@ -606,6 +606,22 @@ describe("Takode notification inbox and answers", () => {
     expect(json).toEqual(mockNotifs);
   });
 
+  it("returns only the browser-visible list with ?visible=1, leaving out results already read", async () => {
+    // An unread thread opens at its first unread result; a result read before must not count.
+    setupTakodeSessions();
+    const session = bridge._sessions["orch-1"];
+    session.lastReadAt = 1500;
+    session.notifications = [
+      { id: "n-read", category: "review", timestamp: 1000, messageId: "m-read", threadKey: "main", done: false },
+      { id: "n-new", category: "review", timestamp: 2000, messageId: "m-new", threadKey: "main", done: false },
+    ];
+
+    const all = await (await app.request("/api/sessions/orch-1/notifications")).json();
+    const visible = await (await app.request("/api/sessions/orch-1/notifications?visible=1")).json();
+    expect(all.map((n: { id: string }) => n.id)).toEqual(["n-read", "n-new"]);
+    expect(visible.map((n: { id: string }) => n.id)).toEqual(["n-new"]);
+  });
+
   it("lists only unresolved same-session needs-input notifications with resolved count", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [

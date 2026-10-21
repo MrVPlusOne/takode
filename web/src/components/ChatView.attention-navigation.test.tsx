@@ -35,8 +35,12 @@ vi.mock("../hooks/useSessionSearch.js", () => ({ useSessionSearch: vi.fn() }));
 vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({ Composer: () => null }));
+const feedThreadSelection = vi.hoisted(() => ({ select: null as null | ((threadKey: string) => void) }));
 vi.mock("./MessageFeed.js", () => ({
-  MessageFeed: ({ threadKey }: { threadKey: string }) => <div data-testid="message-feed" data-thread-key={threadKey} />,
+  MessageFeed: ({ threadKey, onSelectThread }: { threadKey: string; onSelectThread?: (key: string) => void }) => {
+    feedThreadSelection.select = onSelectThread ?? null;
+    return <div data-testid="message-feed" data-thread-key={threadKey} />;
+  },
 }));
 vi.mock("./WorkBoardBar.js", () => ({ WorkBoardBar: () => null }));
 
@@ -161,6 +165,41 @@ describe("ChatView attention navigation", () => {
     await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
       timeout: THREAD_READ_DWELL_MS + 1_000,
     });
+    view.unmount();
+  });
+
+  it("opens a thread chosen in the view at its first unread result", async () => {
+    // Choosing a tab (or an in-feed thread link) with unread results lands on the oldest one,
+    // not where the thread was left; a thread with nothing unread opens as before.
+    useStore.getState().setSessionNotifications("leader", [
+      {
+        id: "n-main",
+        category: "review",
+        summary: "Later",
+        timestamp: 20,
+        messageId: "m-later",
+        threadKey: "main",
+        done: false,
+      },
+      {
+        id: "n-first",
+        category: "review",
+        summary: "First",
+        timestamp: 15,
+        messageId: "m-first",
+        threadKey: "main",
+        done: false,
+      },
+    ] as never);
+    const view = render(<ChatView sessionId="leader" {...routeProps()} />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
+
+    act(() => feedThreadSelection.select?.("main"));
+    expect(window.location.hash).toBe("#/session/leader/msg/m-first?thread=main");
+    expect(useStore.getState().scrollToMessageId.get("leader")).toBe("m-first");
+
+    act(() => feedThreadSelection.select?.("q-1"));
+    expect(window.location.hash).toBe("#/session/leader?thread=q-1");
     view.unmount();
   });
 

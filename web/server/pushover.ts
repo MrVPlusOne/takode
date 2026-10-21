@@ -56,8 +56,16 @@ export interface PushoverScheduleOptions {
   notificationId?: string;
   /** Leader thread (`main` or `q-N`) the alert came from; tapping the alert opens that tab. */
   threadKey?: string;
+  /** Message the alert is about (a question's anchor, a result); tapping the alert scrolls to it. */
+  messageId?: string;
   /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
   monitoredResult?: { threadKey: string; resultId: string; isPending: () => boolean };
+}
+
+/** The thread and message a tapped alert opens. */
+interface AlertLinkTarget {
+  threadKey?: string;
+  messageId?: string;
 }
 
 interface PendingNotification {
@@ -74,10 +82,10 @@ interface PendingNotification {
   requestDetails: Record<string, string>;
   /** Notification details keyed by notification ID, used when still-active batched items fire. */
   notificationDetails: Record<string, string>;
-  /** Thread of each batched notification, so the link follows the items still waiting. */
-  notificationThreadKeys: Record<string, string>;
-  /** Thread of an alert scheduled without a notification ID. */
-  threadKey?: string;
+  /** Where each batched notification lives, so the link follows the items still waiting. */
+  notificationTargets: Record<string, AlertLinkTarget>;
+  /** Where an alert scheduled without a notification ID points. */
+  target: AlertLinkTarget;
   /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
   skipReadCheck?: boolean;
   monitoredResult?: PushoverScheduleOptions["monitoredResult"];
@@ -198,7 +206,7 @@ export class PushoverNotifier {
       }
       if (detail && requestId) existing.requestDetails[requestId] = detail;
       if (detail && notificationId) existing.notificationDetails[notificationId] = detail;
-      if (notificationId && options?.threadKey) existing.notificationThreadKeys[notificationId] = options.threadKey;
+      if (notificationId) existing.notificationTargets[notificationId] = alertLinkTarget(options);
       // Extend the batch window, but don't exceed the configured delay from original creation
       const maxFireAt = existing.createdAt + settings.pushoverDelaySeconds * 1000;
       const batchFireAt = Math.min(Date.now() + PERMISSION_BATCH_WINDOW_MS, maxFireAt);
@@ -226,8 +234,8 @@ export class PushoverNotifier {
       notificationIds: notificationId ? [notificationId] : [],
       requestDetails: detail && requestId ? { [requestId]: detail } : {},
       notificationDetails: detail && notificationId ? { [notificationId]: detail } : {},
-      notificationThreadKeys: notificationId && options?.threadKey ? { [notificationId]: options.threadKey } : {},
-      threadKey: notificationId ? undefined : options?.threadKey,
+      notificationTargets: notificationId ? { [notificationId]: alertLinkTarget(options) } : {},
+      target: notificationId ? {} : alertLinkTarget(options),
       skipReadCheck: options?.skipReadCheck,
       monitoredResult,
     };
@@ -263,7 +271,7 @@ export class PushoverNotifier {
       if (idx === -1) continue;
 
       delete pending.notificationDetails[notificationId];
-      delete pending.notificationThreadKeys[notificationId];
+      delete pending.notificationTargets[notificationId];
       pending.notificationIds.splice(idx, 1);
       if (pending.requestIds.length === 0 && pending.notificationIds.length === 0) {
         clearTimeout(pending.timer);
@@ -402,7 +410,7 @@ export class PushoverNotifier {
     }
 
     const message = lines.join("\n");
-    const path = this.buildDeepLinkPath(sessionId, this.getDeepLinkThreadKey(pending));
+    const path = this.buildDeepLinkPath(sessionId, this.getDeepLinkTarget(pending));
 
     console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
     if (this.opts.webPush?.hasSubscriptions()) {
@@ -492,17 +500,17 @@ export class PushoverNotifier {
   }
 
   /**
-   * The thread a tapped alert opens: the monitored thread, else the oldest still-waiting
-   * batched item's thread. Main is named explicitly: a bare session link reopens whichever
+   * Where a tapped alert opens: the monitored thread, else the oldest still-waiting batched
+   * item's thread and message. Main is named explicitly: a bare session link reopens whichever
    * tab the app last showed, not the thread the alert came from.
    */
-  private getDeepLinkThreadKey(pending: PendingNotification): string | undefined {
-    if (pending.monitoredResult) return pending.monitoredResult.threadKey;
+  private getDeepLinkTarget(pending: PendingNotification): AlertLinkTarget {
+    if (pending.monitoredResult) return { threadKey: pending.monitoredResult.threadKey };
     for (const notificationId of pending.notificationIds) {
-      const threadKey = pending.notificationThreadKeys[notificationId];
-      if (threadKey) return threadKey;
+      const target = pending.notificationTargets[notificationId];
+      if (target?.threadKey || target?.messageId) return target;
     }
-    return pending.threadKey;
+    return pending.target;
   }
 
   /** What the alert is about, so tapping a later alert can close this one once it is outdated. */
@@ -521,9 +529,11 @@ export class PushoverNotifier {
     return subjects.length > 0 ? subjects : [{ kind: "unread", sessionId, since: pending.createdAt }];
   }
 
-  private buildDeepLinkPath(sessionId: string, threadKey?: string): string {
-    if (threadKey) return `/#/session/${encodeURIComponent(sessionId)}?thread=${encodeURIComponent(threadKey)}`;
-    return `/#/session/${encodeURIComponent(sessionId)}`;
+  /** `/msg/<id>` makes the app scroll to and flash the message, as an in-app notification link does. */
+  private buildDeepLinkPath(sessionId: string, { threadKey, messageId }: AlertLinkTarget): string {
+    const message = messageId ? `/msg/${encodeURIComponent(messageId)}` : "";
+    const thread = threadKey ? `?thread=${encodeURIComponent(threadKey)}` : "";
+    return `/#/session/${encodeURIComponent(sessionId)}${message}${thread}`;
   }
 
   private getActiveDetails(pending: PendingNotification): string[] {
@@ -542,4 +552,11 @@ export class PushoverNotifier {
   private getDisplayName(detail: string): string {
     return detail.split(":")[0]?.trim() ?? "";
   }
+}
+
+function alertLinkTarget(options: PushoverScheduleOptions | undefined): AlertLinkTarget {
+  return {
+    ...(options?.threadKey ? { threadKey: options.threadKey } : {}),
+    ...(options?.messageId ? { messageId: options.messageId } : {}),
+  };
 }

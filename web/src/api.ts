@@ -1225,8 +1225,11 @@ export const api = {
       },
     ),
 
-  getSessionNotifications: (sessionId: string) =>
-    get<SessionNotification[]>(`/sessions/${encodeURIComponent(sessionId)}/notifications`),
+  /** `visible` returns only what the browser's own list holds: read results and closed tabs left out. */
+  getSessionNotifications: (sessionId: string, options: { visible?: boolean } = {}) =>
+    get<SessionNotification[]>(
+      `/sessions/${encodeURIComponent(sessionId)}/notifications${options.visible ? "?visible=1" : ""}`,
+    ),
 
   getNotificationReplies: (sessionId: string, notifId: string) =>
     get<{ replies: Array<{ content: string }> }>(

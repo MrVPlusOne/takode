@@ -414,6 +414,17 @@ describe("navigateToSessionThread", () => {
     window.location.hash = "";
   });
 
+  it("drops the message route when moving to another thread, and keeps it within the same thread", () => {
+    // The message belongs to the thread on screen; carrying it along made the next thread try to scroll to it.
+    window.location.hash = "#/session/s1/msg/m-1?thread=q-1&quest=q-9";
+    navigateToSessionThread("s1", "q-2");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2&quest=q-9");
+
+    window.location.hash = "#/session/s1/msg/m-1?thread=q-1";
+    navigateToSessionThread("s1", "q-1");
+    expect(window.location.hash).toBe("#/session/s1/msg/m-1?thread=q-1");
+  });
+
   it("adds browser history entries for user-initiated leader thread changes", async () => {
     window.location.hash = "#/session/s1";
 

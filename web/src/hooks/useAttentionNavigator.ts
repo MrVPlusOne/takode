@@ -2,16 +2,25 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { api } from "../api.js";
 import { openNotifyMeEntry } from "../components/NotifyMe.js";
 import { useStore } from "../store.js";
-import type { SdkSessionInfo } from "../types.js";
+import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import {
   attentionCursorFor,
   pickAttentionAfter,
   type AttentionCursor,
   type NextAttentionItem,
 } from "../utils/next-attention.js";
-import { navigateToNotification } from "../utils/notification-navigation.js";
+import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
-import { navigateToSession, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
+import {
+  navigateToSession,
+  navigateToSessionMessageId,
+  navigateToSessionThread,
+  parseHash,
+  routeSessionRefForId,
+  threadRouteFromHash,
+  type Route,
+} from "../utils/routing.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 
 export interface NextAttentionLanding {
   item: NextAttentionItem;
@@ -101,9 +110,9 @@ export function useAttentionNavigator(
 }
 
 /**
- * Open an attention item. Unread threads open at their newest Ready result
- * when this browser knows it, so the result is scrolled to and flashed;
- * otherwise they open the thread. Main keeps an explicit thread route: without
+ * Open an attention item. Unread threads open at their first unread result, scrolled to and
+ * flashed; when this browser hasn't loaded the session's notifications yet, the thread opens at
+ * once and moves to that result when they arrive. Main keeps an explicit thread route: without
  * it, a leader session restores the thread it was showing instead of Main.
  */
 export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessionInfo[]) {
@@ -115,28 +124,46 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
     openNotifyMeEntry(item.entry, sdkSessions);
     return;
   }
-  if (item.threadKey) {
-    const result = newestReadyResult(item.sessionId, item.threadKey);
+  const { sessionId, threadKey } = item;
+  if (threadKey) {
+    const inThread = (notification: SessionNotification) =>
+      resolveNotificationOwnerThreadKey(notification) === threadKey;
+    const known = useStore.getState().sessionNotifications?.get(sessionId);
+    const result = firstUnreadResult(known, inThread);
     if (result) {
-      navigateToNotification(item.sessionId, result, sdkSessions);
+      navigateToNotification(sessionId, result, sdkSessions);
       return;
     }
-    navigateToSessionThread(item.sessionId, item.threadKey, false, routeSessionRefForId(item.sessionId, sdkSessions), {
-      preserveMainThreadRoute: true,
-    });
+    const routeSessionId = routeSessionRefForId(sessionId, sdkSessions);
+    navigateToSessionThread(sessionId, threadKey, false, routeSessionId, { preserveMainThreadRoute: true });
+    if (known) return;
+    const openedRoute = parseHash(window.location.hash);
+    api
+      .getSessionNotifications(sessionId, { visible: true })
+      .then((notifications) => {
+        const loaded = firstUnreadResult(notifications, inThread);
+        // Only while the thread just opened is still on screen as it was: never pull the user back.
+        if (!loaded?.messageId || !stillShowsThread(openedRoute, threadKey)) return;
+        navigateToSessionMessageId(sessionId, loaded.messageId, {
+          replace: true,
+          routeSessionId,
+          threadKey,
+          preserveMainThreadRoute: true,
+        });
+      })
+      .catch(() => {});
     return;
   }
   // Same as choosing the session in the sidebar: opening it reads its unread result.
-  api.markSessionRead?.(item.sessionId, { mode: "session-view" }).catch(() => {});
-  navigateToSession(item.sessionId);
+  api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
+  navigateToSession(sessionId);
 }
 
-function newestReadyResult(sessionId: string, threadKey: string) {
-  let newest = null;
-  for (const notification of useStore.getState().sessionNotifications?.get(sessionId) ?? []) {
-    if (notification.category !== "review" || notification.done || !notification.messageId) continue;
-    if (resolveNotificationOwnerThreadKey(notification) !== threadKey) continue;
-    if (!newest || notification.timestamp > newest.timestamp) newest = notification;
-  }
-  return newest;
+/** Whether the view is still the thread just opened: same session and thread, no message jump since. */
+function stillShowsThread(openedRoute: Route, threadKey: string): boolean {
+  const route = parseHash(window.location.hash);
+  if (route.page !== "session" || openedRoute.page !== "session") return false;
+  if (route.sessionId !== openedRoute.sessionId || route.messageId || route.messageIndex != null) return false;
+  // Main's canonical route has no thread param.
+  return (threadRouteFromHash(window.location.hash).threadKey ?? MAIN_THREAD_KEY) === threadKey;
 }
