@@ -7,7 +7,7 @@ import {
   createImageThumbnailBuffer,
   fileExists,
   MIME_TO_EXT,
-  resizeImageBufferForStore,
+  encodeImageForViewing,
   SHARP_UNAVAILABLE_MESSAGE,
   isSharpUnavailableError,
   TAKODE_AGENT_IMAGE_MARKER,
@@ -25,13 +25,13 @@ export interface LocalImageVariant {
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "image-variants");
 /** Bumped per kind when its recipe changes, so stale cached variants are not served. */
-const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v1", full: "v2" };
+const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v1", full: "v3" };
 const THUMBNAIL_MAX_DIM = 300;
 const THUMBNAIL_QUALITY = 80;
 /**
- * The full view is where people read an image, so it keeps the original pixels:
- * re-encoding screenshots as JPEG or shrinking them to the agent-reading size
- * blurred their text. Only images too large for a browser to show well are scaled down.
+ * The full view is where people read an image, so it stays close to the original:
+ * shrinking screenshots to the agent-reading size blurred their text. Only images
+ * too large for a browser to show well are scaled down.
  */
 const FULL_MAX_DIM = 4096;
 /** Formats of the original an agent-readable `.takode-agent.` copy is made from, by extension. */
@@ -89,9 +89,9 @@ export class LocalImageVariantStore {
         });
         contentType = "image/jpeg";
       } else {
-        // Resizing keeps the source format; an image that fits is served as it is.
-        data = await resizeImageBufferForStore(source, contentType, FULL_MAX_DIM);
-        if (data === source) return sourceVariant;
+        const viewable = await encodeImageForViewing(source, contentType, FULL_MAX_DIM);
+        if (viewable.data === source) return sourceVariant;
+        ({ data, mediaType: contentType } = viewable);
       }
     } catch (error) {
       if (isSharpUnavailableError(error)) {

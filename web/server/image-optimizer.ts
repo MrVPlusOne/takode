@@ -3,6 +3,10 @@ import { basename, dirname, extname, join } from "node:path";
 
 export const STORE_MAX_DIM = 1920;
 export const AGENT_QUALITY = 85;
+/** WebP near-lossless level for lossless sources: on screenshots, visually identical at about 40% of the PNG's size. */
+const VIEW_NEAR_LOSSLESS_QUALITY = 60;
+/** WebP quality for lossy sources such as photos. */
+const VIEW_LOSSY_QUALITY = 90;
 export const TAKODE_AGENT_IMAGE_MARKER = ".takode-agent.";
 
 export const SHARP_UNAVAILABLE_MESSAGE =
@@ -114,7 +118,7 @@ export async function optimizeImageBufferForStore(
     const before = dimensionsFromMetadata(meta, data.length);
     const actualMediaType = mimeTypeFromSharpFormat(meta.format) ?? mimeType;
     const shouldResize = exceedsMaxDim(meta, maxDim);
-    const shouldConvertToJpeg = meta.format ? isJpegEligibleFormat(meta.format) : isJpegEligibleMime(mimeType);
+    const shouldConvertToJpeg = meta.format ? isLosslessRasterFormat(meta.format) : isJpegEligibleMime(mimeType);
 
     if (!shouldResize && !shouldConvertToJpeg) {
       return {
@@ -170,6 +174,42 @@ export async function createImageThumbnailBuffer(
     .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: jpegQuality })
     .toBuffer();
+}
+
+/**
+ * Re-encode an image for people to look at: close to the original quality in fewer
+ * bytes. Lossless sources such as screenshots become near-lossless WebP, which keeps
+ * small text crisp where JPEG smears it; lossy sources such as photos become
+ * high-quality WebP. Images larger than `maxDim` are scaled down first. Vector and
+ * animated images, and images the encode would not make smaller, come back unchanged.
+ */
+export async function encodeImageForViewing(
+  data: Buffer,
+  mimeType: string,
+  maxDim: number,
+): Promise<{ data: Buffer; mediaType: string }> {
+  const unchanged = { data, mediaType: mimeType };
+  if (mimeType === "image/svg+xml") return unchanged;
+  const sharp = await requireSharp("encode images for viewing");
+  try {
+    const meta = await sharp(data).metadata();
+    if ((meta.pages ?? 1) > 1) return unchanged;
+    const resize = exceedsMaxDim(meta, maxDim);
+    let pipeline = sharp(data).rotate();
+    if (resize) pipeline = pipeline.resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true });
+    const encoded = await pipeline
+      .webp(
+        isLosslessRasterFormat(meta.format)
+          ? { quality: VIEW_NEAR_LOSSLESS_QUALITY, nearLossless: true }
+          : { quality: VIEW_LOSSY_QUALITY },
+      )
+      .toBuffer();
+    if (!resize && encoded.length >= data.length) return unchanged;
+    return { data: encoded, mediaType: "image/webp" };
+  } catch (err) {
+    console.warn("[image-optimizer] Failed to encode image for viewing, serving the original:", err);
+    return unchanged;
+  }
 }
 
 export async function optimizeAgentImageFile(
@@ -274,6 +314,8 @@ interface SharpMetadata {
   width?: number;
   height?: number;
   format?: string;
+  /** Frame count of an animated image. */
+  pages?: number;
 }
 
 interface SharpPipeline {
@@ -281,6 +323,7 @@ interface SharpPipeline {
   rotate(): SharpPipeline;
   resize(options: { width: number; height: number; fit: "inside"; withoutEnlargement?: boolean }): SharpPipeline;
   jpeg(options: { quality: number }): SharpPipeline;
+  webp(options: { quality: number; nearLossless?: boolean }): SharpPipeline;
   toBuffer(): Promise<Buffer>;
   toFile(path: string): Promise<unknown>;
 }
@@ -288,7 +331,7 @@ interface SharpPipeline {
 export type SharpModule = (input: Buffer) => SharpPipeline;
 
 const JPEG_ELIGIBLE_MIMES = new Set(["image/png", "image/bmp", "image/tiff"]);
-const JPEG_ELIGIBLE_FORMATS = new Set(["png", "bmp", "tiff", "tif"]);
+const LOSSLESS_RASTER_FORMATS = new Set(["png", "bmp", "tiff", "tif"]);
 
 const defaultSharpLoader = async (): Promise<SharpModule> => {
   const module = (await import("sharp")) as { default?: SharpModule };
@@ -344,8 +387,8 @@ function exceedsMaxDim(meta: SharpMetadata, maxDim: number): boolean {
   return Boolean(meta.width && meta.height && (meta.width > maxDim || meta.height > maxDim));
 }
 
-function isJpegEligibleFormat(format: string | undefined): boolean {
-  return Boolean(format && JPEG_ELIGIBLE_FORMATS.has(format));
+function isLosslessRasterFormat(format: string | undefined): boolean {
+  return Boolean(format && LOSSLESS_RASTER_FORMATS.has(format));
 }
 
 function isJpegEligibleMime(mimeType: string): boolean {

@@ -8,7 +8,7 @@ vi.mock("./image-optimizer.js", () => ({
   isSharpUnavailableError: vi.fn(() => false),
   createImageThumbnailBuffer: vi.fn(),
   fileExists: vi.fn(async () => false),
-  resizeImageBufferForStore: vi.fn(),
+  encodeImageForViewing: vi.fn(),
   TAKODE_AGENT_IMAGE_MARKER: ".takode-agent.",
   MIME_TO_EXT: { "image/jpeg": "jpeg", "image/png": "png" },
   SHARP_UNAVAILABLE_MESSAGE: "sharp unavailable",

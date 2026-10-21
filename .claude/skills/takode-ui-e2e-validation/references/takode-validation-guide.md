@@ -202,7 +202,7 @@ quest optimize-image /tmp/takode-q-N/example.png
 
 Do not recompress paths that already contain `.takode-agent.`. Clean up large temporary directories when they are no longer useful.
 
-When a report, phase note or question shows a screenshot to its reader, use Markdown image syntax with the absolute path of the original, such as `![mobile, permission denied](/tmp/takode-q-N/mobile-permission-banner-denied.png)`. Takode renders it as a thumbnail with its space held from the start, and as a missing-image tile if the file is gone; a plain path is only a best-effort preview. Opening it shows the original pixels, so make those worth reading:
+When a report, phase note or question shows a screenshot to its reader, use Markdown image syntax with the absolute path of the original, such as `![mobile, permission denied](/tmp/takode-q-N/mobile-permission-banner-denied.png)`. Takode renders it as a thumbnail with its space held from the start, and as a missing-image tile if the file is gone; a plain path is only a best-effort preview. Opening it shows the original at nearly full quality (re-encoded as WebP to save traffic), so make it worth reading:
 
 - Capture screenshots people will read at device scale 2: `agent-browser set viewport 430 932 2`. At the default scale 1, text looks soft on phone and laptop screens.
 - When you combine several screenshots into one comparison image, crop them to the part that matters instead of scaling them down. A collage shrunk to a third of its capture size made the user's design comparison unreadable. If the panels do not fit side by side at full size, show one image per option instead.
