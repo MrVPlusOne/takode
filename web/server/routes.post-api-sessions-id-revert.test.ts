@@ -689,9 +689,9 @@ describe("POST /api/sessions/:id/revert", () => {
     expect(res.status).toBe(404);
   });
 
-  // Codex revert uses thread/rollback and clears Codex-only pending state so
+  // Codex revert reverts the backend thread (adapter rollbackTurns) and clears Codex-only pending state so
   // browser chips and replay queues do not resurrect reverted inputs.
-  it("reverts Codex sessions via thread rollback and clears pending Codex state", async () => {
+  it("reverts Codex sessions via the adapter thread revert and clears pending Codex state", async () => {
     const { mockSession } = setupRevertSession({ backendType: "codex" });
     mockSession.messageHistory = [
       { type: "user_message", id: "user-msg-1", content: "Hello" },

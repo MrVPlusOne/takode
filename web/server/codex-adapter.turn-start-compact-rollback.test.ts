@@ -266,73 +266,141 @@ describe("CodexAdapter", () => {
     expect(lines.find((line) => line.method === "turn/start")).toBeUndefined();
   });
 
-  it("calls thread/rollback for Codex revert", async () => {
+  // Codex 0.162+ reverts with thread/revert, which cuts history before a turn
+  // ID instead of counting turns. Takode keeps counting turns and finds the cut
+  // turn by listing turns newest first. These helpers answer those requests.
+  function writtenRequest(method: string, skip = 0) {
+    return parseWrittenJsonLines(stdin.chunks).filter((line) => line.method === method)[skip];
+  }
+  function answerTurnsList(request: { id: number }, turnIds: string[], nextCursor: string | null = null) {
+    stdout.push(JSON.stringify({ id: request.id, result: { data: turnIds.map((id) => ({ id })), nextCursor } }) + "\n");
+  }
+  async function startedAdapter() {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
-
     await tick();
     stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
     await tick();
     stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
     await tick();
-
     stdin.chunks = [];
+    return adapter;
+  }
+
+  it("reverts a Codex thread before the oldest of the last N turns", async () => {
+    const adapter = await startedAdapter();
 
     const rollbackPromise = adapter.rollbackTurns(2);
     await tick();
 
-    const lines = parseWrittenJsonLines(stdin.chunks);
-    const rollback = lines.find((line) => line.method === "thread/rollback");
-    expect(rollback).toBeDefined();
-    expect(rollback.params).toEqual({ threadId: "thr_123", numTurns: 2 });
+    const list = writtenRequest("thread/turns/list");
+    expect(list.params).toEqual({
+      threadId: "thr_123",
+      cursor: null,
+      limit: 2,
+      sortDirection: "desc",
+      itemsView: "notLoaded",
+    });
+    answerTurnsList(list, ["turn_4", "turn_3"], "cursor_more");
+    await tick();
 
-    stdout.push(JSON.stringify({ id: rollback.id, result: {} }) + "\n");
+    const revert = writtenRequest("thread/revert");
+    expect(revert.params).toEqual({ threadId: "thr_123", beforeTurnId: "turn_3" });
+    // The removed thread/rollback method must never be sent: Codex 0.162 rejects it.
+    expect(writtenRequest("thread/rollback")).toBeUndefined();
+
+    stdout.push(JSON.stringify({ id: revert.id, result: { thread: { id: "thr_123", turns: [] } } }) + "\n");
     await rollbackPromise;
   });
 
-  it("calls thread/fork and optionally rolls back the forked child thread", async () => {
+  it("pages through turns when one page holds fewer than the turns to drop", async () => {
+    const adapter = await startedAdapter();
+
+    const rollbackPromise = adapter.rollbackTurns(3);
+    await tick();
+    answerTurnsList(writtenRequest("thread/turns/list"), ["turn_4", "turn_3"], "cursor_page2");
+    await tick();
+
+    const secondList = writtenRequest("thread/turns/list", 1);
+    expect(secondList.params).toMatchObject({ cursor: "cursor_page2", limit: 1 });
+    answerTurnsList(secondList, ["turn_2"], "cursor_page3");
+    await tick();
+
+    const revert = writtenRequest("thread/revert");
+    expect(revert.params).toEqual({ threadId: "thr_123", beforeTurnId: "turn_2" });
+    stdout.push(JSON.stringify({ id: revert.id, result: {} }) + "\n");
+    await rollbackPromise;
+  });
+
+  it("clears the whole thread when asked to drop more turns than it holds", async () => {
+    // Takode's own turn count can exceed the Codex thread's, for example after a
+    // fresh-thread recovery. Reverting past the thread start drops every turn.
+    const adapter = await startedAdapter();
+
+    const rollbackPromise = adapter.rollbackTurns(5);
+    await tick();
+    answerTurnsList(writtenRequest("thread/turns/list"), ["turn_2", "turn_1"], null);
+    await tick();
+
+    expect(writtenRequest("thread/turns/list", 1)).toBeUndefined();
+    const revert = writtenRequest("thread/revert");
+    expect(revert.params).toEqual({ threadId: "thr_123", beforeTurnId: "turn_1" });
+    stdout.push(JSON.stringify({ id: revert.id, result: {} }) + "\n");
+    await rollbackPromise;
+  });
+
+  it("explains that conversations in Codex's legacy history format cannot be reverted", async () => {
+    // Threads created by older Codex versions keep the legacy history format,
+    // which Codex 0.162 refuses to revert. The raw refusal names an internal
+    // format, so Takode replaces it with an explanation the user can act on.
+    const adapter = await startedAdapter();
+
+    const rollbackPromise = adapter.rollbackTurns(1);
+    await tick();
+    answerTurnsList(writtenRequest("thread/turns/list"), ["turn_1"]);
+    await tick();
+
+    const revert = writtenRequest("thread/revert");
+    stdout.push(
+      JSON.stringify({
+        id: revert.id,
+        error: { code: -32600, message: "thread/revert only supports paginated threads" },
+      }) + "\n",
+    );
+    await expect(rollbackPromise).rejects.toThrow("Codex can't revert this conversation");
+  });
+
+  it("calls thread/fork and optionally reverts the forked child thread", async () => {
     // Side Chat uses the root Codex app-server connection to create the child
     // thread before launching Takode's hidden child session against that thread.
-    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    const adapter = await startedAdapter();
 
-    await tick();
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
-
-    stdin.chunks = [];
     const forkPromise = adapter.forkThread({ rollbackTurns: 2 });
     await tick();
 
-    let lines = parseWrittenJsonLines(stdin.chunks);
-    const fork = lines.find((line) => line.method === "thread/fork");
+    const fork = writtenRequest("thread/fork");
     expect(fork).toBeDefined();
     expect(fork.params.threadId).toBe("thr_123");
 
     stdout.push(JSON.stringify({ id: fork.id, result: { thread: { id: "thr_child" } } }) + "\n");
     await tick();
 
-    lines = parseWrittenJsonLines(stdin.chunks);
-    const rollback = lines.find((line) => line.method === "thread/rollback");
-    expect(rollback).toBeDefined();
-    expect(rollback.params).toEqual({ threadId: "thr_child", numTurns: 2 });
+    const list = writtenRequest("thread/turns/list");
+    expect(list.params).toMatchObject({ threadId: "thr_child", limit: 2 });
+    answerTurnsList(list, ["child_turn_2", "child_turn_1"]);
+    await tick();
 
-    stdout.push(JSON.stringify({ id: rollback.id, result: {} }) + "\n");
+    const revert = writtenRequest("thread/revert");
+    expect(revert.params).toEqual({ threadId: "thr_child", beforeTurnId: "child_turn_1" });
+
+    stdout.push(JSON.stringify({ id: revert.id, result: {} }) + "\n");
     await expect(forkPromise).resolves.toBe("thr_child");
   });
 
   it("suppresses the interrupted result emitted while rollback interrupts an active turn", async () => {
     const messages: BrowserIncomingMessage[] = [];
-    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    const adapter = await startedAdapter();
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
-    await tick();
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
-
-    stdin.chunks = [];
     adapter.sendBrowserMessage({ type: "user_message", content: "active turn" });
     await tick();
     stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
@@ -343,8 +411,7 @@ describe("CodexAdapter", () => {
     const rollbackPromise = adapter.rollbackTurns(1);
     await tick();
 
-    let lines = parseWrittenJsonLines(stdin.chunks);
-    const interrupt = lines.find((line) => line.method === "turn/interrupt");
+    const interrupt = writtenRequest("turn/interrupt");
     expect(interrupt).toBeDefined();
     expect(interrupt.params.turnId).toBe("turn_active");
 
@@ -358,12 +425,14 @@ describe("CodexAdapter", () => {
     );
     await tick();
 
-    lines = parseWrittenJsonLines(stdin.chunks);
-    const rollback = lines.find((line) => line.method === "thread/rollback");
-    expect(rollback).toBeDefined();
+    // The thread is only reverted after the interrupted turn has ended.
+    answerTurnsList(writtenRequest("thread/turns/list"), ["turn_active"]);
+    await tick();
+    const revert = writtenRequest("thread/revert");
+    expect(revert.params.beforeTurnId).toBe("turn_active");
     expect(messages.find((msg) => msg.type === "result")).toBeUndefined();
 
-    stdout.push(JSON.stringify({ id: rollback.id, result: {} }) + "\n");
+    stdout.push(JSON.stringify({ id: revert.id, result: {} }) + "\n");
     await rollbackPromise;
   });
 

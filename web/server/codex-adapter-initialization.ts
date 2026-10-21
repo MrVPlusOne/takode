@@ -116,10 +116,51 @@ export async function forkCodexThread(
   const threadId = result.thread.id;
   if (rollbackTurns) {
     try {
-      await transport.call("thread/rollback", { threadId, numTurns: rollbackTurns });
+      await revertCodexThreadTurns(transport, threadId, rollbackTurns);
     } catch (error) {
       throw new Error(`Rollback failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return threadId;
+}
+
+/**
+ * Drop the last `numTurns` turns from a Codex thread's history. Codex's
+ * `thread/revert` cuts history before a turn ID, so the cut turn is found by
+ * listing turns newest first. Asking for more turns than the thread holds
+ * clears the whole thread. Only `paginated` threads can be reverted; threads
+ * from older Codex versions keep the `legacy` history format and are refused.
+ */
+export async function revertCodexThreadTurns(
+  transport: ConfigWriter,
+  threadId: string,
+  numTurns: number,
+): Promise<void> {
+  let beforeTurnId: string | undefined;
+  let remaining = numTurns;
+  let cursor: string | null = null;
+  do {
+    const page = (await transport.call("thread/turns/list", {
+      threadId,
+      cursor,
+      limit: remaining,
+      sortDirection: "desc",
+      itemsView: "notLoaded",
+    })) as { data: Array<{ id: string }>; nextCursor: string | null };
+    const turns = page.data.slice(0, remaining);
+    if (turns.length > 0) beforeTurnId = turns[turns.length - 1].id;
+    remaining -= turns.length;
+    cursor = page.nextCursor;
+  } while (remaining > 0 && cursor);
+  if (!beforeTurnId) return;
+
+  try {
+    await transport.call("thread/revert", { threadId, beforeTurnId });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("only supports paginated threads")) throw error;
+    throw new Error(
+      "Codex can't revert this conversation: it was created by an older Codex version, and the current Codex only reverts conversations in its newer history format. New Codex sessions can be reverted.",
+    );
+  }
 }

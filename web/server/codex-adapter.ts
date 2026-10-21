@@ -109,6 +109,7 @@ import {
   buildCodexInitialSessionState,
   configureCodexDeveloperInstructions,
   forkCodexThread,
+  revertCodexThreadTurns,
   initializeCodexConnection,
   handleCodexTurnStartDispatchFailure,
 } from "./codex-adapter-initialization.js";
@@ -937,10 +938,7 @@ export class CodexAdapter
     }
 
     try {
-      await this.transport.call("thread/rollback", {
-        threadId: this.threadId,
-        numTurns,
-      });
+      await revertCodexThreadTurns(this.transport, this.threadId, numTurns);
     } catch (err) {
       if (activeTurnId) {
         this.suppressedTurnResultIds.delete(activeTurnId);
