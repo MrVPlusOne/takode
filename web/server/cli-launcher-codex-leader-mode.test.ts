@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,11 +18,18 @@ describe("Codex leader compaction mode launch prep", () => {
     return root;
   }
 
+  // A session home whose account catalog knows the model, as Codex's own cache would.
+  async function makeSessionHome(codexHome: string, sessionId: string, model: string): Promise<void> {
+    await mkdir(join(codexHome, sessionId), { recursive: true });
+    const models = [{ slug: model, base_instructions: "Built-in prompt" }];
+    await writeFile(join(codexHome, sessionId, "models_cache.json"), JSON.stringify({ models }), "utf-8");
+  }
+
   it("keeps delegate MCP for compact-mode leaders while disabling recycle guard config", async () => {
     const codexHome = await makeCodexHomeRoot();
     const legacyCodexHome = await makeCodexHomeRoot();
     const agentsSkillsHome = await makeCodexHomeRoot();
-    await mkdir(join(codexHome, "compact-leader"), { recursive: true });
+    await makeSessionHome(codexHome, "compact-leader", "takode-compact-leader");
     const spawn = await prepareCodexSpawn(
       "compact-leader",
       {
@@ -65,7 +72,7 @@ describe("Codex leader compaction mode launch prep", () => {
   it("defaults leaders without a chosen mode to compaction and recycles only when selected", async () => {
     const prepareLeader = async (sessionId: string, mode?: "recycle") => {
       const codexHome = await makeCodexHomeRoot();
-      await mkdir(join(codexHome, sessionId), { recursive: true });
+      await makeSessionHome(codexHome, sessionId, "takode-default-mode-leader");
       return prepareCodexSpawn(
         sessionId,
         { cwd: "/repo", isOrchestrator: true, codexLeaderCompactionMode: mode },

@@ -57,6 +57,14 @@ import {
 import { createCodexBundledModelCatalogLoader } from "./codex-model-catalog.js";
 import { settleCodexCatalogModelEntries, type CodexModelCatalog } from "./codex-session-catalog-entries.js";
 import {
+  captureCodexProviderEnv,
+  linkCodexUserHomeEntries,
+  readCodexUserConfigSources,
+  readUserCodexDeveloperInstructions,
+  refreshCodexSessionConfig,
+  saveCodexSessionConfigBaseline,
+} from "./codex-user-config-carryover.js";
+import {
   effectiveContextPercentFromModelEntry,
   leaderRecycleThresholdForUsableCapacity,
   rawContextWindowForUsableCapacity,
@@ -196,6 +204,8 @@ export interface CodexSpawnSpec {
   codexLeaderRecycleThresholdTokens?: number;
   contextWindowDiagnostics: CodexContextWindowDiagnostics;
   instructionContext: CodexInstructionContext;
+  /** The user's own `developer_instructions` from their Codex config, added to Takode's. */
+  userDeveloperInstructions?: string;
 }
 
 function codexGlobalInstructionFilenamesForContext(runtimeHome: string, sourceHome: string) {
@@ -552,13 +562,7 @@ async function ensureCodexLeaderModelCatalogOverride(
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeLeaderModelCatalogFilename,
-    createModelEntry: (modelSlug) => ({
-      slug: modelSlug,
-      context_window: launchGuard.providerRawContextWindow,
-      max_context_window: launchGuard.providerRawContextWindow,
-      effective_context_window_percent: CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-      auto_compact_token_limit: launchGuard.providerAutoCompactTokenLimit,
-    }),
+    addMissingModel: true,
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
         coercePositiveNumber(modelEntry.effective_context_window_percent) ||
@@ -586,7 +590,8 @@ async function ensureCodexModelCatalogOverride(
     model?: string;
     modelCatalogConfigPath?: string;
     catalogFilename: string;
-    createModelEntry?: (modelSlug: string) => Record<string, any>;
+    /** Add the selected model when the catalog lacks it. */
+    addMissingModel?: boolean;
     sourceCatalogSnapshotFilename?: string;
     skipConfiguredCatalogSource?: boolean;
     /** The CLI's bundled catalog, for models the catalog files lack or carry without a built-in prompt. */
@@ -627,7 +632,7 @@ async function ensureCodexModelCatalogOverride(
     }
   }
   if (!Array.isArray(parsedCatalog?.models)) {
-    if (!options.createModelEntry) return { configToml };
+    if (!options.addMissingModel) return { configToml };
     // No catalog file: start from the one Codex itself falls back to.
     parsedCatalog = (await options.loadCodexCatalog?.()) ?? { models: [] };
   }
@@ -648,10 +653,11 @@ async function ensureCodexModelCatalogOverride(
 
   const settled = await settleCodexCatalogModelEntries(parsedCatalog.models, modelSlug, {
     loadCodexCatalog: options.loadCodexCatalog,
-    createModelEntry: options.createModelEntry,
+    addMissingModel: options.addMissingModel,
   });
-  if (!settled.modelEntry) return { configToml };
-  const changed = options.mutateModelEntry(settled.modelEntry) || settled.changed;
+  // A model no catalog knows gets no entry, but stale entries may still need removing.
+  if (!settled.modelEntry && !settled.changed) return { configToml };
+  const changed = (settled.modelEntry ? options.mutateModelEntry(settled.modelEntry) : false) || settled.changed;
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
   const catalogPath = join(codexHome, options.catalogFilename);
@@ -724,13 +730,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
     loadCodexCatalog: options?.loadCodexCatalog,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
-    createModelEntry: (modelSlug) => ({
-      slug: modelSlug,
-      context_window: rawContextWindow,
-      max_context_window: rawContextWindow,
-      effective_context_window_percent: effectivePercent,
-      auto_compact_token_limit: modelAutoCompactTokenLimit,
-    }),
+    addMissingModel: true,
     mutateModelEntry: (modelEntry) => {
       effectivePercent = effectiveContextPercentFromModelEntry(modelEntry);
       rawContextWindow = rawContextWindowForUsableCapacity(desiredUsableContextWindow, effectivePercent);
@@ -790,7 +790,7 @@ async function ensureCodexMaiLitellmCatalogCompatibilityOverride(
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
-    ...(options?.multiAgentVersion ? { createModelEntry: (modelSlug: string) => ({ slug: modelSlug }) } : {}),
+    addMissingModel: !!options?.multiAgentVersion,
     mutateModelEntry: (modelEntry) => {
       const compatibilityChanged = disableResponsesLiteForMaiLitellm(modelEntry);
       const multiAgentChanged = forceCodexModelEntryMultiAgentVersion(modelEntry, options?.multiAgentVersion);
@@ -818,7 +818,7 @@ async function ensureCodexMultiAgentModelCatalogOverride(
     catalogFilename: takodeNonLeaderModelCatalogFilename,
     sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
-    createModelEntry: (modelSlug) => ({ slug: modelSlug }),
+    addMissingModel: true,
     mutateModelEntry: (modelEntry) => forceCodexModelEntryMultiAgentVersion(modelEntry, multiAgentVersion),
   });
   return { configToml: override.configToml, modelCatalogJson: override.catalogJson };
@@ -1171,7 +1171,8 @@ async function prepareCodexHome(
   // Codex validates these caches itself (CLI version, age, signed account identity),
   // so seeding them only spares a session's startup the network fetches that rebuild them.
   const startupCacheSeeds = ["models_cache.json", "cloud-config-bundle-cache.json"];
-  const fileSeeds = ["auth.json", "config.toml", "version.json", ...startupCacheSeeds];
+  // config.toml is rebuilt from the user's config at every launch (ensureCodexSessionConfig).
+  const fileSeeds = ["auth.json", "version.json", ...startupCacheSeeds];
   if (canSeedSourceHome) {
     for (const name of fileSeeds) {
       try {
@@ -1202,12 +1203,7 @@ async function prepareCodexHome(
           continue;
         }
         if (!(await fileExists(dest))) {
-          if (name === "config.toml") {
-            const seededConfig = await readFile(src, "utf-8");
-            await writeFile(dest, scrubSessionScopedCodexConfig(seededConfig), "utf-8");
-          } else {
-            await copyFile(src, dest);
-          }
+          await copyFile(src, dest);
         } else if (isStartupCache && (await stat(src)).mtimeMs > (await stat(dest)).mtimeMs) {
           await copyFile(src, dest);
         }
@@ -1219,6 +1215,11 @@ async function prepareCodexHome(
   }
 
   if (canSeedSourceHome) {
+    try {
+      await linkCodexUserHomeEntries(codexHome, sourceHome);
+    } catch (error) {
+      console.warn(`[cli-launcher] Failed to link Codex plugins and hooks from ${sourceHome}:`, error);
+    }
     const dirSeeds = ["vendor_imports", "prompts", "rules"];
     for (const name of dirSeeds) {
       try {
@@ -1293,6 +1294,10 @@ async function ensureCodexSessionConfig(
       args: string[];
       env: Record<string, string>;
     };
+    /** The user's own Codex home; the session's settings are refreshed from its config. */
+    userCodexHome?: string;
+    /** Where the process sees the session home (differs inside a container). */
+    runtimeCodexHome?: string;
     timing?: CooperativeTiming;
   },
 ) {
@@ -1305,7 +1310,12 @@ async function ensureCodexSessionConfig(
   }
   await options?.timing?.yieldIfDue("read Codex session config");
 
-  let next = scrubSessionScopedCodexConfig(current);
+  const userConfig = options?.userCodexHome
+    ? await readCodexUserConfigSources(codexHome, options.userCodexHome, options.runtimeCodexHome)
+    : undefined;
+  let next = scrubSessionScopedCodexConfig(
+    userConfig ? refreshCodexSessionConfig({ ...userConfig, session: current || undefined }) : current,
+  );
   next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexMultiAgentFeature, true);
   if (options?.multiAgentVersion) {
     next = upsertBooleanSettingInSection(
@@ -1440,8 +1450,10 @@ async function ensureCodexSessionConfig(
     await writeFile(configPath, next, "utf-8");
     await options?.timing?.yieldIfDue("write Codex session config");
   }
+  if (userConfig) await saveCodexSessionConfigBaseline(codexHome, next);
   return {
     configToml: next,
+    userDeveloperInstructions: userConfig ? readUserCodexDeveloperInstructions(userConfig.user) : undefined,
     modelCatalogJson,
     leaderRecycleThresholdTokens,
     leaderLaunchConfig,
@@ -1605,6 +1617,7 @@ export async function prepareCodexSpawn(
     let contextLaunchConfig: CodexContextLaunchConfig | undefined;
     let reasoningSummaryLaunchMode: CodexReasoningSummaryLaunchMode | undefined;
     let resolvedConfigToml = "";
+    let userDeveloperInstructions: string | undefined;
     let resolvedModelCatalogJson: string | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
@@ -1645,10 +1658,12 @@ export async function prepareCodexSpawn(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
           ),
+          userCodexHome: globalInstructionSourceHome,
           timing,
         }),
       );
       resolvedConfigToml = sessionConfig.configToml;
+      userDeveloperInstructions = sessionConfig.userDeveloperInstructions;
       resolvedModelCatalogJson = sessionConfig.modelCatalogJson;
       resolvedLeaderRecycleThresholdTokens = sessionConfig.leaderRecycleThresholdTokens;
       leaderLaunchConfig = sessionConfig.leaderLaunchConfig;
@@ -1681,9 +1696,12 @@ export async function prepareCodexSpawn(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
           ),
+          userCodexHome: globalInstructionSourceHome,
+          runtimeCodexHome: "/root/.codex",
           timing,
         }),
       );
+      userDeveloperInstructions = containerConfig.userDeveloperInstructions;
       containerLeaderConfigToml = containerConfig.configToml;
       containerModelCatalogJson = containerConfig.modelCatalogJson;
       resolvedConfigToml = containerConfig.configToml;
@@ -1785,6 +1803,7 @@ export async function prepareCodexSpawn(
         codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
         contextWindowDiagnostics,
         instructionContext,
+        userDeveloperInstructions,
       };
     }
 
@@ -1819,12 +1838,20 @@ export async function prepareCodexSpawn(
     const shellEnv = timing.stepSync("load warmed Codex shell env", () =>
       captureUserShellEnv([...hostCodexShellEnvVars], { allowShellSpawn: false }),
     );
+    const providerEnv = await timing.step("load Codex provider key env", () =>
+      captureCodexProviderEnv(
+        getSelectedProviderEnvKeys(resolvedConfigToml).filter(
+          (name) => !(hostCodexShellEnvVars as readonly string[]).includes(name),
+        ),
+      ),
+    );
 
     return {
       spawnCmd,
       spawnEnv: withNonInteractiveGitEditorEnv({
         ...inheritedLaunchEnv(process.env),
         ...shellEnv,
+        ...providerEnv,
         MAI_CODEX_DEBUG_WRAPPER: "1",
         ...options.env,
         CODEX_HOME: codexHome,
@@ -1837,6 +1864,7 @@ export async function prepareCodexSpawn(
       codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
       contextWindowDiagnostics,
       instructionContext,
+      userDeveloperInstructions,
     };
   } finally {
     timing.finish({

@@ -305,7 +305,9 @@ describe("Codex spawn preparation", () => {
     writeFileSync(join(sessionHome, "config.toml"), `model = "${model}"\n`, "utf-8");
     writeFileSync(
       join(sessionHome, "models_cache.json"),
-      JSON.stringify({ models: [{ slug: model, multi_agent_version: sourceVersion }] }),
+      JSON.stringify({
+        models: [{ slug: model, base_instructions: "Built-in prompt", multi_agent_version: sourceVersion }],
+      }),
       "utf-8",
     );
 

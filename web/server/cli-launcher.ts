@@ -29,6 +29,7 @@ import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
 import { machineContextForHost } from "./remote-host/machines.js";
+import { withUserCodexDeveloperInstructions } from "./codex-user-config-carryover.js";
 import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
 import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
@@ -1251,6 +1252,7 @@ export class CliLauncher {
     let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
     let reasoningSummary: "auto" | "concise" | "detailed" | undefined;
     let instructionContext: import("./codex-instruction-snapshot.js").CodexInstructionContext | undefined;
+    let userDeveloperInstructions: string | undefined;
     /** Set when the host prepared this launch; the process then runs there. */
     let remoteLaunchId: string | undefined;
     const nodeHost = this.nodeHostForLaunch(info, options);
@@ -1295,6 +1297,7 @@ export class CliLauncher {
       sandboxMode = spawnSpec.sandboxMode;
       reasoningSummary = spawnSpec.reasoningSummary;
       instructionContext = spawnSpec.instructionContext;
+      userDeveloperInstructions = spawnSpec.userDeveloperInstructions;
       info.codexContextWindowDiagnostics = spawnSpec.contextWindowDiagnostics;
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
@@ -1375,6 +1378,7 @@ export class CliLauncher {
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
     const codexInstructions = this.buildInstructions(info, "codex", options.extraInstructions);
+    // Takode's own instructions only: they decide whether a running process is outdated.
     if (codexInstructions) info.injectedSystemPrompt = codexInstructions;
     const adapter = new CodexAdapter(proc, sessionId, {
       model: options.model,
@@ -1389,7 +1393,7 @@ export class CliLauncher {
       reasoningSummary,
       serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
-      instructions: codexInstructions || undefined,
+      instructions: withUserCodexDeveloperInstructions(codexInstructions || undefined, userDeveloperInstructions),
       recoveryRole: info.isOrchestrator ? "leader" : "standard",
       instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),

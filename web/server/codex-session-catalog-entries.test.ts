@@ -40,11 +40,12 @@ describe("settleCodexCatalogModelEntries", () => {
   it("adds a missing selected model as Codex's own entry instead of an empty-prompt stub", async () => {
     const models: unknown[] = [];
     const loadCodexCatalog = vi.fn(async () => ({ models: [codexEntry("gpt-6-astra"), codexEntry("gpt-5.5")] }));
-    const createModelEntry = vi.fn((slug: string) => ({ slug }));
 
-    const settled = await settleCodexCatalogModelEntries(models, "gpt-6-astra", { loadCodexCatalog, createModelEntry });
+    const settled = await settleCodexCatalogModelEntries(models, "gpt-6-astra", {
+      loadCodexCatalog,
+      addMissingModel: true,
+    });
 
-    expect(createModelEntry).not.toHaveBeenCalled();
     expect(settled.changed).toBe(true);
     expect(settled.modelEntry).toMatchObject({
       slug: "gpt-6-astra",
@@ -61,7 +62,7 @@ describe("settleCodexCatalogModelEntries", () => {
 
     const settled = await settleCodexCatalogModelEntries(models, "gpt-5.5-preview", {
       loadCodexCatalog,
-      createModelEntry: (slug) => ({ slug }),
+      addMissingModel: true,
     });
 
     expect(settled.modelEntry).toMatchObject({ slug: "gpt-5.5-preview", base_instructions: "Account prompt" });
@@ -82,18 +83,36 @@ describe("settleCodexCatalogModelEntries", () => {
     expect(models[1]).toMatchObject(codexEntry("gpt-5.5"));
   });
 
-  it("keeps a parseable stub, with a warning, only for a model no catalog knows", async () => {
+  // A model no catalog knows must get no entry: Codex then uses its own generic
+  // prompt and tools, while a prompt-less entry made it send no prompt at all.
+  it("adds no entry, with a warning, for a model no catalog knows", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const models: unknown[] = [];
+    const models: unknown[] = [codexEntry("gpt-5.5")];
 
     const settled = await settleCodexCatalogModelEntries(models, "custom-model", {
       loadCodexCatalog: async () => ({ models: [codexEntry("gpt-6-astra")] }),
-      createModelEntry: (slug) => ({ slug, context_window: 100_000 }),
+      addMissingModel: true,
     });
 
-    expect(settled.modelEntry).toMatchObject({ slug: "custom-model", context_window: 100_000, base_instructions: "" });
+    expect(settled.modelEntry).toBeUndefined();
+    expect(models.map((entry: any) => entry.slug)).toEqual(["gpt-5.5"]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("custom-model"));
     warn.mockRestore();
+  });
+
+  // Sessions written before this fix hold a prompt-less stub for such a model;
+  // removing it lets their next launch fall back to Codex's generic prompt.
+  it("removes a prompt-less entry no catalog can replace", async () => {
+    const models: unknown[] = [legacySynthesizedEntry("custom-model"), codexEntry("gpt-5.5")];
+
+    const settled = await settleCodexCatalogModelEntries(models, "custom-model", {
+      loadCodexCatalog: async () => ({ models: [codexEntry("gpt-6-astra")] }),
+      addMissingModel: true,
+    });
+
+    expect(settled.changed).toBe(true);
+    expect(settled.modelEntry).toBeUndefined();
+    expect(models.map((entry: any) => entry.slug)).toEqual(["gpt-5.5"]);
   });
 
   it("does not load the bundled catalog when every entry already has a prompt", async () => {

@@ -1,8 +1,12 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { _ensureCodexSessionConfigForTest } from "./cli-launcher-codex.js";
+
+// Real catalog entries carry Codex's built-in prompt; entries without one are
+// treated as stubs older Takode versions wrote.
+const PROMPT = "Built-in prompt";
 
 describe("Codex session catalog hardening", () => {
   const tempRoots: string[] = [];
@@ -39,10 +43,13 @@ describe("Codex session catalog hardening", () => {
     });
   }
 
-  it("synthesizes a parser-valid leader catalog entry when no source entry exists", async () => {
+  // Codex runs a model no catalog knows with its own generic prompt and tools.
+  // Takode used to add a prompt-less entry, which made Codex send no prompt;
+  // now it adds none and keeps the leader guard in the top-level config.
+  it("adds no catalog entry for a leader model no catalog knows, keeping the context guard in config", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
-    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
     const model = "takode-test-leader";
     await writeFile(configPath, `model = "${model}"\n`, "utf-8");
     await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
@@ -50,22 +57,15 @@ describe("Codex session catalog hardening", () => {
     await _ensureCodexSessionConfigForTest(codexHome, [], {
       leaderRecycleThresholdTokens: 260_000,
       model,
+      loadBundledModelCatalog: async () => ({ models: [] }),
     });
 
     const config = await readFile(configPath, "utf-8");
-    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    expect(config).not.toContain("model_catalog_json");
     expect(config).toContain("model_context_window = 1444445");
     expect(config).toContain("model_auto_compact_token_limit = 1300000");
-
-    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
-    expect(catalog.models).toHaveLength(1);
-    expectParserSafeEntry(catalog.models[0], model);
-    expect(catalog.models[0]).toMatchObject({
-      context_window: 1_444_445,
-      max_context_window: 1_444_445,
-      effective_context_window_percent: 95,
-      auto_compact_token_limit: 1_300_000,
-    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(model));
+    warn.mockRestore();
   });
 
   it("registers a Takode-owned delegate MCP server in leader session config", async () => {
@@ -182,6 +182,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 600_000,
             max_context_window: 600_000,
             effective_context_window_percent: 95,
@@ -223,6 +224,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 600_000,
             max_context_window: 600_000,
             effective_context_window_percent: 95,
@@ -265,6 +267,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             supports_reasoning_summaries: true,
             default_reasoning_summary: "none",
           },
@@ -293,6 +296,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             supports_reasoning_summaries: false,
           },
         ],
@@ -322,6 +326,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             supports_reasoning_summaries: true,
           },
         ],
@@ -349,7 +354,7 @@ describe("Codex session catalog hardening", () => {
     );
     await writeFile(
       join(codexHome, "models_cache.json"),
-      JSON.stringify({ models: [{ slug: model, supports_reasoning_summaries: false }] }),
+      JSON.stringify({ models: [{ slug: model, base_instructions: PROMPT, supports_reasoning_summaries: false }] }),
       "utf-8",
     );
 
@@ -373,6 +378,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: "gpt-5.5",
+            base_instructions: PROMPT,
             supports_reasoning_summaries: true,
           },
         ],
@@ -413,6 +419,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 372_000,
             max_context_window: 372_000,
             effective_context_window_percent: 95,
@@ -430,6 +437,7 @@ describe("Codex session catalog hardening", () => {
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
     expect(catalog.models[0]).toMatchObject({
       slug: model,
+      base_instructions: PROMPT,
       use_responses_lite: false,
       context_window: 1_824_445,
       max_context_window: 1_824_445,
@@ -449,6 +457,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 600_000,
             max_context_window: 600_000,
             effective_context_window_percent: 95,
@@ -489,6 +498,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 372_000,
             max_context_window: 372_000,
             effective_context_window_percent: 95,
@@ -513,6 +523,7 @@ describe("Codex session catalog hardening", () => {
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
     expect(catalog.models[0]).toMatchObject({
       slug: model,
+      base_instructions: PROMPT,
       context_window: 3_027_778,
       max_context_window: 3_027_778,
       effective_context_window_percent: 95,
@@ -543,6 +554,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 631_053,
             max_context_window: 631_053,
             effective_context_window_percent: 95,
@@ -583,7 +595,7 @@ describe("Codex session catalog hardening", () => {
     );
     await writeFile(
       catalogPath,
-      JSON.stringify({ models: [{ slug: model, auto_compact_token_limit: 510000 }] }),
+      JSON.stringify({ models: [{ slug: model, base_instructions: PROMPT, auto_compact_token_limit: 510000 }] }),
       "utf-8",
     );
 
@@ -637,6 +649,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 300_000,
             max_context_window: 300_000,
             effective_context_window_percent: 80,
@@ -685,6 +698,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 372_000,
             max_context_window: 372_000,
             effective_context_window_percent: 95,
@@ -707,6 +721,7 @@ describe("Codex session catalog hardening", () => {
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
     expect(catalog.models[0]).toMatchObject({
       slug: model,
+      base_instructions: PROMPT,
       context_window: 372_000,
       max_context_window: 372_000,
       use_responses_lite: false,
@@ -719,7 +734,11 @@ describe("Codex session catalog hardening", () => {
     const catalogPath = join(codexHome, "takode-model-catalog.json");
     const model = "takode-test-worker-clear";
     await writeFile(configPath, `model = "${model}"\n`, "utf-8");
-    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [{ slug: model }] }), "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, base_instructions: PROMPT }] }),
+      "utf-8",
+    );
 
     await _ensureCodexSessionConfigForTest(codexHome, [], {
       leaderLaunch: false,
@@ -755,6 +774,7 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 300_000,
             max_context_window: 300_000,
             effective_context_window_percent: 80,
@@ -820,7 +840,7 @@ describe("Codex session catalog hardening", () => {
             base_instructions: "Keep these user-authored instructions.",
             custom_transport: { route: "private-model-route" },
           },
-          { slug: "other-custom-model", custom_marker: "preserve-me" },
+          { slug: "other-custom-model", base_instructions: PROMPT, custom_marker: "preserve-me" },
         ],
       }),
       "utf-8",
@@ -929,11 +949,12 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: model,
+            base_instructions: PROMPT,
             context_window: 300_000,
             max_context_window: 300_000,
             effective_context_window_percent: 80,
           },
-          { slug: "other-model", context_window: 200_000 },
+          { slug: "other-model", base_instructions: PROMPT, context_window: 200_000 },
         ],
       }),
       "utf-8",
@@ -968,11 +989,11 @@ describe("Codex session catalog hardening", () => {
     const configPath = join(codexHome, "config.toml");
     const sourceCatalogPath = join(codexHome, "models_cache.json");
     const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
-    const model = "takode-test-missing";
+    const model = "other-model-preview";
     await writeFile(configPath, `model = "${model}"\n`, "utf-8");
     await writeFile(
       sourceCatalogPath,
-      JSON.stringify({ models: [{ slug: "other-model", context_window: 1000 }] }, null, 2),
+      JSON.stringify({ models: [{ slug: "other-model", base_instructions: PROMPT, context_window: 1000 }] }, null, 2),
       "utf-8",
     );
 
@@ -985,7 +1006,9 @@ describe("Codex session catalog hardening", () => {
     expect(catalog.models.map((entry: Record<string, unknown>) => entry.slug)).toEqual(["other-model", model]);
     const added = catalog.models.find((entry: Record<string, unknown>) => entry.slug === model);
     expectParserSafeEntry(added, model);
+    // Codex's own prefix lookup resolves the missing model to the known entry.
     expect(added).toMatchObject({
+      base_instructions: PROMPT,
       context_window: 1_444_445,
       max_context_window: 1_444_445,
       auto_compact_token_limit: 1_300_000,
@@ -1005,10 +1028,12 @@ describe("Codex session catalog hardening", () => {
         models: [
           {
             slug: "other-model",
+            base_instructions: PROMPT,
             supported_reasoning_levels: ["low", { effort: "high" }, { description: "no effort" }],
           },
           {
             slug: model,
+            base_instructions: PROMPT,
             supported_reasoning_levels: [{ effort: "medium", description: "Balanced", extra: "kept" }],
           },
         ],
@@ -1032,7 +1057,10 @@ describe("Codex session catalog hardening", () => {
     expect(selected.supported_reasoning_levels).toEqual([{ effort: "medium", description: "Balanced", extra: "kept" }]);
   });
 
-  it("repairs a legacy minimal configured catalog during relaunch prep", async () => {
+  // A session written by an older Takode holds a prompt-less stub for a model no
+  // catalog knows; relaunch prep removes it so Codex uses its generic prompt.
+  it("removes a legacy prompt-less stub for an unknown model during relaunch prep", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
     const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
@@ -1048,16 +1076,12 @@ describe("Codex session catalog hardening", () => {
     await _ensureCodexSessionConfigForTest(codexHome, [], {
       leaderRecycleThresholdTokens: 260_000,
       model,
+      loadBundledModelCatalog: async () => ({ models: [] }),
     });
 
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
-    expect(catalog.models).toHaveLength(1);
-    expectParserSafeEntry(catalog.models[0], model);
-    expect(catalog.models[0]).toMatchObject({
-      context_window: 1_444_445,
-      max_context_window: 1_444_445,
-      auto_compact_token_limit: 1_300_000,
-    });
+    expect(catalog.models).toEqual([]);
+    warn.mockRestore();
   });
 
   it("uses container catalog paths in generated config while writing the host-side catalog content", async () => {
@@ -1065,7 +1089,11 @@ describe("Codex session catalog hardening", () => {
     const containerCatalogPath = "/root/.codex/takode-leader-model-catalog.json";
     const model = "takode-test-container";
     await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
-    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, base_instructions: PROMPT }] }),
+      "utf-8",
+    );
 
     const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
       leaderRecycleThresholdTokens: 260_000,
@@ -1091,7 +1119,7 @@ describe("Codex session catalog hardening", () => {
     await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
     await writeFile(
       join(codexHome, "models_cache.json"),
-      JSON.stringify({ models: [{ slug: model, multi_agent_version: sourceVersion }] }),
+      JSON.stringify({ models: [{ slug: model, base_instructions: PROMPT, multi_agent_version: sourceVersion }] }),
       "utf-8",
     );
 
@@ -1117,7 +1145,9 @@ describe("Codex session catalog hardening", () => {
     await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
     await writeFile(
       join(codexHome, "models_cache.json"),
-      JSON.stringify({ models: [{ slug: model, multi_agent_version: "v1", context_window: 800_000 }] }),
+      JSON.stringify({
+        models: [{ slug: model, base_instructions: PROMPT, multi_agent_version: "v1", context_window: 800_000 }],
+      }),
       "utf-8",
     );
 

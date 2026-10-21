@@ -310,12 +310,20 @@ describe("Codex launch env", () => {
     // Container Codex can generate config.toml inside the docker exec script;
     // that generated config must preserve the shell-command Git editor policy.
     const customHome = mkdtempSync(join(tempDir, "codex-container-home-test-"));
+    // The account catalog knows the model, so the session catalog gets its entry.
+    mkdirSync(join(customHome, "test-session-id"), { recursive: true });
+    writeFileSync(
+      join(customHome, "test-session-id", "models_cache.json"),
+      JSON.stringify({ models: [{ slug: "gpt-test-container", base_instructions: "Built-in prompt" }] }),
+      "utf-8",
+    );
 
     await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
       codexHome: customHome,
+      model: "gpt-test-container",
       codexMultiAgentVersion: "v2",
       codexLeaderRecycleThresholdTokens: 260_000,
       containerId: "abc123def456",
@@ -348,6 +356,58 @@ describe("Codex launch env", () => {
     // Docker runs the same process policy, even with a separately materialized config.
     for (const key of ["features.memories", "memories.generate_memories", "memories.use_memories"]) {
       expect(innerScript).toContain(`'-c' '${key}=false'`);
+    }
+  });
+
+  // A session keeps its own Codex home but must get what plain Codex gets from
+  // ~/.codex: current settings at every launch, plugins, hooks, the user's own
+  // developer instructions, and the provider key variable for login.
+  it("carries the user's Codex settings, plugins, hooks, instructions and provider key into each launch", async () => {
+    const legacyHome = join(tempDir, "standalone");
+    const customHome = join(tempDir, "managed");
+    const sessionHome = join(customHome, "test-session-id");
+    const userConfig = (docsCommand: string) =>
+      [
+        'model_provider = "corp"',
+        'developer_instructions = "Prefer pnpm."',
+        "",
+        "[model_providers.corp]",
+        'env_key = "CORP_CODEX_KEY"',
+        "",
+        "[mcp_servers.docs]",
+        `command = "${docsCommand}"`,
+        "",
+      ].join("\n");
+    mkdirSync(join(legacyHome, "plugins", "cache"), { recursive: true });
+    writeFileSync(join(legacyHome, "hooks.json"), "{}\n");
+    writeFileSync(join(legacyHome, "config.toml"), userConfig("docs-v1"));
+    mockLegacyCodexHome.mockReturnValue(legacyHome);
+    vi.stubEnv("CORP_CODEX_KEY", "corp-secret");
+
+    try {
+      const session = await launcher.launch({ backendType: "codex", cwd: tempDir, codexHome: customHome });
+      await waitForSpawnCalls(1);
+
+      const [, options] = mockSpawn.mock.calls[0];
+      expect(options.env.CORP_CODEX_KEY).toBe("corp-secret");
+      expect(readlinkSync(join(sessionHome, "plugins"))).toBe(join(legacyHome, "plugins"));
+      expect(readlinkSync(join(sessionHome, "hooks.json"))).toBe(join(legacyHome, "hooks.json"));
+      const firstConfig = readFileSync(join(sessionHome, "config.toml"), "utf-8");
+      expect(firstConfig).toContain('command = "docs-v1"');
+      // Takode's instructions replace the config key; the user's are added to them instead.
+      expect(firstConfig).not.toContain("developer_instructions");
+      const adapterInstructions = String(mockCodexAdapterOptions[0]?.instructions);
+      expect(adapterInstructions).toContain("## The user's own Codex developer instructions\n");
+      expect(adapterInstructions.endsWith("Prefer pnpm.")).toBe(true);
+      expect(launcher.getSession(session.sessionId)?.injectedSystemPrompt).not.toContain("Prefer pnpm.");
+
+      // An edit to ~/.codex after the session was created reaches its relaunch.
+      writeFileSync(join(legacyHome, "config.toml"), userConfig("docs-v2"));
+      expect(await launcher.relaunch(session.sessionId)).toEqual({ ok: true });
+      await waitForSpawnCalls(2);
+      expect(readFileSync(join(sessionHome, "config.toml"), "utf-8")).toContain('command = "docs-v2"');
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 

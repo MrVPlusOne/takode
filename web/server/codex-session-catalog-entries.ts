@@ -14,10 +14,11 @@ export interface CodexModelCatalog {
  * selected model's entry, or undefined when the catalog should not get one.
  *
  * - An entry with no built-in prompt (one an older Takode synthesized, or one
- *   Codex could not use) is replaced by the entry Codex resolves for its slug.
+ *   Codex could not use) is replaced by the entry Codex resolves for its slug,
+ *   or removed when Codex knows no entry for it.
  * - A missing selected model gets the entry Codex itself would use: its lookup
- *   in this catalog, else in the CLI's bundled catalog. Only a model unknown to
- *   both falls back to `createModelEntry`; that entry has no built-in prompt.
+ *   in this catalog, else in the CLI's bundled catalog. A model unknown to both
+ *   gets no entry, so Codex runs it with its own generic prompt and tools.
  * - Every entry gets the fields Codex's parser requires, because Codex parses
  *   the whole catalog at startup.
  *
@@ -28,7 +29,8 @@ export async function settleCodexCatalogModelEntries(
   modelSlug: string,
   options: {
     loadCodexCatalog?: () => Promise<CodexModelCatalog | null>;
-    createModelEntry?: (modelSlug: string) => Record<string, any>;
+    /** Add the selected model when the catalog lacks it. */
+    addMissingModel?: boolean;
   },
 ): Promise<{ modelEntry?: Record<string, any>; changed: boolean }> {
   let codexModels: unknown[] | undefined;
@@ -38,32 +40,32 @@ export async function settleCodexCatalogModelEntries(
   };
   let changed = false;
 
-  for (const [index, entry] of models.entries()) {
+  for (let index = models.length - 1; index >= 0; index--) {
+    const entry = models[index];
     if (!isSlugEntry(entry) || hasCodexModelInstructions(entry)) continue;
     const codexEntry = findCodexCatalogModel(entry.slug, await loadCodexModels());
-    if (!codexEntry) continue;
-    models[index] = { ...structuredClone(codexEntry), slug: entry.slug };
+    // Without an entry Codex falls back to its generic prompt; an entry with
+    // no prompt would make it send none.
+    if (codexEntry) models[index] = { ...structuredClone(codexEntry), slug: entry.slug };
+    else models.splice(index, 1);
     changed = true;
   }
 
   let modelEntry = models.find((entry): entry is Record<string, any> => isSlugEntry(entry) && entry.slug === modelSlug);
-  if (!modelEntry) {
-    if (!options.createModelEntry) return { changed };
+  if (!modelEntry && options.addMissingModel) {
     const codexEntry =
       findCodexCatalogModel(modelSlug, models) ?? findCodexCatalogModel(modelSlug, await loadCodexModels());
-    modelEntry = codexEntry ? { ...structuredClone(codexEntry), slug: modelSlug } : options.createModelEntry(modelSlug);
-    models.push(modelEntry);
-    changed = true;
+    if (codexEntry) {
+      modelEntry = { ...structuredClone(codexEntry), slug: modelSlug };
+      models.push(modelEntry);
+      changed = true;
+    } else {
+      console.warn(`[cli-launcher] No Codex catalog knows model ${modelSlug}; Codex uses its generic prompt for it.`);
+    }
   }
 
   for (const entry of models) {
-    if (!isSlugEntry(entry)) continue;
-    if (ensureCodexModelEntrySchemaDefaults(entry, entry.slug)) changed = true;
-    if (!hasCodexModelInstructions(entry)) {
-      console.warn(
-        `[cli-launcher] No Codex catalog knows model ${entry.slug}; it runs without Codex's built-in prompt.`,
-      );
-    }
+    if (isSlugEntry(entry) && ensureCodexModelEntrySchemaDefaults(entry, entry.slug)) changed = true;
   }
   return { modelEntry, changed };
 }
@@ -161,9 +163,6 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
   setDefault("visibility", "list", (value) => typeof value === "string");
   setDefault("supported_in_api", true, (value) => typeof value === "boolean");
   setDefault("priority", 0, (value) => typeof value === "number" && Number.isFinite(value));
-  // Codex rejects an entry with neither instruction field; this keeps a model
-  // no catalog knows parseable.
-  setDefault("base_instructions", "", (value) => typeof value === "string");
   setDefault("supports_reasoning_summaries", true, (value) => typeof value === "boolean");
   setDefault("support_verbosity", true, (value) => typeof value === "boolean");
   setDefault(

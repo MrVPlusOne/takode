@@ -1105,6 +1105,7 @@ describe("launch", () => {
           models: [
             {
               slug: "gpt-5.6-sol",
+              base_instructions: "Built-in prompt",
               context_window: 372000,
               max_context_window: 372000,
               effective_context_window_percent: 95,
@@ -1314,13 +1315,16 @@ describe("launch", () => {
             models: [
               {
                 slug: "gpt-5.5",
+                base_instructions: "Built-in prompt",
                 context_window: 272000,
                 max_context_window: 272000,
                 auto_compact_token_limit: null,
                 effective_context_window_percent: 95,
               },
+              { slug: "gpt-5.6-sol", base_instructions: "Built-in prompt" },
               {
                 slug: "gpt-5.4",
+                base_instructions: "Built-in prompt",
                 context_window: 272000,
                 max_context_window: 1000000,
                 auto_compact_token_limit: null,
@@ -1387,6 +1391,11 @@ describe("launch", () => {
           "\n",
         ),
       );
+      // The account catalog knows the launched model, so its catalog entry carries the guard.
+      writeFileSync(
+        join(hostCodexHome, "models_cache.json"),
+        JSON.stringify({ models: [{ slug: "gpt-5.6-sol", base_instructions: "Built-in prompt" }] }),
+      );
 
       mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
@@ -1444,6 +1453,7 @@ describe("launch", () => {
               models: [
                 {
                   slug: "gpt-5.5",
+                  base_instructions: "Built-in prompt",
                   display_name: "GPT-5.5",
                   description: "Newest model",
                   effective_context_window_percent: 95,
@@ -1452,6 +1462,7 @@ describe("launch", () => {
                   auto_compact_token_limit: null,
                   visibility: "list",
                 },
+                { slug: "gpt-5.6-sol", base_instructions: "Built-in prompt" },
               ],
             },
             null,
