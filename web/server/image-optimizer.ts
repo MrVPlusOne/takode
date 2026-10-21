@@ -2,16 +2,25 @@ import { access, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 
 export const STORE_MAX_DIM = 1920;
-/** WebP near-lossless level for lossless sources: on screenshots, visually identical at about 40% of the PNG's size. */
-const NEAR_LOSSLESS_QUALITY = 60;
-/** WebP quality for lossy sources such as photos, where near-lossless would grow the file. */
-const LOSSY_QUALITY = 90;
 /**
- * Largest near-lossless encode kept; a larger one is re-encoded at `LOSSY_QUALITY`.
- * Screenshots stay far below it (about 1 bit per pixel at most), and it keeps every
- * stored image well inside model providers' per-image limits (Claude's is 5 MB).
+ * WebP settings per `OptimizeOptions.priority`: one for lossless sources such as
+ * screenshots, one for lossy sources such as photos (where a lossless encode would
+ * grow the file) and for lossless results over `LOSSLESS_SOURCE_MAX_BYTES`.
+ * - size: near-lossless level 60 looks identical and keeps small text crisp at about
+ *   40% of the PNG, but takes about 1-1.5 s for a full-size screenshot.
+ * - speed: exact lossless pixels at the lowest effort take about 0.1 s, at roughly
+ *   the size of the JPEG q85 copies Takode used to make.
  */
-const NEAR_LOSSLESS_MAX_BYTES = 2 * 1024 * 1024;
+const WEBP_SETTINGS: Record<OptimizePriority, { lossless: WebpOptions; lossy: WebpOptions }> = {
+  size: { lossless: { quality: 60, nearLossless: true }, lossy: { quality: 90 } },
+  speed: { lossless: { lossless: true, effort: 0 }, lossy: { quality: 90, effort: 2 } },
+};
+/**
+ * Largest lossless-source encode kept; a larger one (photo-like content) uses the lossy
+ * setting. This keeps every stored image well inside model providers' per-image limits
+ * (Claude's is 5 MB).
+ */
+const LOSSLESS_SOURCE_MAX_BYTES = 2 * 1024 * 1024;
 export const TAKODE_AGENT_IMAGE_MARKER = ".takode-agent.";
 
 export const SHARP_UNAVAILABLE_MESSAGE =
@@ -59,8 +68,23 @@ export interface FileOptimizationResult {
   after?: ImageDimensions;
 }
 
+type OptimizePriority = "size" | "speed";
+
+interface WebpOptions {
+  quality?: number;
+  nearLossless?: boolean;
+  lossless?: boolean;
+  effort?: number;
+}
+
 interface OptimizeOptions {
   maxDim?: number;
+  /**
+   * Whether to favour small files (default) or fast encoding; see `WEBP_SETTINGS`.
+   * Copies made for models favour speed: agents make one per screenshot, and the
+   * extra bytes do not change what the model sees.
+   */
+  priority?: OptimizePriority;
 }
 
 interface OptimizeFileOptions extends OptimizeOptions {
@@ -99,9 +123,9 @@ export async function resizeImageBufferForStore(
 }
 
 /**
- * Compress an image while keeping it close to the original: lossless sources such as
- * screenshots become near-lossless WebP, which keeps small text crisp where JPEG smears
- * it, and lossy sources such as photos become quality-90 WebP. Images larger than
+ * Compress an image as WebP while keeping it close to the original: lossless sources
+ * such as screenshots keep small text crisp where JPEG smeared it, and lossy sources
+ * such as photos become quality-90 WebP (see `WEBP_SETTINGS`). Images larger than
  * `maxDim` (default {@link STORE_MAX_DIM}) are scaled down first. Vector and animated
  * images, and images the encode would not make smaller, come back unchanged. This is
  * the one policy for every copy Takode makes: model-readable `.takode-agent.` files,
@@ -134,16 +158,15 @@ export async function optimizeImageBufferForStore(
     if ((meta.pages ?? 1) > 1) return unchanged;
 
     const resized = exceedsMaxDim(meta, maxDim);
-    const encode = (webp: { quality: number; nearLossless?: boolean }) => {
+    const settings = WEBP_SETTINGS[options.priority ?? "size"];
+    const encode = (webp: WebpOptions) => {
       let pipeline = sharp(data).rotate();
       if (resized)
         pipeline = pipeline.resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true });
       return pipeline.webp(webp).toBuffer();
     };
-    let encoded = isLosslessRasterFormat(meta.format)
-      ? await encode({ quality: NEAR_LOSSLESS_QUALITY, nearLossless: true })
-      : null;
-    if (!encoded || encoded.length > NEAR_LOSSLESS_MAX_BYTES) encoded = await encode({ quality: LOSSY_QUALITY });
+    let encoded = isLosslessRasterFormat(meta.format) ? await encode(settings.lossless) : null;
+    if (!encoded || encoded.length > LOSSLESS_SOURCE_MAX_BYTES) encoded = await encode(settings.lossy);
     if (!resized && encoded.length >= data.length) return unchanged;
 
     const afterMeta = await sharp(encoded).metadata();
@@ -181,6 +204,10 @@ export async function createImageThumbnailBuffer(
     .toBuffer();
 }
 
+/**
+ * Write the model-readable `.takode-agent.` copy of an image file beside it, favouring
+ * encode speed (see `OptimizeOptions.priority`). A path already marked is left alone.
+ */
 export async function optimizeAgentImageFile(
   inputPath: string,
   options: OptimizeFileOptions = {},
@@ -210,7 +237,7 @@ export async function optimizeAgentImageFile(
   }
 
   const inputMimeType = mimeTypeFromSharpFormat(meta.format) ?? mimeTypeFromExtension(inputPath);
-  const optimized = await optimizeImageBufferForStore(original, inputMimeType, options);
+  const optimized = await optimizeImageBufferForStore(original, inputMimeType, { priority: "speed", ...options });
   const outputPath = options.outputPath ?? buildTakodeAgentImagePath(inputPath, optimized.mediaType);
 
   if (outputPath === inputPath) {
@@ -289,7 +316,7 @@ interface SharpPipeline {
   metadata(): Promise<SharpMetadata>;
   rotate(): SharpPipeline;
   resize(options: { width: number; height: number; fit: "inside"; withoutEnlargement?: boolean }): SharpPipeline;
-  webp(options: { quality: number; nearLossless?: boolean }): SharpPipeline;
+  webp(options: WebpOptions): SharpPipeline;
   toBuffer(): Promise<Buffer>;
   toFile(path: string): Promise<unknown>;
 }

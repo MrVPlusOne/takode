@@ -119,6 +119,24 @@ describe("optimizeAgentImageFile", () => {
     expect(meta.height).toBeLessThanOrEqual(1920);
   });
 
+  it("favours encode speed for model copies: exact lossless pixels instead of near-lossless", async () => {
+    // Agents make a copy per screenshot, so model copies use lossless WebP at the lowest
+    // effort (about 0.1 s for a full-size screenshot instead of 1-1.5 s for near-lossless).
+    const inputPath = join(tempDir, "ui.png");
+    const png = await makeScreenshotLikePng(900, 700);
+    await writeFile(inputPath, png);
+
+    const result = await optimizeAgentImageFile(inputPath);
+    const output = await readFile(result.outputPath);
+
+    expect(result.outputPath.endsWith("ui.takode-agent.webp")).toBe(true);
+    expect(output.length).toBeLessThan(png.length);
+    expect(await meanPixelDifference(png, output)).toBe(0);
+    // The shared default favours size and is not pixel-exact.
+    const sizeFirst = await optimizeImageBufferForStore(png, "image/png");
+    expect(await meanPixelDifference(png, sizeFirst.data)).toBeGreaterThan(0);
+  });
+
   it("no-ops on already marked optimized paths", async () => {
     const inputPath = join(tempDir, "screenshot.takode-agent.jpeg");
     const jpeg = await sharp({
