@@ -1191,6 +1191,39 @@ export const MOCK_MCP_SERVERS: McpServerDetail[] = [
     scope: "project",
     tools: [],
   },
+  // MCP servers that ask for a sign-in: not started, waiting for the user, and failed.
+  {
+    name: "neptune",
+    status: "failed",
+    error: "Needs sign-in",
+    needsSignIn: true,
+    config: { type: "http", url: "https://mcp.neptune.example" },
+    scope: "plugin neptune@example-marketplace",
+    tools: [],
+  },
+  {
+    name: "tracker",
+    status: "failed",
+    error: "Needs sign-in",
+    needsSignIn: true,
+    signIn: {
+      state: "pending",
+      authorizationUrl: "https://auth.tracker.example/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A41234%2Fcallback",
+    },
+    config: { type: "http", url: "https://mcp.tracker.example" },
+    scope: "user",
+    tools: [],
+  },
+  {
+    name: "wiki",
+    status: "failed",
+    error: "Needs sign-in",
+    needsSignIn: true,
+    signIn: { state: "failed", error: "Sign-in failed: the provider denied access" },
+    config: { type: "http", url: "https://mcp.wiki.example" },
+    scope: "user",
+    tools: [],
+  },
 ];
 
 // ─── Playground Component ───────────────────────────────────────────────────

@@ -51,6 +51,8 @@ export interface CodexAdapterOptions {
   reasoningSummary?: "auto" | "concise" | "detailed";
   /** Codex app-server service tier for future turns. null/undefined means Standard. */
   serviceTier?: string | null;
+  /** Opens an MCP sign-in callback on the machine running the session; returns its HTTP status. */
+  deliverMcpOAuthCallback?: (callbackUrl: string) => Promise<number>;
   /** If provided, resume an existing thread instead of starting a new one. */
   threadId?: string;
   /** If provided, initialization must resume this exact thread and must not fall back to a fresh thread. */

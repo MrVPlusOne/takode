@@ -770,7 +770,11 @@ export function parseToolArguments(raw: unknown): Record<string, unknown> {
 export interface CodexMcpServerStatus {
   name: string;
   tools?: Record<string, { name?: string; annotations?: unknown }>;
-  authStatus?: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+  authStatus?: "unknown" | "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+  /** Set for a server a Codex plugin provides; such servers are not in config.toml. */
+  pluginId?: string | null;
+  /** HTTP origin of the server's endpoint, for HTTP servers. */
+  httpOrigin?: string | null;
 }
 
 export interface CodexMcpStatusListResponse {

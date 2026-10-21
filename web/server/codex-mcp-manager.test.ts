@@ -133,3 +133,144 @@ describe("Codex MCP action failures", () => {
     expect(messages).toEqual([{ type: "error", message: `${prefix}: Error: operation failed` }]);
   });
 });
+
+describe("Codex MCP sign-in", () => {
+  const AUTHORIZATION_URL =
+    "https://auth.example/authorize?client_id=c&redirect_uri=http%3A%2F%2F127.0.0.1%3A41234%2Fcallback%2Fabc";
+
+  function makeSignInManager(deliver = vi.fn(async (_url: string) => 200)) {
+    const call = vi.fn<JsonRpcTransport["call"]>();
+    const messages: BrowserIncomingMessage[] = [];
+    const manager = new CodexMcpManager(
+      { call } as unknown as JsonRpcTransport,
+      (message) => messages.push(message),
+      "mcp-sign-in-session",
+      { threadId: () => "thread-1", deliverOAuthCallback: deliver },
+    );
+    return { call, messages, manager, deliver };
+  }
+
+  const lastServers = (messages: BrowserIncomingMessage[]) =>
+    (
+      messages.filter((message) => message.type === "mcp_status").at(-1) as unknown as {
+        servers: Array<Record<string, unknown>>;
+      }
+    ).servers;
+
+  // Plugin servers exist only in a thread's configuration, so both the status
+  // list and the sign-in must name the session's thread, or Codex answers
+  // "No MCP server named ... found".
+  it("lists status for the session's thread and marks a plugin server that needs a sign-in", async () => {
+    const { call, messages, manager } = makeSignInManager();
+    call.mockImplementation(async (method) =>
+      method === "mcpServerStatus/list"
+        ? {
+            data: [
+              {
+                name: "neptune",
+                authStatus: "notLoggedIn",
+                pluginId: "neptune@market",
+                httpOrigin: "https://n.example",
+              },
+            ],
+          }
+        : { config: {} },
+    );
+
+    await manager.handleGetStatus();
+
+    expect(call).toHaveBeenCalledWith(
+      "mcpServerStatus/list",
+      expect.objectContaining({ threadId: "thread-1" }),
+      undefined,
+    );
+    expect(lastServers(messages)).toEqual([
+      expect.objectContaining({
+        name: "neptune",
+        needsSignIn: true,
+        error: "Needs sign-in",
+        scope: "plugin neptune@market",
+        config: { type: "http", url: "https://n.example" },
+      }),
+    ]);
+  });
+
+  it("starts the thread's sign-in, shows the link, and refreshes the server's tools when Codex reports success", async () => {
+    const { call, messages, manager } = makeSignInManager();
+    let loggedIn = false;
+    call.mockImplementation(async (method) => {
+      if (method === "mcpServer/oauth/login") return { authorizationUrl: AUTHORIZATION_URL, loginId: "login-1" };
+      if (method === "mcpServerStatus/list")
+        return {
+          data: [{ name: "neptune", authStatus: loggedIn ? "oAuth" : "notLoggedIn", tools: loggedIn ? { q: {} } : {} }],
+        };
+      return method === "config/read" ? { config: {} } : {};
+    });
+    await manager.handleGetStatus();
+
+    await manager.handleSignIn("neptune");
+    expect(call).toHaveBeenCalledWith("mcpServer/oauth/login", { name: "neptune", threadId: "thread-1" });
+    expect(lastServers(messages)[0]).toMatchObject({
+      signIn: { state: "pending", authorizationUrl: AUTHORIZATION_URL },
+    });
+
+    // A late result of an earlier attempt is ignored.
+    await manager.handleSignInCompleted({ name: "neptune", loginId: "old", success: false, error: "expired" });
+    expect(lastServers(messages)[0]).toMatchObject({ signIn: { state: "pending" } });
+
+    loggedIn = true;
+    await manager.handleSignInCompleted({ name: "neptune", loginId: "login-1", success: true });
+    expect(call).toHaveBeenCalledWith("config/mcpServer/reload", {}, undefined);
+    const [server] = lastServers(messages);
+    expect(server.signIn).toBeUndefined();
+    expect(server.needsSignIn).toBeUndefined();
+    expect(server.tools).toEqual([{ name: "q", annotations: undefined }]);
+  });
+
+  it("shows why a sign-in could not start or did not complete", async () => {
+    const { call, messages, manager } = makeSignInManager();
+    call.mockRejectedValueOnce(new Error("No MCP server named 'neptune' found."));
+
+    await manager.handleSignIn("neptune");
+    // The status list has not run yet, so only servers known by now are shown.
+    expect(messages.at(-1)).toEqual({ type: "mcp_status", servers: [] });
+
+    call.mockResolvedValueOnce({ authorizationUrl: AUTHORIZATION_URL, loginId: "login-2" });
+    await manager.handleSignIn("neptune");
+    await manager.handleSignInCompleted({
+      name: "neptune",
+      loginId: "login-2",
+      success: false,
+      error: "access_denied",
+    });
+    manager.handleStartupStatusUpdated({ name: "neptune", status: "failed" });
+    expect(lastServers(messages)[0]).toMatchObject({
+      signIn: { state: "failed", error: "Sign-in failed: access_denied" },
+    });
+  });
+
+  // A browser on a phone cannot open the provider's redirect to the session's
+  // loopback callback; Takode opens the pasted address on the session's machine,
+  // but only an address matching the pending sign-in's registered callback.
+  it("delivers only a pasted callback that matches the pending sign-in", async () => {
+    const { call, messages, manager, deliver } = makeSignInManager();
+    call.mockResolvedValueOnce({ authorizationUrl: AUTHORIZATION_URL, loginId: "login-3" });
+
+    await manager.handleSignInCallback("neptune", "http://127.0.0.1:41234/callback/abc?code=x");
+    expect(messages.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("No sign-in") });
+
+    await manager.handleSignIn("neptune");
+    for (const wrong of [
+      "https://evil.example/callback/abc?code=x",
+      "http://127.0.0.1:41235/callback/abc?code=x",
+      "http://127.0.0.1:41234/callback/abc",
+    ]) {
+      await manager.handleSignInCallback("neptune", wrong);
+      expect(messages.at(-1)).toMatchObject({ type: "error" });
+    }
+    expect(deliver).not.toHaveBeenCalled();
+
+    await manager.handleSignInCallback("neptune", " http://127.0.0.1:41234/callback/abc?code=x&state=s ");
+    expect(deliver).toHaveBeenCalledWith("http://127.0.0.1:41234/callback/abc?code=x&state=s");
+  });
+});

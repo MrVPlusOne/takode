@@ -793,6 +793,10 @@ export type BrowserOutgoingMessage =
   | { type: "mcp_toggle"; serverName: string; enabled: boolean; client_msg_id?: string }
   | { type: "mcp_reconnect"; serverName: string; client_msg_id?: string }
   | { type: "mcp_set_servers"; servers: Record<string, McpServerConfig>; client_msg_id?: string }
+  /** Start signing in to an MCP server that asks for it (Codex). */
+  | { type: "mcp_sign_in"; serverName: string; client_msg_id?: string }
+  /** Finish a sign-in with the callback address a browser on another device could not open. */
+  | { type: "mcp_sign_in_callback"; serverName: string; callbackUrl: string; client_msg_id?: string }
   | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string };
 export type PausedInboundSource = "browser" | "programmatic";
 

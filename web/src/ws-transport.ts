@@ -64,6 +64,8 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "mcp_toggle",
   "mcp_reconnect",
   "mcp_set_servers",
+  "mcp_sign_in",
+  "mcp_sign_in_callback",
   "set_ask_permission",
 ]);
 
@@ -959,6 +961,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         case "mcp_toggle":
         case "mcp_reconnect":
         case "mcp_set_servers":
+        case "mcp_sign_in":
+        case "mcp_sign_in_callback":
         case "set_ask_permission":
           if (!msg.client_msg_id) {
             outgoing = { ...msg, client_msg_id: nextClientMsgId() };

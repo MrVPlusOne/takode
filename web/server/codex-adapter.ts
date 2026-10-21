@@ -263,7 +263,10 @@ export class CodexAdapter
     this.itemEventManager = new CodexItemEventManager((msg) => this.emit(msg), {
       model: this.options.model,
     });
-    this.mcpManager = new CodexMcpManager(this.transport, (msg) => this.emit(msg), sessionId);
+    this.mcpManager = new CodexMcpManager(this.transport, (msg) => this.emit(msg), sessionId, {
+      threadId: () => this.threadId,
+      deliverOAuthCallback: options.deliverMcpOAuthCallback,
+    });
     this.approvalManager = new CodexApprovalManager(
       this.transport,
       (msg) => this.emit(msg),
@@ -790,6 +793,12 @@ export class CodexAdapter
         return true;
       case "mcp_set_servers":
         this.enqueueOutgoingDispatch("mcp_set_servers", () => this.mcpManager.handleSetServers(msg.servers));
+        return true;
+      case "mcp_sign_in":
+        this.enqueueOutgoingDispatch("mcp_sign_in", () => this.mcpManager.handleSignIn(msg.serverName));
+        return true;
+      case "mcp_sign_in_callback":
+        void this.mcpManager.handleSignInCallback(msg.serverName, msg.callbackUrl);
         return true;
       default:
         return false;
@@ -1585,6 +1594,9 @@ export class CodexAdapter
               apps: extractCodexAppsPage(params).apps,
             },
           });
+          break;
+        case "mcpServer/oauthLogin/completed":
+          void this.mcpManager.handleSignInCompleted(params);
           break;
         case "mcpServer/startupStatus/updated":
           this.mcpManager.handleStartupStatusUpdated(params);

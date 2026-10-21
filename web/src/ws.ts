@@ -298,6 +298,14 @@ export function sendMcpToggle(sessionId: string, serverName: string, enabled: bo
   sendToSession(sessionId, { type: "mcp_toggle", serverName, enabled });
 }
 
+export function sendMcpSignIn(sessionId: string, serverName: string) {
+  sendToSession(sessionId, { type: "mcp_sign_in", serverName });
+}
+
+export function sendMcpSignInCallback(sessionId: string, serverName: string, callbackUrl: string) {
+  sendToSession(sessionId, { type: "mcp_sign_in_callback", serverName, callbackUrl });
+}
+
 export function sendMcpReconnect(sessionId: string, serverName: string) {
   sendToSession(sessionId, { type: "mcp_reconnect", serverName });
 }

@@ -1200,7 +1200,10 @@ describe("CodexAdapter", () => {
     expect(mcpStatus).toBeDefined();
     expect(mcpStatus!.servers.find((s) => s.name === "alpha")?.status).toBe("connected");
     expect(mcpStatus!.servers.find((s) => s.name === "beta")?.status).toBe("failed");
-    expect(mcpStatus!.servers.find((s) => s.name === "beta")?.error).toContain("requires login");
+    expect(mcpStatus!.servers.find((s) => s.name === "beta")).toMatchObject({
+      error: "Needs sign-in",
+      needsSignIn: true,
+    });
     expect(mcpStatus!.servers.find((s) => s.name === "alpha")?.tools?.length).toBe(1);
 
     stdout.push(

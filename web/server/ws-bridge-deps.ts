@@ -326,6 +326,8 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "mcp_toggle",
   "mcp_reconnect",
   "mcp_set_servers",
+  "mcp_sign_in",
+  "mcp_sign_in_callback",
   "set_ask_permission",
 ]);
 const WS_BRIDGE_GIT_SESSION_KEYS: GitSessionKey[] = [

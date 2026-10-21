@@ -2,6 +2,7 @@ import type { BrowserIncomingMessage, McpServerConfig, McpServerDetail, SessionS
 import type { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
 import type { CodexMcpServerStatus, CodexMcpStatusListResponse } from "./codex-adapter-utils.js";
 import { toSafeText } from "./codex-adapter-utils.js";
+import { mcpOAuthCallbackProblem, mcpOAuthRedirectUri } from "./mcp-oauth-callback.js";
 
 type EmitFn = (msg: BrowserIncomingMessage) => void;
 
@@ -68,15 +69,101 @@ function mapMcpTools(
   });
 }
 
+/** A sign-in Takode started through Codex's `mcpServer/oauth/login`. */
+interface McpSignIn {
+  state: "pending" | "failed";
+  authorizationUrl?: string;
+  loginId?: string;
+  redirectUri?: string;
+  error?: string;
+}
+
 export class CodexMcpManager {
   private mcpStartupStatusByName = new Map<string, McpServerDetail>();
   private mcpServersByName = new Map<string, McpServerDetail>();
+  private signIns = new Map<string, McpSignIn>();
 
   constructor(
     private readonly transport: JsonRpcTransport,
     private readonly emit: EmitFn,
     private readonly sessionId: string,
+    private readonly session: {
+      /** The session's Codex thread: plugin-provided servers exist only in a thread's configuration. */
+      threadId?: () => string | null;
+      /** Opens a sign-in callback on the machine running the session. Returns its HTTP status. */
+      deliverOAuthCallback?: (callbackUrl: string) => Promise<number>;
+    } = {},
   ) {}
+
+  /**
+   * Start signing in to an MCP server (including one a plugin provides) and
+   * show every browser the sign-in link. Codex finishes the sign-in when the
+   * provider redirects to its callback and reports it with
+   * `mcpServer/oauthLogin/completed`.
+   */
+  async handleSignIn(serverName: string): Promise<void> {
+    try {
+      const response = (await this.transport.call("mcpServer/oauth/login", {
+        name: serverName,
+        threadId: this.session.threadId?.() ?? null,
+      })) as { authorizationUrl?: string; loginId?: string | null };
+      const authorizationUrl = toSafeText(response?.authorizationUrl).trim();
+      if (!authorizationUrl) throw new Error("Codex returned no sign-in link");
+      this.signIns.set(serverName, {
+        state: "pending",
+        authorizationUrl,
+        loginId: response.loginId ?? undefined,
+        redirectUri: mcpOAuthRedirectUri(authorizationUrl),
+      });
+    } catch (err) {
+      this.signIns.set(serverName, { state: "failed", error: `Couldn't start the sign-in: ${errorText(err)}` });
+    }
+    this.emitServers();
+  }
+
+  /** Codex finished a sign-in: refresh the server's tools, or show why it failed. */
+  async handleSignInCompleted(params: Record<string, unknown>): Promise<void> {
+    const name = toSafeText(params.name).trim();
+    const current = this.signIns.get(name);
+    const loginId = toSafeText(params.loginId).trim();
+    // A late result of an earlier attempt must not overwrite the current one.
+    if (current?.loginId && loginId && current.loginId !== loginId) return;
+    if (params.success === true) {
+      this.signIns.delete(name);
+      await this.handleReloadAndGetStatus().catch(() => this.emitServers());
+      return;
+    }
+    const reason = toSafeText(params.error).trim() || "the sign-in did not complete";
+    this.signIns.set(name, { state: "failed", error: `Sign-in failed: ${reason}` });
+    this.emitServers();
+  }
+
+  /**
+   * Finish a sign-in from a browser that could not reach the session's machine:
+   * the user pasted the callback address the provider redirected to.
+   */
+  async handleSignInCallback(serverName: string, callbackUrl: string): Promise<void> {
+    const current = this.signIns.get(serverName);
+    if (current?.state !== "pending") {
+      this.emit({ type: "error", message: `No sign-in to "${serverName}" is waiting. Start it again.` });
+      return;
+    }
+    const problem = mcpOAuthCallbackProblem(callbackUrl, current.redirectUri);
+    if (problem) {
+      this.emit({ type: "error", message: problem });
+      return;
+    }
+    if (!this.session.deliverOAuthCallback) {
+      this.emit({ type: "error", message: "This session cannot finish a pasted sign-in." });
+      return;
+    }
+    try {
+      const status = await this.session.deliverOAuthCallback(callbackUrl.trim());
+      if (status >= 400) throw new Error(`the sign-in page answered ${status}`);
+    } catch (err) {
+      this.emit({ type: "error", message: `Couldn't finish the sign-in to "${serverName}": ${errorText(err)}` });
+    }
+  }
 
   handleStartupStatusUpdated(params: Record<string, unknown>): void {
     const name = toSafeText(params.name).trim();
@@ -107,8 +194,7 @@ export class CodexMcpManager {
       error,
     });
 
-    const servers = Array.from(this.mcpServersByName.values()).sort((a, b) => a.name.localeCompare(b.name));
-    this.emit({ type: "mcp_status", servers });
+    const servers = this.emitServers();
     this.emit({
       type: "session_update",
       session: {
@@ -140,24 +226,32 @@ export class CodexMcpManager {
           const startupStatus = this.mcpStartupStatusByName.get(name);
           const config = toMcpServerConfig(configMap[name]);
           const enabled = isMcpServerEnabled(configMap[name]);
+          const needsSignIn = status?.authStatus === "notLoggedIn";
           const serverStatus: McpServerDetail["status"] = !enabled
             ? "disabled"
-            : status?.authStatus === "notLoggedIn"
+            : needsSignIn
               ? "failed"
               : (startupStatus?.status ?? "connected");
+          const pluginId = status?.pluginId ?? undefined;
 
           return {
             name,
             status: serverStatus,
-            error: status?.authStatus === "notLoggedIn" ? "MCP server requires login" : startupStatus?.error,
-            config,
-            scope: "user",
+            error: needsSignIn ? "Needs sign-in" : startupStatus?.error,
+            // Plugin servers are not in config.toml; show where they connect instead.
+            config: !configMap[name] && status?.httpOrigin ? { type: "http", url: status.httpOrigin } : config,
+            scope: pluginId ? `plugin ${pluginId}` : "user",
             tools: mapMcpTools(status?.tools),
+            ...(needsSignIn ? { needsSignIn } : {}),
           };
         });
 
       this.mcpServersByName = new Map(servers.map((server) => [server.name, server]));
-      this.emit({ type: "mcp_status", servers });
+      for (const server of servers) {
+        // A server that no longer asks for a sign-in has finished one, wherever it happened.
+        if (!server.needsSignIn && this.signIns.get(server.name)?.state === "failed") this.signIns.delete(server.name);
+      }
+      this.emitServers();
       this.emit({ type: "session_update", session: { mcp_status_error: null } });
       return servers;
     } catch (err) {
@@ -235,6 +329,23 @@ export class CodexMcpManager {
     }
   }
 
+  /** Send every browser the servers with any sign-in in progress. */
+  private emitServers(): McpServerDetail[] {
+    const servers = Array.from(this.mcpServersByName.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((server) => {
+        const signIn = this.signIns.get(server.name);
+        if (!signIn) return server;
+        const { state, authorizationUrl, error } = signIn;
+        return {
+          ...server,
+          signIn: { state, ...(authorizationUrl ? { authorizationUrl } : {}), ...(error ? { error } : {}) },
+        };
+      });
+    this.emit({ type: "mcp_status", servers });
+    return servers;
+  }
+
   private async listAllMcpServerStatuses(timeoutMs?: number): Promise<CodexMcpServerStatus[]> {
     const out: CodexMcpServerStatus[] = [];
     let cursor: string | null = null;
@@ -246,6 +357,8 @@ export class CodexMcpManager {
         {
           cursor,
           limit: 100,
+          // A thread's view includes servers its plugins provide.
+          threadId: this.session.threadId?.() ?? null,
         },
         timeoutMs,
       )) as CodexMcpStatusListResponse;
@@ -271,4 +384,8 @@ export class CodexMcpManager {
   private async reloadMcpServers(timeoutMs?: number): Promise<void> {
     await this.transport.call("config/mcpServer/reload", {}, timeoutMs);
   }
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

@@ -1,5 +1,6 @@
 import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
 import { listDirectories } from "../directory-listing.js";
+import { deliverMcpOAuthCallback } from "../mcp-oauth-callback.js";
 import { readCommitDetails } from "../git-commit-reader.js";
 import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git-utils.js";
 import { startLandingRunner } from "../landing-runner-launcher.js";
@@ -60,6 +61,8 @@ const operations = {
     collectUserLevelContent(takodeSkills, defaultMachineRoots().installRoot + sep),
   // Moves the user's own skill entries named by an agent (with the user's approval) into a backup folder.
   retireUserSkills: (request: Parameters<typeof retireUserSkills>[0]) => retireUserSkills(request),
+  // Opens an MCP sign-in callback on the loopback address where this machine's Codex session listens.
+  deliverMcpOAuthCallback: (callbackUrl: string) => deliverMcpOAuthCallback(callbackUrl),
   // What that import would bring in, without the contents, for choosing the machine to import from.
   summarizeUserContent: (takodeSkills: string[]) =>
     summarizeUserLevelContent(takodeSkills, defaultMachineRoots().installRoot + sep),

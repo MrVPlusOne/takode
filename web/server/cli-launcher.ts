@@ -30,6 +30,7 @@ import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remot
 import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
 import { machineContextForHost } from "./remote-host/machines.js";
 import { withUserCodexDeveloperInstructions } from "./codex-user-config-carryover.js";
+import { deliverMcpOAuthCallbackOnMachine } from "./mcp-oauth-callback.js";
 import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
 import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
@@ -1394,6 +1395,7 @@ export class CliLauncher {
       serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
       instructions: withUserCodexDeveloperInstructions(codexInstructions || undefined, userDeveloperInstructions),
+      deliverMcpOAuthCallback: (callbackUrl) => deliverMcpOAuthCallbackOnMachine(info.hostId, callbackUrl),
       recoveryRole: info.isOrchestrator ? "leader" : "standard",
       instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),

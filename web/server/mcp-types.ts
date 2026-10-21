@@ -16,4 +16,8 @@ export interface McpServerDetail {
   config: { type: string; url?: string; command?: string; args?: string[] };
   scope: string;
   tools?: { name: string; annotations?: { readOnly?: boolean; destructive?: boolean; openWorld?: boolean } }[];
+  /** The server asks for a sign-in (Codex reports it as not logged in). */
+  needsSignIn?: boolean;
+  /** A sign-in Takode started for this server: waiting for the user, or failed with a reason. */
+  signIn?: { state: "pending" | "failed"; authorizationUrl?: string; error?: string };
 }

@@ -3,7 +3,14 @@ import "@testing-library/jest-dom";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { McpServerDetail, SessionState } from "../types.js";
 import { useStore } from "../store.js";
-import { sendMcpGetStatus, sendMcpReconnect, sendMcpSetServers, sendMcpToggle } from "../ws.js";
+import {
+  sendMcpGetStatus,
+  sendMcpReconnect,
+  sendMcpSetServers,
+  sendMcpSignIn,
+  sendMcpSignInCallback,
+  sendMcpToggle,
+} from "../ws.js";
 import { McpSection } from "./McpPanel.js";
 
 vi.mock("../ws.js", () => ({
@@ -11,6 +18,8 @@ vi.mock("../ws.js", () => ({
   sendMcpReconnect: vi.fn(),
   sendMcpSetServers: vi.fn(),
   sendMcpToggle: vi.fn(),
+  sendMcpSignIn: vi.fn(),
+  sendMcpSignInCallback: vi.fn(),
 }));
 
 const STATUS_ERROR = "Request timed out while listing MCP servers.";
@@ -182,5 +191,55 @@ describe("McpSection for Claude sessions", () => {
     // Status refresh stays available.
     expect(screen.getByTitle("Refresh MCP server status")).toBeInTheDocument();
     expect(sendMcpGetStatus).toHaveBeenCalledWith("claude");
+  });
+});
+
+describe("McpSection sign-in", () => {
+  const needsSignIn: McpServerDetail = {
+    name: "neptune",
+    status: "failed",
+    error: "Needs sign-in",
+    needsSignIn: true,
+    config: { type: "http", url: "https://n.example" },
+    scope: "plugin neptune@market",
+  };
+
+  function show(servers: McpServerDetail[], backend: SessionState["backend_type"] = "codex") {
+    useStore.setState({
+      sessions: new Map([["s1", session("s1", { backend_type: backend })]]),
+      mcpServers: new Map([["s1", servers]]),
+      cliConnected: new Map([["s1", true]]),
+    });
+    render(<McpSection sessionId="s1" />);
+  }
+
+  it("offers a sign-in for a server that asks for one", () => {
+    show([needsSignIn]);
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(sendMcpSignIn).toHaveBeenCalledWith("s1", "neptune");
+  });
+
+  // The link and the paste-back field come from the server's sign-in state, so a
+  // phone can open the page and finish by pasting the address it ended on.
+  it("shows the sign-in link and sends a pasted callback address", () => {
+    const authorizationUrl = "https://auth.example/authorize?redirect_uri=x";
+    show([{ ...needsSignIn, signIn: { state: "pending", authorizationUrl } }]);
+
+    expect(screen.getByRole("link", { name: "Open sign-in page" })).toHaveAttribute("href", authorizationUrl);
+    const input = screen.getByLabelText("Sign-in address for neptune");
+    fireEvent.change(input, { target: { value: " http://127.0.0.1:4/callback?code=c " } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(sendMcpSignInCallback).toHaveBeenCalledWith("s1", "neptune", "http://127.0.0.1:4/callback?code=c");
+  });
+
+  it("shows a failed sign-in with a retry", () => {
+    show([{ ...needsSignIn, signIn: { state: "failed", error: "Sign-in failed: access_denied" } }]);
+    expect(screen.getByText("Sign-in failed: access_denied")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("offers no sign-in in Claude sessions, which sign in to MCP servers themselves", () => {
+    show([needsSignIn], "claude-sdk");
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 });

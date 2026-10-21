@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store.js";
-import { sendMcpGetStatus, sendMcpToggle, sendMcpReconnect, sendMcpSetServers } from "../ws.js";
+import {
+  sendMcpGetStatus,
+  sendMcpToggle,
+  sendMcpReconnect,
+  sendMcpSetServers,
+  sendMcpSignIn,
+  sendMcpSignInCallback,
+} from "../ws.js";
 import type { McpServerDetail, McpServerConfig } from "../types.js";
 
 const EMPTY_SERVERS: McpServerDetail[] = [];
@@ -86,6 +93,8 @@ function McpServerRow({
         )}
       </div>
 
+      {canManage && (server.needsSignIn || server.signIn) && <McpSignIn server={server} sessionId={sessionId} />}
+
       {/* Expanded details */}
       {expanded && (
         <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-cc-border pt-2">
@@ -151,6 +160,73 @@ function McpServerRow({
   );
 }
 
+/**
+ * Sign-in for an MCP server that asks for it. The sign-in state comes from the
+ * server, so every browser shows the same link. The provider's last page is a
+ * callback on the machine running the session; a browser elsewhere (a phone)
+ * cannot open it, so its address can be pasted here instead.
+ */
+function McpSignIn({ server, sessionId }: { server: McpServerDetail; sessionId: string }) {
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const signIn = server.signIn;
+
+  if (signIn?.state !== "pending") {
+    return (
+      <div className="px-2.5 pb-2 space-y-1.5">
+        {signIn?.error && <p className="text-[11px] text-cc-error [overflow-wrap:anywhere]">{signIn.error}</p>}
+        <button
+          type="button"
+          onClick={() => sendMcpSignIn(sessionId, server.name)}
+          className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-cc-primary text-white hover:bg-cc-primary/90 cursor-pointer"
+        >
+          {signIn ? "Try again" : "Sign in"}
+        </button>
+      </div>
+    );
+  }
+
+  function finish(event: React.FormEvent) {
+    event.preventDefault();
+    if (!callbackUrl.trim()) return;
+    sendMcpSignInCallback(sessionId, server.name, callbackUrl.trim());
+    setCallbackUrl("");
+  }
+
+  return (
+    <div className="px-2.5 pb-2.5 space-y-1.5">
+      <a
+        href={signIn.authorizationUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-block text-[11px] font-medium px-2.5 py-1 rounded-md bg-cc-primary text-white hover:bg-cc-primary/90"
+      >
+        Open sign-in page
+      </a>
+      <p className="text-[11px] text-cc-muted">
+        This updates by itself when you finish. If the last page doesn’t load (for example on a phone), paste its
+        address here:
+      </p>
+      <form onSubmit={finish} className="flex gap-1">
+        <input
+          type="url"
+          value={callbackUrl}
+          onChange={(event) => setCallbackUrl(event.target.value)}
+          placeholder="http://127.0.0.1:…/callback…"
+          aria-label={`Sign-in address for ${server.name}`}
+          className="min-w-0 flex-1 text-[11px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-primary"
+        />
+        <button
+          type="submit"
+          disabled={!callbackUrl.trim()}
+          className="text-[11px] font-medium px-2 py-1 rounded-md border border-cc-border text-cc-fg hover:bg-cc-hover disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+        >
+          Finish
+        </button>
+      </form>
+    </div>
+  );
+}
+
 type ServerType = "stdio" | "sse" | "http";
 
 function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
@@ -188,7 +264,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="my-mcp-server"
-          className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 focus:outline-none focus:border-cc-accent"
+          className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 focus:outline-none focus:border-cc-primary"
         />
       </div>
 
@@ -203,7 +279,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
               onClick={() => setServerType(t)}
               className={`text-[11px] px-2 py-1 rounded-md border transition-colors cursor-pointer ${
                 serverType === t
-                  ? "border-cc-accent text-cc-accent bg-cc-accent/10"
+                  ? "border-cc-primary text-cc-primary bg-cc-primary/10"
                   : "border-cc-border text-cc-muted hover:text-cc-fg hover:border-cc-muted"
               }`}
             >
@@ -223,7 +299,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               placeholder="npx -y @modelcontextprotocol/server-memory"
-              className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-accent"
+              className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-primary"
             />
           </div>
           <div>
@@ -235,7 +311,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
               value={args}
               onChange={(e) => setArgs(e.target.value)}
               placeholder="--port 3000"
-              className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-accent"
+              className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-primary"
             />
           </div>
         </>
@@ -250,7 +326,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="http://localhost:3000/mcp"
-            className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-accent"
+            className="w-full text-[12px] bg-cc-bg-secondary border border-cc-border rounded px-2 py-1.5 text-cc-fg placeholder:text-cc-muted/40 font-mono focus:outline-none focus:border-cc-primary"
           />
         </div>
       )}
@@ -262,7 +338,7 @@ function AddServerForm({ sessionId, onDone }: { sessionId: string; onDone: () =>
           disabled={!canSubmit}
           className={`flex-1 text-[11px] font-medium py-1.5 rounded-md transition-colors ${
             canSubmit
-              ? "bg-cc-accent text-white hover:bg-cc-accent/90 cursor-pointer"
+              ? "bg-cc-primary text-white hover:bg-cc-primary/90 cursor-pointer"
               : "bg-cc-hover text-cc-muted cursor-not-allowed"
           }`}
         >
@@ -410,7 +486,7 @@ export function McpSection({
                 {canManage && cliConnected && (
                   <button
                     onClick={() => setShowAddForm(true)}
-                    className="text-cc-accent hover:underline cursor-pointer"
+                    className="text-cc-primary hover:underline cursor-pointer"
                   >
                     Add one
                   </button>
