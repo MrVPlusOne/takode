@@ -9,6 +9,7 @@
  */
 import type { AnnotationWorkspaceReference } from "../shared/annotation-voice-context.js";
 import type { ActivityThread } from "./activity-stream.js";
+import { COMMON_SPOKEN_WORDS } from "./common-spoken-words.js";
 
 /** Quests active or completed within this window are context. */
 const QUEST_DAYS = 7;
@@ -192,21 +193,47 @@ export function extractKeyTerms(texts: ReadonlyArray<{ text: string; weight: num
       }
     }
   }
-  return [...scores.values()]
-    .filter((entry) => entry.score >= 2)
-    .sort((a, b) => b.score - a.score)
+  const candidates = new Set(scores.keys());
+  return [...scores]
+    .filter(([key, entry]) => entry.score >= 2 && !redundant(key, candidates))
+    .sort((a, b) => b[1].score - a[1].score)
     .slice(0, limit)
-    .map((entry) => [...entry.forms].sort((a, b) => b[1] - a[1])[0]![0]);
+    .map(([, entry]) => [...entry.forms].sort((a, b) => b[1] - a[1])[0]![0]);
+}
+
+/** Adjective endings that turn a term into a phrase about it (MSI-style, LLM-based). */
+const TERM_SUFFIXES =
+  /^(.+)-(style|based|friendly|like|only|side|level|wide|specific|related|aware|heavy|free|compatible|powered|driven)$/;
+
+/**
+ * A term that adds nothing to other candidates: the plural of a candidate or of an excluded word
+ * (GPUs, APIs), a candidate with an adjective ending (TTS-friendly), and candidates joined by
+ * hyphens, with everyday words in between (T7-vs-T6).
+ */
+function redundant(key: string, candidates: ReadonlySet<string>): boolean {
+  for (const singular of [key.replace(/es$/, ""), key.replace(/s$/, "")]) {
+    if (singular !== key && (candidates.has(singular) || STOP_TERMS.has(singular))) return true;
+  }
+  const base = TERM_SUFFIXES.exec(key)?.[1];
+  if (base !== undefined && candidates.has(base)) return true;
+  const parts = key.split("-");
+  return (
+    parts.length > 1 && parts.every((part) => candidates.has(part) || COMMON_SPOKEN_WORDS.has(part) || part === "vs")
+  );
 }
 
 function isKeyTerm(word: string, sentenceStart: boolean): boolean {
   if (word.length < 2 || word.length > TERM_MAX_CHARS || STOP_TERMS.has(word.toLowerCase())) return false;
-  // Plain numbers, durations (39m), file names, hashes and dates are not words anyone dictates.
+  // Everyday spoken words (Yes, Why, Main) are known to any recognizer, however they are capitalized.
+  if (COMMON_SPOKEN_WORDS.has(word.toLowerCase())) return false;
+  // Plain numbers, durations (39m), counted words (3-hourly, 096-character from "8,096-character"),
+  // file names, hashes and dates are not words anyone dictates.
   if (/^\d+(\.\d+)?$/.test(word) || /^\d+[smhd]$/.test(word) || /\.[A-Za-z]/.test(word)) return false;
+  if (/^\d+-[a-z]+$/.test(word)) return false;
   if (/^[0-9a-f]{7,}$/i.test(word) && /\d/.test(word)) return false;
   if (/^\d{4}-\d{2}-\d{2}/.test(word)) return false;
-  // Hyphenated ordinary words (sign-in, read-only) are known to any recognizer.
-  if (/^[a-z]+(-[a-z]+)+$/.test(word)) return false;
+  // Hyphenated ordinary words (sign-in, read-only, One-time at a list start) are known to any recognizer.
+  if (/^[A-Za-z][a-z]*(-[a-z]+)+$/.test(word)) return false;
   if (/\d/.test(word) && /[A-Za-z]/.test(word)) return true;
   if (/[A-Z]/.test(word.slice(1))) return true;
   if (/[-_][A-Za-z]/.test(word)) return true;

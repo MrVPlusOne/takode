@@ -76,6 +76,48 @@ describe("extractKeyTerms", () => {
     expect(terms).toEqual([]);
   });
 
+  it("drops everyday spoken words, however they are capitalized", () => {
+    // "Yes" and "Main" pass the capitalization rules (mid-sentence capitals, UI labels) but any
+    // recognizer knows them; names and jargon used the same way stay.
+    const terms = extractKeyTerms(
+      [
+        { text: "Then Yes was the answer. Open the Main tab, then ask Wenxu. Why Condor?", weight: 2 },
+        { text: "Again Yes and Main, and Wenxu on Condor.", weight: 2 },
+      ],
+      100,
+    );
+    expect(terms).toEqual(expect.arrayContaining(["Wenxu", "Condor"]));
+    expect(terms).not.toEqual(expect.arrayContaining(["Yes"]));
+    expect(terms).not.toContain("Main");
+    expect(terms).not.toContain("Why");
+  });
+
+  it("drops terms that repeat other candidates or are ordinary phrases", () => {
+    // Plurals of candidates or excluded words, adjective forms and joins of candidates repeat a term
+    // already picked; capitalized ordinary hyphenated words and counted words are plain English.
+    const text =
+      "Use the GPU and GPUs with MSI and MSI-style LLM and LLM-based APIs, T7 and T6 and T7-vs-T6. One-time Read-aloud 3-hourly from 8,096-character text.";
+    const terms = extractKeyTerms([{ text, weight: 2 }], 100);
+    expect(terms).toEqual(expect.arrayContaining(["GPU", "MSI", "LLM", "T7", "T6"]));
+    for (const noise of [
+      "GPUs",
+      "MSI-style",
+      "LLM-based",
+      "APIs",
+      "T7-vs-T6",
+      "One-time",
+      "Read-aloud",
+      "3-hourly",
+      "096-character",
+    ])
+      expect(terms).not.toContain(noise);
+  });
+
+  it("keeps joined names whose parts are not all candidates", () => {
+    const terms = extractKeyTerms([{ text: "The QA set and seeded-QA, SWE and SWE-bench.", weight: 2 }], 100);
+    expect(terms).toEqual(expect.arrayContaining(["seeded-QA", "SWE-bench"]));
+  });
+
   it("returns at most `limit` terms", () => {
     const text = Array.from({ length: 30 }, (_, i) => `T${i}`).join(" ");
     expect(extractKeyTerms([{ text, weight: 2 }], 10)).toHaveLength(10);

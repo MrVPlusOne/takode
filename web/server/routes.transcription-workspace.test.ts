@@ -39,7 +39,7 @@ beforeEach(async () => {
       baseUrl: "https://example.test/v1",
       sttModel: "gpt-transcribe",
       enhancementEnabled: false,
-      customVocabulary: "Takode",
+      customVocabulary: "Takode, Yes",
     },
     namerConfig: { backend: "claude" },
   } as ReturnType<typeof settingsManager.getSettings>);
@@ -98,7 +98,8 @@ describe("transcription workspace context", () => {
   it("sends terms and activity from other sessions in the space, and the space's quests", async () => {
     // Real route and prompt construction with mocked fetch: no provider calls.
     const sent = await transcribe();
-    expect(sent.getAll("keywords[]")).toEqual(expect.arrayContaining(["Takode", "Wenxu", "Condor", "Kestrel"]));
+    // The user's own vocabulary is never filtered, even an everyday word the picker would drop.
+    expect(sent.getAll("keywords[]")).toEqual(expect.arrayContaining(["Takode", "Yes", "Wenxu", "Condor", "Kestrel"]));
     const prompt = String(sent.get("prompt"));
     expect(prompt).toContain("Recent quests: Analyze seeded-QA signals");
     expect(prompt).not.toContain("Unrelated other-space quest");
