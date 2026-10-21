@@ -32,7 +32,8 @@ export function resolveCodexLaunchPolicy(options: CodexPolicyOptions): {
   if (options.codexMultiAgentVersion) {
     args.push(options.codexMultiAgentVersion === "v2" ? "--enable" : "--disable", "multi_agent_v2");
   }
-  args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
+  // Overrides the user's own `web_search` setting so the toggle decides either way.
+  args.push("-c", `web_search=${options.codexInternetAccess === true ? "live" : "disabled"}`);
   if (options.model) args.push("-c", `model=${options.model}`);
   if (options.codexReasoningEffort) args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
   if (options.permissionMode === "codex-auto-review") args.push("-c", "approvals_reviewer=auto_review");

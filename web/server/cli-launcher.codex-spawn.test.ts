@@ -624,7 +624,7 @@ describe("Codex spawn preparation", () => {
         "--disable",
         "multi_agent_v2",
         "-c",
-        "tools.webSearch=false",
+        "web_search=disabled",
         "-c",
         "model=gpt-5.6-sol",
         "-a",

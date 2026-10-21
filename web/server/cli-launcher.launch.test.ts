@@ -744,7 +744,7 @@ describe("launch", () => {
     expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
-    expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=true");
+    expect(cmdAndArgs.join(" ")).toContain("web_search=live");
     const sandboxIdx = cmdAndArgs.indexOf("-s");
     expect(sandboxIdx).toBeGreaterThan(-1);
     expect(cmdAndArgs[sandboxIdx + 1]).toBe("danger-full-access");
@@ -769,7 +769,7 @@ describe("launch", () => {
     const [cmdAndArgs] = matchingCall!;
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
-    expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=false");
+    expect(cmdAndArgs.join(" ")).toContain("web_search=disabled");
   });
 
   it("maps bypassPermissions to Codex no-ask full-access launch flags", async () => {
@@ -1844,7 +1844,7 @@ describe("launch", () => {
       expect(innerScript).toContain("model_context_window = 1444445");
       expect(innerScript).toContain("model_auto_compact_token_limit = 1300000");
       expect(innerScript).toContain(
-        "exec 'codex' '-c' 'features.memories=false' '-c' 'memories.generate_memories=false' '-c' 'memories.use_memories=false' '--disable' 'multi_agent_v2' '-c' 'tools.webSearch=false' '-c' 'model=gpt-5.6-sol' '-a'",
+        "exec 'codex' '-c' 'features.memories=false' '-c' 'memories.generate_memories=false' '-c' 'memories.use_memories=false' '--disable' 'multi_agent_v2' '-c' 'web_search=disabled' '-c' 'model=gpt-5.6-sol' '-a'",
       );
     } finally {
       rmSync(customHome, { recursive: true, force: true });
