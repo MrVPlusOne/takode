@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { readSessionDraftWriteRequest } from "../../shared/session-drafts.js";
-import { applySessionDraftWrite, getSessionDraftsSnapshot } from "../bridge/session-drafts-controller.js";
+import {
+  applySessionDraftWrite,
+  claimPendingVoiceResult,
+  getSessionDraftsSnapshot,
+} from "../bridge/session-drafts-controller.js";
 import type { RouteContext } from "./context.js";
 
 /**
@@ -31,6 +35,18 @@ export function createSessionDraftRoutes(ctx: Pick<RouteContext, "wsBridge" | "r
     });
     if (!result.ok) return c.json({ error: result.error }, 409);
     return c.json({ change: result.change });
+  });
+
+  // A browser takes a finished voice transcription to put into its draft. Only the first claim gets it.
+  api.post("/sessions/:id/drafts/voice-results/:requestId/claim", (c) => {
+    const id = resolveId(c.req.param("id"));
+    const session = id ? wsBridge.getSession(id) : undefined;
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    const result = claimPendingVoiceResult(session, c.req.param("requestId"), {
+      persistSession: (target) => wsBridge.persistSessionById(target.id),
+    });
+    if (!result) return c.json({ error: "Already claimed or unknown." }, 409);
+    return c.json({ result });
   });
 
   return api;

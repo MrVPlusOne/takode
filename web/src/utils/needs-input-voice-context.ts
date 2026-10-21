@@ -8,19 +8,6 @@ export interface TextSelectionRange {
   end: number;
 }
 
-export function insertTextAtSelection(
-  currentValue: string,
-  insertText: string,
-  selection: TextSelectionRange | null,
-): string {
-  if (!selection || selection.value !== currentValue) {
-    return `${currentValue}${insertText}`;
-  }
-  const start = Math.max(0, Math.min(selection.start, currentValue.length));
-  const end = Math.max(start, Math.min(selection.end, currentValue.length));
-  return `${currentValue.slice(0, start)}${insertText}${currentValue.slice(end)}`;
-}
-
 export function buildNeedsInputVoiceFocusedContext({
   notification,
   question,

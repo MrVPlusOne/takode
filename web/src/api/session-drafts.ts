@@ -1,4 +1,5 @@
 import type { SessionDraftChange, SessionDraftWriteRequest } from "../../shared/session-drafts.js";
+import type { PendingVoiceResult } from "../../shared/voice-results.js";
 
 /** A draft write the server refused for good (for example, its prompt was already resolved). */
 export class DraftWriteRejectedError extends Error {}
@@ -24,4 +25,18 @@ export async function writeSessionDraft(
   }
   if (!res.ok) throw new Error(`Could not save draft (${res.status})`);
   return ((await res.json()) as { change: SessionDraftChange }).change;
+}
+
+/**
+ * Takes a finished voice transcription the server kept for this session's drafts. Resolves to the
+ * result when this browser is the first to ask, or null when another browser already took it.
+ */
+export async function claimVoiceResult(sessionId: string, requestId: string): Promise<PendingVoiceResult | null> {
+  const res = await fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/drafts/voice-results/${encodeURIComponent(requestId)}/claim`,
+    { method: "POST" },
+  );
+  if (res.status === 404 || res.status === 409) return null;
+  if (!res.ok) throw new Error(`Could not claim the voice result (${res.status})`);
+  return ((await res.json()) as { result: PendingVoiceResult }).result;
 }

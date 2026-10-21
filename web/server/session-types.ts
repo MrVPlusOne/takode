@@ -1062,6 +1062,7 @@ export interface AttentionAlertMessage {
 export type BrowserIncomingMessageBase =
   | import("./browser-connection-message-types.js").BrowserConnectionIncomingMessage
   | { type: "session_draft_update"; change: import("../shared/session-drafts.js").SessionDraftChange }
+  | { type: "voice_result_pending"; result: import("../shared/voice-results.js").PendingVoiceResult }
   | { type: "session_update"; session: Partial<BrowserSessionState> }
   | {
       type: "assistant";
@@ -1492,7 +1493,8 @@ export type ReplayableBrowserIncomingMessage = Exclude<
       | "synced_projection_snapshot"
       | "synced_projection_update"
       | "synced_projection_subscriptions_ack"
-      | "session_draft_update";
+      | "session_draft_update"
+      | "voice_result_pending";
   }
 > &
   BrowserIncomingMessageMetadata;

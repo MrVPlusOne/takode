@@ -5,7 +5,6 @@ import "@testing-library/jest-dom";
 import type { UseVoiceInputOptions } from "../hooks/useVoiceInput.js";
 import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
-import { insertTextAtSelection } from "../utils/needs-input-voice-context.js";
 
 const mockTranscribe = vi.hoisted(() =>
   vi.fn(async (_audio: Blob, _options?: unknown) => ({
@@ -210,14 +209,6 @@ describe("NeedsInputAnswerField", () => {
     voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship it Takode\n[transcribed]"));
-  });
-
-  it("uses simple dictation insertion semantics without edit or append mode", () => {
-    expect(insertTextAtSelection("ship now", "please ", { value: "ship now", start: 0, end: 0 })).toBe(
-      "please ship now",
-    );
-    expect(insertTextAtSelection("ship later", "now", { value: "ship later", start: 5, end: 10 })).toBe("ship now");
-    expect(insertTextAtSelection("changed", " later", { value: "stale", start: 5, end: 5 })).toBe("changed later");
   });
 
   it("shows composer-style recording feedback and an active stop button while recording", () => {

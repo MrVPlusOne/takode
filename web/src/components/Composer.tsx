@@ -71,6 +71,9 @@ import {
   nowMs,
 } from "./composer-voice-transcription-utils.js";
 
+import type { VoiceResultTarget } from "../../shared/voice-results.js";
+import { claimOwnVoiceResult, insertVoiceText, trackOwnVoiceRequest } from "../voice-results.js";
+
 export { ReplyChip } from "./ReplyChip.js";
 
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
@@ -141,6 +144,13 @@ export function Composer({
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [alternateVoiceRerun, setAlternateVoiceRerun] = useState<AlternateVoiceRerun | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const zoomLevel = useStore((s) => s.zoomLevel);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -368,6 +378,25 @@ export function Composer({
     source?: "alternate",
   ) {
     const requestId = createVoiceTranscriptionRequestId();
+    // A first transcription names its target draft, so the server keeps the result for this composer
+    // even if this view is gone by the time it is ready. A rerun in the other mode replaces an
+    // applied result instead, so it stays with this view.
+    const baseText = cursorContext.before + cursorContext.after;
+    const target: VoiceResultTarget | undefined =
+      source === "alternate"
+        ? undefined
+        : mode === "dictation"
+          ? { kind: "composer", baseText, selectionStart: 0, selectionEnd: baseText.length }
+          : mode === "append"
+            ? {
+                kind: "composer",
+                baseText,
+                selectionStart: cursorContext.before.length,
+                selectionEnd: cursorContext.before.length,
+              }
+            : { kind: "composer", baseText: composerText, selectionStart: 0, selectionEnd: 0 };
+    const releaseOwnRequest = trackOwnVoiceRequest(requestId);
+    const currentComposerText = () => useStore.getState().composerDrafts.get(sessionId)?.text ?? "";
     const startedAt = nowMs();
     const startedAtTimestamp = Date.now();
     const frontendTimingEvents: VoiceTranscriptionFrontendTimingEvent[] = [];
@@ -445,6 +474,7 @@ export function Composer({
       threadKey: contextThreadKey,
       threadTitle: contextThreadTitle,
       requestId,
+      target,
       onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       onProgress: recordProgress,
       onClientTiming: (timing: VoiceTranscriptionClientTiming) => {
@@ -468,23 +498,29 @@ export function Composer({
     setTranscriptionPhase("preparing");
     try {
       if (mode === "edit") {
-        const {
-          text: editedText,
-          instructionText,
-          rawText,
-        } = await api.transcribe(blob, {
+        const editResult = await api.transcribe(blob, {
           ...transcriptionOptions,
           mode: "edit",
           composerText,
         });
         markApiResolved();
+        if (!(await claimOwnVoiceResult(sessionId, requestId, editResult))) return;
+        // A proposal edits the text it was made from; text typed meanwhile would be lost by accepting it.
+        if (target && currentComposerText() !== composerText) {
+          setVoiceError("The message changed while the voice edit was being made, so it was not applied.");
+          return;
+        }
+        const { text: editedText, instructionText, rawText } = editResult;
         applyVoiceResult(() => {
           setText(composerText);
-          setVoiceEditProposal({
+          const proposal = {
             originalText: composerText,
             editedText,
             instructionText: instructionText || rawText || "",
-          });
+          };
+          // After a switch to another session the proposal waits in the store for this composer to come back.
+          if (mountedRef.current) setVoiceEditProposal(proposal);
+          else useStore.getState().setRecoveredVoiceEdit(sessionId, proposal);
           setAlternateVoiceRerun({
             resultId: requestId,
             blob,
@@ -497,18 +533,23 @@ export function Composer({
           });
         });
       } else if (mode === "append") {
-        const { text: appendText } = await api.transcribe(blob, {
+        const appendResult = await api.transcribe(blob, {
           ...transcriptionOptions,
           mode: "append",
           composerText,
         });
+        const appendText = appendResult.text;
         markApiResolved();
+        if (!(await claimOwnVoiceResult(sessionId, requestId, appendResult))) return;
         const { before, after } = cursorContext;
         const needsSpace = before.length > 0 && !/\s$/.test(before);
         const separator = needsSpace ? " " : "";
         applyVoiceResult(() => {
-          const appended = before + separator + appendText + after;
-          setText(appendText.trim() ? addTranscriptionTag(appended) : appended);
+          if (target) setText((current) => insertVoiceText(current, { target, text: appendText }));
+          else {
+            const appended = before + separator + appendText + after;
+            setText(appendText.trim() ? addTranscriptionTag(appended) : appended);
+          }
           setVoiceEditProposal(null);
           setAlternateVoiceRerun({
             resultId: requestId,
@@ -522,13 +563,16 @@ export function Composer({
           });
         });
       } else {
-        const { text: transcript } = await api.transcribe(blob, {
+        const dictationResult = await api.transcribe(blob, {
           ...transcriptionOptions,
           mode: "dictation",
         });
+        const transcript = dictationResult.text;
         markApiResolved();
+        if (!(await claimOwnVoiceResult(sessionId, requestId, dictationResult))) return;
         applyVoiceResult(() => {
-          setText(transcript.trim() ? addTranscriptionTag(transcript) : transcript);
+          if (target) setText((current) => insertVoiceText(current, { target, text: transcript }));
+          else setText(transcript.trim() ? addTranscriptionTag(transcript) : transcript);
           setVoiceEditProposal(null);
           setAlternateVoiceRerun(null);
         });
@@ -558,6 +602,7 @@ export function Composer({
         });
       }
     } finally {
+      releaseOwnRequest();
       const completedAt = Date.now();
       const totalElapsedMs = Math.max(0, nowMs() - startedAt);
       setIsTranscribing(false);
@@ -694,6 +739,16 @@ export function Composer({
     setVoiceCaptureMode("dictation");
     voiceEditBaseTextRef.current = "";
   }, [sessionId, setVoiceError]);
+
+  // A voice edit that finished while this composer was gone comes back as a proposal (after the reset above).
+  const recoveredVoiceEdit = useStore((s) => s.recoveredVoiceEdits.get(sessionId));
+  useEffect(() => {
+    if (!recoveredVoiceEdit) return;
+    useStore.getState().setRecoveredVoiceEdit(sessionId, null);
+    if ((useStore.getState().composerDrafts.get(sessionId)?.text ?? "") !== recoveredVoiceEdit.originalText) return;
+    setVoiceEditProposal(recoveredVoiceEdit);
+    setComposerExpanded(true);
+  }, [recoveredVoiceEdit, sessionId]);
 
   useEffect(() => {
     if (!voiceError || failedTranscription) return;

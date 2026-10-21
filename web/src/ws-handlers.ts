@@ -50,6 +50,7 @@ import {
   type NotificationListUpdate,
 } from "./ws-notification-handler.js";
 import { applyRemoteDraftChange, applySessionDraftsSnapshot } from "./draft-sync.js";
+import { receivePendingVoiceResult, RECOVERY_GRACE_MS } from "./voice-results.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
 import {
@@ -1478,6 +1479,11 @@ function handleParsedMessage(
       break;
     }
 
+    case "voice_result_pending": {
+      receivePendingVoiceResult(sessionId, data.result, RECOVERY_GRACE_MS);
+      break;
+    }
+
     case "attention_records_update": {
       applyAttentionRecords(sessionId, data, deps);
       break;
@@ -1535,6 +1541,9 @@ function handleParsedMessage(
       applyBoardLists(sessionId, data, deps);
       // Drafts shared by the user's browsers; replace this tab's copy except edits it is still sending.
       applySessionDraftsSnapshot(sessionId, data.drafts);
+      // Finished voice transcriptions no browser has put into its draft yet.
+      for (const pending of Object.values(data.drafts?.voiceResults ?? {}))
+        receivePendingVoiceResult(sessionId, pending, 0);
       // Sync notification inbox from server on connect/reconnect
       applyFeedAttention(sessionId, data, deps);
       break;

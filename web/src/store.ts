@@ -283,6 +283,14 @@ export const useStore = create<AppState>((set, get) => ({
   annotationHover: null,
   setAnnotationHover: (annotationHover) => set({ annotationHover }),
   composerDrafts: new Map(),
+  recoveredVoiceEdits: new Map(),
+  setRecoveredVoiceEdit: (sessionId, proposal) =>
+    set((s) => {
+      const recoveredVoiceEdits = new Map(s.recoveredVoiceEdits);
+      if (proposal) recoveredVoiceEdits.set(sessionId, proposal);
+      else recoveredVoiceEdits.delete(sessionId);
+      return { recoveredVoiceEdits };
+    }),
   ...createNeedsInputDraftStoreSlice(set),
   pendingUserUploads: new Map(),
   pendingUserUploadRestorations: new Map(),
@@ -1711,6 +1719,7 @@ export const useStore = create<AppState>((set, get) => ({
       annotationEditor: null,
       annotationHover: null,
       composerDrafts: new Map(),
+      recoveredVoiceEdits: new Map(),
       needsInputDrafts: new Map(),
       pendingUserUploads: new Map(),
       pendingUserUploadRestorations: new Map(),

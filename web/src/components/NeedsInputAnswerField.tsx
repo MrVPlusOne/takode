@@ -7,12 +7,10 @@ import type { VoiceLevelSample } from "./composer-voice-types.js";
 import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
-import { addTranscriptionTag } from "../../shared/transcription-tag.js";
-import {
-  buildNeedsInputVoiceFocusedContext,
-  insertTextAtSelection,
-  type TextSelectionRange,
-} from "../utils/needs-input-voice-context.js";
+import { buildNeedsInputVoiceFocusedContext, type TextSelectionRange } from "../utils/needs-input-voice-context.js";
+import type { VoiceResultTarget } from "../../shared/voice-results.js";
+import { claimOwnVoiceResult, insertVoiceText, trackOwnVoiceRequest } from "../voice-results.js";
+import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
 
 export const NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX = 132;
 
@@ -219,21 +217,42 @@ export function NeedsInputAnswerField({
     setTranscriptionPhase("preparing");
     setError(null);
     setFailedTranscription(null);
+    // The server keeps the result for this answer until a browser claims it, so it lands even if
+    // this card is gone, the page reloaded or the phone suspended it by the time it is ready.
+    const selection = transcriptionState.selection ?? {
+      value: valueRef.current,
+      start: valueRef.current.length,
+      end: valueRef.current.length,
+    };
+    const target: VoiceResultTarget = {
+      kind: "needs-input",
+      notificationId: notification.id,
+      questionKey: question.key,
+      baseText: selection.value,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+    };
+    const requestId = createVoiceTranscriptionRequestId();
+    const releaseOwnRequest = trackOwnVoiceRequest(requestId);
     try {
-      const { text } = await api.transcribe(blob, {
+      const result = await api.transcribe(blob, {
         mode: "dictation",
         sessionId,
+        requestId,
+        target,
         threadKey: transcriptionState.threadKey,
         threadTitle: transcriptionState.threadTitle,
         focusedContext: transcriptionState.focusedContext,
         onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       });
-      const answer = insertTextAtSelection(valueRef.current, text, transcriptionState.selection);
-      onChange(text.trim() ? addTranscriptionTag(answer) : answer);
+      if (await claimOwnVoiceResult(sessionId, requestId, result)) {
+        onChange(insertVoiceText(valueRef.current, { target, text: result.text }));
+      }
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Transcription failed");
       setFailedTranscription(transcriptionState);
     } finally {
+      releaseOwnRequest();
       setIsTranscribing(false);
       setTranscriptionPhase(null);
     }

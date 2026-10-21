@@ -26,6 +26,8 @@ export interface VoiceTranscriptionResultPayload {
   backend: string;
   enhanced: boolean;
   timing?: VoiceTranscriptionTiming;
+  /** The server kept this result for its draft until a browser claims it (see `src/voice-results.ts`). */
+  recoverable?: boolean;
 }
 
 export interface VoiceTranscriptionServerTiming {

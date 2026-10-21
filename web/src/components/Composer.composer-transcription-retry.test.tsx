@@ -47,6 +47,13 @@ const mockReportTranscriptionFrontendTiming = vi.fn().mockResolvedValue({ ok: tr
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
 
+const mockClaimVoiceResult = vi.fn();
+vi.mock("../api/session-drafts.js", () => ({
+  claimVoiceResult: (...args: unknown[]) => mockClaimVoiceResult(...args),
+  writeSessionDraft: vi.fn(),
+  DraftWriteRejectedError: class extends Error {},
+}));
+
 vi.mock("../ws.js", () => ({
   sendToSession: (...args: unknown[]) => mockSendToSession(...args),
 }));
@@ -323,6 +330,8 @@ function setupMockStore(
         ? new Map([["s1", { text: draftText, images: [] }]])
         : new Map(),
     replyContexts: new Map(),
+    recoveredVoiceEdits: new Map(),
+    setRecoveredVoiceEdit: vi.fn(),
     appendMessage: mockAppendMessage,
     updateSession: mockUpdateSession,
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
@@ -788,6 +797,52 @@ describe("Composer transcription retry", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
       expect(screen.queryByText("session error")).toBeNull();
+    });
+  });
+
+  describe("results the server keeps for the composer", () => {
+    // The server keeps a result for its draft until a browser claims it, so the composer claims
+    // its own result before applying it; that also works after the composer is gone.
+    it("claims its result and puts it into the session's draft even after the composer unmounted", async () => {
+      let resolve!: (value: VoiceTranscriptionResult) => void;
+      mockTranscribe.mockReturnValueOnce(new Promise((done) => (resolve = done)));
+      mockClaimVoiceResult.mockResolvedValueOnce({ requestId: "kept" });
+      const { unmount } = render(<Composer sessionId="s1" />);
+      fireEvent.click(screen.getByLabelText("Voice input"));
+      const requestId = mockTranscribe.mock.calls.at(-1)![1].requestId;
+      expect(mockTranscribe.mock.calls.at(-1)![1].target).toEqual({
+        kind: "composer",
+        baseText: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+
+      unmount(); // The user switched to another session.
+      await act(async () => {
+        resolve({ mode: "dictation", text: "hello", backend: "openai", enhanced: false, recoverable: true });
+      });
+      await waitFor(() => expect(mockClaimVoiceResult).toHaveBeenCalledWith("s1", requestId));
+      await waitFor(() =>
+        expect((mockStoreState.composerDrafts as Map<string, { text: string }>).get("s1")?.text).toBe(
+          "hello\n[transcribed]",
+        ),
+      );
+    });
+
+    it("leaves a result another browser already put into the draft alone", async () => {
+      mockTranscribe.mockResolvedValueOnce({
+        mode: "dictation",
+        text: "hello",
+        backend: "openai",
+        enhanced: false,
+        recoverable: true,
+      });
+      mockClaimVoiceResult.mockResolvedValueOnce(null);
+      render(<Composer sessionId="s1" />);
+      fireEvent.click(screen.getByLabelText("Voice input"));
+      await waitFor(() => expect(mockClaimVoiceResult).toHaveBeenCalled());
+      await waitFor(() => expect(screen.queryByText(/Transcrib/)).toBeNull());
+      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
     });
   });
 });

@@ -41,6 +41,8 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import type { TranscriptionSttReplayContext } from "../transcription-recordings.js";
 import { buildProjectedThreadEntries } from "../../shared/thread-window.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { readVoiceResultTarget, type VoiceResultTarget } from "../../shared/voice-results.js";
+import { addPendingVoiceResult } from "../bridge/session-drafts-controller.js";
 import { collectActivityDocuments, loadSessionSpaces } from "../activity-documents.js";
 import { buildActivityStream } from "../activity-stream.js";
 import { listQuests } from "../quest-store.js";
@@ -961,6 +963,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let rawThreadTitle: string | undefined;
     let rawFocusedContext: string | undefined;
     let transcriptionRequestId: string | undefined;
+    let rawVoiceTarget: unknown;
 
     if (contentType.toLowerCase().startsWith("multipart/form-data")) {
       const body = await c.req.parseBody();
@@ -986,6 +989,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       rawThreadTitle = typeof body["threadTitle"] === "string" ? body["threadTitle"] : undefined;
       rawFocusedContext = typeof body["focusedContext"] === "string" ? body["focusedContext"] : undefined;
       transcriptionRequestId = typeof body["requestId"] === "string" ? body["requestId"] : undefined;
+      rawVoiceTarget = body["draftTarget"];
     } else {
       buf = Buffer.from(await c.req.arrayBuffer());
       if (buf.length === 0) {
@@ -1001,6 +1005,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       rawThreadTitle = c.req.query("threadTitle") || undefined;
       rawFocusedContext = c.req.query("focusedContext") || undefined;
       transcriptionRequestId = c.req.query("requestId") || undefined;
+      rawVoiceTarget = c.req.query("draftTarget");
+    }
+    let voiceTarget: VoiceResultTarget | undefined;
+    try {
+      voiceTarget = readVoiceResultTarget(rawVoiceTarget);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid voice result target." }, 400);
     }
 
     const bodyReadCompletedAt = Date.now();
@@ -1155,6 +1166,30 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           await stream.writeSSE({ event: "result", data: JSON.stringify(payload) });
           serverTiming.resultWriteDurationMs = Date.now() - resultWriteStart;
           serverTiming.serverTotalDurationMs = Date.now() - requestStart;
+        };
+        // The result is kept for the draft it was recorded for until a browser claims it, so it is not
+        // lost when the recording browser has moved on, reloaded or been suspended.
+        const keepVoiceResult = <T extends { text: string; instructionText?: string }>(
+          payload: T,
+        ): T & { recoverable?: true } => {
+          const session = sessionId && transcriptionRequestId && voiceTarget ? wsBridge.getSession(sessionId) : null;
+          if (!session || !payload.text.trim()) return payload;
+          addPendingVoiceResult(
+            session,
+            {
+              requestId: transcriptionRequestId!,
+              target: voiceTarget!,
+              mode,
+              text: payload.text,
+              ...(mode === "edit" && payload.instructionText ? { instructionText: payload.instructionText } : {}),
+              createdAt: Date.now(),
+            },
+            {
+              broadcastToBrowsers: (target, message) => wsBridge.broadcastToSession(target.id, message),
+              persistSession: (target) => wsBridge.persistSessionById(target.id),
+            },
+          );
+          return { ...payload, recoverable: true };
         };
 
         // Build context-aware STT prompt (guides vocabulary recognition)
@@ -1368,7 +1403,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
           const resultTiming = { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming };
-          const resultPayload = {
+          const resultPayload = keepVoiceResult({
             mode,
             text: result.text,
             rawText,
@@ -1376,7 +1411,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             backend: usedBackend,
             enhanced: true,
             timing: resultTiming,
-          };
+          });
 
           emitTranscriptionProgress({
             sessionId,
@@ -1452,14 +1487,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
           const resultTiming = { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming };
-          const resultPayload = {
+          const resultPayload = keepVoiceResult({
             mode,
             text: result.text,
             rawText,
             backend: usedBackend,
             enhanced: true,
             timing: resultTiming,
-          };
+          });
 
           emitTranscriptionProgress({
             sessionId,
@@ -1534,14 +1569,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
           const resultTiming = { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming };
-          const resultPayload = {
+          const resultPayload = keepVoiceResult({
             mode,
             text: result.text,
             rawText: result.rawText,
             backend: usedBackend,
             enhanced: result.enhanced,
             timing: resultTiming,
-          };
+          });
 
           emitTranscriptionProgress({
             sessionId,
@@ -1590,13 +1625,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // STT-only call (no enhancement attempted)
         const resultTiming = { ...uploadTiming, sttDurationMs, serverTiming };
-        const resultPayload = {
+        const resultPayload = keepVoiceResult({
           mode,
           text: rawText,
           backend: usedBackend,
           enhanced: false,
           timing: resultTiming,
-        };
+        });
         emitTranscriptionProgress({
           sessionId,
           requestId: transcriptionRequestId,

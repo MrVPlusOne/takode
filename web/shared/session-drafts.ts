@@ -59,6 +59,8 @@ export interface SessionDraftsState {
   revision: number;
   composer?: SyncedComposerDraftEntry;
   needsInput?: Record<string, SyncedNeedsInputDraftEntry>;
+  /** Finished voice transcriptions no browser has put into its draft yet, by request ID. */
+  voiceResults?: Record<string, import("./voice-results.js").PendingVoiceResult>;
 }
 
 /** One browser write. A null value clears that draft. */

@@ -6,6 +6,11 @@ import {
   type SessionDraftsState,
   type SyncedComposerDraft,
 } from "../../shared/session-drafts.js";
+import {
+  MAX_PENDING_VOICE_RESULTS,
+  PENDING_VOICE_RESULT_MAX_AGE_MS,
+  type PendingVoiceResult,
+} from "../../shared/voice-results.js";
 import { deriveAttachmentPaths } from "../attachment-paths.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 
@@ -93,6 +98,41 @@ export function applySessionDraftWrite<S extends DraftSession>(
   deps.persistSession(session);
   deps.broadcastToBrowsers(session, { type: "session_draft_update", change });
   return { ok: true, change };
+}
+
+/**
+ * Keeps a finished voice transcription until a browser claims it, and tells the session's browsers.
+ * Expired results, and the oldest beyond the limit, are dropped.
+ */
+export function addPendingVoiceResult<S extends DraftSession>(
+  session: S,
+  result: PendingVoiceResult,
+  deps: SessionDraftDeps<S>,
+): void {
+  const now = (deps.now ?? Date.now)();
+  const kept = Object.values(session.drafts?.voiceResults ?? {})
+    .filter((pending) => now - pending.createdAt < PENDING_VOICE_RESULT_MAX_AGE_MS)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(-(MAX_PENDING_VOICE_RESULTS - 1));
+  const voiceResults = Object.fromEntries([...kept, result].map((pending) => [pending.requestId, pending]));
+  session.drafts = { revision: 0, ...session.drafts, voiceResults };
+  deps.persistSession(session);
+  deps.broadcastToBrowsers(session, { type: "voice_result_pending", result });
+}
+
+/** Hands a kept result to the first browser that asks for it; later claims get nothing. */
+export function claimPendingVoiceResult<S extends DraftSession>(
+  session: S,
+  requestId: string,
+  deps: Pick<SessionDraftDeps<S>, "persistSession">,
+): PendingVoiceResult | undefined {
+  const result = session.drafts?.voiceResults?.[requestId];
+  if (!result || !session.drafts) return undefined;
+  const { [requestId]: _claimed, ...rest } = session.drafts.voiceResults!;
+  const { voiceResults: _all, ...drafts } = session.drafts;
+  session.drafts = Object.keys(rest).length > 0 ? { ...drafts, voiceResults: rest } : drafts;
+  deps.persistSession(session);
+  return result;
 }
 
 /**

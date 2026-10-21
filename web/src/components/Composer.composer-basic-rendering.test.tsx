@@ -329,6 +329,8 @@ function setupMockStore(
         ? new Map([["s1", { text: draftText, images: [] }]])
         : new Map(),
     replyContexts: new Map(),
+    recoveredVoiceEdits: new Map(),
+    setRecoveredVoiceEdit: vi.fn(),
     appendMessage: mockAppendMessage,
     updateSession: mockUpdateSession,
     setPreviousPermissionMode: mockSetPreviousPermissionMode,

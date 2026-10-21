@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDraftsState } from "../../shared/session-drafts.js";
 import type { SessionNotification } from "../session-types.js";
+import { addPendingVoiceResult } from "../bridge/session-drafts-controller.js";
 import { createSessionDraftRoutes } from "./session-drafts.js";
 
 // Drafts the server keeps so every browser of the user shares them. These tests
@@ -162,5 +163,59 @@ describe("session draft routes", () => {
     });
 
     expect(response.status).toBe(400);
+  });
+
+  it("keeps a finished voice transcription for its draft and hands it to the first browser that claims it", async () => {
+    // A result the recording browser never applied (it moved on, reloaded or was suspended) is kept
+    // with the drafts, announced to the session's browsers, and given out exactly once.
+    const { session, app, put, broadcastToSession } = setup();
+    const result = {
+      requestId: "voice-1",
+      target: { kind: "composer" as const, baseText: "", selectionStart: 0, selectionEnd: 0 },
+      mode: "dictation" as const,
+      text: "Ship it",
+      createdAt: Date.now(),
+    };
+    addPendingVoiceResult(session, result, {
+      broadcastToBrowsers: (target, message) => broadcastToSession(target.id, message),
+      persistSession: vi.fn(),
+    });
+    expect(broadcastToSession).toHaveBeenCalledWith("s1", { type: "voice_result_pending", result });
+
+    // A draft write keeps the result, and a snapshot carries it.
+    await put({ clientId: "tab-a", write: { kind: "composer", draft: { text: "typing" } } });
+    expect((await (await app.request("/sessions/s1/drafts")).json()).drafts.voiceResults).toEqual({
+      "voice-1": result,
+    });
+
+    const claim = () => app.request("/sessions/s1/drafts/voice-results/voice-1/claim", { method: "POST" });
+    const first = await claim();
+    expect(first.status).toBe(200);
+    expect((await first.json()).result).toEqual(result);
+    expect((await claim()).status).toBe(409);
+    expect(session.drafts?.voiceResults).toBeUndefined();
+  });
+
+  it("drops kept voice results that are too old or beyond the limit", () => {
+    const { session } = setup();
+    const deps = { broadcastToBrowsers: vi.fn(), persistSession: vi.fn(), now: () => 10 * 24 * 3600_000 };
+    const keep = (requestId: string, createdAt: number) =>
+      addPendingVoiceResult(
+        session,
+        {
+          requestId,
+          target: { kind: "composer", baseText: "", selectionStart: 0, selectionEnd: 0 },
+          mode: "dictation",
+          text: requestId,
+          createdAt,
+        },
+        deps,
+      );
+    keep("stale", 0);
+    for (let index = 0; index < 25; index++) keep(`fresh-${index}`, 9 * 24 * 3600_000 + index);
+    const kept = Object.keys(session.drafts?.voiceResults ?? {});
+    expect(kept).toHaveLength(20);
+    expect(kept).not.toContain("stale");
+    expect(kept).toContain("fresh-24");
   });
 });

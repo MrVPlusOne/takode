@@ -1,4 +1,5 @@
 import type { AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
+import type { VoiceResultTarget } from "../../shared/voice-results.js";
 import { subscribeTranscriptionProgress } from "../transcription-progress.js";
 import type {
   VoiceTranscriptionClientTiming,
@@ -25,6 +26,8 @@ export interface VoiceTranscriptionOptions {
   focusedContext?: string;
   annotationContext?: AnnotationVoiceContext;
   composerText?: string;
+  /** The draft the text goes to; the server keeps the result for it until a browser claims it. */
+  target?: VoiceResultTarget;
   onPhase?: (phase: VoiceTranscriptionPhase) => void;
   requestId?: string;
   onProgress?: (event: VoiceTranscriptionProgressEvent) => void;
@@ -135,6 +138,7 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
   if (options?.threadKey) query.set("threadKey", options.threadKey);
   if (options?.threadTitle) query.set("threadTitle", options.threadTitle);
   if (options?.requestId) query.set("requestId", requestId);
+  if (options?.target) query.set("draftTarget", JSON.stringify(options.target));
   const path = `${BASE}/transcribe${query.size > 0 ? `?${query.toString()}` : ""}`;
   const headers = new Headers();
   let body: BodyInit;
@@ -154,6 +158,7 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
     if (options?.annotationContext) form.append("annotationContext", JSON.stringify(options.annotationContext));
     if (options?.composerText !== undefined) form.append("composerText", options.composerText);
     if (options?.requestId) form.append("requestId", requestId);
+    if (options?.target) form.append("draftTarget", JSON.stringify(options.target));
     body = form;
   }
 

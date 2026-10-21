@@ -1,4 +1,5 @@
 import type { ComposerDraft, AnnotationEditorState } from "./types.js";
+import type { VoiceEditProposal } from "./components/composer-voice-types.js";
 import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestSummary } from "./api.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
@@ -416,6 +417,9 @@ export interface AppState {
   composerDrafts: Map<string, ComposerDraft>;
   setComposerDraft: (sessionId: string, draft: ComposerDraft) => void;
   clearComposerDraft: (sessionId: string) => void;
+  /** Voice edits finished after their composer went away, shown as proposals when it is back. */
+  recoveredVoiceEdits: Map<string, VoiceEditProposal>;
+  setRecoveredVoiceEdit: (sessionId: string, proposal: VoiceEditProposal | null) => void;
   /** Unsubmitted needs-input answers by session, then notification ID (see store-needs-input-drafts.ts). */
   needsInputDrafts: Map<string, Map<string, Record<string, string>>>;
   setNeedsInputDraftAnswer: (sessionId: string, notificationId: string, questionKey: string, value: string) => void;
