@@ -37,11 +37,19 @@ function readReferenceNumber(value: unknown): number | undefined {
   throw new Error("Invalid annotation number.");
 }
 
+/** Recent work across the user's session space, so names used elsewhere are recognized in comments too. */
+export interface AnnotationWorkspaceReference {
+  key_terms?: string;
+  recent_quests?: string;
+  recent_activity?: string[];
+}
+
 /** Make a bounded hint copy. Saved annotations and the editable target are never modified. */
 export function buildAnnotationVoiceReference(
   context: AnnotationVoiceContext,
   currentComment: string,
   vocabulary?: string,
+  workspace?: AnnotationWorkspaceReference,
 ) {
   const maxChars = 9000; // Leave room for the fixed STT instruction within its 10k budget.
   let retained = context.otherAnnotations.length;
@@ -62,6 +70,8 @@ export function buildAnnotationVoiceReference(
       },
       main_composer_text: excerpt(context.mainComposerText, 3),
       ...(vocabulary ? { custom_vocabulary: excerpt(vocabulary) } : {}),
+      // Already bounded by the server; the comment's own text shrinks first.
+      ...(workspace ? { workspace } : {}),
       other_annotations: context.otherAnnotations.slice(0, retained).map((annotation, index) => ({
         number: annotation.number ?? index + 1,
         selected_text: excerpt(annotation.selectedText),
@@ -110,8 +120,9 @@ export function buildAnnotationEnhancementPrompt(
   operation: "dictation" | "append" | "edit",
   format: "default" | "bullet" = "default",
   vocabulary?: string,
+  workspace?: AnnotationWorkspaceReference,
 ): string {
-  const { reference } = buildAnnotationVoiceReference(context, currentComment, vocabulary);
+  const { reference } = buildAnnotationVoiceReference(context, currentComment, vocabulary, workspace);
   return JSON.stringify({
     operation,
     format,

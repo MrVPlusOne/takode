@@ -1,7 +1,6 @@
 import type { Hono } from "hono";
-import { buildActivityStream, type ActivitySessionDocument } from "../activity-stream.js";
-import * as sessionNames from "../session-names.js";
-import * as treeGroupStore from "../tree-group-store.js";
+import { collectActivityDocuments, loadSessionSpaces } from "../activity-documents.js";
+import { buildActivityStream } from "../activity-stream.js";
 import type { RouteContext } from "./context.js";
 
 /** Default shortened length of each message; `full=1` returns whole messages. */
@@ -28,66 +27,31 @@ export function registerTakodeActivityRoute(api: Hono, ctx: RouteContext): void 
     }
     if (since >= until) return c.json({ error: "since must be before until" }, 400);
 
-    const treeState = await treeGroupStore.getState();
-    const spaceName = new Map(treeState.groups.map((group) => [group.id, group.name] as const));
-    const spaceOf = (sessionId: string): string => {
-      const groupId =
-        ctx.wsBridge.getSession(sessionId)?.state.treeGroupId ||
-        ctx.launcher.getSession(sessionId)?.treeGroupId ||
-        treeState.assignments[sessionId] ||
-        "default";
-      return spaceName.get(groupId) ?? groupId;
-    };
-
+    const { names: known, nameOf, spaceOf } = await loadSessionSpaces(ctx);
     const requested = c.req.query("space")?.trim();
     let spaces: string[] | null = auth ? [spaceOf(auth.callerId)] : null;
     if (requested === "all") spaces = null;
     else if (requested) {
-      const known = [...spaceName.values()];
       spaces = [];
       for (const value of requested.split(",").map((part) => part.trim())) {
-        const name = known.find((candidate) => candidate.toLowerCase() === value.toLowerCase()) ?? spaceName.get(value);
-        if (!name) return c.json({ error: `Unknown session space "${value}". Known: ${known.join(", ")}` }, 400);
+        const name = known.find((candidate) => candidate.toLowerCase() === value.toLowerCase()) ?? nameOf(value);
+        if (!name)
+          return c.json(
+            {
+              error: `Unknown session space "${value}". Known: ${known.join(", ")}`,
+            },
+            400,
+          );
         spaces.push(name);
       }
     }
 
-    const documents: ActivitySessionDocument[] = [];
-    const unreadable: Array<{ session: number | null; error: string }> = [];
-    for (const session of ctx.launcher.listSessions()) {
-      const bridgeSession = ctx.wsBridge.getSession(session.sessionId);
-      if (!bridgeSession) continue;
-      // Hidden sessions are delegate children driven by an agent, except Side Chats, which the user types into.
-      const sideChat = bridgeSession.state.slackThreadChild;
-      if ((session.hidden || bridgeSession.state.hidden) && !sideChat) continue;
-      const space = spaceOf(sideChat?.rootSessionId ?? session.sessionId);
-      if (spaces && !spaces.includes(space)) continue;
-      // A session last active before the window cannot contribute; skip it before loading archived history.
-      const lastActive = session.archived ? (session.archivedAt ?? session.lastActivityAt) : undefined;
-      if (lastActive !== undefined && lastActive < since) continue;
-      let messageHistory = bridgeSession.messageHistory;
-      // Sessions archived before this server started keep their history only on disk.
-      if (bridgeSession.searchDataOnly) {
-        try {
-          messageHistory = (await ctx.sessionStore.load(session.sessionId))?.messageHistory ?? [];
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(`[takode-activity] Cannot load archived session ${session.sessionId}: ${message}`);
-          unreadable.push({ session: ctx.launcher.getSessionNum(session.sessionId) ?? null, error: message });
-          continue;
-        }
-      }
-      const name = sessionNames.getName(session.sessionId) ?? session.name ?? session.sessionId.slice(0, 8);
-      const rootNum = sideChat ? ctx.launcher.getSessionNum(sideChat.rootSessionId) : undefined;
-      documents.push({
-        sessionId: session.sessionId,
-        sessionNum: ctx.launcher.getSessionNum(session.sessionId) ?? null,
-        sessionName: sideChat ? `Side chat of #${rootNum ?? sideChat.rootSessionId.slice(0, 8)}` : name,
-        space,
-        isOrchestrator: session.isOrchestrator === true || bridgeSession.state.isOrchestrator === true,
-        messageHistory,
-      });
-    }
+    const { documents, unreadable } = await collectActivityDocuments(ctx, {
+      spaceOf,
+      spaces,
+      since,
+      loadArchived: true,
+    });
 
     const threads = buildActivityStream({
       documents,

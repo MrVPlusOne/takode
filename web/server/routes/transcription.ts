@@ -41,8 +41,21 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import type { TranscriptionSttReplayContext } from "../transcription-recordings.js";
 import { buildProjectedThreadEntries } from "../../shared/thread-window.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { collectActivityDocuments, loadSessionSpaces } from "../activity-documents.js";
+import { buildActivityStream } from "../activity-stream.js";
+import { listQuests } from "../quest-store.js";
+import { getQuestSessionSpaceSlug, normalizeQuestSessionSpaceSlug } from "../quest-session-space.js";
+import {
+  buildTranscriptionWorkspaceContext,
+  workspaceReference,
+  withoutThread,
+  TERM_HOURS,
+  type TranscriptionWorkspaceContext,
+} from "../transcription-workspace-context.js";
 
 const TRANSCRIPTION_FOCUSED_CONTEXT_MAX_CHARS = 4000;
+/** The workspace terms change by about one word an hour, so a rebuild every 10 minutes is plenty. */
+const WORKSPACE_CACHE_MS = 10 * 60_000;
 type TranscriptionMode = "dictation" | "edit" | "append";
 type TranscriptionProgressPhase =
   | "transcribing"
@@ -472,6 +485,54 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     };
   }
 
+  /** Workspace context per session space, reused for a while because building it reads the whole space. */
+  const workspaceCache = new Map<string, { builtAt: number; context: Promise<TranscriptionWorkspaceContext> }>();
+
+  /**
+   * Recent quests, activity and terms from the session's space. `excludeThreadKey` drops the
+   * thread being dictated into, whose conversation the prompts already carry.
+   */
+  async function getTranscriptionWorkspace(
+    sessionId: string | undefined,
+    excludeThreadKey: string | undefined,
+  ): Promise<TranscriptionWorkspaceContext | undefined> {
+    if (!sessionId) return undefined;
+    const { spaceOf } = await loadSessionSpaces(ctx);
+    const space = spaceOf(sessionId);
+    const resolveSessionSpaceSlug = (id: string) => launcher.getSession(id)?.memorySessionSpaceSlug;
+    const defaultSessionSpaceSlug = launcher.getMemorySessionSpaceSlug();
+    const questSpace = normalizeQuestSessionSpaceSlug(resolveSessionSpaceSlug(sessionId) ?? defaultSessionSpaceSlug);
+    const key = `${space}\n${questSpace ?? ""}`;
+    const now = Date.now();
+    let cached = workspaceCache.get(key);
+    if (!cached || now - cached.builtAt > WORKSPACE_CACHE_MS) {
+      const build = async () => {
+        const since = now - TERM_HOURS * 3600_000;
+        // Archived sessions whose history is only on disk are skipped: reading them would slow dictation.
+        const { documents } = await collectActivityDocuments(ctx, {
+          spaceOf,
+          spaces: [space],
+          since,
+          loadArchived: false,
+        });
+        const quests = (await listQuests()).filter(
+          (quest) =>
+            getQuestSessionSpaceSlug(quest, { resolveSessionSpaceSlug, defaultSessionSpaceSlug }) === questSpace,
+        );
+        return buildTranscriptionWorkspaceContext({
+          quests,
+          activity: buildActivityStream({ documents, since, until: now, textLimit: 2000 }),
+          now,
+        });
+      };
+      cached = { builtAt: now, context: build() };
+      workspaceCache.set(key, cached);
+      cached.context.catch(() => workspaceCache.delete(key));
+    }
+    const context = await cached.context;
+    return excludeThreadKey ? withoutThread(context, sessionId, excludeThreadKey) : context;
+  }
+
   function emitTranscriptionProgress({
     sessionId,
     requestId,
@@ -549,6 +610,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     focusedContext,
     sessionContext,
     config,
+    workspace,
   }: {
     mode: TranscriptionMode;
     composerText?: string;
@@ -556,6 +618,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     focusedContext?: string;
     sessionContext: ReturnType<typeof getTranscriptionSessionContext>;
     config: ReturnType<typeof getSettings>["transcriptionConfig"];
+    workspace?: TranscriptionWorkspaceContext;
   }) {
     const extra = {
       mode,
@@ -567,6 +630,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       ...(focusedContext ? { focusedContext } : {}),
       ...(sessionContext.activeSessionNames?.length ? { activeSessionNames: sessionContext.activeSessionNames } : {}),
       ...(config.customVocabulary ? { customVocabulary: config.customVocabulary } : {}),
+      ...(workspace ? { workspace } : {}),
     };
     return {
       version: 1 as const,
@@ -1095,8 +1159,19 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         const transcriptionConfig = settings.transcriptionConfig;
         const configuredSttModel = transcriptionConfig.sttModel || GPT_TRANSCRIBE_STT_MODEL;
         const usesGptTranscribeContext = backend === "openai" && configuredSttModel === GPT_TRANSCRIBE_STT_MODEL;
+        // A comment has no thread conversation in its prompts, so its own thread stays in the activity.
+        const workspace = await getTranscriptionWorkspace(
+          sessionId,
+          annotationContext ? undefined : (threadKey ?? "main"),
+        ).catch((error: unknown) => {
+          console.warn("[transcription] Workspace context unavailable:", error);
+          return undefined;
+        });
+        // Workspace terms join the user's own vocabulary: as keywords for gpt-transcribe, in the prompt otherwise.
+        const vocabulary =
+          [transcriptionConfig.customVocabulary, ...(workspace?.terms ?? [])].filter(Boolean).join(", ") || undefined;
         const sanitizedKeywords = usesGptTranscribeContext
-          ? sanitizeTranscriptionKeywords(transcriptionConfig.customVocabulary)
+          ? sanitizeTranscriptionKeywords(vocabulary)
           : { keywords: [], droppedKeywordCount: 0 };
         const sttLanguageHints = usesGptTranscribeContext ? transcriptionConfig.sttLanguageHints || [] : [];
         const sessionContext = getTranscriptionSessionContext(
@@ -1115,7 +1190,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             activeSessionNames: sessionContext.activeSessionNames?.slice(0, 10),
             composerText: mode === "edit" || mode === "append" ? composerText : undefined,
             messageHistory: sessionContext.messageHistory,
-            customVocabulary: usesGptTranscribeContext ? undefined : transcriptionConfig.customVocabulary || undefined,
+            customVocabulary: usesGptTranscribeContext ? undefined : vocabulary,
+            workspace,
           });
         }
         if (annotationContext) {
@@ -1124,7 +1200,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             buildAnnotationVoiceReference(
               annotationContext,
               composerText ?? "",
-              usesGptTranscribeContext ? undefined : transcriptionConfig.customVocabulary,
+              usesGptTranscribeContext ? undefined : vocabulary,
+              workspaceReference(workspace),
             ).text;
         }
         const sttContext = {
@@ -1161,6 +1238,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
                 config: transcriptionConfig,
                 annotationContext,
                 composerText,
+                workspace,
               })
             : undefined;
         debugSttPrompt = sttPrompt;
@@ -1280,6 +1358,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
+              workspace,
             },
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
@@ -1363,6 +1442,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
+              workspace,
             },
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
@@ -1444,6 +1524,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
+              workspace,
             },
           );
           const enhancementDurationMs = Date.now() - enhancementStart;

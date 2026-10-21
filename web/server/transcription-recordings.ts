@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promise
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getSettings } from "./settings-manager.js";
+import type { TranscriptionWorkspaceContext } from "./transcription-workspace-context.js";
 
 export type TranscriptionRecordingStatus = "success" | "error";
 
@@ -94,6 +95,7 @@ export interface TranscriptionEnhancementReplayContext {
     focusedContext?: string;
     activeSessionNames?: string[];
     customVocabulary?: string;
+    workspace?: TranscriptionWorkspaceContext;
   };
 }
 

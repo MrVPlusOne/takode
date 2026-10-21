@@ -326,7 +326,7 @@ describe("buildTranscriptionContext", () => {
 describe("buildEnhancementPrompt", () => {
   it("uses VoiceInk-style guardrails for context priority, corrections, and clean-only output", () => {
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain(
-      "Always reference <CUSTOM_VOCABULARY>, <SESSION_CONTEXT>, and <CONVERSATION_CONTEXT>",
+      "Always reference <CUSTOM_VOCABULARY>, <SESSION_CONTEXT>, <RECENT_QUESTS>, <RECENT_ACTIVITY>, and <CONVERSATION_CONTEXT>",
     );
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain(
       "prioritize the spelling from these context sources over the transcript text",
@@ -978,5 +978,39 @@ describe("buildSttPrompt", () => {
     const names = Array.from({ length: 5 }, (_, i) => `Session ${i}`);
     const prompt = buildSttPrompt({ activeSessionNames: names });
     expect(prompt).toContain("Sessions: Session 0, Session 1, Session 2, Session 3, Session 4");
+  });
+});
+
+// ─── Workspace context ─────────────────────────────────────────────────────────
+
+describe("workspace context in prompts", () => {
+  const workspace = {
+    questTitles: ["Analyze seeded-QA signals in T7"],
+    activity: [{ sessionId: "other", threadKey: "main", line: "[user] Ask Wenxu about the Condor job." }],
+    terms: ["seeded-QA", "Wenxu", "Condor"],
+  };
+
+  it("adds workspace terms, recent quests and activity to the cleanup prompt", () => {
+    const prompt = buildEnhancementPrompt("ask when she about the condo job", "", {
+      customVocabulary: "Takode",
+      workspace,
+    });
+    expect(prompt).toContain(
+      "<CUSTOM_VOCABULARY>\nImportant Vocabulary: Takode\nTerms used recently in this workspace: seeded-QA, Wenxu, Condor\n</CUSTOM_VOCABULARY>",
+    );
+    expect(prompt).toContain("<RECENT_QUESTS>\nRecent quests: Analyze seeded-QA signals in T7\n</RECENT_QUESTS>");
+    expect(prompt).toContain("[user] Ask Wenxu about the Condor job.");
+    // Workspace blocks are context: they come before the transcript.
+    expect(prompt.indexOf("<RECENT_ACTIVITY>")).toBeLessThan(prompt.indexOf("<TRANSCRIPT>"));
+  });
+
+  it("adds quest titles and activity to the speech-to-text prompt within its character budget", () => {
+    // A long thread fills the conversation budget; the workspace still fits and the cap holds.
+    const messageHistory = Array.from({ length: 40 }, (_, i) => userMsg(`message ${i} ${"word ".repeat(200)}`));
+    const prompt = buildSttPrompt({ sessionName: "Daily Leader", messageHistory, workspace });
+    expect(prompt).toContain("Recent quests: Analyze seeded-QA signals in T7");
+    expect(prompt).toContain("<RECENT_ACTIVITY>\n[user] Ask Wenxu about the Condor job.\n</RECENT_ACTIVITY>");
+    // The workspace takes its room from the conversation; the fixed instructions add ~400 characters.
+    expect(prompt.length).toBeLessThanOrEqual(STT_PROMPT_MAX_CHARS + 500);
   });
 });
