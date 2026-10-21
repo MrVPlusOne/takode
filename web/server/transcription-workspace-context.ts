@@ -14,7 +14,7 @@ import type { ActivityThread } from "./activity-stream.js";
 const QUEST_DAYS = 7;
 const QUEST_LIMIT = 25;
 /** Activity shown as text: the last day. Terms come from a longer window because they are short. */
-const ACTIVITY_HOURS = 24;
+export const ACTIVITY_HOURS = 24;
 export const TERM_HOURS = 72;
 const ACTIVITY_LINE_CHARS = 400;
 const TERM_LIMIT = 100;
@@ -31,10 +31,13 @@ export interface TranscriptionWorkspaceContext {
   /** Titles of recently active or completed quests in the session's space, most recent first. */
   questTitles: string[];
   /** The space's user messages and final answers from the last day, newest first, one line each. */
-  activity: Array<{ sessionId: string; threadKey: string; line: string }>;
+  activity: string[];
   /** Distinctive words from the quests and activity (names, acronyms, words with digits or joiners). */
   terms: string[];
 }
+
+/** The slow-changing part of the context, which can be reused for a while. */
+export type WorkspaceVocabulary = Pick<TranscriptionWorkspaceContext, "questTitles" | "terms">;
 
 export interface WorkspaceQuest {
   title: string;
@@ -45,15 +48,14 @@ export interface WorkspaceQuest {
 }
 
 /**
- * Build the workspace context at `now` from the space's quests and its activity stream over the
- * last TERM_HOURS. The result does not depend on the thread being dictated into, so it can be
- * shared by every session in the space; `withoutThread` drops that thread's own lines.
+ * Pick the recent quest titles and the key terms at `now` from the space's quests and its
+ * activity stream over the last TERM_HOURS.
  */
-export function buildTranscriptionWorkspaceContext(input: {
+export function buildWorkspaceVocabulary(input: {
   quests: ReadonlyArray<WorkspaceQuest>;
   activity: ReadonlyArray<ActivityThread>;
   now: number;
-}): TranscriptionWorkspaceContext {
+}): WorkspaceVocabulary {
   const questSince = input.now - QUEST_DAYS * 24 * 3600_000;
   const recentQuests = input.quests
     .filter((quest) => !quest.cancelled && quest.createdAt <= input.now)
@@ -63,26 +65,6 @@ export function buildTranscriptionWorkspaceContext(input: {
     .slice(0, QUEST_LIMIT)
     .map(({ quest }) => quest);
 
-  const messages = input.activity
-    .flatMap((thread) =>
-      thread.messages.map((message) => ({
-        sessionId: thread.sessionId,
-        threadKey: thread.thread ?? "main",
-        at: message.at,
-        user: message.role === "user",
-        text: stripLinkTargets(message.text),
-      })),
-    )
-    .sort((a, b) => b.at - a.at);
-  const activitySince = input.now - ACTIVITY_HOURS * 3600_000;
-  const activity = messages
-    .filter((message) => message.at >= activitySince)
-    .map(({ sessionId, threadKey, user, text }) => ({
-      sessionId,
-      threadKey,
-      line: `[${user ? "user" : "agent"}] ${oneLine(text, ACTIVITY_LINE_CHARS)}`,
-    }));
-
   // TLDRs only feed the terms: as prompt text they added nothing the titles and activity lacked.
   const terms = extractKeyTerms(
     [
@@ -91,23 +73,33 @@ export function buildTranscriptionWorkspaceContext(input: {
         { text: quest.tldr ?? "", weight: 1 },
       ]),
       // The user's own words are the best guide to what they will say.
-      ...messages.map((message) => ({ text: message.text, weight: message.user ? 2 : 1 })),
+      ...input.activity.flatMap((thread) =>
+        thread.messages.map((message) => ({ text: message.text, weight: message.role === "user" ? 2 : 1 })),
+      ),
     ],
     TERM_LIMIT,
   );
-  return { questTitles: recentQuests.map((quest) => quest.title), activity, terms };
+  return { questTitles: recentQuests.map((quest) => quest.title), terms };
 }
 
-/** Drop the lines of the thread being dictated into; the prompts already carry its conversation. */
-export function withoutThread(
-  context: TranscriptionWorkspaceContext,
-  sessionId: string,
-  threadKey: string,
-): TranscriptionWorkspaceContext {
-  return {
-    ...context,
-    activity: context.activity.filter((entry) => entry.sessionId !== sessionId || entry.threadKey !== threadKey),
-  };
+/**
+ * The activity lines, newest first, from an activity stream over the last ACTIVITY_HOURS.
+ * `exclude` drops the thread being dictated into, whose conversation the prompts already carry.
+ */
+export function recentActivityLines(
+  activity: ReadonlyArray<ActivityThread>,
+  exclude?: { sessionId: string; threadKey: string },
+): string[] {
+  return activity
+    .filter(
+      (thread) => !exclude || thread.sessionId !== exclude.sessionId || (thread.thread ?? "main") !== exclude.threadKey,
+    )
+    .flatMap((thread) => thread.messages)
+    .sort((a, b) => b.at - a.at)
+    .map(
+      (message) =>
+        `[${message.role === "user" ? "user" : "agent"}] ${oneLine(stripLinkTargets(message.text), ACTIVITY_LINE_CHARS)}`,
+    );
 }
 
 /** Speech-to-text lines: quest titles and activity, each within its budget (empty when there is none). */
@@ -240,10 +232,10 @@ function truncate(text: string, maxChars: number): string {
 }
 
 /** Leading activity lines (in order) whose joined length fits the budget. */
-function withinBudget(entries: ReadonlyArray<{ line: string }>, budget: number): string[] {
+function withinBudget(lines: ReadonlyArray<string>, budget: number): string[] {
   const kept: string[] = [];
   let used = 0;
-  for (const { line } of entries) {
+  for (const line of lines) {
     if (used + line.length + 1 > budget) break;
     kept.push(line);
     used += line.length + 1;

@@ -986,7 +986,7 @@ describe("buildSttPrompt", () => {
 describe("workspace context in prompts", () => {
   const workspace = {
     questTitles: ["Analyze seeded-QA signals in T7"],
-    activity: [{ sessionId: "other", threadKey: "main", line: "[user] Ask Wenxu about the Condor job." }],
+    activity: ["[user] Ask Wenxu about the Condor job."],
     terms: ["seeded-QA", "Wenxu", "Condor"],
   };
 

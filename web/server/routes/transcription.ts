@@ -46,16 +46,18 @@ import { buildActivityStream } from "../activity-stream.js";
 import { listQuests } from "../quest-store.js";
 import { getQuestSessionSpaceSlug, normalizeQuestSessionSpaceSlug } from "../quest-session-space.js";
 import {
-  buildTranscriptionWorkspaceContext,
+  buildWorkspaceVocabulary,
+  recentActivityLines,
   workspaceReference,
-  withoutThread,
+  ACTIVITY_HOURS,
   TERM_HOURS,
   type TranscriptionWorkspaceContext,
+  type WorkspaceVocabulary,
 } from "../transcription-workspace-context.js";
 
 const TRANSCRIPTION_FOCUSED_CONTEXT_MAX_CHARS = 4000;
 /** The workspace terms change by about one word an hour, so a rebuild every 10 minutes is plenty. */
-const WORKSPACE_CACHE_MS = 10 * 60_000;
+const VOCABULARY_CACHE_MS = 10 * 60_000;
 type TranscriptionMode = "dictation" | "edit" | "append";
 type TranscriptionProgressPhase =
   | "transcribing"
@@ -485,12 +487,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     };
   }
 
-  /** Workspace context per session space, reused for a while because building it reads the whole space. */
-  const workspaceCache = new Map<string, { builtAt: number; context: Promise<TranscriptionWorkspaceContext> }>();
+  /** Quest titles and key terms per session space, reused for a while: they change slowly and take the longest to build. */
+  const vocabularyCache = new Map<string, { builtAt: number; vocabulary: Promise<WorkspaceVocabulary> }>();
 
   /**
-   * Recent quests, activity and terms from the session's space. `excludeThreadKey` drops the
-   * thread being dictated into, whose conversation the prompts already carry.
+   * Recent quests, activity and terms from the session's space. The activity is read fresh for every
+   * dictation; `excludeThreadKey` drops the thread being dictated into, whose conversation the prompts
+   * already carry.
    */
   async function getTranscriptionWorkspace(
     sessionId: string | undefined,
@@ -502,35 +505,36 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const resolveSessionSpaceSlug = (id: string) => launcher.getSession(id)?.memorySessionSpaceSlug;
     const defaultSessionSpaceSlug = launcher.getMemorySessionSpaceSlug();
     const questSpace = normalizeQuestSessionSpaceSlug(resolveSessionSpaceSlug(sessionId) ?? defaultSessionSpaceSlug);
-    const key = `${space}\n${questSpace ?? ""}`;
     const now = Date.now();
-    let cached = workspaceCache.get(key);
-    if (!cached || now - cached.builtAt > WORKSPACE_CACHE_MS) {
+    // Archived sessions whose history is only on disk are skipped: reading them would slow dictation.
+    const activitySince = async (hours: number) => {
+      const since = now - hours * 3600_000;
+      const { documents } = await collectActivityDocuments(ctx, {
+        spaceOf,
+        spaces: [space],
+        since,
+        loadArchived: false,
+      });
+      return buildActivityStream({ documents, since, until: now, textLimit: 2000 });
+    };
+
+    const key = `${space}\n${questSpace ?? ""}`;
+    let cached = vocabularyCache.get(key);
+    if (!cached || now - cached.builtAt > VOCABULARY_CACHE_MS) {
       const build = async () => {
-        const since = now - TERM_HOURS * 3600_000;
-        // Archived sessions whose history is only on disk are skipped: reading them would slow dictation.
-        const { documents } = await collectActivityDocuments(ctx, {
-          spaceOf,
-          spaces: [space],
-          since,
-          loadArchived: false,
-        });
         const quests = (await listQuests()).filter(
           (quest) =>
             getQuestSessionSpaceSlug(quest, { resolveSessionSpaceSlug, defaultSessionSpaceSlug }) === questSpace,
         );
-        return buildTranscriptionWorkspaceContext({
-          quests,
-          activity: buildActivityStream({ documents, since, until: now, textLimit: 2000 }),
-          now,
-        });
+        return buildWorkspaceVocabulary({ quests, activity: await activitySince(TERM_HOURS), now });
       };
-      cached = { builtAt: now, context: build() };
-      workspaceCache.set(key, cached);
-      cached.context.catch(() => workspaceCache.delete(key));
+      cached = { builtAt: now, vocabulary: build() };
+      vocabularyCache.set(key, cached);
+      cached.vocabulary.catch(() => vocabularyCache.delete(key));
     }
-    const context = await cached.context;
-    return excludeThreadKey ? withoutThread(context, sessionId, excludeThreadKey) : context;
+    const [vocabulary, activity] = await Promise.all([cached.vocabulary, activitySince(ACTIVITY_HOURS)]);
+    const exclude = excludeThreadKey ? { sessionId, threadKey: excludeThreadKey } : undefined;
+    return { ...vocabulary, activity: recentActivityLines(activity, exclude) };
   }
 
   function emitTranscriptionProgress({

@@ -272,4 +272,56 @@ describe("buildActivityStream", () => {
 
     expect(threads.map((thread) => thread.session)).toEqual([1, 2]);
   });
+
+  it("matches a fresh read after the same history grows, shrinks or has a row inserted", () => {
+    // The stream keeps per-history facts between calls; changing the history must give the same
+    // result as reading a copy of it from scratch.
+    const history: BrowserIncomingMessage[] = [user("First question", 100), assistant("First answer", 110), result()];
+    const window = { since: 0, until: 10_000 };
+    const fresh = () => buildActivityStream({ documents: [doc([...history])], ...window });
+    const cached = () => buildActivityStream({ documents: [doc(history)], ...window });
+    expect(cached()).toEqual(fresh());
+
+    history.push(user("Second question", 200), assistant("Second answer", 210), result());
+    expect(roles(cached()[0]!.messages)).toEqual(["user:0", "answer:1->0", "user:3", "answer:4->3"]);
+    expect(cached()).toEqual(fresh());
+
+    history.splice(1, 0, user("Inserted question", 105));
+    expect(cached()).toEqual(fresh());
+
+    history.length = 3;
+    expect(cached()).toEqual(fresh());
+  });
+
+  it("reads only from the turn holding the window's first message, yet still lists older asks it answers", () => {
+    // Everything before the window is skipped except the turn the window starts in, whose earlier
+    // question is answered inside the window.
+    const history = [
+      user("Long ago", 100),
+      assistant("Answered long ago", 110),
+      result(),
+      user("Asked before the window", 400),
+      assistant("Answered inside it", 600),
+      result(),
+    ];
+    const threads = buildActivityStream({ documents: [doc(history)], since: 500, until: 1000 });
+    expect(roles(threads[0]!.messages)).toEqual(["user:3", "answer:4->3"]);
+  });
+
+  it("resolves a leader answer inside the window that names a request from long before it", () => {
+    const history = [
+      leaderUser("u1", "Old request", 100),
+      result(),
+      leaderUser("u2", "Unrelated", 200),
+      result(),
+      leaderAnswer("Finally done.", 900, ["u1"]),
+      result(),
+    ];
+    const threads = buildActivityStream({
+      documents: [doc(history, { isOrchestrator: true })],
+      since: 800,
+      until: 1000,
+    });
+    expect(roles(threads[0]!.messages)).toEqual(["user:0", "answer:4->0"]);
+  });
 });

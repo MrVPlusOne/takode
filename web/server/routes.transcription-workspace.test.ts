@@ -18,6 +18,7 @@ vi.mock("./tree-group-store.js", () => ({ getState: async () => ({ groups: [], a
 const now = Date.now();
 let app: Hono;
 let recordingRoot: string;
+let sessions: Record<string, { state: object; messageHistory: object[]; taskHistory: [] }>;
 
 function userMessage(content: string, threadKey = "main") {
   return { type: "user_message", content, timestamp: now - 60_000, threadKey };
@@ -48,7 +49,7 @@ beforeEach(async () => {
   ] as Awaited<ReturnType<typeof questStore.listQuests>>);
 
   // The dictating session and another session in the same (default) space.
-  const sessions: Record<string, { state: object; messageHistory: object[]; taskHistory: [] }> = {
+  sessions = {
     "session-1": {
       state: {},
       messageHistory: [userMessage("Notes in my own thread about Kestrel and Kestrel again.")],
@@ -114,9 +115,11 @@ describe("transcription workspace context", () => {
     expect(String(sent.get("prompt"))).toContain('"recent_quests": "Recent quests: Analyze seeded-QA signals"');
   });
 
-  it("reuses the space's workspace context between dictations", async () => {
+  it("reuses the quest titles and terms between dictations but reads recent activity fresh", async () => {
     await transcribe();
-    await transcribe();
+    sessions["session-2"]!.messageHistory.push(userMessage("Ping Lianghong about the eval."));
+    const sent = await transcribe();
     expect(questStore.listQuests).toHaveBeenCalledTimes(1);
+    expect(String(sent.get("prompt"))).toContain("[user] Ping Lianghong about the eval.");
   });
 });

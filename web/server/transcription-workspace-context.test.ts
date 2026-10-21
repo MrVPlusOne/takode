@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityThread } from "./activity-stream.js";
 import {
-  buildTranscriptionWorkspaceContext,
+  buildWorkspaceVocabulary,
   extractKeyTerms,
-  withoutThread,
+  recentActivityLines,
   workspaceEnhancerBlocks,
   workspaceReference,
   workspaceSttLines,
@@ -82,9 +82,9 @@ describe("extractKeyTerms", () => {
   });
 });
 
-describe("buildTranscriptionWorkspaceContext", () => {
-  it("keeps recent uncancelled quests, the last day of activity as lines, and terms from both", () => {
-    const context = buildTranscriptionWorkspaceContext({
+describe("buildWorkspaceVocabulary", () => {
+  it("keeps recent uncancelled quests and picks terms from the quests and the whole activity window", () => {
+    const vocabulary = buildWorkspaceVocabulary({
       now: NOW,
       quests: [
         { title: "Old quest", createdAt: NOW - 30 * 24 * HOUR },
@@ -94,30 +94,30 @@ describe("buildTranscriptionWorkspaceContext", () => {
         { title: "Audit Maidas rows", createdAt: NOW - 20 * 24 * HOUR, statusChangedAt: NOW - 24 * HOUR },
       ],
       activity: [
-        thread("a", [
-          [48, "user", "Two days ago Condor was down and Condor came back."],
-          [1, "user", "Please ask Wenxu."],
-        ]),
-        thread("b", [[2, "answer", "Wenxu replied about the 12B run."]], "q-7"),
+        thread("a", [[48, "user", "Two days ago Condor was down and Condor came back."]]),
+        thread("b", [[2, "user", "I asked Wenxu about the run."]], "q-7"),
       ],
     });
-    expect(context.questTitles).toEqual(["Analyze seeded-QA signals", "Audit Maidas rows"]);
-    // Newest first; the 48-hour-old message only feeds the terms.
-    expect(context.activity.map((entry) => entry.line)).toEqual([
-      "[user] Please ask Wenxu.",
-      "[agent] Wenxu replied about the 12B run.",
-    ]);
-    expect(context.terms).toEqual(expect.arrayContaining(["seeded-QA", "Condor", "Wenxu", "Maidas"]));
+    expect(vocabulary.questTitles).toEqual(["Analyze seeded-QA signals", "Audit Maidas rows"]);
+    expect(vocabulary.terms).toEqual(expect.arrayContaining(["seeded-QA", "Condor", "Wenxu", "Maidas"]));
   });
+});
 
-  it("drops the dictated thread's own lines with withoutThread", () => {
-    const context = buildTranscriptionWorkspaceContext({
-      now: NOW,
-      quests: [],
-      activity: [thread("a", [[1, "user", "In main."]]), thread("a", [[1, "user", "In the quest thread."]], "q-7")],
-    });
-    expect(withoutThread(context, "a", "main").activity.map((entry) => entry.line)).toEqual([
+describe("recentActivityLines", () => {
+  it("lists messages newest first and drops the dictated thread's own lines", () => {
+    const activity = [
+      thread("a", [[3, "user", "In main."]]),
+      thread("a", [[1, "user", "In the quest thread."]], "q-7"),
+      thread("b", [[2, "answer", "See [the plan](file:docs/plan.md) at https://example.com."]]),
+    ];
+    expect(recentActivityLines(activity)).toEqual([
       "[user] In the quest thread.",
+      "[agent] See [the plan] at",
+      "[user] In main.",
+    ]);
+    expect(recentActivityLines(activity, { sessionId: "a", threadKey: "main" })).toEqual([
+      "[user] In the quest thread.",
+      "[agent] See [the plan] at",
     ]);
   });
 });
@@ -125,11 +125,7 @@ describe("buildTranscriptionWorkspaceContext", () => {
 describe("workspace renderers", () => {
   const context = {
     questTitles: ["Analyze seeded-QA signals", "Audit Maidas rows"],
-    activity: Array.from({ length: 50 }, (_, i) => ({
-      sessionId: "a",
-      threadKey: "main",
-      line: `[user] ${"x".repeat(200)} ${i}`,
-    })),
+    activity: Array.from({ length: 50 }, (_, i) => `[user] ${"x".repeat(200)} ${i}`),
     terms: ["seeded-QA", "Maidas"],
   };
 

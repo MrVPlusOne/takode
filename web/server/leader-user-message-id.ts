@@ -16,20 +16,24 @@ export interface LeaderUserMessageIdentity {
   message: Extract<BrowserIncomingMessage, { type: "user_message" }>;
 }
 
+/** Whether a history row is a user message that receives a session-scoped ID (u1, u2, ...). */
+export function isLeaderUserMessageWithId(
+  message: BrowserIncomingMessage,
+): message is Extract<BrowserIncomingMessage, { type: "user_message" }> & { id: string } {
+  return (
+    isRootAgentHistoryMessage(message) &&
+    isActualHumanUserMessage(message) &&
+    message.leaderResponseCoverageVersion === 1 &&
+    !!message.id
+  );
+}
+
 function eligibleLeaderUserMessages(
   history: ReadonlyArray<BrowserIncomingMessage>,
 ): Array<Omit<LeaderUserMessageIdentity, "userMessageId">> {
-  return history.flatMap((message, historyIndex) => {
-    if (
-      !isRootAgentHistoryMessage(message) ||
-      !isActualHumanUserMessage(message) ||
-      message.leaderResponseCoverageVersion !== 1 ||
-      !message.id
-    ) {
-      return [];
-    }
-    return [{ historyMessageId: message.id, historyIndex, message }];
-  });
+  return history.flatMap((message, historyIndex) =>
+    isLeaderUserMessageWithId(message) ? [{ historyMessageId: message.id, historyIndex, message }] : [],
+  );
 }
 
 /**
