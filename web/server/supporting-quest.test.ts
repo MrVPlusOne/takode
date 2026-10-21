@@ -107,6 +107,37 @@ describe("findSupportingQuestSource", () => {
     expect(findSupportingQuestSource(indexLeaderRequests(quiet), "leader", "q-11", startedFrom)).not.toBeNull();
   });
 
+  it("treats a supporting quest the leader answered or reported in as an ordinary quest", () => {
+    // A result posted in the quest's own tab is something to read there, so the tab must
+    // not be marked as one to skip. An answer naming no message (a new result) counts too.
+    const ask = request("ask", "u7", 1000, "q-10");
+    const newResult = answer("result", 5000, "q-11", []);
+    expect(findSupportingQuestSource(indexLeaderRequests([ask, newResult]), "leader", "q-11", startedFrom)).toBeNull();
+    const report = {
+      type: "markdown_report",
+      id: "report-1",
+      timestamp: 5000,
+      content: "# Findings",
+      threadKey: "q-11",
+      questId: "q-11",
+      source: { sessionId: "leader", reportId: "report-1", sourcePath: "/tmp/report.md", sha256: "0" },
+    } as BrowserIncomingMessage;
+    expect(findSupportingQuestSource(indexLeaderRequests([ask, report]), "leader", "q-11", startedFrom)).toBeNull();
+    // Commentary in the tab (dispatch notes, progress) keeps it a side quest.
+    const commentary = { ...answer("progress", 5000, "q-11", []), leaderThreadRole: "commentary" } as Record<
+      string,
+      unknown
+    >;
+    delete commentary.threadAnswer;
+    const quiet = [ask, commentary as BrowserIncomingMessage];
+    expect(findSupportingQuestSource(indexLeaderRequests(quiet), "leader", "q-11", startedFrom)).not.toBeNull();
+    // An answer the leader wrote where the request was asked is the expected place: still a side quest.
+    const answeredWhereAsked = [ask, answer("final", 5000, "q-10", ["u7"])];
+    expect(
+      findSupportingQuestSource(indexLeaderRequests(answeredWhereAsked), "leader", "q-11", startedFrom),
+    ).not.toBeNull();
+  });
+
   it("does not apply to quests filed in another leader's conversation or from unknown messages", () => {
     const history = [request("ask", "u7", 1000, "q-10")];
     expect(findSupportingQuestSource(indexLeaderRequests(history), "other-leader", "q-11", startedFrom)).toBeNull();

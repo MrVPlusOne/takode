@@ -2,6 +2,7 @@ import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing
 import { parseThreadTextPrefix } from "../shared/thread-routing.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import { buildLeaderUserMessageIdentities, type LeaderUserMessageIdentity } from "./leader-user-message-id.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import type { QuestStartedFrom } from "./quest-types.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
@@ -27,15 +28,27 @@ export interface SupportingQuestAnswer {
 export interface LeaderRequestIndex {
   /** The user's messages by history ID. */
   byMessageId: ReadonlyMap<string, LeaderUserMessageIdentity>;
-  /** The threads the user has written in: typed messages, comments and answers to the leader's questions. */
-  threadsWithUserMessages: ReadonlySet<string>;
+  /**
+   * The threads the user reads a conversation in: ones the user has written in (typed
+   * messages, comments, answers to the leader's questions) and ones holding a leader
+   * answer, with or without the messages it answers, or a published report.
+   */
+  conversationThreads: ReadonlySet<string>;
 }
 
 export function indexLeaderRequests(history: ReadonlyArray<BrowserIncomingMessage>): LeaderRequestIndex {
   const identities = buildLeaderUserMessageIdentities(history);
+  const conversationThreads = new Set(identities.map((entry) => authoritativeMessageOwner(entry.message).threadKey));
+  for (const message of history) {
+    if (!isRootAgentHistoryMessage(message)) continue;
+    // Commentary stays out: only what the user is meant to read there makes it a conversation.
+    if ((message.type === "assistant" && message.threadAnswer) || message.type === "markdown_report") {
+      conversationThreads.add(leaderMessageThreadKey(message));
+    }
+  }
   return {
     byMessageId: new Map(identities.map((entry) => [entry.historyMessageId, entry])),
-    threadsWithUserMessages: new Set(identities.map((entry) => authoritativeMessageOwner(entry.message).threadKey)),
+    conversationThreads,
   };
 }
 
@@ -44,9 +57,10 @@ export function indexLeaderRequests(history: ReadonlyArray<BrowserIncomingMessag
  * still belongs to another thread of the same leader: the leader answers that request
  * where it was asked, so the quest's own thread is not where its result lands and its
  * completion makes nothing unread. The quest is an ordinary one once the conversation
- * is in its own thread: the request was moved into it (Main-to-quest handoff), or the
- * user wrote a message there. Returns null when the quest is not supporting or the
- * request is not in this history, so callers keep today's behavior.
+ * is in its own thread: the request was moved into it (Main-to-quest handoff), the
+ * user wrote a message there, or the leader answered or published a report there.
+ * Returns null when the quest is not supporting or the request is not in this history,
+ * so callers keep today's behavior.
  */
 export function findSupportingQuestSource(
   requests: LeaderRequestIndex,
@@ -59,7 +73,7 @@ export function findSupportingQuestSource(
   if (!identity) return null;
   const threadKey = authoritativeMessageOwner(identity.message).threadKey;
   const questKey = questId.toLowerCase();
-  if (threadKey === questKey || requests.threadsWithUserMessages.has(questKey)) return null;
+  if (threadKey === questKey || requests.conversationThreads.has(questKey)) return null;
   return {
     threadKey,
     userMessageId: identity.userMessageId,
