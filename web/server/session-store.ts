@@ -16,7 +16,7 @@ import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import { createReadStream, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { replaceSessionFile, writeFrozenHistory } from "./session-persistence-io.js";
-import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
@@ -31,6 +31,11 @@ import {
 import { deriveCodexNativeSubagentSnapshot } from "./codex-native-subagent-state.js";
 import { repairRestoredCodexNativeSubagentAuthority } from "./codex-native-subagent-ownership-repair.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import {
+  buildSessionActivityRecord,
+  SESSION_ACTIVITY_RECORD_VERSION,
+  type SessionActivityRecord,
+} from "./activity-stream.js";
 import { restoreUnpersistedHandoffRefs } from "./leader-thread-handoff.js";
 import { dropRetiredTimerAnswerIds } from "./leader-thread-response.js";
 import type {
@@ -50,6 +55,9 @@ import type {
   LegacyLeaderThreadResponseRevisionMetadata,
   ThreadRef,
 } from "./session-types.js";
+
+/** Subfolder of the sessions folder holding archived sessions' activity records. */
+const ACTIVITY_RECORD_DIR = "activity-records";
 
 export interface SearchExcerpt {
   type: "user_message" | "assistant" | "compact_marker" | "recovery_summary";
@@ -1409,7 +1417,10 @@ export class SessionStore {
     return sessions;
   }
 
-  /** Set the archived flag on a persisted session. Extracts search excerpts when archiving. */
+  /**
+   * Set the archived flag on a persisted session. Archiving also extracts search excerpts and
+   * saves the session's activity record, while the full history is loaded anyway.
+   */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
     // Commit already accepted debounced state before reading and changing its
     // archived flag. A later timer must not restore an older unarchived snapshot.
@@ -1422,8 +1433,37 @@ export class SessionStore {
       session.archivedAt = archived ? Date.now() : undefined;
       if (archived) session._searchExcerpts = SessionStore.extractSearchExcerpts(session.messageHistory);
       await this.writeSnapshot(session);
+      if (archived) {
+        const record = buildSessionActivityRecord(session.messageHistory, session.state.isOrchestrator === true);
+        await this.saveActivityRecord(sessionId, record).catch((error) =>
+          console.warn(`[session-store] Failed to save the activity record of ${sessionId}:`, error),
+        );
+      }
       return true;
     });
+  }
+
+  /** The activity record saved when the session was archived, or null when there is none. */
+  async loadActivityRecord(sessionId: string): Promise<SessionActivityRecord | null> {
+    let raw: string;
+    try {
+      raw = await readFile(this.activityRecordPath(sessionId), "utf-8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    const record = JSON.parse(raw) as SessionActivityRecord;
+    return record.version === SESSION_ACTIVITY_RECORD_VERSION ? record : null;
+  }
+
+  async saveActivityRecord(sessionId: string, record: SessionActivityRecord): Promise<void> {
+    await mkdir(join(this.dir, ACTIVITY_RECORD_DIR), { recursive: true });
+    await replaceSessionFile(this.activityRecordPath(sessionId), [JSON.stringify(record)]);
+  }
+
+  private activityRecordPath(sessionId: string): string {
+    // A subfolder, because startup reads every `.json` file in the sessions folder as a session.
+    return join(this.dir, ACTIVITY_RECORD_DIR, `${sessionId}.json`);
   }
 
   /** Flush accepted state, including writes queued while earlier saves settle. Reject on unsaved data. */
@@ -1456,6 +1496,7 @@ export class SessionStore {
       for (const path of [
         this.filePath(sessionId),
         this.frozenLogPath(sessionId),
+        this.activityRecordPath(sessionId),
         ...generations.map((name) => join(this.dir, name)),
       ]) {
         try {

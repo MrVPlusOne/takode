@@ -17,8 +17,34 @@ export interface ActivitySessionDocument {
   /** Display name of the session space (tree group) the session belongs to. */
   space: string;
   isOrchestrator: boolean;
-  messageHistory: ReadonlyArray<BrowserIncomingMessage>;
+  /** The session's history, or, for a session archived with a saved record, its activity record instead. */
+  messageHistory?: ReadonlyArray<BrowserIncomingMessage>;
+  activity?: SessionActivityRecord;
 }
+
+/**
+ * Everything the activity stream can list for one session, without its history: all its user
+ * messages, final answers, new results and reports, with full text. Saved when a session is
+ * archived, so listing its activity later does not load the whole history from disk.
+ */
+export interface SessionActivityRecord {
+  version: typeof SESSION_ACTIVITY_RECORD_VERSION;
+  isOrchestrator: boolean;
+  asks: ActivityRecordEntry[];
+  answers: Array<ActivityRecordEntry & { to: number[] }>;
+  unrequested: Array<ActivityRecordEntry & { role: "answer" | "report" }>;
+}
+
+interface ActivityRecordEntry {
+  index: number;
+  at: number;
+  text: string;
+  images?: number;
+  /** The thread it is listed in (an answer joins the thread of the messages it answers). */
+  thread: string;
+}
+
+export const SESSION_ACTIVITY_RECORD_VERSION = 1;
 
 /** A message in the stream. `index` is its history index, so `takode read <session> <index>` opens it. */
 export interface ActivityMessage {
@@ -94,7 +120,7 @@ interface RawMessage {
   index: number;
   at: number;
   text: string;
-  images: number;
+  images?: number;
 }
 
 /**
@@ -163,29 +189,53 @@ function scanStart(history: ReadonlyArray<BrowserIncomingMessage>, index: Histor
   return 0;
 }
 
+/** The activity record of a whole history, as saved when a session is archived. */
+export function buildSessionActivityRecord(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  isOrchestrator: boolean,
+): SessionActivityRecord {
+  return extractActivity(history, isOrchestrator, Number.NEGATIVE_INFINITY);
+}
+
 function sessionActivity(
   document: ActivitySessionDocument,
   input: BuildActivityStreamInput,
 ): Array<{ message: ActivityMessage; thread: string }> {
-  const history = document.messageHistory;
+  const record =
+    document.activity ?? extractActivity(document.messageHistory ?? [], document.isOrchestrator, input.since);
+  return selectActivity(record, input);
+}
+
+/**
+ * The part of a history's activity that a window starting at `since` can list: everything from the
+ * turn holding the first message at or after `since`, plus older user messages answered there.
+ */
+function extractActivity(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  isOrchestrator: boolean,
+  since: number,
+): SessionActivityRecord {
   const index = indexHistory(history);
-  const start = scanStart(history, index, input.since);
+  const start = scanStart(history, index, since);
+  const threadOf = (askIndex: number): string =>
+    isOrchestrator ? authoritativeMessageOwner(history[askIndex]!).threadKey : MAIN_THREAD_KEY;
   // Asks before `start` are read only when an answer in the scanned part names them.
-  const asks = new Map<number, RawMessage>();
-  const askAt = (askIndex: number): RawMessage => {
+  const asks = new Map<number, ActivityRecordEntry>();
+  const askAt = (askIndex: number): ActivityRecordEntry => {
     let ask = asks.get(askIndex);
     if (!ask) {
-      ask = askMessage(history[askIndex] as Extract<BrowserIncomingMessage, { type: "user_message" }>, askIndex);
+      const message = history[askIndex] as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+      ask = { ...askMessage(message, askIndex), thread: threadOf(askIndex) };
       asks.set(askIndex, ask);
     }
     return ask;
   };
   const answers = new Map<number, { reply: RawMessage; to: number[] }>();
   // Results nothing asked for: leader answers that name no message, and published reports.
-  const unrequested = new Map<number, { role: "answer" | "report"; raw: RawMessage; thread: string }>();
+  const unrequested = new Map<number, ActivityRecordEntry & { role: "answer" | "report" }>();
 
   // Leader user messages carry session-scoped IDs (u1, u2, ...) that settled answers name.
-  const { indexById: leaderAskIndexById, indexes: leaderAskIndexes } = document.isOrchestrator
+  const { indexById: leaderAskIndexById, indexes: leaderAskIndexes } = isOrchestrator
     ? leaderAskIds(index)
     : { indexById: new Map<string, number>(), indexes: new Set<number>() };
 
@@ -204,8 +254,10 @@ function sessionActivity(
     if (message.type === "markdown_report") {
       unrequested.set(messageIndex, {
         role: "report",
-        raw: { index: messageIndex, at: message.timestamp, text: message.content.trim(), images: 0 },
-        thread: document.isOrchestrator ? leaderMessageThreadKey(message) : MAIN_THREAD_KEY,
+        index: messageIndex,
+        at: message.timestamp,
+        text: message.content.trim(),
+        thread: isOrchestrator ? leaderMessageThreadKey(message) : MAIN_THREAD_KEY,
       });
       continue;
     }
@@ -214,7 +266,7 @@ function sessionActivity(
       const ids = message.threadAnswer.answerUserMessageIds;
       // An answer naming no message belongs to the thread it was written in.
       if (ids.length === 0)
-        unrequested.set(messageIndex, { role: "answer", raw: reply, thread: leaderMessageThreadKey(message) });
+        unrequested.set(messageIndex, { role: "answer", ...reply, thread: leaderMessageThreadKey(message) });
       const to = [...new Set(ids)]
         .map((id) => leaderAskIndexById.get(id))
         .filter((askIndex): askIndex is number => askIndex !== undefined);
@@ -227,31 +279,47 @@ function sessionActivity(
     turn = null;
   }
 
-  const inWindow = (raw: RawMessage) => raw.at >= input.since && raw.at < input.until;
+  // An answer joins the thread of the user messages it answers; the record keeps every message it names.
+  const answerEntries = [...answers.values()].map(({ reply, to }) => {
+    for (const askIndex of to) askAt(askIndex);
+    return { ...reply, to, thread: askAt(to[0]!).thread };
+  });
+  return {
+    version: SESSION_ACTIVITY_RECORD_VERSION,
+    isOrchestrator,
+    asks: [...asks.values()],
+    answers: answerEntries,
+    unrequested: [...unrequested.values()],
+  };
+}
+
+/** The record's messages a window lists: those inside it, and those answering or answered by one inside it. */
+function selectActivity(
+  record: SessionActivityRecord,
+  input: BuildActivityStreamInput,
+): Array<{ message: ActivityMessage; thread: string }> {
+  const inWindow = (entry: { at: number }) => entry.at >= input.since && entry.at < input.until;
+  const asks = new Map(record.asks.map((ask) => [ask.index, ask] as const));
+  const answers = new Map(record.answers.map((answer) => [answer.index, answer] as const));
+  const unrequested = new Map(record.unrequested.map((result) => [result.index, result] as const));
   const listed = new Set<number>();
   for (const [askIndex, ask] of asks) if (inWindow(ask)) listed.add(askIndex);
   for (const [answerIndex, answer] of answers) {
-    if (inWindow(answer.reply)) {
+    if (inWindow(answer)) {
       listed.add(answerIndex);
       for (const askIndex of answer.to) listed.add(askIndex);
-    } else if (answer.to.some((askIndex) => inWindow(askAt(askIndex)))) listed.add(answerIndex);
+    } else if (answer.to.some((askIndex) => inWindow(asks.get(askIndex)!))) listed.add(answerIndex);
   }
-  for (const [resultIndex, result] of unrequested) if (inWindow(result.raw)) listed.add(resultIndex);
+  for (const [resultIndex, result] of unrequested) if (inWindow(result)) listed.add(resultIndex);
 
-  const threadOf = (askIndex: number): string =>
-    document.isOrchestrator ? authoritativeMessageOwner(history[askIndex]!).threadKey : MAIN_THREAD_KEY;
   return [...listed].map((listedIndex) => {
     const answer = answers.get(listedIndex);
-    if (answer) {
-      return {
-        message: { ...toMessage("answer", answer.reply, input.textLimit), to: answer.to },
-        // An answer joins the thread of the user messages it answers.
-        thread: threadOf(answer.to[0]!),
-      };
-    }
+    if (answer)
+      return { message: { ...toMessage("answer", answer, input.textLimit), to: answer.to }, thread: answer.thread };
     const result = unrequested.get(listedIndex);
-    if (result) return { message: toMessage(result.role, result.raw, input.textLimit), thread: result.thread };
-    return { message: toMessage("user", askAt(listedIndex), input.textLimit), thread: threadOf(listedIndex) };
+    if (result) return { message: toMessage(result.role, result, input.textLimit), thread: result.thread };
+    const ask = asks.get(listedIndex)!;
+    return { message: toMessage("user", ask, input.textLimit), thread: ask.thread };
   });
 }
 
@@ -261,7 +329,7 @@ function askMessage(message: Extract<BrowserIncomingMessage, { type: "user_messa
     index,
     at: message.timestamp,
     text: formatAnnotatedMessage(content, message.annotations).trim(),
-    images: message.images?.length ?? 0,
+    ...(message.images?.length ? { images: message.images.length } : {}),
   };
 }
 
@@ -272,7 +340,7 @@ function replyMessage(message: BrowserIncomingMessage, index: number): RawMessag
     .join("\n\n")
     .trim();
   if (!text) return null;
-  return { index, at: message.timestamp ?? 0, text, images: 0 };
+  return { index, at: message.timestamp ?? 0, text };
 }
 
 function toMessage(role: ActivityMessage["role"], raw: RawMessage, textLimit: number | undefined): ActivityMessage {

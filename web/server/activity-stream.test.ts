@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildActivityStream, type ActivitySessionDocument } from "./activity-stream.js";
+import { buildActivityStream, buildSessionActivityRecord, type ActivitySessionDocument } from "./activity-stream.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
 // Producer-shaped history rows: the fields the bridge persists for human input,
@@ -323,5 +323,30 @@ describe("buildActivityStream", () => {
       until: 1000,
     });
     expect(roles(threads[0]!.messages)).toEqual(["user:0", "answer:4->0"]);
+  });
+
+  it("lists the same messages from a saved activity record as from the history it was built from", () => {
+    // Archived sessions are listed from their record; it must give the same result for any window.
+    const history = [
+      leaderUser("u1", "Fix the sidebar", 100, "q-5"),
+      result(),
+      leaderUser("u2", "Unrelated question", 200),
+      leaderAnswer("Here is the answer.", 220, ["u2"]),
+      result(),
+      leaderAnswer("The sidebar is fixed.", 900, ["u1"]),
+      result(),
+      report("# Report", 950),
+    ];
+    const record = JSON.parse(JSON.stringify(buildSessionActivityRecord(history, true)));
+    for (const [since, until] of [
+      [0, 10_000],
+      [800, 1000],
+      [150, 250],
+    ]) {
+      const window = { since, until, textLimit: 10 };
+      expect(
+        buildActivityStream({ documents: [doc([], { isOrchestrator: true, activity: record })], ...window }),
+      ).toEqual(buildActivityStream({ documents: [doc(history, { isOrchestrator: true })], ...window }));
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { ServerShutdown } from "./server-shutdown.js";
+import { backfillActivityRecords } from "./activity-documents.js";
 import { serverWorkAdmission } from "./server-work-admission.js";
 process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 
@@ -1588,6 +1589,18 @@ const landingHandoffRetry = setInterval(
   2 * 60_000,
 );
 setTimeout(() => void wsBridge.landingHandoff?.retryPending().catch(() => undefined), 10_000);
+
+// Sessions archived before activity records existed get theirs built once, slowly, after startup settles.
+setTimeout(() => {
+  void backfillActivityRecords(
+    { launcher, wsBridge, sessionStore },
+    { pauseMs: 5_000, shouldStop: () => serverWorkAdmission.isStopping() },
+  )
+    .then((saved) => {
+      if (saved) serverLog.info("Saved activity records of archived sessions", { saved });
+    })
+    .catch((error) => serverLog.warn("Activity record backfill stopped", { error }));
+}, 5 * 60_000);
 
 const startupInjectedRelaunchSessionIds = new Set<string>();
 async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {

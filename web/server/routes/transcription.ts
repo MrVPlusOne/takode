@@ -506,7 +506,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const defaultSessionSpaceSlug = launcher.getMemorySessionSpaceSlug();
     const questSpace = normalizeQuestSessionSpaceSlug(resolveSessionSpaceSlug(sessionId) ?? defaultSessionSpaceSlug);
     const now = Date.now();
-    // Archived sessions whose history is only on disk are skipped: reading them would slow dictation.
+    // Archived sessions come from their saved activity records; one without a record is skipped, since
+    // reading its whole history would slow dictation.
     const activitySince = async (hours: number) => {
       const since = now - hours * 3600_000;
       const { documents } = await collectActivityDocuments(ctx, {

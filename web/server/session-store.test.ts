@@ -9,6 +9,8 @@ import {
   MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME,
 } from "./model-provenance-migration-acknowledgement-store.js";
 import { searchSessionDocuments } from "./session-search.js";
+import { buildSessionActivityRecord } from "./activity-stream.js";
+import type { BrowserIncomingMessage } from "./session-types.js";
 
 let tempDir: string;
 let store: SessionStore;
@@ -704,6 +706,23 @@ describe("setArchived", () => {
   it("returns false for a non-existent session", async () => {
     const result = await store.setArchived("no-such-session", true);
     expect(result).toBe(false);
+  });
+
+  it("saves the session's activity record when archiving, and removing the session deletes it", async () => {
+    // Listing an archived session's activity later reads this record instead of its whole history.
+    const history = [
+      { type: "user_message", id: "m1", content: "Please check the build", timestamp: 100 },
+    ] as BrowserIncomingMessage[];
+    store.saveSync(makeSession("arch-3", { messageHistory: history }));
+    await store.flushAll();
+    expect(await store.loadActivityRecord("arch-3")).toBeNull();
+
+    await store.setArchived("arch-3", true);
+    expect(await store.loadActivityRecord("arch-3")).toEqual(buildSessionActivityRecord(history, false));
+
+    store.remove("arch-3");
+    await store.flushAll();
+    expect(await store.loadActivityRecord("arch-3")).toBeNull();
   });
 });
 

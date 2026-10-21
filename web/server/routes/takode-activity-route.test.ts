@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { buildSessionActivityRecord, type SessionActivityRecord } from "../activity-stream.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import type { RouteContext } from "./context.js";
 import { registerTakodeActivityRoute } from "./takode-activity-route.js";
@@ -34,7 +35,12 @@ function ask(content: string, timestamp: number): BrowserIncomingMessage {
 }
 
 /** A route context over fake sessions; archived search-only sessions keep their history only in the store. */
-function setup(sessions: FakeSession[], callerId: string | null, unreadable: string[] = []) {
+function setup(
+  sessions: FakeSession[],
+  callerId: string | null,
+  unreadable: string[] = [],
+  records = new Map<string, SessionActivityRecord>(),
+) {
   const load = vi.fn(async (sessionId: string) => {
     if (unreadable.includes(sessionId)) throw new Error("corrupt history");
     return { messageHistory: sessions.find((session) => session.sessionId === sessionId)!.history };
@@ -68,7 +74,13 @@ function setup(sessions: FakeSession[], callerId: string | null, unreadable: str
         };
       },
     },
-    sessionStore: { load },
+    sessionStore: {
+      load,
+      loadActivityRecord: vi.fn(async (sessionId: string) => records.get(sessionId) ?? null),
+      saveActivityRecord: vi.fn(async (sessionId: string, record: SessionActivityRecord) => {
+        records.set(sessionId, record);
+      }),
+    },
   } as unknown as RouteContext;
   const api = new Hono();
   registerTakodeActivityRoute(api, ctx);
@@ -76,7 +88,7 @@ function setup(sessions: FakeSession[], callerId: string | null, unreadable: str
     const response = await api.request(`/takode/activity?${window}${query}`);
     return { status: response.status, body: (await response.json()) as any };
   };
-  return { get, load };
+  return { get, load, records };
 }
 
 const sessionNums = (body: any) => body.threads.map((thread: any) => thread.session);
@@ -123,6 +135,42 @@ describe("GET /takode/activity", () => {
     const { get, load } = setup([recent, old], null);
     expect(sessionNums((await get("")).body)).toEqual([3]);
     expect(load.mock.calls.map(([sessionId]) => sessionId)).toEqual(["a"]);
+  });
+
+  it("reads an archived session's saved activity record instead of its history", async () => {
+    // The record saved at archive time holds everything the stream lists, so nothing is read from disk.
+    const archived: FakeSession = {
+      sessionId: "a",
+      sessionNum: 3,
+      treeGroupId: "g-takode",
+      history: [ask("Archived today", 300)],
+      archived: true,
+      archivedAt: 5000,
+      searchDataOnly: true,
+    };
+    const records = new Map([["a", buildSessionActivityRecord(archived.history, false)]]);
+    const { get, load } = setup([archived], null, [], records);
+    const { body } = await get("");
+    expect(body.threads[0].messages.map((message: { text: string }) => message.text)).toEqual(["Archived today"]);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("saves the record of an archived session that had none, so its history is read only once", async () => {
+    const archived: FakeSession = {
+      sessionId: "a",
+      sessionNum: 3,
+      treeGroupId: "g-takode",
+      history: [ask("Archived before records existed", 300)],
+      archived: true,
+      archivedAt: 5000,
+      searchDataOnly: true,
+    };
+    const { get, load, records } = setup([archived], null);
+    const first = await get("");
+    const second = await get("");
+    expect(second.body).toEqual(first.body);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(records.has("a")).toBe(true);
   });
 
   it("reports an archived session whose history cannot be read instead of failing or hiding it", async () => {
