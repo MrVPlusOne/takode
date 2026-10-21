@@ -246,18 +246,19 @@ describe("takode todo", () => {
     const port = (server.address() as AddressInfo).port;
     try {
       // A date and an optional time, as two arguments, become one local wall-clock value.
-      const set = await runTakode(["todo", "due", "td-1", "2026-10-20", "14:30"], port);
+      // Dates are far in the future so the confirmation never shows OVERDUE.
+      const set = await runTakode(["todo", "due", "td-1", "2999-10-20", "14:30"], port);
       expect(set.status).toBe(0);
-      expect(set.stdout).toContain("Set td-1 due 2026-10-20 14:30.");
+      expect(set.stdout).toContain("Set td-1 due 2999-10-20 14:30.");
       const clear = await runTakode(["todo", "due", "td-1", "clear", "--authorized-by", "42"], port);
       expect(clear.status).toBe(0);
       expect(clear.stdout).toContain("Cleared the due date of td-1.");
-      const add = await runTakode(["todo", "add", "Book flights", "--due", "2026-10-21"], port);
+      const add = await runTakode(["todo", "add", "Book flights", "--due", "2999-10-21"], port);
       expect(add.status).toBe(0);
       expect(received).toEqual([
-        ["/api/todos/items/td-1/due", { due: "2026-10-20T14:30" }],
+        ["/api/todos/items/td-1/due", { due: "2999-10-20T14:30" }],
         ["/api/todos/items/td-1/due", { due: null, authorizedBy: 42 }],
-        ["/api/todos/items", { markdown: "Book flights", due: "2026-10-21" }],
+        ["/api/todos/items", { markdown: "Book flights", due: "2999-10-21" }],
       ]);
       // An impossible date fails before reaching the server.
       const bad = await runTakode(["todo", "due", "td-1", "2026-02-30"], port);
