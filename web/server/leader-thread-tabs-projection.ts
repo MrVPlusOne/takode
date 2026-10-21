@@ -3,6 +3,7 @@ import {
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
+  LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
@@ -16,6 +17,7 @@ import {
   type LeaderThreadTabsProjectionTab,
   type LeaderThreadTabsProjectionTabState,
   type LeaderThreadTabsProjectionValue,
+  type LeaderThreadReminderProjection,
 } from "../shared/leader-thread-tabs-projection.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import {
@@ -822,6 +824,25 @@ function collectSideQuestSources(
   return sideQuestSourceThreads(session.messageHistory, session.id, sources);
 }
 
+/** The leader's thread reminders for browsers, soonest first and bounded like thread statuses. */
+function projectThreadReminders(session: Session): Record<string, LeaderThreadReminderProjection> {
+  return Object.fromEntries(
+    Object.entries(session.state.leaderThreadReminders ?? {})
+      .filter(([key, reminder]) => (key === "main" || /^q-\d+$/.test(key)) && reminder.remindAt > 0)
+      .sort(([, left], [, right]) => left.remindAt - right.remindAt)
+      .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES)
+      .map(([key, reminder]) => [
+        key,
+        {
+          remindAt: reminder.remindAt,
+          ...(reminder.messageId
+            ? { messageId: reminder.messageId.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH) }
+            : {}),
+        },
+      ]),
+  );
+}
+
 export function buildLeaderThreadTabsProjectionValue(
   session: Session,
   options: CurrentQuestStateOptions = {},
@@ -927,6 +948,7 @@ export function buildLeaderThreadTabsProjectionValue(
     mainAttention: { ...(attentionVisualInputs.get("main")?.attention ?? EMPTY_ATTENTION) },
     threadStatuses,
     activePhaseSummary: compactActivePhaseSummary(activeBoard),
+    threadReminders: projectThreadReminders(session),
   });
 }
 

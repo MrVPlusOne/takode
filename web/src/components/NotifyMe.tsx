@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type Ref } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
@@ -6,6 +6,9 @@ import { useStore } from "../store.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import type { SdkSessionInfo } from "../types.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
+import { useThreadReminder } from "../utils/thread-reminders.js";
+import { NotifyMeMenu } from "./NotifyMeMenu.js";
+import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 
 export function NotifyMeIcon({
   pending = false,
@@ -46,40 +49,66 @@ export function NotifyMeIcon({
   );
 }
 
+/**
+ * A thread's Notify button. With a result waiting it acknowledges in one tap; otherwise it
+ * opens the Notify Me menu (now, or later). With a reminder set it shows when the thread
+ * comes back.
+ */
 export function NotifyMeControlView({
   enabled,
   pending,
+  reminderAt,
   disabled,
   error,
-  onToggle,
+  expanded = false,
+  buttonRef,
+  onOpen,
   onAcknowledge,
 }: {
   enabled: boolean;
   pending: boolean;
+  /** When a "Remind me later" brings the thread back, if one is set. */
+  reminderAt?: number;
   disabled?: boolean;
   error?: string | null;
-  onToggle: () => void;
+  expanded?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
+  onOpen: () => void;
   onAcknowledge: () => void;
 }) {
+  const highlighted = enabled || reminderAt !== undefined;
   return (
     <span className="inline-flex max-w-full flex-wrap items-center gap-1" data-testid="notify-me-control">
       <button
+        ref={buttonRef}
         type="button"
         aria-label={pending ? "Acknowledge" : "Notify Me"}
-        aria-pressed={pending ? undefined : enabled}
+        aria-haspopup={pending ? undefined : "dialog"}
+        aria-expanded={pending ? undefined : expanded}
         disabled={disabled}
-        onClick={pending ? onAcknowledge : onToggle}
+        onClick={pending ? onAcknowledge : onOpen}
         title={
           pending
-            ? "Acknowledge this result and keep tracking"
-            : enabled
-              ? "Notify Me: Stop tracking this task"
-              : "Notify Me: Keep new results until you acknowledge or reply"
+            ? "Acknowledge this result"
+            : reminderAt !== undefined
+              ? `Notify Me: back ${formatSnoozeUntil(reminderAt)}`
+              : enabled
+                ? "Notify Me is on"
+                : "Notify Me: now or later"
         }
-        className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${enabled ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
+        className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
-        <NotifyMeIcon pending={pending} monitored={enabled} />
-        {pending ? "Acknowledge" : "Notify"}
+        {reminderAt !== undefined && !pending ? (
+          <>
+            <ClockIcon />
+            {formatSnoozeUntil(reminderAt)}
+          </>
+        ) : (
+          <>
+            <NotifyMeIcon pending={pending} monitored={enabled} />
+            {pending ? "Acknowledge" : "Notify"}
+          </>
+        )}
       </button>
       {error && (
         <span role="alert" className="text-[10px] text-cc-error">
@@ -90,12 +119,19 @@ export function NotifyMeControlView({
   );
 }
 
+/** The Notify button for a quest tab or Main, wired to the server's monitoring and reminder state. */
 export function NotifyMeControl({ sessionId, threadKey }: { sessionId: string; threadKey: string }) {
   const projection = useStore((state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId));
+  const reminder = useThreadReminder(sessionId, threadKey);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!/^q-\d+$/.test(threadKey)) return null;
+  const isMain = threadKey === "main";
+  if (!isMain && !/^q-\d+$/.test(threadKey)) return null;
   const monitor = projection?.threads[threadKey];
+  // Main has a monitor only while a reminder waits; it is never "on".
+  const tracking = Boolean(monitor) && !isMain;
   async function act(action: "track" | "untrack" | "acknowledge") {
     setBusy(true);
     setError(null);
@@ -108,14 +144,34 @@ export function NotifyMeControl({ sessionId, threadKey }: { sessionId: string; t
     }
   }
   return (
-    <NotifyMeControlView
-      enabled={Boolean(monitor)}
-      pending={Boolean(monitor?.pendingResultId)}
-      disabled={!projection || busy}
-      error={error}
-      onToggle={() => void act(monitor ? "untrack" : "track")}
-      onAcknowledge={() => void act("acknowledge")}
-    />
+    <>
+      <NotifyMeControlView
+        enabled={tracking}
+        pending={Boolean(monitor?.pendingResultId)}
+        reminderAt={reminder?.remindAt}
+        disabled={!projection || busy}
+        error={error}
+        expanded={open}
+        buttonRef={buttonRef}
+        onOpen={() => setOpen((value) => !value)}
+        onAcknowledge={() => void act("acknowledge")}
+      />
+      {open && (
+        <NotifyMeMenu
+          sessionId={sessionId}
+          threadKey={threadKey}
+          tracking={tracking}
+          onSetTracking={
+            isMain
+              ? undefined
+              : (enabled) => updateThreadMonitoring(sessionId, threadKey, enabled ? "track" : "untrack")
+          }
+          anchor={buttonRef.current?.getBoundingClientRect() ?? null}
+          trigger={buttonRef.current}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }
 

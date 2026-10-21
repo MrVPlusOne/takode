@@ -6,6 +6,7 @@ import { clearAttentionAndMarkRead } from "./bridge/session-notification-control
 import {
   acknowledgeMonitoredThreadResult,
   recordMonitoredThreadResult,
+  recordReminderResult,
   setThreadMonitoring,
 } from "./thread-monitoring.js";
 import { buildThreadMonitoringProjection } from "./thread-monitoring-projection.js";
@@ -159,5 +160,22 @@ describe("Notify Me result lifecycle", () => {
     expect(projection.pendingCount).toBe(75);
     expect(Object.keys(projection.threads)).toHaveLength(50);
     expect(isThreadMonitoringProjectionValue(projection)).toBe(true);
+  });
+});
+
+describe("reminders in Notify Me", () => {
+  it("puts Main in Notify Me for a reminder and drops it once acknowledged, while a quest stays tracked", () => {
+    // Notify Me tracks quest tabs only, so Main's monitor lives only while its reminder waits.
+    const session = fixture();
+    expect(setThreadMonitoring(session, "main", true)).toBe(false);
+    expect(recordReminderResult(session, "main", "Reminder: Main", 5)).toBe(true);
+    expect(recordReminderResult(session, "q-42", "Reminder: q-42", 5)).toBe(true);
+    const projection = buildThreadMonitoringProjection(session);
+    expect(projection.threads).toEqual({ main: { pendingResultId: "1" }, "q-42": { pendingResultId: "2" } });
+    expect(isThreadMonitoringProjectionValue(projection)).toBe(true);
+
+    expect(acknowledgeMonitoredThreadResult(session, "main", "1")).toBe(true);
+    expect(acknowledgeMonitoredThreadResult(session, "q-42", "2")).toBe(true);
+    expect(Object.keys(session.state.threadMonitoring!.threads)).toEqual(["q-42"]);
   });
 });

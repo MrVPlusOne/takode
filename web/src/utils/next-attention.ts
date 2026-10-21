@@ -21,7 +21,12 @@ import { MAIN_THREAD_KEY } from "./thread-projection.js";
 export type NextAttentionItem =
   | (NextAttentionBase & { kind: "needs-input"; entry: GlobalNeedsInputEntry })
   | (NextAttentionBase & { kind: "notify-me"; entry: ThreadMonitoringEntry })
-  | (NextAttentionBase & { kind: "unread"; summary?: string });
+  | (NextAttentionBase & {
+      kind: "unread";
+      summary?: string;
+      /** Set for a thread snoozed with "Remind me later": when it comes back. */
+      remindAt?: number;
+    });
 
 interface NextAttentionBase {
   /** Stable identity across queue rebuilds, used to remember where Next last went. */
@@ -105,6 +110,7 @@ export function buildNextAttentionQueue(input: {
 export function buildAttentionBacklog(input: {
   muted: readonly GlobalNeedsInputEntry[];
   tracked: readonly ThreadMonitoringEntry[];
+  reminders?: readonly NextAttentionItem[];
 }): AttentionBacklog {
   const muted = buildNextAttentionQueue({ needsInput: input.muted, notifyMe: [], unread: [] });
   const tracked: NextAttentionItem[] = input.tracked
@@ -119,12 +125,42 @@ export function buildAttentionBacklog(input: {
       timestamp: entry.trackedAt,
     }));
   tracked.sort((a, b) => b.timestamp - a.timestamp);
-  return { muted, tracked };
+  return { muted, tracked, reminders: [...(input.reminders ?? [])] };
 }
 
 export interface AttentionBacklog {
   muted: NextAttentionItem[];
   tracked: NextAttentionItem[];
+  /** Threads snoozed with "Remind me later", soonest first. */
+  reminders: NextAttentionItem[];
+}
+
+/**
+ * Every leader thread waiting on a "Remind me later", soonest first, from the leaders'
+ * tab projections. Archived leaders keep theirs on the server but are not listed.
+ */
+export function collectThreadReminders(
+  state: LeaderThreadTabsProjectionSource & { sdkSessions: readonly SdkSessionInfo[] },
+): NextAttentionItem[] {
+  const items: NextAttentionItem[] = [];
+  for (const session of state.sdkSessions) {
+    if (session.archived || !session.isOrchestrator) continue;
+    const projection = resolveLeaderThreadTabsProjection(state, session.sessionId).value;
+    for (const [threadKey, reminder] of Object.entries(projection?.threadReminders ?? {})) {
+      const tab = projection?.tabs.find((candidate) => candidate.threadKey === threadKey);
+      items.push({
+        kind: "unread",
+        key: `reminder:${session.sessionId}:${threadKey}`,
+        sessionId: session.sessionId,
+        threadKey,
+        label: threadKey === MAIN_THREAD_KEY ? "Main" : (tab?.title ?? threadKey),
+        // No age: the row shows when the thread comes back instead.
+        timestamp: 0,
+        remindAt: reminder.remindAt,
+      });
+    }
+  }
+  return items.sort((a, b) => (a.kind === "unread" && b.kind === "unread" ? (a.remindAt ?? 0) - (b.remindAt ?? 0) : 0));
 }
 
 export function attentionCursorFor(item: NextAttentionItem): AttentionCursor {

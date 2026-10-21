@@ -113,7 +113,7 @@ describe("GlobalAttentionMenu", () => {
     render(<GlobalAttentionMenu />);
 
     const bell = screen.getByRole("button", {
-      name: "Muted questions and tracked tasks",
+      name: "Muted questions, tracked tasks and reminders",
     });
     expect(bell).toHaveTextContent("");
     fireEvent.click(bell);

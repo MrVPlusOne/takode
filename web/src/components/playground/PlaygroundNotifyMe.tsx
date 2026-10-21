@@ -15,7 +15,7 @@ export function PlaygroundNotifyMe() {
           <NotifyMeControlView
             enabled={enabled}
             pending={enabled && pending}
-            onToggle={() => {
+            onOpen={() => {
               setEnabled(!enabled);
               setPending(false);
             }}

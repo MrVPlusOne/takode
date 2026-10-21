@@ -15,6 +15,7 @@ import {
 } from "./AttentionKind.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
+import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 
 const GO_TO_BUTTON_CLASS =
   "inline-flex shrink-0 items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 cursor-pointer";
@@ -51,6 +52,7 @@ export function SessionAttentionToast({
  * line is its title, which the second line then leaves out.
  */
 function itemLabel(item: NextAttentionItem): string {
+  if (item.kind === "unread" && item.remindAt !== undefined) return `Reminder ${formatSnoozeUntil(item.remindAt)}`;
   if (item.kind === "unread") return item.threadKey === null ? "Latest result" : item.summary || "New result";
   if (item.kind === "notify-me") return item.entry.pending?.summary || withoutQuestId(item.label, item.threadKey ?? "");
   return item.label;
@@ -58,6 +60,12 @@ function itemLabel(item: NextAttentionItem): string {
 
 /** Muted prompts and tracked threads without a result take quiet icons, so they never read as waiting. */
 function ItemIcon({ item }: { item: NextAttentionItem }) {
+  if (item.kind === "unread" && item.remindAt !== undefined)
+    return (
+      <span className="inline-flex text-cc-muted">
+        <ClockIcon />
+      </span>
+    );
   if (item.kind === "needs-input" && item.entry.notification.muted)
     return <BellIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />;
   if (item.kind === "notify-me" && !item.entry.pending) return <NotifyMeIcon className="h-3.5 w-3.5" />;

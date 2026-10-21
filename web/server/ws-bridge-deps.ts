@@ -603,7 +603,37 @@ export function getSessionNotificationDeps(host: any) {
     cancelScheduledNotification: (sessionId: string, notificationId: string) =>
       host.pushoverNotifier?.cancelNotification(sessionId, notificationId),
     resolveQuestStartedFrom: async (questId: string) => (await host.resolveQuestStartedFrom?.(questId)) ?? null,
+    onMonitoredThreadResult: (targetSession: unknown, threadKey: string) =>
+      notifyMonitoredThreadResult(host, targetSession as Session, threadKey),
   };
+}
+
+/**
+ * A Notify Me thread has a new result to acknowledge (a Ready result, or a reminder that came
+ * due): alert open browsers and schedule a Notify Me phone alert that is dropped if the result
+ * is acknowledged first.
+ */
+function notifyMonitoredThreadResult(host: any, session: Session, threadKey: string): void {
+  announceAttentionAlert(session, "result", threadKey, {
+    broadcastToBrowsers: (alertSession, msg) => host.broadcastToBrowsers(alertSession as Session, msg),
+  });
+  const result = session.state.threadMonitoring?.threads[threadKey]?.pending;
+  if (!result || !host.pushoverNotifier) return;
+  const title =
+    threadKey === "main"
+      ? "Main"
+      : session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey;
+  host.pushoverNotifier.scheduleNotification(session.id, "monitored-result", `${title}\n${result.summary}`, undefined, {
+    notificationId: `monitor:${threadKey}:${result.id}`,
+    monitoredResult: {
+      threadKey,
+      resultId: result.id,
+      isPending: () =>
+        host.sessions.get(session.id) === session &&
+        !readLauncherSession(host, session.id)?.archived &&
+        session.state.threadMonitoring?.threads[threadKey]?.pending?.id === result.id,
+    },
+  });
 }
 
 export function getSessionRegistryDeps(host: any) {
@@ -834,32 +864,8 @@ export function getClaudeMessageHandlers(host: any) {
       host.finalizeOrphanedTerminalToolsOnResult(targetSession as Session, resultMsg),
     cancelPermissionNotification: (sessionId: string, requestId: string) =>
       host.pushoverNotifier?.cancelPermission(sessionId, requestId),
-    onMonitoredThreadResult: (targetSession: unknown, threadKey: string) => {
-      const session = targetSession as Session;
-      announceAttentionAlert(session, "result", threadKey, {
-        broadcastToBrowsers: (alertSession, msg) => host.broadcastToBrowsers(alertSession as Session, msg),
-      });
-      const result = session.state.threadMonitoring?.threads[threadKey]?.pending;
-      if (!result || !host.pushoverNotifier) return;
-      const title = session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey;
-      host.pushoverNotifier.scheduleNotification(
-        session.id,
-        "monitored-result",
-        `${title}\n${result.summary}`,
-        undefined,
-        {
-          notificationId: `monitor:${threadKey}:${result.id}`,
-          monitoredResult: {
-            threadKey,
-            resultId: result.id,
-            isPending: () =>
-              host.sessions.get(session.id) === session &&
-              !readLauncherSession(host, session.id)?.archived &&
-              session.state.threadMonitoring?.threads[threadKey]?.pending?.id === result.id,
-          },
-        },
-      );
-    },
+    onMonitoredThreadResult: (targetSession: unknown, threadKey: string) =>
+      notifyMonitoredThreadResult(host, targetSession as Session, threadKey),
     onResultAttentionAndNotifications: (
       targetSession: unknown,
       resultMsg: CLIResultMessage,

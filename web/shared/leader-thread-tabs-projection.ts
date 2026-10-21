@@ -109,6 +109,34 @@ export interface LeaderThreadTabsProjectionValue {
   mainAttention: LeaderThreadTabsProjectionAttention;
   threadStatuses: Record<string, LeaderThreadStatus>;
   activePhaseSummary: LeaderActivePhaseSummarySegment[];
+  /** "Remind me later" wake times by thread key ("main" or a quest ID), including closed tabs. */
+  threadReminders?: Record<string, LeaderThreadReminderProjection>;
+}
+
+export interface LeaderThreadReminderProjection {
+  remindAt: number;
+  /** The message the reminder was set from, if any. */
+  messageId?: string;
+}
+
+function isThreadReminders(value: unknown): value is Record<string, LeaderThreadReminderProjection> {
+  if (!value || typeof value !== "object") return false;
+  const entries = Object.entries(value);
+  return (
+    entries.length <= LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES &&
+    entries.every(
+      ([key, reminder]) =>
+        (key === "main" || /^q-\d+$/.test(key)) &&
+        !!reminder &&
+        typeof reminder === "object" &&
+        isNonNegativeNumber((reminder as LeaderThreadReminderProjection).remindAt) &&
+        ((reminder as LeaderThreadReminderProjection).messageId === undefined ||
+          isBoundedString(
+            (reminder as LeaderThreadReminderProjection).messageId,
+            LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
+          )),
+    )
+  );
 }
 
 function normalizedThreadKey(value: unknown): value is string {
@@ -290,6 +318,7 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
     return false;
   }
   if (!isActivePhaseSummary(candidate.activePhaseSummary)) return false;
+  if (candidate.threadReminders !== undefined && !isThreadReminders(candidate.threadReminders)) return false;
 
   const tabKeys = candidate.tabs.map((tab) => tab.threadKey);
   if (new Set(tabKeys).size !== tabKeys.length) return false;
@@ -310,6 +339,8 @@ export interface LeaderThreadTabsProjectionPatch {
   a?: LeaderThreadTabsProjectionAttention;
   s?: Record<string, LeaderThreadStatusPatch | null>;
   p?: LeaderActivePhaseSummarySegment[];
+  /** The whole reminder map when it changed (small: at most one entry per thread). */
+  r?: Record<string, LeaderThreadReminderProjection>;
 }
 
 const STATUS_FIELDS = new Set([
@@ -363,6 +394,7 @@ export function createLeaderThreadTabsProjectionPatch(
   if (!arraysEqual(previous.activePhaseSummary, next.activePhaseSummary, shallowEqual)) {
     patch.p = next.activePhaseSummary;
   }
+  if (!threadRemindersEqual(previous.threadReminders, next.threadReminders)) patch.r = next.threadReminders ?? {};
   const patchBytes = jsonUtf8ByteLength(patch);
   const valueBytes = jsonUtf8ByteLength(next);
   return Object.keys(patch).length && patchBytes !== null && valueBytes !== null && patchBytes < valueBytes
@@ -385,7 +417,7 @@ export function applyLeaderThreadTabsProjectionPatch(
   }
   const patch = input as LeaderThreadTabsProjectionPatch;
   const keys = Object.keys(patch);
-  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasp".includes(key))) return undefined;
+  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoaspr".includes(key))) return undefined;
 
   const tabMap = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
   if (patch.t !== undefined) {
@@ -421,6 +453,7 @@ export function applyLeaderThreadTabsProjectionPatch(
     ...(Object.hasOwn(patch, "d") ? { tabState: patch.d! } : {}),
     ...(patch.a !== undefined ? { mainAttention: patch.a } : {}),
     ...(patch.p !== undefined ? { activePhaseSummary: patch.p } : {}),
+    ...(patch.r !== undefined ? { threadReminders: patch.r } : {}),
     tabs,
     threadStatuses,
   };
@@ -472,12 +505,16 @@ export function reconcileLeaderThreadTabsProjectionValue(
   );
   const threadStatuses = reconcileRecord(previous.threadStatuses, next.threadStatuses, shallowEqual);
   const activePhaseSummary = reconcileArray(previous.activePhaseSummary, next.activePhaseSummary, shallowEqual);
+  const threadReminders = threadRemindersEqual(previous.threadReminders, next.threadReminders)
+    ? previous.threadReminders
+    : next.threadReminders;
   if (
     tabState === previous.tabState &&
     tabs === previous.tabs &&
     mainAttention === previous.mainAttention &&
     threadStatuses === previous.threadStatuses &&
-    activePhaseSummary === previous.activePhaseSummary
+    activePhaseSummary === previous.activePhaseSummary &&
+    threadReminders === previous.threadReminders
   ) {
     return previous;
   }
@@ -488,7 +525,17 @@ export function reconcileLeaderThreadTabsProjectionValue(
     mainAttention,
     threadStatuses,
     activePhaseSummary,
+    ...(threadReminders ? { threadReminders } : {}),
   };
+}
+
+function threadRemindersEqual(
+  left: Record<string, LeaderThreadReminderProjection> | undefined,
+  right: Record<string, LeaderThreadReminderProjection> | undefined,
+): boolean {
+  const leftKeys = Object.keys(left ?? {});
+  if (leftKeys.length !== Object.keys(right ?? {}).length) return false;
+  return leftKeys.every((key) => !!right?.[key] && shallowEqual(left![key]!, right[key]!));
 }
 
 function durationSummaryEqual(

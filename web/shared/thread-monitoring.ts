@@ -67,11 +67,12 @@ export function isThreadMonitoringProjectionValue(value: unknown): value is Thre
     entries.length <= Math.min(50, candidate.trackedCount) &&
     entries.every(
       ([key, entry]) =>
-        /^q-\d+$/.test(key) &&
+        (key === "main" || /^q-\d+$/.test(key)) &&
         key.length <= 80 &&
         entry &&
         typeof entry === "object" &&
-        (entry.pendingResultId === null ||
+        // Main is never tracked: it appears only while a reminder's result waits to be acknowledged.
+        ((entry.pendingResultId === null && key !== "main") ||
           (typeof entry.pendingResultId === "string" && /^\d+$/.test(entry.pendingResultId))),
     ) &&
     entries.filter(([, entry]) => entry.pendingResultId !== null).length <= candidate.pendingCount

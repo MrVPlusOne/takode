@@ -1709,6 +1709,8 @@ export interface SessionState extends BackendSessionState {
   attentionRecords?: SessionAttentionRecord[];
   /** Server-authoritative current Thread Waiting/Ready markers keyed by normalized thread key. */
   leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
+  /** "Remind me later" wake times keyed by normalized thread key; browsers get them through the tab projection. */
+  leaderThreadReminders?: Record<string, import("./bridge/thread-reminders.js").LeaderThreadReminder>;
   /** Server-authoritative Side Chat records, persisted under the legacy slackThreads key for compatibility. */
   slackThreads?: Record<string, SideChatRecord>;
   /** Present on hidden child backend sessions that power one Side Chat, persisted under the legacy key. */
@@ -1717,7 +1719,11 @@ export interface SessionState extends BackendSessionState {
   hidden?: boolean;
 }
 
-type BrowserSessionInternalAlias = "leaderOpenThreadTabs" | "leaderThreadStatuses" | "threadMonitoring";
+type BrowserSessionInternalAlias =
+  | "leaderOpenThreadTabs"
+  | "leaderThreadStatuses"
+  | "leaderThreadReminders"
+  | "threadMonitoring";
 
 /** Session state safe for current-build browser snapshots and patches. */
 export type BrowserSessionState = Omit<SessionState, BrowserSessionInternalAlias>;
@@ -1729,6 +1735,7 @@ export function projectBrowserSessionState<T extends Partial<SessionState>>(
   const {
     leaderOpenThreadTabs: _leaderOpenThreadTabs,
     leaderThreadStatuses: _leaderThreadStatuses,
+    leaderThreadReminders: _leaderThreadReminders,
     threadMonitoring: _threadMonitoring,
     codex_result_error_auto_pause_recovery_testing: _recoveryTesting,
     ...browserState

@@ -13,6 +13,11 @@ describe("monitoring projection shape", () => {
     expect(isThreadMonitoringProjectionValue(value)).toBe(true);
     expect(isThreadMonitoringProjectionValue({ ...value, threads: {} })).toBe(true);
   });
+  it("accepts Main only while a reminder's result waits to be acknowledged", () => {
+    // A due "Remind me later" gives Main a pending result; acknowledging it removes Main again,
+    // so a Main entry without a pending result never comes from the server.
+    expect(isThreadMonitoringProjectionValue({ ...value, threads: { main: { pendingResultId: "2" } } })).toBe(true);
+  });
   it.each([
     { threads: [] },
     { threads: { main: { pendingResultId: null } } },

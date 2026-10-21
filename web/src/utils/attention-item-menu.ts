@@ -1,4 +1,5 @@
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
+import { cancelThreadReminder, setThreadReminder } from "../api/thread-reminders.js";
 import { api } from "../api.js";
 import type { ContextMenuItem } from "../components/ContextMenu.js";
 import { NEEDS_INPUT_SNOOZE_PRESETS } from "../components/NeedsInputSnoozeControl.js";
@@ -62,6 +63,9 @@ export function needsInputMenuItems(sessionId: string, notification: SessionNoti
  */
 export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem[] {
   if (item.kind === "needs-input") return needsInputMenuItems(item.sessionId, item.entry.notification);
+  if (item.kind === "unread" && item.remindAt !== undefined && item.threadKey) {
+    return threadReminderMenuItems(item.sessionId, item.threadKey);
+  }
   const items: ContextMenuItem[] = [];
   if (item.kind === "notify-me") {
     const { threadKey, pending } = item.entry;
@@ -141,4 +145,37 @@ export async function markThreadRead(sessionId: string, threadKey: string): Prom
     return quests.length > 1 ? quests.includes(target) : resolveNotificationOwnerThreadKey(notification) === target;
   });
   await Promise.all(reviews.map((notification) => api.markNotificationDone(sessionId, notification.id, true)));
+}
+
+/**
+ * Remind the user about a thread later: it counts as read now and comes back as unread,
+ * with a phone alert, when the time comes. `messageId` is the message it was set from.
+ */
+export async function remindThreadLater(
+  sessionId: string,
+  threadKey: string,
+  durationMs: number,
+  messageId?: string,
+): Promise<void> {
+  const target = normalizeThreadKey(threadKey);
+  await setThreadReminder(sessionId, target, durationMs, messageId);
+  await markThreadRead(sessionId, target);
+}
+
+/**
+ * Menu items for a thread's pending reminder: "Change reminder" with the snooze presets,
+ * and "Cancel reminder". The full picker is in the thread's Notify menu.
+ */
+export function threadReminderMenuItems(sessionId: string, threadKey: string): ContextMenuItem[] {
+  const presets: ContextMenuItem[] = NEEDS_INPUT_SNOOZE_PRESETS.map((preset) => ({
+    label: preset.label,
+    onClick: () => void remindThreadLater(sessionId, threadKey, preset.durationMs).catch(logFailure("Remind me later")),
+  }));
+  return [
+    { label: "Change reminder", onClick: () => {}, children: presets },
+    {
+      label: "Cancel reminder",
+      onClick: () => void cancelThreadReminder(sessionId, threadKey).catch(logFailure("Cancel reminder")),
+    },
+  ];
 }

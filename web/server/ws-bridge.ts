@@ -179,6 +179,7 @@ import {
   wakeDueSnoozedNotifications as wakeDueSnoozedNotificationsController,
 } from "./bridge/session-registry-controller.js";
 import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
+import { wakeDueThreadReminders } from "./bridge/thread-reminders.js";
 import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
 import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
 import { createClaudeMessageHandlers as createClaudeMessageHandlersController } from "./bridge/claude-message-controller.js";
@@ -629,6 +630,7 @@ export class WsBridge {
       this.sweepBoardStallWarnings(now);
       this.sweepBoardDispatchableWarnings(now);
       wakeDueSnoozedNotificationsController(this.sessions.values(), now, this.getSessionNotificationDeps());
+      wakeDueThreadReminders(this.sessions.values(), now, this.getSessionNotificationDeps());
     }, 30_000);
     if (timer.unref) timer.unref();
   }

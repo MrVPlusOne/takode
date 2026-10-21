@@ -19,6 +19,7 @@ import { ThreadTabRecentMessages, type LoadRecentMessages } from "./ThreadTabRec
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
+import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -546,6 +547,7 @@ function ThreadTabListRow({
     ? "Main thread"
     : [
         tab.questId ?? threadKey,
+        tab.remindAt !== undefined ? `Remind ${formatSnoozeUntil(tab.remindAt)}` : null,
         tab.stateLabel ?? tab.detail,
         closed ? "Closed" : null,
         activeAt ? timeAgo(activeAt) : null,
@@ -571,6 +573,7 @@ function ThreadTabListRow({
       data-blue-notification={tab.blueNudge ? "true" : "false"}
       data-active-output={isActiveOutput(tab, context.activeOutputThreadKey) ? "true" : "false"}
       data-side-quest-of={tab.sideQuestOf ?? ""}
+      data-remind-at={tab.remindAt ?? ""}
     >
       <button
         type="button"
@@ -589,6 +592,12 @@ function ThreadTabListRow({
               // Another leader runs this quest now; the meta line names it ("Led by #N").
               <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-led-elsewhere-icon">
                 <SessionRoleIcon role="Leader" />
+              </span>
+            )}
+            {tab.remindAt !== undefined && (
+              // Snoozed with "Remind me later": read for now, back when the meta line says.
+              <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-reminder-icon">
+                <ClockIcon />
               </span>
             )}
             {tab.sideQuestOf && (

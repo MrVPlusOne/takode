@@ -65,10 +65,45 @@ export function acknowledgeMonitoredThreadResult(
   const current = session.state.threadMonitoring;
   const monitor = current?.threads[threadKey];
   if (!current || !monitor?.pending || monitor.pending.id !== observedResultId) return false;
+  const threads = { ...current.threads, [threadKey]: { ...monitor, pending: null } };
+  // Notify Me does not track Main: its monitor exists only while a reminder waits to be acknowledged.
+  if (threadKey === "main") delete threads.main;
+  session.state.threadMonitoring = { ...current, revision: current.revision + 1, threads };
+  return true;
+}
+
+/**
+ * A "Remind me later" came due: the thread enters Notify Me with a result to acknowledge,
+ * pointing at its latest Ready result when it has one. A quest thread stays tracked after
+ * that; Main stops once acknowledged. Returns false when a result already waits there.
+ */
+export function recordReminderResult(
+  session: Pick<ThreadMonitoringSession, "state" | "messageHistory">,
+  threadKey: string,
+  summary: string,
+  now = Date.now(),
+): boolean {
+  const current = session.state.threadMonitoring ?? { revision: 0, alertVersion: 0, threads: {} };
+  const monitor = current.threads[threadKey];
+  if (monitor?.pending) return false;
+  const revision = current.revision + 1;
+  const ready = session.state.leaderThreadStatuses?.[threadKey];
   session.state.threadMonitoring = {
-    ...current,
-    revision: current.revision + 1,
-    threads: { ...current.threads, [threadKey]: { ...monitor, pending: null } },
+    revision,
+    alertVersion: current.alertVersion + 1,
+    threads: {
+      ...current.threads,
+      [threadKey]: {
+        trackedAt: monitor?.trackedAt ?? now,
+        afterHistoryIndex: monitor?.afterHistoryIndex ?? latestAcceptedReadyIndex(session, threadKey),
+        pending: {
+          id: String(revision),
+          messageId: ready?.kind === "ready" ? ready.messageId : "",
+          timestamp: now,
+          summary: summary.slice(0, 200),
+        },
+      },
+    },
   };
   return true;
 }

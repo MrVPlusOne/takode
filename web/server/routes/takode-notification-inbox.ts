@@ -5,6 +5,7 @@ import {
   setNotificationMuted as setNotificationMutedController,
   snoozeNotification as snoozeNotificationController,
 } from "../bridge/session-registry-controller.js";
+import { cancelThreadReminder, setThreadReminder } from "../bridge/thread-reminders.js";
 import type { RouteContext } from "./context.js";
 import { reportNeedsInputDismissals, snapshotNeedsInputForDismissal } from "./notification-dismissal-events.js";
 
@@ -128,6 +129,42 @@ export function registerTakodeNotificationInboxRoutes(
 
     snoozeNotificationController(session, notifId, Date.now() + durationMs, notificationPersistDeps);
     return c.json({ ok: true, notification });
+  });
+
+  // "Remind me later" for a leader thread the user has read but cannot act on yet.
+  const reminderDeps = { persistSession: (session: { id: string }) => wsBridge.persistSessionById(session.id) };
+  const leaderSessionFor = (c: Context) => {
+    const id = resolveId(c.req.param("id") ?? "");
+    const session = id ? wsBridge.getSession(id) : undefined;
+    return session?.state.isOrchestrator ? session : null;
+  };
+  api.post("/sessions/:id/thread-reminders", async (c) => {
+    const session = leaderSessionFor(c);
+    if (!session) return c.json({ error: "Leader session not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const { threadKey, durationMs, messageId } = body as Record<string, unknown>;
+    if (typeof threadKey !== "string" || !/^(main|q-\d+)$/i.test(threadKey)) {
+      return c.json({ error: "threadKey must be main or a quest ID" }, 400);
+    }
+    if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 60_000) {
+      return c.json({ error: "durationMs must be at least one minute" }, 400);
+    }
+    if (durationMs > MAX_SNOOZE_MS) return c.json({ error: "A reminder can be at most 30 days away" }, 400);
+    const reminder = setThreadReminder(
+      session,
+      {
+        threadKey,
+        remindAt: Date.now() + durationMs,
+        ...(typeof messageId === "string" && messageId ? { messageId } : {}),
+      },
+      reminderDeps,
+    );
+    return c.json({ ok: true, reminder });
+  });
+  api.delete("/sessions/:id/thread-reminders/:threadKey", (c) => {
+    const session = leaderSessionFor(c);
+    if (!session) return c.json({ error: "Leader session not found" }, 404);
+    return c.json({ ok: true, cancelled: cancelThreadReminder(session, c.req.param("threadKey"), reminderDeps) });
   });
 
   api.post("/sessions/:id/notifications/:notifId/done", async (c) => {

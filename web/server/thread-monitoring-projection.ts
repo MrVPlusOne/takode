@@ -15,9 +15,9 @@ export function buildThreadMonitoringProjection(session: {
     trackedCount: Object.keys(monitors).length,
     pendingCount: Object.values(monitors).filter((monitor) => monitor.pending !== null).length,
     threads: Object.fromEntries(
-      open
+      // Main is never a tab; it has a monitor only while a reminder waits to be acknowledged.
+      [...(monitors.main ? ["main"] : []), ...open.filter((key) => monitors[key])]
         .slice(0, 50)
-        .filter((key) => monitors[key])
         .map((key) => [key, { pendingResultId: monitors[key].pending?.id ?? null }]),
     ),
   };

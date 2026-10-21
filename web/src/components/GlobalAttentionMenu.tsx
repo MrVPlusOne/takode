@@ -6,7 +6,13 @@ import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.
 import { useNextAttention, useTrackedNotifyMeEntries } from "../hooks/useNextAttention.js";
 import { useStore } from "../store.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
-import { buildAttentionBacklog, type AttentionBacklog, type NextAttentionItem } from "../utils/next-attention.js";
+import { useShallow } from "zustand/react/shallow";
+import {
+  buildAttentionBacklog,
+  collectThreadReminders,
+  type AttentionBacklog,
+  type NextAttentionItem,
+} from "../utils/next-attention.js";
 import { AttentionItemRow, AttentionItemSections } from "./AttentionItemRows.js";
 import { AttentionKindIcon, BellIcon, NextAttentionToast, NextChevron, attentionTone } from "./AttentionKind.js";
 import { useNotifyMeSummary } from "./NotifyMe.js";
@@ -21,10 +27,10 @@ export const ATTENTION_NEXT_EVENT = "takode:attention-next";
 /**
  * The top bar's attention list: a count that opens everything across sessions
  * that needs the user, grouped by priority, with a Next step (and keyboard
- * shortcut) that walks the whole list. Below it, collapsed, sit muted prompts
- * and tracked Notify Me threads without a result, which Next skips. With only
- * those, the button stays as a quiet bell without a count; with nothing at all
- * it is hidden. `compact` is the phone top bar's larger form.
+ * shortcut) that walks the whole list. Below it, collapsed, sit muted prompts,
+ * tracked Notify Me threads without a result and threads snoozed with "Remind me
+ * later", which Next skips. With only those, the button stays as a quiet bell
+ * without a count; with nothing at all it is hidden. `compact` is the phone top bar's larger form.
  */
 export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) {
   const { queue, next, goNext, open: openItem } = useNextAttention();
@@ -34,11 +40,19 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
   // Pending results are a subset of tracked threads, and already in the queue.
   const waitingTrackedCount = notifyMe.tracked - notifyMe.pending;
   const trackedEntries = useTrackedNotifyMeEntries(open && waitingTrackedCount > 0, notifyMe.signature);
-  const backlog = useMemo(
-    () => buildAttentionBacklog({ muted: mutedEntries, tracked: trackedEntries }),
-    [mutedEntries, trackedEntries],
+  const reminderSource = useStore(
+    useShallow((s) => ({
+      sdkSessions: s.sdkSessions,
+      syncedProjectionValues: s.syncedProjectionValues,
+      syncedProjectionKeys: s.syncedProjectionKeys,
+    })),
   );
-  const hasAnything = queue.length > 0 || mutedEntries.length > 0 || waitingTrackedCount > 0;
+  const reminders = useMemo(() => collectThreadReminders(reminderSource), [reminderSource]);
+  const backlog = useMemo(
+    () => buildAttentionBacklog({ muted: mutedEntries, tracked: trackedEntries, reminders }),
+    [mutedEntries, trackedEntries, reminders],
+  );
+  const hasAnything = queue.length > 0 || mutedEntries.length > 0 || waitingTrackedCount > 0 || reminders.length > 0;
   const [landing, setLanding] = useState<NextAttentionLanding | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -141,7 +155,9 @@ export function AttentionListPill({
       type="button"
       onClick={onClick}
       data-testid="attention-list-button"
-      aria-label={topKind ? `Everything that needs attention (${countLabel})` : "Muted questions and tracked tasks"}
+      aria-label={
+        topKind ? `Everything that needs attention (${countLabel})` : "Muted questions, tracked tasks and reminders"
+      }
       aria-expanded={open}
       title={topKind ? "Everything that needs attention" : "Nothing needs attention"}
       className={`inline-flex shrink-0 items-center gap-1 rounded-full border font-semibold transition-colors hover:opacity-90 cursor-pointer ${tone.border} ${tone.bg} ${tone.text} ${
@@ -203,7 +219,10 @@ export function GlobalAttentionPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const titledItems = useMemo(() => (backlog ? [...items, ...backlog.muted] : items), [items, backlog]);
+  const titledItems = useMemo(
+    () => (backlog ? [...items, ...backlog.muted, ...backlog.reminders] : items),
+    [items, backlog],
+  );
   const storeThreads = useAttentionThreadTitles(titledItems);
   const sessionInfo = useMemo(() => {
     const info = new Map<string, { tag?: string; label?: string }>();
@@ -305,6 +324,7 @@ export function GlobalAttentionPanel({
               onOpen={onOpen}
               rowProps={rowProps}
             />
+            <BacklogSection title="Reminders" items={backlog.reminders} onOpen={onOpen} rowProps={rowProps} />
           </>
         )}
       </div>

@@ -22,7 +22,10 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
           sessionName: launcher.name || "Leader",
           sessionNum: launcher.sessionNum ?? null,
           threadKey,
-          title: session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey,
+          title:
+            threadKey === "main"
+              ? "Main"
+              : session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey,
           trackedAt: monitor.trackedAt,
           pending: monitor.pending,
         });
@@ -37,6 +40,7 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
     const page = entries.slice(offset, offset + 50);
     await Promise.all(
       page.map(async (entry) => {
+        if (entry.threadKey === "main") return;
         const quest = await getQuest(entry.threadKey);
         if (quest?.title) entry.title = quest.title;
       }),
@@ -56,10 +60,12 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
     if (launcher.archived || !(session.state.isOrchestrator || launcher.isOrchestrator))
       return c.json({ error: "Choose an active leader task tab" }, 409);
     const threadKey = c.req.param("threadKey");
-    if (!/^q-\d+$/.test(threadKey)) return c.json({ error: "Notify Me is available on named task tabs" }, 400);
     const body = await c.req.json().catch(() => null);
     if (!body || !["track", "untrack", "acknowledge"].includes(body.action))
       return c.json({ error: "Invalid monitoring action" }, 400);
+    // Main can only acknowledge a reminder; Notify Me tracking covers quest tabs.
+    const allowed = /^q-\d+$/.test(threadKey) || (threadKey === "main" && body.action === "acknowledge");
+    if (!allowed) return c.json({ error: "Notify Me is available on named task tabs" }, 400);
     if (
       body.action === "track" &&
       !session.state.threadMonitoring?.threads[threadKey] &&

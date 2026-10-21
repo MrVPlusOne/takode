@@ -380,6 +380,20 @@ describe("leader thread tabs projection wire contract", () => {
     expect(applyLeaderThreadTabsProjectionPatch(previous, patch)).toEqual(next);
   });
 
+  it("treats a reminder-only change as a change and carries it in a patch", () => {
+    // Setting or cancelling "Remind me later" changes nothing but the reminder map; the
+    // server must still see a change and publish it, or browsers never learn of it.
+    const previous = value();
+    const next = { ...previous, threadReminders: { "q-1": { remindAt: 5_000, messageId: "m-1" } } };
+    expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
+    const patch = createLeaderThreadTabsProjectionPatch(previous, next);
+    expect(patch).toEqual({ r: { "q-1": { remindAt: 5_000, messageId: "m-1" } } });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, patch)?.threadReminders).toEqual(next.threadReminders);
+    // Cancelling the last reminder sends an empty map.
+    const cleared = createLeaderThreadTabsProjectionPatch(next, { ...next, threadReminders: {} });
+    expect(applyLeaderThreadTabsProjectionPatch(next, cleared)?.threadReminders).toEqual({});
+  });
+
   it("rejects malformed patches and omits no-op patches", () => {
     const previous = value();
     expect(applyLeaderThreadTabsProjectionPatch(previous, { s: { "q-2": { unknown: true } } })).toBeUndefined();

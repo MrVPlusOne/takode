@@ -46,6 +46,7 @@ import {
   type PrimaryThreadChip,
 } from "./WorkBoardThreadTabs.js";
 import { threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
+import { NotifyMeControl } from "./NotifyMe.js";
 
 export { activeBoardSummarySegments, boardSummary };
 export type { BoardSummarySegment };
@@ -195,6 +196,9 @@ function buildProjectedThreadTabs(
       completed: finished,
       groupChangedAt: tab.groupChangedAt,
       ...(tab.sideQuestOf ? { sideQuestOf: tab.sideQuestOf } : {}),
+      ...(projection.threadReminders?.[tab.threadKey]
+        ? { remindAt: projection.threadReminders[tab.threadKey]!.remindAt }
+        : {}),
       projectedCurrentState: true,
       canClose: tab.canClose,
       updatedAt: tab.updatedAt,
@@ -628,6 +632,8 @@ function WorkBoardBarComponent({
             onSelectView={handleSelectView}
           />
           <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+            {/* Main's Notify offers "Remind me later" only: Notify Me does not track Main. */}
+            <NotifyMeControl sessionId={sessionId} threadKey="main" />
             {/* The leader's own changes; nothing shows while its checkout is clean. */}
             <SessionChangesChip
               sessionId={sessionId}

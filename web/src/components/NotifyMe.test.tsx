@@ -31,7 +31,7 @@ describe("Notify Me controls", () => {
     const onToggle = vi.fn();
     const onAcknowledge = vi.fn();
     const { rerender } = render(
-      <NotifyMeControlView enabled pending={false} onToggle={onToggle} onAcknowledge={onAcknowledge} />,
+      <NotifyMeControlView enabled pending={false} onOpen={onToggle} onAcknowledge={onAcknowledge} />,
     );
     expect(screen.getByRole("img", { name: "Monitored task" })).toBeTruthy();
     // The header shortens its visible label while the feature name remains available on hover and to assistive tools.
@@ -40,8 +40,8 @@ describe("Notify Me controls", () => {
     expect(screen.queryByText("Acknowledge")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
     expect(onToggle).toHaveBeenCalledOnce();
-    rerender(<NotifyMeControlView enabled pending onToggle={onToggle} onAcknowledge={onAcknowledge} />);
-    // Pending results expose one action, and clicking it must not invoke the tracking toggle.
+    rerender(<NotifyMeControlView enabled pending onOpen={onToggle} onAcknowledge={onAcknowledge} />);
+    // Pending results expose one action, and clicking it must not open the menu.
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Notify Me" })).toBeNull();
     const acknowledge = screen.getByRole("button", { name: "Acknowledge" });
@@ -50,7 +50,7 @@ describe("Notify Me controls", () => {
     expect(onAcknowledge).toHaveBeenCalledOnce();
     expect(onToggle).toHaveBeenCalledOnce();
     expect(screen.getByRole("img", { name: "Monitored task has a result waiting" })).toBeTruthy();
-    rerender(<NotifyMeControlView enabled={false} pending={false} onToggle={() => {}} onAcknowledge={() => {}} />);
+    rerender(<NotifyMeControlView enabled={false} pending={false} onOpen={() => {}} onAcknowledge={() => {}} />);
     expect(screen.getByRole("button", { name: "Notify Me" }).textContent?.trim()).toBe("Notify");
     expect(screen.getByRole("button", { name: "Notify Me" }).title).toContain("Notify Me");
     expect(screen.getByRole("img", { name: "Notify Me" }).title).toContain("Notify Me");
@@ -103,23 +103,55 @@ describe("Notify Me controls", () => {
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "acknowledge", resultId: "3" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Acknowledge" })).toBeEnabled());
 
+    // Once acknowledged, the button opens the Notify Me menu, where tracking can be turned off.
     act(() => publish(3, null));
     const notify = await screen.findByRole("button", { name: "Notify Me" });
     expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
-    expect(notify).toHaveAttribute("aria-pressed", "true");
     expect(notify.textContent?.trim()).toBe("Notify");
     fireEvent.click(notify);
+    expect(notify).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Stop notifying" }));
     expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ action: "untrack" });
-    await waitFor(() => expect(notify).toBeEnabled());
   });
 
-  it("offers no monitoring control for aggregate or Main views", () => {
+  it("offers Main only the delayed choice, and nothing for the All view", () => {
+    // Notify Me does not track Main, so its menu has no "Notify me now".
     const { container } = render(
       <>
         <NotifyMeControl sessionId="leader" threadKey="main" />
         <NotifyMeControl sessionId="leader" threadKey="all" />
       </>,
     );
-    expect(container.textContent).toBe("");
+    expect(screen.getAllByRole("button", { name: "Notify Me" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
+    expect(screen.queryByTestId("notify-me-now")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 hour" })).toBeInTheDocument();
+    expect(container.querySelectorAll("[data-testid=notify-me-control]")).toHaveLength(1);
+  });
+
+  it("sets a reminder that marks the thread read, and shows its time on the button", async () => {
+    // Choosing a delay saves the reminder, then clears the thread's unread results.
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetch);
+    useStore.getState().setSessionNotifications("leader", [
+      {
+        id: "n-1",
+        category: "review",
+        summary: "Result",
+        timestamp: 1,
+        messageId: null,
+        done: false,
+        threadKey: "q-42",
+        questId: "q-42",
+      },
+    ]);
+    render(<NotifyMeControl sessionId="leader" threadKey="q-42" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
+    fireEvent.click(screen.getByRole("button", { name: "6 hours" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(fetch.mock.calls[0][0]).toBe("/api/sessions/leader/thread-reminders");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ threadKey: "q-42", durationMs: 6 * 60 * 60 * 1000 });
+    expect(fetch.mock.calls[1][0]).toContain("/notifications/n-1/done");
+    await waitFor(() => expect(screen.queryByTestId("notify-me-menu")).not.toBeInTheDocument());
   });
 });

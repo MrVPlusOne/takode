@@ -98,6 +98,8 @@ export interface PrimaryThreadChip {
   groupChangedAt?: number;
   /** Set for a side quest: the thread ("main" or a quest ID) where its answer is given. */
   sideQuestOf?: string;
+  /** Set while a "Remind me later" is pending: when the thread comes back. */
+  remindAt?: number;
 }
 
 function displayThreadTabTitleColor(
