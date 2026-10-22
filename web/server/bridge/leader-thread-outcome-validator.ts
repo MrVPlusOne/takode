@@ -700,6 +700,7 @@ function buildPendingResponseReminderContent(
       ? []
       : [
           "Answer with `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`, listing the exact earlier IDs covered by that answer.",
+          'The answer must stand on its own where each listed ID is shown: if its result already went out in an answer to other IDs, state that result again briefly instead of pointing to it ("the full answer is above").',
         ]),
     ...(firstPendingId
       ? [
