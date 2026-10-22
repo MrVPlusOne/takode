@@ -6,8 +6,7 @@ import { forgetHeldViewportHandoffState } from "./utils/viewport-handoff-client.
  * How many sessions keep their conversation in this tab once viewed. Measured
  * October 2026 on the live coordinator: holding all 48 active sessions after
  * visiting each took about 51 MB of JavaScript heap, about 1 MB a session, so
- * this keeps every active session instant to revisit for roughly 60-100 MB,
- * well under the 500 MB the user allowed as a ceiling.
+ * this keeps every active session instant to revisit for roughly 60-100 MB.
  */
 export const RETAINED_CONVERSATION_SESSIONS = 60;
 
