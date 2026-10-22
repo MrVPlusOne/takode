@@ -77,6 +77,8 @@ export interface GuidedReviewStats {
 /** Stored on the published report message; the diff itself is fetched on demand. */
 export interface GuidedReviewMeta {
   reviewId: string;
+  /** Set on a copy shared into another session: the session and review it was shared from. */
+  sharedFrom?: { sessionId: string; reviewId: string };
   map: GuidedReviewMap;
   range: GuidedReviewRange;
   stats: GuidedReviewStats;

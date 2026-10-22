@@ -141,3 +141,33 @@ it("publishes the map with the diff and range read from git", async () => {
     server.close();
   }
 });
+
+it("shares a review from another session into a thread without any repository", async () => {
+  // Only the fixture server is contacted; no git repository is involved.
+  let received: any;
+  const server = createServer(async (req, res) => {
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/api/takode/me") return res.end(JSON.stringify({ sessionId: "host", isOrchestrator: true }));
+    if (req.url !== "/api/takode/reviews/share") {
+      res.statusCode = 404;
+      return res.end("{}");
+    }
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    received = JSON.parse(body);
+    res.end(JSON.stringify({ reviewId: "r2", threadKey: "q-7", title: "Change b", questions: 1 }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const result = await runTakode(
+      ["review", "--share", "#3178", "--thread", "q-7"],
+      (server.address() as AddressInfo).port,
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe('Shared guided review "Change b" to q-7: 1 question. Answers come to you.');
+    expect(received).toEqual({ from: "3178", threadKey: "q-7" });
+  } finally {
+    server.close();
+  }
+});

@@ -12,6 +12,7 @@ import {
   type GuidedReviewRange,
 } from "../../shared/guided-review.js";
 import { onMachine } from "../remote-host/host-operations.js";
+import type { BrowserIncomingMessage } from "../session-types.js";
 import { publishSessionReport } from "./markdown-reports.js";
 import type { RouteContext } from "./context.js";
 
@@ -83,6 +84,57 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
     }
   });
 
+  // Share a review already published in the caller's own session or a session it herds into one of
+  // the caller's threads. The copy reuses the saved snippets and the original range, so Full diff
+  // still reads git on the machine it was first published from; answers come to the caller.
+  api.post("/takode/reviews/share", async (c) => {
+    const auth = ctx.authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    const session = ctx.wsBridge.getSession(auth.callerId);
+    if (!session || auth.caller.archived) return c.json({ error: "Publishing session is unavailable." }, 409);
+    try {
+      const body = await c.req.json();
+      if (typeof body.threadKey !== "string" || !/^(main|q-[1-9]\d*)$/.test(body.threadKey)) {
+        throw new Error("Choose main or an exact quest thread.");
+      }
+      const fromId = typeof body.from === "string" ? ctx.resolveId(body.from) : null;
+      const from = fromId ? ctx.launcher.getSession(fromId) : null;
+      if (!fromId || !from) return c.json({ error: `No session ${String(body.from)}.` }, 404);
+      if (fromId !== auth.callerId && from.herdedBy !== auth.callerId) {
+        return c.json({ error: "You can share reviews only from your own session or a session you herd." }, 403);
+      }
+      const source = findGuidedReview(ctx.wsBridge.getSession(fromId)?.messageHistory ?? [], body.reviewId);
+      if (!source?.guidedReview) {
+        const what = typeof body.reviewId === "string" ? `review ${body.reviewId}` : "guided review";
+        return c.json({ error: `That session has no ${what}.` }, 404);
+      }
+      const reviewId = crypto.randomUUID();
+      const receipt = publishSessionReport(ctx, auth.callerId, session, {
+        content: source.content,
+        sourcePath: source.source.sourcePath,
+        threadKey: body.threadKey,
+        guidedReview: {
+          ...source.guidedReview,
+          reviewId,
+          sharedFrom: { sessionId: fromId, reviewId: source.guidedReview.reviewId },
+        },
+      });
+      if ("error" in receipt) return c.json({ error: receipt.error }, receipt.status);
+      const { map } = source.guidedReview;
+      return c.json(
+        {
+          reviewId,
+          threadKey: receipt.message.threadKey,
+          title: map.title,
+          questions: map.stops.filter((stop) => stop.tier === "decide").length,
+        },
+        201,
+      );
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid share request." }, 400);
+    }
+  });
+
   // One commit of a review's range, read from git like the quest commit view, for the full diff.
   api.get("/sessions/:id/guided-reviews/:reviewId/commits/:sha", async (c) => {
     const sessionId = ctx.resolveId(c.req.param("id"));
@@ -118,6 +170,16 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
     return c.json({ sha, available: false, reason: "commit_not_available" });
   });
   return api;
+}
+
+/** The newest guided review in a history, or the one with the given ID. */
+function findGuidedReview(history: readonly BrowserIncomingMessage[], reviewId: unknown) {
+  for (let index = history.length - 1; index >= 0; index--) {
+    const entry = history[index];
+    if (entry.type !== "markdown_report" || !entry.guidedReview) continue;
+    if (typeof reviewId !== "string" || entry.guidedReview.reviewId === reviewId) return entry;
+  }
+  return undefined;
 }
 
 function readRange(value: unknown, hostId: string | undefined): GuidedReviewRange {

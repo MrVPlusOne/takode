@@ -15,8 +15,12 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 2. Review the whole change properly before writing anything. Run the tests when you can. The map is a summary of a real review, never a substitute for one.
 3. Write the map as a JSON file outside the repository, such as a `reviews/` folder in your home directory (format below, and in `takode review --help`). Its path is shown as the review's source.
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
-5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread; a worker publishes into its own session and tells its leader.
+5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread. A worker publishes into its own session (`--thread main`) and tells its leader, who shares it where the user reads it (below).
 6. When the answers arrive, act on them like any user message: "Change" and questions are requests.
+
+## Sharing a review into another thread
+
+The user reads their leader's threads, not workers' sessions, so a review a worker publishes reaches them only when the leader shares it: `takode review --share <worker session> --thread q-N` (the worker's newest review; `--review <review-id>` picks another). Sharing needs no copy of the repository on the leader's machine: the shared copy keeps the review's saved code, and Full diff still reads git on the machine where it was first published. The user's answers in the shared copy come to the leader, who passes them to the worker. A leader may share from its own session or any session it herds.
 
 ## The overview
 

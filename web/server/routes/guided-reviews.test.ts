@@ -14,20 +14,35 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-/** A route over one leader session; nothing touches real data. */
+/**
+ * A route over a leader ("review-host"), a worker it herds and a worker herded by someone else;
+ * nothing touches real data. Requests act as the session named by the x-caller header.
+ */
 async function harness() {
-  const history: BrowserIncomingMessage[] = [];
-  const host = { id: "review-host", messageHistory: history, state: {}, notifications: [] };
+  const sessions = new Map(
+    ["review-host", "worker", "stranger"].map((id) => [
+      id,
+      { id, messageHistory: [] as BrowserIncomingMessage[], state: {}, notifications: [] },
+    ]),
+  );
+  const info: Record<string, { isOrchestrator: boolean; archived: boolean; herdedBy?: string }> = {
+    "review-host": { isOrchestrator: true, archived: false },
+    worker: { isOrchestrator: false, archived: false, herdedBy: "review-host" },
+    stranger: { isOrchestrator: false, archived: false, herdedBy: "other-leader" },
+  };
+  const host = sessions.get("review-host")!;
+  const history = host.messageHistory;
   const broadcast = vi.fn();
   const ctx = {
-    authenticateTakodeCaller: (c: any) =>
-      c.req.header("x-agent") === "valid"
-        ? { callerId: host.id, caller: { sessionId: host.id, archived: false } }
-        : { response: c.json({ error: "unauthorized" }, 403) },
-    resolveId: (id: string) => id,
-    launcher: { getSession: () => ({ isOrchestrator: true, archived: false }) },
+    authenticateTakodeCaller: (c: any) => {
+      if (c.req.header("x-agent") !== "valid") return { response: c.json({ error: "unauthorized" }, 403) };
+      const callerId = c.req.header("x-caller") ?? "review-host";
+      return { callerId, caller: { sessionId: callerId, archived: false } };
+    },
+    resolveId: (id: string) => (sessions.has(id) ? id : null),
+    launcher: { getSession: (id: string) => info[id] },
     wsBridge: {
-      getSession: (id: string) => (id === host.id ? host : null),
+      getSession: (id: string) => sessions.get(id) ?? null,
       persistSessionById: vi.fn(),
       broadcastToSession: broadcast,
       refreshSessionConversation: vi.fn(),
@@ -39,13 +54,14 @@ async function harness() {
     },
   } as unknown as RouteContext;
   const api = createGuidedReviewRoutes(ctx);
-  const publish = (body: Record<string, unknown>, agent = true) =>
-    api.request("/takode/reviews", {
+  const post = (path: string, body: Record<string, unknown>, caller = "review-host", agent = true) =>
+    api.request(path, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(agent ? { "x-agent": "valid" } : {}) },
+      headers: { "content-type": "application/json", "x-caller": caller, ...(agent ? { "x-agent": "valid" } : {}) },
       body: JSON.stringify(body),
     });
-  return { api, host, history, broadcast, publish };
+  const publish = (body: Record<string, unknown>, agent = true) => post("/takode/reviews", body, "review-host", agent);
+  return { api, host, history, broadcast, publish, post, sessions };
 }
 
 const validBody = {
@@ -146,6 +162,51 @@ describe("guided review publication", () => {
     expect((await (await publish({ ...validBody, range: { ...validBody.range, head: "HEAD" } })).json()).error).toBe(
       "The range needs full base and head commit SHAs.",
     );
+    expect(history).toEqual([]);
+  });
+
+  it("shares a worker's published review into the leader's thread, reusing its code and git source", async () => {
+    // The worker published on its own machine; the leader shares it without any repository.
+    const { api, post, sessions, history } = await harness();
+    const range = { ...validBody.range, repoPaths: ["/laptop/repos/profiles"] };
+    const published = await post("/takode/reviews", { ...validBody, range, threadKey: "main" }, "worker");
+    const { reviewId: original } = await published.json();
+    const workerReview = sessions.get("worker")!.messageHistory[0] as Extract<
+      BrowserIncomingMessage,
+      { type: "markdown_report" }
+    >;
+
+    const res = await post("/takode/reviews/share", { from: "worker", threadKey: "q-42" });
+    expect(res.status).toBe(201);
+    const receipt = await res.json();
+    expect(receipt).toMatchObject({ threadKey: "q-42", title: "Retry profile loads and cache profiles", questions: 2 });
+
+    const shared = history[0] as Extract<BrowserIncomingMessage, { type: "markdown_report" }>;
+    expect(shared).toMatchObject({ type: "markdown_report", threadKey: "q-42", content: workerReview.content });
+    // Answers come to the leader: the copy is the leader's own report, with a new review ID.
+    expect(shared.source.sessionId).toBe("review-host");
+    expect(shared.guidedReview).toMatchObject({
+      reviewId: receipt.reviewId,
+      sharedFrom: { sessionId: "worker", reviewId: original },
+      range: { repoPaths: ["/laptop/repos/profiles"] },
+    });
+    expect(receipt.reviewId).not.toBe(original);
+    expect(shared.guidedReview!.map.stops[0].code[0].snippet).toContain("withRetry<T>");
+    // Full diff from the leader's copy looks up the copy and reads the original checkout.
+    const commit = await api.request(
+      `/sessions/review-host/guided-reviews/${receipt.reviewId}/commits/${"c".repeat(40)}`,
+    );
+    expect(await commit.json()).toMatchObject({ available: false, reason: "commit_not_available" });
+  });
+
+  it("shares only from the caller's own session or one it herds, and names a missing review", async () => {
+    const { post, history } = await harness();
+    await post("/takode/reviews", { ...validBody, threadKey: "main" }, "stranger");
+    expect((await post("/takode/reviews/share", { from: "stranger", threadKey: "main" })).status).toBe(403);
+    const missing = await post("/takode/reviews/share", { from: "worker", threadKey: "main" });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toBe("That session has no guided review.");
+    expect((await post("/takode/reviews/share", { from: "nobody", threadKey: "main" })).status).toBe(404);
     expect(history).toEqual([]);
   });
 });

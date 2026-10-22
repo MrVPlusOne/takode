@@ -17,14 +17,19 @@ const execFileAsync = promisify(execFile);
 export const REVIEW_HELP = `Usage: takode review <map.json> --thread <main|q-N> [--repo <dir>] [--worker <session>] [--json]
        takode review <map.json> --check [--repo <dir>]
        takode review --outline <base>..<head> [--repo <dir>]
+       takode review --share <session> [--review <review-id>] --thread <main|q-N> [--json]
 
-Publish a guided review of a git range into your own session: the user walks a tour of its
+Publish a guided review of a git range into your own session: the user walks through its
 stops, each showing the exact code from git, and answers its questions inline.
 The map is JSON you write; Takode reads the diff of base..head from the repository itself
 (--repo, default the current directory) and refuses a map that leaves any changed line out.
 --check validates the map against the diff and prints coverage without publishing.
 --outline lists each changed file's changed new-file line ranges, to help write the map.
 The review keeps only its stops' code; the user opens the full change from git.
+--share posts a review already published in your own session or a session you herd (its newest,
+or the one --review names) into one of your threads. It needs no copy of the repository: the
+copy keeps the saved code, and Full diff still reads git where the review was first published.
+The user's answers in the shared copy come to you.
 
 Map format (paths are repository-relative; lines are new-file line numbers, inclusive):
   {
@@ -54,19 +59,37 @@ export async function handleReview(base: string, args: string[]): Promise<void> 
   let json = false;
   let checkOnly = false;
   let outline: string | undefined;
+  let shareFrom: string | undefined;
+  let shareReviewId: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--json") json = true;
     else if (arg === "--check") checkOnly = true;
-    else if (arg === "--thread" || arg === "--repo" || arg === "--worker" || arg === "--outline") {
+    else if (["--thread", "--repo", "--worker", "--outline", "--share", "--review"].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
       if (arg === "--outline") outline = value;
+      else if (arg === "--share") shareFrom = value;
+      else if (arg === "--review") shareReviewId = value;
       else if (arg === "--thread") threadKey = value;
       else if (arg === "--repo") repo = value;
       else responsibleWorkerId = value;
     } else if (!arg.startsWith("--") && !mapPath) mapPath = arg;
     else throw new Error(REVIEW_HELP);
+  }
+  if (shareFrom !== undefined) {
+    if (!threadKey || mapPath) throw new Error(REVIEW_HELP);
+    const shared = (await apiPost(base, "/takode/reviews/share", {
+      from: shareFrom.replace(/^#/, ""),
+      threadKey,
+      ...(shareReviewId ? { reviewId: shareReviewId } : {}),
+    })) as { reviewId: string; threadKey: string; title: string; questions: number };
+    console.log(
+      json
+        ? JSON.stringify(shared)
+        : `Shared guided review "${shared.title}" to ${shared.threadKey}: ${shared.questions} question${shared.questions === 1 ? "" : "s"}. Answers come to you.`,
+    );
+    return;
   }
   if (outline !== undefined) {
     const [baseRev, headRev] = outline.split("..");
