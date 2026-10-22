@@ -4,6 +4,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useStore } from "../store.js";
 import { copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to-markdown.js";
+import { selectionCopyForSlack } from "../utils/slack-copy.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
 
 interface SelectionContextMenuProps {
@@ -25,7 +26,7 @@ export function formatSelectedTextAsBlockquote(text: string): string | null {
 /**
  * Floating context menu shown when the user selects text in an assistant message.
  * Offers a comment attachment editor and a "Copy" submenu
- * with three formats: rich text, markdown, and plain text.
+ * with four formats: rich text, for Slack, Markdown and plain text.
  */
 export function SelectionContextMenu({ selection, sessionId, onClose }: SelectionContextMenuProps) {
   const handleComment = useCallback(() => {
@@ -56,6 +57,18 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     onClose();
   }, [selection, onClose]);
 
+  const handleCopyForSlack = useCallback(() => {
+    if (!selection.range) return;
+    try {
+      selectionCopyForSlack(selection.range)
+        .write()
+        .catch((e) => console.error("Failed to copy for Slack:", e));
+    } catch (e) {
+      console.error("Selection range became invalid:", e);
+    }
+    onClose();
+  }, [selection, onClose]);
+
   const handleCopyMarkdown = useCallback(() => {
     if (!selection.range) return;
     try {
@@ -80,12 +93,13 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
         onClick: () => {},
         children: [
           { label: "Rich text", onClick: handleCopyRichText },
+          { label: "For Slack", onClick: handleCopyForSlack },
           { label: "Markdown", onClick: handleCopyMarkdown },
           { label: "Plain text", onClick: handleCopyPlainText },
         ],
       },
     ],
-    [handleComment, handleCopyRichText, handleCopyMarkdown, handleCopyPlainText],
+    [handleComment, handleCopyRichText, handleCopyForSlack, handleCopyMarkdown, handleCopyPlainText],
   );
 
   if (!selection.isActive || !selection.position) return null;

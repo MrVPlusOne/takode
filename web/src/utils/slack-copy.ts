@@ -1,4 +1,4 @@
-import { htmlFragmentToPlainText } from "./html-to-markdown.js";
+import { htmlFragmentToPlainText, htmlFragmentToRichText } from "./html-to-markdown.js";
 import { copyRichText } from "./copy-utils.js";
 import { escapeHtml, readTableRows, tableToAlignedText } from "./table-copy.js";
 
@@ -22,45 +22,218 @@ export function slackCodeBlock(text: string): ClipboardPayload {
   return payload("```\n" + text + "\n```", `<pre>${escapeHtml(text)}</pre>`);
 }
 
-/**
- * A rendered message as Slack takes it: prose stays rich text and each table becomes one code block with its
- * columns lined up. Slack flattens an HTML table into running text, and a native Slack table only comes from
- * a paste that is nothing but tab-separated cells, so a message with prose around its tables can't paste them
- * as native tables.
- */
+/** A rendered message, as Slack keeps its formatting on paste. Only the rendered Markdown is copied. */
 export function messageCopyForSlack(content: HTMLElement): ClipboardPayload {
-  // Only the rendered Markdown: the message box also holds its menu button and corner time.
   const bodies = Array.from(content.querySelectorAll<HTMLElement>(MARKDOWN_BODY_SELECTOR));
-  const copy = content.ownerDocument.createElement("div");
-  for (const body of bodies.length > 0 ? bodies : [content]) copy.appendChild(body.cloneNode(true));
-  for (const control of copy.querySelectorAll(COPY_EXCLUDE_SELECTOR)) control.remove();
-  for (const table of copy.querySelectorAll("table")) {
-    const pre = copy.ownerDocument.createElement("pre");
-    pre.textContent = tableToAlignedText(readTableRows(table));
-    // The table's scroll and layout wrappers hold nothing else once the controls are gone.
-    tableBlock(table).replaceWith(pre);
+  const source = content.ownerDocument.createElement("div");
+  for (const body of bodies.length > 0 ? bodies : [content]) source.appendChild(body.cloneNode(true));
+  return slackCopyOf(source);
+}
+
+/** The selected part of a message, as Slack keeps its formatting on paste. */
+export function selectionCopyForSlack(range: Range): ClipboardPayload {
+  // The rich-text copy re-wraps selected list items and table cells in their list or table, and turns
+  // rendered math back into its source.
+  const source = range.startContainer.ownerDocument!.createElement("div");
+  source.innerHTML = htmlFragmentToRichText(range).html;
+  return slackCopyOf(source);
+}
+
+/**
+ * Rewrite rendered HTML into the small set of formats Slack keeps on paste: bold, italic, strikethrough,
+ * inline code, links, bulleted and numbered lists (nested), quotes and code blocks. Slack has no headings,
+ * so a heading becomes a bold line; it flattens HTML tables into running text but keeps a `<pre>` as one
+ * code block, so a table becomes a code block with its columns lined up. Classes, styles, controls and the
+ * whitespace between tags are dropped, so nothing of Takode's layout reaches Slack.
+ */
+function slackCopyOf(source: HTMLElement): ClipboardPayload {
+  // A source line break is a <br> plus the newline after it; the newline is not a space.
+  const html = blockChildren(source, BLOCK_GAP).replace(/\s*<br>\s*/g, "<br>");
+  const container = source.ownerDocument.createElement("div");
+  container.innerHTML = html;
+  const range = source.ownerDocument.createRange();
+  range.selectNodeContents(container);
+  const codeBlocks = Array.from(container.querySelectorAll("pre"), (pre) => pre.textContent ?? "");
+  const plain = fenceCodeBlocks(htmlFragmentToPlainText(range), codeBlocks).replace(/\n{3,}/g, "\n\n");
+  return payload(plain, html);
+}
+
+const INLINE_TAGS: Record<string, string> = {
+  STRONG: "b",
+  B: "b",
+  EM: "i",
+  I: "i",
+  DEL: "s",
+  S: "s",
+  STRIKE: "s",
+};
+
+const BLOCK_TAGS = new Set([
+  "P",
+  "UL",
+  "OL",
+  "LI",
+  "BLOCKQUOTE",
+  "PRE",
+  "TABLE",
+  "HR",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "DIV",
+]);
+
+/**
+ * Slack sets pasted paragraphs on consecutive lines; an empty paragraph is the blank line between them,
+ * as Takode shows them. Blocks inside quotes and list items stay together.
+ */
+const BLOCK_GAP = "<p><br></p>";
+
+/** Children of a block container, joined by `gap`: whitespace between blocks is layout, not content. */
+function blockChildren(parent: Node, gap = ""): string {
+  const blocks: string[] = [];
+  let inline = "";
+  const flush = () => {
+    // Loose text and inline elements between blocks become their own paragraph.
+    if (inline.trim()) blocks.push(`<p>${inline.trim()}</p>`);
+    inline = "";
+  };
+  for (const child of Array.from(parent.childNodes)) {
+    if (child instanceof Element && isBlock(child)) {
+      flush();
+      // A frame (the table or code block wrapper, a nested div) adds its blocks at this level.
+      const converted = isFrame(child) ? blockChildren(child, gap) : convertBlock(child);
+      if (converted) blocks.push(converted);
+    } else {
+      inline += convertInline(child);
+    }
   }
-  const plainParts: string[] = [];
-  const range = copy.ownerDocument.createRange();
-  range.selectNodeContents(copy);
-  const plain = htmlFragmentToPlainText(range);
-  for (const pre of copy.querySelectorAll("pre")) plainParts.push(pre.textContent ?? "");
-  return payload(fenceCodeBlocks(plain, plainParts).replace(/\n{3,}/g, "\n\n"), copy.innerHTML);
+  flush();
+  return blocks.join(gap);
+}
+
+function isFrame(element: Element): boolean {
+  return element.tagName === "DIV" && !element.matches(COPY_EXCLUDE_SELECTOR);
+}
+
+function convertBlock(element: Element): string {
+  if (element.matches(COPY_EXCLUDE_SELECTOR)) return "";
+  switch (element.tagName) {
+    case "P":
+      return paragraph(inlineChildren(element));
+    case "H1":
+    case "H2":
+    case "H3":
+    case "H4":
+    case "H5":
+    case "H6":
+      return paragraph(`<b>${inlineChildren(element)}</b>`);
+    case "UL":
+    case "OL": {
+      const tag = element.tagName.toLowerCase();
+      const items = Array.from(element.children)
+        .filter((child) => child.tagName === "LI")
+        .map(listItem)
+        .join("");
+      return items ? `<${tag}>${items}</${tag}>` : "";
+    }
+    case "LI":
+      return `<ul>${listItem(element)}</ul>`;
+    case "BLOCKQUOTE": {
+      const inner = blockChildren(element);
+      return inner ? `<blockquote>${inner}</blockquote>` : "";
+    }
+    case "PRE":
+      return codeBlock(element.textContent ?? "");
+    case "TABLE":
+      return codeBlock(tableToAlignedText(readTableRows(element as HTMLTableElement)));
+    case "HR":
+      return DIVIDER_HTML;
+    default:
+      return blockChildren(element);
+  }
+}
+
+/** Slack has no divider; a line of box-drawing characters reads as one. */
+const DIVIDER_HTML = "<p>──────────</p>";
+
+function listItem(item: Element): string {
+  // A list item holds its own text plus any nested lists, which Slack keeps as deeper levels.
+  let text = "";
+  let nested = "";
+  for (const child of Array.from(item.childNodes)) {
+    if (child instanceof Element && (child.tagName === "UL" || child.tagName === "OL")) nested += convertBlock(child);
+    else if (child instanceof Element && child.tagName === "P") text += (text ? "<br>" : "") + inlineChildren(child);
+    else if (child instanceof Element && isBlock(child)) nested += convertBlock(child);
+    else text += convertInline(child);
+  }
+  return `<li>${text.trim()}${nested}</li>`;
+}
+
+function inlineChildren(parent: Node): string {
+  return Array.from(parent.childNodes).map(convertInline).join("").trim();
+}
+
+function convertInline(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return escapeHtml((node.textContent ?? "").replace(/\s+/g, " "));
+  if (!(node instanceof Element)) return "";
+  if (node.matches(COPY_EXCLUDE_SELECTOR) || node.tagName === "SVG" || node.tagName === "svg") return "";
+  if (isBlock(node)) return convertBlock(node);
+  const inner = inlineChildren(node);
+  if (node.tagName === "BR") return "<br>";
+  if (node.tagName === "CODE") return `<code>${escapeHtml(node.textContent ?? "")}</code>`;
+  if (node.tagName === "A") {
+    const href = node.getAttribute("href");
+    return href && /^(https?:|mailto:)/i.test(href) ? `<a href="${escapeAttribute(href)}">${inner}</a>` : inner;
+  }
+  if (node.tagName === "IMG") return "";
+  const tag = INLINE_TAGS[node.tagName];
+  if (!inner) return "";
+  // Unformatted wrappers (spans, chips, link buttons) keep only their text. Spaces at a formatted
+  // word's edges move outside its tags, so "**bold **word" still reads "bold word".
+  return spaced(node, tag ? `<${tag}>${inner}</${tag}>` : inner);
+}
+
+function spaced(node: Element, inner: string): string {
+  const text = node.textContent ?? "";
+  return `${/^\s/.test(text) ? " " : ""}${inner}${/\s$/.test(text) ? " " : ""}`;
+}
+
+function paragraph(inner: string): string {
+  return inner ? `<p>${inner}</p>` : "";
+}
+
+function codeBlock(text: string): string {
+  const trimmed = text.replace(/^\n+|\n+$/g, "");
+  return trimmed ? `<pre>${escapeHtml(trimmed)}</pre>` : "";
+}
+
+function isBlock(element: Element): boolean {
+  if (BLOCK_TAGS.has(element.tagName)) return true;
+  // Rendered wrappers such as the table and code block frames are divs or carry block display.
+  return element.hasAttribute("data-markdown-table") || element.getAttribute("data-testid") === "code-block";
+}
+
+function escapeAttribute(text: string): string {
+  return escapeHtml(text).replace(/"/g, "&quot;");
 }
 
 /** In the plain-text copy, put each code block (tables included) inside a Markdown code fence. */
 function fenceCodeBlocks(plain: string, blocks: string[]): string {
   let result = plain;
+  let from = 0;
   for (const block of blocks) {
     if (!block) continue;
-    result = result.replace(block, "```\n" + block + "\n```");
+    const at = result.indexOf(block, from);
+    if (at < 0) continue;
+    const fenced = "```\n" + block + "\n```";
+    result = result.slice(0, at) + fenced + result.slice(at + block.length);
+    from = at + fenced.length;
   }
   return result;
-}
-
-function tableBlock(table: HTMLTableElement): Element {
-  const block = table.closest("[data-markdown-table]");
-  return block ?? table;
 }
 
 function payload(plain: string, html?: string): ClipboardPayload {

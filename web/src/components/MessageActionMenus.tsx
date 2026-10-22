@@ -5,9 +5,6 @@ import { useStore } from "../store.js";
 import type { ChatMessage, ComposerDraftImage, SdkSessionInfo } from "../types.js";
 import { copyRichText, getMessageMarkdown, getMessagePlainText, writeClipboardText } from "../utils/copy-utils.js";
 import { COPY_EXCLUDE_SELECTOR, messageCopyForSlack } from "../utils/slack-copy.js";
-
-/** A GFM table's delimiter row, such as `| --- | :--: |`. */
-const MARKDOWN_TABLE_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/m;
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { absoluteUrlForHash, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
@@ -320,10 +317,9 @@ export function AssistantMessageMenu({
       { label: "Rich Text", onClick: handleCopyRichText },
       { label: "Plain Text", onClick: handleCopyPlainText },
     ];
-    // Slack flattens tables in rich text; this copy turns each table into a code block with aligned columns.
-    if (MARKDOWN_TABLE_PATTERN.test(getMessageMarkdown(message))) {
-      copyItems.splice(1, 0, { label: "For Slack", onClick: handleCopyForSlack });
-    }
+    // Rich Text carries Takode's layout, which Slack flattens (tables) or drops (headings); this copy keeps
+    // every format Slack has.
+    copyItems.splice(1, 0, { label: "For Slack", onClick: handleCopyForSlack });
     if (sessionId) copyItems.push({ label: "Message link", onClick: handleCopyLink });
     list.push({ label: "Copy", onClick: () => {}, children: copyItems });
     return list;
@@ -335,7 +331,6 @@ export function AssistantMessageMenu({
     handleCopyRichText,
     handleReadAloud,
     handleReply,
-    message,
     reading,
     sessionId,
     showSideChatActions,
