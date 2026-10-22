@@ -59,7 +59,7 @@ describe("selection Copy menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "For Slack" }));
 
     await waitFor(() => expect(written).toHaveLength(1));
-    expect(written[0]!["text/html"]).toBe("<p><b>Title</b></p><p><br></p><p>Run is <b>healthy</b>.</p>");
+    expect(written[0]!["text/html"]).toBe("<p><b>Title</b></p><p>Run is <b>healthy</b>.</p>");
     expect(onClose).toHaveBeenCalled();
     message.remove();
   });

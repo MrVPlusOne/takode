@@ -62,7 +62,7 @@ describe("draft card", () => {
 
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/html"]).toBe(
-      "<p>Quick update on <b>T7</b>:</p><p><br></p><ul><li>training is <i>healthy</i></li><li>evals start at <code>iter 2</code></li></ul>",
+      "<p>Quick update on <b>T7</b>:</p><ul><li>training is <i>healthy</i></li><li>evals start at <code>iter 2</code></li></ul>",
     );
     expect(written[0]!["text/plain"]).not.toMatch(/Here's a draft|shorter|Draft|Copy/);
   });

@@ -48,7 +48,7 @@ export function selectionCopyForSlack(range: Range): ClipboardPayload {
  */
 function slackCopyOf(source: HTMLElement): ClipboardPayload {
   // A source line break is a <br> plus the newline after it; the newline is not a space.
-  const html = blockChildren(source, BLOCK_GAP).replace(/\s*<br>\s*/g, "<br>");
+  const html = blockChildren(source).replace(/\s*<br>\s*/g, "<br>");
   const container = source.ownerDocument.createElement("div");
   container.innerHTML = html;
   const range = source.ownerDocument.createRange();
@@ -87,32 +87,29 @@ const BLOCK_TAGS = new Set([
 ]);
 
 /**
- * Slack sets pasted paragraphs on consecutive lines; an empty paragraph is the blank line between them,
- * as Takode shows them. Blocks inside quotes and list items stay together.
+ * Children of a block container. Whitespace between blocks is layout, not content, and no empty paragraph
+ * goes between blocks: Slack sets pasted paragraphs on consecutive lines, as Jiayi writes her messages, and
+ * gives code blocks, lists and quotes their own spacing.
  */
-const BLOCK_GAP = "<p><br></p>";
-
-/** Children of a block container, joined by `gap`: whitespace between blocks is layout, not content. */
-function blockChildren(parent: Node, gap = ""): string {
-  const blocks: string[] = [];
+function blockChildren(parent: Node): string {
+  let html = "";
   let inline = "";
   const flush = () => {
     // Loose text and inline elements between blocks become their own paragraph.
-    if (inline.trim()) blocks.push(`<p>${inline.trim()}</p>`);
+    if (inline.trim()) html += `<p>${inline.trim()}</p>`;
     inline = "";
   };
   for (const child of Array.from(parent.childNodes)) {
     if (child instanceof Element && isBlock(child)) {
       flush();
       // A frame (the table or code block wrapper, a nested div) adds its blocks at this level.
-      const converted = isFrame(child) ? blockChildren(child, gap) : convertBlock(child);
-      if (converted) blocks.push(converted);
+      html += isFrame(child) ? blockChildren(child) : convertBlock(child);
     } else {
       inline += convertInline(child);
     }
   }
   flush();
-  return blocks.join(gap);
+  return html;
 }
 
 function isFrame(element: Element): boolean {

@@ -66,8 +66,9 @@ describe("copying a message for Slack", () => {
         "<pre>Domain  Share\n------  -----\nSWE     15.5%</pre>",
         "<pre>def f(x):\n    return x * 2</pre>",
         "<p>Final line.</p>",
-        // Slack sets pasted paragraphs on consecutive lines; an empty paragraph is the blank line between blocks.
-      ].join("<p><br></p>"),
+        // No empty paragraphs between blocks: Slack sets them on consecutive lines, the way Jiayi writes,
+        // and gives code blocks, lists and quotes their own spacing. Empty lines read as extra in Slack.
+      ].join(""),
     );
   });
 
