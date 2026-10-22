@@ -110,7 +110,10 @@ export interface CompanionSettings {
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
   leaderProfilePools?: LeaderProfilePoolSettings;
-  /** Portrait pools the user collapsed in the leader portrait picker, kept on the server so every device matches. */
+  /**
+   * Portrait pools the user collapsed in the leader portrait picker, kept on the server so every device matches.
+   * Missing until the user toggles a group, so the picker's default collapsed groups apply until then.
+   */
   leaderProfileCollapsedPools?: LeaderProfilePoolId[];
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
   shortcutSettings?: ShortcutSettings;
@@ -284,7 +287,6 @@ let settings: CompanionSettings = {
   codexLeaderRecycleThresholdTokensByModel: {},
   codexLeaderCompactionMode: DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
-  leaderProfileCollapsedPools: [],
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
   updatedAt: 0,
@@ -587,7 +589,9 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     ),
     codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(raw?.codexLeaderCompactionMode),
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
-    leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(raw?.leaderProfileCollapsedPools),
+    leaderProfileCollapsedPools: Array.isArray(raw?.leaderProfileCollapsedPools)
+      ? normalizeLeaderProfileCollapsedPools(raw.leaderProfileCollapsedPools)
+      : undefined,
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),

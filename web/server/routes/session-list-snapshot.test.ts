@@ -326,7 +326,8 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const firstRow = first[0] as any;
     const secondRow = second[0] as any;
 
-    expect(firstRow.leaderProfilePortrait?.poolId).toMatch(/^(tako|shmi)$/);
+    // Default settings draw new leaders from the Animals pool.
+    expect(firstRow.leaderProfilePortrait?.poolId).toBe("animals");
     expect(firstRow.leaderProfilePortraitId).toBe(firstRow.leaderProfilePortrait?.id);
     expect(secondRow.leaderProfilePortraitId).toBe(firstRow.leaderProfilePortraitId);
     expect((deps as any).launcher.setLeaderProfilePortraitId).toHaveBeenCalledTimes(1);

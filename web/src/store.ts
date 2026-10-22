@@ -120,7 +120,10 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
-import { normalizeLeaderProfileCollapsedPools } from "../shared/leader-profile-portraits.js";
+import {
+  DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
+  normalizeLeaderProfileCollapsedPools,
+} from "../shared/leader-profile-portraits.js";
 
 export {
   reconcileQuestList,
@@ -266,7 +269,7 @@ export const useStore = create<AppState>((set, get) => ({
       ? "activity"
       : "created",
   sidebarViewMode: "spaces",
-  leaderProfileCollapsedPools: [],
+  leaderProfileCollapsedPools: DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
   taskPanelOpen: false,
   searchPreviewSessionId: null,
   newSessionModalState: null,

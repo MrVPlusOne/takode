@@ -26,11 +26,15 @@ export interface LeaderProfilePortrait {
   largeBytes: number;
 }
 
+// Only pools missing from saved settings take these defaults, so saved choices and assigned portraits stay.
 export const DEFAULT_LEADER_PROFILE_POOLS: LeaderProfilePoolSettings = {
-  tako: true,
-  shmi: true,
-  animals: false,
+  tako: false,
+  shmi: false,
+  animals: true,
 };
+
+/** Picker groups shown collapsed until the user saves a choice of their own. */
+export const DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS: LeaderProfilePoolId[] = ["tako", "shmi"];
 
 export const LEADER_PROFILE_POOLS: LeaderProfilePool[] = [
   { id: "tako", label: "Tako" },
@@ -61,10 +65,13 @@ export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfileP
   ) as LeaderProfilePoolSettings;
 }
 
-/** Pools collapsed in the portrait picker, in pool order; unknown ids and duplicates are dropped. */
+/**
+ * Pools collapsed in the portrait picker, in pool order; unknown ids and duplicates are dropped.
+ * Anything but a list means no saved choice, which gives the default collapsed groups.
+ */
 export function normalizeLeaderProfileCollapsedPools(raw: unknown): LeaderProfilePoolId[] {
-  const values = Array.isArray(raw) ? raw : [];
-  return LEADER_PROFILE_POOL_IDS.filter((id) => values.includes(id));
+  if (!Array.isArray(raw)) return [...DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS];
+  return LEADER_PROFILE_POOL_IDS.filter((id) => raw.includes(id));
 }
 
 export function getLeaderProfilePortrait(id: string | null | undefined): LeaderProfilePortrait | null {

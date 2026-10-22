@@ -6,30 +6,43 @@ import {
   LEADER_PROFILE_PORTRAITS,
   getEnabledLeaderProfilePortraits,
   getLeaderProfilePortrait,
+  normalizeLeaderProfileCollapsedPools,
   normalizeLeaderProfilePortraitId,
   normalizeLeaderProfilePoolSettings,
 } from "./leader-profile-portraits.js";
 import { validateLeaderProfilePortraitAssets } from "../scripts/generate-leader-profile-portraits.js";
 
 describe("leader profile portrait metadata", () => {
-  it("defaults the two cat pools on and filters enabled pools", () => {
-    expect(normalizeLeaderProfilePoolSettings(undefined)).toEqual({ tako: true, shmi: true, animals: false });
+  it("defaults to the animals pool and filters enabled pools", () => {
+    expect(normalizeLeaderProfilePoolSettings(undefined)).toEqual({ tako: false, shmi: false, animals: true });
     const takoPortraits = getEnabledLeaderProfilePortraits({ tako: true, shmi: false, animals: false });
     expect(takoPortraits).toHaveLength(48);
     expect(takoPortraits.every((portrait) => portrait.poolId === "tako")).toBe(true);
-  });
-
-  it("keeps the animals pool off for settings saved before it existed", () => {
-    // Saved settings only know the cat pools; adding a pool must not change which
-    // portraits existing installs assign.
-    expect(normalizeLeaderProfilePoolSettings({ tako: false, shmi: true })).toEqual({
-      tako: false,
-      shmi: true,
-      animals: false,
-    });
     const animalPortraits = getEnabledLeaderProfilePortraits({ tako: false, shmi: false, animals: true });
     expect(animalPortraits).toHaveLength(64);
     expect(animalPortraits.every((portrait) => portrait.poolId === "animals")).toBe(true);
+  });
+
+  it("keeps saved pool choices and gives only missing pools the default", () => {
+    // Changing the defaults must not undo a saved choice: saved cat pools stay on, and only
+    // a pool the settings never mention (here animals, saved before it existed) is defaulted.
+    expect(normalizeLeaderProfilePoolSettings({ tako: true, shmi: true })).toEqual({
+      tako: true,
+      shmi: true,
+      animals: true,
+    });
+    expect(normalizeLeaderProfilePoolSettings({ tako: true, shmi: false, animals: false })).toEqual({
+      tako: true,
+      shmi: false,
+      animals: false,
+    });
+  });
+
+  it("collapses the cat groups in the picker until the user saves a choice", () => {
+    // No saved list means the defaults; any saved list, even an empty one, wins.
+    expect(normalizeLeaderProfileCollapsedPools(undefined)).toEqual(["tako", "shmi"]);
+    expect(normalizeLeaderProfileCollapsedPools([])).toEqual([]);
+    expect(normalizeLeaderProfileCollapsedPools(["animals", "dogs"])).toEqual(["animals"]);
   });
 
   it("points at checked-in optimized profile assets with compact file sizes", () => {

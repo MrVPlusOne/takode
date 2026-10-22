@@ -622,7 +622,8 @@ describe("PUT /api/settings", () => {
       codexLeaderRecycleThresholdTokens: 260_000,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
-    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true, animals: false });
+    expect(json.leaderProfilePools).toEqual({ tako: false, shmi: false, animals: true });
+    expect(json.leaderProfileCollapsedPools).toEqual(["tako", "shmi"]);
     expect(json.leaderProfilePoolOptions).toEqual(LEADER_PROFILE_POOLS);
     expect(json.leaderProfilePortraits).toEqual(LEADER_PROFILE_PORTRAITS);
   });

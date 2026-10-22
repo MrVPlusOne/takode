@@ -77,8 +77,8 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
-      leaderProfilePools: { tako: true, shmi: true, animals: false },
-      leaderProfileCollapsedPools: [],
+      leaderProfilePools: { tako: false, shmi: false, animals: true },
+      leaderProfileCollapsedPools: undefined,
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
@@ -248,6 +248,8 @@ describe("settings-manager", () => {
   });
 
   it("persists collapsed portrait picker groups, keeping only known pools in pool order", async () => {
+    // Nothing is stored until the user toggles a group, so the picker's defaults apply until then.
+    expect(getSettings().leaderProfileCollapsedPools).toBeUndefined();
     // The picker saves the whole list; stale or unknown ids (a removed pool) must not survive a save.
     const updated = updateSettings({
       leaderProfileCollapsedPools: ["animals", "retired-pool", "tako", "animals"] as never,
@@ -719,8 +721,8 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
-      leaderProfilePools: { tako: true, shmi: true, animals: false },
-      leaderProfileCollapsedPools: [],
+      leaderProfilePools: { tako: false, shmi: false, animals: true },
+      leaderProfileCollapsedPools: undefined,
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
