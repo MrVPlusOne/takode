@@ -1553,6 +1553,11 @@ export interface SessionState extends BackendSessionState {
   threadMonitoring?: import("../shared/thread-monitoring.js").ThreadMonitoringState;
   /** Server-owned starred chat messages keyed by stable raw message ID. */
   starredMessages?: Record<string, StarredMessageRecord>;
+  /**
+   * Messages whose long content (a report, a long user message) is shown expanded in every
+   * browser, keyed by stable raw message ID with the time it was expanded. Collapsed is the default.
+   */
+  expandedMessages?: Record<string, number>;
   backend_type?: BackendType;
   model: string;
   /** Server-owned historical warning for one-time unknown-provenance migration. */

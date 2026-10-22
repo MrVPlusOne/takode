@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mockSetMessageExpanded = vi.hoisted(() => vi.fn());
+vi.mock("../api/message-expansion.js", () => ({ setMessageExpanded: mockSetMessageExpanded }));
+
+import { useStore } from "../store.js";
 import { ReportCard } from "./ReportCard.js";
 
 // jsdom has no layout, so the report's measured height is stubbed per test.
@@ -60,5 +66,72 @@ describe("ReportCard", () => {
     expect(screen.getByText("Short note")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.getByTestId("report-card")).toBeInTheDocument();
+  });
+
+  describe("expansion kept by the session", () => {
+    // A report in a session's feed is expanded or collapsed for every browser of that session:
+    // the toggle asks the server, and the card follows the state the server sends back.
+    function setExpandedOnServer(expandedMessages: Record<string, number>) {
+      act(() => useStore.getState().updateSession("leader", { expandedMessages } as never));
+    }
+
+    function renderSessionReport() {
+      useStore.getState().reset();
+      useStore.setState({ sessions: new Map([["leader", { session_id: "leader" } as never]]) });
+      stubScrollHeight(2000);
+      vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      });
+      Element.prototype.scrollIntoView = vi.fn();
+      return render(
+        <ReportCard sessionId="leader" messageId="report-1">
+          <p>Daily briefing</p>
+        </ReportCard>,
+      );
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      mockSetMessageExpanded.mockReset();
+    });
+
+    it("expands and collapses through the server", () => {
+      mockSetMessageExpanded.mockResolvedValue({ ok: true });
+      renderSessionReport();
+
+      fireEvent.click(screen.getByRole("button", { name: "Show full report" }));
+      expect(mockSetMessageExpanded).toHaveBeenCalledWith("leader", "report-1", true);
+      expect(screen.getByRole("button", { name: "Show full report" })).toBeInTheDocument();
+
+      setExpandedOnServer({ "report-1": 1 });
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      expect(mockSetMessageExpanded).toHaveBeenLastCalledWith("leader", "report-1", false);
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+      // The collapse this browser asked for brings the clipped card back on screen once it arrives.
+      setExpandedOnServer({});
+      expect(screen.getByRole("button", { name: "Show full report" })).toBeInTheDocument();
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    });
+
+    it("shows a report another browser expanded, without moving this one's view when it collapses there", () => {
+      renderSessionReport();
+      setExpandedOnServer({ "report-1": 1 });
+      expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+      setExpandedOnServer({});
+      expect(screen.getByRole("button", { name: "Show full report" })).toBeInTheDocument();
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it("still expands here when the server cannot be reached", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockSetMessageExpanded.mockRejectedValue(new Error("offline"));
+      renderSessionReport();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Show full report" }));
+      });
+      expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    });
   });
 });

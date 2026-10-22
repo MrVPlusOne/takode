@@ -13,9 +13,18 @@ import { GuidedReviewCard } from "./GuidedReviewCard.js";
  * run many screens, so they always render clipped in a card, whether or not the
  * turn around them is collapsed.
  */
-export function MarkdownReport({ message, readOnly = false }: { message: ChatMessage; readOnly?: boolean }) {
+export function MarkdownReport({
+  message,
+  feedSessionId,
+  readOnly = false,
+}: {
+  message: ChatMessage;
+  /** The session whose history holds the report, which owns whether it is expanded. */
+  feedSessionId?: string;
+  readOnly?: boolean;
+}) {
   const guidedReview = message.metadata?.guidedReview;
-  if (!guidedReview) return <MarkdownReportBody message={message} readOnly={readOnly} />;
+  if (!guidedReview) return <MarkdownReportBody message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   const source = message.metadata!.markdownReport!;
   return (
     <>
@@ -29,13 +38,21 @@ export function MarkdownReport({ message, readOnly = false }: { message: ChatMes
   );
 }
 
-function MarkdownReportBody({ message, readOnly }: { message: ChatMessage; readOnly: boolean }) {
+function MarkdownReportBody({
+  message,
+  feedSessionId,
+  readOnly,
+}: {
+  message: ChatMessage;
+  feedSessionId?: string;
+  readOnly: boolean;
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
   const source = message.metadata!.markdownReport!;
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-      <ReportCard>
+      <ReportCard sessionId={feedSessionId} messageId={message.id}>
         <article className="relative min-w-0 space-y-3" data-markdown-report-source={JSON.stringify(source)}>
           <div className="group/code flex items-start gap-2 text-xs text-cc-muted">
             <div className="min-w-0 flex-1">

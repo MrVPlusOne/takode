@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useMessageExpansion } from "../hooks/use-message-expansion.js";
 
 /** Height of a clipped report: its header and first sections. */
 const CLIPPED_HEIGHT_PX = 320;
@@ -6,13 +7,23 @@ const CLIPPED_HEIGHT_PX = 320;
 /**
  * The frame of a published report in the feed: bordered so its boundary is
  * clear, clipped to its opening, and expandable in place. Short reports show
- * whole without a toggle.
+ * whole without a toggle. Whether the report is expanded is the session's state,
+ * the same in every browser.
  */
-export function ReportCard({ children }: { children: ReactNode }) {
+export function ReportCard({
+  sessionId,
+  messageId,
+  children,
+}: {
+  sessionId?: string;
+  messageId?: string;
+  children: ReactNode;
+}) {
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useMessageExpansion(sessionId, messageId);
   const [overflows, setOverflows] = useState(false);
+  const collapseRequestedRef = useRef(false);
 
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -26,12 +37,18 @@ export function ReportCard({ children }: { children: ReactNode }) {
     return () => observer.disconnect();
   }, []);
 
+  // Collapsing from deep inside a long report would leave the reader far below
+  // it; once the collapse arrives, bring the clipped card back on screen.
+  useLayoutEffect(() => {
+    if (expanded || !collapseRequestedRef.current) return;
+    collapseRequestedRef.current = false;
+    requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: "nearest" }));
+  }, [expanded]);
+
   const clipped = overflows && !expanded;
   const collapse = () => {
+    collapseRequestedRef.current = true;
     setExpanded(false);
-    // Collapsing from deep inside a long report would leave the reader far below
-    // it; bring the clipped card back on screen.
-    requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: "nearest" }));
   };
 
   return (

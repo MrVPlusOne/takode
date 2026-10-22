@@ -69,6 +69,7 @@ import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
+import { useMessageExpansion } from "../hooks/use-message-expansion.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
 import { CompactToolActivity, isCompactToolActivityItem, type CompactToolActivityItem } from "./CompactToolActivity.js";
@@ -151,7 +152,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   if (message.metadata?.markdownReport) {
-    return <MarkdownReport message={message} readOnly={interactionMode === "read-only"} />;
+    return <MarkdownReport message={message} feedSessionId={sessionId} readOnly={interactionMode === "read-only"} />;
   }
 
   if (message.role === "system") {
@@ -377,19 +378,26 @@ const COLLAPSE_THRESHOLD = 300;
 /**
  * Clips long user messages behind Show more. `trailing` (the message time) sits in the
  * lower-right corner: on the last text line, or on the Show more row while clipped.
+ * Whether a message with a stable ID is expanded is the session's state, the same in
+ * every browser.
  */
 function CollapsibleContent({
+  sessionId,
+  messageId,
   children,
   trailing,
   trailingReserve,
 }: {
+  sessionId?: string;
+  messageId: string | null;
   children: React.ReactNode;
   trailing?: React.ReactNode;
   trailingReserve?: string;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [needsCollapse, setNeedsCollapse] = useState(false);
-  const [collapsed, setCollapsed] = useState(true);
+  const [expanded, setExpanded] = useMessageExpansion(sessionId, messageId);
+  const collapsed = !expanded;
 
   const hasResizeObserver = typeof ResizeObserver !== "undefined";
   useLayoutEffect(() => {
@@ -428,7 +436,7 @@ function CollapsibleContent({
       {needsCollapse && (
         <div className={`flex justify-center ${isCollapsed ? "-mt-3 relative z-10" : "mt-1"}`}>
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => setExpanded(collapsed)}
             aria-expanded={!isCollapsed}
             className="text-[11px] text-cc-muted hover:text-cc-fg bg-cc-user-bubble border border-cc-border/30 px-3 py-0.5 rounded-full cursor-pointer transition-colors"
           >
@@ -955,7 +963,12 @@ function UserMessage({
           onLocalPreviewReleased={handleLocalPreviewReleased}
           size="message"
         />
-        <CollapsibleContent trailing={transcribed ? null : timeLabel} trailingReserve={timeLabelReserve}>
+        <CollapsibleContent
+          sessionId={sessionId}
+          messageId={isStarActionableMessage(message) ? message.id : null}
+          trailing={transcribed ? null : timeLabel}
+          trailingReserve={timeLabelReserve}
+        >
           {message.metadata?.annotations?.length ? (
             <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
           ) : null}

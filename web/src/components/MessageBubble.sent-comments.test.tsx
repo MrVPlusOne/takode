@@ -5,6 +5,9 @@ import { MessageBubble } from "./MessageBubble.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { useStore } from "../store.js";
 
+const mockSetMessageExpanded = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true }));
+vi.mock("../api/message-expansion.js", () => ({ setMessageExpanded: mockSetMessageExpanded }));
+
 const annotation = {
   id: "comment",
   selectedText: "The cache expires after one hour.",
@@ -165,4 +168,23 @@ it("keeps the original threshold for plain text and does not expand question-ans
   );
   view.rerender(<MessageBubble message={receipt} />);
   expect(screen.getByLabelText("Comment 1").closest("details")?.open).toBe(false);
+});
+
+it("keeps a sent message's Show more state in its session, and a message still sending local", () => {
+  // Expanding a long message in a session's feed expands it in every browser of the session.
+  commentHeight = 301;
+  useStore.setState({ sessions: new Map([["s1", { session_id: "s1" } as never]]) });
+  const message = sentMessage("", 1);
+  const view = render(<MessageBubble message={message} sessionId="s1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  expect(mockSetMessageExpanded).toHaveBeenCalledWith("s1", "sent", true);
+  expect(screen.getByRole("button", { name: "Show more" })).toBeTruthy();
+  act(() => useStore.getState().updateSession("s1", { expandedMessages: { sent: 1 } } as never));
+  expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
+
+  mockSetMessageExpanded.mockClear();
+  view.rerender(<MessageBubble message={{ ...message, id: "pending-1", pendingState: "queued" }} sessionId="s1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  expect(mockSetMessageExpanded).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
 });
