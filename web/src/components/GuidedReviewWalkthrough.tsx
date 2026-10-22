@@ -6,6 +6,7 @@ import {
   ReviewCode,
   ReviewCounts,
   ReviewEndSections,
+  ReviewMessage,
   SEND_BUTTON_CLASS,
   StopAnswer,
   StopHeading,
@@ -128,6 +129,7 @@ export function Walkthrough({
           {step === last && (
             <div className="space-y-4">
               <YourAnswers target={target} tour={tour} onSelect={(n) => go(n + 1)} />
+              <ReviewMessage target={target} />
               <ReviewEndSections target={target} onOpenFullDiff={onOpenFullDiff} />
             </div>
           )}

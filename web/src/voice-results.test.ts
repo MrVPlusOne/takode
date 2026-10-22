@@ -29,6 +29,7 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
 });
 
 import { useStore } from "./store.js";
+import { useGuidedReviewState } from "./guided-review-state.js";
 import { resetDraftSyncForTests } from "./draft-sync.js";
 import { claimOwnVoiceResult, receivePendingVoiceResult, trackOwnVoiceRequest } from "./voice-results.js";
 
@@ -127,6 +128,28 @@ describe("voice result delivery", () => {
     );
     await vi.runAllTimersAsync();
     expect(useStore.getState().needsInputDrafts.get("s1")?.get("n-1")?.q1).toBe("Ship it\n[transcribed]");
+  });
+
+  it("puts a guided review result into that stop's answer or into the review's message", async () => {
+    const reviewTarget = (stopKey: string): VoiceResultTarget => ({
+      kind: "guided-review",
+      reviewId: "r-1",
+      stopKey,
+      baseText: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
+    receivePendingVoiceResult("s1", keep({ requestId: "voice-1", target: reviewTarget("2") }), 0);
+    receivePendingVoiceResult(
+      "s1",
+      keep({ requestId: "voice-2", target: reviewTarget("message"), text: "Draft comments" }),
+      0,
+    );
+    await vi.runAllTimersAsync();
+    expect(useGuidedReviewState.getState().drafts["r-1"]).toEqual({
+      answers: { "2": "Ship it\n[transcribed]" },
+      message: "Draft comments\n[transcribed]",
+    });
   });
 
   it("offers a voice edit as a proposal only while the composer still holds the text it edits", async () => {

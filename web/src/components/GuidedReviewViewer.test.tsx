@@ -147,6 +147,13 @@ describe("guided review", () => {
     fireEvent.click(within(currentStop(viewer)).getByRole("button", { name: "Looks right" }));
     fireEvent.click(within(viewer).getByRole("button", { name: "Wrap up" }));
     expect(viewer).toHaveTextContent("Only network errors");
+    // The wrap-up has a box for a message about the whole review, sent with the answers.
+    fireEvent.change(
+      within(within(viewer).getByTestId("guided-review-message")).getByRole("textbox", {
+        name: "Message about the whole review",
+      }),
+      { target: { value: "Just answer; I'll make the changes myself." } },
+    );
 
     expect(within(viewer).getByText("2 of 2 answered")).toBeInTheDocument();
     fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
@@ -154,6 +161,9 @@ describe("guided review", () => {
       type: "user_message",
       content: [
         "Guided review answers: Retry profile loads and cache profiles",
+        "",
+        "Message about the whole review:",
+        "> Just answer; I'll make the changes myself.",
         "",
         "1. Retry every error up to 4 times?",
         "   Answer: Only network errors",
@@ -178,6 +188,9 @@ describe("guided review", () => {
     // A sent review reopens on its wrap-up, listing the answers that were sent.
     expect(reopened).toHaveTextContent("Your answers");
     expect(reopened).toHaveTextContent("Only network errors");
+    expect(within(reopened).getByTestId("guided-review-message")).toHaveTextContent(
+      "Just answer; I'll make the changes myself.",
+    );
   });
 
   it("opens the full change commit by commit from git", async () => {
@@ -224,6 +237,21 @@ function tileTexts(container: HTMLElement): string[] {
 }
 
 describe("formatGuidedReviewAnswers", () => {
+  it("puts the message about the whole review first, quoted, so it reads as the user's instruction", () => {
+    const text = formatGuidedReviewAnswers(
+      makeGuidedReviewMetaFixture(),
+      {},
+      "Don't change anything.\nDraft comments.",
+    );
+    expect(text.split("\n").slice(0, 5)).toEqual([
+      "Guided review answers: Retry profile loads and cache profiles",
+      "",
+      "Message about the whole review:",
+      "> Don't change anything.",
+      "> Draft comments.",
+    ]);
+  });
+
   it("keeps multi-line answers readable and marks unanswered questions", () => {
     const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), { 1: "One hour.\nAnd clear on edit." });
     expect(text.split("\n").slice(2)).toEqual([

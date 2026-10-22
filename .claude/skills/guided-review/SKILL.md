@@ -1,11 +1,11 @@
 ---
 name: guided-review
-description: Use only when the user asks for a code review they will read themselves (a guided review of a commit range, branch or pull request in Takode). Do not use it for reviews agents do for each other or any other review the user won't read. Explains how to write the map for `takode review` and which changes need the user's decision, a careful look, evidence or only a summary.
+description: Use only when the user asks for a code review they will read themselves (a guided review of a commit range, branch or pull request in Takode), and when the user's answers to one arrive. Do not use it for reviews agents do for each other or any other review the user won't read. Explains how to write the map for `takode review` and which changes need the user's decision, a careful look, evidence or only a summary, and how to act on the answers.
 ---
 
 # Guided review
 
-A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user a walkthrough, one stop at a time: your overview, then each stop with your explanation and an answer field beside the exact code drawn from git, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers come back to your session as one message.
+A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user a walkthrough, one stop at a time: your overview, then each stop with your explanation and an answer field beside the exact code drawn from git, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers, with an optional message about the whole review, come back to your session as one message.
 
 It is a user-facing feature only: use it when the user asks for a review they will read, not for agent-to-agent reviews such as a reviewer checking a worker's change.
 
@@ -16,7 +16,7 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 3. Write the map as a JSON file outside the repository, such as a `reviews/` folder in your home directory (format below, and in `takode review --help`). Its path is shown as the review's source.
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread. A worker publishes into its own session (`--thread main`) and tells its leader, who shares it where the user reads it (below).
-6. When the answers arrive, act on them like any user message: questions and requested changes typed into an answer are requests.
+6. When the answers arrive, read them as the user's review, not as orders to implement. They may start with the user's message about the whole review; follow it and the context: whose change it is and what the user asked for. A review of the user's own change often leads to making the changes; a review of someone else's pull request usually does not, and the user may want only your answers, or comments drafted for them to post. When it is unclear what should happen next, ask before acting. Never post to GitHub or message other people as the user.
 
 ## Sharing a review into another thread
 

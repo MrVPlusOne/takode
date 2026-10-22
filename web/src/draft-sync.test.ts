@@ -38,7 +38,12 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
 });
 
 import { useStore } from "./store.js";
-import { markGuidedReviewSent, setGuidedReviewAnswer, useGuidedReviewState } from "./guided-review-state.js";
+import {
+  markGuidedReviewSent,
+  setGuidedReviewAnswer,
+  setGuidedReviewMessage,
+  useGuidedReviewState,
+} from "./guided-review-state.js";
 import {
   DRAFT_SYNC_DELAY_MS,
   applyRemoteDraftChange,
@@ -392,13 +397,29 @@ describe("guided review answer sync", () => {
     expect(useGuidedReviewState.getState().drafts["review-1"]?.answers).toEqual({ "0": "Cap at 2", "2": "Why?" });
   });
 
+  it("shares the message about the whole review like the answers, even with no answer", async () => {
+    // The message alone is a draft worth keeping; clearing it clears the draft.
+    setGuidedReviewMessage("s1", "review-1", "Draft comments for me to post");
+    await settle();
+    reloadWithReviews();
+    expect(useGuidedReviewState.getState().drafts["review-1"]).toEqual({
+      answers: {},
+      message: "Draft comments for me to post",
+    });
+    setGuidedReviewMessage("s1", "review-1", "");
+    await settle();
+    expect(server.session.drafts?.guidedReviews?.["review-1"]).toBeUndefined();
+  });
+
   it("marks a sent review everywhere and refuses changes to it afterwards", async () => {
     setGuidedReviewAnswer("s1", "review-1", 0, "Keep");
+    setGuidedReviewMessage("s1", "review-1", "Make the changes");
     markGuidedReviewSent("s1", "review-1", 123);
     flushPendingDrafts();
     await vi.advanceTimersByTimeAsync(0);
     expect(server.session.drafts?.guidedReviews?.["review-1"]?.draft).toEqual({
       answers: { "0": "Keep" },
+      message: "Make the changes",
       sentAt: 123,
     });
 

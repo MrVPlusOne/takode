@@ -59,18 +59,36 @@ export function guidedReviewIdsForSession(sessionId: string): string[] {
 
 /** Set one stop's answer text; the change is synced to the server. Sent reviews no longer change. */
 export function setGuidedReviewAnswer(sessionId: string, reviewId: string, stopIndex: number, text: string): void {
-  const current = getGuidedReviewDraft(reviewId);
-  if (current?.sentAt !== undefined) return;
-  const answers = { ...current?.answers };
-  if (text) answers[stopIndex] = text;
-  else delete answers[stopIndex];
-  writeDraft(sessionId, reviewId, Object.keys(answers).length ? { answers } : null);
-  notifyLocalDraftChange(sessionId, { kind: "guided-review", reviewId });
+  editUnsentDraft(sessionId, reviewId, (draft) => {
+    const answers = { ...draft.answers };
+    if (text) answers[stopIndex] = text;
+    else delete answers[stopIndex];
+    return { ...draft, answers };
+  });
+}
+
+/** Set the message about the whole review; synced like the answers. */
+export function setGuidedReviewMessage(sessionId: string, reviewId: string, text: string): void {
+  editUnsentDraft(sessionId, reviewId, ({ message: _previous, ...draft }) =>
+    text ? { ...draft, message: text } : draft,
+  );
 }
 
 /** Record that the review's answers were sent, so no browser offers to send them again. */
 export function markGuidedReviewSent(sessionId: string, reviewId: string, sentAt = Date.now()): void {
-  writeDraft(sessionId, reviewId, { answers: getGuidedReviewDraft(reviewId)?.answers ?? {}, sentAt });
+  writeDraft(sessionId, reviewId, { ...(getGuidedReviewDraft(reviewId) ?? { answers: {} }), sentAt });
+  notifyLocalDraftChange(sessionId, { kind: "guided-review", reviewId });
+}
+
+function editUnsentDraft(
+  sessionId: string,
+  reviewId: string,
+  edit: (draft: SyncedGuidedReviewDraft) => SyncedGuidedReviewDraft,
+): void {
+  const current = getGuidedReviewDraft(reviewId);
+  if (current?.sentAt !== undefined) return;
+  const next = edit(current ?? { answers: {} });
+  writeDraft(sessionId, reviewId, Object.keys(next.answers).length || next.message ? next : null);
   notifyLocalDraftChange(sessionId, { kind: "guided-review", reviewId });
 }
 
@@ -93,12 +111,19 @@ function writeDraft(sessionId: string, reviewId: string, draft: SyncedGuidedRevi
 }
 
 /**
- * The one message that carries the user's answers back to the reviewing agent: each question with
- * its answer (or "not answered"), then the answers on other stops, in map order.
+ * The one message that carries the user's answers back to the reviewing agent: the user's message
+ * about the whole review when there is one, then each question with its answer (or "not
+ * answered"), then the answers on other stops, in map order.
  */
-export function formatGuidedReviewAnswers(meta: GuidedReviewMeta, answers: Record<string, string>): string {
+export function formatGuidedReviewAnswers(
+  meta: GuidedReviewMeta,
+  answers: Record<string, string>,
+  message?: string,
+): string {
   const lines = [`Guided review answers: ${meta.map.title}`];
   const answerLines = (text: string) => text.trim().split("\n");
+  if (message?.trim())
+    lines.push("", "Message about the whole review:", ...answerLines(message).map((line) => `> ${line}`));
   let question = 0;
   meta.map.stops.forEach((stop, index) => {
     if (stop.tier !== "decide") return;

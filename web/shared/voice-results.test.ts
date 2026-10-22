@@ -59,6 +59,8 @@ describe("readVoiceResultTarget", () => {
       selectionEnd: 0,
     };
     expect(readVoiceResultTarget(target)).toEqual(target);
+    // "message" is the field for the message about the whole review.
+    expect(readVoiceResultTarget({ ...target, stopKey: "message" })).toEqual({ ...target, stopKey: "message" });
     expect(() => readVoiceResultTarget({ ...target, stopKey: "x" })).toThrow();
   });
 });

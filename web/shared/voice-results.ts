@@ -9,7 +9,10 @@
  * reaches every browser from there.
  */
 
-/** Which draft the text goes into: the composer, one needs-input question, or one guided review answer. */
+/**
+ * Which draft the text goes into: the composer, one needs-input question, or one guided review
+ * answer (`stopKey` is the stop's index, or `message` for the message about the whole review).
+ */
 export type VoiceResultDestination =
   | { kind: "composer" }
   | { kind: "needs-input"; notificationId: string; questionKey: string }
@@ -57,7 +60,12 @@ export function readVoiceResultTarget(value: unknown): VoiceResultTarget | undef
   if (kind === "needs-input" && isShortId(notificationId) && isShortId(questionKey)) {
     return { kind, notificationId, questionKey, ...base };
   }
-  if (kind === "guided-review" && isShortId(reviewId) && typeof stopKey === "string" && /^\d{1,3}$/.test(stopKey)) {
+  if (
+    kind === "guided-review" &&
+    isShortId(reviewId) &&
+    typeof stopKey === "string" &&
+    /^(\d{1,3}|message)$/.test(stopKey)
+  ) {
     return { kind, reviewId, stopKey, ...base };
   }
   throw new Error("Invalid voice result target.");

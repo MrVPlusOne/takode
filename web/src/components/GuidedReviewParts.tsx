@@ -11,6 +11,7 @@ import {
   GUIDED_REVIEW_REACTIONS,
   closeGuidedReview,
   setGuidedReviewAnswer,
+  setGuidedReviewMessage,
   useGuidedReviewState,
   type GuidedReviewTarget,
 } from "../guided-review-state.js";
@@ -238,6 +239,54 @@ export function StopAnswer({
   );
 }
 
+/** A message usually runs longer than an answer, so its field starts taller. */
+const MESSAGE_TEXTAREA_CLASS = ANSWER_TEXTAREA_CLASS.replace("min-h-[36px]", "min-h-[72px]");
+
+/**
+ * The user's message about the review as a whole, sent with the answers: anything the stops did
+ * not cover, including what should happen next. Once sent it shows the message instead.
+ */
+export function ReviewMessage({ target }: { target: GuidedReviewTarget }) {
+  const { sessionId, meta } = target;
+  const draft = useGuidedReviewState((state) => state.drafts[meta.reviewId]);
+  const message = draft?.message ?? "";
+  const focusedContext = useMemo(
+    () =>
+      [
+        `Guided code review: ${meta.map.title}`,
+        "The user's message about the whole review, such as what should happen next.",
+      ].join("\n"),
+    [meta.map.title],
+  );
+  return (
+    <div className="space-y-2" data-testid="guided-review-message">
+      <div>
+        <div className="text-[13px] font-medium uppercase tracking-wide text-cc-muted">Your message</div>
+        <div className="text-[13px] text-cc-muted">
+          Anything about the review as a whole, including what should happen next. Optional.
+        </div>
+      </div>
+      {draft?.sentAt !== undefined ? (
+        <div className="whitespace-pre-wrap text-[14px] text-cc-fg">{message || "No message"}</div>
+      ) : (
+        <VoiceAnswerField
+          sessionId={sessionId}
+          value={message}
+          onChange={(text) => setGuidedReviewMessage(sessionId, meta.reviewId, text)}
+          placeholder="Your message to the agent"
+          ariaLabel="Message about the whole review"
+          focusedContext={focusedContext}
+          voiceTarget={{ kind: "guided-review", reviewId: meta.reviewId, stopKey: "message" }}
+          resetKey={`${meta.reviewId}:message`}
+          threadKey={target.threadKey}
+          textareaClassName={MESSAGE_TEXTAREA_CLASS}
+          onClickStopsPropagation={false}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Answers so far and sending them: one message to the publishing session, once. */
 export function useReviewSend(target: GuidedReviewTarget) {
   const { reviewId, map } = target.meta;
@@ -257,7 +306,7 @@ export function useReviewSend(target: GuidedReviewTarget) {
     status,
     failed,
     sent: draft?.sentAt !== undefined,
-    canSend: Object.values(draft?.answers ?? {}).some((answer) => answer.trim()),
+    canSend: Boolean(draft?.message?.trim()) || Object.values(draft?.answers ?? {}).some((answer) => answer.trim()),
     isAnswered: (index: number) => Boolean(draft?.answers[index]?.trim()),
     send: () => {
       const ok = sendGuidedReviewAnswers(target);

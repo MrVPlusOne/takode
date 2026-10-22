@@ -36,12 +36,14 @@ export interface SyncedDraftImage {
 }
 
 /**
- * A guided review's answers by stop index (the text of each answer field), and when they
- * were sent. Once sent, the server keeps the entry and refuses further changes, so every
- * browser shows the review as answered and none can send it again.
+ * A guided review's answers by stop index (the text of each answer field), the message about the
+ * whole review, and when they were sent. Once sent, the server keeps the entry and refuses further
+ * changes, so every browser shows the review as answered and none can send it again.
  */
 export interface SyncedGuidedReviewDraft {
   answers: Record<string, string>;
+  /** The user's message about the review as a whole, such as what should happen next. */
+  message?: string;
   sentAt?: number;
 }
 
@@ -110,14 +112,19 @@ export function sessionDraftKey(
   return `needs-input:${write.notificationId}`;
 }
 
-/** Empty answers are dropped; a draft with no answers that was never sent is stored as cleared. */
+/** Empty answers and messages are dropped; a draft with neither that was never sent is stored as cleared. */
 export function normalizeSyncedGuidedReviewDraft(
   draft: SyncedGuidedReviewDraft | null,
 ): SyncedGuidedReviewDraft | null {
   if (!draft) return null;
   const answers = Object.fromEntries(Object.entries(draft.answers).filter(([, value]) => value.trim() !== ""));
-  if (!Object.keys(answers).length && draft.sentAt === undefined) return null;
-  return { answers, ...(draft.sentAt !== undefined ? { sentAt: draft.sentAt } : {}) };
+  const message = draft.message?.trim() ? draft.message : undefined;
+  if (!Object.keys(answers).length && message === undefined && draft.sentAt === undefined) return null;
+  return {
+    answers,
+    ...(message !== undefined ? { message } : {}),
+    ...(draft.sentAt !== undefined ? { sentAt: draft.sentAt } : {}),
+  };
 }
 
 function readGuidedReviewDraft(value: unknown): SyncedGuidedReviewDraft {
@@ -128,11 +135,18 @@ function readGuidedReviewDraft(value: unknown): SyncedGuidedReviewDraft {
     if (!/^\d{1,3}$/.test(key) || typeof answer !== "string") throw new Error("Each answer must be a string.");
     if (answer.length > MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS) throw new Error("An answer is too long.");
   }
+  if (
+    value.message !== undefined &&
+    (typeof value.message !== "string" || value.message.length > MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS)
+  ) {
+    throw new Error("draft.message must be a string of at most 20,000 characters.");
+  }
   if (value.sentAt !== undefined && (typeof value.sentAt !== "number" || !Number.isFinite(value.sentAt))) {
     throw new Error("draft.sentAt must be a time.");
   }
   return {
     answers: value.answers as Record<string, string>,
+    ...(value.message !== undefined ? { message: value.message as string } : {}),
     ...(value.sentAt !== undefined ? { sentAt: value.sentAt as number } : {}),
   };
 }

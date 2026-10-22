@@ -6,7 +6,7 @@
  * returns; any browser shown the session claims results nobody took, such as after the recording
  * browser was reloaded or suspended. Drafts are synced, so the text reaches every browser.
  */
-import { getGuidedReviewDraft, setGuidedReviewAnswer } from "./guided-review-state.js";
+import { getGuidedReviewDraft, setGuidedReviewAnswer, setGuidedReviewMessage } from "./guided-review-state.js";
 import { addTranscriptionTag } from "../shared/transcription-tag.js";
 import { mergeVoiceText, type PendingVoiceResult } from "../shared/voice-results.js";
 import { claimVoiceResult } from "./api/session-drafts.js";
@@ -79,7 +79,12 @@ export function applyRecoveredVoiceResult(sessionId: string, pending: PendingVoi
   const store = useStore.getState();
   const { target } = pending;
   if (target.kind === "guided-review") {
-    const current = getGuidedReviewDraft(target.reviewId)?.answers[target.stopKey] ?? "";
+    const draft = getGuidedReviewDraft(target.reviewId);
+    if (target.stopKey === "message") {
+      setGuidedReviewMessage(sessionId, target.reviewId, insertVoiceText(draft?.message ?? "", pending));
+      return;
+    }
+    const current = draft?.answers[target.stopKey] ?? "";
     setGuidedReviewAnswer(sessionId, target.reviewId, Number(target.stopKey), insertVoiceText(current, pending));
     return;
   }
