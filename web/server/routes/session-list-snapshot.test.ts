@@ -333,7 +333,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
   });
 
   it("preserves assigned leader portraits even when their pool is disabled", async () => {
-    updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
+    updateSettings({ leaderProfilePools: { tako: false, shmi: true, animals: false } });
     const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "tako1-01" });
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
@@ -356,7 +356,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
   });
 
   it("uses the fallback portrait for unassigned leaders when all pools are disabled", async () => {
-    updateSettings({ leaderProfilePools: { tako: false, shmi: false } });
+    updateSettings({ leaderProfilePools: { tako: false, shmi: false, animals: false } });
     const launcherSession = makeLauncherSession({ isOrchestrator: true });
     const deps = makeDeps(launcherSession, makeBridgeSession([]));
 

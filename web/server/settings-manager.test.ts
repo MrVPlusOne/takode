@@ -77,7 +77,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
-      leaderProfilePools: { tako: true, shmi: true },
+      leaderProfilePools: { tako: true, shmi: true, animals: false },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
@@ -235,15 +235,15 @@ describe("settings-manager", () => {
   });
 
   it("normalizes and persists enabled leader profile pools", async () => {
-    const updated = updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
-    expect(updated.leaderProfilePools).toEqual({ tako: false, shmi: true });
+    const updated = updateSettings({ leaderProfilePools: { tako: false, shmi: true, animals: false } });
+    expect(updated.leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
 
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(saved.leaderProfilePools).toEqual({ tako: false, shmi: true });
+    expect(saved.leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
 
     _resetForTest(settingsPath);
-    expect(getSettings().leaderProfilePools).toEqual({ tako: false, shmi: true });
+    expect(getSettings().leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
   });
 
   it("normalizes and persists centralized session defaults", async () => {
@@ -702,7 +702,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
-      leaderProfilePools: { tako: true, shmi: true },
+      leaderProfilePools: { tako: true, shmi: true, animals: false },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },

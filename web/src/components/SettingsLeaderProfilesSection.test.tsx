@@ -25,10 +25,10 @@ describe("SettingsLeaderProfilesSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSettings.mockResolvedValue({
-      leaderProfilePools: { tako: true, shmi: true },
+      leaderProfilePools: { tako: true, shmi: true, animals: false },
     });
     mockUpdateSettings.mockResolvedValue({
-      leaderProfilePools: { tako: false, shmi: true },
+      leaderProfilePools: { tako: false, shmi: true, animals: false },
     });
   });
 
@@ -40,14 +40,14 @@ describe("SettingsLeaderProfilesSection", () => {
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({
-        leaderProfilePools: { tako: false, shmi: true },
+        leaderProfilePools: { tako: false, shmi: true, animals: false },
       });
     });
   });
 
   it("disables every pool toggle while saving to avoid stale replacement writes", async () => {
     const save = deferred<{
-      leaderProfilePools: { tako: boolean; shmi: boolean };
+      leaderProfilePools: { tako: boolean; shmi: boolean; animals: boolean };
     }>();
     mockUpdateSettings.mockReturnValue(save.promise);
     render(<SettingsLeaderProfilesSection />);
@@ -64,9 +64,9 @@ describe("SettingsLeaderProfilesSection", () => {
 
     expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      leaderProfilePools: { tako: false, shmi: true },
+      leaderProfilePools: { tako: false, shmi: true, animals: false },
     });
-    save.resolve({ leaderProfilePools: { tako: false, shmi: true } });
+    save.resolve({ leaderProfilePools: { tako: false, shmi: true, animals: false } });
     await waitFor(() => expect(tako).not.toBeDisabled());
   });
 });

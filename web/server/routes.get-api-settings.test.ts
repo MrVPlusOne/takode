@@ -629,7 +629,7 @@ describe("GET /api/settings", () => {
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
     });
-    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true });
+    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true, animals: false });
     expect(json.leaderProfilePoolOptions).toEqual(LEADER_PROFILE_POOLS);
     expect(json.leaderProfilePortraits).toEqual(LEADER_PROFILE_PORTRAITS);
     expect(json.leaderProfileFallbackPortrait).toEqual(FALLBACK_LEADER_PROFILE_PORTRAIT);

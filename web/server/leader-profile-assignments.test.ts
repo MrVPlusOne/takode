@@ -8,16 +8,18 @@ import {
 describe("leader profile assignments", () => {
   it("chooses new assignments from enabled pools only", () => {
     for (let i = 0; i < 20; i++) {
-      expect(chooseRandomLeaderProfilePortraitId({ tako: false, shmi: true })).toMatch(/^shmi/);
+      expect(chooseRandomLeaderProfilePortraitId({ tako: false, shmi: true, animals: false })).toMatch(/^shmi/);
     }
-    expect(chooseRandomLeaderProfilePortraitId({ tako: false, shmi: false })).toBeUndefined();
+    expect(chooseRandomLeaderProfilePortraitId({ tako: false, shmi: false, animals: false })).toBeUndefined();
   });
 
   it("does not assign portraits to non-leader sessions", () => {
     const persist = vi.fn();
     const session: LeaderProfileSessionRecord = { sessionId: "worker-1", isOrchestrator: false };
 
-    expect(getLeaderProfilePortraitForSession(session, { tako: true, shmi: true }, persist)).toBeUndefined();
+    expect(
+      getLeaderProfilePortraitForSession(session, { tako: true, shmi: true, animals: false }, persist),
+    ).toBeUndefined();
     expect(persist).not.toHaveBeenCalled();
   });
 
@@ -27,8 +29,8 @@ describe("leader profile assignments", () => {
       session.leaderProfilePortraitId = portraitId;
     });
 
-    const first = getLeaderProfilePortraitForSession(session, { tako: true, shmi: true }, persist);
-    const second = getLeaderProfilePortraitForSession(session, { tako: true, shmi: true }, persist);
+    const first = getLeaderProfilePortraitForSession(session, { tako: true, shmi: true, animals: false }, persist);
+    const second = getLeaderProfilePortraitForSession(session, { tako: true, shmi: true, animals: false }, persist);
 
     expect(first?.id).toBe(second?.id);
     expect(persist).toHaveBeenCalledWith(first?.id);
@@ -45,7 +47,7 @@ describe("leader profile assignments", () => {
       session.leaderProfilePortraitId = portraitId;
     });
 
-    const portrait = getLeaderProfilePortraitForSession(session, { tako: false, shmi: true }, persist);
+    const portrait = getLeaderProfilePortraitForSession(session, { tako: false, shmi: true, animals: false }, persist);
 
     expect(portrait).toMatchObject({ id: "tako2-01", poolId: "tako" });
     expect(persist).toHaveBeenCalledWith("tako2-01");

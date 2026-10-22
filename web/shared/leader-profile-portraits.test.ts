@@ -12,18 +12,31 @@ import {
 import { validateLeaderProfilePortraitAssets } from "../scripts/generate-leader-profile-portraits.js";
 
 describe("leader profile portrait metadata", () => {
-  it("defaults both built-in pools on and filters enabled pools", () => {
-    expect(normalizeLeaderProfilePoolSettings(undefined)).toEqual({ tako: true, shmi: true });
-    const takoPortraits = getEnabledLeaderProfilePortraits({ tako: true, shmi: false });
+  it("defaults the two cat pools on and filters enabled pools", () => {
+    expect(normalizeLeaderProfilePoolSettings(undefined)).toEqual({ tako: true, shmi: true, animals: false });
+    const takoPortraits = getEnabledLeaderProfilePortraits({ tako: true, shmi: false, animals: false });
     expect(takoPortraits).toHaveLength(48);
     expect(takoPortraits.every((portrait) => portrait.poolId === "tako")).toBe(true);
   });
 
+  it("keeps the animals pool off for settings saved before it existed", () => {
+    // Saved settings only know the cat pools; adding a pool must not change which
+    // portraits existing installs assign.
+    expect(normalizeLeaderProfilePoolSettings({ tako: false, shmi: true })).toEqual({
+      tako: false,
+      shmi: true,
+      animals: false,
+    });
+    const animalPortraits = getEnabledLeaderProfilePortraits({ tako: false, shmi: false, animals: true });
+    expect(animalPortraits).toHaveLength(64);
+    expect(animalPortraits.every((portrait) => portrait.poolId === "animals")).toBe(true);
+  });
+
   it("points at checked-in optimized profile assets with compact file sizes", () => {
     const root = process.cwd();
-    // Six prepared source sheets are split into a 4x4 grid, yielding 96 individual portraits.
-    expect(LEADER_PROFILE_PORTRAITS).toHaveLength(96);
-    expect(new Set(LEADER_PROFILE_PORTRAITS.map((portrait) => portrait.id)).size).toBe(96);
+    // Six cat sheets split on a 4x4 grid plus four animal sheets of 16 detected circles each.
+    expect(LEADER_PROFILE_PORTRAITS).toHaveLength(160);
+    expect(new Set(LEADER_PROFILE_PORTRAITS.map((portrait) => portrait.id)).size).toBe(160);
     for (const portrait of [...LEADER_PROFILE_PORTRAITS, FALLBACK_LEADER_PROFILE_PORTRAIT]) {
       for (const url of [portrait.smallUrl, portrait.largeUrl]) {
         const path = join(root, "public", url.replace(/^\//, ""));
@@ -43,7 +56,9 @@ describe("leader profile portrait metadata", () => {
       LEADER_PROFILE_PORTRAITS,
       FALLBACK_LEADER_PROFILE_PORTRAIT,
     );
-    const portraitAssets = validation.filter((asset) => asset.poolId !== "fallback");
+    // Centering and pale-boundary metrics judge crops chosen inside grid cells; the animal
+    // portraits are cut along their own painted circles and checked when generated.
+    const portraitAssets = validation.filter((asset) => asset.poolId === "tako" || asset.poolId === "shmi");
     const portraitOffsets = portraitAssets.flatMap((asset) => [
       Math.abs(asset.small.visualCenterOffsetX),
       Math.abs(asset.small.visualCenterOffsetY),

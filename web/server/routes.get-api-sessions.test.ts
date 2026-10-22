@@ -764,7 +764,7 @@ describe("GET /api/sessions", () => {
     >;
     vi.mocked(settingsManager.getSettings).mockReturnValueOnce({
       ...defaultSettings,
-      leaderProfilePools: { tako: true, shmi: true },
+      leaderProfilePools: { tako: true, shmi: true, animals: false },
     });
     launcher.listSessions.mockReturnValue([
       { sessionId: "leader", state: "connected", cwd: "/a", isOrchestrator: true },

@@ -3,7 +3,7 @@ import {
   GENERATED_LEADER_PROFILE_PORTRAITS,
 } from "./leader-profile-portraits.generated.js";
 
-export const LEADER_PROFILE_POOL_IDS = ["tako", "shmi"] as const;
+export const LEADER_PROFILE_POOL_IDS = ["tako", "shmi", "animals"] as const;
 
 export type LeaderProfilePoolId = (typeof LEADER_PROFILE_POOL_IDS)[number];
 
@@ -29,11 +29,13 @@ export interface LeaderProfilePortrait {
 export const DEFAULT_LEADER_PROFILE_POOLS: LeaderProfilePoolSettings = {
   tako: true,
   shmi: true,
+  animals: false,
 };
 
 export const LEADER_PROFILE_POOLS: LeaderProfilePool[] = [
   { id: "tako", label: "Tako" },
   { id: "shmi", label: "Shmi" },
+  { id: "animals", label: "Animals" },
 ];
 
 export const LEADER_PROFILE_PORTRAITS: LeaderProfilePortrait[] = GENERATED_LEADER_PROFILE_PORTRAITS;
@@ -51,10 +53,12 @@ const LEGACY_SHEET_PORTRAIT_ID_ALIASES: Record<string, string> = {
 
 export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfilePoolSettings {
   const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  return {
-    tako: typeof record.tako === "boolean" ? record.tako : DEFAULT_LEADER_PROFILE_POOLS.tako,
-    shmi: typeof record.shmi === "boolean" ? record.shmi : DEFAULT_LEADER_PROFILE_POOLS.shmi,
-  };
+  return Object.fromEntries(
+    LEADER_PROFILE_POOL_IDS.map((id) => [
+      id,
+      typeof record[id] === "boolean" ? record[id] : DEFAULT_LEADER_PROFILE_POOLS[id],
+    ]),
+  ) as LeaderProfilePoolSettings;
 }
 
 export function getLeaderProfilePortrait(id: string | null | undefined): LeaderProfilePortrait | null {

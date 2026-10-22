@@ -78,7 +78,7 @@ describe("LeaderProfilePortraitButton", () => {
     expect(screen.queryByRole("dialog", { name: "Leader profile" })).toBeNull();
   });
 
-  it("keeps all 96 portrait options selectable from a constrained viewport", async () => {
+  it("keeps every portrait option selectable from a constrained viewport", async () => {
     // A phone-height viewport with the button low on screen: the picker moves up to fit and its grid scrolls.
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
@@ -103,7 +103,7 @@ describe("LeaderProfilePortraitButton", () => {
       const dialog = screen.getByRole("dialog", { name: "Leader profile" });
       expect(dialog).toHaveStyle({ top: "108px", width: "300px", maxHeight: "520px" });
       expect(screen.getByTestId("leader-profile-portrait-grid-scroll")).toHaveClass("min-h-0", "overflow-y-auto");
-      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(96);
+      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(160);
 
       const lastPortrait = LEADER_PROFILE_PORTRAITS[LEADER_PROFILE_PORTRAITS.length - 1];
       fireEvent.click(screen.getByRole("button", { name: lastPortrait.label }));

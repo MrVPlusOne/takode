@@ -1,8 +1,13 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp, { type OverlayOptions } from "sharp";
-import type { LeaderProfilePoolId, LeaderProfilePortrait } from "../shared/leader-profile-portraits.js";
+import {
+  LEADER_PROFILE_POOL_IDS,
+  type LeaderProfilePoolId,
+  type LeaderProfilePortrait,
+} from "../shared/leader-profile-portraits.js";
+import { detectPortraitCircles, type DetectedPortraitCircle } from "./leader-profile-circle-detection.js";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ASSET_ROOT = join(PROJECT_ROOT, "public", "leader-profile-portraits");
@@ -23,14 +28,45 @@ const MAX_CROP_RATIO = 0.84;
 const SOURCE_ALPHA_THRESHOLD = 8;
 const EMPTY_BOUNDARY_MAX_RATIO = 0.28;
 const EMPTY_BOUNDARY_SECTOR_MAX_RATIO = 0.36;
+/** A detected portrait is rejected when more of its rim than this looks like sheet background. */
+const DETECTED_RIM_BACKGROUND_MAX_RATIO = 0.01;
+/** A detected portrait is rejected when its usable circle is much smaller than its painted region. */
+const DETECTED_MIN_FILL_RATIO = 0.9;
 const VARIANTS = [
   { name: "small", size: 96 },
   { name: "large", size: 320 },
 ] as const;
 
-interface PortraitSheet {
-  poolId: LeaderProfilePoolId;
+/**
+ * A source sheet of 16 portraits. `grid` sheets fill a 4x4 grid of square cells and each
+ * crop is searched for within its cell; `circles` sheets hold round portraits on a plain
+ * background, found by detection and named in reading order.
+ */
+type PortraitSheet = { id: string; poolId: LeaderProfilePoolId; sourcePath: string } & (
+  | { layout: "grid" }
+  | { layout: "circles"; names: string[] }
+);
+
+interface SheetRegion {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Where a generated portrait came from, for the source comparison sheet. */
+interface PortraitSource {
   sourcePath: string;
+  region: SheetRegion;
+}
+
+interface PreparedPortrait {
+  id: string;
+  label: string;
+  /** Square source image the avatar variants are resized from. */
+  square: Buffer;
+  source: PortraitSource;
+  detection?: DetectedPortraitCircle;
 }
 
 interface ValidationVariant {
@@ -85,60 +121,143 @@ interface GenerationResult {
 }
 
 const PORTRAIT_SHEETS: PortraitSheet[] = [
-  { poolId: "tako", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako1.PNG" },
-  { poolId: "tako", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako2.PNG" },
-  { poolId: "tako", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako3.PNG" },
-  { poolId: "shmi", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi1.PNG" },
-  { poolId: "shmi", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi2.PNG" },
-  { poolId: "shmi", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi3.PNG" },
+  { id: "tako1", poolId: "tako", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako1.PNG" },
+  { id: "tako2", poolId: "tako", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako2.PNG" },
+  { id: "tako3", poolId: "tako", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Tako-portraits/tako3.PNG" },
+  { id: "shmi1", poolId: "shmi", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi1.PNG" },
+  { id: "shmi2", poolId: "shmi", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi2.PNG" },
+  { id: "shmi3", poolId: "shmi", layout: "grid", sourcePath: "/Users/jiayiwei/Downloads/Shmi-portraits/shmi3.PNG" },
+  {
+    id: "animals1",
+    poolId: "animals",
+    layout: "circles",
+    sourcePath: "/Users/jiayiwei/Downloads/Whimsical Woodland Animal Portrait Grid.png",
+    names: [
+      "Cat",
+      "Dog",
+      "Otter",
+      "Red panda",
+      "Penguin",
+      "Hedgehog",
+      "Duckling",
+      "Shiba",
+      "Seal",
+      "Fox",
+      "Raccoon",
+      "Panda",
+      "Koala",
+      "Owl",
+      "Fawn",
+      "Hamster",
+    ],
+  },
+  {
+    id: "animals2",
+    poolId: "animals",
+    layout: "circles",
+    sourcePath: "/Users/jiayiwei/Downloads/animal_avatars_grid_2.png",
+    names: [
+      "Tiger",
+      "Flamingo",
+      "Elephant",
+      "Frog",
+      "Axolotl",
+      "Giraffe",
+      "Toucan",
+      "Goldfish",
+      "Snow leopard",
+      "Turtle",
+      "Zebra",
+      "Macaw",
+      "Dolphin",
+      "Leopard",
+      "Cockatiel",
+      "Lion cub",
+    ],
+  },
+  {
+    id: "animals3",
+    poolId: "animals",
+    layout: "circles",
+    sourcePath: "/Users/jiayiwei/Downloads/animal_avatars_grid_3.png",
+    names: [
+      "Guinea pig",
+      "Wolf",
+      "Orca",
+      "Chinchilla",
+      "Moose",
+      "Ferret",
+      "Bear cub",
+      "Squirrel",
+      "Bison",
+      "Sloth",
+      "Skunk",
+      "Sugar glider",
+      "Lynx",
+      "Capybara",
+      "Badger",
+      "Alpaca",
+    ],
+  },
+  {
+    id: "animals4",
+    poolId: "animals",
+    layout: "circles",
+    sourcePath: "/Users/jiayiwei/Downloads/animal_avatars_grid_4.png",
+    names: [
+      "Hippo",
+      "Cockatoo",
+      "Calf",
+      "Peacock",
+      "Goat",
+      "Ball python",
+      "Lovebird",
+      "Armadillo",
+      "Bunny",
+      "Budgie",
+      "Bearded dragon",
+      "Meerkat",
+      "Goose",
+      "Tapir",
+      "Kingfisher",
+      "Piglet",
+    ],
+  },
 ];
 
 export async function generateLeaderProfilePortraitAssets(): Promise<GenerationResult> {
   await prepareOutputDirectories();
   const portraits: LeaderProfilePortrait[] = [];
+  const sources = new Map<string, PortraitSource>();
+  const detections = new Map<string, DetectedPortraitCircle>();
 
   for (const sheet of PORTRAIT_SHEETS) {
-    const source = sharp(sheet.sourcePath);
-    const metadata = await source.metadata();
-    const width = requirePositiveDimension(metadata.width, sheet.sourcePath, "width");
-    const height = requirePositiveDimension(metadata.height, sheet.sourcePath, "height");
-    if (width !== height) {
-      throw new Error(`${sheet.sourcePath} must be a square sheet`);
-    }
-
-    const sheetBaseName = basename(sheet.sourcePath)
-      .replace(/\.[^.]+$/, "")
-      .toLowerCase();
-    for (let row = 0; row < GRID_SIZE; row += 1) {
-      for (let column = 0; column < GRID_SIZE; column += 1) {
-        const cellNumber = row * GRID_SIZE + column + 1;
-        const id = `${sheetBaseName}-${String(cellNumber).padStart(2, "0")}`;
-        const label = `${titleCase(sheet.poolId)} ${sheetBaseName.replace(/^[a-z]+/, "")}.${cellNumber}`;
-        const cellBounds = gridCellBounds(width, row, column);
-        const crop = await computeCenteredPortraitCrop(sheet.sourcePath, cellBounds);
-        const small = await writePortraitVariant(sheet, id, cellBounds, crop, VARIANTS[0].size);
-        const large = await writePortraitVariant(sheet, id, cellBounds, crop, VARIANTS[1].size);
-        portraits.push({
-          id,
-          poolId: sheet.poolId,
-          label,
-          smallUrl: small.url,
-          largeUrl: large.url,
-          smallSize: VARIANTS[0].size,
-          largeSize: VARIANTS[1].size,
-          smallBytes: small.bytes,
-          largeBytes: large.bytes,
-        });
-      }
+    const prepared = sheet.layout === "grid" ? await prepareGridSheet(sheet) : await prepareCircleSheet(sheet);
+    for (const portrait of prepared) {
+      const small = await writePortraitVariant(sheet.poolId, portrait.id, portrait.square, VARIANTS[0].size);
+      const large = await writePortraitVariant(sheet.poolId, portrait.id, portrait.square, VARIANTS[1].size);
+      portraits.push({
+        id: portrait.id,
+        poolId: sheet.poolId,
+        label: portrait.label,
+        smallUrl: small.url,
+        largeUrl: large.url,
+        smallSize: VARIANTS[0].size,
+        largeSize: VARIANTS[1].size,
+        smallBytes: small.bytes,
+        largeBytes: large.bytes,
+      });
+      sources.set(portrait.id, portrait.source);
+      if (portrait.detection) detections.set(portrait.id, portrait.detection);
     }
   }
 
   const fallback = await writeFallbackPortrait();
   await writeGeneratedMetadata(portraits, fallback);
   const validationAssets = await validateLeaderProfilePortraitAssets(portraits, fallback);
-  await writeValidationManifest(validationAssets);
+  await writeValidationManifest(validationAssets, detections);
   await writeContactSheet(portraits, fallback);
-  await writeSourceComparisonSheet(portraits, fallback);
+  await writeSourceComparisonSheet(portraits, fallback, sources);
   await writeZoomReviewArtifacts(portraits, fallback, validationAssets);
 
   return {
@@ -159,7 +278,9 @@ export async function validateLeaderProfilePortraitAssets(
 ): Promise<ValidationAsset[]> {
   const assets: ValidationAsset[] = [];
   for (const portrait of [...portraits, fallback]) {
-    const validateVisualCenter = portrait.poolId !== "fallback";
+    // The centering and pale-boundary heuristics judge crops chosen inside grid cells. Detected
+    // circles are the artist's own frames, checked against the sheet background when cut.
+    const validateVisualCenter = portrait.poolId === "tako" || portrait.poolId === "shmi";
     assets.push({
       id: portrait.id,
       poolId: portrait.poolId,
@@ -186,28 +307,100 @@ function requirePositiveDimension(value: number | undefined, path: string, dimen
   return value;
 }
 
+async function prepareGridSheet(sheet: PortraitSheet): Promise<PreparedPortrait[]> {
+  const width = await requireSquareSheet(sheet.sourcePath);
+  const prepared: PreparedPortrait[] = [];
+  for (let row = 0; row < GRID_SIZE; row += 1) {
+    for (let column = 0; column < GRID_SIZE; column += 1) {
+      const cellNumber = row * GRID_SIZE + column + 1;
+      const cellBounds = gridCellBounds(width, row, column);
+      const crop = await computeCenteredPortraitCrop(sheet.sourcePath, cellBounds);
+      const padding = Math.round(Math.max(cellBounds.width, cellBounds.height) * CROP_PADDING_RATIO);
+      const extendedCell = await sharp(sheet.sourcePath)
+        .extract(cellBounds)
+        .extend({ top: padding, right: padding, bottom: padding, left: padding, extendWith: "mirror" })
+        .toBuffer();
+      const square = await sharp(extendedCell)
+        .extract({
+          left: crop.sourceLeft + padding,
+          top: crop.sourceTop + padding,
+          width: crop.sourceSize,
+          height: crop.sourceSize,
+        })
+        .toBuffer();
+      prepared.push({
+        id: `${sheet.id}-${String(cellNumber).padStart(2, "0")}`,
+        label: `${titleCase(sheet.poolId)} ${sheet.id.replace(/^[a-z]+/, "")}.${cellNumber}`,
+        square,
+        source: { sourcePath: sheet.sourcePath, region: cellBounds },
+      });
+    }
+  }
+  return prepared;
+}
+
+async function prepareCircleSheet(sheet: PortraitSheet & { layout: "circles" }): Promise<PreparedPortrait[]> {
+  const sheetSize = await requireSquareSheet(sheet.sourcePath);
+  const { data, info } = await sharp(sheet.sourcePath).raw().toBuffer({ resolveWithObject: true });
+  const circles = detectPortraitCircles(data, info.width, info.height, info.channels);
+  if (circles.length !== sheet.names.length) {
+    throw new Error(`${sheet.sourcePath}: found ${circles.length} portraits, expected ${sheet.names.length}`);
+  }
+  const prepared: PreparedPortrait[] = [];
+  for (const [index, circle] of circles.entries()) {
+    const id = `${sheet.id}-${String(index + 1).padStart(2, "0")}`;
+    if (circle.rimBackgroundRatio > DETECTED_RIM_BACKGROUND_MAX_RATIO || circle.fillRatio < DETECTED_MIN_FILL_RATIO) {
+      throw new Error(
+        `${id} (${sheet.names[index]}) cannot be cut cleanly: rim background ${circle.rimBackgroundRatio}, fill ${circle.fillRatio}`,
+      );
+    }
+    // The usable radius already sits a couple of pixels inside the painted edge, so rounding
+    // the square to whole pixels cannot reach the background.
+    const size = Math.floor(circle.radius * 2);
+    const left = Math.round(circle.centerX - size / 2);
+    const top = Math.round(circle.centerY - size / 2);
+    const contextMargin = Math.round(size * 0.08);
+    const contextLeft = Math.max(0, left - contextMargin);
+    const contextTop = Math.max(0, top - contextMargin);
+    prepared.push({
+      id,
+      label: sheet.names[index],
+      square: await sharp(sheet.sourcePath).extract({ left, top, width: size, height: size }).toBuffer(),
+      source: {
+        sourcePath: sheet.sourcePath,
+        region: {
+          left: contextLeft,
+          top: contextTop,
+          width: Math.min(sheetSize, left + size + contextMargin) - contextLeft,
+          height: Math.min(sheetSize, top + size + contextMargin) - contextTop,
+        },
+      },
+      detection: circle,
+    });
+  }
+  return prepared;
+}
+
+async function requireSquareSheet(sourcePath: string): Promise<number> {
+  const metadata = await sharp(sourcePath).metadata();
+  const width = requirePositiveDimension(metadata.width, sourcePath, "width");
+  const height = requirePositiveDimension(metadata.height, sourcePath, "height");
+  if (width !== height) {
+    throw new Error(`${sourcePath} must be a square sheet`);
+  }
+  return width;
+}
+
 async function writePortraitVariant(
-  sheet: PortraitSheet,
+  poolId: LeaderProfilePoolId,
   id: string,
-  cellBounds: { left: number; top: number; width: number; height: number },
-  crop: PortraitCrop,
+  square: Buffer,
   size: number,
 ): Promise<{ url: string; bytes: number }> {
-  const relativePath = join(sheet.poolId, `${id}.${ASSET_VERSION}.${size}.webp`);
+  const relativePath = join(poolId, `${id}.${ASSET_VERSION}.${size}.webp`);
   const outputPath = join(ASSET_ROOT, relativePath);
-  const padding = Math.round(Math.max(cellBounds.width, cellBounds.height) * CROP_PADDING_RATIO);
-  await mkdir(join(ASSET_ROOT, sheet.poolId), { recursive: true });
-  const extendedCell = await sharp(sheet.sourcePath)
-    .extract(cellBounds)
-    .extend({ top: padding, right: padding, bottom: padding, left: padding, extendWith: "mirror" })
-    .toBuffer();
-  await sharp(extendedCell)
-    .extract({
-      left: crop.sourceLeft + padding,
-      top: crop.sourceTop + padding,
-      width: crop.sourceSize,
-      height: crop.sourceSize,
-    })
+  await mkdir(join(ASSET_ROOT, poolId), { recursive: true });
+  await sharp(square)
     .resize(size, size, { fit: "cover" })
     .composite([{ input: circleMask(size), blend: "dest-in" }])
     .webp({ quality: 84, alphaQuality: 100, effort: 5 })
@@ -722,9 +915,12 @@ async function validateVariant(
   };
 }
 
-async function writeValidationManifest(assets: ValidationAsset[]): Promise<void> {
+async function writeValidationManifest(
+  assets: ValidationAsset[],
+  detections: Map<string, DetectedPortraitCircle>,
+): Promise<void> {
   const filesByDirectory = await Promise.all(
-    ["tako", "shmi", "fallback"].map(async (directory) => ({
+    [...LEADER_PROFILE_POOL_IDS, "fallback"].map(async (directory) => ({
       directory,
       files: (await readdir(join(ASSET_ROOT, directory))).sort(),
     })),
@@ -737,14 +933,19 @@ async function writeValidationManifest(assets: ValidationAsset[]): Promise<void>
         sourceSheets: PORTRAIT_SHEETS.map((sheet) => ({
           poolId: sheet.poolId,
           sourcePath: sheet.sourcePath,
-          grid: `${GRID_SIZE}x${GRID_SIZE}`,
-          portraits: GRID_SIZE * GRID_SIZE,
+          layout: sheet.layout,
+          portraits: sheet.layout === "grid" ? GRID_SIZE * GRID_SIZE : sheet.names.length,
         })),
         assetRoot: ASSET_ROOT,
         totalPortraitAssets: assets.length - 1,
         totalFallbackAssets: 1,
         filesByDirectory,
         assets,
+        detectedCircles: Object.fromEntries(detections),
+        detectedCircleLimits: {
+          rimBackgroundRatio: DETECTED_RIM_BACKGROUND_MAX_RATIO,
+          fillRatio: DETECTED_MIN_FILL_RATIO,
+        },
         contactSheetPath: CONTACT_SHEET_PATH,
         comparisonContactSheetPath: COMPARISON_CONTACT_SHEET_PATH,
         zoomReviewRoot: ZOOM_REVIEW_ROOT,
@@ -801,6 +1002,7 @@ async function writeContactSheet(portraits: LeaderProfilePortrait[], fallback: L
 async function writeSourceComparisonSheet(
   portraits: LeaderProfilePortrait[],
   fallback: LeaderProfilePortrait,
+  sources: Map<string, PortraitSource>,
 ): Promise<void> {
   const sourceSize = 96;
   const outputSize = 96;
@@ -827,13 +1029,10 @@ async function writeSourceComparisonSheet(
         top,
       });
     } else {
-      const source = await sourceCellForPortrait(portrait);
+      const source = sources.get(portrait.id);
+      if (!source) throw new Error(`missing source region for ${portrait.id}`);
       composites.push({
-        input: await sharp(source.sheet.sourcePath)
-          .extract(source.cellBounds)
-          .resize(sourceSize, sourceSize)
-          .png()
-          .toBuffer(),
+        input: await sharp(source.sourcePath).extract(source.region).resize(sourceSize, sourceSize).png().toBuffer(),
         left,
         top,
       });
@@ -1008,36 +1207,6 @@ function labelSvg(width: number, height: number, label: string): string {
   return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <text x="50%" y="14" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="600" fill="#E5E7EB">${escapeXml(label)}</text>
 </svg>`;
-}
-
-async function sourceCellForPortrait(portrait: LeaderProfilePortrait): Promise<{
-  sheet: PortraitSheet;
-  cellBounds: { left: number; top: number; width: number; height: number };
-}> {
-  const [sheetName, cellNumberText] = portrait.id.split("-");
-  const cellNumber = Number(cellNumberText);
-  const sheet = PORTRAIT_SHEETS.find(
-    (candidate) =>
-      basename(candidate.sourcePath)
-        .replace(/\.[^.]+$/, "")
-        .toLowerCase() === sheetName,
-  );
-  if (!sheet || !Number.isInteger(cellNumber) || cellNumber < 1 || cellNumber > GRID_SIZE * GRID_SIZE) {
-    throw new Error(`cannot map portrait ${portrait.id} back to source cell`);
-  }
-  const metadata = await sharp(sheet.sourcePath).metadata();
-  const width = requirePositiveDimension(metadata.width, sheet.sourcePath, "width");
-  const height = requirePositiveDimension(metadata.height, sheet.sourcePath, "height");
-  if (width !== height) {
-    throw new Error(`${sheet.sourcePath} must be a square sheet`);
-  }
-  const zeroBased = cellNumber - 1;
-  const row = Math.floor(zeroBased / GRID_SIZE);
-  const column = zeroBased % GRID_SIZE;
-  return {
-    sheet,
-    cellBounds: gridCellBounds(width, row, column),
-  };
 }
 
 function emptySourcePlaceholderSvg(size: number, label: string): string {

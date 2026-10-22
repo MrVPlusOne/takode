@@ -159,7 +159,7 @@ vi.mock("./settings-manager.js", () => ({
     codexLeaderContextWindowOverrideTokens: patch.codexLeaderContextWindowOverrideTokens ?? 1_000_000,
     codexLeaderRecycleThresholdTokens: patch.codexLeaderRecycleThresholdTokens ?? 260_000,
     codexLeaderCompactionMode: patch.codexLeaderCompactionMode ?? "recycle",
-    leaderProfilePools: patch.leaderProfilePools ?? { tako: true, shmi: true },
+    leaderProfilePools: patch.leaderProfilePools ?? { tako: true, shmi: true, animals: false },
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -622,7 +622,7 @@ describe("PUT /api/settings", () => {
       codexLeaderRecycleThresholdTokens: 260_000,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
-    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true });
+    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true, animals: false });
     expect(json.leaderProfilePoolOptions).toEqual(LEADER_PROFILE_POOLS);
     expect(json.leaderProfilePortraits).toEqual(LEADER_PROFILE_PORTRAITS);
   });
@@ -688,24 +688,24 @@ describe("PUT /api/settings", () => {
   it("updates leader profile pool settings", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       ...settingsManager.getSettings(),
-      leaderProfilePools: { tako: false, shmi: true },
+      leaderProfilePools: { tako: false, shmi: true, animals: false },
       updatedAt: Date.now(),
     });
 
     const res = await app.request("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leaderProfilePools: { tako: false, shmi: true } }),
+      body: JSON.stringify({ leaderProfilePools: { tako: false, shmi: true, animals: false } }),
     });
 
     expect(res.status).toBe(200);
     expect(settingsManager.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        leaderProfilePools: { tako: false, shmi: true },
+        leaderProfilePools: { tako: false, shmi: true, animals: false },
       }),
     );
     const json = await res.json();
-    expect(json.leaderProfilePools).toEqual({ tako: false, shmi: true });
+    expect(json.leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
   });
 
   it("trims pushover keys", async () => {

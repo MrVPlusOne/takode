@@ -86,7 +86,7 @@ export function SettingsLeaderProfilesSection({
       description="Picture sets that new leader sessions pick their profile picture from."
       hidden={hidden}
     >
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         {LEADER_PROFILE_POOLS.map((pool) => {
           const enabled = pools[pool.id];
           const saving = savingPool === pool.id;
