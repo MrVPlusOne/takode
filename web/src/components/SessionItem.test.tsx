@@ -522,10 +522,12 @@ describe("SessionItem leader profiles", () => {
     });
 
     const layout = screen.getByTestId("session-leader-portrait-layout");
-    expect(layout).toHaveClass("grid", "grid-cols-[1.8rem_minmax(0,1fr)]");
+    // Phones keep the 1.8rem portrait; desktop (sm and up) gives it a quarter more width.
+    expect(layout).toHaveClass("grid", "grid-cols-[1.8rem_minmax(0,1fr)]", "sm:grid-cols-[2.25rem_minmax(0,1fr)]");
 
     const portrait = screen.getByTestId("session-leader-portrait");
-    expect(portrait).toHaveClass("h-[1.8rem]", "w-[1.8rem]", "ring-2", "ring-emerald-500/80");
+    expect(portrait).toHaveClass("h-[1.8rem]", "w-[1.8rem]", "sm:h-[2.25rem]", "sm:w-[2.25rem]");
+    expect(portrait).toHaveClass("ring-2", "ring-emerald-500/80");
     expect(portrait).toHaveAttribute("data-status", "running");
     expect(screen.queryByTestId("session-status-dot")).not.toBeInTheDocument();
 

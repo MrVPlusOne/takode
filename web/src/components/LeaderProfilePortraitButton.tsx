@@ -11,9 +11,16 @@ const PANEL_WIDTH = 300;
 const PANEL_MAX_HEIGHT = 520;
 const PANEL_MIN_HEIGHT = 180;
 
+const PORTRAIT_SIZE_CLASS = {
+  sm: "h-5 w-5",
+  lg: "h-[1.8rem] w-[1.8rem]",
+  sidebar: "h-[1.8rem] w-[1.8rem] sm:h-[2.25rem] sm:w-[2.25rem]",
+} as const;
+
 interface LeaderProfilePortraitImageProps {
   portrait: LeaderProfilePortrait;
-  size?: "sm" | "lg";
+  /** `sidebar` is `lg` on phones and a quarter wider on desktop, where leader cards have room for it. */
+  size?: "sm" | "lg" | "sidebar";
   statusRing?: {
     className: string;
     status: string;
@@ -35,7 +42,7 @@ export function LeaderProfilePortraitImage({
   cornerBadge,
   testId,
 }: LeaderProfilePortraitImageProps) {
-  const sizeClass = size === "lg" ? "h-[1.8rem] w-[1.8rem]" : "h-5 w-5";
+  const sizeClass = PORTRAIT_SIZE_CLASS[size];
   const ringClass = statusRing?.className ?? "ring-1 ring-cc-border/70";
   return (
     <span

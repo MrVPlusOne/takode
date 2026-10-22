@@ -640,16 +640,17 @@ function SessionItemComponent({
         <div
           className={
             usesExpandedLeaderPortrait
-              ? "grid flex-1 min-w-0 grid-cols-[1.8rem_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-2"
+              ? "grid flex-1 min-w-0 grid-cols-[1.8rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-2"
               : "flex-1 min-w-0"
           }
           data-testid={usesExpandedLeaderPortrait ? "session-leader-portrait-layout" : undefined}
         >
           {usesExpandedLeaderPortrait && s.leaderProfilePortrait && (
-            <div className="col-start-1 row-span-2 row-start-1 self-center">
+            // flex, not block: a block wrapper adds line-box space under the portrait, which made cards taller.
+            <div className="col-start-1 row-span-2 row-start-1 flex self-center">
               <LeaderProfilePortraitImage
                 portrait={s.leaderProfilePortrait}
-                size="lg"
+                size="sidebar"
                 testId="session-leader-portrait"
                 statusRing={leaderPortraitStatusRing}
                 cornerBadge={
