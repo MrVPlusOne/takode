@@ -1,5 +1,6 @@
 import {
   normalizeSyncedComposerDraft,
+  normalizeSyncedGuidedReviewDraft,
   normalizeSyncedNeedsInputAnswers,
   type SessionDraftChange,
   type SessionDraftWriteRequest,
@@ -74,6 +75,9 @@ export function applySessionDraftWrite<S extends DraftSession>(
   if (write.kind === "needs-input" && write.answers && !openNeedsInputIds(session).has(write.notificationId)) {
     return { ok: false, error: "This prompt is already resolved." };
   }
+  if (write.kind === "guided-review" && session.drafts?.guidedReviews?.[write.reviewId]?.draft.sentAt !== undefined) {
+    return { ok: false, error: "These review answers were already sent." };
+  }
   pruneSessionDrafts(session);
   const updatedAt = (deps.now ?? Date.now)();
   const revision = (session.drafts?.revision ?? 0) + 1;
@@ -85,6 +89,14 @@ export function applySessionDraftWrite<S extends DraftSession>(
     if (draft) drafts.composer = { ...meta, draft };
     else delete drafts.composer;
     change = { kind: "composer", draft, ...meta };
+  } else if (write.kind === "guided-review") {
+    const draft = normalizeSyncedGuidedReviewDraft(write.draft);
+    const guidedReviews = { ...drafts.guidedReviews };
+    if (draft) guidedReviews[write.reviewId] = { ...meta, draft };
+    else delete guidedReviews[write.reviewId];
+    if (Object.keys(guidedReviews).length > 0) drafts.guidedReviews = guidedReviews;
+    else delete drafts.guidedReviews;
+    change = { kind: "guided-review", reviewId: write.reviewId, draft, ...meta };
   } else {
     const answers = normalizeSyncedNeedsInputAnswers(write.answers);
     const needsInput = { ...drafts.needsInput };

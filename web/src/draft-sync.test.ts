@@ -38,6 +38,7 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
 });
 
 import { useStore } from "./store.js";
+import { markGuidedReviewSent, setGuidedReviewAnswer, useGuidedReviewState } from "./guided-review-state.js";
 import {
   DRAFT_SYNC_DELAY_MS,
   applyRemoteDraftChange,
@@ -84,6 +85,7 @@ beforeEach(() => {
   server.offline = false;
   resetDraftSyncForTests();
   useStore.getState().reset();
+  useGuidedReviewState.setState({ open: null, drafts: {}, reviewSessions: {} });
   localStorage.clear();
 });
 
@@ -365,5 +367,49 @@ describe("needs-input draft sync", () => {
     const { getSessionDraftsSnapshot } = await import("../server/bridge/session-drafts-controller.js");
     applySessionDraftsSnapshot("s1", getSessionDraftsSnapshot(server.session));
     expect(useStore.getState().needsInputDrafts.get("s1")).toBeUndefined();
+  });
+});
+
+describe("guided review answer sync", () => {
+  // A reload also clears this tab's review state; the snapshot brings the answers back.
+  function reloadWithReviews() {
+    useGuidedReviewState.setState({ drafts: {}, reviewSessions: {} });
+    reload();
+  }
+
+  it("shares answers across browsers and reloads", async () => {
+    setGuidedReviewAnswer("s1", "review-1", 0, "Cap at 2");
+    await settle();
+
+    reloadWithReviews();
+    expect(useGuidedReviewState.getState().drafts["review-1"]).toEqual({ answers: { "0": "Cap at 2" } });
+
+    writeFromOtherBrowser({
+      kind: "guided-review",
+      reviewId: "review-1",
+      draft: { answers: { "0": "Cap at 2", "2": "Why?" } },
+    });
+    expect(useGuidedReviewState.getState().drafts["review-1"]?.answers).toEqual({ "0": "Cap at 2", "2": "Why?" });
+  });
+
+  it("marks a sent review everywhere and refuses changes to it afterwards", async () => {
+    setGuidedReviewAnswer("s1", "review-1", 0, "Keep");
+    markGuidedReviewSent("s1", "review-1", 123);
+    flushPendingDrafts();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.session.drafts?.guidedReviews?.["review-1"]?.draft).toEqual({
+      answers: { "0": "Keep" },
+      sentAt: 123,
+    });
+
+    // A stale browser cannot reopen it, and this tab no longer changes it locally either.
+    expect(() =>
+      writeFromOtherBrowser({ kind: "guided-review", reviewId: "review-1", draft: { answers: { "0": "Change" } } }),
+    ).toThrow("These review answers were already sent.");
+    setGuidedReviewAnswer("s1", "review-1", 0, "Change");
+    expect(useGuidedReviewState.getState().drafts["review-1"]?.answers["0"]).toBe("Keep");
+
+    reloadWithReviews();
+    expect(useGuidedReviewState.getState().drafts["review-1"]?.sentAt).toBe(123);
   });
 });

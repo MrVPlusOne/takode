@@ -1,17 +1,19 @@
 ---
 name: guided-review
-description: Use when asked to prepare a guided review, a review the user reads in Takode, or to help the user review a large change (a commit range or branch) without reading every line. Explains how to write the review map for `takode review` and how to choose which changes need the user's decision, a careful look, evidence or only a summary.
+description: Use only when the user asks for a code review they will read themselves (a guided review of a commit range, branch or pull request in Takode). Do not use it for reviews agents do for each other or any other review the user won't read. Explains how to write the map for `takode review` and which changes need the user's decision, a careful look, evidence or only a summary.
 ---
 
 # Guided review
 
-A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user your questions first, then a guided tour, with the exact code drawn from git beside each explanation, and the raw diff one tap away. The user's answers come back to your session as one message.
+A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user one guided tour: your overview, then each stop with its explanation, the exact code drawn from git and an answer field for your questions, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers come back to your session as one message.
+
+It is a user-facing feature only: use it when the user asks for a review they will read, not for agent-to-agent reviews such as a reviewer checking a worker's change.
 
 ## Workflow
 
-1. Settle the range: `base` and `head` revisions in one repository, usually the commits of the change under review. Line numbers in the map are **new-file line numbers at `head`**; read files at `head` (for example `git show <head>:<path>`) to find them.
+1. Settle the range: `base` and `head` revisions in one repository, usually the commits of the change under review. Line numbers in the map are **new-file line numbers at `head`**. `takode review --outline <base>..<head> [--repo <dir>]` lists each changed file's changed line ranges; read files at `head` (`git show <head>:<path>`) for the code around them.
 2. Review the whole change properly before writing anything. Run the tests when you can. The map is a summary of a real review, never a substitute for one.
-3. Write the map as a JSON file outside the repository (format below, and in `takode review --help`).
+3. Write the map as a JSON file outside the repository, such as a `reviews/` folder in your home directory (format below, and in `takode review --help`). Its path is shown as the review's source.
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread; a worker publishes into its own session and tells its leader.
 6. When the answers arrive, act on them like any user message: "Change" and questions are requests.
@@ -57,4 +59,6 @@ Rules that keep summaries honest:
 }
 ```
 
-Coverage rule: every added or removed line is in exactly one stop, or in a file listed by exactly one summary. A code entry without `lines` covers the whole file. Two stops may not claim the same line, and a stop range must contain changed lines. A file listed in a summary may also have stops; the summary covers the rest of it. Removed lines belong to the range of the new-file line they sat before.
+Coverage rule: every added or removed line is in exactly one stop, or in a file listed by exactly one summary. A code entry without `lines` covers the whole file. Two stops may not claim the same line, and a stop range must contain changed lines. A file listed in a summary may also have stops; the summary covers the rest of it. A removed line belongs to the range that contains the new-file line it sat before, or, when none does, to a range ending just above it.
+
+The review keeps only the code your stops show (at most 1 MiB in total), so point stops at the lines that matter and summarize the rest; the user reads summarized code in the full diff, which Takode reads from git.

@@ -8,7 +8,7 @@ import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import { buildNeedsInputVoiceFocusedContext, type TextSelectionRange } from "../utils/needs-input-voice-context.js";
-import type { VoiceResultTarget } from "../../shared/voice-results.js";
+import type { VoiceResultDestination, VoiceResultTarget } from "../../shared/voice-results.js";
 import { claimOwnVoiceResult, insertVoiceText, trackOwnVoiceRequest } from "../voice-results.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
 
@@ -139,17 +139,69 @@ export function NeedsInputAnswerField({
   /** Called when the user presses the send key; the caller decides whether the response is ready to send. */
   onSubmit?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
+  return (
+    <VoiceAnswerField
+      sessionId={sessionId}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      ariaLabel={`Answer for ${question.prompt}`}
+      focusedContext={buildNeedsInputVoiceFocusedContext({ notification, question, questionCount, sourceContext })}
+      voiceTarget={{ kind: "needs-input", notificationId: notification.id, questionKey: question.key }}
+      resetKey={`${sessionId}:${notification.id}:${question.key}`}
+      threadKey={threadKey}
+      threadTitle={threadTitle}
+      className={className}
+      onClickStopsPropagation={onClickStopsPropagation}
+      onSubmit={onSubmit}
+    />
+  );
+}
+
+/** Where a voice answer's text goes, without the selection the recording replaces. */
+export type VoiceAnswerTarget = Exclude<VoiceResultDestination, { kind: "composer" }>;
+
+/**
+ * An answer text box with voice input: dictation is transcribed with `focusedContext` (what is
+ * being answered) and lands in the box, or in its synced draft if the box is gone by then.
+ */
+export function VoiceAnswerField({
+  sessionId,
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  focusedContext,
+  voiceTarget,
+  resetKey,
+  threadKey,
+  threadTitle,
+  className = "",
+  textareaClassName = NEEDS_INPUT_ANSWER_TEXTAREA_CLASS,
+  onClickStopsPropagation = true,
+  onSubmit,
+}: {
+  sessionId: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  ariaLabel: string;
+  focusedContext: string;
+  voiceTarget: VoiceAnswerTarget;
+  /** Changes when the box starts answering something else, clearing a failed transcription. */
+  resetKey: string;
+  threadKey?: string;
+  threadTitle?: string;
+  className?: string;
+  textareaClassName?: string;
+  onClickStopsPropagation?: boolean;
+  onSubmit?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendKey = useSendKey();
   const valueRef = useRef(value);
   const selectionRef = useRef<TextSelectionRange | null>(null);
   const [failedTranscription, setFailedTranscription] = useState<FailedNeedsInputTranscription | null>(null);
-  const focusedContext = buildNeedsInputVoiceFocusedContext({
-    notification,
-    question,
-    questionCount,
-    sourceContext,
-  });
 
   valueRef.current = value;
 
@@ -189,7 +241,7 @@ export function NeedsInputAnswerField({
     setFailedTranscription(null);
     setError(null);
     selectionRef.current = null;
-  }, [notification.id, question.key, sessionId, setError]);
+  }, [resetKey, setError]);
 
   const captureSelection = useCallback(() => {
     const textarea = textareaRef.current;
@@ -225,9 +277,7 @@ export function NeedsInputAnswerField({
       end: valueRef.current.length,
     };
     const target: VoiceResultTarget = {
-      kind: "needs-input",
-      notificationId: notification.id,
-      questionKey: question.key,
+      ...voiceTarget,
       baseText: selection.value,
       selectionStart: selection.start,
       selectionEnd: selection.end,
@@ -338,8 +388,8 @@ export function NeedsInputAnswerField({
             event.preventDefault();
             onSubmit(event);
           }}
-          aria-label={`Answer for ${question.prompt}`}
-          className={NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}
+          aria-label={ariaLabel}
+          className={textareaClassName}
           style={{ maxHeight: NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX }}
           placeholder={placeholder}
         />

@@ -35,6 +35,16 @@ export interface SyncedDraftImage {
   path: string;
 }
 
+/**
+ * A guided review's answers by stop index (the text of each answer field), and when they
+ * were sent. Once sent, the server keeps the entry and refuses further changes, so every
+ * browser shows the review as answered and none can send it again.
+ */
+export interface SyncedGuidedReviewDraft {
+  answers: Record<string, string>;
+  sentAt?: number;
+}
+
 /** Answers per question key for one unsubmitted needs-input prompt. */
 export type SyncedNeedsInputAnswers = Record<string, string>;
 
@@ -54,11 +64,17 @@ export interface SyncedNeedsInputDraftEntry extends DraftEntryMeta {
   answers: SyncedNeedsInputAnswers;
 }
 
+export interface SyncedGuidedReviewDraftEntry extends DraftEntryMeta {
+  draft: SyncedGuidedReviewDraft;
+}
+
 export interface SessionDraftsState {
   /** Latest write revision for this session, kept even after drafts are cleared. */
   revision: number;
   composer?: SyncedComposerDraftEntry;
   needsInput?: Record<string, SyncedNeedsInputDraftEntry>;
+  /** Guided review answers by review ID, including sent ones. */
+  guidedReviews?: Record<string, SyncedGuidedReviewDraftEntry>;
   /** Finished voice transcriptions no browser has put into its draft yet, by request ID. */
   voiceResults?: Record<string, import("./voice-results.js").PendingVoiceResult>;
 }
@@ -66,7 +82,8 @@ export interface SessionDraftsState {
 /** One browser write. A null value clears that draft. */
 export type SessionDraftWrite =
   | { kind: "composer"; draft: SyncedComposerDraft | null }
-  | { kind: "needs-input"; notificationId: string; answers: SyncedNeedsInputAnswers | null };
+  | { kind: "needs-input"; notificationId: string; answers: SyncedNeedsInputAnswers | null }
+  | { kind: "guided-review"; reviewId: string; draft: SyncedGuidedReviewDraft | null };
 
 export interface SessionDraftWriteRequest {
   clientId: string;
@@ -81,10 +98,43 @@ export const MAX_COMPOSER_DRAFT_IMAGES = 20;
 export const MAX_NEEDS_INPUT_DRAFT_QUESTIONS = 50;
 export const MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS = 20_000;
 const MAX_CLIENT_ID_CHARS = 100;
+const MAX_GUIDED_REVIEW_ANSWERS = 60;
+const REVIEW_ID_PATTERN = /^[A-Za-z0-9-]{1,100}$/;
 
 /** Identifies a draft within a session, for per-draft bookkeeping. */
-export function sessionDraftKey(write: Pick<SessionDraftWrite, "kind"> & { notificationId?: string }): string {
-  return write.kind === "composer" ? "composer" : `needs-input:${write.notificationId}`;
+export function sessionDraftKey(
+  write: Pick<SessionDraftWrite, "kind"> & { notificationId?: string; reviewId?: string },
+): string {
+  if (write.kind === "composer") return "composer";
+  if (write.kind === "guided-review") return `guided-review:${write.reviewId}`;
+  return `needs-input:${write.notificationId}`;
+}
+
+/** Empty answers are dropped; a draft with no answers that was never sent is stored as cleared. */
+export function normalizeSyncedGuidedReviewDraft(
+  draft: SyncedGuidedReviewDraft | null,
+): SyncedGuidedReviewDraft | null {
+  if (!draft) return null;
+  const answers = Object.fromEntries(Object.entries(draft.answers).filter(([, value]) => value.trim() !== ""));
+  if (!Object.keys(answers).length && draft.sentAt === undefined) return null;
+  return { answers, ...(draft.sentAt !== undefined ? { sentAt: draft.sentAt } : {}) };
+}
+
+function readGuidedReviewDraft(value: unknown): SyncedGuidedReviewDraft {
+  if (!isRecord(value) || !isRecord(value.answers)) throw new Error("draft.answers must be an object.");
+  const entries = Object.entries(value.answers);
+  if (entries.length > MAX_GUIDED_REVIEW_ANSWERS) throw new Error("Too many answers.");
+  for (const [key, answer] of entries) {
+    if (!/^\d{1,3}$/.test(key) || typeof answer !== "string") throw new Error("Each answer must be a string.");
+    if (answer.length > MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS) throw new Error("An answer is too long.");
+  }
+  if (value.sentAt !== undefined && (typeof value.sentAt !== "number" || !Number.isFinite(value.sentAt))) {
+    throw new Error("draft.sentAt must be a time.");
+  }
+  return {
+    answers: value.answers as Record<string, string>,
+    ...(value.sentAt !== undefined ? { sentAt: value.sentAt as number } : {}),
+  };
 }
 
 /** Empty drafts are stored as cleared, so "nothing typed" never lingers as a draft. */
@@ -195,7 +245,24 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
       },
     };
   }
-  return { error: "write.kind must be composer or needs-input." };
+  if (write.kind === "guided-review") {
+    const { reviewId } = write;
+    if (typeof reviewId !== "string" || !REVIEW_ID_PATTERN.test(reviewId)) return { error: "reviewId is required." };
+    if (write.draft === null) return { clientId, write: { kind: "guided-review", reviewId, draft: null } };
+    try {
+      return {
+        clientId,
+        write: {
+          kind: "guided-review",
+          reviewId,
+          draft: normalizeSyncedGuidedReviewDraft(readGuidedReviewDraft(write.draft)),
+        },
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Invalid review answers." };
+    }
+  }
+  return { error: "write.kind must be composer, needs-input or guided-review." };
 }
 
 /** Reads persisted drafts defensively; malformed parts are dropped. */
@@ -229,6 +296,19 @@ export function readSessionDraftsState(value: unknown): SessionDraftsState | und
       if (answers) needsInput[notificationId] = { ...entryMeta(entry), answers };
     }
     if (Object.keys(needsInput).length > 0) state.needsInput = needsInput;
+  }
+  if (isRecord(value.guidedReviews)) {
+    const guidedReviews: Record<string, SyncedGuidedReviewDraftEntry> = {};
+    for (const [reviewId, entry] of Object.entries(value.guidedReviews)) {
+      if (!isRecord(entry) || !isEntryMeta(entry)) continue;
+      try {
+        const draft = normalizeSyncedGuidedReviewDraft(readGuidedReviewDraft(entry.draft));
+        if (draft) guidedReviews[reviewId] = { ...entryMeta(entry), draft };
+      } catch {
+        // An unreadable entry is dropped; the others are kept.
+      }
+    }
+    if (Object.keys(guidedReviews).length > 0) state.guidedReviews = guidedReviews;
   }
   return state;
 }

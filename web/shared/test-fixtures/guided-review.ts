@@ -2,6 +2,7 @@ import {
   checkGuidedReviewCoverage,
   formatGuidedReviewMarkdown,
   parseGuidedReviewDiff,
+  withGuidedReviewSnippets,
   type GuidedReviewMap,
   type GuidedReviewMeta,
 } from "../guided-review.js";
@@ -108,13 +109,11 @@ export const GUIDED_REVIEW_FIXTURE_MAP: GuidedReviewMap = {
 
 /** The review as published: its map, range and counts, computed from the fixture diff. */
 export function makeGuidedReviewMetaFixture(): GuidedReviewMeta {
-  const { stats } = checkGuidedReviewCoverage(
-    GUIDED_REVIEW_FIXTURE_MAP,
-    parseGuidedReviewDiff(GUIDED_REVIEW_FIXTURE_DIFF),
-  );
+  const files = parseGuidedReviewDiff(GUIDED_REVIEW_FIXTURE_DIFF);
+  const { stats } = checkGuidedReviewCoverage(GUIDED_REVIEW_FIXTURE_MAP, files);
   return {
     reviewId: "review-fixture",
-    map: GUIDED_REVIEW_FIXTURE_MAP,
+    map: withGuidedReviewSnippets(GUIDED_REVIEW_FIXTURE_MAP, files),
     range: {
       repo: "profiles",
       base: "a".repeat(40),
@@ -123,6 +122,7 @@ export function makeGuidedReviewMetaFixture(): GuidedReviewMeta {
         { sha: "c".repeat(40), subject: "feat(client): retry profile loads" },
         { sha: "b".repeat(40), subject: "feat(client): cache profiles for a day" },
       ],
+      repoPaths: ["/repos/profiles"],
     },
     stats,
   };

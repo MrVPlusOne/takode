@@ -3,7 +3,10 @@
  * without the store importing it. Remote changes applied by the sync use their
  * own store actions, which do not report back here.
  */
-export type LocalDraftTarget = { kind: "composer" } | { kind: "needs-input"; notificationId: string };
+export type LocalDraftTarget =
+  | { kind: "composer" }
+  | { kind: "needs-input"; notificationId: string }
+  | { kind: "guided-review"; reviewId: string };
 
 type LocalDraftChangeListener = (sessionId: string, target: LocalDraftTarget) => void;
 

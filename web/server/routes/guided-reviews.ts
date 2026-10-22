@@ -7,22 +7,27 @@ import {
   formatGuidedReviewMarkdown,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
+  withGuidedReviewSnippets,
   type GuidedReviewMeta,
   type GuidedReviewRange,
 } from "../../shared/guided-review.js";
-import { GuidedReviewStore } from "../guided-review-store.js";
+import { onMachine } from "../remote-host/host-operations.js";
 import { publishSessionReport } from "./markdown-reports.js";
 import type { RouteContext } from "./context.js";
 
 const MAX_COMMITS = 500;
+const MAX_REPO_PATHS = 3;
+/** The same cap the quest commit view uses for one commit's diff. */
+const MAX_COMMIT_DIFF_BYTES = 512 * 1024;
 
 /**
  * Guided reviews: `POST /takode/reviews` publishes an agent's review map with the diff Takode's
  * CLI read from git, after checking that the map accounts for every changed line. The review
- * appears as a report in the caller's session; browsers fetch its diff with
- * `GET /guided-reviews/:id` when it is opened.
+ * appears as a report in the caller's session and keeps only its stops' code; the full change is
+ * read from git commit by commit (`GET /sessions/:id/guided-reviews/:reviewId/commits/:sha`), on
+ * the machine the review was published from.
  */
-export function createGuidedReviewRoutes(ctx: RouteContext, store = new GuidedReviewStore()) {
+export function createGuidedReviewRoutes(ctx: RouteContext) {
   const api = new Hono();
   api.use("/takode/reviews", bodyLimit({ maxSize: MAX_GUIDED_REVIEW_DIFF_BYTES * 2 + 1024 * 1024 }));
   api.post("/takode/reviews", async (c) => {
@@ -43,7 +48,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext, store = new GuidedRe
       if (typeof body.threadKey !== "string" || !/^(main|q-[1-9]\d*)$/.test(body.threadKey)) {
         throw new Error("Choose main or an exact quest thread.");
       }
-      const range = readRange(body.range);
+      const range = readRange(body.range, ctx.launcher.getSession(auth.callerId)?.hostId);
       const files = parseGuidedReviewDiff(body.diff);
       if (!files.length) throw new Error("The range has no changes to review.");
       const { problems, stats } = checkGuidedReviewCoverage(input, files);
@@ -52,8 +57,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext, store = new GuidedRe
       }
       const { base: _base, head: _head, ...map } = input;
       const reviewId = crypto.randomUUID();
-      const meta: GuidedReviewMeta = { reviewId, map, range, stats };
-      await store.saveDiff(reviewId, body.diff);
+      const meta: GuidedReviewMeta = { reviewId, map: withGuidedReviewSnippets(map, files), range, stats };
       const receipt = publishSessionReport(ctx, auth.callerId, session, {
         content: formatGuidedReviewMarkdown(meta),
         sourcePath: body.sourcePath,
@@ -79,19 +83,54 @@ export function createGuidedReviewRoutes(ctx: RouteContext, store = new GuidedRe
     }
   });
 
-  api.get("/guided-reviews/:reviewId", async (c) => {
-    const diff = await store.readDiff(c.req.param("reviewId"));
-    return diff === null ? c.json({ error: "Review not found" }, 404) : c.json({ diff });
+  // One commit of a review's range, read from git like the quest commit view, for the full diff.
+  api.get("/sessions/:id/guided-reviews/:reviewId/commits/:sha", async (c) => {
+    const sessionId = ctx.resolveId(c.req.param("id"));
+    const session = sessionId ? ctx.wsBridge.getSession(sessionId) : null;
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    const reviewId = c.req.param("reviewId");
+    const message = [...session.messageHistory]
+      .reverse()
+      .find((entry) => entry.type === "markdown_report" && entry.guidedReview?.reviewId === reviewId);
+    const range = message?.type === "markdown_report" ? message.guidedReview?.range : undefined;
+    if (!range) return c.json({ error: "Review not found" }, 404);
+    const sha = c.req.param("sha").toLowerCase();
+    if (!range.commits.some((commit) => commit.sha === sha)) {
+      return c.json({ error: "Commit is not part of this review" }, 404);
+    }
+    const includeDiff = c.req.query("includeDiff") !== "false";
+    if (!range.repoPaths?.length) return c.json({ sha, available: false, reason: "repo_unavailable" });
+    for (const path of range.repoPaths) {
+      try {
+        const details = await onMachine(
+          range.hostId,
+          "readCommitDetails",
+          path,
+          sha,
+          includeDiff,
+          MAX_COMMIT_DIFF_BYTES,
+        );
+        return c.json({ ...details, available: true });
+      } catch {
+        // Try the next checkout; a worktree may be gone while its main checkout still has the commit.
+      }
+    }
+    return c.json({ sha, available: false, reason: "commit_not_available" });
   });
   return api;
 }
 
-function readRange(value: unknown): GuidedReviewRange {
+function readRange(value: unknown, hostId: string | undefined): GuidedReviewRange {
   const range = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   const sha = (field: unknown) => typeof field === "string" && /^[0-9a-f]{40}$/.test(field);
   if (!sha(range.base) || !sha(range.head)) throw new Error("The range needs full base and head commit SHAs.");
   if (typeof range.repo !== "string" || !range.repo.trim()) throw new Error("The range needs a repository name.");
   const commits = Array.isArray(range.commits) ? range.commits.slice(0, MAX_COMMITS) : [];
+  const repoPaths = Array.isArray(range.repoPaths)
+    ? range.repoPaths
+        .filter((path): path is string => typeof path === "string" && isAbsolute(path))
+        .slice(0, MAX_REPO_PATHS)
+    : [];
   return {
     repo: range.repo.trim(),
     base: range.base as string,
@@ -99,5 +138,7 @@ function readRange(value: unknown): GuidedReviewRange {
     commits: commits
       .filter((commit) => sha(commit?.sha) && typeof commit?.subject === "string")
       .map((commit) => ({ sha: commit.sha, subject: commit.subject })),
+    ...(repoPaths.length ? { repoPaths } : {}),
+    ...(hostId ? { hostId } : {}),
   };
 }

@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -79,6 +79,13 @@ it("checks a map against the real git diff without publishing", async () => {
   );
 });
 
+it("outlines each changed file's line ranges to help write a map", async () => {
+  const { repo } = await makeRepo();
+  const result = await runTakode(["review", "--outline", "HEAD~1..HEAD", "--repo", repo]);
+  expect(result.stderr).toBe("");
+  expect(result.stdout.trim().split("\n")).toEqual(["a.ts  +2 -1", "  2-3", "b.ts  +1 -0", "  1"]);
+});
+
 it("reports the lines a map leaves out", async () => {
   const { root, repo, map } = await makeRepo();
   const mapPath = join(root, "partial.json");
@@ -128,6 +135,8 @@ it("publishes the map with the diff and range read from git", async () => {
     expect(received.diff).toContain("+export const c = 4;");
     expect(received.range).toMatchObject({ repo: "widgets", commits: [{ subject: "feat: change b and add c" }] });
     expect(received.range.base).toMatch(/^[0-9a-f]{40}$/);
+    // The full change is read later from this checkout.
+    expect(received.range.repoPaths).toEqual([await realpath(repo)]);
   } finally {
     server.close();
   }

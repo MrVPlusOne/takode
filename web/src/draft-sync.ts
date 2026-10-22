@@ -6,8 +6,14 @@ import {
   type SessionDraftWrite,
   type SessionDraftsState,
   type SyncedComposerDraft,
+  type SyncedGuidedReviewDraft,
   type SyncedNeedsInputAnswers,
 } from "../shared/session-drafts.js";
+import {
+  applySyncedGuidedReviewDraft,
+  getGuidedReviewDraft,
+  guidedReviewIdsForSession,
+} from "./guided-review-state.js";
 import { DraftWriteRejectedError, writeSessionDraft } from "./api/session-drafts.js";
 import { setLocalDraftChangeListener, type LocalDraftTarget } from "./draft-sync-bridge.js";
 import { useStore } from "./store.js";
@@ -15,7 +21,7 @@ import { scopedGetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 import { toSyncedComposerDraft } from "./utils/synced-composer-draft.js";
 
 /**
- * Shares unsent drafts (composer text and comments, needs-input answers) between the
+ * Shares unsent drafts (composer text and comments, needs-input and guided review answers) between the
  * user's browsers through the server, so a draft started on one device continues on
  * another and survives reloads.
  *
@@ -32,7 +38,7 @@ export const DRAFT_SYNC_DELAY_MS = 400;
 export const DRAFT_SYNC_MAX_WAIT_MS = 1500;
 const DRAFT_SYNC_RETRY_MS = 5000;
 
-type DraftValue = SyncedComposerDraft | SyncedNeedsInputAnswers | null;
+type DraftValue = SyncedComposerDraft | SyncedNeedsInputAnswers | SyncedGuidedReviewDraft | null;
 
 interface DraftSlot {
   target: LocalDraftTarget;
@@ -91,6 +97,7 @@ function isPending(slot: DraftSlot): boolean {
 function localValue(sessionId: string, target: LocalDraftTarget): DraftValue {
   const state = useStore.getState();
   if (target.kind === "composer") return toSyncedComposerDraft(state.composerDrafts.get(sessionId));
+  if (target.kind === "guided-review") return getGuidedReviewDraft(target.reviewId);
   return normalizeSyncedNeedsInputAnswers(state.needsInputDrafts.get(sessionId)?.get(target.notificationId) ?? null);
 }
 
@@ -134,11 +141,13 @@ function sendDraft(sessionId: string, slot: DraftSlot, options: { keepalive?: bo
   const write: SessionDraftWrite =
     slot.target.kind === "composer"
       ? { kind: "composer", draft: value as SyncedComposerDraft | null }
-      : {
-          kind: "needs-input",
-          notificationId: slot.target.notificationId,
-          answers: value as SyncedNeedsInputAnswers | null,
-        };
+      : slot.target.kind === "guided-review"
+        ? { kind: "guided-review", reviewId: slot.target.reviewId, draft: value as SyncedGuidedReviewDraft | null }
+        : {
+            kind: "needs-input",
+            notificationId: slot.target.notificationId,
+            answers: value as SyncedNeedsInputAnswers | null,
+          };
   slot.inFlight = true;
   slot.resendAfterFlight = false;
   writeSessionDraft(sessionId, { clientId, write }, options)
@@ -176,22 +185,23 @@ function afterSettled(sessionId: string, slot: DraftSlot): void {
 }
 
 function changeValue(change: SessionDraftChange): DraftValue {
-  return change.kind === "composer" ? change.draft : change.answers;
+  return change.kind === "needs-input" ? change.answers : change.draft;
 }
 
 function applyChange(sessionId: string, slot: DraftSlot, change: SessionDraftChange): void {
   const value = changeValue(change);
   const state = useStore.getState();
   if (change.kind === "composer") state.applySyncedComposerDraft(sessionId, value as SyncedComposerDraft | null);
+  else if (change.kind === "guided-review") applySyncedGuidedReviewDraft(sessionId, change.reviewId, change.draft);
   else state.applySyncedNeedsInputDraft(sessionId, change.notificationId, value as SyncedNeedsInputAnswers | null);
   slot.serverValue = serialize(value);
   slot.revision = Math.max(slot.revision, change.revision);
 }
 
 function targetOf(change: SessionDraftChange): LocalDraftTarget {
-  return change.kind === "composer"
-    ? { kind: "composer" }
-    : { kind: "needs-input", notificationId: change.notificationId };
+  if (change.kind === "composer") return { kind: "composer" };
+  if (change.kind === "guided-review") return { kind: "guided-review", reviewId: change.reviewId };
+  return { kind: "needs-input", notificationId: change.notificationId };
 }
 
 /** Applies another browser's draft change broadcast by the server. */
@@ -220,6 +230,14 @@ export function applySessionDraftsSnapshot(sessionId: string, drafts: SessionDra
   remember({ kind: "composer", draft: drafts?.composer?.draft ?? null, ...meta(drafts?.composer, revision) });
   for (const [notificationId, entry] of Object.entries(drafts?.needsInput ?? {})) {
     remember({ kind: "needs-input", notificationId, answers: entry.answers, ...meta(entry, revision) });
+  }
+  for (const [reviewId, entry] of Object.entries(drafts?.guidedReviews ?? {})) {
+    remember({ kind: "guided-review", reviewId, draft: entry.draft, ...meta(entry, revision) });
+  }
+  // Local review answers the server no longer holds were cleared elsewhere.
+  for (const reviewId of guidedReviewIdsForSession(sessionId)) {
+    const change: SessionDraftChange = { kind: "guided-review", reviewId, draft: null, ...meta(undefined, revision) };
+    if (!changes.has(sessionDraftKey(change))) remember(change);
   }
   // Local needs-input drafts the server no longer holds were cleared or resolved elsewhere.
   for (const notificationId of useStore.getState().needsInputDrafts.get(sessionId)?.keys() ?? []) {

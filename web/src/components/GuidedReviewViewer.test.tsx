@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const ws = vi.hoisted(() => ({ sendToSession: vi.fn(() => true) }));
 vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession }));
+// Answer drafts go to the draft sync; here only what this tab holds matters.
+vi.mock("../draft-sync.js", () => ({ flushPendingDrafts: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ getGuidedReviewCommit: vi.fn() }));
+vi.mock("../api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api.js")>();
+  return { ...actual, api: { ...actual.api, getGuidedReviewCommit: apiMock.getGuidedReviewCommit } };
+});
 
 import { MarkdownReport } from "./MarkdownReport.js";
 import { GuidedReviewViewerHost } from "./GuidedReviewViewer.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { formatGuidedReviewAnswers, useGuidedReviewState } from "../guided-review-state.js";
 import {
-  GUIDED_REVIEW_FIXTURE_DIFF,
   makeGuidedReviewMetaFixture,
   makeGuidedReviewReportFixture,
 } from "../../shared/test-fixtures/guided-review.js";
@@ -28,16 +34,18 @@ function renderReview() {
   );
 }
 
+async function openTour() {
+  renderReview();
+  fireEvent.click(within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Start the review" }));
+  return screen.findByTestId("guided-review-viewer");
+}
+
 describe("guided review", () => {
   beforeEach(() => {
-    useGuidedReviewState.setState({ open: null, mode: "questions", answers: {}, sent: {} });
+    useGuidedReviewState.setState({ open: null, drafts: {}, reviewSessions: {} });
     ws.sendToSession.mockClear();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ diff: GUIDED_REVIEW_FIXTURE_DIFF }), { status: 200 })),
-    );
+    apiMock.getGuidedReviewCommit.mockReset();
   });
-  afterEach(() => vi.unstubAllGlobals());
 
   it("shows the review as a card in the feed instead of its Markdown version", () => {
     renderReview();
@@ -48,25 +56,44 @@ describe("guided review", () => {
     expect(screen.queryByText("# Guided review: Retry profile loads and cache profiles")).toBeNull();
   });
 
-  it("opens on the questions, shows a question's code from the diff, and sends the answers to the thread", async () => {
-    renderReview();
-    fireEvent.click(within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Answer 2" }));
-    const viewer = await screen.findByTestId("guided-review-viewer");
-    expect(within(viewer).getByRole("tab", { name: "Questions · 2" })).toHaveAttribute("aria-selected", "true");
+  it("is one tour: overview, stops with their saved code and inline answers, then checked and summarized", async () => {
+    const viewer = await openTour();
+    expect(within(viewer).queryByRole("tab")).toBeNull();
+    expect(viewer).toHaveTextContent("Adds a retry helper and uses it for profile loads");
+    const stops = within(viewer).getAllByTestId("guided-review-stop");
+    // Questions first, then careful looks; checked stops sit in their own foldable list.
+    expect(stops.map((stop) => within(stop).getByText(/^Stop \d$/).textContent)).toEqual([
+      "Stop 1",
+      "Stop 2",
+      "Stop 3",
+    ]);
+    expect(stops[0]).toHaveTextContent("Retry every error up to 4 times?");
+    // The code comes from the snippet saved with the review; nothing is fetched to show it.
+    expect(stops[2]).toHaveTextContent("PROFILE_TIMEOUT_MS = 15_000");
+    expect(apiMock.getGuidedReviewCommit).not.toHaveBeenCalled();
 
-    // Code is drawn from the fetched diff on demand, cut to the stop's lines.
-    fireEvent.click(within(viewer).getByRole("button", { name: "See the code (retry.ts)" }));
-    await waitFor(() => expect(viewer).toHaveTextContent("2 ** attempt * 500"));
-    expect(fetch).toHaveBeenCalledWith("/api/guided-reviews/review-fixture");
+    const checked = within(viewer).getByRole("button", { name: /The helper's comment/ });
+    expect(checked).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(checked);
+    expect(checked).toHaveAttribute("aria-expanded", "true");
+    expect(viewer).toHaveTextContent("Matches what the code does.");
+    expect(viewer).toHaveTextContent("Summarized (2)");
+  });
 
-    fireEvent.click(within(viewer).getByRole("button", { name: "Only network errors" }));
-    fireEvent.click(within(viewer).getAllByRole("button", { name: "Add a note" })[1]);
-    fireEvent.change(within(viewer).getByPlaceholderText("Add a note for the agent"), {
-      target: { value: "Clear it on edit." },
-    });
-    expect(within(viewer).getByText("1 of 2 answered")).toBeInTheDocument();
+  it("fills one answer field from the suggestions, keeps typing while Escape is pressed in it, and sends once", async () => {
+    const viewer = await openTour();
+    const [first, second, check] = within(viewer).getAllByTestId("guided-review-stop");
+    fireEvent.click(within(first).getByRole("button", { name: "Only network errors" }));
+    expect(within(first).getByRole("textbox")).toHaveValue("Only network errors");
+    fireEvent.change(within(second).getByRole("textbox"), { target: { value: "One hour; clear it on edit." } });
+    fireEvent.click(within(check).getByRole("button", { name: "Question" }));
+
+    // Escape inside an answer field leaves the review open.
+    fireEvent.keyDown(within(second).getByRole("textbox"), { key: "Escape" });
+    expect(screen.getByTestId("guided-review-viewer")).toBeInTheDocument();
+
+    expect(within(viewer).getByText("2 of 2 answered")).toBeInTheDocument();
     fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
-
     expect(ws.sendToSession).toHaveBeenCalledWith("review-host", {
       type: "user_message",
       content: [
@@ -76,50 +103,55 @@ describe("guided review", () => {
         "   Answer: Only network errors",
         "",
         "2. Cache profiles for a day?",
-        "   Answer: not answered",
-        "   Note: Clear it on edit.",
+        "   Answer: One hour; clear it on edit.",
+        "",
+        "On other stops:",
+        '- "Timeout tripled to 15 seconds": Question',
       ].join("\n"),
       threadKey: "q-42",
       questId: "q-42",
       inputSource: "composer",
       session_id: "review-host",
     });
-    // Sending closes the review and the card remembers it.
+    // Sending closes the review; it is marked sent, so it can't be sent again.
     expect(screen.queryByTestId("guided-review-viewer")).toBeNull();
-    expect(
-      within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Answers sent" }),
-    ).toBeVisible();
+    expect(useGuidedReviewState.getState().drafts["review-fixture"]?.sentAt).toEqual(expect.any(Number));
+    fireEvent.click(within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Open review" }));
+    const reopened = await screen.findByTestId("guided-review-viewer");
+    expect(within(reopened).queryByRole("button", { name: "Send answers" })).toBeNull();
+    expect(reopened).toHaveTextContent("Your answer: Only network errors");
   });
 
-  it("shows the tour with every stop's code, and the raw diff one tap away", async () => {
-    renderReview();
-    fireEvent.click(screen.getByRole("button", { name: "Full tour" }));
-    const viewer = await screen.findByTestId("guided-review-viewer");
-    expect(within(viewer).getByRole("tab", { name: "Tour · 4" })).toHaveAttribute("aria-selected", "true");
-    expect(within(viewer).getByText("Stop 3")).toBeInTheDocument();
-    await waitFor(() => expect(viewer).toHaveTextContent("PROFILE_TIMEOUT_MS = 15_000"));
-
-    act(() => {
-      fireEvent.click(within(viewer).getByRole("tab", { name: "Diff · 3" }));
+  it("opens the full change commit by commit from git", async () => {
+    apiMock.getGuidedReviewCommit.mockResolvedValue({
+      sha: "c".repeat(40),
+      shortSha: "ccccccc",
+      message: "feat(client): retry profile loads",
+      available: true,
+      diff: 'diff --git a/src/retry.test.ts b/src/retry.test.ts\n--- /dev/null\n+++ b/src/retry.test.ts\n@@ -0,0 +1 @@\n+import { expect, it } from "vitest";\n',
     });
-    expect(within(viewer).getAllByText(/retry\.test\.ts/).length).toBeGreaterThan(0);
-    expect(within(viewer).queryByRole("button", { name: "Send answers" })).toBeNull();
+    const viewer = await openTour();
+    fireEvent.click(within(viewer).getByRole("button", { name: "Full diff" }));
+    const full = await screen.findByTestId("guided-review-full-diff");
+    await waitFor(() =>
+      expect(apiMock.getGuidedReviewCommit).toHaveBeenCalledWith("review-host", "review-fixture", "c".repeat(40), {
+        includeDiff: true,
+      }),
+    );
+    await waitFor(() => expect(full).toHaveTextContent('import { expect, it } from "vitest";'));
   });
 });
 
 describe("formatGuidedReviewAnswers", () => {
-  it("lists reactions and notes on stops that are not questions", () => {
-    const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), {
-      2: { choice: "Change", note: "Keep 5 seconds." },
-      3: { note: "Fine." },
-    });
-    expect(text.split("\n").slice(-6)).toEqual([
+  it("keeps multi-line answers readable and marks unanswered questions", () => {
+    const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), { 1: "One hour.\nAnd clear on edit." });
+    expect(text.split("\n").slice(2)).toEqual([
+      "1. Retry every error up to 4 times?",
+      "   Answer: not answered",
       "",
-      "On other stops:",
-      '- "Timeout tripled to 15 seconds": Change',
-      "  Note: Keep 5 seconds.",
-      '- "The helper\'s comment": note',
-      "  Note: Fine.",
+      "2. Cache profiles for a day?",
+      "   Answer: One hour.",
+      "   And clear on edit.",
     ]);
   });
 });

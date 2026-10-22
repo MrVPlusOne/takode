@@ -9,11 +9,14 @@
  * reaches every browser from there.
  */
 
-/** Where the text goes: the session's composer, or one question of one needs-input prompt. */
-export type VoiceResultTarget = (
+/** Which draft the text goes into: the composer, one needs-input question, or one guided review answer. */
+export type VoiceResultDestination =
   | { kind: "composer" }
   | { kind: "needs-input"; notificationId: string; questionKey: string }
-) & {
+  | { kind: "guided-review"; reviewId: string; stopKey: string };
+
+/** Where the text goes, and the draft text it was recorded against. */
+export type VoiceResultTarget = VoiceResultDestination & {
   /** The draft's text when recording started, and the selection the text replaces in it. */
   baseText: string;
   selectionStart: number;
@@ -42,10 +45,8 @@ export function readVoiceResultTarget(value: unknown): VoiceResultTarget | undef
   if (value === undefined || value === null || value === "") return undefined;
   const target = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
   if (!target || typeof target !== "object") throw new Error("Invalid voice result target.");
-  const { kind, baseText, selectionStart, selectionEnd, notificationId, questionKey } = target as Record<
-    string,
-    unknown
-  >;
+  const { kind, baseText, selectionStart, selectionEnd, notificationId, questionKey, reviewId, stopKey } =
+    target as Record<string, unknown>;
   if (typeof baseText !== "string" || baseText.length > MAX_TARGET_TEXT_CHARS)
     throw new Error("Invalid voice result target text.");
   const start = readOffset(selectionStart, baseText.length);
@@ -55,6 +56,9 @@ export function readVoiceResultTarget(value: unknown): VoiceResultTarget | undef
   if (kind === "composer") return { kind, ...base };
   if (kind === "needs-input" && isShortId(notificationId) && isShortId(questionKey)) {
     return { kind, notificationId, questionKey, ...base };
+  }
+  if (kind === "guided-review" && isShortId(reviewId) && typeof stopKey === "string" && /^\d{1,3}$/.test(stopKey)) {
+    return { kind, reviewId, stopKey, ...base };
   }
   throw new Error("Invalid voice result target.");
 }

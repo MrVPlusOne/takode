@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import {
   MAX_GUIDED_REVIEW_DIFF_BYTES,
   checkGuidedReviewCoverage,
+  outlineGuidedReviewDiff,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
   type GuidedReviewRange,
@@ -15,12 +16,15 @@ const execFileAsync = promisify(execFile);
 
 export const REVIEW_HELP = `Usage: takode review <map.json> --thread <main|q-N> [--repo <dir>] [--worker <session>] [--json]
        takode review <map.json> --check [--repo <dir>]
+       takode review --outline <base>..<head> [--repo <dir>]
 
-Publish a guided review of a git range into your own session: the user answers its questions
-first, then can open the full tour, each stop showing the exact code from git.
+Publish a guided review of a git range into your own session: the user walks a tour of its
+stops, each showing the exact code from git, and answers its questions inline.
 The map is JSON you write; Takode reads the diff of base..head from the repository itself
 (--repo, default the current directory) and refuses a map that leaves any changed line out.
 --check validates the map against the diff and prints coverage without publishing.
+--outline lists each changed file's changed new-file line ranges, to help write the map.
+The review keeps only its stops' code; the user opens the full change from git.
 
 Map format (paths are repository-relative; lines are new-file line numbers, inclusive):
   {
@@ -49,18 +53,27 @@ export async function handleReview(base: string, args: string[]): Promise<void> 
   let responsibleWorkerId: string | undefined;
   let json = false;
   let checkOnly = false;
+  let outline: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--json") json = true;
     else if (arg === "--check") checkOnly = true;
-    else if (arg === "--thread" || arg === "--repo" || arg === "--worker") {
+    else if (arg === "--thread" || arg === "--repo" || arg === "--worker" || arg === "--outline") {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
-      if (arg === "--thread") threadKey = value;
+      if (arg === "--outline") outline = value;
+      else if (arg === "--thread") threadKey = value;
       else if (arg === "--repo") repo = value;
       else responsibleWorkerId = value;
     } else if (!arg.startsWith("--") && !mapPath) mapPath = arg;
     else throw new Error(REVIEW_HELP);
+  }
+  if (outline !== undefined) {
+    const [baseRev, headRev] = outline.split("..");
+    if (!baseRev || !headRev) throw new Error("--outline takes a range: <base>..<head>");
+    const { diff } = await readGitRange(resolve(repo), baseRev, headRev);
+    console.log(outlineGuidedReviewDiff(parseGuidedReviewDiff(diff)));
+    return;
   }
   if (!mapPath || (!checkOnly && !threadKey)) throw new Error(REVIEW_HELP);
 
@@ -141,7 +154,11 @@ async function readGitRange(
     });
   // A worktree's own folder name says little; name the repository its shared Git folder belongs to.
   const commonDir = resolve(repo, (await git("rev-parse", "--git-common-dir")).trim());
-  const name =
-    basename(commonDir) === ".git" ? basename(dirname(commonDir)) : basename(commonDir).replace(/\.git$/, "");
-  return { diff, range: { repo: name, base, head, commits } };
+  const mainCheckout = basename(commonDir) === ".git" ? dirname(commonDir) : null;
+  const name = mainCheckout ? basename(mainCheckout) : basename(commonDir).replace(/\.git$/, "");
+  // Where the full change is read from later: this checkout, then the main one, which keeps the
+  // commits if this worktree is removed.
+  const toplevel = (await git("rev-parse", "--show-toplevel")).trim();
+  const repoPaths = [...new Set([toplevel, ...(mainCheckout ? [mainCheckout] : [])])];
+  return { diff, range: { repo: name, base, head, commits, repoPaths } };
 }

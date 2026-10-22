@@ -1763,6 +1763,13 @@ export const api = {
     const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
     return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}${qs}`);
   },
+  /** One commit of a guided review's range, read from git on the machine it was published from. */
+  getGuidedReviewCommit: (sessionId: string, reviewId: string, sha: string, options?: { includeDiff?: boolean }) => {
+    const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
+    return get<QuestCommitLookup>(
+      `/sessions/${encodeURIComponent(sessionId)}/guided-reviews/${encodeURIComponent(reviewId)}/commits/${encodeURIComponent(sha)}${qs}`,
+    );
+  },
   getQuestMemoryCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {
     const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
     return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/memory-commits/${encodeURIComponent(sha)}${qs}`);

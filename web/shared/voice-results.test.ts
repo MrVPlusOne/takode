@@ -47,4 +47,18 @@ describe("readVoiceResultTarget", () => {
     expect(() => readVoiceResultTarget({ ...composer("abc", 0), kind: "comment" })).toThrow();
     expect(() => readVoiceResultTarget({ ...answer("abc", 0), notificationId: "" })).toThrow();
   });
+
+  it("accepts guided review answer targets by review and stop", () => {
+    // A guided review answer field dictates into one stop's answer of one review.
+    const target = {
+      kind: "guided-review",
+      reviewId: "r-1",
+      stopKey: "3",
+      baseText: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    };
+    expect(readVoiceResultTarget(target)).toEqual(target);
+    expect(() => readVoiceResultTarget({ ...target, stopKey: "x" })).toThrow();
+  });
 });

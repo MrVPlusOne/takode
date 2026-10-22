@@ -3,8 +3,10 @@ import {
   checkGuidedReviewCoverage,
   formatGuidedReviewMarkdown,
   guidedReviewSnippet,
+  outlineGuidedReviewDiff,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
+  withGuidedReviewSnippets,
   type GuidedReviewMap,
 } from "./guided-review.js";
 import {
@@ -71,6 +73,38 @@ describe("checkGuidedReviewCoverage", () => {
     ]);
   });
 
+  it("gives a removed line to the stop containing the line it sat before, not to one ending just above", () => {
+    // Removed lines 7-8 sit before new line 10: a stop ending at 9 and one starting at 10 both
+    // reach them, but only the one containing line 10 owns them, so nothing is claimed twice.
+    const { problems, stats } = checkGuidedReviewCoverage(
+      {
+        ...GUIDED_REVIEW_FIXTURE_MAP,
+        stops: [
+          ...GUIDED_REVIEW_FIXTURE_MAP.stops.slice(0, 2),
+          { tier: "check", title: "Before", note: "N", code: [{ path: "src/client.ts", lines: [8, 9] }] },
+          { tier: "check", title: "Timeout", note: "N", code: [{ path: "src/client.ts", lines: [10, 10] }] },
+          GUIDED_REVIEW_FIXTURE_MAP.stops[3],
+        ],
+      },
+      files,
+    );
+    expect(problems).toEqual([]);
+    // "Timeout" owns line 10 and both removed lines; "Before" owns nothing and counts nothing.
+    expect(stats.linesByTier.check).toBe(3);
+  });
+
+  it("refuses a removed line claimed by two stops at the same level", () => {
+    // Two stops ending just above line 10 (and none containing it) both reach its removed lines.
+    const problems = withMap((map) => {
+      map.stops[2].code = [{ path: "src/client.ts", lines: [9, 9] }];
+      map.stops[3].code.push({ path: "src/client.ts", lines: [8, 9] });
+      map.summaries.splice(0, 1);
+    });
+    expect(problems).toContain(
+      'src/client.ts: removed lines before line 10 are in stops "Timeout tripled to 15 seconds" and "The helper\'s comment"; each line belongs to one stop.',
+    );
+  });
+
   it("requires files without line changes to be named somewhere", () => {
     const binary = parseGuidedReviewDiff(
       `${GUIDED_REVIEW_FIXTURE_DIFF}diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n`,
@@ -92,6 +126,35 @@ describe("guidedReviewSnippet", () => {
       "-export const PROFILE_TIMEOUT_MS = 5_000;",
       "+export const PROFILE_TIMEOUT_MS = 15_000;",
       "",
+    ]);
+  });
+});
+
+describe("withGuidedReviewSnippets and outlineGuidedReviewDiff", () => {
+  it("keeps each stop's code with the map and refuses stops that show too much", () => {
+    const map = withGuidedReviewSnippets(GUIDED_REVIEW_FIXTURE_MAP, files);
+    expect(map.stops[2].code[0].snippet).toContain("+export const PROFILE_TIMEOUT_MS = 15_000;");
+    expect(map.stops[2].code[0].snippet).not.toContain("withRetry<T>");
+    const huge = parseGuidedReviewDiff(
+      `diff --git a/big.ts b/big.ts\nnew file mode 100644\n--- /dev/null\n+++ b/big.ts\n@@ -0,0 +1,20000 @@\n${"+".concat("x".repeat(60), "\n").repeat(20000)}`,
+    );
+    const whole: GuidedReviewMap = {
+      title: "T",
+      overview: "O",
+      summaries: [],
+      stops: [{ tier: "check", title: "All", note: "N", code: [{ path: "big.ts" }] }],
+    };
+    expect(() => withGuidedReviewSnippets(whole, huge)).toThrow("The stops show more than 1 MiB of code");
+  });
+
+  it("lists each file's changed new-file ranges with git's context", () => {
+    expect(outlineGuidedReviewDiff(files).split("\n")).toEqual([
+      "src/retry.ts  +13 -0",
+      "  1-13",
+      "src/client.ts  +5 -3",
+      "  2-10",
+      "src/retry.test.ts  +6 -0",
+      "  1-6",
     ]);
   });
 });

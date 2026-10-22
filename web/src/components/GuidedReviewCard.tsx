@@ -3,10 +3,7 @@ import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 import { openGuidedReview, useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
 import { CoverageBar } from "./GuidedReviewViewer.js";
 
-/**
- * A guided review in the feed: what it covers and how many questions wait, with buttons that
- * open the review on its questions or its full tour.
- */
+/** A guided review in the feed: what it covers and how many questions wait, with a button that opens its tour. */
 export function GuidedReviewCard({
   message,
   meta,
@@ -17,7 +14,7 @@ export function GuidedReviewCard({
   actions?: React.ReactNode;
 }) {
   const source = message.metadata!.markdownReport!;
-  const sent = useGuidedReviewState((state) => !!state.sent[meta.reviewId]);
+  const sent = useGuidedReviewState((state) => state.drafts[meta.reviewId]?.sentAt !== undefined);
   const threadKey = message.metadata?.threadKey ?? "main";
   const target: GuidedReviewTarget = {
     messageId: message.id,
@@ -38,9 +35,9 @@ export function GuidedReviewCard({
     <div className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5" data-testid="guided-review-card">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] text-cc-muted">Guided review</div>
+          <div className="text-[12px] text-cc-muted">Guided review</div>
           <div className="text-[15px] font-semibold leading-snug text-cc-fg">{meta.map.title}</div>
-          <div className="mt-0.5 text-[12px] text-cc-muted">
+          <div className="mt-0.5 text-[13px] text-cc-muted">
             {meta.range.repo} · {meta.stats.files} files ·{" "}
             <span className="text-cc-success">+{meta.stats.additions}</span>{" "}
             <span className="text-cc-error">−{meta.stats.deletions}</span>
@@ -51,25 +48,19 @@ export function GuidedReviewCard({
       <div className="mt-2.5">
         <CoverageBar meta={meta} />
       </div>
-      <div className="mt-2 text-[13px] text-cc-fg">{parts.join(" · ")}</div>
-      <div className="mt-2.5 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => openGuidedReview(target, "tour")}
-          className="h-9 rounded-lg border border-cc-border text-[13px] text-cc-fg hover:bg-cc-hover"
-        >
-          Full tour
-        </button>
+      <div className="mt-2 text-[14px] text-cc-fg">{parts.join(" · ")}</div>
+      <div className="mt-2.5 flex items-center justify-end gap-3">
+        {sent && <span className="text-[13px] text-cc-muted">Answers sent</span>}
         <button
           type="button"
           onClick={() => openGuidedReview(target)}
-          className={`h-9 rounded-lg text-[13px] ${
+          className={`h-9 rounded-lg px-4 text-[14px] ${
             sent
-              ? "border border-cc-border text-cc-muted hover:bg-cc-hover"
+              ? "border border-cc-border text-cc-fg hover:bg-cc-hover"
               : "bg-cc-primary text-white hover:bg-cc-primary-hover"
           }`}
         >
-          {sent ? "Answers sent" : questions ? `Answer ${questions}` : "Open review"}
+          {sent ? "Open review" : "Start the review"}
         </button>
       </div>
     </div>

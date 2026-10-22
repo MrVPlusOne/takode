@@ -15,6 +15,8 @@ export interface GuidedReviewCodeRef {
   path: string;
   /** Inclusive new-file line range; omitted means every changed line of the file. */
   lines?: [number, number];
+  /** Set by the server when publishing: the diff text this reference shows, cut from the change. */
+  snippet?: string;
 }
 
 export interface GuidedReviewStop {
@@ -56,6 +58,10 @@ export interface GuidedReviewRange {
   base: string;
   head: string;
   commits: { sha: string; subject: string }[];
+  /** Checkouts on the publishing machine holding the commits, tried in order for the full diff. */
+  repoPaths?: string[];
+  /** The machine those checkouts are on; absent for the server's own machine. */
+  hostId?: string;
 }
 
 export interface GuidedReviewStats {
@@ -77,6 +83,8 @@ export interface GuidedReviewMeta {
 }
 
 export const MAX_GUIDED_REVIEW_DIFF_BYTES = 8 * 1024 * 1024;
+/** Reviews keep only their stops' code; this caps it so history stays light. */
+export const MAX_GUIDED_REVIEW_SNIPPET_BYTES = 1024 * 1024;
 export const MAX_GUIDED_REVIEW_STOPS = 40;
 const MAX_ANSWER_CHARS = 40;
 
@@ -231,6 +239,8 @@ export function checkGuidedReviewCoverage(
   /** Which stop claimed each added line, keyed by file then new-file line number. */
   const claimed = new Map<DiffFile, Map<number, number>>();
   const claimedDeletions = new Map<DiffFile, Set<DiffLine>>();
+  /** Stops whose ranges reach each removed line, and whether the range contains the line it sits before. */
+  const deletionCandidates = new Map<DiffLine, { stopIndex: number; contains: boolean }[]>();
   const mentioned = new Set<DiffFile>();
 
   map.stops.forEach((stop, stopIndex) => {
@@ -242,17 +252,17 @@ export function checkGuidedReviewCoverage(
       }
       mentioned.add(file);
       const added = claimed.get(file) ?? new Map<number, number>();
-      const deleted = claimedDeletions.get(file) ?? new Set<DiffLine>();
       claimed.set(file, added);
-      claimedDeletions.set(file, deleted);
       let found = 0;
       const overlaps: number[] = [];
       for (const line of changedLines(file)) {
         if (!refCovers(ref, line)) continue;
         found++;
         if (line.kind === "del") {
-          if (!deleted.has(line)) linesByTier[stop.tier]++;
-          deleted.add(line);
+          const candidates = deletionCandidates.get(line) ?? [];
+          const contains = !ref.lines || (line.anchor! >= ref.lines[0] && line.anchor! <= ref.lines[1]);
+          candidates.push({ stopIndex, contains });
+          deletionCandidates.set(line, candidates);
           continue;
         }
         const owner = added.get(line.newNo!);
@@ -275,6 +285,34 @@ export function checkGuidedReviewCoverage(
       }
     }
   });
+
+  // A removed line belongs to the stop whose range contains the line it sits before; only when
+  // none does, to a range ending right above it. Two stops at the same level both claim it.
+  const doubleClaims = new Map<string, number[]>();
+  for (const file of files) {
+    const deleted = new Set<DiffLine>();
+    claimedDeletions.set(file, deleted);
+    for (const line of changedLines(file)) {
+      const candidates = line.kind === "del" ? deletionCandidates.get(line) : undefined;
+      if (!candidates) continue;
+      const contained = candidates.filter((candidate) => candidate.contains);
+      const owners = [...new Set((contained.length ? contained : candidates).map((candidate) => candidate.stopIndex))];
+      if (owners.length > 1) {
+        const key = `${file.path}\0${owners[0]}\0${owners[1]}`;
+        doubleClaims.set(key, [...(doubleClaims.get(key) ?? []), line.anchor!]);
+        deleted.add(line);
+        continue;
+      }
+      deleted.add(line);
+      linesByTier[map.stops[owners[0]].tier]++;
+    }
+  }
+  for (const [key, anchors] of doubleClaims) {
+    const [path, first, second] = key.split("\0");
+    problems.push(
+      `${path}: removed lines before line ${formatRanges(anchors)} are in stops "${map.stops[Number(first)].title}" and "${map.stops[Number(second)].title}"; each line belongs to one stop.`,
+    );
+  }
 
   const summarizedBy = new Map<DiffFile, number>();
   map.summaries.forEach((summary, index) => {
@@ -349,6 +387,54 @@ export function guidedReviewSnippet(file: DiffFile, ref: GuidedReviewCodeRef): s
   return `${out.join("\n")}\n`;
 }
 
+/**
+ * The map with each stop's code cut from the change, which is all of the diff a published review
+ * keeps; the full change is read from git when asked for. Throws when the stops show too much.
+ */
+export function withGuidedReviewSnippets(map: GuidedReviewMap, files: DiffFile[]): GuidedReviewMap {
+  let bytes = 0;
+  const stops = map.stops.map((stop) => ({
+    ...stop,
+    code: stop.code.map((ref) => {
+      const file = files.find((entry) => entry.path === ref.path || entry.oldPath === ref.path);
+      const snippet = file ? guidedReviewSnippet(file, ref) : "";
+      bytes += new TextEncoder().encode(snippet).byteLength;
+      return { ...ref, snippet };
+    }),
+  }));
+  if (bytes > MAX_GUIDED_REVIEW_SNIPPET_BYTES) {
+    throw new Error(
+      "The stops show more than 1 MiB of code; point them at the lines that matter and summarize the rest.",
+    );
+  }
+  return { ...map, stops };
+}
+
+/**
+ * Each file's changed lines as new-file ranges, for writing a map: one line per file with its
+ * counts, then one per hunk with the range of its changed lines and git's enclosing context.
+ */
+export function outlineGuidedReviewDiff(files: DiffFile[]): string {
+  const lines: string[] = [];
+  for (const file of files) {
+    const changed = changedLines(file);
+    const adds = changed.filter((line) => line.kind === "add").length;
+    const renamed = file.oldPath ? ` (renamed from ${file.oldPath})` : "";
+    lines.push(`${file.path}${renamed}  +${adds} -${changed.length - adds}`);
+    if (!changed.length) lines.push("  no line changes; name the path in a stop or summary");
+    for (const hunk of file.hunks) {
+      const hunkChanged = hunk.lines.filter((line) => line.kind !== "context");
+      if (!hunkChanged.length) continue;
+      const numbers = hunkChanged.map((line) => line.newNo ?? line.anchor!);
+      const [start, end] = [Math.min(...numbers), Math.max(...numbers)];
+      const onlyRemoved = hunkChanged.every((line) => line.kind === "del");
+      const range = onlyRemoved ? `removed before ${start}` : start === end ? `${start}` : `${start}-${end}`;
+      lines.push(`  ${range}${hunk.section.trim() ? `  ${hunk.section.trim()}` : ""}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 /** The Markdown version of a review: what agents read, search finds and Read aloud speaks. */
 export function formatGuidedReviewMarkdown(meta: Omit<GuidedReviewMeta, "reviewId">): string {
   const { map, range, stats } = meta;
@@ -392,12 +478,6 @@ export function formatGuidedReviewMarkdown(meta: Omit<GuidedReviewMeta, "reviewI
   }
   lines.push("", "_Open the review in Takode to see each stop's code and answer the questions._");
   return lines.join("\n");
-}
-
-/** The file's changed lines no stop shows: what its summary stands for. */
-export function countLinesOutsideStops(stops: GuidedReviewStop[], file: DiffFile): number {
-  const refs = stops.flatMap((stop) => stop.code).filter((ref) => ref.path === file.path || ref.path === file.oldPath);
-  return changedLines(file).filter((line) => !refs.some((ref) => refCovers(ref, line))).length;
 }
 
 /** Every added or removed line of a file. */

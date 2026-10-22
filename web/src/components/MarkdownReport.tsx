@@ -14,21 +14,24 @@ import { GuidedReviewCard } from "./GuidedReviewCard.js";
  * turn around them is collapsed.
  */
 export function MarkdownReport({ message, readOnly = false }: { message: ChatMessage; readOnly?: boolean }) {
+  const guidedReview = message.metadata?.guidedReview;
+  if (!guidedReview) return <MarkdownReportBody message={message} readOnly={readOnly} />;
+  const source = message.metadata!.markdownReport!;
+  return (
+    <>
+      {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+      <GuidedReviewCard
+        message={message}
+        meta={guidedReview}
+        actions={!readOnly ? <ReportReadAloudButton message={message} sessionId={source.sessionId} /> : undefined}
+      />
+    </>
+  );
+}
+
+function MarkdownReportBody({ message, readOnly }: { message: ChatMessage; readOnly: boolean }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const source = message.metadata!.markdownReport!;
-  const guidedReview = message.metadata?.guidedReview;
-  if (guidedReview) {
-    return (
-      <>
-        {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-        <GuidedReviewCard
-          message={message}
-          meta={guidedReview}
-          actions={!readOnly ? <ReportReadAloudButton message={message} sessionId={source.sessionId} /> : undefined}
-        />
-      </>
-    );
-  }
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
