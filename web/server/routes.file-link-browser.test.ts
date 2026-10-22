@@ -214,6 +214,18 @@ describe("HTML file-link browser routes", () => {
       },
     });
     expect(navigation.status).toBe(302);
+
+    // Takode's in-app page viewer opens it in a same-origin iframe, which has no user-activation
+    // header; an iframe on a sibling origin still cannot mint a capability.
+    const inAppFrame = await openHtml(app, "index.html", {
+      headers: { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(inAppFrame.status).toBe(302);
+    const siblingFrame = await openHtml(app, "index.html", {
+      headers: { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "same-site" },
+    });
+    expect(siblingFrame.status).toBe(403);
+
     expect(navigation.headers.get("Cache-Control")).toBe("no-store");
     expect(navigation.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(navigation.headers.get("X-Content-Type-Options")).toBe("nosniff");

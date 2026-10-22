@@ -545,11 +545,14 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
     const fetchMode = c.req.header("Sec-Fetch-Mode")?.toLowerCase();
     const fetchDest = c.req.header("Sec-Fetch-Dest")?.toLowerCase();
     const fetchUser = c.req.header("Sec-Fetch-User")?.toLowerCase();
+    // Takode's own in-app page viewer (the iPhone Home Screen app has no tabs) loads it in an
+    // iframe, whose navigation carries no user-activation header.
+    const inAppFrame = fetchDest === "iframe";
     if (
       (fetchSite && fetchSite !== "same-origin") ||
       (fetchMode && fetchMode !== "navigate") ||
-      (fetchDest && fetchDest !== "document") ||
-      (fetchUser && fetchUser !== "?1")
+      (fetchDest && fetchDest !== "document" && !inAppFrame) ||
+      (fetchUser && fetchUser !== "?1" && !inAppFrame)
     ) {
       return errorResponse("HTML files can only be opened by user navigation from Takode", 403);
     }
