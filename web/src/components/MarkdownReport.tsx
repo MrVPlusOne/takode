@@ -6,6 +6,7 @@ import { CodeCopyButton } from "./CodeCopyButton.js";
 import { ReportCard } from "./ReportCard.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
+import { GuidedReviewCard } from "./GuidedReviewCard.js";
 
 /**
  * A source-labelled snapshot with the ordinary chat selection scope. Reports can
@@ -15,6 +16,19 @@ import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-
 export function MarkdownReport({ message, readOnly = false }: { message: ChatMessage; readOnly?: boolean }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const source = message.metadata!.markdownReport!;
+  const guidedReview = message.metadata?.guidedReview;
+  if (guidedReview) {
+    return (
+      <>
+        {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+        <GuidedReviewCard
+          message={message}
+          meta={guidedReview}
+          actions={!readOnly ? <ReportReadAloudButton message={message} sessionId={source.sessionId} /> : undefined}
+        />
+      </>
+    );
+  }
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}

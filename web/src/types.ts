@@ -270,6 +270,8 @@ export interface ChatMessage {
   /** Extra structured data for rich rendering (e.g. AskUserQuestion answers, quest claim details) */
   metadata?: {
     markdownReport?: import("../shared/markdown-report.js").MarkdownReportSource;
+    /** Present when the report is a guided review: its map, git range and line counts. */
+    guidedReview?: import("../shared/guided-review.js").GuidedReviewMeta;
     answers?: { question: string; answer: string }[];
     /** Preserved leader-visible history row, including legacy publications and notification anchors. */
     leaderUserMessage?: boolean;

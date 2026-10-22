@@ -78,6 +78,7 @@ export const GLOBAL_SKILL_SLUGS = [
   "worktree-rules",
   "takode-user-content",
   "self-improvement",
+  "guided-review",
 ];
 
 export interface SkillSymlinkRoots {

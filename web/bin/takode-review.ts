@@ -1,0 +1,147 @@
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
+import { promisify } from "node:util";
+import {
+  MAX_GUIDED_REVIEW_DIFF_BYTES,
+  checkGuidedReviewCoverage,
+  parseGuidedReviewDiff,
+  parseGuidedReviewMapInput,
+  type GuidedReviewRange,
+} from "../shared/guided-review.js";
+import { apiPost } from "./takode-core.js";
+
+const execFileAsync = promisify(execFile);
+
+export const REVIEW_HELP = `Usage: takode review <map.json> --thread <main|q-N> [--repo <dir>] [--worker <session>] [--json]
+       takode review <map.json> --check [--repo <dir>]
+
+Publish a guided review of a git range into your own session: the user answers its questions
+first, then can open the full tour, each stop showing the exact code from git.
+The map is JSON you write; Takode reads the diff of base..head from the repository itself
+(--repo, default the current directory) and refuses a map that leaves any changed line out.
+--check validates the map against the diff and prints coverage without publishing.
+
+Map format (paths are repository-relative; lines are new-file line numbers, inclusive):
+  {
+    "base": "<rev>", "head": "<rev>",
+    "title": "Short title of the change",
+    "overview": "Markdown: what the change does and what you found",
+    "stops": [
+      { "tier": "decide", "title": "...", "note": "Markdown: why only the user can decide",
+        "question": "Keep up to 4 requests?", "answers": ["Keep 4", "Cap at 2"],
+        "code": [{ "path": "web/server/x.ts", "lines": [79, 118] }] },
+      { "tier": "check", "title": "...", "note": "Why it deserves a careful look", "code": [...] },
+      { "tier": "checked", "title": "...", "note": "The evidence it is fine", "code": [...] }
+    ],
+    "summaries": [{ "title": "Tests", "text": "Markdown summary", "paths": ["web/server/x.test.ts"] }]
+  }
+Every added or removed line must be in exactly one stop, or in a file listed by exactly one
+summary. A code entry without "lines" covers the whole file. Answers come back to your session
+as one message. The guided-review skill has the rules for choosing tiers.
+`;
+
+/** `takode review`: validate a review map against git and publish it as a guided review. */
+export async function handleReview(base: string, args: string[]): Promise<void> {
+  let mapPath: string | undefined;
+  let threadKey: string | undefined;
+  let repo = ".";
+  let responsibleWorkerId: string | undefined;
+  let json = false;
+  let checkOnly = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--json") json = true;
+    else if (arg === "--check") checkOnly = true;
+    else if (arg === "--thread" || arg === "--repo" || arg === "--worker") {
+      const value = args[++i];
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
+      if (arg === "--thread") threadKey = value;
+      else if (arg === "--repo") repo = value;
+      else responsibleWorkerId = value;
+    } else if (!arg.startsWith("--") && !mapPath) mapPath = arg;
+    else throw new Error(REVIEW_HELP);
+  }
+  if (!mapPath || (!checkOnly && !threadKey)) throw new Error(REVIEW_HELP);
+
+  const sourcePath = resolve(mapPath);
+  let rawMap: unknown;
+  try {
+    rawMap = JSON.parse(await readFile(sourcePath, "utf-8"));
+  } catch (error) {
+    throw new Error(`Cannot read the map ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const input = parseGuidedReviewMapInput(rawMap);
+  const { diff, range } = await readGitRange(resolve(repo), input.base, input.head);
+
+  if (checkOnly) {
+    const { problems, stats } = checkGuidedReviewCoverage(input, parseGuidedReviewDiff(diff));
+    if (problems.length) throw new Error(`The review map does not match the change:\n- ${problems.join("\n- ")}`);
+    const summarized = stats.additions + stats.deletions - stats.linesInStops;
+    console.log(
+      `Map OK: ${stats.files} files, +${stats.additions} -${stats.deletions}. ` +
+        `${stats.linesInStops} changed lines in stops (decide ${stats.linesByTier.decide}, check ${stats.linesByTier.check}, checked ${stats.linesByTier.checked}), ${summarized} summarized.`,
+    );
+    return;
+  }
+
+  const receipt = (await apiPost(base, "/takode/reviews", {
+    map: rawMap,
+    diff,
+    range,
+    sourcePath,
+    threadKey,
+    ...(responsibleWorkerId ? { responsibleWorkerId } : {}),
+  })) as {
+    reviewId: string;
+    threadKey: string;
+    files: number;
+    additions: number;
+    deletions: number;
+    linesInStops: number;
+    questions: number;
+  };
+  console.log(
+    json
+      ? JSON.stringify(receipt)
+      : `Published guided review to ${receipt.threadKey}: ${receipt.questions} question${receipt.questions === 1 ? "" : "s"}, ${receipt.files} files, ${receipt.linesInStops} lines in stops.`,
+  );
+}
+
+/** The diff of base..head and the range's identity, read with git in `repo`. */
+async function readGitRange(
+  repo: string,
+  baseRev: string,
+  headRev: string,
+): Promise<{ diff: string; range: GuidedReviewRange }> {
+  const git = async (...args: string[]) => {
+    try {
+      const { stdout } = await execFileAsync("git", ["-C", repo, "-c", "core.quotePath=false", ...args], {
+        maxBuffer: MAX_GUIDED_REVIEW_DIFF_BYTES * 2,
+      });
+      return stdout;
+    } catch (error) {
+      const stderr = (error as { stderr?: string }).stderr?.trim();
+      throw new Error(`git ${args[0]} failed in ${repo}: ${stderr || (error as Error).message}`);
+    }
+  };
+  const base = (await git("rev-parse", "--verify", `${baseRev}^{commit}`)).trim();
+  const head = (await git("rev-parse", "--verify", `${headRev}^{commit}`)).trim();
+  const diff = await git("diff", "--no-color", "--no-ext-diff", "--find-renames", base, head);
+  if (Buffer.byteLength(diff, "utf8") > MAX_GUIDED_REVIEW_DIFF_BYTES) {
+    throw new Error("The diff is over 8 MiB; review a smaller range.");
+  }
+  const log = await git("log", "--reverse", "--format=%H%x09%s", `${base}..${head}`);
+  const commits = log
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, ...subject] = line.split("\t");
+      return { sha, subject: subject.join("\t") };
+    });
+  // A worktree's own folder name says little; name the repository its shared Git folder belongs to.
+  const commonDir = resolve(repo, (await git("rev-parse", "--git-common-dir")).trim());
+  const name =
+    basename(commonDir) === ".git" ? basename(dirname(commonDir)) : basename(commonDir).replace(/\.git$/, "");
+  return { diff, range: { repo: name, base, head, commits } };
+}

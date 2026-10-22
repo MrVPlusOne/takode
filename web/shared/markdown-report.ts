@@ -19,6 +19,8 @@ export interface MarkdownReportMessage {
   source: MarkdownReportSource;
   threadKey: string;
   questId?: string;
+  /** Present when the report is a guided review; `content` is then its Markdown version. */
+  guidedReview?: import("./guided-review.js").GuidedReviewMeta;
 }
 
 export function validateMarkdownReportContent(content: unknown): asserts content is string {

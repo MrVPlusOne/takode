@@ -83,6 +83,7 @@ import { ViewportHandoffSessionEntryGate } from "./components/ViewportHandoffEnt
 import { ServerRestartOverlay } from "./components/ServerRestartOverlay.js";
 import { MarkdownFileViewerHost } from "./components/MarkdownFileViewer.js";
 import { InAppPageViewerHost } from "./components/InAppPageViewer.js";
+import { GuidedReviewViewerHost } from "./components/GuidedReviewViewer.js";
 import { createViewportHandoffEntryId } from "./utils/viewport-handoff-client.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
@@ -991,6 +992,7 @@ export default function App() {
         <QuestDetailPanel />
         <MarkdownFileViewerHost />
         <InAppPageViewerHost />
+        <GuidedReviewViewerHost />
       </>
     );
   }
@@ -1136,9 +1138,10 @@ export default function App() {
         <CodexSubagentInspector sessionId={codexSubagentInspector.sessionId} />
       )}
 
-      {/* Quest details and Markdown files: in the right-hand area on wide screens, else full-screen */}
+      {/* Quest details, Markdown files and guided reviews: in the right-hand area on wide screens, else full-screen */}
       <QuestDetailPanel />
       <MarkdownFileViewerHost />
+      <GuidedReviewViewerHost />
       {/* Takode-origin pages that would open in a new tab, in the iPhone Home Screen app */}
       <InAppPageViewerHost />
 

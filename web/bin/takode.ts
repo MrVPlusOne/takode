@@ -22,6 +22,7 @@ import {
 import { handleFileResolve } from "./takode-file-resolve.js";
 import { handleActivity } from "./takode-activity.js";
 import { handleReport } from "./takode-report.js";
+import { handleReview } from "./takode-review.js";
 import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
@@ -90,6 +91,8 @@ try {
     ["leader-context-resume", {}],
     ["file-resolve", {}],
     ["report", {}],
+    // --check needs no session; publishing is authenticated by the server itself.
+    ["review", { allowSessionlessRead: true }],
     ["tasks", { allowSessionlessRead: true }],
     ["timers", {}],
     ["scan", { allowSessionlessRead: true }],
@@ -181,6 +184,9 @@ try {
       break;
     case "report":
       await handleReport(base, args);
+      break;
+    case "review":
+      await handleReview(base, args);
       break;
     case "spawn":
       await handleSpawn(base, args);

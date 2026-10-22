@@ -283,7 +283,11 @@ export function normalizeHistoryMessageToChatMessages(
         content: histMsg.content,
         timestamp: histMsg.timestamp,
         historyIndex,
-        metadata: { ...existingThreadMetadataFromMessage(histMsg), markdownReport: histMsg.source },
+        metadata: {
+          ...existingThreadMetadataFromMessage(histMsg),
+          markdownReport: histMsg.source,
+          ...(histMsg.guidedReview ? { guidedReview: histMsg.guidedReview } : {}),
+        },
       },
     ];
   }

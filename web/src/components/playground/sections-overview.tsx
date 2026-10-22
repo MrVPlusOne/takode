@@ -21,6 +21,7 @@ import { PlaygroundMarkdownImages } from "./PlaygroundMarkdownImages.js";
 import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
 import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundReadAloudSection } from "./PlaygroundReadAloudSection.js";
+import { PlaygroundGuidedReviewSection } from "./PlaygroundGuidedReviewSection.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { PlaygroundPendingMessageStates } from "./PlaygroundPendingMessageStates.js";
 import {
@@ -637,6 +638,8 @@ export function PlaygroundOverviewSections() {
       <PlaygroundMessageTimingStates />
 
       <PlaygroundReadAloudSection />
+
+      <PlaygroundGuidedReviewSection />
 
       {/* ─── Messages ──────────────────────────────── */}
       <Section title="Messages" description="Chat message bubbles for all roles">
