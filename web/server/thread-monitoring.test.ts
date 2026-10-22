@@ -62,7 +62,7 @@ describe("Notify Me result lifecycle", () => {
     expect(setThreadMonitoring(session, "main", true)).toBe(false);
     expect(setThreadMonitoring(session, "all", true)).toBe(false);
     publish(session, "initial");
-    setThreadMonitoring(session, "q-42", true, 10);
+    setThreadMonitoring(session, "q-42", true, { now: 10 });
     expect(session.state.threadMonitoring?.threads["q-42"].pending?.messageId).toBe("initial");
     const revision = session.state.threadMonitoring?.revision;
     expect(setThreadMonitoring(session, "q-42", true)).toBe(false);

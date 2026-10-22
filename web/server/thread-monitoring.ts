@@ -10,12 +10,16 @@ export interface ThreadMonitoringSession {
   messageHistory: readonly BrowserIncomingMessage[];
 }
 
-/** Enable or stop a named-thread watch without changing notifications, read state, or tab order. */
+/**
+ * Enable or stop a named-thread watch without changing notifications, read state, or tab order.
+ * Enabling shows the thread's current Ready result at once unless `captureCurrentResult` is
+ * false: a side quest's Ready is not a result for the user, whose answer comes where they asked.
+ */
 export function setThreadMonitoring(
   session: ThreadMonitoringSession,
   threadKey: string,
   enabled: boolean,
-  now = Date.now(),
+  { now = Date.now(), captureCurrentResult = true }: { now?: number; captureCurrentResult?: boolean } = {},
 ): boolean {
   if (!/^q-\d+$/.test(threadKey)) return false;
   const current = session.state.threadMonitoring ?? { revision: 0, alertVersion: 0, threads: {} };
@@ -26,7 +30,7 @@ export function setThreadMonitoring(
     threads[threadKey] = {
       trackedAt: now,
       afterHistoryIndex: latestAcceptedReadyIndex(session, threadKey),
-      pending: ready?.kind === "ready" ? pendingResult(ready, current.revision + 1) : null,
+      pending: captureCurrentResult && ready?.kind === "ready" ? pendingResult(ready, current.revision + 1) : null,
     };
   } else {
     delete threads[threadKey];

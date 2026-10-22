@@ -4,7 +4,19 @@ import type { RouteContext } from "./context.js";
 import type { ThreadMonitoringPage, ThreadMonitoringState } from "../../shared/thread-monitoring.js";
 import { registerThreadMonitoringRoutes } from "./thread-monitoring.js";
 
-vi.mock("../quest-store.js", () => ({ getQuest: vi.fn(async (id: string) => ({ title: `Task ${id}` })) }));
+vi.mock("../quest-store.js", () => ({
+  getQuest: vi.fn(async (id: string) => ({
+    title: `Task ${id}`,
+    // q-7 was filed from the user's request in Main: a side quest answered there.
+    ...(id === "q-7"
+      ? {
+          relationships: {
+            startedFrom: { sessionId: "leader", messageId: "request-1", threadKey: "main", timestamp: 1 },
+          },
+        }
+      : {}),
+  })),
+}));
 
 function fixture() {
   const monitoring: ThreadMonitoringState = { revision: 1, alertVersion: 0, threads: {} };
@@ -50,6 +62,37 @@ describe("monitoring commands and global list", () => {
     session.state.isOrchestrator = false;
     expect((await act("q-42", "track")).status).toBe(200);
     expect(await (await app.request("/thread-monitoring?filter=all")).json()).toMatchObject({ total: 1 });
+  });
+
+  it("shows an ordinary quest's current Ready result at once but not a side quest's", async () => {
+    // A side quest's Ready only marks it done; its result is answered where the user asked,
+    // so turning Notify Me on must not pull the user into its tab with that old marker.
+    const { act, session } = fixture();
+    session.state.leaderOpenThreadTabs.orderedOpenThreadKeys.push("q-7");
+    (session.messageHistory as unknown[]).push({
+      type: "user_message",
+      id: "request-1",
+      content: "Compare the two runs.",
+      timestamp: 1,
+      leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
+      threadKey: "main",
+    });
+    const ready = (threadKey: string) => ({
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey,
+      questId: threadKey,
+      summary: "done",
+      messageId: `ready-${threadKey}`,
+      timestamp: 2,
+      updatedAt: 2,
+    });
+    Object.assign(session.state, { leaderThreadStatuses: { "q-7": ready("q-7"), "q-42": ready("q-42") } });
+    expect((await act("q-7", "track")).status).toBe(200);
+    expect((await act("q-42", "track")).status).toBe(200);
+    expect(session.state.threadMonitoring.threads["q-7"]?.pending).toBeNull();
+    expect(session.state.threadMonitoring.threads["q-42"]?.pending).toMatchObject({ messageId: "ready-q-42" });
   });
 
   it("keeps quiet tracked tasks discoverable and broadcasts mutations through persistence", async () => {

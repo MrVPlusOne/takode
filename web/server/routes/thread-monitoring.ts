@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import type { ThreadMonitoringEntry, ThreadMonitoringPage } from "../../shared/thread-monitoring.js";
 import { acknowledgeMonitoredThreadResult, setThreadMonitoring } from "../thread-monitoring.js";
 import { getQuest } from "../quest-store.js";
+import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
 import type { RouteContext } from "./context.js";
 
 /** Browser-owned monitoring commands and a bounded global list, independent of tab visibility. */
@@ -75,10 +76,20 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
     ) {
       return c.json({ error: "Open the task tab before enabling Notify Me" }, 409);
     }
+    // A side quest's Ready only marks it done: its result is answered where the user asked,
+    // so tracking it waits for a new result instead of surfacing that one in its own tab.
+    const sideQuest =
+      body.action === "track" &&
+      !!findSupportingQuestSource(
+        indexLeaderRequests(session.messageHistory),
+        session.id,
+        threadKey,
+        (await getQuest(threadKey))?.relationships?.startedFrom,
+      );
     const changed =
       body.action === "acknowledge"
         ? acknowledgeMonitoredThreadResult(session, threadKey, body.resultId)
-        : setThreadMonitoring(session, threadKey, body.action === "track");
+        : setThreadMonitoring(session, threadKey, body.action === "track", { captureCurrentResult: !sideQuest });
     if (changed) ctx.wsBridge.persistSessionById(session.id);
     return c.json({ ok: true, changed });
   });
