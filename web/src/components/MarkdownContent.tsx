@@ -27,6 +27,7 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
+import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
 import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } from "../utils/quest-link-target.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -1007,6 +1008,26 @@ export const MarkdownContent = memo(function MarkdownContent({
             const { children, className } = props;
             const match = /language-(\w+)/.exec(className || "");
             const isBlock = match || (typeof children === "string" && children.includes("\n"));
+
+            if (match?.[1] === "draft") {
+              // A message draft shows as the message it will become, ready to copy into Slack.
+              return (
+                <MarkdownDraftCard>
+                  <MarkdownContent
+                    text={String(children).replace(/\n$/, "")}
+                    size={size}
+                    sessionId={sessionId}
+                    fileBasePath={fileBasePath}
+                    enableChatSelectionMenu={enableChatSelectionMenu}
+                    wrapLongContent={wrapLongContent}
+                    onSessionNavigate={onSessionNavigate}
+                    stopLinkPropagation={stopLinkPropagation}
+                    fileLinkMode={fileLinkMode}
+                    questLinkSurface={questLinkSurface}
+                  />
+                </MarkdownDraftCard>
+              );
+            }
 
             if (isBlock) {
               return (

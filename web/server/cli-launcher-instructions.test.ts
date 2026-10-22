@@ -4,7 +4,7 @@ import {
   buildInjectedSystemPromptForDebug,
   getOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
-import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import { MESSAGE_DRAFT_INSTRUCTIONS, TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
 import { normalizePersistedBackendType, type BackendType } from "./session-types.js";
 import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
@@ -102,7 +102,14 @@ describe("buildCompanionInstructions", () => {
     ];
     for (const prompt of prompts) {
       expect(prompt).toContain(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
+      // Drafts written as ```draft blocks render as copyable draft cards in every session.
+      expect(prompt).toContain(MESSAGE_DRAFT_INSTRUCTIONS);
     }
+  });
+
+  it("shows the draft block in the syntax the chat renders as a draft card", () => {
+    // MarkdownContent turns a fenced block labelled `draft` into the card; keep the example parseable.
+    expect(MESSAGE_DRAFT_INSTRUCTIONS).toMatch(/^```draft$/m);
   });
 
   it("keeps copyable native link examples in supported URI syntax", () => {

@@ -14,3 +14,21 @@ export const TAKODE_LINK_SYNTAX_INSTRUCTIONS = [
   "If higher-priority platform or tool instructions require a citation format, preserve that required format.",
   "Preserve exact syntax when quoting or reproducing user, tool, code, or other source content; do not rewrite stored messages.",
 ].join(" ");
+
+/**
+ * Drafts of messages the user will send elsewhere (Slack, email, PR comments) render as a draft card with
+ * a Copy for Slack button, so they must not be quoted or italicized.
+ */
+export const MESSAGE_DRAFT_INSTRUCTIONS = [
+  "## Message Drafts",
+  "",
+  "When you draft a message for the user to send elsewhere (Slack, email, a PR or review comment), put exactly the message text in a fenced block labelled `draft`, written as the final message with its own Markdown formatting:",
+  "",
+  "````",
+  "```draft",
+  "Quick update on **T7**: evals start at `iter 2`.",
+  "```",
+  "````",
+  "",
+  "Takode shows it as a card that looks like the sent message, with a Copy for Slack button that copies exactly the draft. Do not put drafts in quotes (`>`) or italics: they paste as quotes or italics. Keep notes about the draft outside the block, and put each alternative in its own block. If the draft itself contains a code block, open the draft block with four backticks.",
+].join("\n");

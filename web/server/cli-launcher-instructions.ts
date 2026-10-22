@@ -2,7 +2,7 @@ import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructio
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { BackendType } from "./session-types.js";
-import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import { MESSAGE_DRAFT_INSTRUCTIONS, TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
 import { TRANSCRIPTION_TAG } from "../shared/transcription-tag.js";
 import {
@@ -101,6 +101,7 @@ ${
 
   parts.push(AUXILIARY_WORKTREE_INSTRUCTIONS);
   parts.push(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
+  parts.push(MESSAGE_DRAFT_INSTRUCTIONS);
 
   parts.push(
     "## Message Source Tags\n\n" +

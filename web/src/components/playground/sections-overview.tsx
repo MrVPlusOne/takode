@@ -924,6 +924,32 @@ export function PlaygroundOverviewSections() {
       </Section>
 
       <Section
+        title="Message Drafts"
+        description="A ```draft block shows the draft as the message it will become, with one Copy for Slack button that copies exactly the draft, formatting kept."
+      >
+        <div className="space-y-4 max-w-4xl">
+          <Card label="Draft card inside an assistant answer">
+            <MarkdownContent
+              text={[
+                "Here's a draft for the T7 thread. Nothing has been posted:",
+                "",
+                "```draft",
+                "Quick update on **T7**: training is _healthy_ and evals start at `iter 2`.",
+                "- 384K context is on for training; evals stay at 256K",
+                "- Next check around **5 PM**",
+                "",
+                "Details: [launch PR](https://example.com/pr/102109)",
+                "```",
+                "",
+                "Say if you want it shorter.",
+              ].join("\n")}
+              sessionId={MOCK_SESSION_ID}
+            />
+          </Card>
+        </div>
+      </Section>
+
+      <Section
         title="Markdown Tables"
         description="Markdown tables keep their inline scrollable layout, with a Copy menu (a table for Slack, sheets and docs, a code block, or Markdown) and a View table action that opens a wider overlay."
       >
