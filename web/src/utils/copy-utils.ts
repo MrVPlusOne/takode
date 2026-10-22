@@ -3,6 +3,7 @@ import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
 import type { ChatMessage } from "../types.js";
 import { htmlFragmentToRichText } from "./html-to-markdown.js";
 import { rangeTouchesNonPortableLink, toPortableHtml } from "./portable-links.js";
+import { selectedTableRows, tableToTsv } from "./table-copy.js";
 
 export { markdownToPlainText };
 
@@ -74,8 +75,8 @@ export async function copyRichText(html: string, plainText: string): Promise<voi
 
 /**
  * Keep the browser's own copy (Cmd+C, the phone's Copy) from carrying Takode-internal links, such as a
- * `#123` session reference, into other apps as links back to this server. Only selections that touch such
- * a link are rewritten, the same way as "Copy as Rich Text"; every other selection copies as usual.
+ * `#123` session reference, into other apps as links back to this server, and give a selection within one
+ * table tab-separated plain text. Only those selections are rewritten; every other selection copies as usual.
  */
 export function installPortableSelectionCopy(): () => void {
   const onCopy = (event: ClipboardEvent) => {
@@ -83,6 +84,15 @@ export function installPortableSelectionCopy(): () => void {
     if (event.defaultPrevented || !event.clipboardData || !selection || selection.isCollapsed) return;
     if (event.target instanceof Element && event.target.closest(EDITABLE_SELECTOR)) return;
     const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
+    const tableRows = ranges.length === 1 ? selectedTableRows(ranges[0]!) : null;
+    if (tableRows) {
+      // Cells as tab-separated text, the way desktop browsers copy them: Slack pastes that as its own
+      // table and spreadsheets as cells. A phone's copy otherwise loses the columns.
+      event.clipboardData.setData("text/html", toPortableHtml(htmlFragmentToRichText(ranges[0]!).html));
+      event.clipboardData.setData("text/plain", tableToTsv(tableRows));
+      event.preventDefault();
+      return;
+    }
     if (!ranges.some(rangeTouchesNonPortableLink)) return;
     const copies = ranges.map(htmlFragmentToRichText);
     event.clipboardData.setData("text/html", toPortableHtml(copies.map((copy) => copy.html).join("")));

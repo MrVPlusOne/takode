@@ -925,7 +925,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Markdown Tables"
-        description="Markdown tables keep their inline scrollable layout, with a table-specific View table action that opens a wider overlay."
+        description="Markdown tables keep their inline scrollable layout, with a Copy menu (a table for Slack, sheets and docs, a code block, or Markdown) and a View table action that opens a wider overlay."
       >
         <div className="space-y-4 max-w-4xl">
           <Card label="Wide markdown table with expanded viewer">

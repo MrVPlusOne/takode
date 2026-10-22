@@ -200,7 +200,10 @@ describe("installPortableSelectionCopy", () => {
     document.body.replaceChildren();
   });
 
-  function copySelectionOf(html: string): {
+  function copySelectionOf(
+    html: string,
+    select: (root: HTMLElement, range: Range) => void = (root, range) => range.selectNodeContents(root),
+  ): {
     event: Event;
     data: Map<string, string>;
   } {
@@ -208,7 +211,7 @@ describe("installPortableSelectionCopy", () => {
     root.innerHTML = html;
     document.body.replaceChildren(root);
     const range = document.createRange();
-    range.selectNodeContents(root);
+    select(root, range);
     document.getSelection()!.removeAllRanges();
     document.getSelection()!.addRange(range);
 
@@ -232,6 +235,26 @@ describe("installPortableSelectionCopy", () => {
       '<p>Already on the branch: #98723 (commit check), see <a href="https://example.com/pr">the PR</a></p>',
     );
     expect(data.get("text/plain")).toBe("Already on the branch: #98723 (commit check), see the PR");
+  });
+
+  // Selecting table rows on a phone copied them without tab separators, so Slack pasted messy text
+  // instead of its own table; desktop browsers already copy tab-separated cells.
+  const TABLE = "<table><tr><th>Domain</th><th>Share</th></tr><tr><td>SWE</td><td>15.5%</td></tr></table>";
+
+  it("copies a selection within one table as tab-separated cells, keeping the HTML table", () => {
+    const { event, data } = copySelectionOf(`<p>Intro</p>${TABLE}`, (root, range) =>
+      range.selectNodeContents(root.querySelector("table")!),
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(data.get("text/plain")).toBe("Domain\tShare\nSWE\t15.5%");
+    expect(data.get("text/html")).toContain("<td>15.5%</td>");
+  });
+
+  it("leaves words selected inside one cell, and selections reaching outside the table, to the browser", () => {
+    const inCell = copySelectionOf(TABLE, (root, range) => range.selectNodeContents(root.querySelector("td")!));
+    expect(inCell.event.defaultPrevented).toBe(false);
+    const mixed = copySelectionOf(`<p>Intro</p>${TABLE}`);
+    expect(mixed.event.defaultPrevented).toBe(false);
   });
 
   it("leaves selections without internal links to the browser", () => {

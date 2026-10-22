@@ -59,7 +59,10 @@ export function CodeBlock({
       data-expanded={long ? String(expanded) : undefined}
     >
       {lang || long ? (
-        <div className="flex items-center gap-2 border-b border-cc-border bg-cc-code-bg/80 px-3 py-1.5">
+        <div
+          className="flex items-center gap-2 border-b border-cc-border bg-cc-code-bg/80 px-3 py-1.5"
+          data-copy-exclude=""
+        >
           <span className="text-[10px] font-mono-code uppercase tracking-wider text-cc-muted">{lang}</span>
           <span className="ml-auto flex items-center gap-1">
             {long && (
@@ -84,7 +87,7 @@ export function CodeBlock({
           </span>
         </div>
       ) : (
-        <div className="absolute right-1.5 top-1.5 z-10">
+        <div className="absolute right-1.5 top-1.5 z-10" data-copy-exclude="">
           <CodeCopyButton getText={getText} />
         </div>
       )}
@@ -110,6 +113,7 @@ export function CodeBlock({
           onClick={collapse}
           className="flex w-full items-center justify-center gap-1.5 border-t border-cc-border bg-cc-code-bg/80 py-1.5 text-xs text-cc-muted hover:text-cc-fg"
           data-testid="code-block-collapse-bar"
+          data-copy-exclude=""
         >
           <svg
             viewBox="0 0 16 16"

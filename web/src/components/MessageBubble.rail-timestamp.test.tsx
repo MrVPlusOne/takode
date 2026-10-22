@@ -214,6 +214,8 @@ describe("MessageBubble timestamp menu affordances", () => {
     expect(screen.getByRole("button", { name: "Markdown" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Rich Text" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Plain Text" })).toBeTruthy();
+    // "For Slack" is only for messages with a table, which Slack would otherwise flatten.
+    expect(screen.queryByRole("button", { name: "For Slack" })).toBeNull();
 
     const metadata = screen.getByRole("note", { name: "Message time" });
     expect(metadata).toBe(screen.getByTestId("message-time-assistant-menu-metadata"));
@@ -221,6 +223,19 @@ describe("MessageBubble timestamp menu affordances", () => {
     expect(metadata.textContent).toContain(formatExactMessageTimestamp(ts));
     expect(metadata.getAttribute("tabindex")).toBeNull();
     expect(within(metadata).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("offers Copy for Slack on a message with a table", () => {
+    const msg = makeMessage({
+      id: "assistant-with-table",
+      role: "assistant",
+      content: "Shares:\n\n| Domain | Share |\n| --- | ---: |\n| SWE | 15.5% |",
+      timestamp: Date.now(),
+    });
+    render(<MessageBubble message={msg} showSideChatActions={false} />);
+    fireEvent.click(screen.getByTestId("message-time-assistant-menu"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.getByRole("button", { name: "For Slack" })).toBeTruthy();
   });
 
   it("keeps starred assistant rail markers as unstar controls while the menu trigger shows time", () => {

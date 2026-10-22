@@ -26,6 +26,7 @@ import { QuestCommitChip } from "./QuestCommitChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
+import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
 import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } from "../utils/quest-link-target.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -695,11 +696,14 @@ function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClo
 
 function MarkdownTableWithViewer({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
+  const blockRef = useRef<HTMLDivElement>(null);
 
   return (
     <>
-      <div className="my-2">
-        <div className="mb-1.5 flex items-center justify-end">
+      <div className="my-2" ref={blockRef} data-markdown-table="">
+        {/* Controls, not content: kept out of selections and copies. */}
+        <div className="mb-1.5 flex select-none items-center justify-end gap-1.5" data-copy-exclude="">
+          <MarkdownTableCopyButton tableRef={blockRef} />
           <button
             type="button"
             onClick={() => setExpanded(true)}
