@@ -56,6 +56,7 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function findMode(scope: HTMLElement, mode: "messages" | "tabs"): HTMLElement {
@@ -64,7 +65,12 @@ function findMode(scope: HTMLElement, mode: "messages" | "tabs"): HTMLElement {
     .find((item) => item.dataset.mode === mode)!;
 }
 
-function openRecent(load = vi.fn(async (_query: string, _signal: AbortSignal) => RECENT)) {
+/** One page holding every given message, with no older page after it. */
+function page(results: MessageSearchResult[], nextOffset: number | null = null) {
+  return { results, nextOffset };
+}
+
+function openRecent(load = vi.fn(async (_query: string, _offset: number, _signal: AbortSignal) => page(RECENT))) {
   const onOpenMessage = vi.fn();
   render(
     <ThreadTabGroupBar
@@ -90,7 +96,7 @@ describe("Find's Messages mode", () => {
     // conversation without remembering which status group its tab sits in now.
     const { sheet, load, onOpenMessage } = openRecent();
     const rows = await within(sheet).findAllByTestId("thread-tab-recent-row");
-    expect(load).toHaveBeenCalledWith("", expect.any(AbortSignal));
+    expect(load).toHaveBeenCalledWith("", 0, expect.any(AbortSignal));
     expect(rows.map((row) => row.dataset.messageId)).toEqual(["m3", "m2", "m1"]);
     expect(rows[0]!.textContent).toContain("Make the done color quieter");
     expect(rows[0]!.textContent).toContain("Board colors · Done · 1m ago");
@@ -105,8 +111,8 @@ describe("Find's Messages mode", () => {
   });
 
   it("searches the user's messages after a short pause in typing", async () => {
-    const load = vi.fn(async (query: string, _signal: AbortSignal) =>
-      query ? [message("m1", "q-10", "Try the proxy with a longer timeout", NOW)] : RECENT,
+    const load = vi.fn(async (query: string, _offset: number, _signal: AbortSignal) =>
+      page(query ? [message("m1", "q-10", "Try the proxy with a longer timeout", NOW)] : RECENT),
     );
     const { sheet } = openRecent(load);
     await within(sheet).findAllByTestId("thread-tab-recent-row");
@@ -130,8 +136,75 @@ describe("Find's Messages mode", () => {
     );
   });
 
+  it("loads older pages as the list's end scrolls into view, without repeating messages", async () => {
+    // The first page is the newest 2; reaching the end loads the next page from where the
+    // server said it starts. A message sent meanwhile pushes m2 onto the next page as well,
+    // and it is listed only once.
+    const observers: Array<(entries: Array<{ isIntersecting: boolean }>) => void> = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const older = message("m0", "q-10", "The very first message", NOW - 9_000_000);
+    const load = vi.fn(async (_query: string, offset: number, _signal: AbortSignal) =>
+      offset === 0 ? page(RECENT.slice(0, 2), 2) : page([RECENT[1]!, RECENT[2]!, older]),
+    );
+    const { sheet } = openRecent(load);
+    await within(sheet).findAllByTestId("thread-tab-recent-row");
+    expect(within(sheet).getByTestId("thread-tab-recent-more").textContent).toBe("Loading older messages…");
+
+    act(() => observers.at(-1)!([{ isIntersecting: true }]));
+    await waitFor(() =>
+      expect(
+        within(sheet)
+          .getAllByTestId("thread-tab-recent-row")
+          .map((row) => row.dataset.messageId),
+      ).toEqual(["m3", "m2", "m1", "m0"]),
+    );
+    expect(load.mock.calls.map(([query, offset]) => [query, offset])).toEqual([
+      ["", 0],
+      ["", 2],
+    ]);
+    // The session's first message is listed: nothing older to load.
+    expect(within(sheet).queryByTestId("thread-tab-recent-more")).toBeNull();
+  });
+
+  it("offers a retry when an older page fails to load", async () => {
+    const observers: Array<(entries: Array<{ isIntersecting: boolean }>) => void> = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let fail = true;
+    const load = vi.fn(async (_query: string, offset: number, _signal: AbortSignal) => {
+      if (offset === 0) return page(RECENT.slice(0, 1), 1);
+      if (fail) throw new Error("offline");
+      return page(RECENT.slice(1));
+    });
+    const { sheet } = openRecent(load);
+    await within(sheet).findAllByTestId("thread-tab-recent-row");
+    act(() => observers.at(-1)!([{ isIntersecting: true }]));
+    const retry = await within(sheet).findByRole("button", { name: "Couldn't load older messages. Try again" });
+    fail = false;
+    fireEvent.click(retry);
+    await waitFor(() => expect(within(sheet).getAllByTestId("thread-tab-recent-row")).toHaveLength(3));
+  });
+
   it("says so when nothing matches", async () => {
-    const { sheet } = openRecent(vi.fn(async () => []));
+    const { sheet } = openRecent(vi.fn(async () => page([])));
     await waitFor(() =>
       expect(within(sheet).getByTestId("thread-tab-recent-status").textContent).toBe("No messages to this leader yet."),
     );
@@ -180,7 +253,7 @@ describe("Find's Messages mode", () => {
         currentThreadKey="q-10"
         activeOutputThreadKey={null}
         onSelect={vi.fn()}
-        loadRecentMessages={vi.fn(async () => RECENT)}
+        loadRecentMessages={vi.fn(async () => page(RECENT))}
         onOpenMessage={vi.fn()}
       />,
     );
@@ -195,7 +268,7 @@ describe("ThreadTabRail Messages", () => {
     // ordered newest first even when searching, and opens the result through a message
     // route, which also reopens a closed tab.
     const fetchMock = vi.fn(async (_url: string) =>
-      Response.json({ results: [message("m3", "q-9", "Make the done color quieter", NOW)] }),
+      Response.json({ results: [message("m3", "q-9", "Make the done color quieter", NOW)], nextOffset: null }),
     );
     vi.stubGlobal("fetch", fetchMock);
     render(
@@ -219,6 +292,7 @@ describe("ThreadTabRail Messages", () => {
       includeAssistant: "false",
       includeEvents: "false",
       limit: "50",
+      offset: "0",
       sort: "recent",
     });
     fireEvent.click(row);

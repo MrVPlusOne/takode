@@ -775,6 +775,11 @@ function ThreadTabSwitcherSheet({
     scopedSetItem(FIND_MODE_STORAGE_KEY, next);
     if (listRef.current) listRef.current.scrollTop = 0;
   };
+  // A new search starts at the top. Left deep in the last list, the end of the shorter new
+  // list would sit in view and load every older page of it at once.
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [query]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

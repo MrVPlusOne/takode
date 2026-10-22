@@ -84,22 +84,33 @@ const RECENT_MESSAGES: Array<[string, string, number]> = [
   ["main", "Please file a quest for the relay timeout we saw yesterday and start it after the board fix lands.", 300],
 ];
 
-const loadPlaygroundRecentMessages: LoadRecentMessages = async (query) =>
-  RECENT_MESSAGES.map(
-    ([threadKey, text, minutesAgo], index): MessageSearchResult => ({
-      id: `playground:${index}`,
-      sessionId: "playground",
-      sessionNum: null,
-      messageId: `playground-recent-${index}`,
-      historyIndex: index,
-      role: "user",
-      category: "user",
-      timestamp: NOW - minutesAgo * MINUTE,
-      snippet: text,
-      routeThreadKey: threadKey,
-      starred: false,
-    }),
-  ).filter((result) => result.snippet.toLowerCase().includes(query.toLowerCase()));
+/** Enough history for several pages, so scrolling to the end of the list loads older ones. */
+const PLAYGROUND_MESSAGES: MessageSearchResult[] = Array.from({ length: 130 }, (_, index) => {
+  const [threadKey, text, minutesAgo] = RECENT_MESSAGES[index % RECENT_MESSAGES.length]!;
+  const round = Math.floor(index / RECENT_MESSAGES.length);
+  return {
+    id: `playground:${index}`,
+    sessionId: "playground",
+    sessionNum: null,
+    messageId: `playground-recent-${index}`,
+    historyIndex: index,
+    role: "user",
+    category: "user",
+    timestamp: NOW - (minutesAgo + round * 24 * 60) * MINUTE,
+    snippet: text,
+    routeThreadKey: threadKey,
+    starred: false,
+  };
+});
+const PLAYGROUND_PAGE_SIZE = 50;
+
+const loadPlaygroundRecentMessages: LoadRecentMessages = async (query, offset) => {
+  // A short wait, as from the server, so the "Loading older messages" row shows.
+  if (offset > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+  const matches = PLAYGROUND_MESSAGES.filter((result) => result.snippet.toLowerCase().includes(query.toLowerCase()));
+  const end = offset + PLAYGROUND_PAGE_SIZE;
+  return { results: matches.slice(offset, end), nextOffset: end < matches.length ? end : null };
+};
 
 function PhoneFrame({ placement }: { placement: "top" | "bottom" }) {
   const [current, setCurrent] = useState("q-9482");
