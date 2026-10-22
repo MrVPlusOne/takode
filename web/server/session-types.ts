@@ -970,6 +970,8 @@ export interface BoardParticipantStatus {
 export interface BoardRowSessionStatus {
   worker?: BoardParticipantStatus;
   reviewer?: BoardParticipantStatus | null;
+  /** Helper sessions the row waits on (`--wait-for #N`), in wait-for order; archived ones are left out. */
+  helpers?: BoardParticipantStatus[];
 }
 
 /**

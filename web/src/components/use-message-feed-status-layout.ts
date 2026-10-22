@@ -47,7 +47,9 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
             "\u0001",
           ),
         ),
-        workerPreviewTarget ? `worker-preview\u0001${workerPreviewTarget.workerSessionId}` : "",
+        workerPreviewTarget
+          ? `worker-preview\u0001${workerPreviewTarget.sessions.map((session) => session.sessionId).join(",")}`
+          : "",
       ].join("\u0002"),
     [visibleThreadStatuses, workerPreviewTarget],
   );

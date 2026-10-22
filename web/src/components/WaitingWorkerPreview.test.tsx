@@ -40,6 +40,7 @@ function FeedFooterHost({ threadKey = "q-42" }: { threadKey?: string }) {
 
 const LEADER = "leader-1";
 const WORKER = "worker-7";
+const HELPER = "helper-9";
 const PHASE_STARTED_AT = Date.parse("2026-10-05T10:00:00Z");
 
 function waiting(threadKey = "q-42"): LeaderThreadStatus {
@@ -143,12 +144,37 @@ describe("resolveWaitingWorkerGate", () => {
       kind: "show",
       target: {
         questId: "q-42",
-        workerSessionId: WORKER,
-        workerNum: 7,
-        workerStatus: "running",
-        turnStartedAt: null,
+        sessions: [{ sessionId: WORKER, sessionNum: 7, status: "running", turnStartedAt: null, helper: false }],
+        ownerWaits: [],
       },
     });
+  });
+
+  it("adds the helpers the row waits on and names the owner's waits", () => {
+    // A quest's owner can wait idle while a herded helper runs a step it cannot (`--wait-for #N`).
+    const rows = [boardRow({ waitFor: ["#9", "q-5", "free-worker", "#7"], waitForInput: ["n-3"] })];
+    const participants: Record<string, BoardRowSessionStatus> = {
+      "q-42": {
+        worker: { sessionId: WORKER, sessionNum: 7, status: "idle" },
+        helpers: [{ sessionId: HELPER, sessionNum: 9, status: "running", generationStartedAt: 50 }],
+      },
+    };
+    const gate = resolveWaitingWorkerGate({ ...base, boardRows: rows, rowStatuses: participants });
+    expect(gate.kind === "show" && gate.target).toEqual({
+      questId: "q-42",
+      sessions: [
+        { sessionId: WORKER, sessionNum: 7, status: "idle", turnStartedAt: null, helper: false },
+        { sessionId: HELPER, sessionNum: 9, status: "running", turnStartedAt: 50, helper: true },
+      ],
+      // The owner's own number and the queue-only free-worker token are not waits.
+      ownerWaits: ["your answer", "#9", "q-5"],
+    });
+    // A queued row's wait-for list is about starting the quest, not about a working owner.
+    const queued = resolveWaitingWorkerGate({
+      ...base,
+      boardRows: [boardRow({ status: "QUEUED", waitFor: ["q-5"] })],
+    });
+    expect(queued.kind === "show" && queued.target.ownerWaits).toEqual([]);
   });
 
   it("carries the server turn start only while the worker is running", () => {
@@ -156,9 +182,9 @@ describe("resolveWaitingWorkerGate", () => {
     // is the same on every device and survives reloads.
     const started = { ...base, rowStatuses: rowStatuses("running", PHASE_STARTED_AT) };
     const gate = resolveWaitingWorkerGate(started);
-    expect(gate.kind === "show" && gate.target.turnStartedAt).toBe(PHASE_STARTED_AT);
+    expect(gate.kind === "show" && gate.target.sessions[0]?.turnStartedAt).toBe(PHASE_STARTED_AT);
     const idle = resolveWaitingWorkerGate({ ...base, rowStatuses: rowStatuses("idle", PHASE_STARTED_AT) });
-    expect(idle.kind === "show" && idle.target.turnStartedAt).toBeNull();
+    expect(idle.kind === "show" && idle.target.sessions[0]?.turnStartedAt).toBeNull();
   });
 
   it("treats a cleared status as soft so a re-written marker does not flash", () => {
@@ -330,6 +356,89 @@ describe("WaitingWorkerPreview", () => {
     expect(screen.getByTestId("waiting-worker-preview")).toBeInTheDocument();
     setLeaderState({ statuses: { "q-42": { ...waiting(), kind: "ready", label: "Thread Ready" } } });
     expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
+  });
+
+  it("names what an idle owner waits for instead of a bare idle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(PREVIEW.lastActivityAt + 3 * 60_000);
+    setLeaderState({ rows: [boardRow({ waitFor: ["q-5"] })], participants: rowStatuses("idle") });
+    act(() => {
+      useStore.setState({
+        sdkSessions: [
+          {
+            sessionId: WORKER,
+            state: "connected",
+            cwd: "/srv",
+            createdAt: 0,
+            pendingTimerCount: 1,
+            waits: [{ kind: "job", description: "Run the full gate", startedAt: 1 }],
+          },
+        ] as never,
+      });
+    });
+    try {
+      render(<FeedFooterHost />);
+      await waitFor(() =>
+        expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent(
+          'waiting for q-5; background job "Run the full gate"; a timer · last activity 3m ago',
+        ),
+      );
+    } finally {
+      act(() => useStore.setState({ sdkSessions: [] }));
+    }
+  });
+
+  it("shows helpers as tabs and follows whichever session started working last", async () => {
+    // Several sessions share one card (no stacked previews): the helper that is working is
+    // shown, a tapped tab stays, and the preview moves on when the working session changes.
+    const helperPreview = { ...PREVIEW, lines: [{ ...PREVIEW.lines[0], text: "Pasting into Slack." }] };
+    getSessionActivityPreview.mockImplementation(async (id: string) => (id === HELPER ? helperPreview : PREVIEW));
+    const participants = (
+      owner: "idle" | "running",
+      helper: "idle" | "running",
+    ): Record<string, BoardRowSessionStatus> => ({
+      "q-42": {
+        worker: {
+          sessionId: WORKER,
+          sessionNum: 7,
+          status: owner,
+          generationStartedAt: owner === "running" ? 20 : undefined,
+        },
+        helpers: [
+          {
+            sessionId: HELPER,
+            sessionNum: 9,
+            status: helper,
+            generationStartedAt: helper === "running" ? 10 : undefined,
+          },
+        ],
+      },
+    });
+    setLeaderState({ rows: [boardRow({ waitFor: ["#9"] })], participants: participants("idle", "running") });
+    render(<FeedFooterHost />);
+
+    const tabs = screen.getAllByTestId("waiting-worker-preview-tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["#7", "#9"]);
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    await screen.findByText("Pasting into Slack.");
+    expect(screen.getByTestId("waiting-worker-preview-turn-time")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open session" }));
+    expect(navigateToSession).toHaveBeenCalledWith(HELPER);
+
+    // The owner's tab says what it waits for.
+    fireEvent.click(tabs[0]!);
+    await screen.findByText("Checking the composer layout.");
+    expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent("waiting for #9");
+
+    // The helper's turn ends and a new one starts: the preview moves back to the helper by itself.
+    const helperRow = [boardRow({ waitFor: ["#9"] })];
+    setLeaderState({ rows: helperRow, participants: participants("idle", "idle") });
+    expect(screen.getAllByTestId("waiting-worker-preview-tab")[0]).toHaveAttribute("aria-selected", "true");
+    setLeaderState({ rows: helperRow, participants: participants("idle", "running") });
+    expect(screen.getAllByTestId("waiting-worker-preview-tab")[1]).toHaveAttribute("aria-selected", "true");
+    // And to the owner once it starts working after the helper did.
+    setLeaderState({ rows: helperRow, participants: participants("running", "running") });
+    expect(screen.getAllByTestId("waiting-worker-preview-tab")[0]).toHaveAttribute("aria-selected", "true");
   });
 
   it("polls only while the worker is generating", async () => {

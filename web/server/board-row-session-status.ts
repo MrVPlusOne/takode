@@ -5,6 +5,7 @@ import type {
   BoardRow,
   BoardRowSessionStatus,
 } from "./session-types.js";
+import { getWaitForRefKind } from "../shared/quest-journey.js";
 
 type BoardSessionLike = {
   sessionId: string;
@@ -74,9 +75,16 @@ export function buildBoardRowSessionStatuses(
           ? activeReviewersByParent.get(workerSession.sessionNum)
           : undefined;
 
+    const helpers = (row.waitFor ?? []).flatMap((ref) => {
+      if (getWaitForRefKind(ref) !== "session") return [];
+      const helper = sessionsByNum.get(Number(ref.slice(1)));
+      return helper && helper !== workerSession && !helper.archived ? [toBoardParticipantStatus(helper)] : [];
+    });
+
     statuses[row.questId] = {
       ...(workerSession ? { worker: toBoardParticipantStatus(workerSession) } : {}),
       reviewer: reviewerSession ? toBoardParticipantStatus(reviewerSession) : null,
+      ...(helpers.length > 0 ? { helpers } : {}),
     };
   }
 

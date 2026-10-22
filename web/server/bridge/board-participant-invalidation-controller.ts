@@ -45,7 +45,9 @@ function matchingWorkerRows(
 ): BoardRow[] {
   return getBoardForSession(host.sessions, leaderSessionId).filter((row) => {
     if (row.worker === workerSessionId) return true;
-    return typeof workerNum === "number" && effectiveBoardWorkerNum(host, row) === workerNum;
+    if (typeof workerNum !== "number") return false;
+    // A helper the row waits on is shown with the row too, so its changes refresh it as well.
+    return effectiveBoardWorkerNum(host, row) === workerNum || !!row.waitFor?.includes(`#${workerNum}`);
   });
 }
 

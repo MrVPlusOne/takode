@@ -133,6 +133,31 @@ describe("targeted board participant invalidation", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("lists a helper the row waits on and refreshes the row when the helper starts working", () => {
+    // A quest's owner can wait idle on a herded helper (`--wait-for #N`); the quest tab's
+    // worker preview shows the helper, so its running state must reach the leader's board.
+    const { host, leader, launcherSessions } = makeHarness();
+    const row = leader.board.get("q-1761")! as Record<string, unknown>;
+    row.status = "WORKING";
+    row.waitFor = ["#2410", "q-9", "#2402"];
+    launcherSessions.set("helper-1", {
+      sessionId: "helper-1",
+      sessionNum: 2410,
+      herdedBy: "leader-1",
+      state: "running",
+      cliConnected: true,
+    });
+
+    scheduleBoardParticipantRefreshForSession(host, "helper-1");
+    flushInvalidations();
+
+    const [[, message]] = boardUpdates(host);
+    // The owner listed again in wait-for is not a helper of its own row.
+    expect(message.rowSessionStatuses["q-1761"].helpers).toEqual([
+      { sessionId: "helper-1", sessionNum: 2410, status: "running" },
+    ]);
+  });
+
   // These transitions use the same launcher and board fields as production so
   // archive/delete cannot accidentally keep returning a static reviewer stub.
   it("projects reviewer spawn through real session and board inputs", () => {
