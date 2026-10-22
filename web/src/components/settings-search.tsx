@@ -130,6 +130,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         subsection: "browser",
       },
       {
+        id: "sound-set",
+        text: "Alert Sound set chime tone preview this device tell apart coworker",
+        subsection: "browser",
+      },
+      {
         id: "desktop-alerts",
         text: "Desktop Alerts browser notifications permission",
         subsection: "browser",

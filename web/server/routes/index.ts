@@ -43,6 +43,7 @@ import { createMemoryRoutes } from "./memory.js";
 import { createCodexSidecarRoutes } from "./codex-sidecar.js";
 import { createLogsRoutes } from "./logs.js";
 import { createWebPushRoutes } from "./web-push.js";
+import { createNotificationSoundRoutes } from "./notification-sounds.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 import {
   deriveAskPermissionForMode,
@@ -284,6 +285,7 @@ export function createRoutes(
   api.route("/", createMemoryRoutes(ctx));
   api.route("/", createCodexSidecarRoutes(ctx));
   api.route("/", createWebPushRoutes(options?.webPush));
+  api.route("/", createNotificationSoundRoutes());
 
   return api;
 }

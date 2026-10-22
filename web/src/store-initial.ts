@@ -1,5 +1,6 @@
 import { isEmbeddedInVsCode } from "./utils/embed-context.js";
 import { scopedGetItem } from "./utils/scoped-storage.js";
+import { toNotificationSoundSetId, type NotificationSoundSetId } from "./utils/notification-sound-sets.js";
 
 type ColorTheme = "light" | "dark" | "vscode-dark";
 
@@ -30,6 +31,11 @@ export function getInitialNotificationSound(): boolean {
   const stored = localStorage.getItem("cc-notification-sound");
   if (stored !== null) return stored === "true";
   return true;
+}
+
+export function getInitialNotificationSoundSet(): NotificationSoundSetId {
+  if (typeof window === "undefined") return toNotificationSoundSetId(null);
+  return toNotificationSoundSetId(localStorage.getItem("cc-notification-sound-set"));
 }
 
 export function getInitialNotificationDesktop(): boolean {

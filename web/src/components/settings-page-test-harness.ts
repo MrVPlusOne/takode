@@ -18,6 +18,7 @@ export interface MockStoreState {
   colorTheme: string;
   darkMode: boolean;
   notificationSound: boolean;
+  notificationSoundSet: string;
   notificationDesktop: boolean;
   showUsageBars: boolean;
   compactToolActivity: boolean;
@@ -39,6 +40,7 @@ export interface MockStoreState {
   setColorTheme: ReturnType<typeof vi.fn>;
   toggleDarkMode: ReturnType<typeof vi.fn>;
   toggleNotificationSound: ReturnType<typeof vi.fn>;
+  setNotificationSoundSet: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
   toggleShowUsageBars: ReturnType<typeof vi.fn>;
   toggleCompactToolActivity: ReturnType<typeof vi.fn>;
@@ -59,6 +61,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     colorTheme: "light",
     darkMode: false,
     notificationSound: true,
+    notificationSoundSet: "classic",
     notificationDesktop: false,
     showUsageBars: false,
     compactToolActivity: true,
@@ -75,6 +78,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setColorTheme: vi.fn(),
     toggleDarkMode: vi.fn(),
     toggleNotificationSound: vi.fn(),
+    setNotificationSoundSet: vi.fn(),
     setNotificationDesktop: vi.fn(),
     toggleShowUsageBars: vi.fn(),
     toggleCompactToolActivity: vi.fn(),

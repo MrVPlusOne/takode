@@ -24,6 +24,7 @@ import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.j
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
+import { NotificationSoundSetSetting } from "./SettingsNotificationSound.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
 import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
@@ -883,6 +884,7 @@ export function SettingsPage({
                   onChange={toggleNotificationSound}
                   hidden={settingsSearch.rowHidden("notifications", "sound")}
                 />
+                <NotificationSoundSetSetting hidden={settingsSearch.rowHidden("notifications", "sound-set")} />
                 {notificationApiAvailable && (
                   <SettingsToggle
                     label="Desktop Alerts"

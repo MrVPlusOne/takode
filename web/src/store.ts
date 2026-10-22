@@ -52,6 +52,7 @@ import {
   getInitialDarkMode,
   getInitialNotificationDesktop,
   getInitialNotificationSound,
+  getInitialNotificationSoundSet,
   getInitialSessionId,
   getInitialZoomLevel,
 } from "./store-initial.js";
@@ -247,6 +248,7 @@ export const useStore = create<AppState>((set, get) => ({
   darkMode: getInitialDarkMode(),
   zoomLevel: getInitialZoomLevel(),
   notificationSound: getInitialNotificationSound(),
+  notificationSoundSet: getInitialNotificationSoundSet(),
   notificationDesktop: getInitialNotificationDesktop(),
   showUsageBars: typeof window !== "undefined" ? scopedGetItem("cc-show-usage") !== "false" : true,
   compactToolActivity:
@@ -374,6 +376,10 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.setItem("cc-notification-sound", String(next));
       return { notificationSound: next };
     }),
+  setNotificationSoundSet: (id) => {
+    localStorage.setItem("cc-notification-sound-set", id);
+    set({ notificationSoundSet: id });
+  },
   setNotificationDesktop: (v) => {
     localStorage.setItem("cc-notification-desktop", String(v));
     set({ notificationDesktop: v });

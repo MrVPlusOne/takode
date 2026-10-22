@@ -4,6 +4,7 @@ import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestS
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { NotificationSoundSetId } from "./utils/notification-sound-sets.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -199,6 +200,8 @@ export interface AppState {
   darkMode: boolean;
   zoomLevel: number;
   notificationSound: boolean;
+  /** Which alert sound set this device plays; per device so people sharing a room can tell alerts apart. */
+  notificationSoundSet: NotificationSoundSetId;
   notificationDesktop: boolean;
   showUsageBars: boolean;
   compactToolActivity: boolean;
@@ -245,6 +248,7 @@ export interface AppState {
   setZoomLevel: (v: number) => void;
   setNotificationSound: (v: boolean) => void;
   toggleNotificationSound: () => void;
+  setNotificationSoundSet: (id: NotificationSoundSetId) => void;
   setNotificationDesktop: (v: boolean) => void;
   toggleNotificationDesktop: () => void;
   setShowUsageBars: (v: boolean) => void;

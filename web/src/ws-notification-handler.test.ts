@@ -176,6 +176,16 @@ describe("handleAttentionAlertMessage", () => {
     expect(playedSounds()).toEqual(["single", "two-tap", "single"]);
   });
 
+  it("plays the sound set chosen on this device", () => {
+    useStore.getState().setNotificationSoundSet("lounge-piano");
+    handleAttentionAlertMessage(alert("result", "a"), { live: true });
+    vi.advanceTimersByTime(3000);
+    handleAttentionAlertMessage(alert("needs-input", "b"), { live: true });
+
+    expect(playReviewSound).toHaveBeenCalledWith("lounge-piano");
+    expect(playNeedsInputSound).toHaveBeenCalledWith("lounge-piano");
+  });
+
   it("stays silent for replayed alerts, with sounds off, and in a window used less recently", () => {
     handleAttentionAlertMessage(alert("needs-input", "a"), { live: false });
 

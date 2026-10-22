@@ -53,7 +53,8 @@ export function handleNotificationUpdateMessage(sessionId: string, data: Notific
  * seconds play one sound; a needs-input alert still plays after a single tone.
  */
 export function handleAttentionAlertMessage(data: AttentionAlertMessage, options: { live: boolean }): void {
-  if (!options.live || !useStore.getState().notificationSound) return;
+  const { notificationSound, notificationSoundSet } = useStore.getState();
+  if (!options.live || !notificationSound) return;
   if (isViewingAlertTab(data.session_id, data.thread_key)) return;
   if (!isMostRecentlyUsedAlertWindow()) return;
   const now = Date.now();
@@ -62,7 +63,9 @@ export function handleAttentionAlertMessage(data: AttentionAlertMessage, options
     return;
   }
   lastAlertSound = { at: now, kind: data.kind };
-  void (data.kind === "needs-input" ? playNeedsInputSound() : playReviewSound());
+  void (data.kind === "needs-input"
+    ? playNeedsInputSound(notificationSoundSet)
+    : playReviewSound(notificationSoundSet));
 }
 
 /** The tab is on screen in a visible, focused window. An unfocused window views nothing. */
