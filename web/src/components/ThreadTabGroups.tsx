@@ -151,6 +151,8 @@ export function ThreadTabGroupBar({
 }: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
+  const lastPressRef = useRef<string>("mouse");
   const mainTab = main ?? {
     threadKey: MAIN_THREAD_KEY,
     title: "Main Thread",
@@ -206,7 +208,18 @@ export function ThreadTabGroupBar({
     <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
   return (
-    <div ref={barRef} className="relative" data-testid="thread-tab-group-bar" data-placement={placement}>
+    <div
+      ref={barRef}
+      className="relative"
+      data-testid="thread-tab-group-bar"
+      data-placement={placement}
+      onPointerDownCapture={(event) => {
+        lastPressRef.current = event.pointerType;
+      }}
+      onKeyDownCapture={() => {
+        lastPressRef.current = "keyboard";
+      }}
+    >
       <div
         className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
         role="tablist"
@@ -237,11 +250,16 @@ export function ThreadTabGroupBar({
                 // A group of one opens its tab on a tap; its list (with the tab's latest
                 // result and menu) stays a long-press or right-click away. A larger group
                 // opens its list and leaves the tab on screen alone: stepping through items
-                // that need attention is the feed's Next chip's job.
-                onClick: () =>
-                  groups[id].length === 1
-                    ? select(groups[id][0]!.threadKey)
-                    : setOpenGroup((open) => (open === id ? null : id)),
+                // that need attention is the feed's Next chip's job. Clicking the group again
+                // with a mouse opens the list's first tab, saving the trip down to it; a second
+                // tap of a finger closes the list, undoing the first tap.
+                onClick: () => {
+                  if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
+                    select(groups[id][0]!.threadKey);
+                    return;
+                  }
+                  setOpenGroup((open) => (open === id ? null : id));
+                },
                 onOpenList: () => setOpenGroup(id),
                 single: groups[id].length === 1,
                 children: <GroupContent id={id} tabs={groups[id]} />,
@@ -406,10 +424,12 @@ function BarItem({
   const size = compact ? "w-10 shrink-0 md:w-auto md:px-3" : "min-w-0 flex-1 md:min-w-[7.5rem] md:flex-none md:px-3";
   const edge = placement === "bottom" ? "rounded-b-md border-t-0" : "rounded-t-md border-b-0";
   const tone = selected
-    ? `relative z-10 ${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 ${selectedSurface} text-cc-fg`
+    ? `${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 ${selectedSurface} text-cc-fg`
     : open
       ? "border-cc-border bg-cc-hover/70 text-cc-fg"
       : "border-cc-border/70 bg-cc-hover/30 text-cc-muted";
+  // An open group sits above its list's backdrop, so a second click reaches the tab itself.
+  const layer = open ? "z-50" : selected ? "z-10" : "";
   return (
     <button
       type="button"
@@ -417,7 +437,7 @@ function BarItem({
       onClick={onClick}
       {...longPress.handlers}
       style={longPress.pressStyle}
-      className={`relative inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
+      className={`relative ${layer} inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
       aria-label={label}
       aria-selected={selected}
       aria-expanded={group && !single ? open : undefined}
@@ -432,6 +452,10 @@ function BarItem({
       {children}
     </button>
   );
+}
+
+function isTouchPress(pointerType: string): boolean {
+  return pointerType === "touch" || pointerType === "pen";
 }
 
 function SearchGlyph() {

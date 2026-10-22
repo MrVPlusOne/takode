@@ -9,6 +9,7 @@ import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } fro
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { buildClosedThreadTabs } from "./WorkBoardBar.js";
 import { useStore } from "../store.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
   return {
@@ -200,13 +201,29 @@ describe("ThreadTabGroupBar", () => {
     ).toEqual(["q-21", "q-22", "q-20"]);
   });
 
-  it("only toggles the list when the tab on screen is already in that group", () => {
-    // On q-14, a Done tab, tapping Done must not move the user to the group's first tab.
+  it("opens the list on a first click and the list's first tab on a second mouse click", () => {
+    // On q-14, a Done tab, the first click on Done only opens its list: it must not move
+    // the user. Clicking Done again with a mouse saves the trip down to the first row.
     const { onSelect } = renderBar({ currentThreadKey: "q-14" });
     const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fireEvent.pointerDown(done, { pointerType: "mouse" });
     fireEvent.click(done);
+    const list = screen.getByTestId("thread-tab-group-list");
+    expect(onSelect).not.toHaveBeenCalled();
+    const firstKey = list.querySelector<HTMLElement>("[data-thread-key]")!.dataset.threadKey;
+    fireEvent.pointerDown(done, { pointerType: "mouse" });
+    fireEvent.click(done);
+    expect(onSelect).toHaveBeenCalledWith(firstKey);
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("closes the list on a second finger tap instead of switching tabs", () => {
+    // On a phone a second tap on the same spot undoes the first, as everywhere else.
+    const { onSelect } = renderBar({ currentThreadKey: "q-14" });
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    fingerTap(done);
     expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
-    fireEvent.click(done);
+    fingerTap(done);
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
   });
