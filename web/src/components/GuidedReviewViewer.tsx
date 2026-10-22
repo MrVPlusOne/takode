@@ -22,7 +22,7 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const [fullDiffOpen, setFullDiffOpen] = useState(false);
   usePreviewSheetHistoryEntry(true, sheetRef, closeGuidedReview);
-  const dockTarget = useSecondaryViewTarget(true, closeGuidedReview, "wide");
+  const dockTarget = useSecondaryViewTarget(true, closeGuidedReview, "full");
   const docked = dockTarget !== null;
   const { map } = target.meta;
 
@@ -61,7 +61,7 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="border-b border-cc-border bg-cc-card">
-          <div className="mx-auto flex w-full max-w-[1180px] items-start gap-2 px-4 py-3">
+          <div className="mx-auto flex w-full max-w-[1920px] items-start gap-2 px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="text-[12px] text-cc-muted">Guided review by an agent</div>
               <div className="text-[16px] font-semibold leading-snug text-cc-fg">{map.title}</div>

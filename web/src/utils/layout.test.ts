@@ -7,6 +7,7 @@ import {
   isDesktopTaskPanelLayout,
   isNarrowComposerLayout,
 } from "./layout.js";
+import { SECONDARY_VIEW_MAX_WIDTHS } from "./secondary-view.js";
 
 describe("layout utilities", () => {
   it("uses zoom-adjusted viewport width for responsive layout decisions", () => {
@@ -31,5 +32,7 @@ describe("layout utilities", () => {
     expect(secondaryViewWidth(800, 1080)).toBe(752);
     expect(secondaryViewWidth(1280, 1080)).toBe(1080);
     expect(secondaryViewWidth(2560, 880)).toBe(880);
+    // A full-width viewer (the guided review walkthrough) covers all but the dismiss strip.
+    expect(secondaryViewWidth(1440, SECONDARY_VIEW_MAX_WIDTHS.full)).toBe(1392);
   });
 });

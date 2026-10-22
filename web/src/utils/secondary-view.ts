@@ -29,6 +29,8 @@ export const SECONDARY_VIEW_MAX_WIDTHS = {
   wide: 1280,
   /** Images, which use all the room a large window gives them. */
   media: 1600,
+  /** Text beside long code, such as a guided review's walkthrough: the whole window. */
+  full: Number.POSITIVE_INFINITY,
 } as const;
 
 export type SecondaryViewSize = keyof typeof SECONDARY_VIEW_MAX_WIDTHS;

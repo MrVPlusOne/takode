@@ -91,7 +91,7 @@ export function Walkthrough({
   return (
     <>
       <div className="border-b border-cc-border bg-cc-card">
-        <div className="mx-auto w-full max-w-[1180px] px-4 pb-2">
+        <div className="mx-auto w-full max-w-[1920px] px-4 pb-2">
           <ProgressRail
             tour={tour}
             isAnswered={review.isAnswered}
@@ -114,7 +114,7 @@ export function Walkthrough({
         <div
           key={step}
           style={animation}
-          className="mx-auto w-full max-w-[1180px] px-4 py-4 motion-safe:animate-[guidedStepIn_0.22s_ease-out]"
+          className="mx-auto w-full max-w-[1920px] px-4 py-4 motion-safe:animate-[guidedStepIn_0.22s_ease-out]"
         >
           {step === 0 && (
             <div className="space-y-4">
@@ -134,7 +134,7 @@ export function Walkthrough({
         </div>
       </div>
       <div className="border-t border-cc-border bg-cc-bg pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-4 py-2.5">
+        <div className="mx-auto flex w-full max-w-[1920px] items-center gap-3 px-4 py-2.5">
           {step > 0 && (
             <button
               type="button"
@@ -165,16 +165,17 @@ export function Walkthrough({
 }
 
 /**
- * One stop: on wide screens the explanation and answer stay on the left while the code fills the
- * right; on phones they stack as explanation, code, answer.
+ * One stop: when the review is at least 70rem wide, the explanation and answer stay in a narrow
+ * left column while the code takes the rest; narrower, where side by side would cramp the code
+ * (below roughly 80 characters), they stack as explanation, code, answer.
  */
 function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedReviewTarget; entry: IndexedStop }) {
   return (
     <div
-      className="flex flex-col gap-4 @3xl:grid @3xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] @3xl:items-start @3xl:gap-6"
+      className="flex flex-col gap-4 @min-[70rem]:grid @min-[70rem]:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)] @min-[70rem]:items-start @min-[70rem]:gap-6"
       data-testid="guided-review-stop"
     >
-      <div className="contents @3xl:sticky @3xl:top-0 @3xl:block @3xl:space-y-4">
+      <div className="contents @min-[70rem]:sticky @min-[70rem]:top-0 @min-[70rem]:block @min-[70rem]:space-y-4">
         <div className="order-1">
           <StopHeading stop={stop} sessionId={target.sessionId} />
         </div>
