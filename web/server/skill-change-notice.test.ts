@@ -91,7 +91,40 @@ describe("recordSkillVersions", () => {
       ["confirm", 0],
     ]);
     const saved = JSON.parse(await readFile(join(root, "state", "server.json"), "utf-8"));
-    expect(saved.quest.changedAt).toBe(200);
+    expect(saved.quest.versions).toEqual([
+      expect.objectContaining({ since: 0, text: "v1" }),
+      expect.objectContaining({ since: 200, text: "v2" }),
+    ]);
+  });
+
+  it("keeps only the latest versions of each skill", async () => {
+    for (let version = 1; version <= 12; version++) {
+      await writeSkill("quest", `v${version}`);
+      await record(version * 100);
+    }
+    const saved = JSON.parse(await readFile(join(root, "state", "server.json"), "utf-8"));
+    expect(saved.quest.versions.map((version: { text: string }) => version.text)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `v${index + 3}`),
+    );
+  });
+
+  it("reads records saved before skill texts were kept", async () => {
+    // Older records hold only a hash and change time; an unchanged skill keeps
+    // its change time and gains its text.
+    await mkdir(join(root, "state"), { recursive: true });
+    await writeFile(
+      join(root, "state", "server.json"),
+      JSON.stringify({
+        quest: { hash: "5a95ec2a3b0e4d8f1aa0f3bc0e9b3c4f6d43ae4bdc7a3cc0a7f1a7e2c8d5d1b2", changedAt: 50 },
+      }),
+    );
+    await writeSkill("quest", "v1");
+    expect([...(await record(100))]).toEqual([["quest", 100]]);
+    const saved = JSON.parse(await readFile(join(root, "state", "server.json"), "utf-8"));
+    expect(saved.quest.versions).toEqual([
+      { hash: expect.any(String), since: 50 },
+      expect.objectContaining({ since: 100, text: "v1" }),
+    ]);
   });
 });
 
@@ -120,7 +153,11 @@ describe("findChangedLoadedSkills", () => {
       }),
     ];
     // memory never changed; project-only is not a tracked skill.
-    expect(findChangedLoadedSkills(history, changeTimes)).toEqual(["confirm", "quest", "takode-orchestration"]);
+    expect(findChangedLoadedSkills(history, changeTimes)).toEqual([
+      { name: "confirm", seenAt: 11 },
+      { name: "quest", seenAt: 12 },
+      { name: "takode-orchestration", seenAt: 10 },
+    ]);
   });
 
   it("skips skills loaded again after the change", () => {
@@ -132,7 +169,8 @@ describe("findChangedLoadedSkills", () => {
     // A notice named every changed skill, so only a later change counts again.
     const history = [toolUse(10, "Skill", { skill: "quest" }), systemMessage(70, SKILL_CHANGE_NOTICE_SOURCE_ID)];
     expect(findChangedLoadedSkills(history, changeTimes)).toEqual([]);
-    expect(findChangedLoadedSkills(history, new Map([["quest", 90]]))).toEqual(["quest"]);
+    // The notice is when the session last saw the skill.
+    expect(findChangedLoadedSkills(history, new Map([["quest", 90]]))).toEqual([{ name: "quest", seenAt: 70 }]);
   });
 });
 
@@ -194,5 +232,86 @@ describe("checkSkillChanges", () => {
     await record(100);
     const message = { type: "user_message" as const, content: "Hi" };
     expect(checkSkillChanges(session(), message)).toBe(message);
+  });
+});
+
+describe("skill change diffs", () => {
+  const lines = (count: number, prefix = "line") =>
+    Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`);
+
+  function loadedAt(timestamp: number) {
+    return { id: "s1", messageHistory: [toolUse(timestamp, "Skill", { skill: "quest" })] };
+  }
+
+  function notice(target: ReturnType<typeof loadedAt>): string {
+    return checkSkillChanges(target, { type: "user_message", content: "Go" })?.historyFollowUps?.[0]?.content ?? "";
+  }
+
+  it("shows a small change as a diff against the version the session loaded", async () => {
+    // v1 -> v2 -> v3: a session that loaded v2 sees only the v2 -> v3 change,
+    // with a little context and line numbers to place it.
+    const v1 = lines(20);
+    const v2 = v1.map((line) => (line === "line 5" ? "line five" : line));
+    const v3 = v2.map((line) => (line === "line 15" ? "line fifteen" : line));
+    await writeSkill("quest", `${v1.join("\n")}\n`);
+    await record(100);
+    await writeSkill("quest", `${v2.join("\n")}\n`);
+    await record(200);
+    await writeSkill("quest", `${v3.join("\n")}\n`);
+    await record(300);
+
+    expect(notice(loadedAt(250))).toBe(
+      [
+        "[Skills changed] These skills changed after you loaded them: `quest`.",
+        "",
+        "`quest` changed only as shown; the rest is as you loaded it, so you need not load it again:",
+        "```diff",
+        "@@ -13,5 +13,5 @@",
+        " line 13",
+        " line 14",
+        "-line 15",
+        "+line fifteen",
+        " line 16",
+        " line 17",
+        "```",
+      ].join("\n"),
+    );
+    // Loaded v1: both changes.
+    expect(notice(loadedAt(150))).toContain("-line 5\n+line five");
+  });
+
+  it("gives the size of a large change and asks for a reload only if needed", async () => {
+    await writeSkill("quest", lines(100).join("\n"));
+    await record(100);
+    await writeSkill("quest", lines(100, "rewritten line").join("\n"));
+    await record(200);
+
+    const text = notice(loadedAt(150));
+    expect(text).toContain("`quest` changed too much to show here (100 lines added, 100 removed, a ");
+    expect(text).toMatch(/a [\d,]+-character diff\)\. Your copy is out of date: load it again .* only if you need it/);
+    expect(text).not.toContain("```");
+  });
+
+  it("names the change without a diff when the loaded version's text was not kept", async () => {
+    // The session loaded the skill before the oldest kept version.
+    for (let version = 1; version <= 11; version++) {
+      await writeSkill("quest", `v${version}`);
+      await record(version * 100);
+    }
+    expect(notice(loadedAt(150))).toBe(
+      [
+        "[Skills changed] These skills changed after you loaded them: `quest`.",
+        "",
+        "`quest`: your copy is out of date; load it again (the Skill tool, or read its SKILL.md) only if you need it for what you are doing now.",
+      ].join("\n"),
+    );
+  });
+
+  it("fences a diff of skill text that contains code fences", async () => {
+    await writeSkill("quest", "intro\n```bash\nold\n```\n");
+    await record(100);
+    await writeSkill("quest", "intro\n```bash\nnew\n```\n");
+    await record(200);
+    expect(notice(loadedAt(150))).toContain("````diff\n@@ -1,4 +1,4 @@\n intro\n ```bash\n-old\n+new\n ```\n````");
   });
 });
