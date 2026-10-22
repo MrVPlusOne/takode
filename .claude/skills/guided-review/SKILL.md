@@ -16,7 +16,7 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 3. Write the map as a JSON file outside the repository, such as a `reviews/` folder in your home directory (format below, and in `takode review --help`). Its path is shown as the review's source.
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread. A worker publishes into its own session (`--thread main`) and tells its leader, who shares it where the user reads it (below).
-6. When the answers arrive, act on them like any user message: "Change" and questions are requests.
+6. When the answers arrive, act on them like any user message: questions and requested changes typed into an answer are requests.
 
 ## Sharing a review into another thread
 

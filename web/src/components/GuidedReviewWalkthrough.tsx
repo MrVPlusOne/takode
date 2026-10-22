@@ -135,6 +135,10 @@ export function Walkthrough({
       </div>
       <div className="border-t border-cc-border bg-cc-bg pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto flex w-full max-w-[1920px] items-center gap-3 px-4 py-2.5">
+          <span className="min-w-0 flex-1 text-[14px] text-cc-muted" role={review.failed ? "alert" : undefined}>
+            {review.status}
+          </span>
+          {/* Back sits right beside Next, so clicking through takes no travel across a wide window. */}
           {step > 0 && (
             <button
               type="button"
@@ -144,9 +148,6 @@ export function Walkthrough({
               Back
             </button>
           )}
-          <span className="min-w-0 flex-1 text-[14px] text-cc-muted" role={review.failed ? "alert" : undefined}>
-            {review.status}
-          </span>
           {step < last ? (
             <button type="button" onClick={() => go(step + 1)} className={SEND_BUTTON_CLASS}>
               {step === 0 ? "Start the walkthrough" : step === tour.length ? "Wrap up" : "Next"}

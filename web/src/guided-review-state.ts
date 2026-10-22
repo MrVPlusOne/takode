@@ -32,8 +32,11 @@ export const useGuidedReviewState = create<GuidedReviewState>(() => ({
   reviewSessions: {},
 }));
 
-/** Answers suggested on stops that are not questions; they only fill the answer field. */
-export const GUIDED_REVIEW_REACTIONS = ["Looks right", "Question", "Change"] as const;
+/**
+ * Answers suggested on stops that are not questions; they only fill the answer field. Questions
+ * and requested changes are typed into that field, so they need no button of their own.
+ */
+export const GUIDED_REVIEW_REACTIONS = ["Looks right"] as const;
 
 export function openGuidedReview(target: GuidedReviewTarget): void {
   useGuidedReviewState.setState({ open: target });

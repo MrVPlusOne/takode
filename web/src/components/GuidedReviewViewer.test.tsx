@@ -141,7 +141,10 @@ describe("guided review", () => {
     fireEvent.keyDown(second, { key: "Escape" });
     expect(screen.getByTestId("guided-review-viewer")).toBeInTheDocument();
     fireEvent.click(within(viewer).getByRole("button", { name: "Next" }));
-    fireEvent.click(within(currentStop(viewer)).getByRole("button", { name: "Question" }));
+    // Stops without a question offer only "Looks right"; questions and changes are typed.
+    expect(within(currentStop(viewer)).queryByRole("button", { name: "Question" })).toBeNull();
+    expect(within(currentStop(viewer)).queryByRole("button", { name: "Change" })).toBeNull();
+    fireEvent.click(within(currentStop(viewer)).getByRole("button", { name: "Looks right" }));
     fireEvent.click(within(viewer).getByRole("button", { name: "Wrap up" }));
     expect(viewer).toHaveTextContent("Only network errors");
 
@@ -159,7 +162,7 @@ describe("guided review", () => {
         "   Answer: One hour; clear it on edit.",
         "",
         "On other stops:",
-        '- "Timeout tripled to 15 seconds": Question',
+        '- "Timeout tripled to 15 seconds": Looks right',
       ].join("\n"),
       threadKey: "q-42",
       questId: "q-42",

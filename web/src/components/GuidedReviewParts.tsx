@@ -223,7 +223,8 @@ export function StopAnswer({
         value={answer}
         onChange={setAnswer}
         placeholder={
-          placeholder ?? (stop.question ? "Your answer, or pick one above" : "Optional: a reaction or question")
+          placeholder ??
+          (stop.question ? "Your answer, or pick one above" : "Optional: a question or a change you want")
         }
         ariaLabel={`Answer for ${stop.question ?? stop.title}`}
         focusedContext={focusedContext}
