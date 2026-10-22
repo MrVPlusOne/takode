@@ -135,7 +135,20 @@ iOS Safari has none, so the feed corrects the scroll position after each size
 change of its content. The target lets go as soon as the user touches or
 scrolls the feed, navigates elsewhere, switches thread, or after a few seconds.
 
-### 7. Cold session hydration
+### 7. Returning to a recently viewed session
+
+The last three sessions viewed stay mounted but
+hidden, so going back to one shows it exactly as it was left: the same scroll
+position, open thread and expanded content, with no reload. A hidden session runs
+none of its effects (it sits in a hidden React `Activity`), so it does no work
+and never counts as being viewed: it marks nothing read and sends no viewing
+signal. Only the session on screen does. Older sessions are rebuilt on return and
+restore their saved position as described above.
+
+Whether a report or a long user message is expanded is the session's state,
+kept on the server: a reload or another browser shows it the same way.
+
+### 8. Cold session hydration
 
 When switching to a session whose full history is not yet loaded in the browser:
 

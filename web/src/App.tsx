@@ -1,5 +1,14 @@
 import { browserLoadDiagnostics } from "./utils/browser-load-diagnostics.js";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store.js";
 import {
@@ -86,6 +95,12 @@ import { MarkdownFileViewerHost } from "./components/MarkdownFileViewer.js";
 import { InAppPageViewerHost } from "./components/InAppPageViewer.js";
 import { GuidedReviewViewerHost } from "./components/GuidedReviewViewer.js";
 import { createViewportHandoffEntryId } from "./utils/viewport-handoff-client.js";
+import {
+  EMPTY_CONVERSATION_KEEP_ALIVE,
+  HIDDEN_CONVERSATION_LIMIT,
+  nextConversationKeepAlive,
+} from "./utils/conversation-keep-alive.js";
+import { KeptConversationViews } from "./components/KeptConversationViews.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
 import {
@@ -404,13 +419,8 @@ export default function App() {
   );
   const primarySessionId = route.page === "session" ? routeSessionId : currentSessionId;
   const displayedSessionId = searchPreviewSessionId ?? primarySessionId;
-  const viewportSessionEntryIdentity =
+  const activeConversationSessionId =
     isSessionView && primarySessionId && !isPendingId(primarySessionId) ? primarySessionId : null;
-  const viewportSessionEntryId = useMemo(createViewportHandoffEntryId, [viewportSessionEntryIdentity]);
-  const viewportThreadEntryScopeId = useMemo(createViewportHandoffEntryId, [
-    viewportSessionEntryIdentity,
-    threadRoute.hasThreadParam ? (threadRoute.threadKey ?? "main") : "bare",
-  ]);
   // The chip that opened the diff view names its session and thread; a different session falls back to its route.
   const diffTarget = useStore(
     useShallow((s) => {
@@ -421,6 +431,15 @@ export default function App() {
     }),
   );
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
+  // Recently viewed conversations stay mounted, hidden, so going back to one is instant and exact.
+  const keepAliveRef = useRef(EMPTY_CONVERSATION_KEEP_ALIVE);
+  const keepAlive = (keepAliveRef.current = nextConversationKeepAlive(
+    keepAliveRef.current,
+    activeConversationSessionId,
+    HIDDEN_CONVERSATION_LIMIT,
+    createViewportHandoffEntryId,
+  ));
+  const activeConversation = activeConversationSessionId ? keepAlive.kept[0] : undefined;
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
   const viewportWidth = useViewportWidth(zoomLevel);
   // Wide screens float the secondary view (a page and viewers opened from the conversation) over
@@ -952,37 +971,63 @@ export default function App() {
     };
   }, []);
 
-  // The app shell re-renders on every session-list update; reusing this element lets React skip the
-  // whole conversation then, while ChatView still re-renders for its own props and store slices.
-  const conversationView = useMemo(
+  // The app shell re-renders on every session-list update; reusing these elements lets React skip
+  // the whole conversation then, while ChatView still re-renders for its own props and store slices.
+  // A hidden kept conversation keeps the element it had when last shown.
+  const activeConversationView = useMemo(
     () =>
-      displayedSessionId ? (
+      activeConversation ? (
         <ViewportHandoffSessionEntryGate
-          key={`${displayedSessionId}:${searchPreviewSessionId === displayedSessionId ? "preview" : "active"}`}
-          sessionId={searchPreviewSessionId === displayedSessionId ? null : displayedSessionId}
-          entryId={viewportSessionEntryId}
+          key={`${activeConversation.sessionId}:active`}
+          sessionId={activeConversation.sessionId}
+          entryId={activeConversation.sessionEntryId}
           fallback={
             <div className="flex h-full items-center justify-center text-sm text-cc-muted">Loading conversation...</div>
           }
         >
           <ChatView
-            sessionId={displayedSessionId}
-            preview={searchPreviewSessionId === displayedSessionId}
+            sessionId={activeConversation.sessionId}
             routeThreadKey={threadRoute.threadKey}
             hasThreadRoute={threadRoute.hasThreadParam}
-            viewportHandoffThreadEntryScopeId={viewportThreadEntryScopeId}
+            viewportHandoffThreadEntryScopeId={activeConversation.threadScopeId}
           />
         </ViewportHandoffSessionEntryGate>
       ) : null,
-    [
-      displayedSessionId,
-      searchPreviewSessionId,
-      threadRoute.hasThreadParam,
-      threadRoute.threadKey,
-      viewportSessionEntryId,
-      viewportThreadEntryScopeId,
-    ],
+    [activeConversation, threadRoute.hasThreadParam, threadRoute.threadKey],
   );
+  const keptViewsRef = useRef(new Map<string, ReactNode>());
+  const keptConversationViews = useMemo(() => {
+    const views = keptViewsRef.current;
+    if (activeConversation) views.set(activeConversation.sessionId, activeConversationView);
+    for (const sessionId of views.keys()) {
+      if (!keepAlive.kept.some((entry) => entry.sessionId === sessionId)) views.delete(sessionId);
+    }
+    return [...keepAlive.kept]
+      .sort((a, b) => a.seq - b.seq)
+      .map((entry) => ({ sessionId: entry.sessionId, view: views.get(entry.sessionId) }));
+  }, [activeConversation, activeConversationView, keepAlive.kept]);
+  const previewView = useMemo(
+    () =>
+      searchPreviewSessionId && !isPendingId(searchPreviewSessionId) ? (
+        <ViewportHandoffSessionEntryGate
+          key={`${searchPreviewSessionId}:preview`}
+          sessionId={null}
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-cc-muted">Loading conversation...</div>
+          }
+        >
+          <ChatView
+            sessionId={searchPreviewSessionId}
+            preview
+            routeThreadKey={threadRoute.threadKey}
+            hasThreadRoute={threadRoute.hasThreadParam}
+          />
+        </ViewportHandoffSessionEntryGate>
+      ) : null,
+    [searchPreviewSessionId, threadRoute.hasThreadParam, threadRoute.threadKey],
+  );
+  const visibleConversationSessionId =
+    !searchPreviewSessionId && displayedSessionId === activeConversationSessionId ? activeConversationSessionId : null;
 
   if (route.page === "playground") {
     return (
@@ -1070,15 +1115,20 @@ export default function App() {
           {isSessionView && (
             <>
               {/* Chat tab: the primary view. It stays mounted, hidden, while the diff or a
-                  secondary page covers it, so returning to it does not rebuild the feed. */}
+                  secondary page covers it, so returning to it does not rebuild the feed;
+                  recently viewed conversations stay mounted, hidden, beside it. */}
               <div className={`absolute inset-0 ${primaryHidden ? "invisible" : ""}`} inert={primaryHidden}>
+                <KeptConversationViews
+                  conversations={keptConversationViews}
+                  visibleSessionId={visibleConversationSessionId}
+                />
                 {displayedSessionId && isPendingId(displayedSessionId) ? (
                   <SessionCreationView pendingId={displayedSessionId} />
-                ) : displayedSessionId ? (
-                  conversationView
-                ) : (
+                ) : searchPreviewSessionId ? (
+                  previewView
+                ) : !displayedSessionId ? (
                   <EmptyState />
-                )}
+                ) : null}
               </div>
 
               {/* Diff tab, covering the conversation where there is no right-hand area */}

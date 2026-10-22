@@ -45,11 +45,18 @@ vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({ threadKey }: { threadKey: string }) => <div data-testid="message-feed" data-thread-key={threadKey} />,
 }));
 vi.mock("./WorkBoardBar.js", () => ({ WorkBoardBar: () => null }));
+const mockRecordViewedTab = vi.hoisted(() => vi.fn());
+vi.mock("../utils/view-history.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/view-history.js")>()),
+  recordViewedTab: mockRecordViewedTab,
+}));
 
 import { useStore } from "../store.js";
 import { threadRouteFromHash } from "../utils/routing.js";
 import { ChatView } from "./ChatView.js";
 import { THREAD_READ_DWELL_MS } from "../hooks/use-thread-read-on-screen.js";
+import { KeptConversationViews } from "./KeptConversationViews.js";
+import { readDisplayedLeaderThreadKey } from "../utils/thread-viewport.js";
 
 const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 };
 let visibility: DocumentVisibilityState = "visible";
@@ -145,6 +152,7 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   mockMarkNotificationDone.mockClear();
+  mockRecordViewedTab.mockClear();
   visibility = "visible";
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
 });
@@ -234,5 +242,51 @@ describe("ChatView marking Ready results read", () => {
     render(<ChatView sessionId="leader" preview hasThreadRoute routeThreadKey="q-1" />);
     act(() => vi.advanceTimersByTime(10 * THREAD_READ_DWELL_MS));
     expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+  });
+
+  it("does not count a conversation kept mounted but hidden as viewed", () => {
+    // Recently viewed conversations stay mounted, hidden, so going back is instant. Only the
+    // one on screen is being viewed: a result arriving in a hidden leader's selected thread
+    // stays unread, the leader is not recorded as viewed or as showing a thread, until the
+    // user comes back and it has been on screen for the dwell.
+    installLeader([]);
+    window.location.hash = "#/session/leader?thread=q-1";
+    const leaderView = <ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1" />;
+    const otherView = <div data-testid="other-conversation" />;
+    const showing = (visibleSessionId: string) => (
+      <KeptConversationViews
+        conversations={[
+          { sessionId: "leader", view: leaderView },
+          { sessionId: "other", view: otherView },
+        ]}
+        visibleSessionId={visibleSessionId}
+      />
+    );
+    const view = render(showing("leader"));
+    act(() => vi.advanceTimersByTime(THREAD_READ_DWELL_MS));
+    expect(readDisplayedLeaderThreadKey("leader")).toBe("q-1");
+    expect(mockRecordViewedTab).toHaveBeenCalledWith("leader", "q-1");
+
+    window.location.hash = "#/session/other";
+    view.rerender(showing("other"));
+    mockRecordViewedTab.mockClear();
+    expect(screen.getByTestId("message-feed")).not.toBeVisible();
+    expect(readDisplayedLeaderThreadKey("leader")).toBeNull();
+
+    act(() => {
+      useStore.getState().setSessionNotifications("leader", [review("n-q1", { threadKey: "q-1", questId: "q-1" })]);
+    });
+    act(() => vi.advanceTimersByTime(10 * THREAD_READ_DWELL_MS));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+    expect(mockRecordViewedTab).not.toHaveBeenCalled();
+
+    window.location.hash = "#/session/leader?thread=q-1";
+    view.rerender(showing("leader"));
+    expect(screen.getByTestId("message-feed")).toBeVisible();
+    expect(readDisplayedLeaderThreadKey("leader")).toBe("q-1");
+    act(() => vi.advanceTimersByTime(THREAD_READ_DWELL_MS - 100));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(200));
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-q1", true);
   });
 });

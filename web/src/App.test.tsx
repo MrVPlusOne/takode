@@ -432,11 +432,32 @@ function latestViewportSessionEntryId(sessionId: string): string | undefined {
   return calls.at(-1)?.entryId;
 }
 
+// Recently viewed conversations stay mounted in hidden Activity boundaries (display: none),
+// so "the chat view" means the one actually on screen.
+function isShown(element: Element): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    if ((node as HTMLElement).style?.display === "none") return false;
+  }
+  return true;
+}
+
+function queryVisibleChatView(): HTMLElement | null {
+  const shown = screen.queryAllByTestId("chat-view").filter(isShown);
+  if (shown.length > 1) throw new Error(`${shown.length} chat views are shown at once`);
+  return shown[0] ?? null;
+}
+
+function visibleChatView(): HTMLElement {
+  const view = queryVisibleChatView();
+  if (!view) throw new Error("No chat view is shown");
+  return view;
+}
+
 // The session stays the primary view while a page (Questmaster, Memory, Settings...) is open,
 // so closing the page never rebuilds the feed or reconnects the session.
 describe("App primary and secondary views", () => {
   function chatLayer(): HTMLElement {
-    return screen.getByTestId("chat-view").closest(".absolute") as HTMLElement;
+    return visibleChatView().closest(".absolute") as HTMLElement;
   }
 
   it("keeps the conversation mounted and connected while a page covers it on phones", async () => {
@@ -509,7 +530,7 @@ describe("App primary and secondary views", () => {
     window.location.hash = "#/questmaster?quest=q-1";
 
     await waitFor(() => expect(window.location.hash).toBe("#/session/s1?quest=q-1&thread=q-9&view=questmaster"));
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1");
+    expect(visibleChatView()).toHaveAttribute("data-session-id", "s1");
     expect(mockDisconnectSession).not.toHaveBeenCalled();
   });
 
@@ -635,18 +656,31 @@ describe("App quest overlay routes", () => {
 });
 
 describe("App hidden panels", () => {
-  it("reuses one session entry across Chat to Diff to Chat but refreshes a true A to B to A return", async () => {
+  it("keeps a recently viewed session mounted with its entry, and refreshes it only once it is dropped", async () => {
+    // Going back to a recently viewed session shows the same mounted conversation: a new
+    // viewport handoff entry would make its gates wait for a read and rebuild it. Desktop keeps
+    // three hidden conversations, so a fifth session drops the first, and returning to the
+    // first then starts a fresh entry as every return used to.
     resetStore({
-      sdkSessions: [
-        { sessionId: "s1", createdAt: 1, archived: false, cwd: "/repo/s1", backendType: "claude" },
-        { sessionId: "s2", createdAt: 2, archived: false, cwd: "/repo/s2", backendType: "claude" },
-      ],
+      sdkSessions: ["s1", "s2", "s3", "s4", "s5"].map((sessionId, index) => ({
+        sessionId,
+        createdAt: index + 1,
+        archived: false,
+        cwd: `/repo/${sessionId}`,
+        backendType: "claude",
+      })),
     });
     history.replaceState(null, "", "#/session/s1");
     const view = render(<App />);
+    const visit = (sessionId: string) =>
+      act(() => {
+        history.pushState(null, "", `#/session/${sessionId}`);
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      });
 
     await waitFor(() => expect(latestViewportSessionEntryId("s1")).toBeTruthy());
     const firstS1EntryId = latestViewportSessionEntryId("s1");
+    const firstS1View = visibleChatView();
 
     mockState.activeTab = "diff";
     view.rerender(<App />);
@@ -654,23 +688,39 @@ describe("App hidden panels", () => {
 
     mockState.activeTab = "chat";
     view.rerender(<App />);
-    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1"));
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s1"));
     expect(latestViewportSessionEntryId("s1")).toBe(firstS1EntryId);
 
+    visit("s2");
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s2"));
+    expect(latestViewportSessionEntryId("s2")).not.toBe(firstS1EntryId);
+    // s1 stays mounted, hidden, and is not treated as viewed: session-list updates mark only
+    // the session on screen read.
+    expect(firstS1View.isConnected).toBe(true);
+    expect(isShown(firstS1View)).toBe(false);
+    mockSendToSession.mockClear();
+    mockMarkSessionRead.mockClear();
     act(() => {
-      history.pushState(null, "", "#/session/s2");
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      mockState.sdkSessions = [...mockState.sdkSessions];
     });
-    await waitFor(() => expect(latestViewportSessionEntryId("s2")).toBeTruthy());
-    const s2EntryId = latestViewportSessionEntryId("s2");
-    expect(s2EntryId).not.toBe(firstS1EntryId);
+    view.rerender(<App />);
+    expect(mockMarkSessionRead).toHaveBeenCalledWith("s2", { mode: "session-view" });
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.anything());
+    expect(mockMarkSessionRead).not.toHaveBeenCalledWith("s1", expect.anything());
 
-    act(() => {
-      history.pushState(null, "", "#/session/s1");
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    });
-    await waitFor(() => expect(latestViewportSessionEntryId("s1")).not.toBe(firstS1EntryId));
-    expect(latestViewportSessionEntryId("s1")).not.toBe(s2EntryId);
+    visit("s1");
+    await waitFor(() => expect(visibleChatView()).toBe(firstS1View));
+    expect(latestViewportSessionEntryId("s1")).toBe(firstS1EntryId);
+
+    for (const sessionId of ["s2", "s3", "s4", "s5"]) visit(sessionId);
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s5"));
+    expect(firstS1View.isConnected).toBe(false);
+    expect(screen.getAllByTestId("chat-view")).toHaveLength(4);
+
+    visit("s1");
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s1"));
+    expect(visibleChatView()).not.toBe(firstS1View);
+    expect(latestViewportSessionEntryId("s1")).not.toBe(firstS1EntryId);
   });
   it("does not mount the desktop sidebar while it is closed", () => {
     resetStore({ sidebarOpen: false, taskPanelOpen: false });
@@ -762,8 +812,8 @@ describe("App hidden panels", () => {
 
     render(<App />);
 
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2");
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-preview", "true");
+    expect(visibleChatView()).toHaveAttribute("data-session-id", "s2");
+    expect(visibleChatView()).toHaveAttribute("data-preview", "true");
     expect(screen.getByTestId("codex-subagent-inspector-host")).toHaveAttribute("data-session-id", "s1");
   });
 
@@ -982,7 +1032,7 @@ describe("App hidden panels", () => {
 
     expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
     // Returning from the diff must not rebuild the feed or lose its scroll position.
-    const chatLayer = screen.getByTestId("chat-view").closest(".absolute") as HTMLElement;
+    const chatLayer = visibleChatView().closest(".absolute") as HTMLElement;
     expect(chatLayer).toHaveClass("invisible");
     expect(chatLayer).toHaveAttribute("inert");
   });
@@ -1032,7 +1082,7 @@ describe("App hidden panels", () => {
 
     render(<App />);
 
-    const chatView = screen.getByTestId("chat-view");
+    const chatView = visibleChatView();
     expect(chatView).toHaveAttribute("data-session-id", "s2");
     expect(chatView).toHaveAttribute("data-preview", "true");
     expect(mockConnectSession).toHaveBeenCalledWith("s2");
@@ -1056,7 +1106,7 @@ describe("App hidden panels", () => {
 
     render(<App />);
 
-    const chatView = screen.getByTestId("chat-view");
+    const chatView = visibleChatView();
     expect(chatView).toHaveAttribute("data-session-id", "s2");
     expect(chatView).toHaveAttribute("data-preview", "true");
     expect(screen.queryByText("Server unreachable")).toBeNull();
@@ -1204,7 +1254,7 @@ describe("App hidden panels", () => {
       expect(mockState.requestScrollToMessage).toHaveBeenCalledWith("s1", "m2");
       expect(mockState.setExpandAllInTurn).toHaveBeenCalledWith("s1", "m2");
     });
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1");
+    expect(visibleChatView()).toHaveAttribute("data-session-id", "s1");
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
   });
 
@@ -1235,7 +1285,7 @@ describe("App hidden panels", () => {
       expect(mockState.requestScrollToMessage).toHaveBeenCalledWith("s1", "stable-thread-message");
       expect(mockState.setExpandAllInTurn).toHaveBeenCalledWith("s1", "stable-thread-message");
     });
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-route-thread-key", "q-1622");
+    expect(visibleChatView()).toHaveAttribute("data-route-thread-key", "q-1622");
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
   });
 
@@ -1268,7 +1318,7 @@ describe("App hidden panels", () => {
     mockState.sdkSessions = [{ ...sdkSession, lastActivityAt: 2 }];
     view.rerender(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-route-thread-key", "q-1622"));
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-route-thread-key", "q-1622"));
     expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(1);
     expect(mockState.setPendingScrollToMessageId).toHaveBeenCalledTimes(1);
     expect(mockState.setExpandAllInTurn).toHaveBeenCalledTimes(1);
@@ -1313,10 +1363,10 @@ describe("App hidden panels", () => {
     const consumedRequestCount = mockState.requestScrollToMessage.mock.calls.length;
 
     window.location.hash = "/session/456";
-    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2"));
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s2"));
     history.back();
     await waitFor(() => expect(window.location.hash).toBe("#/session/123?thread=main"));
-    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1"));
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s1"));
     expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(consumedRequestCount);
 
     window.location.hash = "/session/123/msg/stable-search-target?thread=main";
@@ -1353,7 +1403,7 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(screen.getByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-view")).toBeNull();
+    expect(queryVisibleChatView()).toBeNull();
     expect(screen.queryByTestId("session-creation-view")).toBeNull();
     expect(mockState.setCurrentSession).not.toHaveBeenCalledWith("123");
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
@@ -1430,7 +1480,7 @@ describe("App hidden panels", () => {
     window.location.hash = "#/session/s1";
 
     const view = render(<App />);
-    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2");
+    expect(visibleChatView()).toHaveAttribute("data-session-id", "s2");
 
     resetStore({
       currentSessionId: "s1",
@@ -1440,7 +1490,7 @@ describe("App hidden panels", () => {
     });
     view.rerender(<App />);
 
-    const chatView = screen.getByTestId("chat-view");
+    const chatView = visibleChatView();
     expect(chatView).toHaveAttribute("data-session-id", "s1");
     expect(chatView).toHaveAttribute("data-preview", "false");
     expect(mockDisconnectSession).toHaveBeenCalledWith("s2");
