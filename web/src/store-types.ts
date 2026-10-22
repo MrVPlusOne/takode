@@ -218,6 +218,13 @@ export interface AppState {
   sidebarViewMode: "spaces" | "recent";
   /** Saves the choice on the server, which keeps one view for every browser. */
   setSidebarViewMode: (mode: "spaces" | "recent") => void;
+  /** Portrait pools collapsed in the leader portrait picker; loaded from the server's settings. */
+  leaderProfileCollapsedPools: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId[];
+  /** Collapses or expands one pool and saves the choice on the server, so every device shows the same. */
+  setLeaderProfilePoolCollapsed: (
+    poolId: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId,
+    collapsed: boolean,
+  ) => void;
   taskPanelOpen: boolean;
   searchPreviewSessionId: string | null;
   newSessionModalState: {

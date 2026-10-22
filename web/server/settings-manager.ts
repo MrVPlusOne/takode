@@ -7,7 +7,9 @@ import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "./pushover.js";
 import {
   DEFAULT_LEADER_PROFILE_POOLS,
+  normalizeLeaderProfileCollapsedPools,
   normalizeLeaderProfilePoolSettings,
+  type LeaderProfilePoolId,
   type LeaderProfilePoolSettings,
 } from "../shared/leader-profile-portraits.js";
 import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
@@ -108,6 +110,8 @@ export interface CompanionSettings {
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
   leaderProfilePools?: LeaderProfilePoolSettings;
+  /** Portrait pools the user collapsed in the leader portrait picker, kept on the server so every device matches. */
+  leaderProfileCollapsedPools?: LeaderProfilePoolId[];
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
   shortcutSettings?: ShortcutSettings;
   /** Server-authoritative defaults for future manually-created and spawned sessions. Optional for backward-compatible tests/mocks. */
@@ -280,6 +284,7 @@ let settings: CompanionSettings = {
   codexLeaderRecycleThresholdTokensByModel: {},
   codexLeaderCompactionMode: DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
+  leaderProfileCollapsedPools: [],
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
   updatedAt: 0,
@@ -582,6 +587,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     ),
     codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(raw?.codexLeaderCompactionMode),
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
+    leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(raw?.leaderProfileCollapsedPools),
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
@@ -723,6 +729,7 @@ export function updateSettings(
       | "codexLeaderRecycleThresholdTokensByModel"
       | "codexLeaderCompactionMode"
       | "leaderProfilePools"
+      | "leaderProfileCollapsedPools"
       | "shortcutSettings"
       | "sessionDefaults"
       | "workerSlotLimits"
@@ -743,6 +750,9 @@ export function updateSettings(
   }
   if (defined.leaderProfilePools) {
     defined.leaderProfilePools = normalizeLeaderProfilePoolSettings(defined.leaderProfilePools);
+  }
+  if (defined.leaderProfileCollapsedPools) {
+    defined.leaderProfileCollapsedPools = normalizeLeaderProfileCollapsedPools(defined.leaderProfileCollapsedPools);
   }
   if (defined.sessionDefaults) {
     defined.sessionDefaults = normalizeSessionDefaults(defined.sessionDefaults);

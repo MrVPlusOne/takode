@@ -120,6 +120,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
+import { normalizeLeaderProfileCollapsedPools } from "../shared/leader-profile-portraits.js";
 
 export {
   reconcileQuestList,
@@ -265,6 +266,7 @@ export const useStore = create<AppState>((set, get) => ({
       ? "activity"
       : "created",
   sidebarViewMode: "spaces",
+  leaderProfileCollapsedPools: [],
   taskPanelOpen: false,
   searchPreviewSessionId: null,
   newSessionModalState: null,
@@ -480,6 +482,16 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ sidebarViewMode: mode }).catch((err) => {
       console.warn("[store] failed to save sidebar view:", err);
       if (get().sidebarViewMode === mode) set({ sidebarViewMode: previous });
+    });
+  },
+  setLeaderProfilePoolCollapsed: (poolId, collapsed) => {
+    const previous = get().leaderProfileCollapsedPools;
+    const others = previous.filter((id) => id !== poolId);
+    const next = normalizeLeaderProfileCollapsedPools(collapsed ? [...others, poolId] : others);
+    set({ leaderProfileCollapsedPools: next });
+    api.updateSettings({ leaderProfileCollapsedPools: next }).catch((err) => {
+      console.warn("[store] failed to save collapsed portrait groups:", err);
+      if (get().leaderProfileCollapsedPools === next) set({ leaderProfileCollapsedPools: previous });
     });
   },
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open, ...(open ? { codexSubagentInspector: null } : {}) }),

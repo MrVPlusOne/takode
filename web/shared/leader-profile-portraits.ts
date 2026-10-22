@@ -61,6 +61,12 @@ export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfileP
   ) as LeaderProfilePoolSettings;
 }
 
+/** Pools collapsed in the portrait picker, in pool order; unknown ids and duplicates are dropped. */
+export function normalizeLeaderProfileCollapsedPools(raw: unknown): LeaderProfilePoolId[] {
+  const values = Array.isArray(raw) ? raw : [];
+  return LEADER_PROFILE_POOL_IDS.filter((id) => values.includes(id));
+}
+
 export function getLeaderProfilePortrait(id: string | null | undefined): LeaderProfilePortrait | null {
   if (!id || id === FALLBACK_LEADER_PROFILE_PORTRAIT.id) return null;
   const normalizedId = normalizeLeaderProfilePortraitId(id);

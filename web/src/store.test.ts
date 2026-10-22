@@ -275,6 +275,25 @@ describe("Send key scheme", () => {
   });
 });
 
+describe("Leader portrait picker groups", () => {
+  it("saves the whole collapsed list in pool order and reverts when the save fails", async () => {
+    // The server keeps one list for every device, so each toggle sends the full list, not a delta.
+    useStore.setState({ leaderProfileCollapsedPools: [] });
+    useStore.getState().setLeaderProfilePoolCollapsed("animals", true);
+    useStore.getState().setLeaderProfilePoolCollapsed("tako", true);
+    expect(useStore.getState().leaderProfileCollapsedPools).toEqual(["tako", "animals"]);
+    expect(mockUpdateSettings).toHaveBeenLastCalledWith({ leaderProfileCollapsedPools: ["tako", "animals"] });
+
+    mockUpdateSettings.mockRejectedValueOnce(new Error("offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    useStore.getState().setLeaderProfilePoolCollapsed("tako", false);
+    expect(useStore.getState().leaderProfileCollapsedPools).toEqual(["animals"]);
+    await vi.waitFor(() => expect(useStore.getState().leaderProfileCollapsedPools).toEqual(["tako", "animals"]));
+    warn.mockRestore();
+    useStore.setState({ leaderProfileCollapsedPools: [] });
+  });
+});
+
 // ─── Session management ─────────────────────────────────────────────────────
 
 describe("Session management", () => {

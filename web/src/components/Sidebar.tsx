@@ -18,6 +18,7 @@ import {
 } from "../store.js";
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
+import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
 import { navigateToSession, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
@@ -267,6 +268,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
         useStore.setState({
           sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
           sidebarViewMode: s.sidebarViewMode === "recent" ? "recent" : "spaces",
+          leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
         });
       })
       .catch(() => {});

@@ -708,6 +708,33 @@ describe("PUT /api/settings", () => {
     expect(json.leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
   });
 
+  it("saves collapsed portrait picker groups and rejects unknown pools", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      leaderProfileCollapsedPools: ["shmi"],
+      updatedAt: Date.now(),
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaderProfileCollapsedPools: ["shmi"] }),
+    });
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ leaderProfileCollapsedPools: ["shmi"] }),
+    );
+    expect((await res.json()).leaderProfileCollapsedPools).toEqual(["shmi"]);
+
+    const bad = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaderProfileCollapsedPools: ["dogs"] }),
+    });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe("Unknown leader profile pool: dogs");
+  });
+
   it("trims pushover keys", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",

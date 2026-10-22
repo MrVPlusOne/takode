@@ -45,6 +45,7 @@ import {
   FALLBACK_LEADER_PROFILE_PORTRAIT,
   LEADER_PROFILE_POOLS,
   LEADER_PROFILE_PORTRAITS,
+  normalizeLeaderProfileCollapsedPools,
   normalizeLeaderProfilePoolSettings,
 } from "../../shared/leader-profile-portraits.js";
 import {
@@ -1075,6 +1076,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(settings.codexLeaderCompactionMode),
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
+      leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(settings.leaderProfileCollapsedPools),
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
@@ -1416,6 +1418,16 @@ export function createSettingsRoutes(ctx: RouteContext) {
         }
       }
     }
+    if (body.leaderProfileCollapsedPools !== undefined) {
+      if (!Array.isArray(body.leaderProfileCollapsedPools)) {
+        return c.json({ error: "leaderProfileCollapsedPools must be an array of pool ids" }, 400);
+      }
+      for (const id of body.leaderProfileCollapsedPools as unknown[]) {
+        if (!LEADER_PROFILE_POOLS.some((pool) => pool.id === id)) {
+          return c.json({ error: `Unknown leader profile pool: ${String(id)}` }, 400);
+        }
+      }
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -1448,6 +1460,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexLeaderRecycleThresholdTokensByModel",
       "codexLeaderCompactionMode",
       "leaderProfilePools",
+      "leaderProfileCollapsedPools",
       "shortcutSettings",
       "sessionDefaults",
       "workerSlotLimits",
@@ -1514,6 +1527,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.leaderProfilePools && typeof body.leaderProfilePools === "object"
           ? normalizeLeaderProfilePoolSettings(body.leaderProfilePools)
           : undefined,
+      leaderProfileCollapsedPools: Array.isArray(body.leaderProfileCollapsedPools)
+        ? normalizeLeaderProfileCollapsedPools(body.leaderProfileCollapsedPools)
+        : undefined,
       shortcutSettings:
         body.shortcutSettings && typeof body.shortcutSettings === "object"
           ? parseShortcutSettingsFromBody(body.shortcutSettings as Record<string, unknown>)

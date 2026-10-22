@@ -5,9 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
 const updateSdkSession = vi.hoisted(() => vi.fn());
+const setLeaderProfilePoolCollapsed = vi.hoisted(() => vi.fn());
+const storeState = vi.hoisted(() => ({ leaderProfileCollapsedPools: [] as string[] }));
 vi.mock("../store.js", () => ({
-  useStore: (selector: (state: { updateSdkSession: typeof updateSdkSession }) => unknown) =>
-    selector({ updateSdkSession }),
+  useStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      updateSdkSession,
+      setLeaderProfilePoolCollapsed,
+      leaderProfileCollapsedPools: storeState.leaderProfileCollapsedPools,
+      zoomLevel: 1,
+    }),
 }));
 
 vi.mock("../api.js", () => ({
@@ -38,6 +45,8 @@ function renderButton(portrait = TAKO_PORTRAIT) {
 describe("LeaderProfilePortraitButton", () => {
   beforeEach(() => {
     updateSdkSession.mockClear();
+    setLeaderProfilePoolCollapsed.mockClear();
+    storeState.leaderProfileCollapsedPools = [];
   });
 
   it("shows the portrait with its label and opens the picker", () => {
@@ -116,6 +125,49 @@ describe("LeaderProfilePortraitButton", () => {
       });
     } finally {
       rectSpy.mockRestore();
+      window.innerWidth = originalInnerWidth;
+      window.innerHeight = originalInnerHeight;
+    }
+  });
+
+  it("collapses and expands a group through the store, which saves the choice on the server", () => {
+    renderButton();
+    fireEvent.click(screen.getByRole("button", { name: "Edit leader profile picture" }));
+
+    const shmiToggle = screen.getByRole("button", { name: "Shmi" });
+    expect(shmiToggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(shmiToggle);
+    expect(setLeaderProfilePoolCollapsed).toHaveBeenCalledWith("shmi", true);
+  });
+
+  it("hides the portraits of collapsed groups but keeps their headers", () => {
+    // State comes from the server-loaded store, so a group collapsed on another device opens collapsed here.
+    storeState.leaderProfileCollapsedPools = ["shmi"];
+    renderButton();
+    fireEvent.click(screen.getByRole("button", { name: "Edit leader profile picture" }));
+
+    const shmiToggle = screen.getByRole("button", { name: "Shmi" });
+    expect(shmiToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTitle(SHMI_PORTRAIT.label)).toBeNull();
+    expect(screen.getByTitle(TAKO_PORTRAIT.label)).toBeInTheDocument();
+
+    fireEvent.click(shmiToggle);
+    expect(setLeaderProfilePoolCollapsed).toHaveBeenCalledWith("shmi", false);
+  });
+
+  it("uses a wider panel with bigger thumbnails on the desktop layout", () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    window.innerWidth = 1440;
+    window.innerHeight = 1000;
+    try {
+      renderButton();
+      fireEvent.click(screen.getByRole("button", { name: "Edit leader profile picture" }));
+
+      const dialog = screen.getByRole("dialog", { name: "Leader profile" });
+      expect(dialog).toHaveStyle({ width: "520px", maxHeight: "760px" });
+      expect(within(dialog).getByAltText(SHMI_PORTRAIT.label)).toHaveClass("h-12", "w-12");
+    } finally {
       window.innerWidth = originalInnerWidth;
       window.innerHeight = originalInnerHeight;
     }

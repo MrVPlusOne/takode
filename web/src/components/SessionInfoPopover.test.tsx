@@ -191,6 +191,8 @@ interface MockStoreState {
   syncedProjectionKeys: Set<string>;
   serverReachable: boolean;
   updateSdkSession: ReturnType<typeof vi.fn>;
+  leaderProfileCollapsedPools: string[];
+  setLeaderProfilePoolCollapsed: ReturnType<typeof vi.fn>;
 }
 
 let storeState: MockStoreState;
@@ -255,6 +257,8 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     syncedProjectionKeys: new Set(),
     serverReachable: true,
     updateSdkSession: vi.fn(),
+    leaderProfileCollapsedPools: [],
+    setLeaderProfilePoolCollapsed: vi.fn(),
   };
 }
 

@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 import type {
   LeaderProfilePool,
+  LeaderProfilePoolId,
   LeaderProfilePoolSettings,
   LeaderProfilePortrait,
 } from "../shared/leader-profile-portraits.js";
@@ -688,6 +689,7 @@ export interface AppSettings {
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   leaderProfilePools: LeaderProfilePoolSettings;
+  leaderProfileCollapsedPools?: LeaderProfilePoolId[];
   leaderProfilePortraits: LeaderProfilePortrait[];
   leaderProfileFallbackPortrait: LeaderProfilePortrait;
   leaderProfilePoolOptions: LeaderProfilePool[];
@@ -1439,6 +1441,7 @@ export const api = {
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
     codexLeaderCompactionMode?: CodexLeaderCompactionMode;
     leaderProfilePools?: LeaderProfilePoolSettings;
+    leaderProfileCollapsedPools?: LeaderProfilePoolId[];
     shortcutSettings?: ShortcutSettings;
     sessionDefaults?: SessionDefaultsSettings;
     workerSlotLimits?: Partial<WorkerSlotLimits>;

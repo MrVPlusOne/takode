@@ -2,14 +2,18 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import { LEADER_PROFILE_POOLS, LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
 const PANEL_MARGIN = 12;
 const PANEL_GAP = 8;
-const PANEL_WIDTH = 300;
-const PANEL_MAX_HEIGHT = 520;
 const PANEL_MIN_HEIGHT = 180;
+// Desktop has room for a wider panel with bigger thumbnails, which makes faces easier to tell apart.
+const PANEL_SIZES = {
+  phone: { width: 300, maxHeight: 520, gridClass: "grid-cols-6 gap-1.5", thumbClass: "h-9 w-9" },
+  desktop: { width: 520, maxHeight: 760, gridClass: "grid-cols-8 gap-2", thumbClass: "h-12 w-12" },
+} as const;
 
 const PORTRAIT_SIZE_CLASS = {
   sm: "h-5 w-5",
@@ -94,6 +98,9 @@ export function LeaderProfilePortraitButton({
   const [error, setError] = useState("");
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const updateSdkSession = useStore((state) => state.updateSdkSession);
+  const collapsedPools = useStore((state) => state.leaderProfileCollapsedPools);
+  const setPoolCollapsed = useStore((state) => state.setLeaderProfilePoolCollapsed);
+  const sizes = useDesktopShellLayout() ? PANEL_SIZES.desktop : PANEL_SIZES.phone;
   const portraitGroups = useMemo(() => {
     const orderedPools = [...LEADER_PROFILE_POOLS].sort((left, right) => {
       if (left.id === portrait.poolId) return -1;
@@ -121,8 +128,8 @@ export function LeaderProfilePortraitButton({
     if (!anchor || typeof window === "undefined") return undefined;
     const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-    const width = Math.min(PANEL_WIDTH, Math.max(0, viewportWidth - PANEL_MARGIN * 2));
-    const maxHeight = Math.min(PANEL_MAX_HEIGHT, Math.max(PANEL_MIN_HEIGHT, viewportHeight - PANEL_MARGIN * 2));
+    const width = Math.min(sizes.width, Math.max(0, viewportWidth - PANEL_MARGIN * 2));
+    const maxHeight = Math.min(sizes.maxHeight, Math.max(PANEL_MIN_HEIGHT, viewportHeight - PANEL_MARGIN * 2));
     const left = Math.min(
       Math.max(PANEL_MARGIN, anchor.left),
       Math.max(PANEL_MARGIN, viewportWidth - width - PANEL_MARGIN),
@@ -132,7 +139,7 @@ export function LeaderProfilePortraitButton({
       Math.max(PANEL_MARGIN, viewportHeight - maxHeight - PANEL_MARGIN),
     );
     return { left, top, width, maxHeight } satisfies CSSProperties;
-  }, [anchor]);
+  }, [anchor, sizes]);
 
   async function selectPortrait(next: LeaderProfilePortrait) {
     if (next.id === portrait.id) return;
@@ -211,42 +218,54 @@ export function LeaderProfilePortraitButton({
                 </div>
                 <div data-testid="leader-profile-portrait-grid-scroll" className="mt-3 min-h-0 overflow-y-auto pr-1">
                   <div className="space-y-3">
-                    {portraitGroups.map(({ pool, portraits }) => (
-                      <section key={pool.id} aria-labelledby={`leader-profile-pool-${pool.id}`}>
-                        <div
-                          id={`leader-profile-pool-${pool.id}`}
-                          className="mb-1.5 text-xs font-semibold text-cc-muted"
-                        >
-                          {pool.label}
-                        </div>
-                        <div className="grid grid-cols-6 gap-1.5">
-                          {portraits.map((option) => (
-                            <button
-                              key={option.id}
-                              type="button"
-                              disabled={savingId !== null}
-                              onClick={() => selectPortrait(option)}
-                              className={`rounded-full p-0.5 transition ${
-                                option.id === portrait.id
-                                  ? "ring-2 ring-cc-primary"
-                                  : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
-                              } ${savingId === option.id ? "opacity-60" : ""}`}
-                              title={option.label}
+                    {portraitGroups.map(({ pool, portraits }) => {
+                      const collapsed = collapsedPools.includes(pool.id);
+                      return (
+                        <section key={pool.id} aria-labelledby={`leader-profile-pool-${pool.id}`}>
+                          <button
+                            type="button"
+                            aria-expanded={!collapsed}
+                            aria-controls={`leader-profile-pool-grid-${pool.id}`}
+                            onClick={() => setPoolCollapsed(pool.id, !collapsed)}
+                            className="mb-1.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-xs font-semibold text-cc-muted transition hover:text-cc-fg"
+                          >
+                            <Chevron open={!collapsed} />
+                            <span id={`leader-profile-pool-${pool.id}`}>{pool.label}</span>
+                          </button>
+                          {!collapsed && (
+                            <div
+                              id={`leader-profile-pool-grid-${pool.id}`}
+                              className={`grid justify-items-center ${sizes.gridClass}`}
                             >
-                              <img
-                                src={option.smallUrl}
-                                alt={option.label}
-                                width={option.smallSize}
-                                height={option.smallSize}
-                                loading="lazy"
-                                decoding="async"
-                                className="h-9 w-9 rounded-full object-cover"
-                              />
-                            </button>
-                          ))}
-                        </div>
-                      </section>
-                    ))}
+                              {portraits.map((option) => (
+                                <button
+                                  key={option.id}
+                                  type="button"
+                                  disabled={savingId !== null}
+                                  onClick={() => selectPortrait(option)}
+                                  className={`rounded-full p-0.5 transition ${
+                                    option.id === portrait.id
+                                      ? "ring-2 ring-cc-primary"
+                                      : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
+                                  } ${savingId === option.id ? "opacity-60" : ""}`}
+                                  title={option.label}
+                                >
+                                  <img
+                                    src={option.smallUrl}
+                                    alt={option.label}
+                                    width={option.smallSize}
+                                    height={option.smallSize}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className={`${sizes.thumbClass} rounded-full object-cover`}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })}
                   </div>
                 </div>
                 {error && (
@@ -258,5 +277,20 @@ export function LeaderProfilePortraitButton({
           )
         : null}
     </>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      aria-hidden="true"
+      className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

@@ -78,6 +78,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
       leaderProfilePools: { tako: true, shmi: true, animals: false },
+      leaderProfileCollapsedPools: [],
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
@@ -244,6 +245,22 @@ describe("settings-manager", () => {
 
     _resetForTest(settingsPath);
     expect(getSettings().leaderProfilePools).toEqual({ tako: false, shmi: true, animals: false });
+  });
+
+  it("persists collapsed portrait picker groups, keeping only known pools in pool order", async () => {
+    // The picker saves the whole list; stale or unknown ids (a removed pool) must not survive a save.
+    const updated = updateSettings({
+      leaderProfileCollapsedPools: ["animals", "retired-pool", "tako", "animals"] as never,
+    });
+    expect(updated.leaderProfileCollapsedPools).toEqual(["tako", "animals"]);
+
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().leaderProfileCollapsedPools).toEqual(["tako", "animals"]);
+
+    // Expanding every group saves an empty list rather than being skipped as "no change".
+    updateSettings({ leaderProfileCollapsedPools: [] });
+    expect(getSettings().leaderProfileCollapsedPools).toEqual([]);
   });
 
   it("normalizes and persists centralized session defaults", async () => {
@@ -703,6 +720,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
       leaderProfilePools: { tako: true, shmi: true, animals: false },
+      leaderProfileCollapsedPools: [],
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
