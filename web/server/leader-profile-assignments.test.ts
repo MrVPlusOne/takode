@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { LEADER_PROFILE_PORTRAITS } from "../shared/leader-profile-portraits.js";
 import {
+  chooseDistinctLeaderProfilePortraitIds,
   chooseRandomLeaderProfilePortraitId,
   getLeaderProfilePortraitForSession,
   type LeaderProfileSessionRecord,
@@ -51,5 +53,19 @@ describe("leader profile assignments", () => {
 
     expect(portrait).toMatchObject({ id: "tako2-01", poolId: "tako" });
     expect(persist).toHaveBeenCalledWith("tako2-01");
+  });
+
+  it("gives each leader a different portrait while there are enough, and agrees on a re-run", () => {
+    // Switching every leader at once should make them easy to tell apart, so collisions move to the next free slot.
+    const portraits = LEADER_PROFILE_PORTRAITS.filter((portrait) => portrait.poolId === "animals").slice(0, 3);
+    const ids = ["leader-a", "leader-b", "leader-c"];
+    const chosen = chooseDistinctLeaderProfilePortraitIds(ids, portraits);
+    expect(new Set(chosen.values()).size).toBe(3);
+    expect(chooseDistinctLeaderProfilePortraitIds(ids, portraits)).toEqual(chosen);
+
+    // More leaders than portraits still gives every leader one.
+    const crowded = chooseDistinctLeaderProfilePortraitIds([...ids, "leader-d"], portraits);
+    expect(crowded.size).toBe(4);
+    expect(chooseDistinctLeaderProfilePortraitIds(ids, [])).toEqual(new Map());
   });
 });

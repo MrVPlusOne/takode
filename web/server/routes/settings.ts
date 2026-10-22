@@ -1527,6 +1527,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.leaderProfilePools && typeof body.leaderProfilePools === "object"
           ? normalizeLeaderProfilePoolSettings(body.leaderProfilePools)
           : undefined,
+      // Choosing portrait sets in Settings answers the one-time Animals offer too.
+      leaderProfileAnimalsOfferDone: body.leaderProfilePools ? true : undefined,
       leaderProfileCollapsedPools: Array.isArray(body.leaderProfileCollapsedPools)
         ? normalizeLeaderProfileCollapsedPools(body.leaderProfileCollapsedPools)
         : undefined,

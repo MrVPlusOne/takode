@@ -72,6 +72,8 @@ vi.mock("./components/QuestCommitDiffView.js", () => ({
     );
   },
 }));
+// The one-time portrait offer fetches its own state; App tests don't cover it.
+vi.mock("./components/AnimalPortraitsOffer.js", () => ({ AnimalPortraitsOffer: () => null }));
 vi.mock("./components/EmptyState.js", () => ({
   EmptyState: () => <div data-testid="empty-state" />,
 }));

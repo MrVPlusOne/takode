@@ -44,6 +44,7 @@ import {
 } from "./utils/secondary-view.js";
 import { SecondaryViewArea } from "./components/SecondaryViewArea.js";
 import { UserContentNotice } from "./components/UserContentNotice.js";
+import { AnimalPortraitsOffer } from "./components/AnimalPortraitsOffer.js";
 import { navigateTo } from "./utils/navigation.js";
 import type { QuestLinkTarget } from "./utils/quest-link-target.js";
 import { getHashLocationSnapshot, useHashLocation } from "./utils/hash-location.js";
@@ -1057,6 +1058,7 @@ export default function App() {
           onCloseUniversalSearch={closeUniversalSearch}
         />
         <UserContentNotice />
+        <AnimalPortraitsOffer />
         <div className="flex-1 overflow-hidden relative">
           {/* Server unreachable banner — overlays content to avoid layout shift */}
           {showServerUnreachableBanner && (

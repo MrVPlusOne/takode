@@ -57,6 +57,7 @@ import { parseIncludeArchived, registerSessionSearchRoute } from "./session-sear
 import { registerSessionPermissionModeRoute } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
+import { registerLeaderProfileAnimalsOfferRoutes } from "./leader-profile-animals-offer-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { registerSessionImageRoutes } from "./session-image-routes.js";
@@ -1247,6 +1248,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   registerSessionDirectoryRoutes(api, { launcher, resolveId, wsBridge, backfillSessionProjectMeta });
   registerSessionInstructionContentRoute(api, { launcher, resolveId });
   registerSessionLeaderProfileRoute(api, ctx);
+  registerLeaderProfileAnimalsOfferRoutes(api, ctx);
 
   api.get("/sessions/:id/messages/:idx/preview", (c) => {
     const sessionId = resolveId(c.req.param("id"));

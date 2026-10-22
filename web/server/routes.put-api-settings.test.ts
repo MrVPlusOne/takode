@@ -703,6 +703,8 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         leaderProfilePools: { tako: false, shmi: true, animals: false },
+        // A portrait-set choice in Settings also answers the one-time Animals offer.
+        leaderProfileAnimalsOfferDone: true,
       }),
     );
     const json = await res.json();

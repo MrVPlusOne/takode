@@ -115,6 +115,8 @@ export interface CompanionSettings {
    * Missing until the user toggles a group, so the picker's default collapsed groups apply until then.
    */
   leaderProfileCollapsedPools?: LeaderProfilePoolId[];
+  /** The one-time offer to switch to the Animals portraits was accepted, dismissed or made moot by a pool choice. */
+  leaderProfileAnimalsOfferDone?: boolean;
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
   shortcutSettings?: ShortcutSettings;
   /** Server-authoritative defaults for future manually-created and spawned sessions. Optional for backward-compatible tests/mocks. */
@@ -592,6 +594,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     leaderProfileCollapsedPools: Array.isArray(raw?.leaderProfileCollapsedPools)
       ? normalizeLeaderProfileCollapsedPools(raw.leaderProfileCollapsedPools)
       : undefined,
+    leaderProfileAnimalsOfferDone: raw?.leaderProfileAnimalsOfferDone === true ? true : undefined,
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
@@ -734,6 +737,7 @@ export function updateSettings(
       | "codexLeaderCompactionMode"
       | "leaderProfilePools"
       | "leaderProfileCollapsedPools"
+      | "leaderProfileAnimalsOfferDone"
       | "shortcutSettings"
       | "sessionDefaults"
       | "workerSlotLimits"

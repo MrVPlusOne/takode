@@ -49,6 +49,26 @@ export function getLeaderProfilePortraitForSession(
   return selected;
 }
 
+/**
+ * Picks a portrait for each session from `portraits`, all different while there are enough. Each starts
+ * at its stable hash slot and moves to the next free one, so a re-run over the same sessions agrees.
+ */
+export function chooseDistinctLeaderProfilePortraitIds(
+  sessionIds: string[],
+  portraits: LeaderProfilePortrait[],
+): Map<string, string> {
+  const chosen = new Map<string, string>();
+  if (portraits.length === 0) return chosen;
+  const used = new Set<number>();
+  for (const sessionId of sessionIds) {
+    let index = stablePortraitIndex(sessionId, portraits.length);
+    while (used.has(index) && used.size < portraits.length) index = (index + 1) % portraits.length;
+    used.add(index);
+    chosen.set(sessionId, portraits[index].id);
+  }
+  return chosen;
+}
+
 export function getLeaderProfilePortraitById(id: string): LeaderProfilePortrait | undefined {
   return getLeaderProfilePortrait(id) ?? undefined;
 }
