@@ -1,9 +1,9 @@
 import type { ChatMessage } from "../types.js";
 import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 import { openGuidedReview, useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
-import { CoverageBar } from "./GuidedReviewViewer.js";
+import { ReviewCounts } from "./GuidedReviewParts.js";
 
-/** A guided review in the feed: what it covers and how many questions wait, with a button that opens its tour. */
+/** A guided review in the feed: what it covers and what it asks of the reader, with a button that opens its walkthrough. */
 export function GuidedReviewCard({
   message,
   meta,
@@ -23,19 +23,11 @@ export function GuidedReviewCard({
     ...(message.metadata?.questId ? { questId: message.metadata.questId } : {}),
     meta,
   };
-  const count = (tier: string) => meta.map.stops.filter((stop) => stop.tier === tier).length;
-  const questions = count("decide");
-  const parts = [
-    questions ? `${questions} question${questions === 1 ? "" : "s"} for you` : "no questions for you",
-    count("check") ? `${count("check")} to look at` : null,
-    count("checked") ? `${count("checked")} checked` : null,
-    meta.map.summaries.length ? `${meta.map.summaries.length} summarized` : null,
-  ].filter(Boolean);
   return (
     <div className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5" data-testid="guided-review-card">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] text-cc-muted">Guided review</div>
+          <div className="text-[12px] text-cc-muted">Guided review by an agent</div>
           <div className="text-[15px] font-semibold leading-snug text-cc-fg">{meta.map.title}</div>
           <div className="mt-0.5 text-[13px] text-cc-muted">
             {meta.range.repo} · {meta.stats.files} files ·{" "}
@@ -46,9 +38,8 @@ export function GuidedReviewCard({
         {actions}
       </div>
       <div className="mt-2.5">
-        <CoverageBar meta={meta} />
+        <ReviewCounts meta={meta} compact />
       </div>
-      <div className="mt-2 text-[14px] text-cc-fg">{parts.join(" · ")}</div>
       <div className="mt-2.5 flex items-center justify-end gap-3">
         {sent && <span className="text-[13px] text-cc-muted">Answers sent</span>}
         <button

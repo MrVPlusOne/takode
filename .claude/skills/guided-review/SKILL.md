@@ -5,7 +5,7 @@ description: Use only when the user asks for a code review they will read themse
 
 # Guided review
 
-A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user one guided tour: your overview, then each stop with its explanation, the exact code drawn from git and an answer field for your questions, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers come back to your session as one message.
+A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user a walkthrough, one stop at a time: your overview, then each stop with your explanation and an answer field beside the exact code drawn from git, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers come back to your session as one message.
 
 It is a user-facing feature only: use it when the user asks for a review they will read, not for agent-to-agent reviews such as a reviewer checking a worker's change.
 
@@ -17,6 +17,10 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread; a worker publishes into its own session and tells its leader.
 6. When the answers arrive, act on them like any user message: "Change" and questions are requests.
+
+## The overview
+
+The overview is the first thing anyone reads, including people the user shows the review to. Open with what the change does for its users in a sentence or two, then how it works, then what the review found. Use plain words rather than the project's internal names. Takode already shows how many decisions, careful looks, checks and summaries there are, so don't count them again.
 
 ## Choosing tiers
 

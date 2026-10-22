@@ -1451,3 +1451,15 @@ select {
   display: block;
   height: 1rem;
 }
+
+/* Guided review walkthrough: each step slides in from the side it was reached from. */
+@keyframes guidedStepIn {
+  from {
+    opacity: 0;
+    transform: translateX(var(--guided-step-from, 28px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
