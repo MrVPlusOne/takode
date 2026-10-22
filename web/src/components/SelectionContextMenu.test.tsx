@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api.js", () => ({ api: {} }));
 
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
+import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 const written: Array<Record<string, string>> = [];
 const originalClipboardItem = globalThis.ClipboardItem;
@@ -59,6 +60,41 @@ describe("selection Copy menu", () => {
 
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/html"]).toBe("<p><b>Title</b></p><p><br></p><p>Run is <b>healthy</b>.</p>");
+    expect(onClose).toHaveBeenCalled();
+    message.remove();
+  });
+  it("shows the copy formats in the menu when Copy is tapped", async () => {
+    // On a phone, tapping Copy expands the formats inside the menu, then a tap
+    // on one copies it and closes the menu.
+    const message = document.createElement("p");
+    message.textContent = "Plain words";
+    document.body.appendChild(message);
+    const range = document.createRange();
+    range.selectNodeContents(message);
+    const onClose = vi.fn();
+    render(
+      <SelectionContextMenu
+        sessionId="s1"
+        onClose={onClose}
+        selection={{
+          isActive: true,
+          plainText: "Plain words",
+          range,
+          position: { x: 10, y: 10 },
+          clear: vi.fn(),
+          dismiss: vi.fn(),
+        }}
+      />,
+    );
+
+    fingerTap(screen.getByRole("button", { name: "Copy" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("context-submenu-inline").contains(screen.getByRole("button", { name: "Plain text" })),
+    ).toBe(true);
+    fingerTap(screen.getByRole("button", { name: "Plain text" }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Plain words");
     expect(onClose).toHaveBeenCalled();
     message.remove();
   });

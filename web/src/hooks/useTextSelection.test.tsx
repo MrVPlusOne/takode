@@ -162,6 +162,113 @@ describe("useTextSelection", () => {
     expect(selectionState.text).toBe("Selected assistant text");
   });
 
+  // iOS puts its own edit menu (Copy, Look Up, Translate) just above a touch
+  // selection, and a page cannot hide it for plain text, so Takode's menu goes
+  // below the selection past its end handle, or above iOS's menu when there is
+  // no room below.
+  it("places the touch menu clear of iOS's edit menu above the selection", () => {
+    render(<SelectionHarness />);
+    const container = screen.getByTestId("container");
+    const textNode = screen.getByTestId("assistant-text").firstChild;
+    if (!textNode) throw new Error("Missing assistant text node");
+    const rectAt = (top: number, bottom: number) =>
+      ({
+        left: 40,
+        top,
+        right: 220,
+        bottom,
+        width: 180,
+        height: bottom - top,
+        x: 40,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const selectionState: MockSelectionState = {
+      text: "Selected assistant text",
+      anchorNode: textNode,
+      focusNode: textNode,
+      rect: rectAt(120, 160),
+    };
+    vi.spyOn(window, "getSelection").mockReturnValue(createSelectionMock(selectionState).selection);
+    const touchSelect = () => {
+      fireEvent.touchStart(container);
+      act(() => {
+        fireEvent.touchEnd(document);
+        vi.advanceTimersByTime(300);
+      });
+      return screen.getByTestId("selection-position").textContent!.split(",").map(Number)[1]!;
+    };
+
+    // Room below: the menu starts below the selection and its end handle.
+    expect(touchSelect()).toBeGreaterThanOrEqual(160 + 24);
+
+    // Near the bottom of the screen (jsdom is 768 px tall): above the selection,
+    // leaving iOS's menu its usual slot just above the selected text.
+    selectionState.rect = rectAt(600, 700);
+    const menuY = touchSelect();
+    expect(menuY + 100).toBeLessThanOrEqual(600 - 60);
+  });
+
+  // iOS clears the browser selection on any tap, including a tap on Takode's own
+  // menu. Tapping the menu's Copy row must leave the menu open for its formats;
+  // a press anywhere else still lets a cleared selection close it.
+  it("keeps the menu open when a press on it clears the browser selection", () => {
+    render(<SelectionHarness />);
+    const container = screen.getByTestId("container");
+    const textNode = screen.getByTestId("assistant-text").firstChild;
+    if (!textNode) throw new Error("Missing assistant text node");
+    const selectionState: MockSelectionState = {
+      text: "Selected assistant text",
+      anchorNode: textNode,
+      focusNode: textNode,
+      rect: {
+        left: 40,
+        top: 120,
+        right: 220,
+        bottom: 160,
+        width: 180,
+        height: 40,
+        x: 40,
+        y: 120,
+        toJSON: () => ({}),
+      } as DOMRect,
+    };
+    vi.spyOn(window, "getSelection").mockReturnValue(createSelectionMock(selectionState).selection);
+    const menu = document.createElement("div");
+    menu.dataset.contextMenu = "true";
+    const menuRow = document.createElement("button");
+    menu.appendChild(menuRow);
+    document.body.appendChild(menu);
+
+    try {
+      fireEvent.touchStart(container);
+      act(() => {
+        fireEvent.touchEnd(document);
+        vi.advanceTimersByTime(300);
+      });
+      expect(screen.getByTestId("selection-active").textContent).toBe("true");
+
+      // The tap on the menu row, then iOS's selection clear.
+      fireEvent.pointerDown(menuRow, { pointerType: "touch" });
+      selectionState.text = "";
+      act(() => {
+        fireEvent.touchEnd(document);
+        document.dispatchEvent(new Event("selectionchange"));
+        vi.advanceTimersByTime(300);
+      });
+      expect(screen.getByTestId("selection-active").textContent).toBe("true");
+      expect(screen.getByTestId("selection-text").textContent).toBe("Selected assistant text");
+
+      fireEvent.pointerDown(document.body, { pointerType: "touch" });
+      act(() => {
+        document.dispatchEvent(new Event("selectionchange"));
+      });
+      expect(screen.getByTestId("selection-active").textContent).toBe("false");
+    } finally {
+      menu.remove();
+    }
+  });
+
   // Non-chat Markdown can be rendered inside overlays while MessageFeed remains
   // mounted. It must not opt into the chat selection menu by accident.
   it("ignores assistant text outside the explicit chat selection scope", () => {

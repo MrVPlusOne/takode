@@ -171,19 +171,39 @@ function findOwnedChatSelectionRange(sourceRange: Range, message: HTMLElement): 
   return ownedRange;
 }
 
-/** Keep actions beside the selection, leaving room for native touch handles/callout. */
+/** The menu's two rows: compact with a mouse, finger-sized on touch screens. */
+const MENU_WIDTH = 180;
+const MOUSE_MENU_HEIGHT = 68;
+const TOUCH_MENU_HEIGHT = 100;
+/** Room below a touch selection for its end handle. */
+const TOUCH_HANDLE_CLEARANCE = 28;
+/** Room above a touch selection for iOS's own edit menu (Copy, Look Up, Translate). */
+const NATIVE_EDIT_MENU_CLEARANCE = 64;
+
+/**
+ * Keep actions beside the selection. A mouse gets them just above it. On touch,
+ * iOS shows its edit menu just above the selection and a page cannot hide it for
+ * plain text (WebKit only suppresses it for hidden editable fields), so Takode's
+ * menu goes below the selection, past its end handle, and only above iOS's menu
+ * when there is no room below.
+ */
 function computeMenuPosition(rect: DOMRect, touch: boolean): { x: number; y: number } {
-  const width = 180;
-  const height = 68;
-  const gap = touch ? 56 : 6;
+  const height = touch ? TOUCH_MENU_HEIGHT : MOUSE_MENU_HEIGHT;
   const viewport = window.visualViewport;
   const left = viewport?.offsetLeft ?? 0;
   const top = viewport?.offsetTop ?? 0;
   const right = left + (viewport?.width ?? window.innerWidth);
   const bottom = top + (viewport?.height ?? window.innerHeight);
-  const x = Math.max(left + 8, Math.min(rect.left + rect.width / 2 - width / 2, right - width - 8));
-  const above = rect.top - gap - height;
-  const y = above >= top + 4 ? above : rect.bottom + gap;
+  const x = Math.max(left + 8, Math.min(rect.left + rect.width / 2 - MENU_WIDTH / 2, right - MENU_WIDTH - 8));
+  let y: number;
+  if (touch) {
+    const below = rect.bottom + TOUCH_HANDLE_CLEARANCE;
+    const above = rect.top - NATIVE_EDIT_MENU_CLEARANCE - height;
+    y = below + height <= bottom - 4 || above < top + 4 ? below : above;
+  } else {
+    const above = rect.top - 6 - height;
+    y = above >= top + 4 ? above : rect.bottom + 6;
+  }
   return { x, y: Math.max(top + 4, Math.min(y, bottom - height - 4)) };
 }
 
@@ -206,6 +226,8 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
   const touchActiveRef = useRef(false);
   // Whether the current interaction started with touch (affects menu position)
   const isTouchInteractionRef = useRef(false);
+  // Whether the latest press landed on the open menu
+  const pressInMenuRef = useRef(false);
 
   const suppressSelectionChanges = useCallback((callback: () => void) => {
     suppressRef.current = true;
@@ -236,7 +258,9 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
     function evaluateSelection() {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-        setState(EMPTY_STATE);
+        // iOS clears the selection on any tap, including one on Takode's menu; the menu
+        // keeps the range it captured, so it stays open for its next step (Copy's formats).
+        if (!pressInMenuRef.current) setState(EMPTY_STATE);
         return;
       }
 
@@ -343,6 +367,11 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
       setState(EMPTY_STATE);
     }
 
+    function handlePointerDown(event: PointerEvent) {
+      pressInMenuRef.current = event.target instanceof Element && !!event.target.closest("[data-context-menu]");
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
     container.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("mouseup", handleMouseUp);
     container.addEventListener("touchstart", handleTouchStart, { passive: true });
@@ -351,6 +380,7 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
     container.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
       container.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mouseup", handleMouseUp);
       container.removeEventListener("touchstart", handleTouchStart);

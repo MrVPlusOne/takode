@@ -15,7 +15,7 @@ export const TOUCH_MENU_ITEM_CLASS = "pointer-coarse:px-4 pointer-coarse:py-3 po
 const MENU_STYLES = {
   container: `fixed z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible ${TOUCH_MENU_CONTAINER_CLASS}`,
   submenuContainer:
-    "fixed z-[60] w-fit min-w-[120px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] overflow-y-auto bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
+    "fixed z-[60] flex flex-col w-fit min-w-[120px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] overflow-y-auto bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
   item: `w-full max-w-[calc(100vw-1rem)] sm:max-w-80 truncate px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap ${TOUCH_MENU_ITEM_CLASS}`,
   disabledItem:
     "w-full max-w-72 whitespace-normal break-words px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code leading-relaxed",
@@ -97,8 +97,8 @@ export function ContextMenu({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose, confirmingItem, expandedSubmenu]);
 
-  // Clamp to viewport bounds
-  useEffect(() => {
+  // Clamp to viewport bounds, again when an inline submenu makes the menu taller.
+  const clampToViewport = useCallback(() => {
     if (!menuRef.current) return;
     // Layout sizes, not getBoundingClientRect: the touch pop-in scales the
     // menu down while it mounts.
@@ -107,10 +107,11 @@ export function ContextMenu({
     if (x + offsetWidth > window.innerWidth) {
       el.style.left = `${window.innerWidth - offsetWidth - 8}px`;
     }
-    if (y + offsetHeight > window.innerHeight) {
+    if (parseFloat(el.style.top) + offsetHeight > window.innerHeight) {
       el.style.top = `${Math.max(8, window.innerHeight - offsetHeight - 8)}px`;
     }
-  }, [x, y, confirmingItem]);
+  }, [x]);
+  useEffect(clampToViewport, [x, y, confirmingItem, clampToViewport]);
 
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.
@@ -170,6 +171,7 @@ export function ContextMenu({
                   onClose();
                 }}
                 itemClassName={itemClassName}
+                onInlineOpen={clampToViewport}
               />
             ) : (
               <button
@@ -210,6 +212,7 @@ function SubmenuItem({
   onClose,
   onAction,
   itemClassName,
+  onInlineOpen,
 }: {
   item: ContextMenuItem;
   isOpen: boolean;
@@ -217,34 +220,42 @@ function SubmenuItem({
   onClose: () => void;
   onAction: (child: ContextMenuItem) => void;
   itemClassName?: string;
+  onInlineOpen: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
+  // Whether the row's latest press was a finger or pen rather than a mouse.
+  const touchPressRef = useRef(false);
 
   // Position from the rendered submenu dimensions so long quest titles and
   // dense target lists remain inside narrow mobile viewports.
   const [subStyle, setSubStyle] = useState<React.CSSProperties>({});
-  // On a narrow screen with no room beside the menu, the submenu would cover the row
-  // that opened it (and a second tap could pick a child), so it opens inside the menu.
+  // A tap opens the submenu inside the menu, where a second tap closes it, as native
+  // touch menus do. So does a narrow screen with no room beside the menu, where the
+  // submenu would cover the row that opened it (and a second tap could pick a child).
   const [inline, setInline] = useState(false);
   useLayoutEffect(() => {
     if (!isOpen) {
       setInline(false);
       return;
     }
-    if (inline || !rowRef.current || !subRef.current) return;
+    if (inline) {
+      onInlineOpen();
+      return;
+    }
+    if (!rowRef.current || !subRef.current) return;
     const rowRect = rowRef.current.getBoundingClientRect();
     const subRect = subRef.current.getBoundingClientRect();
     const fitsRight = rowRect.right + 2 + subRect.width <= window.innerWidth - 8;
     const fitsLeft = rowRect.left - subRect.width - 2 >= 8;
-    if (!fitsRight && !fitsLeft) {
+    if (touchPressRef.current || (!fitsRight && !fitsLeft)) {
       setInline(true);
       return;
     }
     const left = fitsRight ? rowRect.right + 2 : rowRect.left - subRect.width - 2;
     const top = Math.max(8, Math.min(rowRect.top, window.innerHeight - subRect.height - 8));
     setSubStyle({ position: "fixed", left, top });
-  }, [isOpen, inline, item.children?.length]);
+  }, [isOpen, inline, item.children?.length, onInlineOpen]);
 
   return (
     <div
@@ -262,6 +273,9 @@ function SubmenuItem({
       }}
     >
       <button
+        onPointerDown={(e) => {
+          touchPressRef.current = e.pointerType !== "mouse";
+        }}
         // Hover opens a side submenu, so a click only opens; an inline one also closes on a second tap.
         onClick={isOpen && inline ? onClose : onOpen}
         className={`${MENU_STYLES.item} ${itemClassName ?? ""} flex items-center justify-between`}
@@ -281,7 +295,7 @@ function SubmenuItem({
         </svg>
       </button>
       {isOpen && item.children && inline && (
-        <div ref={subRef} className="pl-3" data-testid="context-submenu-inline">
+        <div ref={subRef} className="flex flex-col pl-3" data-testid="context-submenu-inline">
           {item.children.map((child, ci) => (
             <button
               key={`${child.label}-${ci}`}

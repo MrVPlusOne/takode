@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { ContextMenu, useMenuButton } from "./ContextMenu.js";
@@ -88,5 +88,25 @@ describe("ContextMenu submenus", () => {
       rect.mockRestore();
       Object.defineProperty(window, "innerWidth", { configurable: true, value: innerWidth });
     }
+  });
+  it("opens inside the menu on a tap even with room beside it, and beside it for a mouse", () => {
+    // A tap expands the submenu in place like a native touch menu, so a second
+    // tap on the row closes it; a mouse keeps the side submenu.
+    const items = [{ label: "Copy", onClick: () => {}, children: [{ label: "Markdown", onClick: () => {} }] }];
+    const { unmount } = render(<ContextMenu x={10} y={100} onClose={() => {}} items={items} />);
+    fingerTap(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.getByTestId("context-submenu-inline")).toContainElement(
+      screen.getByRole("button", { name: "Markdown" }),
+    );
+    fingerTap(screen.getByRole("button", { name: "Copy" }));
+    expect(screen.queryByRole("button", { name: "Markdown" })).toBeNull();
+    unmount();
+
+    render(<ContextMenu x={10} y={100} onClose={() => {}} items={items} />);
+    const copy = screen.getByRole("button", { name: "Copy" });
+    fireEvent.pointerDown(copy, { pointerType: "mouse" });
+    fireEvent.click(copy);
+    expect(screen.getByRole("button", { name: "Markdown" })).toBeTruthy();
+    expect(screen.queryByTestId("context-submenu-inline")).toBeNull();
   });
 });
