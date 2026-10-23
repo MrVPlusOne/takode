@@ -245,8 +245,13 @@ function TodoPreview({
     return () => window.removeEventListener(TODO_STATE_UPDATED_EVENT, load);
   }, [applyState, source]);
 
+  // Focus the sheet once, when it opens. Re-running this whenever the caller passes a new onClose
+  // (pages re-render on every to-do refresh) pulled focus out of the text editor, closing a phone's keyboard.
   useEffect(() => {
     panelRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };

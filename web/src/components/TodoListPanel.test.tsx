@@ -496,6 +496,28 @@ describe("TodoListPanel", () => {
     );
   });
 
+  it("keeps the sheet's text editor focused while the list refreshes", async () => {
+    // On a phone, losing focus closes the keyboard. The list refreshes every 30 seconds and on every
+    // change broadcast, and each refresh re-renders the page with a new sheet close callback; the
+    // sheet used to move focus to itself whenever that callback changed, mid-edit.
+    render(<TodoListPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Review result" }));
+    const sheet = await screen.findByTestId("todo-preview");
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Edit" }));
+    const editor = within(sheet).getByRole("textbox", { name: "To-do text" });
+    expect(editor).toHaveFocus();
+
+    const loads = mocks.getTodoState.mock.calls.length;
+    mocks.getTodoState.mockResolvedValue(makeState(2));
+    act(() => {
+      window.dispatchEvent(new CustomEvent(TODO_STATE_UPDATED_EVENT, { detail: { revision: 2, updatedAt: 200 } }));
+    });
+    await waitFor(() => expect(mocks.getTodoState.mock.calls.length).toBeGreaterThan(loads));
+    await act(async () => {});
+    expect(within(sheet).getByRole("textbox", { name: "To-do text" })).toBe(editor);
+    expect(editor).toHaveFocus();
+  });
+
   it("refetches after the server broadcasts a multi-browser invalidation", async () => {
     const next = makeState(2);
     next.items[0] = { ...next.items[0]!, markdown: "Updated elsewhere" };
