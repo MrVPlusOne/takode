@@ -1,25 +1,17 @@
 import type { SecondaryPage } from "./utils/routing.js";
 
-export type ShortcutActionId =
-  | "search_session"
-  | "toggle_sidebar"
-  | "open_terminal"
-  | "previous_session"
-  | "next_session"
-  | "next_attention"
-  | "new_session"
-  | "voice_start"
-  | "voice_stop";
+import {
+  DEFAULT_SHORTCUT_SETTINGS,
+  SHORTCUT_ACTION_IDS,
+  parseShortcutSettings,
+  type ShortcutActionId,
+  type ShortcutBinding,
+  type ShortcutPresetId,
+  type ShortcutSettings,
+} from "../shared/shortcut-settings.js";
 
-export type ShortcutPresetId = "standard" | "vscode-light" | "vim-light";
-
-export type ShortcutBinding = string;
-
-export interface ShortcutSettings {
-  enabled: boolean;
-  preset: ShortcutPresetId;
-  overrides: Partial<Record<ShortcutActionId, ShortcutBinding | null>>;
-}
+export { DEFAULT_SHORTCUT_SETTINGS };
+export type { ShortcutActionId, ShortcutBinding, ShortcutPresetId, ShortcutSettings };
 
 export interface ShortcutPresetOption {
   id: ShortcutPresetId;
@@ -90,17 +82,7 @@ export interface ShortcutActionFilter {
   isActionAvailable?: (actionId: ShortcutActionId) => boolean;
 }
 
-const ACTION_ORDER: ShortcutActionId[] = [
-  "search_session",
-  "toggle_sidebar",
-  "open_terminal",
-  "previous_session",
-  "next_session",
-  "next_attention",
-  "new_session",
-  "voice_start",
-  "voice_stop",
-];
+const ACTION_ORDER: readonly ShortcutActionId[] = SHORTCUT_ACTION_IDS;
 
 const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
   "open_terminal",
@@ -108,40 +90,13 @@ const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
   "next_session",
   "next_attention",
 ]);
-const SHORTCUT_ACTION_IDS = new Set<ShortcutActionId>(ACTION_ORDER);
-const SHORTCUT_PRESET_IDS = new Set<ShortcutPresetId>(["standard", "vscode-light", "vim-light"]);
 const TAP_BINDING_PREFIX = "Tap:";
 const DOUBLE_TAP_BINDING_PREFIX = "DoubleTap:";
 export const SHORTCUT_DOUBLE_TAP_WINDOW_MS = 400;
 
-export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
-  enabled: false,
-  preset: "standard",
-  overrides: {},
-};
-
-export function normalizeShortcutSettings(raw: Partial<ShortcutSettings> | null | undefined): ShortcutSettings {
-  if (!raw || typeof raw !== "object") return DEFAULT_SHORTCUT_SETTINGS;
-
-  const overrides: ShortcutSettings["overrides"] = {};
-  const rawOverrides =
-    raw.overrides && typeof raw.overrides === "object" && !Array.isArray(raw.overrides)
-      ? (raw.overrides as Record<string, unknown>)
-      : {};
-  for (const [actionId, binding] of Object.entries(rawOverrides)) {
-    if (!SHORTCUT_ACTION_IDS.has(actionId as ShortcutActionId)) continue;
-    if (binding === null || typeof binding === "string") {
-      overrides[actionId as ShortcutActionId] = binding;
-    }
-  }
-
-  return {
-    enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_SHORTCUT_SETTINGS.enabled,
-    preset: SHORTCUT_PRESET_IDS.has(raw.preset as ShortcutPresetId)
-      ? (raw.preset as ShortcutPresetId)
-      : DEFAULT_SHORTCUT_SETTINGS.preset,
-    overrides,
-  };
+/** Reads shortcut settings from server or stored JSON, falling back to the defaults. */
+export function normalizeShortcutSettings(raw: unknown): ShortcutSettings {
+  return parseShortcutSettings(raw) ?? DEFAULT_SHORTCUT_SETTINGS;
 }
 
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
@@ -389,6 +344,8 @@ export function recordShortcutBindingFromEvent(
 export interface ShortcutGestureRecorder {
   keyDown: (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "repeat">) => void;
   keyUp: (event: Pick<KeyboardEvent, "key">) => void;
+  /** True while a modifier is held with no other key yet, as when the browser takes Cmd+N for itself. */
+  isHoldingModifier: () => boolean;
   cancel: () => void;
 }
 
@@ -459,6 +416,9 @@ export function createShortcutGestureRecorder(
       }
       scheduleSingleTap(key);
     },
+    isHoldingModifier() {
+      return activeTapKey !== null;
+    },
     cancel() {
       clearPendingTap();
       activeTapKey = null;
@@ -500,6 +460,34 @@ export function getEffectiveShortcutBinding(
     return resolved.overrides[actionId] ?? null;
   }
   return getShortcutPresetBindings(resolved.preset)[actionId] ?? null;
+}
+
+/**
+ * Returns the other action that already uses `binding`, or null when it is free for `actionId`.
+ * Actions turned off don't hold their keys, and Mod counts as Cmd on Mac and Ctrl elsewhere,
+ * so a recorded Cmd+N conflicts with a Mac preset's Mod+N.
+ */
+export function findShortcutBindingConflict(
+  settings: ShortcutSettings | null | undefined,
+  actionId: ShortcutActionId,
+  binding: ShortcutBinding,
+  platform?: string,
+): ShortcutActionId | null {
+  const identity = shortcutBindingIdentity(binding, platform);
+  for (const otherId of ACTION_ORDER) {
+    if (otherId === actionId) continue;
+    const otherBinding = getEffectiveShortcutBinding(settings, otherId);
+    if (otherBinding && shortcutBindingIdentity(otherBinding, platform) === identity) return otherId;
+  }
+  return null;
+}
+
+function shortcutBindingIdentity(binding: ShortcutBinding, platform?: string): string {
+  const parsed = parseBinding(binding);
+  const isMac = platformIsMac(platform);
+  const ctrl = parsed.ctrl || (parsed.mod && !isMac);
+  const meta = parsed.meta || (parsed.mod && isMac);
+  return [parsed.kind, ctrl, meta, parsed.alt, parsed.shift, parsed.key].join("|");
 }
 
 export function formatShortcut(binding: ShortcutBinding, platform?: string): string {

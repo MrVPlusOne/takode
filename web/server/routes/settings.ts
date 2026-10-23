@@ -21,7 +21,6 @@ import {
   getCodexUserDefaultModel,
   QUESTMASTER_COMPACT_SORT_COLUMNS,
   DEFAULT_QUESTMASTER_COMPACT_SORT,
-  normalizeShortcutSettings,
   type NamerConfig,
   type TranscriptionConfig,
   type SttModel,
@@ -29,8 +28,12 @@ import {
   type EnhancementMode,
   type QuestmasterCompactSort,
   type QuestmasterCompactSortColumn,
-  type ShortcutSettings,
 } from "../settings-manager.js";
+import {
+  DEFAULT_SHORTCUT_SETTINGS,
+  parseShortcutSettings,
+  type ShortcutSettings,
+} from "../../shared/shortcut-settings.js";
 import { normalizeGptTranscribeLanguageHints } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import {
@@ -1035,7 +1038,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
   }
 
   function parseShortcutSettingsFromBody(raw: Record<string, unknown>): ShortcutSettings {
-    return normalizeShortcutSettings(raw) ?? { enabled: false, preset: "standard", overrides: {} };
+    return parseShortcutSettings(raw) ?? DEFAULT_SHORTCUT_SETTINGS;
   }
 
   function buildSettingsResponse(

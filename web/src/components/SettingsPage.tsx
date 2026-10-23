@@ -18,7 +18,15 @@ import {
 } from "../build-compatibility.js";
 import { createInitiatingTabRestartIntent, type InitiatingTabRestartIntent } from "../server-restart-auto-reload.js";
 import { describeServerCheckoutUpdate } from "../server-checkout-status.js";
-import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
+import {
+  createShortcutGestureRecorder,
+  findShortcutBindingConflict,
+  formatShortcut,
+  getShortcutActionDefinition,
+  platformIsMac,
+  type ShortcutActionId,
+  type ShortcutBinding,
+} from "../shortcuts.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
@@ -152,6 +160,13 @@ export function SettingsPage({
   const notificationApiAvailable = typeof Notification !== "undefined";
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const [recordingShortcutActionId, setRecordingShortcutActionId] = useState<ShortcutActionId | null>(null);
+  // Why the last recording on a row was not saved; cleared by the next shortcut change on any row.
+  const [shortcutRecordNotice, setShortcutRecordNotice] = useState<{
+    actionId: ShortcutActionId;
+    message: string;
+  } | null>(null);
+  const shortcutSettingsRef = useRef(shortcutSettings);
+  shortcutSettingsRef.current = shortcutSettings;
   const [chatMessageLineHeight, setChatMessageLineHeightValue] = useState(DEFAULT_CHAT_MESSAGE_LINE_HEIGHT);
   const [chatMessageLineHeightSaving, setChatMessageLineHeightSaving] = useState(false);
   const [chatMessageLineHeightError, setChatMessageLineHeightError] = useState("");
@@ -675,16 +690,50 @@ export function SettingsPage({
     }
   }
 
+  const startShortcutRecording = useCallback((actionId: ShortcutActionId | null) => {
+    setShortcutRecordNotice(null);
+    setRecordingShortcutActionId(actionId);
+  }, []);
+  const changeShortcutOverride = useCallback(
+    (actionId: ShortcutActionId, binding: ShortcutBinding | null | undefined) => {
+      setShortcutRecordNotice(null);
+      setShortcutOverride(actionId, binding);
+    },
+    [setShortcutOverride],
+  );
+
   useEffect(() => {
     if (!recordingShortcutActionId) return;
+    const actionId = recordingShortcutActionId;
     const recorder = createShortcutGestureRecorder((binding) => {
-      setShortcutOverride(recordingShortcutActionId, binding);
       setRecordingShortcutActionId(null);
+      const conflictId = findShortcutBindingConflict(shortcutSettingsRef.current, actionId, binding, shortcutPlatform);
+      if (conflictId) {
+        const conflictLabel = getShortcutActionDefinition(conflictId).label;
+        setShortcutRecordNotice({
+          actionId,
+          message: `${formatShortcut(binding, shortcutPlatform)} is already used by ${conflictLabel}. Turn that shortcut off or change it first.`,
+        });
+        return;
+      }
+      setShortcutOverride(actionId, binding);
     });
 
     function cancelShortcutRecord() {
       recorder.cancel();
       setRecordingShortcutActionId(null);
+    }
+
+    // Browsers handle some shortcuts themselves (Cmd+N opens a window) and never pass the key on,
+    // so the page only sees the modifier go down and then loses focus.
+    function handleShortcutRecordBlur() {
+      if (!recorder.isHoldingModifier()) return;
+      cancelShortcutRecord();
+      const mod = platformIsMac(shortcutPlatform) ? "Cmd" : "Ctrl";
+      setShortcutRecordNotice({
+        actionId,
+        message: `Takode didn't receive that shortcut: the browser or system used it first (${mod}+N, ${mod}+T and ${mod}+W open or close windows and tabs). Choose a different shortcut.`,
+      });
     }
 
     function handleShortcutRecordKeyDown(event: KeyboardEvent) {
@@ -707,12 +756,14 @@ export function SettingsPage({
 
     window.addEventListener("keydown", handleShortcutRecordKeyDown, true);
     window.addEventListener("keyup", handleShortcutRecordKeyUp, true);
+    window.addEventListener("blur", handleShortcutRecordBlur);
     return () => {
       window.removeEventListener("keydown", handleShortcutRecordKeyDown, true);
       window.removeEventListener("keyup", handleShortcutRecordKeyUp, true);
+      window.removeEventListener("blur", handleShortcutRecordBlur);
       recorder.cancel();
     };
-  }, [recordingShortcutActionId, setShortcutOverride]);
+  }, [recordingShortcutActionId, setShortcutOverride, shortcutPlatform]);
 
   const errorBox = (message: string) => (
     <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">{message}</div>
@@ -831,10 +882,11 @@ export function SettingsPage({
                 shortcutSettings={shortcutSettings}
                 setShortcutsEnabled={setShortcutsEnabled}
                 setShortcutPreset={setShortcutPreset}
-                setShortcutOverride={setShortcutOverride}
+                setShortcutOverride={changeShortcutOverride}
                 resetShortcutOverrides={resetShortcutOverrides}
                 recordingShortcutActionId={recordingShortcutActionId}
-                setRecordingShortcutActionId={setRecordingShortcutActionId}
+                setRecordingShortcutActionId={startShortcutRecording}
+                shortcutRecordNotice={shortcutRecordNotice}
                 shortcutPlatform={shortcutPlatform}
                 hidden={settingsSearch.rowHidden("keyboard", "shortcuts")}
               />

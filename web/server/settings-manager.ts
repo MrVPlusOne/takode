@@ -14,6 +14,7 @@ import {
 } from "../shared/leader-profile-portraits.js";
 import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
 import { DEFAULT_SEND_KEY_SCHEME, normalizeSendKeyScheme, type SendKeyScheme } from "../shared/send-key-scheme.js";
+import { parseShortcutSettings, type ShortcutSettings } from "../shared/shortcut-settings.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 import { canonicalTimeZone } from "./server-time-zone.js";
 import {
@@ -126,22 +127,6 @@ export interface CompanionSettings {
   updatedAt: number;
 }
 
-export type ShortcutActionId =
-  | "search_session"
-  | "toggle_sidebar"
-  | "open_terminal"
-  | "previous_session"
-  | "next_session"
-  | "new_session"
-  | "voice_start"
-  | "voice_stop";
-export type ShortcutPresetId = "standard" | "vscode-light" | "vim-light";
-export interface ShortcutSettings {
-  enabled: boolean;
-  preset: ShortcutPresetId;
-  overrides: Partial<Record<ShortcutActionId, string | null>>;
-}
-
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
 export type SidebarViewMode = "spaces" | "recent";
 export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
@@ -222,18 +207,6 @@ const DEFAULT_PATH = join(homedir(), ".companion", "settings.json");
 /** Shared legacy path — exported for tests only */
 export const LEGACY_PATH = DEFAULT_PATH;
 const DEFAULT_SECRETS_PATH = join(homedir(), ".companion", "settings-secrets.json");
-const SHORTCUT_ACTION_IDS = new Set<ShortcutActionId>([
-  "search_session",
-  "toggle_sidebar",
-  "open_terminal",
-  "previous_session",
-  "next_session",
-  "new_session",
-  "voice_start",
-  "voice_stop",
-]);
-const SHORTCUT_PRESET_IDS = new Set<ShortcutPresetId>(["standard", "vscode-light", "vim-light"]);
-const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = { enabled: false, preset: "standard", overrides: {} };
 
 let loaded = false;
 let secretsLoaded = false;
@@ -460,30 +433,6 @@ function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined):
   return { editor: "none" };
 }
 
-export function normalizeShortcutSettings(raw: unknown): ShortcutSettings | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const candidate = raw as Record<string, unknown>;
-  const rawOverrides =
-    candidate.overrides && typeof candidate.overrides === "object" && !Array.isArray(candidate.overrides)
-      ? (candidate.overrides as Record<string, unknown>)
-      : {};
-  const overrides: ShortcutSettings["overrides"] = {};
-  for (const [actionId, binding] of Object.entries(rawOverrides)) {
-    if (!SHORTCUT_ACTION_IDS.has(actionId as ShortcutActionId)) continue;
-    if (binding === null || typeof binding === "string") {
-      overrides[actionId as ShortcutActionId] = binding;
-    }
-  }
-
-  return {
-    enabled: typeof candidate.enabled === "boolean" ? candidate.enabled : DEFAULT_SHORTCUT_SETTINGS.enabled,
-    preset: SHORTCUT_PRESET_IDS.has(candidate.preset as ShortcutPresetId)
-      ? (candidate.preset as ShortcutPresetId)
-      : DEFAULT_SHORTCUT_SETTINGS.preset,
-    overrides,
-  };
-}
-
 function normalizeSecrets(raw: Record<string, unknown> | null | undefined): CompanionSecrets {
   return {
     namerOpenAIApiKey: typeof raw?.namerOpenAIApiKey === "string" ? raw.namerOpenAIApiKey : "",
@@ -595,7 +544,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       ? normalizeLeaderProfileCollapsedPools(raw.leaderProfileCollapsedPools)
       : undefined,
     leaderProfileAnimalsOfferDone: raw?.leaderProfileAnimalsOfferDone === true ? true : undefined,
-    shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
+    shortcutSettings: parseShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,

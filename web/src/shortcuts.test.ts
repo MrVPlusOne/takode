@@ -5,6 +5,7 @@ import {
   DEFAULT_SHORTCUT_SETTINGS,
   SHORTCUT_ACTIONS,
   createShortcutGestureRecorder,
+  findShortcutBindingConflict,
   formatShortcut,
   getMatchingShortcutAction,
   getMatchingShortcutTapAction,
@@ -143,6 +144,40 @@ describe("shortcuts", () => {
     recorder.keyDown({ key: "l", altKey: false, ctrlKey: true, metaKey: false, shiftKey: false, repeat: false });
 
     expect(bindings).toEqual(["Ctrl+L"]);
+  });
+
+  it("reports a held modifier so a key the browser swallowed can be told apart", () => {
+    // Browsers keep Cmd+N for themselves: the page sees Cmd go down and nothing else.
+    const recorder = createShortcutGestureRecorder(() => {});
+    expect(recorder.isHoldingModifier()).toBe(false);
+    recorder.keyDown({ key: "Meta", altKey: false, ctrlKey: false, metaKey: true, shiftKey: false, repeat: false });
+    expect(recorder.isHoldingModifier()).toBe(true);
+    recorder.cancel();
+    expect(recorder.isHoldingModifier()).toBe(false);
+  });
+
+  it("finds the action already using a recorded shortcut", () => {
+    const standard = { enabled: true, preset: "standard" as const, overrides: {} };
+    // Mod is Cmd on Mac, so a recorded Cmd+N collides with the preset's Mod+N for New Session.
+    expect(findShortcutBindingConflict(standard, "next_attention", "Cmd+N", "MacIntel")).toBe("new_session");
+    expect(findShortcutBindingConflict(standard, "next_attention", "Ctrl+N", "MacIntel")).toBeNull();
+    // Mod is Ctrl elsewhere.
+    expect(findShortcutBindingConflict(standard, "next_attention", "Ctrl+N", "Linux x86_64")).toBe("new_session");
+    // An action never conflicts with itself, so re-recording its own keys is fine.
+    expect(findShortcutBindingConflict(standard, "new_session", "Cmd+N", "MacIntel")).toBeNull();
+    // A single tap and a double tap of the same key are different shortcuts.
+    expect(findShortcutBindingConflict(standard, "search_session", "Tap:Shift", "MacIntel")).toBe("voice_stop");
+    expect(findShortcutBindingConflict(standard, "voice_stop", "DoubleTap:Shift", "MacIntel")).toBe("voice_start");
+  });
+
+  it("frees the keys of a shortcut that is turned off", () => {
+    const newSessionOff = { enabled: true, preset: "standard" as const, overrides: { new_session: null } };
+    expect(findShortcutBindingConflict(newSessionOff, "next_attention", "Cmd+N", "MacIntel")).toBeNull();
+
+    // A custom binding holds its keys, and the action's preset keys are then free.
+    const movedNewSession = { enabled: true, preset: "standard" as const, overrides: { new_session: "Alt+N" } };
+    expect(findShortcutBindingConflict(movedNewSession, "next_attention", "Cmd+N", "MacIntel")).toBeNull();
+    expect(findShortcutBindingConflict(movedNewSession, "next_attention", "Alt+N", "MacIntel")).toBe("new_session");
   });
 
   it("opens terminal from a thread and returns to the thread from terminal", () => {

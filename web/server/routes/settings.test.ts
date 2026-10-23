@@ -6,6 +6,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { _flushForTest, _resetForTest, getSettings } from "../settings-manager.js";
 import { createSettingsRoutes } from "./settings.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
+import { SHORTCUT_ACTION_IDS } from "../../shared/shortcut-settings.js";
 import { _resetCodexModelCatalogCacheForTest, loadCodexModelCatalog } from "../codex-model-catalog.js";
 
 let tempDir: string;
@@ -69,6 +70,27 @@ describe("settings routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.shortcutSettings).toEqual(shortcutSettings);
+    expect(getSettings().shortcutSettings).toEqual(shortcutSettings);
+  });
+
+  it("keeps an override for every shortcut action the Settings page offers", async () => {
+    // Regression: the server once had its own action list without Next Item Needing Attention,
+    // so it dropped that row's overrides and every recording silently reverted.
+    const app = createApp();
+    const overrides: Record<string, string | null> = Object.fromEntries(
+      SHORTCUT_ACTION_IDS.map((actionId) => [actionId, null]),
+    );
+    overrides.next_attention = "Cmd+N";
+    const shortcutSettings = { enabled: true, preset: "standard", overrides };
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shortcutSettings }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).shortcutSettings).toEqual(shortcutSettings);
     expect(getSettings().shortcutSettings).toEqual(shortcutSettings);
   });
 

@@ -809,11 +809,12 @@ describe("SettingsPage", () => {
   });
 
   it("records double-tap shortcut overrides", async () => {
+    // Double Shift belongs to Start Voice Input in the Standard preset; turn it off so the keys are free.
     setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
-        overrides: {},
+        overrides: { voice_start: null },
       },
     });
 
@@ -875,6 +876,71 @@ describe("SettingsPage", () => {
 
     fireEvent.click(within(row).getByRole("button", { name: "Use preset default" }));
     expect(mockState.setShortcutOverride).toHaveBeenCalledWith("new_session", undefined);
+  });
+
+  it("refuses a recorded shortcut another action uses and names that action", async () => {
+    // jsdom reports a non-Mac platform, so the Standard preset's Mod+N is Ctrl+N for New Session.
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: {} } });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(mockState.setShortcutOverride).not.toHaveBeenCalled();
+    expect(within(row).getByRole("alert")).toHaveTextContent(
+      "Ctrl+N is already used by New Session. Turn that shortcut off or change it first.",
+    );
+  });
+
+  it("records the keys of a shortcut that is turned off", async () => {
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: { new_session: null } } });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("next_attention", "Ctrl+N");
+    expect(within(row).queryByRole("alert")).toBeNull();
+  });
+
+  it("explains when the browser takes a shortcut before Takode sees it", async () => {
+    // Browsers handle Ctrl/Cmd+N themselves: the page only sees the modifier go down, then loses focus.
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: { new_session: null } } });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
+    expect(
+      within(row).getByText(/Browser shortcuts such as Ctrl\+N, Ctrl\+T and Ctrl\+W can't be used/),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    fireEvent.blur(window);
+
+    expect(mockState.setShortcutOverride).not.toHaveBeenCalled();
+    expect(within(row).getByRole("alert")).toHaveTextContent("Takode didn't receive that shortcut");
+    expect(within(row).getByRole("button", { name: "Record shortcut" })).toBeInTheDocument();
+  });
+
+  it("keeps recording when the window loses focus with no key held", async () => {
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: {} } });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
+    fireEvent.blur(window);
+
+    expect(within(row).queryByRole("alert")).toBeNull();
+    expect(within(row).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   it("does not start settings-page background work while inactive", () => {

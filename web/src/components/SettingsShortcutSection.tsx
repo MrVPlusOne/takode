@@ -21,6 +21,7 @@ export function SettingsShortcutSection({
   recordingShortcutActionId,
   setRecordingShortcutActionId,
   shortcutPlatform,
+  shortcutRecordNotice = null,
   hidden = false,
 }: {
   shortcutSettings: ShortcutSettings;
@@ -31,8 +32,13 @@ export function SettingsShortcutSection({
   recordingShortcutActionId: ShortcutActionId | null;
   setRecordingShortcutActionId: (actionId: ShortcutActionId | null) => void;
   shortcutPlatform?: string;
+  /** Why the last recording on a row was not saved, shown under that row. */
+  shortcutRecordNotice?: { actionId: ShortcutActionId; message: string } | null;
   hidden?: boolean;
 }) {
+  const browserShortcutExamples = platformIsMac(shortcutPlatform)
+    ? "Cmd+N, Cmd+T and Cmd+W"
+    : "Ctrl+N, Ctrl+T and Ctrl+W";
   const shortcutPresetBindings = getShortcutPresetBindings(shortcutSettings.preset);
   const shortcutPresetIsCustom = SHORTCUT_ACTIONS.some(
     (action) =>
@@ -103,7 +109,8 @@ export function SettingsShortcutSection({
                   {isRecording ? (
                     <div className="flex items-center justify-between gap-3 rounded-lg border border-cc-primary/35 bg-cc-primary/10 px-3 py-2 text-xs">
                       <span className="text-cc-primary">
-                        Press a shortcut or double-tap a key for {action.label}. Esc cancels.
+                        Press a shortcut or double-tap a key for {action.label}. Esc cancels. Browser shortcuts such as{" "}
+                        {browserShortcutExamples} can't be used.
                       </span>
                       <button
                         type="button"
@@ -144,6 +151,11 @@ export function SettingsShortcutSection({
                         </span>
                       )}
                     </div>
+                  )}
+                  {shortcutRecordNotice?.actionId === action.id && (
+                    <p role="alert" className="text-xs text-cc-error">
+                      {shortcutRecordNotice.message}
+                    </p>
                   )}
                 </div>
               );
