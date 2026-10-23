@@ -297,3 +297,47 @@ describe("Quest fork links under the source message", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("First appearance of a fork row", () => {
+  it("cues only quests filed after the page listed the session's forks, once", async () => {
+    // The first list is what the user already had; a quest that appears in a later list is
+    // new and is cued until its animation ends. Remounting must not replay it, and an
+    // animation ending inside the row (the arrow's) must not end the cue early.
+    const sessionId = "leader-fork-cue";
+    const startedFrom = { ...STARTED_FROM, sessionId };
+    const quest = (questId: string) => ({ questId, title: `Quest ${questId}`, startedFrom, sideQuest: false });
+    let listed = [quest("q-21")];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ quests: listed })),
+    );
+    const feed = (refreshKey: string) => (
+      <StartedQuestsProvider sessionId={sessionId} enabled refreshKey={refreshKey}>
+        <ContinuedInLinks message={{ id: "main-ask" }} currentThreadKey="main" onSelectThread={vi.fn()} />
+      </StartedQuestsProvider>
+    );
+    const view = render(feed("1"));
+    await waitFor(() => expect(forkRow("q-21")).toBeVisible());
+    expect(forkRow("q-21")).not.toHaveAttribute("data-cue");
+
+    listed = [quest("q-21"), quest("q-22")];
+    view.rerender(feed("2"));
+    await waitFor(() => expect(forkRow("q-22")).toHaveAttribute("data-cue"));
+    expect(forkRow("q-21")).not.toHaveAttribute("data-cue");
+
+    endAnimation(forkRow("q-22").querySelector("svg")!);
+    expect(forkRow("q-22")).toHaveAttribute("data-cue");
+    endAnimation(forkRow("q-22"));
+    expect(forkRow("q-22")).not.toHaveAttribute("data-cue");
+
+    view.unmount();
+    render(feed("3"));
+    await waitFor(() => expect(forkRow("q-22")).toBeVisible());
+    expect(forkRow("q-22")).not.toHaveAttribute("data-cue");
+  });
+});
+
+/** jsdom lacks AnimationEvent, so React listens for the WebKit-prefixed name. */
+function endAnimation(element: Element): void {
+  fireEvent(element, new Event("webkitAnimationEnd", { bubbles: true }));
+}

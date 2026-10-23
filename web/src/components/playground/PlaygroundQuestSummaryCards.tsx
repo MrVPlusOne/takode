@@ -9,7 +9,7 @@ import { buildFeedSections } from "../message-feed-sections.js";
 import { MessageFeedCenteredState } from "../MessageFeedCenteredState.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
 import { SupportingQuestAnswerContext } from "../QuestCompletionSummaryCard.js";
-import { StartedQuestsContext } from "../QuestForkLinks.js";
+import { markQuestForkNew, StartedQuestsContext } from "../QuestForkLinks.js";
 import { Card, Section } from "./shared.js";
 
 const SESSION_ID = "playground-quest-summary-cards";
@@ -393,6 +393,9 @@ export function PlaygroundQuestDescriptionSummary() {
             />
           </StartedQuestsContext.Provider>
         </Card>
+        <Card label="First appearance · a newly filed quest's row gets one sheen, then settles">
+          <ForkCueDemo />
+        </Card>
         <Card label="Side quests under the request · each opens its thread; one the user wrote in reads Continued in">
           <StartedQuestsContext.Provider value={SUPPORTING_QUESTS}>
             <QuestThread
@@ -438,3 +441,41 @@ export function PlaygroundQuestDescriptionSummary() {
     </Section>
   );
 }
+
+/** Files the quest from the message, so its row appears with the first-appearance cue. */
+function ForkCueDemo() {
+  const quest = STARTED_QUESTS.get(STARTED_FROM.messageId)![0]!;
+  const [filed, setFiled] = useState(false);
+  return (
+    <div className="space-y-2" data-testid="playground-fork-cue">
+      <button
+        type="button"
+        onClick={() => {
+          if (!filed) markQuestForkNew(quest);
+          setFiled(!filed);
+        }}
+        className="rounded-md border border-cc-border px-2 py-1 text-xs text-cc-muted hover:text-cc-fg"
+      >
+        {filed ? "Reset" : "File the quest"}
+      </button>
+      <StartedQuestsContext.Provider value={filed ? STARTED_QUESTS : NO_STARTED_QUESTS}>
+        <QuestThread
+          questId={EXCERPT_QUEST_ID}
+          history={[
+            message(
+              EXCERPT_QUEST_ID,
+              "human",
+              STARTED_FROM.messageId,
+              "Also set up the DevBox as a Takode host, separately from this, so workers can run on its GPUs.",
+              2,
+            ),
+          ]}
+          testId="playground-fork-cue-thread"
+          onSelectThread={NOOP}
+        />
+      </StartedQuestsContext.Provider>
+    </div>
+  );
+}
+
+const NO_STARTED_QUESTS = new Map<string, never[]>();

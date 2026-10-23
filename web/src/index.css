@@ -511,6 +511,47 @@ html, body {
   }
 }
 
+/*
+ * First appearance of a "Continued in" / "Side quest" row under a user message: a band of light
+ * sweeps across it twice. The text paints at full strength from the first frame (no opacity
+ * start, see the feed's entrance-animation rule), and the animation's end tells the component
+ * the cue is done, so reduced motion swaps in a fading tint rather than dropping the animation.
+ */
+@keyframes quest-fork-cue-sheen {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+@keyframes quest-fork-cue-tint {
+  0%,
+  40% {
+    background-color: color-mix(in srgb, var(--color-cc-primary) 20%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.quest-fork-link[data-cue] {
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in srgb, var(--color-cc-primary) 35%, transparent) 50%,
+    transparent 65%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  animation: quest-fork-cue-sheen 1.3s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-fork-link[data-cue] {
+    background-image: none;
+    animation: quest-fork-cue-tint 2.6s ease-out;
+  }
+}
+
 /* Transform-only so the long-press menu never paints transparent. */
 @keyframes context-menu-pop {
   0% {

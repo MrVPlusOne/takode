@@ -15,6 +15,37 @@ import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.
 import { formatMessageTimestamp } from "./MessageTimestamp.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
+/** Forks this page has already listed, per leader session; a quest listed later is new to the user. */
+const listedForks = new Map<string, Set<string>>();
+/** New forks whose row has not yet played its first-appearance cue, as `session:quest`. */
+const uncuedForks = new Set<string>();
+
+function forkKey(quest: Pick<StartedQuest, "questId" | "startedFrom">): string {
+  return `${quest.startedFrom.sessionId}:${quest.questId}`;
+}
+
+/**
+ * Record a session's started quests. The first list a page loads for a session is what the
+ * user already had; quests that show up in a later list get the first-appearance cue once.
+ */
+function noteListedForks(sessionId: string, quests: readonly StartedQuest[]): void {
+  const listed = listedForks.get(sessionId);
+  if (!listed) {
+    listedForks.set(sessionId, new Set(quests.map((quest) => quest.questId)));
+    return;
+  }
+  for (const quest of quests) {
+    if (listed.has(quest.questId)) continue;
+    listed.add(quest.questId);
+    uncuedForks.add(forkKey(quest));
+  }
+}
+
+/** Give a fork row its first-appearance cue, as if its quest were just filed (Playground and tests). */
+export function markQuestForkNew(quest: Pick<StartedQuest, "questId" | "startedFrom">): void {
+  uncuedForks.add(forkKey(quest));
+}
+
 /** The quests started from each user message, by message ID; the Playground provides fixed ones. */
 export const StartedQuestsContext = createContext<ReadonlyMap<string, StartedQuest[]> | null>(null);
 
@@ -38,7 +69,10 @@ export function StartedQuestsProvider({
     if (!enabled) return;
     const controller = new AbortController();
     fetchStartedQuests(sessionId, controller.signal)
-      .then(setQuests)
+      .then((list) => {
+        noteListedForks(sessionId, list);
+        setQuests(list);
+      })
       .catch((error) => {
         if (!controller.signal.aborted) console.error("[quest-forks] Started quests failed to load:", error);
       });
@@ -106,9 +140,18 @@ function QuestForkLink({
   continued: boolean;
   onSelectThread: (threadKey: string) => void;
 }) {
+  // The cue ends when its animation does, not when the row mounts: a row mounted in a hidden
+  // kept conversation plays it once that conversation is shown, and a remount doesn't replay it.
+  const [cued, setCued] = useState(() => uncuedForks.has(forkKey(quest)));
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 whitespace-pre text-[12px] text-cc-muted"
+      className="quest-fork-link -mx-1.5 inline-flex max-w-full items-center gap-1 whitespace-pre rounded-full px-1.5 text-[12px] text-cc-muted"
+      data-cue={cued ? "sheen" : undefined}
+      onAnimationEnd={(event) => {
+        if (event.target !== event.currentTarget) return;
+        uncuedForks.delete(forkKey(quest));
+        setCued(false);
+      }}
       title={continued ? "The conversation continues in this quest's thread" : "Side quest: the answer comes back here"}
       data-testid="quest-fork-link"
       data-quest-id={quest.questId}
