@@ -210,7 +210,7 @@ export interface AppState {
   /** Progress of a Restart Server request made from this tab; null when none is running. */
   serverRestartPhase: ServerRestartPhase | null;
   setServerRestartPhase: (phase: ServerRestartPhase | null) => void;
-  colorTheme: "light" | "dark" | "vscode-dark";
+  colorTheme: "light" | "dark" | "system";
   darkMode: boolean;
   zoomLevel: number;
   notificationSound: boolean;
@@ -263,7 +263,7 @@ export interface AppState {
   diffPanelSelectedFile: Map<string, string>;
   vscodeSelectionContext: VsCodeSelectionState | null;
   dismissedVsCodeSelectionKey: string | null;
-  setColorTheme: (theme: "light" | "dark" | "vscode-dark") => void;
+  setColorTheme: (theme: "light" | "dark" | "system") => void;
   setDarkMode: (v: boolean) => void;
   toggleDarkMode: () => void;
   setZoomLevel: (v: number) => void;

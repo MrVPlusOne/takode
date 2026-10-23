@@ -49,6 +49,8 @@ import {
 import {
   getInitialCollapsedSet,
   getInitialColorTheme,
+  systemPrefersDark,
+  watchSystemDarkMode,
   getInitialDarkMode,
   getInitialNotificationDesktop,
   getInitialNotificationSound,
@@ -102,17 +104,17 @@ function diffFileStatsEqual(
   return true;
 }
 
-/** Available color themes. All non-"light" themes are dark variants. */
-export type ColorTheme = "light" | "dark" | "vscode-dark";
+/** Available color themes. "system" follows the device's light or dark setting. */
+export type ColorTheme = "light" | "dark" | "system";
 
 export const COLOR_THEMES: { id: ColorTheme; label: string }[] = [
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
-  { id: "vscode-dark", label: "VS Code" },
+  { id: "system", label: "System" },
 ];
 
 export function isDarkTheme(theme: ColorTheme): boolean {
-  return theme !== "light";
+  return theme === "system" ? systemPrefersDark() : theme === "dark";
 }
 
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
@@ -1795,3 +1797,8 @@ export const hydrateShortcutSettingsFromServer = createShortcutSettingsHydrator(
 export const hydrateChatDisplaySettingsFromServer = createChatDisplaySettingsHydrator((lineHeight) =>
   useStore.setState({ chatMessageLineHeight: lineHeight }),
 );
+
+// The System theme follows the device live, such as iOS switching to dark at sunset.
+watchSystemDarkMode((dark) => {
+  if (useStore.getState().colorTheme === "system") useStore.setState({ darkMode: dark });
+});

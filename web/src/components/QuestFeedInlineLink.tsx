@@ -251,7 +251,7 @@ export function QuestFeedInlineLink({
     });
   });
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
-  const colorTheme = useStore((state) => state.colorTheme);
+  const darkMode = useStore((state) => state.darkMode);
   const hash = useHashLocation();
   const ownerId = useId();
   const dialogId = `${ownerId.replace(/:/g, "")}-quest-preview`;
@@ -332,7 +332,7 @@ export function QuestFeedInlineLink({
 
   useLayoutEffect(() => {
     syncPreviewColor();
-  }, [className, colorTheme, syncPreviewColor]);
+  }, [className, darkMode, syncPreviewColor]);
 
   const setPhase = useCallback((next: PreviewPhase) => {
     phaseRef.current = next;

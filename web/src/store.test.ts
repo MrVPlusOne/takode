@@ -1490,11 +1490,11 @@ describe("UI state", () => {
   });
 
   it("setColorTheme: updates colorTheme, darkMode, and persists to localStorage", () => {
-    useStore.getState().setColorTheme("vscode-dark");
+    useStore.getState().setColorTheme("dark");
 
-    expect(useStore.getState().colorTheme).toBe("vscode-dark");
+    expect(useStore.getState().colorTheme).toBe("dark");
     expect(useStore.getState().darkMode).toBe(true);
-    expect(localStorage.getItem("cc-color-theme")).toBe("vscode-dark");
+    expect(localStorage.getItem("cc-color-theme")).toBe("dark");
     expect(localStorage.getItem("cc-dark-mode")).toBe("true");
 
     useStore.getState().setColorTheme("light");

@@ -433,7 +433,9 @@ function VisualFrame({
         frame.setAttribute("sandbox", "allow-scripts");
         frame.setAttribute("data-testid", "visual-block-frame");
         frame.className = `block w-full border-0 ${fill ? "h-full" : "absolute inset-0 h-full"}`;
-        frame.style.colorScheme = "normal";
+        // Match the document's own scheme: a frame whose scheme differs from its element's paints
+        // an opaque backdrop instead of staying transparent over the feed.
+        frame.style.colorScheme = doc.startsWith('<!doctype html><html class="dark"') ? "dark" : "light";
         frame.srcdoc = doc;
         frameRef.current = frame;
         host.appendChild(frame);

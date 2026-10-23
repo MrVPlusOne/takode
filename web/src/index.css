@@ -677,86 +677,12 @@ html, body {
   --color-cc-phase-thread-tab-title-yellow: #fde047;
 }
 
-/* VS Code Dark Modern — matches the VS Code default dark theme colors */
-.dark.theme-vscode-dark {
-  --color-cc-bg: #1f1f1f;
-  --color-cc-fg: #cccccc;
-  --color-cc-card: #262626;
-  --color-cc-primary: #0078d4;
-  --color-cc-primary-hover: #026ec1;
-  --color-cc-user-bubble: #2a2d2e;
-  --color-cc-border: #2b2b2b;
-  --color-cc-muted: #9d9d9d;
-  --color-cc-sidebar: #181818;
-  --color-cc-input-bg: #313131;
-  --color-cc-code-bg: #1e1e1e;
-  --color-cc-code-fg: #d4d4d4;
-  --color-cc-hover: rgba(255,255,255,0.04);
-  --color-cc-active: rgba(255,255,255,0.07);
-  --color-cc-success: #2ea043;
-  --color-cc-error: #f85149;
-  --color-cc-warning: #cca700;
-  --color-cc-attention: #cca700;
-  --color-cc-attention-strong: #f0d76b;
-  --color-cc-attention-bg: rgba(204,167,0,0.14);
-  --color-cc-attention-border: rgba(204,167,0,0.32);
-  --color-cc-info: #75beff;
-  --color-cc-info-strong: #9cdcfe;
-  --color-cc-info-bg: rgba(0,120,212,0.16);
-  --color-cc-info-border: rgba(117,190,255,0.28);
-  --color-cc-status-idea: #a6a6a6;
-  --color-cc-status-refined: #cca700;
-  --color-cc-status-progress: #4ec9b0;
-  --color-cc-status-done: #c586c0;
-  --color-cc-phase-alignment: #38bdf8;
-  --color-cc-phase-accent-alignment: #38bdf8;
-  --color-cc-phase-memory: #a78bfa;
-  --color-cc-phase-accent-memory: #a78bfa;
-  --color-cc-phase-landing: #2dd4bf;
-  --color-cc-phase-accent-landing: #2dd4bf;
-  --color-cc-phase-work: #4ade80;
-  --color-cc-phase-accent-work: #4ade80;
-  --color-cc-phase-accent-amber: #fbbf24;
-  --color-cc-phase-amber: #fbbf24;
-  --color-cc-phase-blue: #60a5fa;
-  --color-cc-phase-cyan: #22d3ee;
-  --color-cc-phase-emerald: #34d399;
-  --color-cc-phase-fuchsia: #e879f9;
-  --color-cc-phase-green: #4ade80;
-  --color-cc-phase-orange: #fb923c;
-  --color-cc-phase-sky: #38bdf8;
-  --color-cc-phase-violet: #a78bfa;
-  --color-cc-phase-yellow: #fde047;
-  --color-cc-phase-thread-tab-title-amber: #fbbf24;
-  --color-cc-phase-thread-tab-title-alignment: #38bdf8;
-  --color-cc-phase-thread-tab-title-blue: #60a5fa;
-  --color-cc-phase-thread-tab-title-cyan: #22d3ee;
-  --color-cc-phase-thread-tab-title-emerald: #34d399;
-  --color-cc-phase-thread-tab-title-fuchsia: #e879f9;
-  --color-cc-phase-thread-tab-title-green: #4ade80;
-  --color-cc-phase-thread-tab-title-memory: #a78bfa;
-  --color-cc-phase-thread-tab-title-landing: #2dd4bf;
-  --color-cc-phase-thread-tab-title-orange: #fb923c;
-  --color-cc-phase-thread-tab-title-sky: #38bdf8;
-  --color-cc-phase-thread-tab-title-violet: #a78bfa;
-  --color-cc-phase-thread-tab-title-work: #4ade80;
-  --color-cc-phase-thread-tab-title-yellow: #fde047;
-}
-
 .dark .cc-muted-readable {
   --color-cc-muted-readable: #858585;
 }
 
 .dark .cc-participant-muted-readable {
   --color-cc-participant-muted-readable: #888888;
-}
-
-.theme-vscode-dark .cc-muted-readable {
-  --color-cc-muted-readable: #9d9d9d;
-}
-
-.theme-vscode-dark .cc-participant-muted-readable {
-  --color-cc-participant-muted-readable: #9d9d9d;
 }
 
 /* ─── Syntax highlighting tokens (highlight.js) ───────────────────────────── */
@@ -1215,10 +1141,6 @@ select {
 .diff-file-action-btn:hover {
   color: var(--color-cc-fg);
   background: var(--color-cc-hover);
-}
-.dark.theme-vscode-dark .diff-hunk-header {
-  color: var(--color-cc-primary);
-  background: rgba(0, 120, 212, 0.06);
 }
 .diff-hunk-header {
   padding: 4px 12px;

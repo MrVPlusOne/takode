@@ -1409,8 +1409,8 @@ describe("SettingsPage", () => {
 
     const themes = screen.getByRole("radiogroup", { name: "Theme" });
     expect(within(themes).getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(within(themes).getByRole("radio", { name: "VS Code" }));
-    expect(mockState.setColorTheme).toHaveBeenCalledWith("vscode-dark");
+    fireEvent.click(within(themes).getByRole("radio", { name: "System" }));
+    expect(mockState.setColorTheme).toHaveBeenCalledWith("system");
   });
 
   it("updates chat message line height through server settings", async () => {

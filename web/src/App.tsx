@@ -351,7 +351,6 @@ export default function App() {
   useLayoutEffect(() => browserLoadDiagnostics.markAppCommitted(), []);
   useEffect(() => startAlertWindowPresence(), []);
   const {
-    colorTheme,
     darkMode,
     zoomLevel,
     currentSessionId,
@@ -369,7 +368,6 @@ export default function App() {
     questOverlayFeedbackIndex,
   } = useStore(
     useShallow((s) => ({
-      colorTheme: s.colorTheme,
       darkMode: s.darkMode,
       zoomLevel: s.zoomLevel,
       currentSessionId: s.currentSessionId,
@@ -524,12 +522,7 @@ export default function App() {
   useEffect(() => {
     const el = document.documentElement;
     el.classList.toggle("dark", darkMode);
-    // Theme-specific class (e.g. "theme-codex-dark") — remove all, then add current
-    el.className = el.className.replace(/\btheme-\S+/g, "").trim();
-    if (colorTheme !== "light" && colorTheme !== "dark") {
-      el.classList.add(`theme-${colorTheme}`);
-    }
-  }, [colorTheme, darkMode]);
+  }, [darkMode]);
 
   useEffect(() => {
     const debugWindow = window as TakodeDebugWindow;

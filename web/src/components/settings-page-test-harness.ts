@@ -158,7 +158,7 @@ export function storeModuleMock() {
     COLOR_THEMES: [
       { id: "light", label: "Light" },
       { id: "dark", label: "Dark" },
-      { id: "vscode-dark", label: "VS Code" },
+      { id: "system", label: "System" },
     ],
   };
 }

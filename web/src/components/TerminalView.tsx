@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { useStore, type ColorTheme } from "../store.js";
+import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { connectTerminal, sendTerminalInput, sendTerminalResize, disconnectTerminal } from "../terminal-ws.js";
 import { useLongPress } from "../hooks/useLongPress.js";
@@ -19,17 +19,9 @@ interface TerminalViewProps {
   embedded?: boolean;
 }
 
-function getTerminalTheme(theme: ColorTheme) {
-  if (theme === "vscode-dark") {
-    return {
-      background: "#1e1e1e",
-      foreground: "#cccccc",
-      cursor: "#aeafad",
-      selectionBackground: "#264f78",
-    };
-  }
+function getTerminalTheme(dark: boolean) {
   return {
-    background: theme === "dark" ? "#141413" : "#1e1e1e",
+    background: dark ? "#141413" : "#1e1e1e",
     foreground: "#d4d4d4",
     cursor: "#d4d4d4",
     selectionBackground: "rgba(255, 255, 255, 0.2)",
@@ -40,7 +32,7 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const colorTheme = useStore((s) => s.colorTheme);
+  const darkMode = useStore((s) => s.darkMode);
   const [pasteMenu, setPasteMenu] = useState<{ x: number; y: number } | null>(null);
   // Touch screens get no paste menu of their own: xterm types through a tiny
   // hidden textarea that a long-press never lands on. Desktop keeps the
@@ -59,7 +51,7 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace",
-      theme: getTerminalTheme(useStore.getState().colorTheme),
+      theme: getTerminalTheme(useStore.getState().darkMode),
     });
 
     const fit = new FitAddon();
@@ -136,9 +128,9 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
   // Separate effect: update theme without recreating the terminal
   useEffect(() => {
     if (xtermRef.current) {
-      xtermRef.current.options.theme = getTerminalTheme(colorTheme);
+      xtermRef.current.options.theme = getTerminalTheme(darkMode);
     }
-  }, [colorTheme]);
+  }, [darkMode]);
 
   const pasteFromClipboard = () => {
     // Must start inside the menu tap: iOS only reads the clipboard during a
@@ -149,7 +141,7 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
       .catch((err) => console.warn("Terminal paste failed:", err));
   };
 
-  const background = getTerminalTheme(colorTheme).background;
+  const background = getTerminalTheme(darkMode).background;
   const terminalSurface = (
     <>
       <div ref={terminalRef} data-testid="terminal-surface" className="flex-1 min-h-0 p-1" {...longPress.handlers} />

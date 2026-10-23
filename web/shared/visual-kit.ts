@@ -21,6 +21,7 @@ export const VISUAL_KIT_CSS = String.raw`
   --tk-decide: #a35a1c; --tk-look: #1f6aa5; --tk-checked: #2f8a52; --tk-good: #2d7d46; --tk-bad: #c53030;
   --tk-warn: #8a4b00; --tk-tone-muted: #8f897e;
   --tk-tint: 10%;
+  color-scheme: light;
   font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 html.dark {
@@ -29,6 +30,8 @@ html.dark {
   --tk-decide: #e0924f; --tk-look: #5ea8e6; --tk-checked: #5cc488; --tk-good: #48bb78; --tk-bad: #fc8181;
   --tk-warn: #f6d365; --tk-tone-muted: #8a8a8a;
   --tk-tint: 13%;
+  /* Scrollbars and form controls inside the visual follow its theme. */
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: transparent; color: var(--tk-fg); }

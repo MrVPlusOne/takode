@@ -9,8 +9,6 @@ const LIGHT_SIDEBAR = "#edeae2";
 const LIGHT_CODE_BG = "#ece9df";
 const DARK_CARD = "#181818";
 const DARK_PARTICIPANT_CHIP_BG = "#202020";
-const VSCODE_DARK_CARD = "#262626";
-const VSCODE_DARK_PARTICIPANT_CHIP_BG = "#222222";
 const MIN_NORMAL_TEXT_AA = 4.5;
 const PHASE_THREAD_TAB_TITLE_TOKENS = [
   "--color-cc-phase-thread-tab-title-alignment",
@@ -156,22 +154,9 @@ describe("theme contrast tokens", () => {
       ".dark .cc-participant-muted-readable",
       "--color-cc-participant-muted-readable",
     );
-    const vscodeDarkReadableMuted = cssVariableForSelector(
-      ".theme-vscode-dark .cc-muted-readable",
-      "--color-cc-muted-readable",
-    );
-    const vscodeDarkParticipantReadableMuted = cssVariableForSelector(
-      ".theme-vscode-dark .cc-participant-muted-readable",
-      "--color-cc-participant-muted-readable",
-    );
-
     expect(contrastRatio(darkMuted, DARK_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
     expect(contrastRatio(darkReadableMuted, DARK_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
     expect(contrastRatio(darkParticipantReadableMuted, DARK_PARTICIPANT_CHIP_BG)).toBeGreaterThanOrEqual(
-      MIN_NORMAL_TEXT_AA,
-    );
-    expect(contrastRatio(vscodeDarkReadableMuted, VSCODE_DARK_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
-    expect(contrastRatio(vscodeDarkParticipantReadableMuted, VSCODE_DARK_PARTICIPANT_CHIP_BG)).toBeGreaterThanOrEqual(
       MIN_NORMAL_TEXT_AA,
     );
   });
@@ -180,7 +165,6 @@ describe("theme contrast tokens", () => {
     const themes: Array<{ selector: string | null; label: string }> = [
       { selector: null, label: "light" },
       { selector: ".dark", label: "dark" },
-      { selector: ".dark.theme-vscode-dark", label: "VS Code dark" },
     ];
 
     for (const theme of themes) {
@@ -262,7 +246,7 @@ describe("theme contrast tokens", () => {
     expect(cssVariable("--color-cc-phase-accent-amber")).toBe("#f59e0b");
     expect(cssVariable("--color-cc-phase-accent-memory")).toBe("#8b5cf6");
 
-    for (const selector of [".dark", ".dark.theme-vscode-dark"]) {
+    for (const selector of [".dark"]) {
       expect(cssVariableForSelector(selector, "--color-cc-phase-accent-alignment")).toBe("#38bdf8");
       expect(cssVariableForSelector(selector, "--color-cc-phase-accent-work")).toBe("#4ade80");
       expect(cssVariableForSelector(selector, "--color-cc-phase-amber")).toBe("#fbbf24");
