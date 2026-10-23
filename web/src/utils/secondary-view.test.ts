@@ -3,6 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeSecondaryViewers,
+  isTopViewerLayer,
   openSecondaryPage,
   setSecondaryViewTarget,
   toggleSecondaryPage,
@@ -84,5 +85,34 @@ describe("secondary page navigation", () => {
     window.location.hash = "";
     openSecondaryPage("settings");
     expect(window.location.hash).toBe("#/settings");
+  });
+});
+
+describe("isTopViewerLayer", () => {
+  // Escape closes only the viewer on top: quest details opened from a link inside a guided review
+  // stack above it, and closing them must leave the review open.
+  afterEach(() => {
+    act(() => setSecondaryViewTarget(null));
+    document.body.innerHTML = "";
+  });
+
+  it("treats the last viewer in the right-hand area as the top one", () => {
+    const area = document.body.appendChild(document.createElement("div"));
+    act(() => setSecondaryViewTarget(area));
+    const review = area.appendChild(document.createElement("div"));
+    expect(isTopViewerLayer(review)).toBe(true);
+    const quest = area.appendChild(document.createElement("div"));
+    expect(isTopViewerLayer(review)).toBe(false);
+    expect(isTopViewerLayer(quest)).toBe(true);
+  });
+
+  it("is covered by a modal opened after it, but not by one inside it", () => {
+    const review = document.body.appendChild(document.createElement("div"));
+    const inside = review.appendChild(document.createElement("div"));
+    inside.setAttribute("aria-modal", "true");
+    expect(isTopViewerLayer(review)).toBe(true);
+    const modal = document.body.appendChild(document.createElement("div"));
+    modal.setAttribute("aria-modal", "true");
+    expect(isTopViewerLayer(review)).toBe(false);
   });
 });

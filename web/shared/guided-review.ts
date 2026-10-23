@@ -36,6 +36,22 @@ export interface GuidedReviewSummary {
   /** Markdown summary of the files' changed lines not shown in a stop. */
   text: string;
   paths: string[];
+  /**
+   * Set by the server when publishing, from the diff: each file's changed lines this summary
+   * covers. Absent on reviews published before it existed.
+   */
+  files?: GuidedReviewSummaryFile[];
+}
+
+export interface GuidedReviewSummaryFile {
+  /** The file's path in the change (the new path of a renamed file). */
+  path: string;
+  /** Added lines the summary covers: the file's added lines no stop shows. */
+  additions: number;
+  /** Removed lines the summary covers. */
+  deletions: number;
+  /** Some of the file's changed lines are shown in stops instead. */
+  alsoInStops: boolean;
 }
 
 export interface GuidedReviewMap {
@@ -230,7 +246,7 @@ export function parseGuidedReviewMapInput(value: unknown): GuidedReviewMapInput 
 export function checkGuidedReviewCoverage(
   map: GuidedReviewMap,
   files: DiffFile[],
-): { problems: string[]; stats: GuidedReviewStats } {
+): { problems: string[]; stats: GuidedReviewStats; summaryFiles: GuidedReviewSummaryFile[][] } {
   const problems: string[] = [];
   const byPath = new Map<string, DiffFile>();
   for (const file of files) {
@@ -338,6 +354,7 @@ export function checkGuidedReviewCoverage(
 
   let additions = 0;
   let deletions = 0;
+  const summaryFiles: GuidedReviewSummaryFile[][] = map.summaries.map(() => []);
   for (const file of files) {
     const added = claimed.get(file);
     const deleted = claimedDeletions.get(file);
@@ -348,9 +365,18 @@ export function checkGuidedReviewCoverage(
       changed++;
       if (line.kind === "add") additions++;
       else deletions++;
-      if (summarizedBy.has(file)) continue;
       if (line.kind === "add" && !added?.has(line.newNo!)) uncoveredAdded.push(line.newNo!);
       if (line.kind === "del" && !deleted?.has(line)) uncoveredDeleted++;
+    }
+    const summary = summarizedBy.get(file);
+    if (summary !== undefined) {
+      summaryFiles[summary].push({
+        path: file.path,
+        additions: uncoveredAdded.length,
+        deletions: uncoveredDeleted,
+        alsoInStops: Boolean(added?.size || deleted?.size),
+      });
+      continue;
     }
     if (!changed && !mentioned.has(file)) {
       problems.push(
@@ -366,7 +392,30 @@ export function checkGuidedReviewCoverage(
     }
   }
   const linesInStops = linesByTier.decide + linesByTier.check + linesByTier.checked;
-  return { problems, stats: { files: files.length, additions, deletions, linesInStops, linesByTier } };
+  for (const [index, summary] of map.summaries.entries()) {
+    const order = summary.paths.map((path) => byPath.get(path)?.path);
+    summaryFiles[index].sort((a, b) => order.indexOf(a.path) - order.indexOf(b.path));
+  }
+  return {
+    problems,
+    stats: { files: files.length, additions, deletions, linesInStops, linesByTier },
+    summaryFiles,
+  };
+}
+
+/**
+ * Check a map against its change and, when it accounts for every line, the map as published:
+ * each stop's code cut from the change and each summary's files with the lines it covers, both
+ * computed from the diff. Throws when the stops show too much code.
+ */
+export function prepareGuidedReview(
+  map: GuidedReviewMap,
+  files: DiffFile[],
+): { problems: string[]; stats: GuidedReviewStats; map: GuidedReviewMap } {
+  const { problems, stats, summaryFiles } = checkGuidedReviewCoverage(map, files);
+  if (problems.length) return { problems, stats, map };
+  const summaries = map.summaries.map((summary, index) => ({ ...summary, files: summaryFiles[index] }));
+  return { problems, stats, map: withGuidedReviewSnippets({ ...map, summaries }, files) };
 }
 
 /**
@@ -472,14 +521,26 @@ export function formatGuidedReviewMarkdown(meta: Omit<GuidedReviewMeta, "reviewI
       "",
       "## Summarized",
       "",
-      ...map.summaries.map(
-        (summary) =>
-          `- **${summary.title}** (${summary.paths.length} file${summary.paths.length === 1 ? "" : "s"}): ${summary.text}`,
-      ),
+      ...map.summaries.flatMap((summary) => [
+        `- **${summary.title}** (${summary.paths.length} file${summary.paths.length === 1 ? "" : "s"}): ${summary.text}`,
+        ...guidedReviewSummaryFiles(summary).map((file) => `  - \`${file.path}\`${fileCounts(file)}`),
+      ]),
     );
   }
   lines.push("", "_Open the review in Takode to see each stop's code and answer the questions._");
   return lines.join("\n");
+}
+
+/** A summary's files with the lines it covers; reviews published before those counts list only paths. */
+export function guidedReviewSummaryFiles(
+  summary: GuidedReviewSummary,
+): Array<Pick<GuidedReviewSummaryFile, "path"> & Partial<GuidedReviewSummaryFile>> {
+  return summary.files ?? summary.paths.map((path) => ({ path }));
+}
+
+function fileCounts(file: Partial<GuidedReviewSummaryFile>): string {
+  if (file.additions === undefined) return "";
+  return ` +${file.additions} −${file.deletions}${file.alsoInStops ? " (more in stops)" : ""}`;
 }
 
 /** Every added or removed line of a file. */

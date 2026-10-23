@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { api, type QuestCommitLookup } from "../api.js";
 import { closeGuidedReview, useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
 import type { GuidedReviewMeta } from "../../shared/guided-review.js";
-import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { SECONDARY_VIEWER_LAYER_CLASS, isTopViewerLayer, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { QuestCommitDiffView, buildCodeCommitEntries, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { Walkthrough } from "./GuidedReviewWalkthrough.js";
@@ -19,6 +19,7 @@ export function GuidedReviewViewerHost() {
  * from git. Wide screens show it in the secondary view; phones cover the conversation.
  */
 export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
+  const layerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const [fullDiffOpen, setFullDiffOpen] = useState(false);
   usePreviewSheetHistoryEntry(true, sheetRef, closeGuidedReview);
@@ -33,7 +34,7 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
       const element = event.target;
       if (element instanceof Element && element.closest("textarea, input, [contenteditable='true']")) return;
       if (fullDiffOpen) setFullDiffOpen(false);
-      else closeGuidedReview();
+      else if (layerRef.current && isTopViewerLayer(layerRef.current)) closeGuidedReview();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -51,6 +52,7 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
   return createPortal(
     <div
       className={docked ? SECONDARY_VIEWER_LAYER_CLASS : "fixed inset-0 z-50 flex flex-col bg-cc-bg"}
+      ref={layerRef}
       onClick={(event) => event.stopPropagation()}
       data-testid="guided-review-viewer"
     >

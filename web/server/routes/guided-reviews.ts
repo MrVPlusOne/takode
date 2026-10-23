@@ -3,11 +3,10 @@ import { bodyLimit } from "hono/body-limit";
 import { isAbsolute } from "node:path";
 import {
   MAX_GUIDED_REVIEW_DIFF_BYTES,
-  checkGuidedReviewCoverage,
   formatGuidedReviewMarkdown,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
-  withGuidedReviewSnippets,
+  prepareGuidedReview,
   type GuidedReviewMeta,
   type GuidedReviewRange,
 } from "../../shared/guided-review.js";
@@ -52,13 +51,13 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       const range = readRange(body.range, ctx.launcher.getSession(auth.callerId)?.hostId);
       const files = parseGuidedReviewDiff(body.diff);
       if (!files.length) throw new Error("The range has no changes to review.");
-      const { problems, stats } = checkGuidedReviewCoverage(input, files);
+      const { base: _base, head: _head, ...written } = input;
+      const { problems, stats, map } = prepareGuidedReview(written, files);
       if (problems.length) {
         throw new Error(`The review map does not match the change:\n- ${problems.join("\n- ")}`);
       }
-      const { base: _base, head: _head, ...map } = input;
       const reviewId = crypto.randomUUID();
-      const meta: GuidedReviewMeta = { reviewId, map: withGuidedReviewSnippets(map, files), range, stats };
+      const meta: GuidedReviewMeta = { reviewId, map, range, stats };
       const receipt = publishSessionReport(ctx, auth.callerId, session, {
         content: formatGuidedReviewMarkdown(meta),
         sourcePath: body.sourcePath,

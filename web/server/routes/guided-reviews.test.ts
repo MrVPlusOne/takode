@@ -104,6 +104,22 @@ describe("guided review publication", () => {
     expect(broadcast).toHaveBeenCalledWith("review-host", message);
   });
 
+  it("counts each summary's files from the diff, ignoring counts the agent wrote", async () => {
+    // The lines changed per summarized file come from the diff, so an agent can't misstate them.
+    const { history, publish } = await harness();
+    const summaries = validBody.map.summaries.map((summary) => ({
+      ...summary,
+      files: [{ path: "src/client.ts", additions: 999, deletions: 0, alsoInStops: false }],
+    }));
+    const res = await publish({ ...validBody, map: { ...validBody.map, summaries } });
+    expect(res.status).toBe(201);
+    const message = history[0] as Extract<BrowserIncomingMessage, { type: "markdown_report" }>;
+    expect(message.guidedReview!.map.summaries.map((summary) => summary.files)).toEqual([
+      [{ path: "src/client.ts", additions: 1, deletions: 0, alsoInStops: true }],
+      [{ path: "src/retry.test.ts", additions: 6, deletions: 0, alsoInStops: false }],
+    ]);
+  });
+
   it("reads the full change commit by commit from the review's checkouts, trying each in turn", async () => {
     // A throwaway repository; the first recorded checkout is missing, as after a worktree is removed.
     const root = await mkdtemp(join(tmpdir(), "guided-review-repo-"));

@@ -111,6 +111,20 @@ export function useSecondaryViewTarget(
   return docked ? target : null;
 }
 
+/**
+ * Whether a viewer's outermost element is on top, so Escape there closes it and not a viewer or
+ * modal opened above it, such as quest details opened from a link inside it. Later viewers in the
+ * right-hand area stack on top of earlier ones; modals follow it in the page.
+ */
+export function isTopViewerLayer(element: HTMLElement): boolean {
+  const area = useSecondaryDock.getState().target;
+  if (area && element.parentElement === area && area.lastElementChild !== element) return false;
+  return ![...document.querySelectorAll('[aria-modal="true"], dialog[open]')].some(
+    (layer) =>
+      !element.contains(layer) && (element.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+  );
+}
+
 /** Classes for a viewer's outermost element inside the right-hand area; later viewers stack on top. */
 export const SECONDARY_VIEWER_LAYER_CLASS = "absolute inset-0 z-10 flex min-h-0 flex-col overflow-hidden bg-cc-bg";
 

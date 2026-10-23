@@ -26,6 +26,8 @@ The user reads their leader's threads, not workers' sessions, so a review a work
 
 The overview is the first thing anyone reads, including people the user shows the review to. Open with what the change does for its users in a sentence or two, then how it works, then what the review found. Use plain words rather than the project's internal names. Takode already shows how many decisions, careful looks, checks and summaries there are, so don't count them again.
 
+The overview, stop notes and summary texts are Markdown shown the way chat shows it, so refer to quests, sessions, messages, commits and files with Takode link syntax, as in chat: `[q-42](quest:q-42)`, `[#5](session:5)`, `[app.ts:42](file:web/src/app.ts:42)`. A bare `q-42` stays plain text. Titles, questions and answers are plain text, so keep links out of them.
+
 ## Choosing tiers
 
 Each stop has a tier. Keep the review short: about 3-12 stops for a change of a few thousand lines.
@@ -33,7 +35,7 @@ Each stop has a tier. Keep the review short: about 3-12 stops for a change of a 
 - **decide**: only the user can choose. Cost (paid APIs, more requests, bigger bills), privacy or data leaving the machine (what is sent where, on whose key), security and authority, data kept or deleted, licences and new dependencies, behavior that changes beyond the feature (shared components, app-wide defaults), anything that departs from what the user asked, and anything hard to undo. Write a real question with 2-4 short answers (at most 40 characters each, such as "Keep 4", "Cap at 2", "Ask me").
 - **check**: worth the user's careful look, but no decision needed: non-obvious mechanisms, assumptions later changes could break, behavior no test can cover, risky code that is right but subtle.
 - **checked**: looked risky, and you verified it is fine. The note is the evidence ("every lookup checks the ID before joining the path; a test sends unsafe IDs").
-- **summaries**: everything routine: tests, wiring, renames, plumbing, UI details the user already approved, decisions the user already made (say when: "you approved this licence on Oct 19"). Group files by what they do, one sentence or two per group.
+- **summaries**: everything routine: tests, wiring, renames, plumbing, UI details the user already approved, decisions the user already made (say when: "you approved this licence on Oct 19"). Group files by what they do, one sentence or two per group. Takode lists each summary's files with the lines it covers, counted from the diff, so the text needn't name files or count lines.
 
 Rules that keep summaries honest:
 

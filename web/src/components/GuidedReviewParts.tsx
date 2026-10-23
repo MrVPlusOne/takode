@@ -1,10 +1,12 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   GUIDED_REVIEW_TIERS,
+  guidedReviewSummaryFiles,
   type GuidedReviewCodeRef,
   type GuidedReviewMap,
   type GuidedReviewMeta,
   type GuidedReviewStop,
+  type GuidedReviewSummary,
   type GuidedReviewTier,
 } from "../../shared/guided-review.js";
 import {
@@ -195,8 +197,8 @@ export function StopAnswer({
   if (draft?.sentAt !== undefined) {
     return (
       <div className="text-[14px] text-cc-fg">
-        <span className="text-cc-muted">Your answer: </span>
-        {answer || "not answered"}
+        <div className="text-cc-muted">Your answer</div>
+        {answer ? <MarkdownContent text={answer} sessionId={sessionId} /> : "Not answered"}
       </div>
     );
   }
@@ -361,6 +363,7 @@ export function ReviewEndSections({
               <div className={`mt-1 ${NOTE_CLASS}`}>
                 <MarkdownContent text={summary.text} sessionId={target.sessionId} />
               </div>
+              <SummaryFiles summary={summary} />
             </div>
           ))}
           <button type="button" onClick={onOpenFullDiff} className="text-[14px] text-cc-primary hover:underline">
@@ -369,6 +372,38 @@ export function ReviewEndSections({
         </Section>
       )}
     </>
+  );
+}
+
+/**
+ * The files a summary covers, each with the lines it summarizes, counted from the diff when the
+ * review was published. Reviews published before that list only the paths.
+ */
+function SummaryFiles({ summary }: { summary: GuidedReviewSummary }) {
+  return (
+    <ul
+      className="mt-2 max-w-3xl border-t border-cc-border/60 pt-1.5 text-[13px]"
+      aria-label={`Files in ${summary.title}`}
+    >
+      {guidedReviewSummaryFiles(summary).map((file) => {
+        const slash = file.path.lastIndexOf("/");
+        return (
+          <li key={file.path} className="flex items-baseline gap-2 py-0.5">
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+              <span className="text-cc-fg">{file.path.slice(slash + 1)}</span>
+              {slash > 0 && <span className="ml-1.5 text-cc-muted">{file.path.slice(0, slash)}</span>}
+            </span>
+            {file.alsoInStops && <span className="shrink-0 text-[12px] text-cc-muted">also in stops</span>}
+            {file.additions !== undefined && (
+              <span className="shrink-0 tabular-nums">
+                <span className="text-cc-success">+{file.additions}</span>{" "}
+                <span className="text-cc-error">−{file.deletions}</span>
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

@@ -1,8 +1,7 @@
 import {
-  checkGuidedReviewCoverage,
   formatGuidedReviewMarkdown,
   parseGuidedReviewDiff,
-  withGuidedReviewSnippets,
+  prepareGuidedReview,
   type GuidedReviewMap,
   type GuidedReviewMeta,
 } from "../guided-review.js";
@@ -110,10 +109,10 @@ export const GUIDED_REVIEW_FIXTURE_MAP: GuidedReviewMap = {
 /** The review as published: its map, range and counts, computed from the fixture diff. */
 export function makeGuidedReviewMetaFixture(): GuidedReviewMeta {
   const files = parseGuidedReviewDiff(GUIDED_REVIEW_FIXTURE_DIFF);
-  const { stats } = checkGuidedReviewCoverage(GUIDED_REVIEW_FIXTURE_MAP, files);
+  const { stats, map } = prepareGuidedReview(GUIDED_REVIEW_FIXTURE_MAP, files);
   return {
     reviewId: "review-fixture",
-    map: withGuidedReviewSnippets(GUIDED_REVIEW_FIXTURE_MAP, files),
+    map,
     range: {
       repo: "profiles",
       base: "a".repeat(40),

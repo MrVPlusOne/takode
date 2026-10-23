@@ -6,6 +6,7 @@ import {
   outlineGuidedReviewDiff,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
+  prepareGuidedReview,
   withGuidedReviewSnippets,
   type GuidedReviewMap,
 } from "./guided-review.js";
@@ -188,5 +189,65 @@ describe("formatGuidedReviewMarkdown", () => {
     expect(markdown).toContain("1. **Retry every error up to 4 times?**");
     expect(markdown).toContain("(Answers: Keep a day / One hour / No cache)");
     expect(markdown).toContain("- **Tests** (1 file): One test for the first success.");
+    // Each summarized file is listed with the lines its summary covers, as counted from the diff.
+    expect(markdown).toContain("  - `src/client.ts` +1 −0 (more in stops)");
+    expect(markdown).toContain("  - `src/retry.test.ts` +6 −0");
+  });
+});
+
+describe("prepareGuidedReview", () => {
+  it("adds each summary's files with the lines it covers, counted from the diff", () => {
+    // The client's import is the only client line no stop shows; its other changes are in stops.
+    const { problems, map } = prepareGuidedReview(GUIDED_REVIEW_FIXTURE_MAP, files);
+    expect(problems).toEqual([]);
+    expect(map.summaries.map((summary) => summary.files)).toEqual([
+      [{ path: "src/client.ts", additions: 1, deletions: 0, alsoInStops: true }],
+      [{ path: "src/retry.test.ts", additions: 6, deletions: 0, alsoInStops: false }],
+    ]);
+    expect(map.stops[0].code[0].snippet).toContain("export async function withRetry");
+  });
+
+  it("names a renamed file by its new path and keeps the order the author listed", () => {
+    const renamed = parseGuidedReviewDiff(
+      [
+        "diff --git a/docs/old.md b/docs/new.md",
+        "similarity index 90%",
+        "rename from docs/old.md",
+        "rename to docs/new.md",
+        "--- a/docs/old.md",
+        "+++ b/docs/new.md",
+        "@@ -1,2 +1,2 @@",
+        " # Title",
+        "-old line",
+        "+new line",
+        "diff --git a/docs/a.md b/docs/a.md",
+        "--- a/docs/a.md",
+        "+++ b/docs/a.md",
+        "@@ -1 +1,2 @@",
+        " # A",
+        "+more",
+        "",
+      ].join("\n"),
+    );
+    const { map } = prepareGuidedReview(
+      {
+        title: "Docs",
+        overview: "Docs.",
+        stops: [],
+        summaries: [{ title: "Docs", text: "Edits.", paths: ["docs/a.md", "docs/old.md"] }],
+      },
+      renamed,
+    );
+    expect(map.summaries[0].files).toEqual([
+      { path: "docs/a.md", additions: 1, deletions: 0, alsoInStops: false },
+      { path: "docs/new.md", additions: 1, deletions: 1, alsoInStops: false },
+    ]);
+  });
+
+  it("returns the problems and leaves the map alone when it does not cover the change", () => {
+    const map = { ...GUIDED_REVIEW_FIXTURE_MAP, summaries: [] };
+    const prepared = prepareGuidedReview(map, files);
+    expect(prepared.problems.length).toBeGreaterThan(0);
+    expect(prepared.map).toBe(map);
   });
 });

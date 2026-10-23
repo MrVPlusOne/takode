@@ -21,11 +21,16 @@ import {
   makeGuidedReviewMetaFixture,
   makeGuidedReviewReportFixture,
 } from "../../shared/test-fixtures/guided-review.js";
+import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 
 // The feed message is built from the published history entry, as the browser receives it.
-const [message] = normalizeHistoryMessageToChatMessages(makeGuidedReviewReportFixture(), 7);
+function reviewMessage(change?: (meta: GuidedReviewMeta) => void) {
+  const report = makeGuidedReviewReportFixture();
+  change?.(report.guidedReview!);
+  return normalizeHistoryMessageToChatMessages(report, 7)[0];
+}
 
-function renderReview() {
+function renderReview(message = reviewMessage()) {
   return render(
     <>
       <MarkdownReport message={message} />
@@ -34,8 +39,8 @@ function renderReview() {
   );
 }
 
-async function openTour() {
-  renderReview();
+async function openTour(message?: ReturnType<typeof reviewMessage>) {
+  renderReview(message);
   fireEvent.click(within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Start the review" }));
   return screen.findByTestId("guided-review-viewer");
 }
@@ -193,6 +198,70 @@ describe("guided review", () => {
     );
   });
 
+  it("renders Takode links in the overview, explanations, summaries and sent answers, as chat does", async () => {
+    // Reviews are read in Takode, so quest, session and file links work as they do in chat.
+    const viewer = await openTour(
+      reviewMessage((meta) => {
+        meta.map.overview += " It follows [q-2813](quest:q-2813).";
+        meta.map.stops[0].note += " Asked for in [#5](session:5).";
+        meta.map.summaries[1].text += " See [retry.test.ts](file:src/retry.test.ts).";
+      }),
+    );
+    const walkthrough = within(viewer).getByTestId("guided-review-walkthrough");
+    expect(walkthrough.querySelector(".cc-quest-link")).toHaveTextContent("q-2813");
+    expect(walkthrough).not.toHaveTextContent("quest:q-2813");
+
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    expect(currentStop(viewer)).toHaveTextContent("Asked for in #5.");
+    expect(currentStop(viewer)).not.toHaveTextContent("session:5");
+    fireEvent.change(within(currentStop(viewer)).getByRole("textbox"), {
+      target: { value: "Only network errors, as in [q-7](quest:q-7)" },
+    });
+
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(viewer).toHaveTextContent("See retry.test.ts.");
+    expect(viewer).not.toHaveTextContent("file:src/retry.test.ts");
+
+    // Once sent, an answer shows as Markdown on its stop.
+    fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
+    fireEvent.click(within(screen.getByTestId("guided-review-card")).getByRole("button", { name: "Open review" }));
+    const reopened = await screen.findByTestId("guided-review-viewer");
+    fireEvent.click(within(reopened).getByRole("button", { name: /^Retry every error up to 4 times\?/ }));
+    expect(currentStop(reopened).querySelector(".cc-quest-link")).toHaveTextContent("q-7");
+  });
+
+  it("lists each summarized area's files with the lines it covers, counted from the diff", async () => {
+    const viewer = await openTour();
+    for (let n = 0; n < 4; n++) fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    // The client's other changes are in stops, which its row says; the test file is all summarized.
+    expect(fileRows(viewer, "Import")).toEqual(["client.ts src also in stops +1 −0"]);
+    expect(fileRows(viewer, "Tests")).toEqual(["retry.test.ts src +6 −0"]);
+  });
+
+  it("lists only the paths of a review published before the counts existed", async () => {
+    const viewer = await openTour(
+      reviewMessage((meta) => {
+        for (const summary of meta.map.summaries) delete summary.files;
+      }),
+    );
+    for (let n = 0; n < 4; n++) fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(fileRows(viewer, "Tests")).toEqual(["retry.test.ts src"]);
+  });
+
+  it("leaves Escape to a quest or other modal opened over it", async () => {
+    // A link in the review can open quest details above it; Escape closes those, not the review.
+    const viewer = await openTour();
+    const quest = document.body.appendChild(document.createElement("div"));
+    quest.setAttribute("aria-modal", "true");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(viewer).toBeInTheDocument();
+    quest.remove();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByTestId("guided-review-viewer")).toBeNull();
+  });
+
   it("opens the full change commit by commit from git", async () => {
     apiMock.getGuidedReviewCommit.mockResolvedValue({
       sha: "c".repeat(40),
@@ -212,6 +281,19 @@ describe("guided review", () => {
     await waitFor(() => expect(full).toHaveTextContent('import { expect, it } from "vitest";'));
   });
 });
+
+/** A summary's file rows, with spaces between the name, folder, note and counts. */
+function fileRows(viewer: HTMLElement, summaryTitle: string): string[] {
+  const list = within(viewer).getByRole("list", { name: `Files in ${summaryTitle}` });
+  return within(list)
+    .getAllByRole("listitem")
+    .map((row) =>
+      [...row.querySelectorAll("span")]
+        .filter((part) => !part.querySelector("span"))
+        .map((part) => part.textContent?.trim())
+        .join(" "),
+    );
+}
 
 /** The stop the walkthrough shows now. */
 function currentStop(viewer: HTMLElement): HTMLElement {
