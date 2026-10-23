@@ -9,7 +9,7 @@ import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BoardRowSessionStatus } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import type { BoardRowData } from "./BoardTable.js";
-import { WAITING_WORKER_PREVIEW_HOLD_MS, resolveWaitingWorkerGate } from "./WaitingWorkerPreview.js";
+import { resolveWaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 import { useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 
@@ -131,7 +131,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("resolveWaitingWorkerGate", () => {
+describe("resolveWaitingWorkerTarget", () => {
   const base = {
     threadKey: "q-42",
     statuses: [waiting()],
@@ -140,13 +140,10 @@ describe("resolveWaitingWorkerGate", () => {
   };
 
   it("shows for a waiting quest thread with an assigned worker", () => {
-    expect(resolveWaitingWorkerGate(base)).toEqual({
-      kind: "show",
-      target: {
-        questId: "q-42",
-        sessions: [{ sessionId: WORKER, sessionNum: 7, status: "running", turnStartedAt: null, helper: false }],
-        ownerWaits: [],
-      },
+    expect(resolveWaitingWorkerTarget(base)).toEqual({
+      questId: "q-42",
+      sessions: [{ sessionId: WORKER, sessionNum: 7, status: "running", turnStartedAt: null, helper: false }],
+      ownerWaits: [],
     });
   });
 
@@ -159,8 +156,7 @@ describe("resolveWaitingWorkerGate", () => {
         helpers: [{ sessionId: HELPER, sessionNum: 9, status: "running", generationStartedAt: 50 }],
       },
     };
-    const gate = resolveWaitingWorkerGate({ ...base, boardRows: rows, rowStatuses: participants });
-    expect(gate.kind === "show" && gate.target).toEqual({
+    expect(resolveWaitingWorkerTarget({ ...base, boardRows: rows, rowStatuses: participants })).toEqual({
       questId: "q-42",
       sessions: [
         { sessionId: WORKER, sessionNum: 7, status: "idle", turnStartedAt: null, helper: false },
@@ -170,37 +166,58 @@ describe("resolveWaitingWorkerGate", () => {
       ownerWaits: ["your answer", "#9", "q-5"],
     });
     // A queued row's wait-for list is about starting the quest, not about a working owner.
-    const queued = resolveWaitingWorkerGate({
+    const checkpoint = resolveWaitingWorkerTarget({
       ...base,
-      boardRows: [boardRow({ status: "QUEUED", waitFor: ["q-5"] })],
+      boardRows: [boardRow({ status: "USER_CHECKPOINTING", waitForInput: ["n-3"] })],
     });
-    expect(queued.kind === "show" && queued.target.ownerWaits).toEqual([]);
+    expect(checkpoint?.ownerWaits).toEqual(["your answer"]);
   });
 
   it("carries the server turn start only while the worker is running", () => {
     // The turn timer reads the board participant's server-set generation start, so it
     // is the same on every device and survives reloads.
     const started = { ...base, rowStatuses: rowStatuses("running", PHASE_STARTED_AT) };
-    const gate = resolveWaitingWorkerGate(started);
-    expect(gate.kind === "show" && gate.target.sessions[0]?.turnStartedAt).toBe(PHASE_STARTED_AT);
-    const idle = resolveWaitingWorkerGate({ ...base, rowStatuses: rowStatuses("idle", PHASE_STARTED_AT) });
-    expect(idle.kind === "show" && idle.target.sessions[0]?.turnStartedAt).toBeNull();
+    expect(resolveWaitingWorkerTarget(started)?.sessions[0]?.turnStartedAt).toBe(PHASE_STARTED_AT);
+    const idle = resolveWaitingWorkerTarget({ ...base, rowStatuses: rowStatuses("idle", PHASE_STARTED_AT) });
+    expect(idle?.sessions[0]?.turnStartedAt).toBeNull();
   });
 
-  it("treats a cleared status as soft so a re-written marker does not flash", () => {
-    expect(resolveWaitingWorkerGate({ ...base, statuses: [] }).kind).toBe("soft");
+  it("shows while the quest is in an active phase, with or without a leader status in the tab", () => {
+    // A side quest's updates go to the tab its request came from, so its own tab often has no
+    // status at all; the preview follows the board row instead of the leader's markers.
+    for (const status of ["WORKING", "USER_CHECKPOINTING", "MEMORY", "PLANNING", "IMPLEMENTING"]) {
+      expect(resolveWaitingWorkerTarget({ ...base, statuses: [], boardRows: [boardRow({ status })] })).not.toBeNull();
+    }
   });
 
-  it("hides immediately for Ready, Main, completed rows, unassigned or archived workers", () => {
-    // Each case is a definitive change, not churn, so no hold applies.
-    const ready = { ...waiting(), kind: "ready" as const, label: "Thread Ready" as const };
-    expect(resolveWaitingWorkerGate({ ...base, statuses: [ready] }).kind).toBe("hide");
-    expect(resolveWaitingWorkerGate({ ...base, threadKey: "main" }).kind).toBe("hide");
-    expect(resolveWaitingWorkerGate({ ...base, boardRows: [boardRow({ completedAt: 5 })] }).kind).toBe("hide");
+  it("hides before the worker starts and after it hands the quest to the landing queue", () => {
+    // The assigned worker may be busy with another quest then, so its activity would mislead.
+    for (const status of ["PROPOSED", "QUEUED", "LANDING"]) {
+      expect(resolveWaitingWorkerTarget({ ...base, boardRows: [boardRow({ status })] })).toBeNull();
+    }
+  });
+
+  it("hides for a Ready posted in this tab during the current phase, not for an older one", () => {
+    const ready = (updatedAt: number): LeaderThreadStatus => ({
+      ...waiting(),
+      kind: "ready",
+      label: "Thread Ready",
+      updatedAt,
+    });
+    expect(resolveWaitingWorkerTarget({ ...base, statuses: [ready(PHASE_STARTED_AT + 1)] })).toBeNull();
+    // A Ready from before the row entered its current phase (a reopened quest, or Memory after
+    // an accepted Work result) no longer describes what the worker is doing.
+    expect(resolveWaitingWorkerTarget({ ...base, statuses: [ready(PHASE_STARTED_AT - 1)] })).not.toBeNull();
+  });
+
+  it("hides for Main, completed or removed rows, unassigned or archived workers", () => {
+    expect(resolveWaitingWorkerTarget({ ...base, threadKey: "main" })).toBeNull();
+    expect(resolveWaitingWorkerTarget({ ...base, boardRows: [boardRow({ completedAt: 5 })] })).toBeNull();
+    expect(resolveWaitingWorkerTarget({ ...base, boardRows: [] })).toBeNull();
     expect(
-      resolveWaitingWorkerGate({ ...base, boardRows: [boardRow({ worker: undefined })], rowStatuses: {} }).kind,
-    ).toBe("hide");
-    expect(resolveWaitingWorkerGate({ ...base, rowStatuses: rowStatuses("archived") }).kind).toBe("hide");
+      resolveWaitingWorkerTarget({ ...base, boardRows: [boardRow({ worker: undefined })], rowStatuses: {} }),
+    ).toBeNull();
+    expect(resolveWaitingWorkerTarget({ ...base, rowStatuses: rowStatuses("archived") })).toBeNull();
   });
 });
 
@@ -316,45 +333,36 @@ describe("WaitingWorkerPreview", () => {
   });
 
   it("does not flash while the leader clears and re-writes the Waiting marker", () => {
-    vi.useFakeTimers();
     setLeaderState();
     render(<FeedFooterHost />);
     const panel = screen.getByTestId("waiting-worker-preview");
 
-    // Leader activity in the thread clears the status for the whole leader turn.
+    // Leader activity in the thread clears the status; the quest is still in Work.
     setLeaderState({ statuses: {}, leaderStatus: "running" });
-    act(() => vi.advanceTimersByTime(60_000));
-    expect(screen.getByTestId("waiting-worker-preview")).toBe(panel);
-
-    // The turn ends; a slightly late Waiting marker still lands inside the grace period.
     setLeaderState({ statuses: {}, leaderStatus: "idle" });
-    act(() => vi.advanceTimersByTime(WAITING_WORKER_PREVIEW_HOLD_MS - 1_000));
     setLeaderState();
-    act(() => vi.advanceTimersByTime(WAITING_WORKER_PREVIEW_HOLD_MS * 2));
     // Same DOM node: the panel never unmounted.
     expect(screen.getByTestId("waiting-worker-preview")).toBe(panel);
   });
 
-  it("removes the panel after the grace period when no Waiting status returns, and immediately on Ready", () => {
-    vi.useFakeTimers();
-    setLeaderState();
-    const { unmount } = render(<FeedFooterHost />);
-
+  it("shows in a tab with no status at all, and goes on Ready or when the row leaves Work", () => {
+    // A side quest's tab: no leader status there, but its worker is on it.
     setLeaderState({ statuses: {} });
-    act(() => vi.advanceTimersByTime(WAITING_WORKER_PREVIEW_HOLD_MS - 100));
-    expect(screen.getByTestId("waiting-worker-preview")).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(200));
-    expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
-
-    // An expired hold does not come back just because the leader starts generating again.
-    setLeaderState({ statuses: {}, leaderStatus: "running" });
-    expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
-    unmount();
-
-    setLeaderState();
     render(<FeedFooterHost />);
     expect(screen.getByTestId("waiting-worker-preview")).toBeInTheDocument();
-    setLeaderState({ statuses: { "q-42": { ...waiting(), kind: "ready", label: "Thread Ready" } } });
+    expect(screen.queryByTestId("thread-status-summary")).not.toBeInTheDocument();
+
+    setLeaderState({ statuses: {}, rows: [boardRow({ status: "LANDING" })] });
+    expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
+    setLeaderState({ statuses: {}, rows: [boardRow({ status: "MEMORY" })] });
+    expect(screen.getByTestId("waiting-worker-preview")).toBeInTheDocument();
+    const ready = {
+      ...waiting(),
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      updatedAt: PHASE_STARTED_AT + 1,
+    };
+    setLeaderState({ statuses: { "q-42": ready } });
     expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
   });
 

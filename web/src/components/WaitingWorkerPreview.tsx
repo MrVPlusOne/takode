@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { SessionActivityPreview } from "../../server/session-activity-preview.js";
@@ -13,8 +13,6 @@ import { formatElapsed } from "./message-feed-utils.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { SessionHostBadge } from "./HostBadge.js";
 
-/** How long the preview survives a cleared thread status after the leader stops generating. */
-export const WAITING_WORKER_PREVIEW_HOLD_MS = 5_000;
 const POLL_INTERVAL_MS = 3_000;
 const CLOCK_TICK_MS = 5_000;
 /** The working worker's turn timer counts seconds, so it ticks every second. */
@@ -45,29 +43,37 @@ export interface WaitingWorkerTarget {
 }
 
 /**
- * `soft` means the worker is still assigned but the thread has no current status,
- * which happens transiently while the leader acts in the thread before writing a
- * new marker. Only `soft` may be held to avoid flashing; everything else is exact.
+ * Board states in which the assigned worker is not on this quest: it has not started
+ * (proposed, queued) or has handed it over and waits for the landing queue. The worker
+ * may be busy with other quests then, so its activity would mislead here.
  */
-export type WaitingWorkerGate =
-  | { kind: "show"; target: WaitingWorkerTarget }
-  | { kind: "soft"; target: WaitingWorkerTarget }
-  | { kind: "hide" };
+const IDLE_ROW_STATES = new Set(["PROPOSED", "QUEUED", "LANDING"]);
 
-export function resolveWaitingWorkerGate(input: {
+/**
+ * The quest whose tab this is, while its worker is on it: the row is on the board in an
+ * active phase (Work, User Checkpoint, Memory and legacy working phases) with a live
+ * worker. The leader's Waiting status is not needed, so side quests, whose updates go to
+ * the tab the request came from, show it too, and clearing and re-writing a status never
+ * makes it flash. Only a Ready the leader posted in this tab during the current phase
+ * hides it: the tab then leads with that result.
+ */
+export function resolveWaitingWorkerTarget(input: {
   threadKey: string;
   /** The thread's current status, newest last, as shown in its feed footer. */
   statuses: readonly LeaderThreadStatus[];
   boardRows: readonly BoardRowData[] | undefined;
   rowStatuses: Readonly<Record<string, BoardRowSessionStatus>> | undefined;
-}): WaitingWorkerGate {
+}): WaitingWorkerTarget | null {
   const threadKey = normalizeThreadKey(input.threadKey);
-  if (!isQuestThreadKey(threadKey)) return { kind: "hide" };
+  if (!isQuestThreadKey(threadKey)) return null;
   const row = input.boardRows?.find((candidate) => candidate.questId.toLowerCase() === threadKey);
-  if (!row || row.completedAt !== undefined) return { kind: "hide" };
+  if (!row || row.completedAt !== undefined) return null;
+  if (IDLE_ROW_STATES.has((row.status ?? "").trim().toUpperCase())) return null;
   const participant = input.rowStatuses?.[row.questId]?.worker;
   const workerSessionId = participant?.sessionId ?? row.worker;
-  if (!workerSessionId || participant?.status === "archived") return { kind: "hide" };
+  if (!workerSessionId || participant?.status === "archived") return null;
+  const status = input.statuses.at(-1);
+  if (status?.kind === "ready" && status.updatedAt >= currentPhaseStartedAt(row)) return null;
 
   const helpers = input.rowStatuses?.[row.questId]?.helpers ?? [];
   const target: WaitingWorkerTarget = {
@@ -79,9 +85,13 @@ export function resolveWaitingWorkerGate(input: {
     ownerWaits: rowWaits(row, participant?.sessionNum ?? row.workerNum ?? null),
   };
 
-  const status = input.statuses.at(-1);
-  if (!status) return { kind: "soft", target };
-  return status.kind === "waiting" ? { kind: "show", target } : { kind: "hide" };
+  return target;
+}
+
+/** When the row entered its current phase; a reopened quest or a later phase starts after an older Ready. */
+function currentPhaseStartedAt(row: BoardRowData): number {
+  const index = row.journey?.activePhaseIndex;
+  return (index !== undefined ? row.journey?.phaseTimings?.[String(index)]?.startedAt : undefined) ?? 0;
 }
 
 function waitingSession(
@@ -112,8 +122,8 @@ function rowWaits(row: BoardRowData, ownerNum: number | null): string[] {
 }
 
 /**
- * Resolve which worker, if any, the selected leader quest thread is waiting on.
- * The feed renders the preview under the thread's status footer whenever this is non-null.
+ * Resolve which worker, if any, the selected leader quest thread shows a preview of.
+ * The feed renders the preview in the thread's status footer whenever this is non-null.
  */
 export function useWaitingWorkerPreviewTarget(
   leaderSessionId: string,
@@ -122,57 +132,10 @@ export function useWaitingWorkerPreviewTarget(
 ): WaitingWorkerTarget | null {
   const boardRows = useStore((state) => state.sessionBoards?.get(leaderSessionId));
   const rowStatuses = useStore((state) => state.sessionBoardRowStatuses?.get(leaderSessionId));
-  const leaderRunning = useStore((state) => state.sessionStatus?.get(leaderSessionId) === "running");
-  const gate = useMemo(
-    () => resolveWaitingWorkerGate({ threadKey, statuses, boardRows, rowStatuses }),
+  return useMemo(
+    () => resolveWaitingWorkerTarget({ threadKey, statuses, boardRows, rowStatuses }),
     [boardRows, rowStatuses, statuses, threadKey],
   );
-  return useFlashFreeTarget(gate, leaderRunning, `${leaderSessionId}:${normalizeThreadKey(threadKey)}`);
-}
-
-/**
- * Keep the preview through a `soft` gap while the leader is generating and briefly after,
- * so clearing and re-writing the Waiting marker does not unmount and remount it.
- * Once a hold expires the preview stays hidden until an explicit Waiting status returns.
- */
-function useFlashFreeTarget(
-  gate: WaitingWorkerGate,
-  leaderRunning: boolean,
-  scope: string,
-): WaitingWorkerTarget | null {
-  const scopeRef = useRef(scope);
-  const shownRef = useRef(false);
-  const lastReasonAtRef = useRef(0);
-  const hadReasonRef = useRef(false);
-  const [, rerender] = useReducer((count: number) => count + 1, 0);
-  if (scopeRef.current !== scope) {
-    // A different thread never inherits another thread's hold.
-    scopeRef.current = scope;
-    shownRef.current = false;
-    hadReasonRef.current = false;
-  }
-  const now = Date.now();
-  // A Waiting status or a generating leader is a reason to show. The grace period
-  // starts when the last reason ended, i.e. on the first render without one.
-  const hasReason = gate.kind === "show" || leaderRunning;
-  const reasonAt = hasReason || hadReasonRef.current ? now : lastReasonAtRef.current;
-  const holding = gate.kind === "soft" && shownRef.current && now - reasonAt < WAITING_WORKER_PREVIEW_HOLD_MS;
-  const visible = gate.kind === "show" || holding ? gate.target : null;
-
-  useLayoutEffect(() => {
-    shownRef.current = visible !== null;
-    lastReasonAtRef.current = reasonAt;
-    hadReasonRef.current = hasReason;
-  });
-
-  const holdDeadline = holding && !hasReason ? reasonAt + WAITING_WORKER_PREVIEW_HOLD_MS : null;
-  useEffect(() => {
-    if (holdDeadline === null) return;
-    const timer = setTimeout(rerender, Math.max(0, holdDeadline - Date.now()) + 10);
-    return () => clearTimeout(timer);
-  }, [holdDeadline]);
-
-  return visible;
 }
 
 /**

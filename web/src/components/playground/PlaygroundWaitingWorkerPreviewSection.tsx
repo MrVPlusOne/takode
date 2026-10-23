@@ -187,7 +187,8 @@ function FeedFooterDemo({
   target: WaitingWorkerTarget;
   /** Activity per session ID; one preview serves every session when there is only one. */
   preview: SessionActivityPreview | Record<string, SessionActivityPreview>;
-  summary: string;
+  /** The leader's Waiting summary in this tab; null for a tab without a status, such as a side quest's. */
+  summary: string | null;
   waitingFor?: string | null;
 }) {
   const [selected, setSelected] = useState(() => autoSelectedSessionId(target.sessions));
@@ -208,7 +209,7 @@ function FeedFooterDemo({
       <div className="pl-9 text-sm text-cc-fg/85">
         I sent #2781 to build the preview. I'll check back when it reports.
       </div>
-      <TurnThreadStatusFooter statuses={[waitingStatus(summary)]} currentThreadKey="q-101" />
+      <TurnThreadStatusFooter statuses={summary ? [waitingStatus(summary)] : []} currentThreadKey="q-101" />
       <div className="pl-9">
         <WaitingWorkerPreviewPanel
           target={target}
@@ -229,10 +230,11 @@ export function PlaygroundWaitingWorkerPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Waiting Worker Preview"
-        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working (pulsing dot and a live timer of the worker's current turn, no status pill), idle-while-waiting (the pill names what the worker waits for, with time since its last activity), idle with quiet turns (each quiet line is a turn the worker marked quiet, which did not wake the leader), and an owner waiting on a helper session: the row's helpers share the title bar as tabs, the preview switches to whichever session last started working, and a tapped tab stays until that changes. The title bar shows only the worker number, its turn timer while working, and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
+        description="Part of the chat feed at the end of a quest tab while the quest is in an active phase (Work, User Checkpoint, Memory) with a worker, under the Thread Waiting status when the leader posted one and on its own when not, as in a side quest's tab: working (pulsing dot and a live timer of the worker's current turn, no status pill), idle-while-waiting (the pill names what the worker waits for, with time since its last activity), idle with quiet turns (each quiet line is a turn the worker marked quiet, which did not wake the leader), and an owner waiting on a helper session: the row's helpers share the title bar as tabs, the preview switches to whichever session last started working, and a tapped tab stays until that changes. The title bar shows only the worker number, its turn timer while working, and Open session; the quest header carries machine and phase. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
       >
         <div className="space-y-4" data-testid="playground-waiting-worker-preview">
           <FeedFooterDemo target={WORKING} preview={WORKING_PREVIEW} summary="#2781 implementing the preview" />
+          <FeedFooterDemo target={WORKING} preview={WORKING_PREVIEW} summary={null} />
           <FeedFooterDemo
             target={IDLE}
             preview={IDLE_PREVIEW}
