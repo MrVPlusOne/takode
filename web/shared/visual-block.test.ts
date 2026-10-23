@@ -4,6 +4,7 @@ import {
   markdownWithVisualFallbacks,
   parseVisualBlock,
   visualFallbackText,
+  visualIsInteractive,
   visualUsesScripts,
 } from "./visual-block.js";
 import { markdownToPlainText } from "./markdown-plain-text.js";
@@ -62,6 +63,12 @@ describe("buildVisualDocument", () => {
     expect(live).toContain("https://t.example/visual-kit/lib/mermaid.min.js");
     expect(snapshot).not.toContain("mermaid.min.js");
     expect(live).toContain('<html class="dark" data-tk-mode="live">');
+  });
+
+  it("tells diagrams, which look the same as their still picture, from interactive visuals", () => {
+    expect(visualIsInteractive('<pre class="tk-mermaid">flowchart TB\na-->b</pre>')).toBe(false);
+    expect(visualIsInteractive('<script type="application/json" class="tk-chart">{}</script>')).toBe(true);
+    expect(visualIsInteractive('<button onclick="go()">x</button>')).toBe(true);
   });
 
   it("knows which visuals need scripts", () => {

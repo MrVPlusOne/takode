@@ -7,7 +7,7 @@
  * layout of their own. Tones (`data-tone="decide|look|checked|good|bad|warn|muted|primary"`)
  * pick Takode's colours; agents never choose colours themselves.
  *
- * The frame script reports the frame's height and a heartbeat to the page, forwards
+ * The frame script reports the frame's height (and, live, a heartbeat and a still copy) to the page, forwards
  * link taps, and in live mode renders the diagram (`.tk-mermaid`) and chart
  * (`.tk-chart`, Vega-Lite) helpers with Takode's theme. It sets
  * `window.__tkVisual.ready` once the visual has settled, which the server renderer
@@ -207,13 +207,37 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
   window.addEventListener("error", function (event) { state.errors.push(String(event.message || event.error)); });
   window.addEventListener("unhandledrejection", function (event) { state.errors.push(String(event.reason)); });
 
-  // Heartbeat with how late the timer fired, so the page can tell a busy or hung visual.
-  var last = Date.now();
-  setInterval(function () {
-    var now = Date.now();
-    post({ kind: "beat", lag: Math.max(0, now - last - 250) });
-    last = now;
-  }, 250);
+  // Heartbeat with how late the timer fired, so the page can tell a busy or hung visual. A
+  // still picture runs no agent code and isn't watched, so it stays quiet.
+  if (config.mode === "live") {
+    var last = Date.now();
+    setInterval(function () {
+      var now = Date.now();
+      post({ kind: "beat", lag: Math.max(0, now - last - 250) });
+      last = now;
+    }, 250);
+  }
+
+  // The settled visual without scripts: canvases become images, handlers and script tags go.
+  // Takode keeps it as a still picture to show instantly whenever the live visual reloads.
+  state.snapshot = function () {
+    var clone = document.body.cloneNode(true);
+    var canvases = document.body.querySelectorAll("canvas");
+    clone.querySelectorAll("canvas").forEach(function (canvas, index) {
+      var source = canvases[index];
+      var img = document.createElement("img");
+      try { img.src = source.toDataURL("image/png"); } catch (error) {}
+      img.width = source.clientWidth; img.height = source.clientHeight;
+      img.style.cssText = source.style.cssText;
+      canvas.replaceWith(img);
+    });
+    clone.querySelectorAll("script, iframe, object, embed").forEach(function (node) { node.remove(); });
+    clone.querySelectorAll("*").forEach(function (node) {
+      node.getAttributeNames().forEach(function (name) { if (/^on/i.test(name)) node.removeAttribute(name); });
+    });
+    var styles = Array.prototype.map.call(document.querySelectorAll("head style:not(#tk-kit)"), function (s) { return s.outerHTML; }).join("");
+    return styles + clone.innerHTML;
+  };
 
   function height() {
     // The body, not the document: the document is at least as tall as the frame, so it could never shrink.
@@ -365,7 +389,10 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
   }
 
   function settle() {
-    var helpers = config.mode === "live" ? Promise.all([renderMermaid().then(fitDiagrams), renderCharts()]) : Promise.resolve();
+    var helpers =
+      config.mode === "live"
+        ? Promise.all([renderMermaid().then(fitDiagrams), renderCharts()])
+        : Promise.resolve().then(fitDiagrams);
     return helpers
       .then(function () { return document.fonts && document.fonts.ready; })
       .catch(function (error) { state.errors.push(String(error)); })
@@ -375,6 +402,12 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
         reportSize();
         if (window.ResizeObserver) new ResizeObserver(reportSize).observe(document.body);
         post({ kind: "ready", height: height(), errors: state.errors.slice(0, 5) });
+        if (config.mode === "live" && embedded) {
+          try {
+            var still = state.snapshot();
+            if (still.length <= 1048576) post({ kind: "snapshot", html: still });
+          } catch (error) {}
+        }
       });
   }
   if (document.readyState === "complete") settle();

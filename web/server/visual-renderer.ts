@@ -299,27 +299,8 @@ const MEASURE_SCRIPT = `(() => {
   };
 })()`;
 
-/** The settled visual without scripts: canvases become images, handlers and script tags go. */
-const SNAPSHOT_SCRIPT = `(() => {
-  const clone = document.body.cloneNode(true);
-  const canvases = document.body.querySelectorAll("canvas");
-  clone.querySelectorAll("canvas").forEach((canvas, index) => {
-    const source = canvases[index];
-    const img = document.createElement("img");
-    try { img.src = source.toDataURL("image/png"); } catch (error) {}
-    img.width = source.clientWidth; img.height = source.clientHeight;
-    img.style.cssText = source.style.cssText;
-    canvas.replaceWith(img);
-  });
-  clone.querySelectorAll("script, iframe, object, embed").forEach((node) => node.remove());
-  clone.querySelectorAll("*").forEach((node) => {
-    for (const name of node.getAttributeNames()) {
-      if (/^on/i.test(name)) node.removeAttribute(name);
-    }
-  });
-  const styles = [...document.querySelectorAll("head style:not(#tk-kit)")].map((s) => s.outerHTML).join("");
-  return styles + clone.innerHTML;
-})()`;
+/** The settled visual without scripts, made by the frame script itself (the same still picture browsers keep). */
+const SNAPSHOT_SCRIPT = "window.__tkVisual.snapshot()";
 
 const TIMED_OUT = Symbol("timed-out");
 

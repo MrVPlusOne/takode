@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { visualSourceHash } from "../../shared/visual-block.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
+import { clearVisualStillsForTest, keepVisualStill } from "../utils/visual-still-cache.js";
 import { planVisual, VisualBlock } from "./VisualBlock.js";
 
 // The isolation probe needs a real browser; tests choose the answer.
@@ -27,6 +28,20 @@ describe("planVisual", () => {
     expect(planVisual({ isolation: "shared", usesScripts: false, stopped: false, forced: false })).toBe("still");
   });
 
+  it("shows a diagram as the server drew it where frames share the page's process", () => {
+    // A Mermaid diagram runs no code of its own: running its helper inside the iPhone's page would
+    // only cost a heavy script for the same picture. Charts and agent scripts still run.
+    expect(
+      planVisual({ isolation: "shared", usesScripts: true, interactive: false, stopped: false, forced: false }),
+    ).toBe("still");
+    expect(
+      planVisual({ isolation: "shared", usesScripts: true, interactive: true, stopped: false, forced: false }),
+    ).toBe("checked");
+    expect(
+      planVisual({ isolation: "isolated", usesScripts: true, interactive: false, stopped: false, forced: false }),
+    ).toBe("live");
+  });
+
   it("shows a still picture once a visual was stopped on this device, until the user taps Run", () => {
     expect(planVisual({ isolation: "shared", usesScripts: true, stopped: true, forced: false })).toBe("still");
     expect(planVisual({ isolation: "isolated", usesScripts: true, stopped: true, forced: false })).toBe("still");
@@ -37,6 +52,7 @@ describe("planVisual", () => {
 describe("VisualBlock", () => {
   beforeEach(() => {
     localStorage.clear();
+    clearVisualStillsForTest();
     isolation = "shared";
     // jsdom has no layout; the server's drawing is requested for the column's width.
     Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 400 });
@@ -78,7 +94,28 @@ describe("VisualBlock", () => {
     await act(async () => {});
     expect(screen.queryByTestId("visual-block-stopped")).toBeNull();
     expect(localStorage.getItem("takode:visual-failed-v2")).toBe("[]");
-    expect((await screen.findByTestId("visual-block-frame")).getAttribute("srcdoc")).toContain("vega-embed.min.js");
+    // The live frame loads over the still picture, which stays until the live one has drawn.
+    await waitFor(() => expect(document.querySelector("iframe[data-live]")).not.toBeNull());
+    expect(document.querySelector("iframe[data-live]")!.getAttribute("srcdoc")).toContain("vega-embed.min.js");
+    expect(document.querySelector("iframe[data-still]")!.getAttribute("srcdoc")).toContain("data-still");
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a kept still at once under the live frame when a visual it already drew remounts", async () => {
+    // Scrolling back to a visual (or reopening its message) must not show a blank while the live
+    // frame reloads: the still kept from its first drawing shows immediately, without the server.
+    isolation = "isolated";
+    keepVisualStill(visualSourceHash(CHART_VISUAL), "light", "<svg data-kept-still><script>alert(1)</script></svg>");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<VisualBlock source={CHART_VISUAL} />);
+    await act(async () => {});
+    const still = document.querySelector("iframe[data-still]")!;
+    expect(still.getAttribute("srcdoc")).toContain("data-kept-still");
+    // Kept stills never carry scripts, even when the frame that posted one tried to.
+    expect(still.getAttribute("srcdoc")).not.toContain("alert(1)");
+    expect(document.querySelector("iframe[data-live]")!.getAttribute("srcdoc")).toContain("vega-embed.min.js");
+    expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 

@@ -1426,3 +1426,15 @@ select {
     transform: none;
   }
 }
+
+/* Visual blocks: a still picture under the live frame, so scrolling never shows a blank or a redraw.
+   The live frame stays invisible until it has drawn, then hides the still and the placeholder. */
+.tk-visual-body iframe[data-live]:not([data-ready]) {
+  opacity: 0;
+}
+.tk-visual-body:has(iframe[data-live][data-ready]) iframe[data-still] {
+  visibility: hidden;
+}
+.tk-visual-body:has(iframe[data-ready]) > .tk-visual-placeholder {
+  display: none;
+}

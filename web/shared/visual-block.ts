@@ -85,6 +85,15 @@ export function visualUsesScripts(html: string): boolean {
   );
 }
 
+/**
+ * True when running the visual does something its still picture can't: scripts (including
+ * charts, which respond to hover and inputs), inline handlers or `javascript:` links. A diagram
+ * drawn by the Mermaid helper looks and behaves the same as its still picture.
+ */
+export function visualIsInteractive(html: string): boolean {
+  return /<script\b/i.test(html) || /<[^>]+\son[a-z]+\s*=/i.test(html) || /javascript:/i.test(html);
+}
+
 /** Readable text for a visual where HTML can't go: its alt, else its title, else its visible text. */
 export function visualFallbackText(block: VisualBlock): string {
   if (block.alt) return block.title ? `${block.title}: ${block.alt}` : block.alt;
