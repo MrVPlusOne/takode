@@ -22,8 +22,8 @@ import { buildLeaderThreadResponseState } from "../leader-thread-response.js";
 import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
   buildThreadWindowSync,
+  deriveHistoryWindowLeadingTurnId,
   getThreadWindowItemCount,
-  latestThreadWindowStartHistoryIndex,
   MAIN_THREAD_KEY,
   normalizeSelectedFeedThreadKey,
 } from "../../shared/thread-window.js";
@@ -198,7 +198,6 @@ export interface BrowserConversationRefreshSessionLike {
   browserSockets: Set<unknown>;
   messageHistory: BrowserIncomingMessage[];
   nextEventSeq: number;
-  state?: Pick<SessionState, "isOrchestrator">;
 }
 
 export interface BrowserTransportStateLike {
@@ -1173,7 +1172,7 @@ async function sendHistorySyncAttempt(
 }
 
 export function sendHistoryWindowSync(
-  session: Pick<BrowserTransportSessionLike, "messageHistory"> & { state?: Pick<SessionState, "isOrchestrator"> },
+  session: Pick<BrowserTransportSessionLike, "messageHistory">,
   ws: BrowserTransportSocketLike,
   options: {
     fromTurn: number;
@@ -1211,24 +1210,20 @@ export function sendHistoryWindowSync(
       includeMessage: isRootAgentHistoryMessage,
       includeOutsideTurnMessage: (message, historyIndex) =>
         isRootAgentHistoryMessage(message) && message.type === "quest_lifecycle_event" && historyIndex >= 0,
-      // A leader's history window is its All Threads view. Turns count every herd event and
-      // injected input, so the latest turns can span far less than the latest Main
-      // conversations; All Threads must never show less than Main.
-      latestWindowCoverIndex:
-        session.state?.isOrchestrator === true
-          ? () =>
-              latestThreadWindowStartHistoryIndex(
-                session.messageHistory,
-                MAIN_THREAD_KEY,
-                getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount),
-                isRootAgentHistoryMessage,
-              )
-          : undefined,
     });
     ({ fromTurn, turnCount, startIdx, messages } = selected);
   } else {
     messages = session.messageHistory.slice();
   }
+  // A window that starts at turn 0 starts at the history's beginning, so it clips no turn.
+  const leadingTurnId =
+    fromTurn > 0
+      ? deriveHistoryWindowLeadingTurnId(
+          session.messageHistory,
+          messages.map((message, offset) => ({ message, history_index: message.history_index ?? startIdx + offset })),
+          isRootAgentHistoryMessage,
+        )
+      : undefined;
   messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
   const leaderWindow = prepareLeaderHistoryWindow(messages, session.messageHistory);
   messages = leaderWindow.messages;
@@ -1247,6 +1242,7 @@ export function sendHistoryWindowSync(
     start_index: startIdx,
     section_turn_count: normalizedSectionTurnCount,
     visible_section_count: normalizedVisibleSectionCount,
+    ...(leadingTurnId ? { leading_turn_id: leadingTurnId } : {}),
     window_hash: windowHash,
     ...(options.targetMessageId ? { target_message_id: options.targetMessageId } : {}),
     ...(leaderWindow.answeredMessages.length > 0 ? { answered_messages: leaderWindow.answeredMessages } : {}),
@@ -1339,9 +1335,7 @@ function noteThreadWindowHeld(ws: BrowserTransportSocketLike, threadKey: string,
 }
 
 function sendBoundedConversationView(
-  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory"> & {
-    state?: Pick<SessionState, "isOrchestrator">;
-  },
+  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,
   ws: BrowserTransportSocketLike,
   view: BoundedConversationView,
 ): void {

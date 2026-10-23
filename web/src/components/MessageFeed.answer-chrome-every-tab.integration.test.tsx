@@ -176,12 +176,12 @@ function installThreadWindow(
 }
 
 /** Deliver the All Threads history window through the server's own sender. */
-function installHistoryWindow(messages: BrowserIncomingMessage[], fromTurn = 0, sectionTurnCount = 10): void {
+function installHistoryWindow(messages: BrowserIncomingMessage[], fromTurn = 0): void {
   const sent: BrowserIncomingMessage[] = [];
   sendHistoryWindowSync(
-    { messageHistory: messages, state: { isOrchestrator: true } },
+    { messageHistory: messages },
     { send: (data: string) => sent.push(JSON.parse(data) as BrowserIncomingMessage) },
-    { fromTurn, turnCount: 10, sectionTurnCount, visibleSectionCount: 1 },
+    { fromTurn, turnCount: 10, sectionTurnCount: 10, visibleSectionCount: 1 },
   );
   expect(sent.map((message) => message.type)).toEqual(["history_window_sync"]);
   act(() => {
@@ -241,18 +241,9 @@ describe("leader answer chrome in every tab", () => {
   });
 
   it("quotes a request outside the loaded All Threads window from the window's answered messages", () => {
-    // Load only the quest turn and a later Main timer: the Main request it
-    // answers is older than the window, so the window sends it alongside
-    // instead of as a feed message. A latest All Threads window reaches back to
-    // the latest Main window of one section, here just the later timer.
-    const laterMain: BrowserIncomingMessage = {
-      type: "user_message",
-      id: "later-main-timer",
-      content: "[⏰ Timer t1] Check build health",
-      timestamp: 1_700_000_004_000,
-      agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
-    };
-    installHistoryWindow([...history(), laterMain], 1, 1);
+    // Load only the quest turn: the Main request it answers is older than the
+    // window, so the window sends it alongside instead of as a feed message.
+    installHistoryWindow(history(), 1);
     render(<MessageFeed sessionId={SESSION_ID} threadKey="all" />);
 
     expect(document.querySelector('[data-message-id="main-request"]')).toBeNull();

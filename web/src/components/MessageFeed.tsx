@@ -82,6 +82,7 @@ import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
+import { useViewportAnchorWindowRequest } from "./message-feed-anchor-window-request.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
 import {
   getInitialThreadWindowTarget,
@@ -290,10 +291,6 @@ export function MessageFeed({
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const notedDeliberateMessageTargetRef = useRef<string | null>(null);
-  const pendingViewportAnchorWindowRequestRef = useRef<{
-    key: string;
-    window: typeof selectedFeedWindow | typeof historyWindow;
-  } | null>(null);
   const readCurrentRestoreKey = useCallback(
     () =>
       getSavedViewportRestoreKey(
@@ -335,7 +332,7 @@ export function MessageFeed({
     restoredViewportRef.current = null;
     lastViewportAnchorRef.current = null;
     pendingTargetWindowRequestRef.current = null;
-    pendingViewportAnchorWindowRequestRef.current = null;
+    viewportAnchorWindow.clear();
     exactRestoreRef.current = null;
   }, [normalizedThreadKey, sessionId]);
 
@@ -352,7 +349,12 @@ export function MessageFeed({
     frozenCount: hasFilteredNativeChildMessages ? 0 : frozenCount,
     isCodexSession,
     leaderMode: collapseLeaderThreadActivity,
-    leadingTurnId: selectedFeedWindow?.leading_turn_id,
+    // All Threads shows the history window, which clips a leading turn the same way.
+    leadingTurnId: selectedFeedWindowEnabled
+      ? selectedFeedWindow?.leading_turn_id
+      : isLeaderSession
+        ? historyWindow?.leading_turn_id
+        : undefined,
     leaderSessionMode: isLeaderSession && isCodexSession,
     peerLeaderTurns: isLeaderSession,
     frozenRevision,
@@ -848,46 +850,15 @@ export function MessageFeed({
     [ensureSectionForTurnVisible, handleUserNavigationIntent],
   );
 
-  const requestViewportAnchorWindowIfMissing = useCallback(
-    (pos: FeedViewportPosition, restoreKey: string) => {
-      const targetMessageId = pos.anchorMessageId ?? pos.anchorTurnId;
-      const useThreadWindow = selectedFeedWindowEnabled && activeThreadWindow;
-      const useHistoryWindow = !selectedFeedWindowEnabled && activeHistoryWindow;
-      if (!targetMessageId || (!useThreadWindow && !useHistoryWindow)) return false;
-
-      const requestKey = `${normalizedThreadKey}:${restoreKey}:${targetMessageId}`;
-      const resolvedWindow = useThreadWindow ? activeThreadWindow : activeHistoryWindow;
-      // A refresh revision is not a reply identity: it may remain unchanged
-      // across replies, or change for an unrelated update while lookup is pending.
-      const pending = pendingViewportAnchorWindowRequestRef.current;
-      if (pending?.key === requestKey) {
-        if (resolvedWindow === pending.window || resolvedWindow?.target_message_id !== targetMessageId) return true;
-        pendingViewportAnchorWindowRequestRef.current = null;
-        return false;
-      }
-      const requested = useThreadWindow
-        ? requestThreadWindow(-1, undefined, targetMessageId)
-        : requestHistoryWindow(
-            -1,
-            activeHistoryWindow?.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
-            activeHistoryWindow?.section_turn_count ?? sectionTurnCount,
-            activeHistoryWindow?.visible_section_count ?? DEFAULT_VISIBLE_SECTION_COUNT,
-            targetMessageId,
-          );
-      if (!requested) return false;
-      pendingViewportAnchorWindowRequestRef.current = { key: requestKey, window: resolvedWindow };
-      return true;
-    },
-    [
-      activeHistoryWindow,
-      activeThreadWindow,
-      normalizedThreadKey,
-      requestHistoryWindow,
-      requestThreadWindow,
-      sectionTurnCount,
-      selectedFeedWindowEnabled,
-    ],
-  );
+  const viewportAnchorWindow = useViewportAnchorWindowRequest({
+    normalizedThreadKey,
+    selectedFeedWindowEnabled,
+    activeThreadWindow,
+    activeHistoryWindow,
+    sectionTurnCount,
+    requestThreadWindow,
+    requestHistoryWindow,
+  });
 
   const { handleLoadNewerSection, handleLoadOlderSection, explicitSectionLoad } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
@@ -1274,7 +1245,7 @@ export function MessageFeed({
       exactRestoreRef.current = pendingExactRestore;
       lastViewportAnchorRef.current = null;
       if (restoreSavedViewportAnchor(pos)) {
-        pendingViewportAnchorWindowRequestRef.current = null;
+        viewportAnchorWindow.clear();
         setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
@@ -1287,7 +1258,7 @@ export function MessageFeed({
             if (exactRestoreRef.current === pendingExactRestore) exactRestoreRef.current = null;
           },
         });
-      } else if (requestViewportAnchorWindowIfMissing(pos, restoreKey)) {
+      } else if (viewportAnchorWindow.request(pos, restoreKey)) {
         return;
       } else {
         exactRestoreRef.current = null;
@@ -1324,7 +1295,7 @@ export function MessageFeed({
     scrollToTurnId,
     restoreSavedScrollPosition,
     restoreSavedViewportAnchor,
-    requestViewportAnchorWindowIfMissing,
+    viewportAnchorWindow,
     savedViewportRestoreKey,
     scrollToBottom,
     sectionWindowStart,

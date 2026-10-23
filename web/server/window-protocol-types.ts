@@ -10,6 +10,11 @@ export interface HistoryWindowState {
   start_index: number;
   section_turn_count: number;
   visible_section_count: number;
+  /**
+   * Server-proven identity of the leading leader feed turn, as on thread windows: a window
+   * that starts at an injected turn (such as a herd event) clips the turn it belongs to.
+   */
+  leading_turn_id?: string;
   window_hash?: string;
   /** Stable target looked up for this delivery, even if it could not be found. */
   target_message_id?: string;

@@ -781,6 +781,8 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
       visible_section_count: 2,
       has_older_items: true,
       has_newer_items: false,
+      // The leader-feed turn the window starts in; here it starts at u3, a whole turn.
+      leading_turn_id: "u3",
       window_hash: expect.any(String),
     });
     expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual([

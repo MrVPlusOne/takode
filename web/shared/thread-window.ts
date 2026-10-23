@@ -194,20 +194,24 @@ export function buildProjectedThreadEntries(
 }
 
 /**
- * History index where the latest window of `itemCount` conversations of a thread
- * begins, or null when the thread has no visible conversation. Supporting rows a
- * window carries from earlier history are not part of its span.
+ * The leader feed turn a history window's first rows belong to, when the window starts inside it.
+ * History windows are cut at backend turns, and every injected input (a herd event, a timer) starts
+ * one, while the leader feed starts a turn only at a human or peer-leader message. Without this id
+ * the clipped leading turn gets a window-local id, so it changes identity whenever an older window
+ * extends it.
  */
-export function latestThreadWindowStartHistoryIndex(
+export function deriveHistoryWindowLeadingTurnId(
   messageHistory: ReadonlyArray<BrowserIncomingMessage>,
-  threadKey: string,
-  itemCount: number,
+  windowEntries: ReadonlyArray<ThreadWindowEntry>,
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
-): number | null {
-  const items = buildThreadConversationItems(messageHistory, normalizeSelectedFeedThreadKey(threadKey), includeMessage);
-  const ranges = buildVisibleConversationRanges(items);
-  const firstRange = ranges[Math.max(0, ranges.length - Math.max(1, Math.floor(itemCount)))];
-  return firstRange ? items[firstRange.startItem]!.order : null;
+): string | undefined {
+  const items: FeedItem[] = [];
+  messageHistory.forEach((message, index) => {
+    if (!includeMessage || includeMessage(message, index)) {
+      items.push({ order: index, entry: { message, history_index: index } });
+    }
+  });
+  return deriveLeadingTurnId(items, [...windowEntries]);
 }
 
 function buildThreadWindowEntries(input: {
