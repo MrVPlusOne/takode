@@ -144,6 +144,15 @@ export function ReviewCounts({
   );
 }
 
+/**
+ * Review text (the overview, notes, summaries and sent answers), rendered as chat renders it so
+ * Takode links work. A link to a session or message closes the review, which would otherwise
+ * cover the conversation the link opened.
+ */
+export function ReviewMarkdown({ text, sessionId }: { text: string; sessionId: string }) {
+  return <MarkdownContent text={text} sessionId={sessionId} onSessionNavigate={closeGuidedReview} />;
+}
+
 /** A stop's kind, its question or title, and the agent's note on why it matters. */
 export function StopHeading({ stop, sessionId }: { stop: GuidedReviewStop; sessionId: string }) {
   return (
@@ -155,7 +164,7 @@ export function StopHeading({ stop, sessionId }: { stop: GuidedReviewStop; sessi
       <div className="mt-1 text-[16px] font-semibold leading-snug text-cc-fg">{stop.question ?? stop.title}</div>
       {stop.question && <div className="mt-0.5 text-[14px] text-cc-muted">{stop.title}</div>}
       <div className={`mt-2 ${NOTE_CLASS}`}>
-        <MarkdownContent text={stop.note} sessionId={sessionId} />
+        <ReviewMarkdown text={stop.note} sessionId={sessionId} />
       </div>
     </>
   );
@@ -198,7 +207,7 @@ export function StopAnswer({
     return (
       <div className="text-[14px] text-cc-fg">
         <div className="text-cc-muted">Your answer</div>
-        {answer ? <MarkdownContent text={answer} sessionId={sessionId} /> : "Not answered"}
+        {answer ? <ReviewMarkdown text={answer} sessionId={sessionId} /> : "Not answered"}
       </div>
     );
   }
@@ -361,7 +370,7 @@ export function ReviewEndSections({
                 </span>
               </div>
               <div className={`mt-1 ${NOTE_CLASS}`}>
-                <MarkdownContent text={summary.text} sessionId={target.sessionId} />
+                <ReviewMarkdown text={summary.text} sessionId={target.sessionId} />
               </div>
               <SummaryFiles summary={summary} />
             </div>
@@ -428,7 +437,7 @@ function CheckedRow({ stop, sessionId }: { stop: GuidedReviewStop; sessionId: st
       {open && (
         <div className="pl-6">
           <div className={`mt-1 ${NOTE_CLASS}`}>
-            <MarkdownContent text={stop.note} sessionId={sessionId} />
+            <ReviewMarkdown text={stop.note} sessionId={sessionId} />
           </div>
           <ReviewCode refs={stop.code} />
         </div>

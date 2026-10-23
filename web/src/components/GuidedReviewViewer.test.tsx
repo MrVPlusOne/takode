@@ -14,6 +14,7 @@ vi.mock("../api.js", async (importOriginal) => {
 });
 
 import { MarkdownReport } from "./MarkdownReport.js";
+import { useStore } from "../store.js";
 import { GuidedReviewViewerHost } from "./GuidedReviewViewer.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { formatGuidedReviewAnswers, useGuidedReviewState } from "../guided-review-state.js";
@@ -248,6 +249,21 @@ describe("guided review", () => {
     );
     for (let n = 0; n < 4; n++) fireEvent.keyDown(document.body, { key: "ArrowRight" });
     expect(fileRows(viewer, "Tests")).toEqual(["retry.test.ts src"]);
+  });
+
+  it("closes when a link inside it opens a session, which it would otherwise cover", async () => {
+    // A session or message link navigates the app behind the full-window review; the review
+    // closes so the user sees where the link went, as file viewers do.
+    useStore.setState({ sdkSessions: [{ sessionId: "worker-5", sessionNum: 5, archived: false } as never] });
+    const viewer = await openTour(
+      reviewMessage((meta) => {
+        meta.map.overview += " Built by [#5](session:5).";
+      }),
+    );
+    fireEvent.click(within(viewer).getByRole("link", { name: "#5" }));
+    // The review's back-gesture entry is removed first, then the link is followed.
+    await waitFor(() => expect(screen.queryByTestId("guided-review-viewer")).toBeNull());
+    expect(window.location.hash).toContain("/session/");
   });
 
   it("leaves Escape to a quest or other modal opened over it", async () => {

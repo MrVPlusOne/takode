@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import { useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
-import { MarkdownContent } from "./MarkdownContent.js";
 import {
   NOTE_CLASS,
   ReviewCode,
   ReviewCounts,
   ReviewEndSections,
+  ReviewMarkdown,
   ReviewMessage,
   SEND_BUTTON_CLASS,
   StopAnswer,
@@ -121,7 +121,7 @@ export function Walkthrough({
             <div className="space-y-4">
               <ReviewCounts meta={meta} onJump={jumpToPart} />
               <div className={NOTE_CLASS}>
-                <MarkdownContent text={meta.map.overview} sessionId={sessionId} />
+                <ReviewMarkdown text={meta.map.overview} sessionId={sessionId} />
               </div>
             </div>
           )}
