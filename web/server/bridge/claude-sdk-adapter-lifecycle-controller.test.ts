@@ -97,6 +97,45 @@ afterEach(() => {
 });
 
 describe("claude-sdk-adapter-lifecycle-controller", () => {
+  it("sends browsers the whole session state with each turn's init, not only the backend's fields", () => {
+    // Claude Code sends a system init at the start of every turn. Browsers replace their session
+    // copy with a session_init, so forwarding only the backend's fields erased server-kept state:
+    // after a comment started a turn, an expanded report showed collapsed again.
+    const session = makeSession({
+      state: {
+        session_id: "s1",
+        backend_type: "claude-sdk",
+        cwd: "/repo",
+        permissionMode: "bypassPermissions",
+        expandedMessages: { "report-1": 5 },
+        starredMessages: { u1: { messageId: "u1" } },
+        leaderOpenThreadTabs: { version: 1, orderedOpenThreadKeys: ["q-1"], closedThreadTombstones: [], updatedAt: 1 },
+      },
+    });
+    const deps = { ...makeDeps(session, { isOrchestrator: true }), handleSdkBrowserMessage: vi.fn(() => false) };
+    const adapter = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter, deps);
+
+    adapter.emitBrowserMessage({
+      type: "session_init",
+      session: { session_id: "cli-session", model: "claude-opus", cwd: "/elsewhere", permissionMode: "default" },
+    });
+
+    const sent = deps.broadcastToBrowsers.mock.calls.at(-1)?.[1];
+    expect(sent.type).toBe("session_init");
+    expect(sent.session).toMatchObject({
+      session_id: "s1",
+      model: "claude-opus",
+      cwd: "/repo",
+      permissionMode: "bypassPermissions",
+      expandedMessages: { "report-1": 5 },
+      starredMessages: { u1: { messageId: "u1" } },
+      isOrchestrator: true,
+    });
+    // Server-only state stays out of browser payloads.
+    expect(sent.session.leaderOpenThreadTabs).toBeUndefined();
+  });
+
   it("republishes the session row when the current adapter's background jobs change", () => {
     // Sidebar and board rows name an idle session's background jobs, so a job
     // starting or ending must republish the row; a replaced adapter must not.

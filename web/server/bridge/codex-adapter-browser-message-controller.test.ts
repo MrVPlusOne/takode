@@ -853,6 +853,29 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
   });
 
+  it("sends browsers the whole session state with a Codex init, not only the backend's fields", async () => {
+    // Browsers replace their session copy with a session_init; a partial one erased server-kept
+    // state such as expanded reports and stars.
+    const session = makeSession();
+    Object.assign(session.state, { expandedMessages: { "report-1": 5 }, starredMessages: { u1: { messageId: "u1" } } });
+    const broadcasts: BrowserIncomingMessage[] = [];
+    await handleCodexAdapterBrowserMessage(
+      session,
+      { type: "session_init", session: { backend_type: "codex", model: "gpt-5.5" } } as BrowserIncomingMessage,
+      makeDeps(broadcasts),
+    );
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "session_init",
+        session: expect.objectContaining({
+          model: "gpt-5.5",
+          expandedMessages: { "report-1": 5 },
+          starredMessages: { u1: { messageId: "u1" } },
+        }),
+      }),
+    );
+  });
+
   it("uses the leader recycle budget for displayed Codex context stats", async () => {
     // Codex leaders run with a larger provider envelope underneath. Browser
     // state should still display Takode's recycle budget so users see when

@@ -14,6 +14,7 @@ import type {
   ThreadRef,
   ThreadTransitionMarker,
 } from "../session-types.js";
+import { browserSessionInitState } from "../session-types.js";
 import { createLogger } from "../server-logger.js";
 import { sessionTag } from "../session-tag.js";
 import {
@@ -1026,9 +1027,10 @@ export async function handleCodexAdapterBrowserMessage(
     session.cliInitReceived = true;
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     deps.persistSession(session);
+    // Browsers replace their session copy with it, so they get the whole state.
     outgoing = {
       ...msg,
-      session: initializedState as unknown as typeof msg.session,
+      session: browserSessionInitState(session.state, launcherInfo?.isOrchestrator === true),
     } as BrowserIncomingMessage;
   } else if (msg.type === "session_update") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);

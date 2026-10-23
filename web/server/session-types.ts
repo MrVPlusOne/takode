@@ -1750,6 +1750,15 @@ export function projectBrowserSessionState<T extends Partial<SessionState>>(
   return browserState as Omit<T, BrowserSessionInternalAlias>;
 }
 
+/**
+ * The session a browser gets in `session_init`: its whole browser-visible state. Browsers replace
+ * their copy with it, so a partial one (like a backend's own init) would erase expanded messages,
+ * stars and other session state until the next reconnect.
+ */
+export function browserSessionInitState(state: SessionState, isOrchestrator: boolean): BrowserSessionState {
+  return { ...projectBrowserSessionState(state), isOrchestrator };
+}
+
 export type NotificationUrgency = "needs-input" | "review" | null;
 
 export type SessionAttentionRecordType =

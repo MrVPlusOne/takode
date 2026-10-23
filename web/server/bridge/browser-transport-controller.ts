@@ -92,7 +92,7 @@ import {
   isAutomaticCodexAutoPauseInput,
   queueCodexAutoPausedInput,
 } from "../codex-result-error-auto-pause.js";
-import { projectBrowserSessionState } from "../session-types.js";
+import { browserSessionInitState } from "../session-types.js";
 import type {
   ActiveCodexReasoningPreview,
   ActiveTurnRoute,
@@ -355,10 +355,7 @@ export function handleBrowserOpen(
   sendToBrowser(ws, {
     type: "session_init",
     diagnosticConnectionId,
-    session: {
-      ...projectBrowserSessionState(session.state),
-      isOrchestrator: launcherInfo?.isOrchestrator === true,
-    },
+    session: browserSessionInitState(session.state, launcherInfo?.isOrchestrator === true),
     nextEventSeq: session.nextEventSeq,
   } as BrowserIncomingMessage);
   sendToBrowser(ws, {

@@ -68,12 +68,18 @@ describe("session expanded messages route", () => {
     });
   });
 
-  it("treats repeating the current state as a no-op", async () => {
+  it("saves nothing when the state does not change, but sends it again to resync the browser", async () => {
+    // A browser that shows a report collapsed while the server has it expanded asks to expand it.
+    // Saving nothing and sending nothing left its "Show full report" doing nothing at all.
     const { put, persistSessionById, broadcastToSession } = makeRoute([user("u1")], { u1: 5 });
     expect((await put("u1", { expanded: true })).status).toBe(200);
     expect((await put("other", { expanded: false })).status).toBe(200);
     expect(persistSessionById).not.toHaveBeenCalled();
-    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastToSession).toHaveBeenCalledTimes(2);
+    expect(broadcastToSession).toHaveBeenLastCalledWith("session-abc", {
+      type: "session_update",
+      session: { expandedMessages: { u1: 5 } },
+    });
   });
 
   it("rejects messages that are not in the history and malformed requests", async () => {

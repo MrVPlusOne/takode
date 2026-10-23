@@ -15,7 +15,8 @@ export interface SessionExpandedMessagesRouteDeps {
 /**
  * Expanding or collapsing a message's long content (a report, a long user message) is session
  * state: it is kept on the server and sent to every browser, so a reload or another device
- * shows the same messages expanded. Repeating the current state is a no-op.
+ * shows the same messages expanded. Repeating the current state saves nothing but sends the state
+ * again.
  */
 export function registerSessionExpandedMessagesRoute(api: Hono, deps: SessionExpandedMessagesRouteDeps): void {
   const { launcher, wsBridge, resolveId } = deps;
@@ -30,7 +31,15 @@ export function registerSessionExpandedMessagesRoute(api: Hono, deps: SessionExp
     if (typeof body.expanded !== "boolean") return c.json({ error: "expanded must be a boolean" }, 400);
     const messageId = decodeURIComponent(c.req.param("messageId"));
     const current = bridgeSession.state.expandedMessages ?? {};
-    if (Boolean(current[messageId]) === body.expanded) return c.json({ ok: true, expandedMessages: current });
+    if (Boolean(current[messageId]) === body.expanded) {
+      // Nothing changes, but the asking browser shows otherwise, so its copy is out of date:
+      // send the state again, or its toggle would seem to do nothing.
+      wsBridge.broadcastToSession(sessionId, {
+        type: "session_update",
+        session: { expandedMessages: current },
+      } as never);
+      return c.json({ ok: true, expandedMessages: current });
+    }
     if (body.expanded && !bridgeSession.messageHistory.some((message) => expandableMessageId(message) === messageId)) {
       return c.json({ error: "Message has no expandable content" }, 400);
     }

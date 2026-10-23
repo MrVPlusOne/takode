@@ -2,6 +2,7 @@ import { openTurnStartedAt } from "../remote-host/host-restart-gate.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
+import { browserSessionInitState } from "../session-types.js";
 
 export interface ClaudeSdkAdapterLifecycleDeps {
   getOrCreateSession: (sessionId: string, backendType: "claude-sdk") => any;
@@ -177,16 +178,12 @@ export function attachClaudeSdkAdapterLifecycle(
         if (session.state.permissionMode) {
           session.state.uiMode = session.state.permissionMode === "plan" ? "plan" : "agent";
         }
-        initMsg.session = { ...initMsg.session, session_id: companionSessionId, backend_type: "claude-sdk" };
-        if (launchCwd) {
-          initMsg.session.cwd = launchCwd;
-        }
-        if (launchPermissionMode) {
-          initMsg.session.permissionMode = launchPermissionMode;
-        }
-        if (session.state.uiMode) {
-          initMsg.session.uiMode = session.state.uiMode;
-        }
+        // Claude Code sends this init at the start of every turn; browsers replace their session
+        // copy with it, so they get the whole state, not just the backend's fields.
+        initMsg.session = browserSessionInitState(
+          session.state,
+          deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true,
+        );
       }
       session.cliInitReceived = true;
       deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
