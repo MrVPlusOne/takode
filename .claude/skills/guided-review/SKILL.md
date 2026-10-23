@@ -24,7 +24,7 @@ The user reads their leader's threads, not workers' sessions, so a review a work
 
 ## The overview
 
-The overview is the first thing anyone reads, including people the user shows the review to. Open with what the change does for its users in a sentence or two, then how it works, then what the review found. Use plain words rather than the project's internal names. Takode already shows how many decisions, careful looks, checks and summaries there are, so don't count them again.
+The overview is the first thing anyone reads, including people the user shows the review to. Open with what the change does for its users in a sentence or two, then how it works, then what the review found. Use plain words rather than the project's internal names. Takode already shows how many decisions, careful looks, checks and summaries there are, so don't count them again. When the change is a system with parts, stages or other code it reaches, draw how it works as a ```visual block (the `visual-blocks` skill) and keep the prose to what the picture can't say; a visual works in stop notes too.
 
 The overview, stop notes and summary texts are Markdown shown the way chat shows it, so refer to quests, sessions, messages, commits and files with Takode link syntax, as in chat: `[q-42](quest:q-42)`, `[#5](session:5)`, `[app.ts:42](file:web/src/app.ts:42)`. A bare `q-42` stays plain text. Titles, questions and answers are plain text, so keep links out of them.
 

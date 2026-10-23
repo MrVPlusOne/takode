@@ -79,6 +79,7 @@ export const GLOBAL_SKILL_SLUGS = [
   "takode-user-content",
   "self-improvement",
   "guided-review",
+  "visual-blocks",
 ];
 
 export interface SkillSymlinkRoots {

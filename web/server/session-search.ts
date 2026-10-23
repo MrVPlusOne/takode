@@ -1,3 +1,4 @@
+import { markdownWithVisualFallbacks } from "../shared/visual-block.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
 import type { SearchExcerpt } from "./session-store.js";
@@ -176,7 +177,8 @@ function extractAssistantText(msg: BrowserIncomingMessage): string {
       texts.push(block.text);
     }
   }
-  return texts.join(" ").trim();
+  // Search reads a visual block as its plain-text version, not its HTML.
+  return markdownWithVisualFallbacks(texts.join(" ").trim());
 }
 
 function searchExcerptIsSessionRecycle(excerpt: SearchExcerpt): boolean {

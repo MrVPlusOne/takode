@@ -1,3 +1,4 @@
+import { markdownWithVisualFallbacks } from "../shared/visual-block.js";
 import {
   captureJson,
   estimateJsonBytes,
@@ -776,7 +777,8 @@ export class SessionStore {
         texts.push(block.text);
       }
     }
-    return texts.join(" ").trim();
+    // Search reads a visual block as its plain-text version, not its HTML.
+    return markdownWithVisualFallbacks(texts.join(" ").trim());
   }
 
   static extractSearchExcerpts(messages: BrowserIncomingMessage[]): SearchExcerpt[] {

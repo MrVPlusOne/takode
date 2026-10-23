@@ -32,3 +32,10 @@ export const MESSAGE_DRAFT_INSTRUCTIONS = [
   "",
   "Takode shows it as a card that looks like the sent message, with a Copy for Slack button that copies exactly the draft. Do not put drafts in quotes (`>`) or italics: they paste as quotes or italics. Keep notes about the draft outside the block, and put each alternative in its own block. If the draft itself contains a code block, open the draft block with four backticks.",
 ].join("\n");
+
+/** Visual blocks: diagrams, charts and kit shapes drawn in a sandboxed frame in any Markdown. */
+export const VISUAL_BLOCK_INSTRUCTIONS = [
+  "## Visuals",
+  "",
+  "When a picture explains better than prose or a table (a pipeline or flow, who sends what to whom, a timeline, nested counts, numbers across runs), you can put a visual in any Markdown you write: a fenced block labelled `visual` with a `title:` and `alt:` header and HTML using Takode's visual kit, or Mermaid and Vega-Lite helpers. Load the `visual-blocks` skill before writing one, and preview it with `takode visual preview` before publishing.",
+].join("\n");

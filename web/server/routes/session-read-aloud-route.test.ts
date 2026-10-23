@@ -78,6 +78,16 @@ async function waitForRecords(records: ReadAloudRecordStore, count: number) {
 }
 
 describe("POST /sessions/:id/read-aloud", () => {
+  it("reads a visual block as its plain-text version, not its HTML", async () => {
+    const { post, run } = makeApp();
+    const text =
+      'Here is the flow:\n\n```visual\ntitle: Landing\nalt: Submit, test once, push.\n---\n<div class="tk-flow"></div>\n```';
+    await post("/sessions/s1/read-aloud", { messageId: "a2", text });
+    const [input] = run.mock.calls[0] as unknown as [{ messageText: string }];
+    expect(input.messageText).toContain("(A visual on screen: Landing: Submit, test once, push.)");
+    expect(input.messageText).not.toContain("tk-flow");
+  });
+
   it("returns MP3 audio of the message with the conversation as context, and records it", async () => {
     const { post, run, records } = makeApp();
     const res = await post("/sessions/12/read-aloud", { messageId: "a1", text: " Fixed it. ", historyIndex: 1 });

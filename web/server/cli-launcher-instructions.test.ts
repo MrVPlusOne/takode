@@ -4,7 +4,11 @@ import {
   buildInjectedSystemPromptForDebug,
   getOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
-import { MESSAGE_DRAFT_INSTRUCTIONS, TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import {
+  MESSAGE_DRAFT_INSTRUCTIONS,
+  TAKODE_LINK_SYNTAX_INSTRUCTIONS,
+  VISUAL_BLOCK_INSTRUCTIONS,
+} from "./link-syntax.js";
 import { normalizePersistedBackendType, type BackendType } from "./session-types.js";
 import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
@@ -104,6 +108,8 @@ describe("buildCompanionInstructions", () => {
       expect(prompt).toContain(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
       // Drafts written as ```draft blocks render as copyable draft cards in every session.
       expect(prompt).toContain(MESSAGE_DRAFT_INSTRUCTIONS);
+      // Every session learns visual blocks exist and where the full guidance lives.
+      expect(prompt).toContain(VISUAL_BLOCK_INSTRUCTIONS);
     }
   });
 

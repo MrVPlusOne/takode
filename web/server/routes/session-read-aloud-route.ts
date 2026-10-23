@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { replaceVisualFences, visualFallbackText } from "../../shared/visual-block.js";
 import { createHash } from "node:crypto";
 import type { WsBridge } from "../ws-bridge.js";
 import { getSettings } from "../settings-manager.js";
@@ -76,7 +77,9 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
 
     const conversationContext = buildReadAloudContext(session.messageHistory, messageId, historyIndex);
     const linkDetails = await describeLinks(text);
-    const result = await run({ messageText: text, conversationContext, linkDetails }, config, settings);
+    // A visual is heard as its plain-text version, never as its HTML.
+    const spokenSource = replaceVisualFences(text, (block) => `(A visual on screen: ${visualFallbackText(block)})`);
+    const result = await run({ messageText: spokenSource, conversationContext, linkDetails }, config, settings);
     // Saved before answering so the browser can attach its own timing to this record.
     const record = await records
       .create(

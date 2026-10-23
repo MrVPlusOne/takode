@@ -26,6 +26,7 @@ import { QuestCommitChip } from "./QuestCommitChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
+import { VisualBlock } from "./VisualBlock.js";
 import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
 import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
@@ -1028,6 +1029,10 @@ export const MarkdownContent = memo(function MarkdownContent({
                   />
                 </MarkdownDraftCard>
               );
+            }
+
+            if (match?.[1] === "visual") {
+              return <VisualBlock source={String(children).replace(/\n$/, "")} />;
             }
 
             if (isBlock) {

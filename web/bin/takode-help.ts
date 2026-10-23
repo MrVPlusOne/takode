@@ -14,6 +14,7 @@ import { PORT_HELP } from "./takode-port.js";
 import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
 import { REPORT_HELP } from "./takode-report.js";
 import { REVIEW_HELP } from "./takode-review.js";
+import { VISUAL_HELP } from "./takode-visual.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
   BOARD_ADVANCE_HELP,
@@ -530,6 +531,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "review":
       console.log(REVIEW_HELP);
       return true;
+    case "visual":
+      console.log(VISUAL_HELP);
+      return true;
     case "file-resolve":
       console.log(FILE_RESOLVE_HELP);
       return true;
@@ -761,6 +765,7 @@ Commands:
   file-resolve  Resolve paths or file links against a session filesystem context
   report        Publish an exact Markdown file as an annotatable chat report
   review        Publish a guided review of a git range (questions first, then a tour)
+  visual        Preview a visual block at phone and desktop size before publishing it
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session

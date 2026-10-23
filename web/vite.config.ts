@@ -44,6 +44,7 @@ export default defineConfig(({ command }) => {
       proxy: {
         "/api": `http://localhost:${backendPort}`,
         "/file-preview": `http://localhost:${backendPort}`,
+        "/visual-kit": `http://localhost:${backendPort}`,
         "/ws": {
           target: `ws://localhost:${backendPort}`,
           ws: true,

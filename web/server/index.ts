@@ -188,6 +188,8 @@ import { initNewSessionDefaultsStoreForServer } from "./new-session-defaults-sto
 import { normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import { planSessionMemorySpaceBackfill } from "./session-memory-space.js";
 import { refreshCodexModelCatalogOnStartup } from "./codex-model-catalog.js";
+import { VisualRenderer } from "./visual-renderer.js";
+import { createVisualRoutes } from "./routes/visuals.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -1303,6 +1305,14 @@ app.route(
     },
   }),
 );
+// Visual blocks: helper libraries for visual frames, and server-side renders for the
+// preview command and for browsers that can't isolate a visual's scripts.
+const visualRenderHost = ((host) =>
+  !host || host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host.includes(":") ? `[${host}]` : host)(
+  process.env.COMPANION_HOST,
+);
+const visualRenderer = new VisualRenderer({ assetBase: `http://${visualRenderHost}:${port}` });
+app.route("/", createVisualRoutes({ renderer: visualRenderer }));
 app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
 app.route("/api", createUserActivityRoutes(needsInputReminders));
 app.route(

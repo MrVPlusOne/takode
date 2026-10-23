@@ -1,9 +1,12 @@
+import { markdownWithVisualFallbacks } from "./visual-block.js";
+
 /**
  * Strip Markdown syntax to readable plain text, keeping math source such as
  * `$x_1$` intact. Shared by browser copy actions and server-written previews.
  */
 export function markdownToPlainText(markdown: string): string {
-  const protectedMath = protectMathSource(markdown);
+  // A visual block reads as its plain-text version, never as its HTML.
+  const protectedMath = protectMathSource(markdownWithVisualFallbacks(markdown));
   let text = protectedMath.text;
   // Remove fenced code block markers (``` lang ... ```)
   text = text.replace(/```[\s\S]*?```/g, (match) => {
