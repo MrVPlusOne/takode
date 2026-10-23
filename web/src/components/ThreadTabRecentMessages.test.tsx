@@ -264,9 +264,9 @@ describe("Find's Messages mode", () => {
 
 describe("ThreadTabRail Messages", () => {
   it("asks the server for the user's own messages across the leader's tabs and opens the tab at one", async () => {
-    // The rail reuses the leader's message search, limited to the user's messages and
-    // ordered newest first even when searching, and opens the result through a message
-    // route, which also reopens a closed tab.
+    // The rail reuses the leader's message search, limited to the user's messages, in the
+    // server's one search order (no separate sort mode), and opens the result through a
+    // message route, which also reopens a closed tab.
     const fetchMock = vi.fn(async (_url: string) =>
       Response.json({ results: [message("m3", "q-9", "Make the done color quieter", NOW)], nextOffset: null }),
     );
@@ -293,8 +293,8 @@ describe("ThreadTabRail Messages", () => {
       includeEvents: "false",
       limit: "50",
       offset: "0",
-      sort: "recent",
     });
+    expect(url.searchParams.has("sort")).toBe(false);
     fireEvent.click(row);
     expect(window.location.hash).toContain("/msg/m3");
     expect(window.location.hash).toContain("thread=q-9");

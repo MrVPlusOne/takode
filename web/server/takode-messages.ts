@@ -1844,9 +1844,9 @@ export function grepMessageHistory(
     }
   }
 
-  const matches: GrepMatch[] = [];
-  let totalMatches = 0;
-
+  // Find every match first, then keep the newest `limit`, still listed oldest to newest,
+  // so a long history cannot push recent matches out of the result.
+  const matchedIndices: number[] = [];
   for (let i = 0; i < history.length; i++) {
     const msg = history[i];
     if (!isPeekable(msg)) continue;
@@ -1855,36 +1855,35 @@ export function grepMessageHistory(
     const msgType = toPeekType(msg.type);
     if (typeFilter && msgType !== typeFilter) continue;
     if (options.threadKey && !messageParticipatesInThread(msg, options.threadKey)) continue;
+    if (re.test(extractFullText(msg, sessionId))) matchedIndices.push(i);
+  }
+  const totalMatches = matchedIndices.length;
 
-    const fullText = extractFullText(msg, sessionId);
-    if (!re.test(fullText)) continue;
-
-    totalMatches++;
-    if (matches.length < limit) {
-      // Resolve timestamp, with backwards-scan fallback for result messages
-      let ts = extractTimestamp(msg);
-      if (ts === 0 && i > 0) {
-        for (let j = i - 1; j >= 0; j--) {
-          const prevTs = extractTimestamp(history[j]);
-          if (prevTs > 0) {
-            ts = prevTs;
-            break;
-          }
+  const matches: GrepMatch[] = matchedIndices.slice(-limit).map((i) => {
+    const msg = history[i];
+    // Resolve timestamp, with backwards-scan fallback for result messages
+    let ts = extractTimestamp(msg);
+    if (ts === 0 && i > 0) {
+      for (let j = i - 1; j >= 0; j--) {
+        const prevTs = extractTimestamp(history[j]);
+        if (prevTs > 0) {
+          ts = prevTs;
+          break;
         }
       }
-
-      const threadKeys = messageThreadKeys(msg);
-      matches.push({
-        idx: i,
-        type: toPeekType(msg.type),
-        ts,
-        snippet: buildGrepSnippet(fullText, re),
-        turn: turnLookup.get(i) ?? null,
-        ...messageThreadMetadata(msg),
-        ...(threadKeys.length > 0 ? { threads: threadKeys.sort(compareThreadKeys) } : {}),
-      });
     }
-  }
+
+    const threadKeys = messageThreadKeys(msg);
+    return {
+      idx: i,
+      type: toPeekType(msg.type),
+      ts,
+      snippet: buildGrepSnippet(extractFullText(msg, sessionId), re),
+      turn: turnLookup.get(i) ?? null,
+      ...messageThreadMetadata(msg),
+      ...(threadKeys.length > 0 ? { threads: threadKeys.sort(compareThreadKeys) } : {}),
+    };
+  });
 
   const result: GrepResponse = { totalMatches, matches };
 

@@ -8,13 +8,8 @@ import {
   buildProjectedThreadEntries,
   normalizeSelectedFeedThreadKey,
 } from "../shared/thread-window.js";
-import {
-  compareSearchRanks,
-  prepareSearchQuery,
-  rankSearchFields,
-  tokenizeSearchText,
-  type SearchRank,
-} from "../shared/search-utils.js";
+import { prepareSearchQuery, type PreparedSearchQuery } from "../shared/search-utils.js";
+import { buildMessageSnippet, matchMessageText, userWrittenText } from "./message-search-match.js";
 
 export type MessageSearchScopeKind = "session" | "current_thread" | "leader_all_tabs";
 export type MessageSearchCategory = "user" | "assistant" | "event";
@@ -75,8 +70,6 @@ export interface SearchSessionMessagesInput {
   filters?: Partial<MessageSearchFilters>;
   limit?: number;
   offset?: number;
-  /** How a query's matches are ordered: best match first (default) or newest first. */
-  sort?: "relevance" | "recent";
   starredMessages?: Record<string, StarredMessageRecord>;
 }
 
@@ -148,21 +141,22 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     .filter((candidate) => filters[candidate.category])
     .filter((candidate) => !filters.starredOnly || Boolean(input.starredMessages?.[candidate.messageId]));
 
-  const ranked = query
+  // A query orders matches by how well they match, then newest first (see MessageMatchStrength);
+  // no query lists every candidate newest first.
+  const words = prepareSearchQuery(query);
+  const matched: CandidateMessage[] = words
     ? candidates
-        .map((candidate) => ({ candidate, rank: rankSearchFields([{ rank: 0, text: candidate.text }], query) }))
-        .filter((match): match is { candidate: CandidateMessage; rank: SearchRank } => match.rank !== null)
-    : null;
-  const matched: CandidateMessage[] =
-    ranked && input.sort !== "recent"
-      ? ranked.sort(compareRankedCandidates).map((match) => match.candidate)
-      : (ranked?.map((match) => match.candidate) ?? [...candidates]).sort(
-          (left, right) => right.timestamp - left.timestamp || right.historyIndex - left.historyIndex,
-        );
+        .flatMap((candidate) => {
+          const match = matchMessageText(candidate.text, words);
+          return match ? [{ candidate, strength: match.strength }] : [];
+        })
+        .sort((left, right) => left.strength - right.strength || compareNewestFirst(left.candidate, right.candidate))
+        .map((match) => match.candidate)
+    : [...candidates].sort(compareNewestFirst);
 
   const page = matched.slice(offset, offset + limit);
   const results = page.map((candidate) =>
-    candidateToResult(input.sessionId, input.sessionNum, candidate, query, input.starredMessages),
+    candidateToResult(input.sessionId, input.sessionNum, candidate, words, input.starredMessages),
   );
   const nextOffset = offset + results.length < matched.length ? offset + results.length : null;
 
@@ -243,7 +237,8 @@ function normalizeRawMessage(
       // are not the user's words, so the user filter and the leader's Recent list skip them.
       category: isActualHumanUserMessage(message) || sourceId === sessionId ? "user" : "event",
       timestamp: timestampForRawMessage(message),
-      text: message.content,
+      // A comment on an answer is stored apart from the message text, which is often empty.
+      text: userWrittenText(message.content, message.annotations),
     };
   }
   if (message.type === "leader_user_message" || message.type === "markdown_report") {
@@ -285,10 +280,10 @@ function candidateToResult(
   sessionId: string,
   sessionNum: number | null,
   candidate: CandidateMessage,
-  query: string,
+  words: PreparedSearchQuery | null,
   starredMessages: Record<string, StarredMessageRecord> | undefined,
 ): MessageSearchResult {
-  const snippetInfo = buildSnippet(candidate.text, query);
+  const snippetInfo = buildMessageSnippet(candidate.text, words);
   return {
     id: `${sessionId}:${candidate.historyIndex}:${candidate.messageId}`,
     sessionId,
@@ -310,15 +305,8 @@ function candidateToResult(
   };
 }
 
-function compareRankedCandidates(
-  left: { candidate: CandidateMessage; rank: SearchRank },
-  right: { candidate: CandidateMessage; rank: SearchRank },
-): number {
-  return (
-    compareSearchRanks(left.rank, right.rank) ||
-    right.candidate.timestamp - left.candidate.timestamp ||
-    right.candidate.historyIndex - left.candidate.historyIndex
-  );
+function compareNewestFirst(left: CandidateMessage, right: CandidateMessage): number {
+  return right.timestamp - left.timestamp || right.historyIndex - left.historyIndex;
 }
 
 function inferResultRoute(
@@ -356,62 +344,6 @@ function formatSessionNumber(sessionNum: number | null): string {
 
 function formatThreadSourceLabel(threadKey: string): string {
   return threadKey === MAIN_THREAD_KEY ? "Main" : `Thread ${threadKey}`;
-}
-
-function buildSnippet(
-  text: string,
-  query: string,
-): {
-  snippet: string;
-  matchRanges: Array<{ start: number; end: number }>;
-  matchedText?: string;
-} {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (!query.trim()) return { snippet: truncateSnippet(collapsed), matchRanges: [] };
-
-  const queryTokens = prepareSearchQuery(query) ?? [];
-  const haystackTokens = tokenizeSearchText(collapsed);
-  const firstMatch = haystackTokens.find((token) =>
-    queryTokens.some((queryToken) => token.value === queryToken || token.value.startsWith(queryToken)),
-  );
-  if (!firstMatch) return { snippet: truncateSnippet(collapsed), matchRanges: [] };
-
-  const desiredContext = 70;
-  const start = Math.max(0, firstMatch.start - desiredContext);
-  const end = Math.min(collapsed.length, firstMatch.end + desiredContext);
-  const snippetStart = start > 0 ? nextWordBoundary(collapsed, start) : 0;
-  const snippetEnd = end < collapsed.length ? previousWordBoundary(collapsed, end) : collapsed.length;
-  const prefix = snippetStart > 0 ? "..." : "";
-  const suffix = snippetEnd < collapsed.length ? "..." : "";
-  const body = collapsed.slice(snippetStart, snippetEnd).trim();
-  const snippet = `${prefix}${body}${suffix}`;
-  const bodyOffset = prefix.length - snippetStart;
-  const matchRanges = haystackTokens
-    .filter((token) => token.start >= snippetStart && token.end <= snippetEnd)
-    .filter((token) =>
-      queryTokens.some((queryToken) => token.value === queryToken || token.value.startsWith(queryToken)),
-    )
-    .map((token) => ({ start: token.start + bodyOffset, end: token.end + bodyOffset }));
-  return {
-    snippet,
-    matchRanges,
-    matchedText: collapsed.slice(firstMatch.start, firstMatch.end),
-  };
-}
-
-function truncateSnippet(text: string, limit = 180): string {
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1).trimEnd()}...`;
-}
-
-function nextWordBoundary(text: string, index: number): number {
-  const nextSpace = text.indexOf(" ", index);
-  return nextSpace === -1 ? index : nextSpace + 1;
-}
-
-function previousWordBoundary(text: string, index: number): number {
-  const previousSpace = text.lastIndexOf(" ", index);
-  return previousSpace === -1 ? index : previousSpace;
 }
 
 function textFromContentBlocks(blocks: ContentBlock[]): string {

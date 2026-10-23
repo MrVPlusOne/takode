@@ -114,6 +114,34 @@ describe("searchGlobalStarredMessages", () => {
     });
   });
 
+  it("ranks a query by match strength, then most recently starred, and finds starred comments", () => {
+    // Starred search shares message search's grading. A starred comment-only message (empty
+    // text, comment in its annotation) is found by the comment, not the text it quotes.
+    const comment = {
+      ...user("comment", "", 30),
+      annotations: [{ id: "a1", selectedText: "quoted relay words", comment: "is the network traffic fine?" }],
+    } as BrowserIncomingMessage;
+    const docs = [
+      doc({
+        messageHistory: [
+          user("phrase-early", "network traffic first, then more words", 10),
+          user("scattered", "traffic was high on the network", 20),
+          comment,
+        ],
+        starredMessages: {
+          "phrase-early": star("phrase-early", "user", 0, 10, 100),
+          scattered: star("scattered", "user", 1, 20, 300),
+          comment: star("comment", "user", 2, 30, 200),
+        },
+      }),
+    ];
+    const response = searchGlobalStarredMessages({ query: "network traffic", docs });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["comment", "phrase-early", "scattered"]);
+    expect(response.results[0]?.snippet).toBe("is the network traffic fine?");
+    expect(searchGlobalStarredMessages({ query: "quoted relay", docs }).results).toEqual([]);
+  });
+
   it("keeps proven child-owned stars stored but out of ordinary starred search", () => {
     // The read-only inspector has no exact starred-message target. A proven
     // child star therefore remains durable sidecar data without becoming a blank feed jump.

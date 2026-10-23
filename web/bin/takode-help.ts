@@ -203,6 +203,7 @@ Read one full message from a session. Leader source-envelope IDs such as u12
 const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]
 
 Search within a session's messages using JavaScript regex matching.
+Matches are listed oldest to newest; past --count (default 50), the newest are kept.
 `;
 
 const LOGS_HELP = `Usage: takode logs [--level warn,error] [--component name] [--session <id>] [--pattern text] [--regex] [--since time] [--until time] [--limit N] [--follow] [--json]

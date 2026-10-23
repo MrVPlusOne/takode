@@ -1,6 +1,6 @@
 /**
- * Find's Messages mode: the user's messages to this leader, newest first (also when
- * searching), each with the tab it belongs to. Older pages load as the list scrolls to its end. Tabs are grouped by status, so a
+ * Find's Messages mode: the user's messages to this leader, newest first (when searching,
+ * best match first and then newest), each with the tab it belongs to. Older pages load as the list scrolls to its end. Tabs are grouped by status, so a
  * conversation from a few exchanges ago can sit in any group; this list finds it by when
  * it happened instead.
  */
@@ -20,7 +20,7 @@ export interface RecentMessagesPage {
 
 /**
  * Loads one page of the user's messages to this leader matching `query` (all when empty),
- * newest first, starting `offset` matches in. The server searches the whole session.
+ * in the server's search order, starting `offset` matches in. The server searches the whole session.
  */
 export type LoadRecentMessages = (query: string, offset: number, signal: AbortSignal) => Promise<RecentMessagesPage>;
 

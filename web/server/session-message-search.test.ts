@@ -383,33 +383,69 @@ describe("searchSessionMessages", () => {
       },
     });
 
-    expect(response.results.map((result) => result.messageId)).toEqual(["starred-low", "starred-high"]);
+    // Both match the phrase equally, so the newer message comes first.
+    expect(response.results.map((result) => result.messageId)).toEqual(["starred-high", "starred-low"]);
     expect(response.results.every((result) => result.starred)).toBe(true);
     expect(response.results.map((result) => result.messageId)).not.toContain("unstarred");
   });
 
-  it("orders a query's matches newest first when asked, instead of best match first", () => {
-    // Find's Messages mode lists the user's messages by recency also while searching. An
-    // exact word match outranks a prefix match by relevance, but not in recent order, and
-    // messages that do not match stay out either way.
+  it("orders a query's matches by match strength, then newest first", () => {
+    // Where the words sit in a message and its length no longer matter: within each
+    // strength the newest message comes first. An early-in-message phrase from the oldest
+    // message used to outrank everything; scattered words now follow every phrase match.
     const messageHistory = [
-      user("exact-old", "relay down again", 10),
-      user("prefix-new", "relaying through the proxy", 30),
-      user("unrelated", "board colors", 40),
+      user("phrase-old", "Save the most network traffic or frontend compute", 10),
+      user("phrase-mid", `${"Long preamble before the point. ".repeat(10)}Audit the network traffic`, 20),
+      user("scattered-new", "Save traffic. When I'm commuting, the network can be bad", 40),
+      user("phrase-new", "Would that improve the network traffic?", 30),
+      user("unrelated", "board colors", 50),
     ];
-    const search = (sort?: "relevance" | "recent") =>
+    const search = (query: string) =>
       searchSessionMessages({
         sessionId: "leader-session",
         sessionNum: 456,
         isLeaderSession: true,
         messageHistory,
-        query: "relay",
+        query,
         scope: "leader_all_tabs",
         filters: { user: true, assistant: false, event: false },
-        sort,
       }).results.map((result) => result.messageId);
-    expect(search()).toEqual(["exact-old", "prefix-new"]);
-    expect(search("recent")).toEqual(["prefix-new", "exact-old"]);
+    expect(search("network traffic")).toEqual(["phrase-new", "phrase-mid", "phrase-old", "scattered-new"]);
+    // While the last word is still being typed, phrases still come before scattered words.
+    expect(search("network traf")).toEqual(["phrase-new", "phrase-mid", "phrase-old", "scattered-new"]);
+    // An exact word outranks a newer word that only starts with it.
+    expect(search("net")).toEqual(["scattered-new", "phrase-new", "phrase-mid", "phrase-old"]);
+  });
+
+  it("finds a comment sent on an answer by the comment text, not the quoted text", () => {
+    // A comment-only message has empty text; the comment is stored with its annotation.
+    // Search used to read only the text, so such messages could never be found.
+    const comment = {
+      ...user("comment-only", "", 10),
+      annotations: [
+        {
+          id: "a1",
+          selectedText: "Every session update now carries the whole session state.",
+          comment: "Would that significantly increase the network traffic?",
+        },
+      ],
+    } as BrowserIncomingMessage;
+    const search = (query: string) =>
+      searchSessionMessages({
+        sessionId: "leader-session",
+        sessionNum: 456,
+        isLeaderSession: true,
+        messageHistory: [comment],
+        query,
+        scope: "leader_all_tabs",
+        filters: { user: true, assistant: false, event: false },
+      }).results;
+    const [result] = search("network traffic");
+    expect(result?.messageId).toBe("comment-only");
+    expect(result?.snippet).toBe("Would that significantly increase the network traffic?");
+    expect(search("session state")).toEqual([]);
+    // Without a query it is listed too, so the message navigator can jump to it.
+    expect(search("").map((entry) => entry.messageId)).toEqual(["comment-only"]);
   });
 });
 

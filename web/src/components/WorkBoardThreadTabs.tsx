@@ -204,14 +204,13 @@ export function ThreadTabRail({
     if (untitled.length > 0) void useStore.getState().hydrateQuestTitles(untitled.map((tab) => tab.questId!));
   };
   // Find's Messages mode: the user's own messages across every tab of this leader, newest first,
-  // also when searching, a page at a time. The server searches the session's whole history.
+  // or best match then newest when searching, a page at a time. The server searches the session's whole history.
   const loadRecentMessages = useCallback<LoadRecentMessages>(
     (query, offset, signal) =>
       searchSessionMessages(sessionId, {
         query,
         scope: "leader_all_tabs",
         filters: { user: true, assistant: false, event: false },
-        sort: "recent",
         limit: RECENT_MESSAGE_PAGE_SIZE,
         offset,
         signal,

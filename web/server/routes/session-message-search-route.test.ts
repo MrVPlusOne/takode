@@ -75,8 +75,9 @@ describe("GET /sessions/:id/message-search", () => {
     });
   });
 
-  it("orders matches newest first with sort=recent", async () => {
-    // Exact-word "relay" in the older message outranks the newer prefix match by relevance.
+  it("ignores a sort parameter: every caller gets best match, then newest", async () => {
+    // Find once asked for newest-first order; all message search now shares one order, in
+    // which a whole-word "relay" outranks the newer "relaying".
     const app = makeRoute([user("exact-old", "relay down", 10), user("prefix-new", "relaying again", 20)]);
     const ids = async (url: string) =>
       ((await (await app.request(url)).json()) as { results: Array<{ messageId: string }> }).results.map(
@@ -84,8 +85,8 @@ describe("GET /sessions/:id/message-search", () => {
       );
     expect(await ids("/sessions/123/message-search?q=relay&includeUser=true")).toEqual(["exact-old", "prefix-new"]);
     expect(await ids("/sessions/123/message-search?q=relay&includeUser=true&sort=recent")).toEqual([
-      "prefix-new",
       "exact-old",
+      "prefix-new",
     ]);
   });
 

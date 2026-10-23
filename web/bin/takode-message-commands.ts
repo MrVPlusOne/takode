@@ -1267,7 +1267,7 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
   const shown = data.matches.length;
   const total = data.totalMatches;
   console.log(
-    `${total} match${total === 1 ? "" : "es"} for "${formatInlineText(query)}" in session #${data.sessionNum}${shown < total ? ` (showing first ${shown})` : ""}:`,
+    `${total} match${total === 1 ? "" : "es"} for "${formatInlineText(query)}" in session #${data.sessionNum}${shown < total ? ` (showing newest ${shown})` : ""}:`,
   );
   console.log("");
 

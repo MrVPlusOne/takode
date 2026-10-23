@@ -1256,13 +1256,15 @@ describe("grepMessageHistory", () => {
     });
   });
 
-  it("respects the limit option", () => {
+  it("keeps the newest matches past the limit, listed oldest to newest", () => {
+    // A long history used to return its oldest matches and drop the newest; agents grep
+    // mostly for recent work, so the limit now drops the oldest instead.
     const bigHistory: BrowserIncomingMessage[] = Array.from({ length: 10 }, (_, i) =>
       userMsg(`message ${i} with keyword`, i * 1000),
     );
     const result = grepMessageHistory(bigHistory, "keyword", { limit: 3 });
     expect(result.totalMatches).toBe(10);
-    expect(result.matches).toHaveLength(3);
+    expect(result.matches.map((match) => match.idx)).toEqual([7, 8, 9]);
   });
 });
 

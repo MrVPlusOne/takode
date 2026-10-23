@@ -61,7 +61,6 @@ export function registerSessionMessageSearchRoute(api: Hono, deps: SessionMessag
       starredMessages: bridgeSession.state.starredMessages,
       limit: parseInteger(c.req.query("limit")),
       offset: parseInteger(c.req.query("offset")),
-      sort: c.req.query("sort") === "recent" ? "recent" : "relevance",
     });
 
     // The message navigator re-reads this index on every session or thread

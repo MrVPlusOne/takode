@@ -1,12 +1,7 @@
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import type { SearchExcerpt } from "./session-store.js";
-import {
-  compareSearchRanks,
-  prepareSearchQuery,
-  rankSearchFields,
-  tokenizeSearchText,
-  type SearchRank,
-} from "../shared/search-utils.js";
+import { prepareSearchQuery, type PreparedSearchQuery } from "../shared/search-utils.js";
+import { buildMessageSnippet, matchMessageText, userWrittenText } from "./message-search-match.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 
@@ -80,16 +75,20 @@ export function searchGlobalStarredMessages(
   const offset = clampInteger(input.offset, 0, 0, Number.MAX_SAFE_INTEGER);
 
   const candidates = input.docs.flatMap((doc) => collectStarredCandidates(doc));
-  const matched: StarredCandidate[] = query
+  // Same order as session message search: match strength first, then the starred list's own recency.
+  const words = prepareSearchQuery(query);
+  const matched: StarredCandidate[] = words
     ? candidates
-        .map((candidate) => ({ candidate, rank: rankSearchFields([{ rank: 0, text: candidate.text }], query) }))
-        .filter((match): match is { candidate: StarredCandidate; rank: SearchRank } => match.rank !== null)
-        .sort(compareRankedCandidates)
+        .flatMap((candidate) => {
+          const match = matchMessageText(candidate.text, words);
+          return match ? [{ candidate, strength: match.strength }] : [];
+        })
+        .sort((left, right) => left.strength - right.strength || compareStarredRecency(left.candidate, right.candidate))
         .map((match) => match.candidate)
     : [...candidates].sort(compareStarredRecency);
 
   const page = matched.slice(offset, offset + limit);
-  const results = page.map((candidate) => candidateToResult(candidate, query));
+  const results = page.map((candidate) => candidateToResult(candidate, words));
   const nextOffset = offset + results.length < matched.length ? offset + results.length : null;
 
   return {
@@ -213,7 +212,9 @@ function textForStableStarRecord(
 ): string | null {
   if (!message || !isRootAgentHistoryMessage(message)) return null;
   if (message.type === "user_message") {
-    return record.role === "user" && message.id === record.messageId ? message.content : null;
+    return record.role === "user" && message.id === record.messageId
+      ? userWrittenText(message.content, message.annotations)
+      : null;
   }
   if (message.type === "leader_user_message") {
     return record.role === "assistant" && message.id === record.messageId ? message.content : null;
@@ -226,9 +227,12 @@ function textForStableStarRecord(
   return null;
 }
 
-function candidateToResult(candidate: StarredCandidate, query: string): GlobalStarredMessageSearchResult {
+function candidateToResult(
+  candidate: StarredCandidate,
+  words: PreparedSearchQuery | null,
+): GlobalStarredMessageSearchResult {
   const { doc, record } = candidate;
-  const snippetInfo = buildSnippet(candidate.text, query);
+  const snippetInfo = buildMessageSnippet(candidate.text, words);
   const sourceThreadKey = normalizeStarredThreadKey(record.sourceThreadKey);
   const routeThreadKey = normalizeStarredThreadKey(record.routeThreadKey || record.sourceThreadKey);
   return {
@@ -258,13 +262,6 @@ function candidateToResult(candidate: StarredCandidate, query: string): GlobalSt
   };
 }
 
-function compareRankedCandidates(
-  left: { candidate: StarredCandidate; rank: SearchRank },
-  right: { candidate: StarredCandidate; rank: SearchRank },
-): number {
-  return compareSearchRanks(left.rank, right.rank) || compareStarredRecency(left.candidate, right.candidate);
-}
-
 function compareStarredRecency(left: StarredCandidate, right: StarredCandidate): number {
   return (
     right.record.starredAt - left.record.starredAt ||
@@ -286,62 +283,6 @@ function normalizeStarredThreadKey(value: string | undefined): string {
 
 function formatThreadSourceLabel(threadKey: string): string {
   return threadKey === MAIN_THREAD_KEY ? "Main" : `Thread ${threadKey}`;
-}
-
-function buildSnippet(
-  text: string,
-  query: string,
-): {
-  snippet: string;
-  matchRanges: Array<{ start: number; end: number }>;
-  matchedText?: string;
-} {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (!query.trim()) return { snippet: truncateSnippet(collapsed), matchRanges: [] };
-
-  const queryTokens = prepareSearchQuery(query) ?? [];
-  const haystackTokens = tokenizeSearchText(collapsed);
-  const firstMatch = haystackTokens.find((token) =>
-    queryTokens.some((queryToken) => token.value === queryToken || token.value.startsWith(queryToken)),
-  );
-  if (!firstMatch) return { snippet: truncateSnippet(collapsed), matchRanges: [] };
-
-  const desiredContext = 70;
-  const start = Math.max(0, firstMatch.start - desiredContext);
-  const end = Math.min(collapsed.length, firstMatch.end + desiredContext);
-  const snippetStart = start > 0 ? nextWordBoundary(collapsed, start) : 0;
-  const snippetEnd = end < collapsed.length ? previousWordBoundary(collapsed, end) : collapsed.length;
-  const prefix = snippetStart > 0 ? "..." : "";
-  const suffix = snippetEnd < collapsed.length ? "..." : "";
-  const body = collapsed.slice(snippetStart, snippetEnd).trim();
-  const snippet = `${prefix}${body}${suffix}`;
-  const bodyOffset = prefix.length - snippetStart;
-  const matchRanges = haystackTokens
-    .filter((token) => token.start >= snippetStart && token.end <= snippetEnd)
-    .filter((token) =>
-      queryTokens.some((queryToken) => token.value === queryToken || token.value.startsWith(queryToken)),
-    )
-    .map((token) => ({ start: token.start + bodyOffset, end: token.end + bodyOffset }));
-  return {
-    snippet,
-    matchRanges,
-    matchedText: collapsed.slice(firstMatch.start, firstMatch.end),
-  };
-}
-
-function truncateSnippet(text: string, limit = 180): string {
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1).trimEnd()}...`;
-}
-
-function nextWordBoundary(text: string, index: number): number {
-  const nextSpace = text.indexOf(" ", index);
-  return nextSpace === -1 ? index : nextSpace + 1;
-}
-
-function previousWordBoundary(text: string, index: number): number {
-  const previousSpace = text.lastIndexOf(" ", index);
-  return previousSpace === -1 ? index : previousSpace;
 }
 
 function textFromContentBlocks(blocks: ContentBlock[]): string {
