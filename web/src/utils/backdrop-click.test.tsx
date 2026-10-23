@@ -60,6 +60,20 @@ describe("backdropClickProps", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("judges a press whose release it did not see by where the press began", () => {
+    // Browsers always send pointerup before click; scripted tests sometimes skip it. Without a
+    // release the start alone decides, so a press inside the dialog still never closes it.
+    const onClose = vi.fn();
+    render(<Modal onClose={onClose} />);
+    const backdrop = screen.getByTestId("backdrop");
+    fireEvent.pointerDown(screen.getByText("Selectable text"));
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("passes a click without a pointer press through, as for a keyboard or scripted click", () => {
     const onClose = vi.fn();
     render(<Modal onClose={onClose} />);

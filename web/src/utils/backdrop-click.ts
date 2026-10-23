@@ -38,7 +38,8 @@ export function backdropClickProps<T extends Element>(onBackdropClick: (event: M
     onClick: (event: MouseEvent<T>) => {
       const press = pressesByBackdrop.get(event.currentTarget);
       pressesByBackdrop.delete(event.currentTarget);
-      if (press && (press.down !== event.target || press.up !== event.target)) return;
+      // A press whose release was not seen (only scripted events skip it) is judged by where it began.
+      if (press && (press.down !== event.target || (press.up !== null && press.up !== event.target))) return;
       onBackdropClick(event);
     },
   };
