@@ -77,6 +77,7 @@ import {
   useStore,
 } from "./store.js";
 import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
+import { getMatchingShortcutAction } from "./shortcuts.js";
 import type {
   SessionState,
   PermissionRequest,
@@ -236,6 +237,28 @@ describe("Shortcut settings hydration", () => {
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+  });
+
+  it("turns a preset shortcut off and back to its preset default", () => {
+    // Regression: a null (Off) override used to compare equal to "no override",
+    // so clicking Off on a row that only had its preset binding was dropped as a no-op.
+    useStore.getState().setShortcutsEnabled(true);
+    mockUpdateSettings.mockClear();
+    // jsdom reports a non-Mac platform, so the Standard preset's Mod+N is Ctrl+N.
+    const ctrlN = { key: "n", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false };
+    expect(getMatchingShortcutAction(useStore.getState().shortcutSettings, ctrlN)).toBe("new_session");
+
+    useStore.getState().setShortcutOverride("new_session", null);
+
+    const offSettings = { enabled: true, preset: "standard", overrides: { new_session: null } };
+    expect(useStore.getState().shortcutSettings).toEqual(offSettings);
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ shortcutSettings: offSettings });
+    expect(getMatchingShortcutAction(useStore.getState().shortcutSettings, ctrlN)).toBeNull();
+
+    useStore.getState().setShortcutOverride("new_session", undefined);
+
+    expect(useStore.getState().shortcutSettings.overrides).toEqual({});
+    expect(getMatchingShortcutAction(useStore.getState().shortcutSettings, ctrlN)).toBe("new_session");
   });
 });
 

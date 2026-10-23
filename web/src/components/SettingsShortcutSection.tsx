@@ -94,7 +94,9 @@ export function SettingsShortcutSection({
                       <div className="text-sm font-medium text-cc-fg">{action.label}</div>
                       <p className="mt-0.5 text-xs text-cc-muted">{action.description}</p>
                     </div>
-                    <span className="shrink-0 text-xs font-medium text-cc-primary">
+                    <span
+                      className={`shrink-0 text-xs font-medium ${effectiveBinding ? "text-cc-primary" : "text-cc-muted"}`}
+                    >
                       {effectiveBinding ? formatShortcut(effectiveBinding, shortcutPlatform) : "Off"}
                     </span>
                   </div>
@@ -123,7 +125,8 @@ export function SettingsShortcutSection({
                       <button
                         type="button"
                         onClick={() => setShortcutOverride(action.id, null)}
-                        className="px-3 py-2 rounded-lg text-xs font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                        disabled={!effectiveBinding}
+                        className="px-3 py-2 rounded-lg text-xs font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Off
                       </button>

@@ -853,6 +853,30 @@ describe("SettingsPage", () => {
     expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", null);
   });
 
+  it("shows a shortcut turned off with Off in place of its keys", async () => {
+    // A null override means the user turned the shortcut off: the row reads "Off"
+    // instead of the preset keys, Off is already applied, and the preset default can restore it.
+    setMockState({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: { new_session: null },
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const row = screen.getByText("New Session").closest(".space-y-2") as HTMLElement;
+    expect(within(row).getByText("Shortcut disabled for this action")).toBeInTheDocument();
+    expect(within(row).queryByText(/Ctrl\+N|Cmd\+N/)).toBeNull();
+    expect(within(row).getAllByText("Off")).toHaveLength(2);
+    expect(within(row).getByRole("button", { name: "Off" })).toBeDisabled();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Use preset default" }));
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("new_session", undefined);
+  });
+
   it("does not start settings-page background work while inactive", () => {
     vi.useFakeTimers();
     try {

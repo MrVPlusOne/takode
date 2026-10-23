@@ -603,8 +603,11 @@ export function shortcutsEqual(
   const a = left ?? DEFAULT_SHORTCUT_SETTINGS;
   const b = right ?? DEFAULT_SHORTCUT_SETTINGS;
   if (a.enabled !== b.enabled || a.preset !== b.preset) return false;
+  // A null override (turned off) differs from no override (preset default), so compare presence too.
   for (const actionId of ACTION_ORDER) {
-    if ((a.overrides[actionId] ?? undefined) !== (b.overrides[actionId] ?? undefined)) return false;
+    const aHas = Object.prototype.hasOwnProperty.call(a.overrides, actionId);
+    const bHas = Object.prototype.hasOwnProperty.call(b.overrides, actionId);
+    if (aHas !== bHas || a.overrides[actionId] !== b.overrides[actionId]) return false;
   }
   return true;
 }
