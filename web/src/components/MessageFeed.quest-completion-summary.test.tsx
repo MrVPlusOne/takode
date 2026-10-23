@@ -296,6 +296,44 @@ describe("MessageFeed quest completion summary", () => {
     expect(turns[1]).not.toContainElement(card);
   });
 
+  it("lands a jump to a finished quest's result on the card, not on the message it names", () => {
+    // The reported case: a quest-complete unread names the leader's last message before the
+    // quest completed, here commentary. Opening it highlighted that commentary instead of the
+    // Quest complete card the result is about.
+    installHistory(wrapUpHistory("Final Memory is done."), doneQuest({ quizItems: undefined }));
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = wrapUpTurn();
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
+    act(() => {
+      useStore.getState().requestScrollToMessage(SESSION_ID, "wrap-up");
+      useStore.getState().setScrollToMessageLanding(SESSION_ID, "wrap-up", "quest-completion");
+    });
+
+    const cardSlot = screen.getByTestId("quest-completion-summary").closest("[data-feed-block-id]");
+    expect(cardSlot).toHaveAttribute("data-feed-block-id", `quest-completion:${QUEST_ID}`);
+    expect(cardSlot).toHaveClass("message-scroll-highlight");
+    // The collapsed turn already shows the card, so the jump leaves it collapsed and the
+    // commentary stays hidden.
+    expect(within(turn).getByRole("button", { name: /Show turn activity/ })).toBeInTheDocument();
+    expect(screen.queryByText("Final Memory is done.")).toBeNull();
+  });
+
+  it("lands on the named message when the quest shows no card", () => {
+    // A reopened quest hides its card; the jump still lands near where the quest completed.
+    installHistory(wrapUpHistory("Final Memory is done."), {
+      ...doneQuest(),
+      status: "in_progress",
+    } as QuestmasterTask);
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    act(() => {
+      useStore.getState().requestScrollToMessage(SESSION_ID, "wrap-up");
+      useStore.getState().setScrollToMessageLanding(SESSION_ID, "wrap-up", "quest-completion");
+    });
+
+    expect(screen.queryByTestId("quest-completion-summary")).toBeNull();
+    expect(screen.getByText("Final Memory is done.").closest(".message-scroll-highlight")).not.toBeNull();
+  });
+
   it("loads a missing quest record once and then shows the card", async () => {
     // The thread's opening description card and this card share one deduped request
     // for an uncached record; a current cached record needs no request at all.

@@ -29,6 +29,14 @@ import type {
   VsCodeSelectionState,
 } from "./types.js";
 
+/**
+ * Where a message jump lands instead of the message itself. "quest-completion": the thread's
+ * Quest complete card, which is not a message. The message (the last one before the quest
+ * completed) still loads the right part of the thread, and the jump lands on it when the
+ * card is not shown.
+ */
+export type MessageJumpLanding = "quest-completion";
+
 export type LeaderWorkboardView = "active" | "completed" | "other";
 
 /**
@@ -126,6 +134,12 @@ export interface AppState {
   sessionSearch: Map<string, SessionSearchState>;
   scrollToTurnId: Map<string, string | null>;
   scrollToMessageId: Map<string, string | null>;
+  /**
+   * Where the latest jump to a message lands instead of that message. It outlives the jump, so
+   * later requests for the same message (the route's own scroll, a deep link waiting for
+   * history) land there too; a jump to another message ends it.
+   */
+  scrollToMessageLanding: Map<string, { messageId: string; landing: MessageJumpLanding }>;
   expandAllInTurn: Map<string, string | null>;
   pendingScrollToMessageIndex: Map<string, number>;
   pendingScrollToMessageId: Map<string, string>;
@@ -353,6 +367,8 @@ export interface AppState {
   requestScrollToTurn: (sessionId: string, turnId: string) => void;
   clearScrollToTurn: (sessionId: string) => void;
   requestScrollToMessage: (sessionId: string, messageId: string) => void;
+  /** Make jumps to `messageId` land on `landing`; call after requesting the jump. */
+  setScrollToMessageLanding: (sessionId: string, messageId: string, landing: MessageJumpLanding) => void;
   clearScrollToMessage: (sessionId: string) => void;
   setExpandAllInTurn: (sessionId: string, messageId: string) => void;
   clearExpandAllInTurn: (sessionId: string) => void;

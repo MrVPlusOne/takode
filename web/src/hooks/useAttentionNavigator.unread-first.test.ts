@@ -13,6 +13,11 @@ function review(id: string, timestamp: number, messageId: string | null, threadK
   return { id, category: "review", summary: "Answer", timestamp, messageId, threadKey, done: false };
 }
 
+/** A finished quest's unread result. Like the server's, it names the leader's last message before completion. */
+function questComplete(id: string, timestamp: number, messageId: string): SessionNotification {
+  return { ...review(id, timestamp, messageId), summary: "q-1 ready for review", unreadReason: "quest-complete" };
+}
+
 const UNREAD_Q1 = {
   kind: "unread" as const,
   key: "unread:leader:q-1",
@@ -46,6 +51,40 @@ describe("openAttentionItem on an unread thread", () => {
 
     expect(window.location.hash).toBe("#/session/leader/msg/m-first?thread=q-1");
     expect(getSessionNotifications).not.toHaveBeenCalled();
+  });
+
+  it("opens at the leader's answer, not at the commentary a finished quest's result names", () => {
+    // The reported case: the quest completed after the leader's commentary "Final Memory is
+    // done...", then the leader answered below the Quest complete card. Opening the thread
+    // landed on that commentary, which the quest-complete result names as its message.
+    useStore
+      .getState()
+      .setSessionNotifications("leader", [
+        questComplete("n-939", 10, "m-commentary"),
+        { ...review("n-941", 20, "m-answer"), unreadReason: "answer" },
+      ]);
+
+    openAttentionItem(UNREAD_Q1, useStore.getState().sdkSessions);
+
+    expect(window.location.hash).toBe("#/session/leader/msg/m-answer?thread=q-1");
+    expect(useStore.getState().scrollToMessageLanding.get("leader")).toBeUndefined();
+  });
+
+  it("opens a finished quest's only unread result on its Quest complete card", () => {
+    useStore.getState().setSessionNotifications("leader", [questComplete("n-939", 10, "m-commentary")]);
+
+    openAttentionItem(UNREAD_Q1, useStore.getState().sdkSessions);
+
+    // The message still loads the right part of the thread; the feed lands on the card near it.
+    expect(window.location.hash).toBe("#/session/leader/msg/m-commentary?thread=q-1");
+    const landsOnCard = { messageId: "m-commentary", landing: "quest-completion" };
+    expect(useStore.getState().scrollToMessageLanding.get("leader")).toEqual(landsOnCard);
+    // The route's own scroll request for the same message keeps the landing...
+    useStore.getState().requestScrollToMessage("leader", "m-commentary");
+    expect(useStore.getState().scrollToMessageLanding.get("leader")).toEqual(landsOnCard);
+    // ...and a jump to any other message ends it.
+    useStore.getState().requestScrollToMessage("leader", "m-other");
+    expect(useStore.getState().scrollToMessageLanding.get("leader")).toBeUndefined();
   });
 
   it("opens the thread at once and moves to the first unread result once it loads", async () => {

@@ -9,6 +9,7 @@ import { extractQuestQuizMarkerIds } from "./AssistantQuestQuizContent.js";
 import {
   appendTimedMessagesFromEntries,
   buildMinuteBoundaryLabelMap,
+  getQuestCompletionFeedBlockId,
   getTurnFeedBlockId,
   isTimedChatMessage,
 } from "./message-feed-utils.js";
@@ -294,7 +295,12 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
     [turn, feedProps.threadResponsePresentation, cardAt],
   );
   const card = timedCard && (
-    <div key="timed-card" className="min-w-0 pl-9 empty:hidden" data-testid="expanded-turn-timed-card">
+    <div
+      key="timed-card"
+      className="min-w-0 pl-9 empty:hidden"
+      data-testid="expanded-turn-timed-card"
+      data-feed-block-id={timedCard.blockId}
+    >
       {timedCard.node}
     </div>
   );
@@ -484,6 +490,7 @@ export const TurnEntries = memo(function TurnEntries({
           threadQuestId && completedAt !== null && completionSummaryHostTurnId === turn.id
             ? {
                 at: completedAt,
+                blockId: getQuestCompletionFeedBlockId(threadQuestId),
                 node: (
                   <QuestCompletionSummaryCard
                     questId={threadQuestId}
@@ -496,7 +503,11 @@ export const TurnEntries = memo(function TurnEntries({
         // Without entries or collapsed rows to sit among, the card ends the turn.
         const hasEntryRows = isActivityExpanded ? turnPresentationEntries(turn).length > 0 : hasCollapsedContent;
         const completionSummaryCard =
-          completionCard && !hasEntryRows ? <div className="min-w-0 pl-9">{completionCard.node}</div> : null;
+          completionCard && !hasEntryRows ? (
+            <div className="min-w-0 pl-9" data-feed-block-id={completionCard.blockId}>
+              {completionCard.node}
+            </div>
+          ) : null;
         const threadStatusFooter =
           showThreadStatusFooter || completionSummaryCard ? (
             <>

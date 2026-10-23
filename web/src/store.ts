@@ -209,6 +209,7 @@ export const useStore = create<AppState>((set, get) => ({
   sessionSearch: new Map(),
   scrollToTurnId: new Map(),
   scrollToMessageId: new Map(),
+  scrollToMessageLanding: new Map(),
   expandAllInTurn: new Map(),
   pendingScrollToMessageIndex: new Map(),
   pendingScrollToMessageId: new Map(),
@@ -1077,7 +1078,19 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => {
       const scrollToMessageId = new Map(s.scrollToMessageId);
       scrollToMessageId.set(sessionId, messageId);
-      return { scrollToMessageId };
+      // A jump to another message ends the landing; one to the same message keeps it.
+      const landing = s.scrollToMessageLanding.get(sessionId);
+      if (!landing || landing.messageId === messageId) return { scrollToMessageId };
+      const scrollToMessageLanding = new Map(s.scrollToMessageLanding);
+      scrollToMessageLanding.delete(sessionId);
+      return { scrollToMessageId, scrollToMessageLanding };
+    }),
+
+  setScrollToMessageLanding: (sessionId, messageId, landing) =>
+    set((s) => {
+      const scrollToMessageLanding = new Map(s.scrollToMessageLanding);
+      scrollToMessageLanding.set(sessionId, { messageId, landing });
+      return { scrollToMessageLanding };
     }),
 
   clearScrollToMessage: (sessionId) =>
@@ -1707,6 +1720,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionSearch: new Map(),
       scrollToTurnId: new Map(),
       scrollToMessageId: new Map(),
+      scrollToMessageLanding: new Map(),
       expandAllInTurn: new Map(),
       pendingScrollToMessageIndex: new Map(),
       bottomAlignNextUserMessage: new Set(),

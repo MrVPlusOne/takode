@@ -32,7 +32,7 @@ import {
   threadRouteFromHash,
 } from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
-import { firstUnreadResult } from "../utils/notification-navigation.js";
+import { firstUnreadResult, resultLanding } from "../utils/notification-navigation.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
@@ -804,6 +804,7 @@ export function ChatView({
           navigateToSessionMessageId(sessionId, firstUnread.messageId, {
             threadKey: nextThreadKey,
             preserveMainThreadRoute: true,
+            landing: resultLanding(firstUnread),
           });
         } else {
           navigateToSessionThread(sessionId, nextThreadKey);

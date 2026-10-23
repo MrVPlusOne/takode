@@ -88,12 +88,7 @@ import {
   getRouteMessageTargetForThread,
   getSavedViewportTargetMessageId,
 } from "./message-feed-route-target.js";
-import {
-  findCollapsedTurnScrollTarget,
-  findMessageFeedScrollTarget,
-  keepsReadyCollapseForTarget,
-  scrollMessageFeedTargetIntoView,
-} from "./message-feed-target-scroll.js";
+import { planMessageFeedJump, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
 import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll.js";
 import { useJumpTargetPin } from "./message-feed-jump-target-pin.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
@@ -208,6 +203,7 @@ export function MessageFeed({
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
   const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
+  const scrollLanding = useStore((s) => s.scrollToMessageLanding?.get(sessionId));
   const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
   const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
   const routeScrollToMessageId = getRouteMessageTargetForThread(normalizedThreadKey);
@@ -1547,7 +1543,6 @@ export function MessageFeed({
     setAutoFollowEnabled,
   ]);
 
-  const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
   const clearPendingScrollToMessageId = useStore((s) => s.clearPendingScrollToMessageId);
   const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
@@ -1617,8 +1612,14 @@ export function MessageFeed({
     pendingTargetWindowRequestRef.current = null;
 
     const targetState = turnStatesRef.current.find((s) => s.turnId === targetTurn.id);
-    const keepReadyCollapse = keepsReadyCollapseForTarget(containerRef.current, targetState, scrollToMessageId);
-    if (!keepReadyCollapse) useStore.getState().focusTurn(sessionId, targetState?.overrideKey ?? targetTurn.id);
+    const jump = planMessageFeedJump(
+      containerRef.current,
+      targetState,
+      scrollToMessageId,
+      scrollLanding,
+      targetTurn.id,
+    );
+    if (!jump.keepCollapsed) useStore.getState().focusTurn(sessionId, targetState?.overrideKey ?? targetTurn.id);
     const sectionChanged = ensureSectionForTurnVisible(targetTurn.id);
 
     let scrollAttempts = 0;
@@ -1627,9 +1628,7 @@ export function MessageFeed({
       scrollFrame = requestAnimationFrame(() => {
         const el = containerRef.current;
         if (!el) return;
-        const targetElement =
-          findMessageFeedScrollTarget(el, scrollToMessageId) ??
-          (keepReadyCollapse ? findCollapsedTurnScrollTarget(el, targetTurn.id) : null);
+        const targetElement = jump.find(el);
         if (targetElement) {
           scrollMessageFeedTargetIntoView({
             container: el,
@@ -1682,6 +1681,7 @@ export function MessageFeed({
     requestThreadWindow,
     reserveTargetScrollSpace,
     requestHistoryWindow,
+    scrollLanding,
     scrollToMessageId,
     selectedFeedWindowEnabled,
     selectedThreadWindowRevision,

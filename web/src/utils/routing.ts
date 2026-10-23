@@ -1,4 +1,5 @@
 import { useStore } from "../store.js";
+import type { MessageJumpLanding } from "../store-types.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
@@ -473,7 +474,8 @@ export function navigateToSessionMessage(sessionId: string, messageIndex: number
 }
 
 /**
- * Navigate to a specific message ID within a session.
+ * Navigate to a specific message ID within a session. With `landing`, the view lands on what
+ * that names instead of the message (see MessageJumpLanding).
  */
 export function navigateToSessionMessageId(
   sessionId: string,
@@ -483,9 +485,10 @@ export function navigateToSessionMessageId(
     routeSessionId?: string | number;
     threadKey?: string;
     preserveMainThreadRoute?: boolean;
+    landing?: MessageJumpLanding;
   } = {},
 ): void {
-  const { replace = false, routeSessionId = sessionId, threadKey, preserveMainThreadRoute = false } = options;
+  const { replace = false, routeSessionId = sessionId, threadKey, preserveMainThreadRoute = false, landing } = options;
   const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
   const newHash = threadKey
     ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain: preserveMainThreadRoute })
@@ -498,6 +501,7 @@ export function navigateToSessionMessageId(
   }
   const store = useStore.getState();
   store.requestScrollToMessage(sessionId, messageId);
+  if (landing) store.setScrollToMessageLanding(sessionId, messageId, landing);
   store.setExpandAllInTurn(sessionId, messageId);
 }
 

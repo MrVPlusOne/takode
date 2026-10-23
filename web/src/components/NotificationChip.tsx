@@ -23,6 +23,7 @@ import {
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
+import { resultLanding } from "../utils/notification-navigation.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { formatSnoozeUntil } from "./NeedsInputSnoozeControl.js";
@@ -403,6 +404,8 @@ function NotificationItem({
       action: () => {
         const store = useStore.getState();
         store.requestScrollToMessage(sessionId, jumpTargetMessageId);
+        const landing = resultLanding(notif);
+        if (landing) store.setScrollToMessageLanding(sessionId, jumpTargetMessageId, landing);
         store.setExpandAllInTurn(sessionId, jumpTargetMessageId);
       },
     });

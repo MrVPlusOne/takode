@@ -9,7 +9,7 @@ import {
   type AttentionCursor,
   type NextAttentionItem,
 } from "../utils/next-attention.js";
-import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
+import { firstUnreadResult, navigateToNotification, resultLanding } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   navigateToSession,
@@ -149,6 +149,7 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
           routeSessionId,
           threadKey,
           preserveMainThreadRoute: true,
+          landing: resultLanding(loaded),
         });
       })
       .catch(() => {});

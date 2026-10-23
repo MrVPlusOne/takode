@@ -1,3 +1,4 @@
+import type { MessageJumpLanding } from "../store-types.js";
 import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import { attentionLedgerMessageIdForNotificationId } from "./attention-records.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
@@ -11,7 +12,7 @@ import { MAIN_THREAD_KEY } from "./thread-projection.js";
  */
 export function navigateToNotification(
   sessionId: string,
-  notification: Pick<SessionNotification, "id" | "messageId" | "threadKey" | "questId">,
+  notification: Pick<SessionNotification, "id" | "messageId" | "threadKey" | "questId" | "unreadReason">,
   sdkSessions: SdkSessionInfo[],
 ): void {
   const threadKey = resolveNotificationOwnerThreadKey(notification);
@@ -27,6 +28,7 @@ export function navigateToNotification(
       routeSessionId,
       threadKey,
       preserveMainThreadRoute: true,
+      landing: resultLanding(notification),
     });
     return;
   }
@@ -37,18 +39,38 @@ export function navigateToNotification(
 }
 
 /**
- * The first result the user hasn't read yet: the oldest open review notification with an
- * anchor message among those `inThread` accepts. Opening an unread thread lands here.
+ * The first result the user hasn't read yet among the open review notifications with an
+ * anchor message that `inThread` accepts. Opening an unread thread lands here.
+ *
+ * Answers and reports come first, oldest first; a finished quest only when nothing else is
+ * unread. The leader's answer after a quest completes is what the user waits for, and the
+ * Quest complete card sits right above it, so landing on the answer shows both.
  */
-export function firstUnreadResult<T extends Pick<SessionNotification, "category" | "done" | "messageId" | "timestamp">>(
-  notifications: ReadonlyArray<T> | undefined,
-  inThread: (notification: T) => boolean,
-): T | null {
+export function firstUnreadResult<
+  T extends Pick<SessionNotification, "category" | "done" | "messageId" | "timestamp" | "unreadReason">,
+>(notifications: ReadonlyArray<T> | undefined, inThread: (notification: T) => boolean): T | null {
   let first: T | null = null;
   for (const notification of notifications ?? []) {
     if (notification.category !== "review" || notification.done || !notification.messageId) continue;
     if (!inThread(notification)) continue;
-    if (!first || notification.timestamp < first.timestamp) first = notification;
+    if (!first || readsBefore(notification, first)) first = notification;
   }
   return first;
+}
+
+/**
+ * Where opening a result lands. A finished quest's result is its Quest complete card, which is
+ * not a message: its notification names the last message before the quest completed, often
+ * the leader's commentary, so the jump lands on the card instead.
+ */
+export function resultLanding(notification: Pick<SessionNotification, "unreadReason">): MessageJumpLanding | undefined {
+  return notification.unreadReason === "quest-complete" ? "quest-completion" : undefined;
+}
+
+type RankedResult = Pick<SessionNotification, "timestamp" | "unreadReason">;
+
+function readsBefore(a: RankedResult, b: RankedResult): boolean {
+  const aCompletion = a.unreadReason === "quest-complete";
+  if (aCompletion !== (b.unreadReason === "quest-complete")) return !aCompletion;
+  return a.timestamp < b.timestamp;
 }

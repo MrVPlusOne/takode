@@ -70,6 +70,8 @@ export function readyThreadResponseTurnHasContent(
 export interface TimedCard {
   node: ReactNode;
   at: number;
+  /** Feed block ID of the card's slot, so a jump can land on it. */
+  blockId?: string;
 }
 
 /** Index of the first entry written after `at`, or -1; entries without a time of their own never count. */
@@ -201,7 +203,12 @@ export function CollapsedTurnRows({
       )
     : -1;
   const card = timedCard && (
-    <div key="timed-card" className="min-w-0 px-2.5 py-2 empty:hidden sm:px-3" data-testid="collapsed-turn-timed-card">
+    <div
+      key="timed-card"
+      className="min-w-0 px-2.5 py-2 empty:hidden sm:px-3"
+      data-testid="collapsed-turn-timed-card"
+      data-feed-block-id={timedCard.blockId}
+    >
       {timedCard.node}
     </div>
   );

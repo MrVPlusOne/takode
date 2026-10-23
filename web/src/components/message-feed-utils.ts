@@ -40,6 +40,11 @@ export function getSubagentFeedBlockId(toolUseId: string): string {
   return `subagent:${toolUseId}`;
 }
 
+/** The thread's Quest complete card, where opening a finished quest's result lands. */
+export function getQuestCompletionFeedBlockId(questId: string): string {
+  return `quest-completion:${questId}`;
+}
+
 export function getTurnFeedBlockId(turnId: string): string {
   return `turn:${turnId}`;
 }
