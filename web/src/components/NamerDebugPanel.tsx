@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { NamerLogIndexEntry, NamerLogEntry } from "../api.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 function timeAgo(ts: number): string {
   const now = Date.now();
@@ -182,10 +183,10 @@ export function NamerDebugPanel() {
         createPortal(
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => {
+            {...backdropClickProps(() => {
               setExpandedId(null);
               setExpandedEntry(null);
-            }}
+            })}
           >
             <div
               className="bg-cc-bg border border-cc-border rounded-xl shadow-2xl flex flex-col"

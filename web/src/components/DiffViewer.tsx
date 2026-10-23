@@ -9,6 +9,7 @@ import {
   inferLanguageFromPath,
   splitSourceToLines,
 } from "../utils/syntax-highlighting.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 export interface DiffViewerProps {
   /** Original text (for computing diff from old/new) */
@@ -978,7 +979,7 @@ function ExpandedDiff({ title, onClose, children }: { title: string; onClose: ()
   return createPortal(
     <div
       className={dockTarget ? SECONDARY_VIEWER_LAYER_CLASS : "diff-modal-backdrop"}
-      onClick={dockTarget ? undefined : onClose}
+      {...(dockTarget ? {} : backdropClickProps(onClose))}
     >
       <div
         className={dockTarget ? "diff-modal-panel diff-modal-panel-docked" : "diff-modal-panel"}

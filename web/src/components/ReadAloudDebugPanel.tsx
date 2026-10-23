@@ -10,6 +10,7 @@ import {
   type ReadAloudRecordSummary,
 } from "../api/read-aloud.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /**
  * Settings > Voice > Read Aloud Debug: every read aloud with its exact rewrite
@@ -119,7 +120,10 @@ function ReadAloudRecordDialog({ id, onClose }: { id: string; onClose: () => voi
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      {...backdropClickProps(onClose)}
+    >
       <div
         role="dialog"
         aria-label="Read Aloud Detail"

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { api, type CompanionEnv } from "../api.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 interface Props {
   onClose?: () => void;
@@ -587,7 +588,10 @@ export function EnvManager({ onClose, embedded = false }: Props) {
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+      {...backdropClickProps(() => onClose?.())}
+    >
       {panel}
     </div>,
     document.body,

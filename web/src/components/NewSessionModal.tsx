@@ -43,6 +43,7 @@ import { FolderPicker } from "./FolderPicker.js";
 import { useRemoteHosts } from "../remote-hosts.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /** What the selected machine says about the selected folder. */
 type FolderCheck = { state: "idle" | "checking" | "found" | "missing" } | { state: "error"; message: string };
@@ -841,9 +842,9 @@ export function NewSessionModal({
       {/* Backdrop — transparent click-away */}
       <div
         className="fixed inset-0 z-50"
-        onClick={(e) => {
+        {...backdropClickProps((e) => {
           if (e.target === e.currentTarget) onClose();
-        }}
+        })}
       >
         {/* Popover card — anchored near the top-left, next to sidebar */}
         <div

@@ -5,21 +5,25 @@ import { describe, expect, it, vi } from "vitest";
 import { SearchMeta, SearchSheet } from "./SearchSheet.js";
 
 describe("SearchSheet", () => {
-  it("closes on a press that starts on the backdrop or on Done, but not on one inside the sheet", () => {
-    // Pressing inside and letting go outside (selecting text) must not dismiss the sheet,
-    // which is why closing listens to the press rather than the click.
+  it("closes on a click on the backdrop or on Done, but not when a press inside the sheet ends outside it", () => {
+    // Pressing inside and letting go outside (selecting text) sends the click to the backdrop;
+    // that must not dismiss the sheet.
     const onClose = vi.fn();
     render(
       <SearchSheet label="Find" header={<span>Find a tab</span>} onClose={onClose} backdropTestId="backdrop">
         <p>Body</p>
       </SearchSheet>,
     );
+    const backdrop = screen.getByTestId("backdrop");
 
-    fireEvent.mouseDown(screen.getByText("Body"));
-    fireEvent.click(screen.getByTestId("backdrop"));
+    fireEvent.pointerDown(screen.getByText("Body"));
+    fireEvent.pointerUp(backdrop);
+    fireEvent.click(backdrop);
     expect(onClose).not.toHaveBeenCalled();
 
-    fireEvent.mouseDown(screen.getByTestId("backdrop"));
+    fireEvent.pointerDown(backdrop);
+    fireEvent.pointerUp(backdrop);
+    fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }));

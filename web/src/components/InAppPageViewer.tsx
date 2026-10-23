@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /**
  * The page's own sandbox minus popups and top navigation: either would take over the Home Screen
@@ -76,13 +77,15 @@ function InAppPageViewer({ page, onClose }: { page: InAppPage; onClose: () => vo
   }, [onClose]);
 
   const name = page.label.split(/[\\/]/).pop() || page.label;
+  const backdropClick = backdropClickProps<HTMLDivElement>(onClose);
 
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4"
+      {...backdropClick}
       onClick={(event) => {
         event.stopPropagation();
-        onClose();
+        backdropClick.onClick(event);
       }}
       data-testid="in-app-page-viewer-backdrop"
     >

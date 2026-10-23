@@ -22,6 +22,7 @@ import { useStore } from "../store.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { fetchCodexNativeSubagentHistory, type CodexNativeSubagentHistoryPage } from "../api/codex-native-subagents.js";
 import { CodexSubagentTranscript } from "./CodexSubagentTranscript.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 const HISTORY_PAGE_SIZE = 30;
 const MAX_CACHED_HISTORY_MESSAGES = 180;
@@ -1058,9 +1059,9 @@ export function CodexSubagentInspector({
   return createPortal(
     <div
       className="fixed inset-0 z-[80] overflow-hidden bg-black/25"
-      onMouseDown={(event) => {
+      {...backdropClickProps((event) => {
         if (event.target === event.currentTarget) closeInspector();
-      }}
+      })}
       data-testid="codex-subagent-inspector-overlay"
     >
       <section

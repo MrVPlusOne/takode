@@ -11,6 +11,7 @@ import {
 } from "../utils/backends.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { FolderPicker } from "./FolderPicker.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 interface Props {
   onClose?: () => void;
@@ -557,7 +558,10 @@ export function CronManager({ onClose, embedded = false }: Props) {
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+      {...backdropClickProps(() => onClose?.())}
+    >
       {panel}
     </div>,
     document.body,

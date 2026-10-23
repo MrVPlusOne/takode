@@ -61,6 +61,7 @@ import {
 } from "../api/file-link-actions.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -659,7 +660,7 @@ function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClo
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4 sm:px-6"
-      onClick={onClose}
+      {...backdropClickProps(onClose)}
       data-testid="markdown-table-backdrop"
     >
       <div

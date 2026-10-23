@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { SdkSessionInfo } from "../types.js";
 import { SectionHeader, usePersistedCollapse } from "./PanelSection.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 type InstructionSnapshot = NonNullable<SdkSessionInfo["codexInstructionSnapshot"]>;
 
@@ -293,7 +294,7 @@ function InstructionContentViewer({
     <div
       data-session-info-modal="true"
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-3 sm:p-8"
-      onClick={onClose}
+      {...backdropClickProps(onClose)}
     >
       <div
         ref={dialogRef}

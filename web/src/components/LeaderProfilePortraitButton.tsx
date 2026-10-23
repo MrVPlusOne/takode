@@ -5,6 +5,7 @@ import { useStore } from "../store.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import { LEADER_PROFILE_POOLS, LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 const PANEL_MARGIN = 12;
 const PANEL_GAP = 8;
@@ -184,7 +185,7 @@ export function LeaderProfilePortraitButton({
             <div
               className="fixed inset-0 z-[100]"
               data-leader-profile-portrait-picker="true"
-              onClick={() => setOpen(false)}
+              {...backdropClickProps(() => setOpen(false))}
               onMouseDown={(event) => event.stopPropagation()}
             >
               <div

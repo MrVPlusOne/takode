@@ -5,6 +5,7 @@ import { readFileLinkText, type FileLinkActionTarget } from "../api/file-link-ac
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /**
  * Open viewers, bottom first. They live outside the link that opened them, so a viewer stays open
@@ -93,6 +94,9 @@ function MarkdownFileViewer({
   const path = file.status === "loaded" ? file.absolutePath : target.path;
   const name = path.split(/[\\/]/).pop() || path;
   const closeAll = () => useViewerStack.setState({ stack: [] });
+  const backdropClick = backdropClickProps<HTMLDivElement>(() => {
+    if (!docked) onClose();
+  });
 
   return createPortal(
     <div
@@ -101,10 +105,11 @@ function MarkdownFileViewer({
           ? SECONDARY_VIEWER_LAYER_CLASS
           : "fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4 sm:px-6"
       }
+      {...backdropClick}
       onClick={(event) => {
         // Portal clicks still bubble through React to the link's own ancestors, such as a message row.
         event.stopPropagation();
-        if (!docked) onClose();
+        backdropClick.onClick(event);
       }}
       data-testid="markdown-file-viewer-backdrop"
     >

@@ -7,6 +7,7 @@
 import type { CSSProperties, InputHTMLAttributes, KeyboardEvent, ReactNode, Ref } from "react";
 import { Fragment } from "react";
 import { createPortal } from "react-dom";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /** Rows of chips scroll sideways on narrow phones without showing a scrollbar. */
 export const HIDDEN_SCROLLBAR_CLASS = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
@@ -74,11 +75,9 @@ export function SearchSheet({
   return createPortal(
     <div
       className={`fixed inset-0 ${layerClassName} flex flex-col justify-end bg-black/40 md:items-center md:justify-start md:pt-[10vh]`}
-      // A press that starts outside the sheet closes it; one that only ends there (selecting
-      // text and letting go outside) does not.
-      onMouseDown={(event) => {
+      {...backdropClickProps((event) => {
         if (event.target === event.currentTarget) onClose();
-      }}
+      })}
       data-testid={backdropTestId}
     >
       {sheet}

@@ -49,6 +49,7 @@ import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
@@ -642,7 +643,7 @@ export function QuestDetailPanel() {
             ? backdropClassName
             : "fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
         }
-        onClick={docked ? undefined : closePanel}
+        {...(docked ? {} : backdropClickProps(closePanel))}
         data-testid="quest-detail-panel-backdrop"
       >
         <div
@@ -731,7 +732,7 @@ export function QuestDetailPanel() {
   return createPortal(
     <div
       className={backdropClassName}
-      onClick={docked ? undefined : closePanel}
+      {...(docked ? {} : backdropClickProps(closePanel))}
       data-testid="quest-detail-panel-backdrop"
     >
       <div
@@ -1559,7 +1560,7 @@ export function QuestDetailPanel() {
       </div>
 
       {commitDiffState.activeCommitEntry && (
-        <div className="fixed inset-0 z-[55] bg-black/70" onClick={commitDiffState.closeCommit}>
+        <div className="fixed inset-0 z-[55] bg-black/70" {...backdropClickProps(commitDiffState.closeCommit)}>
           <div
             className="quest-commit-modal min-h-0 bg-cc-card flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}

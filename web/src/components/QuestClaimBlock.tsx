@@ -8,6 +8,7 @@ import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
 import { useStore } from "../store.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 interface QuestClaimData {
   questId: string;
@@ -197,7 +198,7 @@ export function QuestClaimBlock({
       {detailsOpen && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-3 py-4"
-          onClick={() => setDetailsOpen(false)}
+          {...backdropClickProps(() => setDetailsOpen(false))}
         >
           <div
             role="dialog"

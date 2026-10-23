@@ -12,6 +12,7 @@ import { createVoiceTranscriptionRequestId } from "./composer-voice-transcriptio
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import { ReportCommentTarget } from "./ReportCommentTarget.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 type VoiceMode = "dictation" | "append" | "edit";
 interface Capture {
@@ -57,7 +58,6 @@ export function AnnotationEditor({
   const dialog = useRef<HTMLElement>(null);
   const viewport = useVisibleViewport();
   const [height, setHeight] = useState(0);
-  const pressedOutside = useRef(false);
   const focusComposerOnClose = useRef(false);
   const capture = useRef<Capture | null>(null);
   const generation = useRef(0);
@@ -191,18 +191,13 @@ export function AnnotationEditor({
   return createPortal(
     <div
       className="fixed inset-0 z-[1200] bg-black/15"
-      // An outside click keeps the comment instead of discarding it; only Cancel and Escape discard. The press must
-      // also start outside, so a text selection dragged out of the editor does not close it. Closing on click rather
-      // than mousedown lets React mark the backdrop clickable, which iOS Safari needs before it delivers a tap.
-      onPointerDown={(event) => {
-        pressedOutside.current = event.target === event.currentTarget;
-      }}
-      onClick={(event) => {
-        if (!pressedOutside.current || event.target !== event.currentTarget) return;
+      // An outside click keeps the comment instead of discarding it; only Cancel and Escape discard.
+      {...backdropClickProps((event) => {
+        if (event.target !== event.currentTarget) return;
         // Recording, transcription or an undecided voice edit keep the editor open.
         if (canSave) onSave(text);
         else if (!busy && !proposal) onCancel();
-      }}
+      })}
     >
       <section
         role="dialog"

@@ -2,6 +2,7 @@ import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -51,7 +52,7 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
   return createPortal(
     <div
       className={`${docked ? SECONDARY_VIEWER_LAYER_CLASS : "fixed inset-0 z-50 bg-black/80"} items-center justify-center cursor-zoom-out`}
-      onClick={onClose}
+      {...backdropClickProps(onClose)}
       data-testid="lightbox-backdrop"
     >
       {/* Close button in top-right corner */}

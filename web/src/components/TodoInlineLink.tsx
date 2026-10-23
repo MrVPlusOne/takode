@@ -31,6 +31,7 @@ import {
 } from "./todo-item-summaries.js";
 import { TodoItemDesktopLayout, type TodoItemParts, TodoStatusControl } from "./TodoItemDesktopLayout.js";
 import { TodoProvenance } from "./TodoProvenance.js";
+import { backdropClickProps } from "../utils/backdrop-click.js";
 
 /** Where to-do links read statuses and the list and change a to-do; the Playground swaps in mock data. */
 export interface TodoLinkSource {
@@ -266,9 +267,9 @@ function TodoPreview({
   return createPortal(
     <div
       className="fixed inset-0 z-[82] flex items-end justify-center bg-black/40 sm:items-center sm:p-6"
-      onClick={(event) => {
+      {...backdropClickProps((event) => {
         if (event.target === event.currentTarget && !editing) onClose();
-      }}
+      })}
       data-testid="todo-preview-backdrop"
     >
       <div
