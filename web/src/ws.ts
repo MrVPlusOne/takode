@@ -34,9 +34,8 @@ let handleIncomingMessage:
   | null = null;
 let pendingVsCodeSelectionUpdate: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }> | null = null;
 
-function getInitialLeaderThreadWindow(
-  sessionId: string,
-): Extract<BrowserOutgoingMessage, { type: "session_subscribe" }>["initial_thread_window"] {
+/** The leader thread view a subscribe opens ("all" for All Threads); null for sessions without thread tabs. */
+function resolveSubscribedLeaderThreadKey(sessionId: string): string | null {
   const store = useStore.getState();
   const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
   const bridgeSession = store.sessions.get(sessionId);
@@ -45,7 +44,7 @@ function getInitialLeaderThreadWindow(
     leaderTabsProjection.projectionState === "accepted" ||
     bridgeSession?.isOrchestrator === true ||
     sdkSession?.isOrchestrator === true;
-  if (!isLeaderSession) return undefined;
+  if (!isLeaderSession) return null;
 
   const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
   const routeSessionId =
@@ -56,7 +55,7 @@ function getInitialLeaderThreadWindow(
     : { hasThreadParam: false, threadKey: null };
   // A reconnect must resubscribe to the thread on screen: live events and the
   // fresh window follow the subscribed view, so a stale guess leaves it frozen.
-  const threadKey =
+  return (
     readDisplayedLeaderThreadKey(sessionId) ??
     resolveInitialLeaderThreadKey({
       sessionId,
@@ -64,9 +63,21 @@ function getInitialLeaderThreadWindow(
       hasThreadRoute: threadRoute.hasThreadParam,
       routeThreadKey: threadRoute.threadKey,
       leaderOpenThreadTabs: projectedLeaderOpenThreadTabs(leaderTabsProjection),
-    });
-  if (threadKey === ALL_THREADS_KEY) return undefined;
+    })
+  );
+}
 
+function getInitialLeaderThreadWindow(
+  sessionId: string,
+): Extract<BrowserOutgoingMessage, { type: "session_subscribe" }>["initial_thread_window"] {
+  const threadKey = resolveSubscribedLeaderThreadKey(sessionId);
+  // All Threads has no thread window: the subscribe's history window is its view.
+  if (threadKey == null || threadKey === ALL_THREADS_KEY) return undefined;
+
+  const store = useStore.getState();
+  const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
+  const routeMatchesSession =
+    route?.page === "session" && resolveSessionIdFromRoute(route.sessionId, store.sdkSessions) === sessionId;
   const existingWindow = store.threadWindows.get(sessionId)?.get(threadKey);
   const sectionItemCount = existingWindow?.section_item_count ?? HISTORY_WINDOW_SECTION_TURN_COUNT;
   const visibleItemCount = existingWindow?.visible_item_count ?? HISTORY_WINDOW_VISIBLE_SECTION_COUNT;
@@ -176,9 +187,9 @@ const transport = createWsTransport({
   getKnownSnapshotParts: heldSnapshotParts,
   onConnecting: (sessionId) => {
     const store = useStore.getState();
-    const initialThreadWindow = getInitialLeaderThreadWindow(sessionId);
-    // The subscribe carries this thread's window request, revalidating any cached copy.
-    store.setPendingThreadWindowRequest(sessionId, initialThreadWindow?.thread_key ?? null);
+    // The subscribe carries this view's window request (All Threads' is its history
+    // window), revalidating any cached copy.
+    store.setPendingThreadWindowRequest(sessionId, resolveSubscribedLeaderThreadKey(sessionId));
     store.setConnectionStatus(sessionId, "connecting");
   },
   onConnected: (sessionId) => {

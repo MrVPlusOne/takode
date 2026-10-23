@@ -193,6 +193,23 @@ export function buildProjectedThreadEntries(
   }).entries;
 }
 
+/**
+ * History index where the latest window of `itemCount` conversations of a thread
+ * begins, or null when the thread has no visible conversation. Supporting rows a
+ * window carries from earlier history are not part of its span.
+ */
+export function latestThreadWindowStartHistoryIndex(
+  messageHistory: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  itemCount: number,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): number | null {
+  const items = buildThreadConversationItems(messageHistory, normalizeSelectedFeedThreadKey(threadKey), includeMessage);
+  const ranges = buildVisibleConversationRanges(items);
+  const firstRange = ranges[Math.max(0, ranges.length - Math.max(1, Math.floor(itemCount)))];
+  return firstRange ? items[firstRange.startItem]!.order : null;
+}
+
 function buildThreadWindowEntries(input: {
   messageHistory: ReadonlyArray<BrowserIncomingMessage>;
   threadKey: string;

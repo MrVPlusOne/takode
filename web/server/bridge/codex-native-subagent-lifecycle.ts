@@ -25,6 +25,8 @@ export interface CodexNativeSubagentLifecycleSessionLike {
   id: string;
   state: {
     codex_native_subagents?: ReturnType<typeof deriveCodexNativeSubagentSnapshot>;
+    /** Read by the conversation refresh: a leader's history window covers its Main thread. */
+    isOrchestrator?: boolean;
   };
   codexAdapter: unknown;
   codexNativeSubagents?: CodexNativeSubagentRegistry;

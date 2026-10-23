@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HistoryWindowState, ThreadWindowState } from "../types.js";
+import {
+  getHistoryWindowTurnCount,
+  HISTORY_WINDOW_SECTION_TURN_COUNT,
+  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+} from "../../shared/history-window.js";
+import { useStore } from "../store.js";
 import { getCachedHistoryWindowHash } from "../utils/history-window-cache.js";
+import { ALL_THREADS_KEY, isAllThreadsKey } from "../utils/thread-projection.js";
 import { sendToSession } from "../ws.js";
 
 /** Keep scroll handlers synchronous while making follow changes observable to subscriptions. */
@@ -60,12 +67,11 @@ export function useMessageFeedBoundedConversation(input: {
       visibleSectionCount: number,
       targetMessageId?: string,
     ) => {
-      const cachedWindowHash = getCachedHistoryWindowHash(input.sessionId, {
-        fromTurn,
-        turnCount,
-        sectionTurnCount,
-        visibleSectionCount,
-      });
+      // The server sizes a latest window itself, so only the held window can match it.
+      const cachedWindowHash =
+        fromTurn < 0 && !targetMessageId && input.activeHistoryWindow?.window_hash
+          ? input.activeHistoryWindow.window_hash
+          : getCachedHistoryWindowHash(input.sessionId, { fromTurn, turnCount, sectionTurnCount, visibleSectionCount });
       const delivered = sendToSession(input.sessionId, {
         type: "history_window_request",
         from_turn: fromTurn,
@@ -81,6 +87,23 @@ export function useMessageFeedBoundedConversation(input: {
     },
     [input.activeHistoryWindow, input.sessionId, noteWindowRequest],
   );
+
+  const requestLatestHistoryWindow = useCallback(() => {
+    const sectionTurnCount = input.activeHistoryWindow?.section_turn_count ?? HISTORY_WINDOW_SECTION_TURN_COUNT;
+    const visibleSectionCount =
+      input.activeHistoryWindow?.visible_section_count ?? HISTORY_WINDOW_VISIBLE_SECTION_COUNT;
+    const turnCount = getHistoryWindowTurnCount(visibleSectionCount, sectionTurnCount);
+    const delivered = requestHistoryWindow(-1, turnCount, sectionTurnCount, visibleSectionCount);
+    // With no window held there is nothing to show yet; the arriving window ends the loading state.
+    if (delivered && !input.activeHistoryWindow) useStore.getState().setHistoryLoading(input.sessionId, true);
+    return delivered;
+  }, [input.activeHistoryWindow, input.sessionId, requestHistoryWindow]);
+  useAllThreadsWindowRefresh({
+    enabled: isAllThreadsKey(input.normalizedThreadKey),
+    connectionStatus: input.connectionStatus,
+    sessionId: input.sessionId,
+    requestLatestHistoryWindow,
+  });
 
   useEffect(() => {
     if (input.connectionStatus !== "connected") {
@@ -128,4 +151,32 @@ export function useMessageFeedBoundedConversation(input: {
     noteWindowRequest,
     requestHistoryWindow,
   };
+}
+
+/**
+ * All Threads shows the session's history window, which nothing keeps current
+ * while a thread tab is shown: the subscribe and live events follow the shown
+ * view, so the held window may be missing or stale. Ask for the latest window
+ * once each time All Threads is selected, unless the subscribe that opened it
+ * already did; an unchanged window comes back as a small cache hit.
+ */
+function useAllThreadsWindowRefresh(input: {
+  /** Only leader sessions have an All Threads view. */
+  enabled: boolean;
+  connectionStatus: string | undefined;
+  sessionId: string;
+  requestLatestHistoryWindow: () => boolean;
+}): void {
+  const refreshedSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!input.enabled) {
+      refreshedSessionRef.current = null;
+      return;
+    }
+    if (input.connectionStatus !== "connected" || refreshedSessionRef.current === input.sessionId) return;
+    const subscribeRequestedIt =
+      useStore.getState().pendingThreadWindowRequests.get(input.sessionId) === ALL_THREADS_KEY;
+    if (subscribeRequestedIt || input.requestLatestHistoryWindow()) refreshedSessionRef.current = input.sessionId;
+  }, [input.connectionStatus, input.enabled, input.requestLatestHistoryWindow, input.sessionId]);
 }

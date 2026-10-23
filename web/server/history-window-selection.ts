@@ -32,14 +32,28 @@ export function selectHistoryWindowRange(input: {
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   includeOutsideTurnMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
+  /**
+   * History index a window ending at the latest turn must still reach back to,
+   * read only for such windows. The All Threads view uses it to cover at least
+   * the span its Main thread's latest window shows.
+   */
+  latestWindowCoverIndex?: () => number | null;
 }): {
   fromTurn: number;
   turnCount: number;
   startIdx: number;
   messages: BrowserIncomingMessage[];
 } {
-  const fromTurn = resolveHistoryWindowFromTurn(input);
-  const endTurnExclusive = Math.min(input.turns.length, fromTurn + input.turnCount);
+  let fromTurn = resolveHistoryWindowFromTurn(input);
+  const reachesLatestTurn = fromTurn + input.turnCount >= input.turns.length;
+  const targeted = Boolean(input.targetMessageId?.trim()) || typeof input.targetHistoryIndex === "number";
+  if (reachesLatestTurn && !targeted && input.latestWindowCoverIndex) {
+    const coverIndex = input.latestWindowCoverIndex();
+    if (coverIndex != null) fromTurn = Math.min(fromTurn, owningTurnByStart(input.turns, coverIndex));
+  }
+  const endTurnExclusive = reachesLatestTurn
+    ? input.turns.length
+    : Math.min(input.turns.length, fromTurn + input.turnCount);
   const turnCount = Math.max(0, endTurnExclusive - fromTurn);
   const turnStartIdx = input.turns[fromTurn]?.startIdx ?? 0;
   let startIdx = turnStartIdx;
@@ -81,6 +95,13 @@ export function selectHistoryWindowRange(input: {
     startIdx,
     messages,
   };
+}
+
+/** The turn whose span holds a history index; indexes before the first turn belong to it. */
+function owningTurnByStart(turns: TurnBoundary[], historyIndex: number): number {
+  let owner = 0;
+  for (let index = 0; index < turns.length && turns[index]!.startIdx <= historyIndex; index++) owner = index;
+  return owner;
 }
 
 function projectHistoryRange(

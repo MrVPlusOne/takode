@@ -23,6 +23,7 @@ import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
   buildThreadWindowSync,
   getThreadWindowItemCount,
+  latestThreadWindowStartHistoryIndex,
   MAIN_THREAD_KEY,
   normalizeSelectedFeedThreadKey,
 } from "../../shared/thread-window.js";
@@ -197,6 +198,7 @@ export interface BrowserConversationRefreshSessionLike {
   browserSockets: Set<unknown>;
   messageHistory: BrowserIncomingMessage[];
   nextEventSeq: number;
+  state?: Pick<SessionState, "isOrchestrator">;
 }
 
 export interface BrowserTransportStateLike {
@@ -1171,7 +1173,7 @@ async function sendHistorySyncAttempt(
 }
 
 export function sendHistoryWindowSync(
-  session: Pick<BrowserTransportSessionLike, "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "messageHistory"> & { state?: Pick<SessionState, "isOrchestrator"> },
   ws: BrowserTransportSocketLike,
   options: {
     fromTurn: number;
@@ -1209,6 +1211,19 @@ export function sendHistoryWindowSync(
       includeMessage: isRootAgentHistoryMessage,
       includeOutsideTurnMessage: (message, historyIndex) =>
         isRootAgentHistoryMessage(message) && message.type === "quest_lifecycle_event" && historyIndex >= 0,
+      // A leader's history window is its All Threads view. Turns count every herd event and
+      // injected input, so the latest turns can span far less than the latest Main
+      // conversations; All Threads must never show less than Main.
+      latestWindowCoverIndex:
+        session.state?.isOrchestrator === true
+          ? () =>
+              latestThreadWindowStartHistoryIndex(
+                session.messageHistory,
+                MAIN_THREAD_KEY,
+                getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount),
+                isRootAgentHistoryMessage,
+              )
+          : undefined,
     });
     ({ fromTurn, turnCount, startIdx, messages } = selected);
   } else {
@@ -1324,7 +1339,9 @@ function noteThreadWindowHeld(ws: BrowserTransportSocketLike, threadKey: string,
 }
 
 function sendBoundedConversationView(
-  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory"> & {
+    state?: Pick<SessionState, "isOrchestrator">;
+  },
   ws: BrowserTransportSocketLike,
   view: BoundedConversationView,
 ): void {

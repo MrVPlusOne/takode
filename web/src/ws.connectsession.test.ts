@@ -293,6 +293,25 @@ describe("connectSession", () => {
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       }),
     );
+    // The subscribe's history window is All Threads' window, so selecting All Threads
+    // must not ask for it a second time while it is on its way.
+    expect(useStore.getState().pendingThreadWindowRequests.get("s1")).toBe("all");
+
+    // Its arrival ends the wait, so a later selection of All Threads asks again.
+    fireMessage({
+      type: "history_window_sync",
+      messages: [],
+      window: {
+        from_turn: 0,
+        turn_count: 0,
+        total_turns: 0,
+        has_older_items: false,
+        has_newer_items: false,
+        start_index: 0,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
     expect(useStore.getState().pendingThreadWindowRequests.has("s1")).toBe(false);
   });
 

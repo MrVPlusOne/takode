@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOutgoingMessage, HistoryWindowState, ThreadWindowState } from "../types.js";
 import { useMessageFeedBoundedConversation, useMessageFeedFollowState } from "./message-feed-bounded-conversation.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
+import { useStore } from "../store.js";
 
 const sendToSession = vi.hoisted(() => vi.fn((_id: string, _message: BrowserOutgoingMessage) => true));
 vi.mock("../ws.js", () => ({ sendToSession }));
@@ -83,6 +84,8 @@ describe("bounded conversation follow intent", () => {
   });
 
   it("applies the same latest capacity contract to history windows", () => {
+    // All Threads opened by the session subscribe, which already asked for its window.
+    useStore.getState().setPendingThreadWindowRequest("history-follow", "all");
     renderHook(() => {
       const follow = useMessageFeedFollowState(true);
       useMessageFeedBoundedConversation({
@@ -237,5 +240,133 @@ describe("bounded conversation follow intent", () => {
         count: 30,
       }),
     );
+  });
+});
+
+describe("All Threads window refresh", () => {
+  // While a thread tab is shown, the subscribe and live events follow that tab,
+  // so the history window All Threads shows is missing or stale. Selecting All
+  // Threads must ask for the latest one instead of showing what the store holds.
+  const heldWindow: HistoryWindowState = {
+    from_turn: 0,
+    turn_count: 30,
+    total_turns: 30,
+    has_older_items: false,
+    has_newer_items: false,
+    start_index: 0,
+    section_turn_count: 10,
+    visible_section_count: 3,
+    window_hash: "held-all-window",
+  };
+
+  function renderFeedWindow(initialProps: {
+    threadKey: string;
+    connectionStatus: string;
+    activeHistoryWindow: HistoryWindowState | null;
+  }) {
+    return renderHook(
+      ({ threadKey, connectionStatus, activeHistoryWindow }) => {
+        const follow = useMessageFeedFollowState(true);
+        useMessageFeedBoundedConversation({
+          sessionId: "all-refresh",
+          connectionStatus,
+          normalizedThreadKey: threadKey,
+          selectedFeedWindowEnabled: threadKey !== "all",
+          activeThreadWindow: threadKey === "all" ? null : window,
+          activeHistoryWindow: threadKey === "all" ? activeHistoryWindow : null,
+          ...follow,
+        });
+      },
+      { initialProps },
+    );
+  }
+
+  const historyRequests = () =>
+    sendToSession.mock.calls.filter(([, message]) => message.type === "history_window_request").map(([, m]) => m);
+
+  beforeEach(() => useStore.getState().reset());
+
+  it("asks for the latest window once per selection, validating the held one", () => {
+    const { rerender } = renderFeedWindow({
+      threadKey: "main",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    expect(historyRequests()).toEqual([]);
+
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    // The server sizes the latest window itself; the held window's hash lets an
+    // unchanged one come back as a small cache hit.
+    expect(historyRequests()).toEqual([
+      expect.objectContaining({
+        from_turn: -1,
+        turn_count: 30,
+        activate_view: true,
+        cached_window_hash: "held-all-window",
+      }),
+    ]);
+
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: { ...heldWindow },
+    });
+    expect(historyRequests()).toHaveLength(1);
+
+    rerender({
+      threadKey: "main",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    expect(historyRequests()).toHaveLength(2);
+  });
+
+  it("waits for the connection and shows loading when no window is held yet", () => {
+    const { rerender } = renderFeedWindow({
+      threadKey: "all",
+      connectionStatus: "connecting",
+      activeHistoryWindow: null,
+    });
+    expect(historyRequests()).toEqual([]);
+
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: null,
+    });
+    expect(historyRequests()).toEqual([expect.objectContaining({ from_turn: -1, turn_count: 30 })]);
+    expect(historyRequests()[0]).not.toHaveProperty("cached_window_hash");
+    expect(useStore.getState().historyLoading.get("all-refresh")).toBe(true);
+  });
+
+  it("leaves the window to the subscribe that opened All Threads", () => {
+    useStore.getState().setPendingThreadWindowRequest("all-refresh", "all");
+    const { rerender } = renderFeedWindow({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: null,
+    });
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    // The arriving window ends the wait, as the message handler does.
+    useStore.getState().setPendingThreadWindowRequest("all-refresh", null);
+    rerender({
+      threadKey: "all",
+      connectionStatus: "connected",
+      activeHistoryWindow: heldWindow,
+    });
+    expect(historyRequests()).toEqual([]);
   });
 });

@@ -34,7 +34,7 @@ import {
   resolveCachedHistoryWindowMessages,
   resolveCachedThreadWindow,
 } from "./utils/history-window-cache.js";
-import { threadWindowEntryId } from "../shared/thread-window.js";
+import { ALL_THREADS_KEY, threadWindowEntryId } from "../shared/thread-window.js";
 import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
 import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
@@ -1780,6 +1780,9 @@ function handleParsedMessage(
       store.setHistoryWindow(sessionId, null);
       store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
+      if (store.pendingThreadWindowRequests.get(sessionId) === ALL_THREADS_KEY) {
+        store.setPendingThreadWindowRequest(sessionId, null);
+      }
       if (mergedMessages.length > 0) {
         store.setCliEverConnected(sessionId);
       }
@@ -1809,6 +1812,9 @@ function handleParsedMessage(
       store.setHistoryWindow(sessionId, data.window);
       store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
+      if (store.pendingThreadWindowRequests.get(sessionId) === ALL_THREADS_KEY) {
+        store.setPendingThreadWindowRequest(sessionId, null);
+      }
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);
       }
