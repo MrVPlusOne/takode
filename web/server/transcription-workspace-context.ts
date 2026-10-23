@@ -19,6 +19,8 @@ export const ACTIVITY_HOURS = 24;
 export const TERM_HOURS = 72;
 const ACTIVITY_LINE_CHARS = 400;
 const TERM_LIMIT = 100;
+/** Shorter terms (MB, AI, T7) are mostly noise a recognizer already handles. */
+const TERM_MIN_CHARS = 3;
 /** Longer tokens are file names or fragments, not words anyone says. */
 const TERM_MAX_CHARS = 32;
 
@@ -50,12 +52,14 @@ export interface WorkspaceQuest {
 
 /**
  * Pick the recent quest titles and the key terms at `now` from the space's quests and its
- * activity stream over the last TERM_HOURS.
+ * activity stream over the last TERM_HOURS. Terms already in the user's comma-separated
+ * `customVocabulary` are left out, so the user's list is not repeated and the slots go to other terms.
  */
 export function buildWorkspaceVocabulary(input: {
   quests: ReadonlyArray<WorkspaceQuest>;
   activity: ReadonlyArray<ActivityThread>;
   now: number;
+  customVocabulary?: string;
 }): WorkspaceVocabulary {
   const questSince = input.now - QUEST_DAYS * 24 * 3600_000;
   const recentQuests = input.quests
@@ -79,6 +83,7 @@ export function buildWorkspaceVocabulary(input: {
       ),
     ],
     TERM_LIMIT,
+    new Set((input.customVocabulary ?? "").split(",").map((term) => term.trim().toLowerCase())),
   );
   return { questTitles: recentQuests.map((quest) => quest.title), terms };
 }
@@ -157,9 +162,14 @@ const PLAIN_WORD = /(?<![\w/@.-])[A-Za-z][a-z]+(?![\w/@-])/g;
  * Pick the words a general speech recognizer is likely to get wrong: names and other capitalized
  * words in mid-sentence, acronyms and camel-case names, words with digits (12B, T7) and
  * hyphen- or underscore-joined names (seeded-QA, vsc3p_telemetry). Each text counts a word once;
- * the weighted counts rank the words, and a word must reach a weight of 2 to qualify.
+ * the weighted counts rank the words, and a word must reach a weight of 2 to qualify. Words shorter
+ * than TERM_MIN_CHARS, words in `known` (lowercase) and their repeats are left out.
  */
-export function extractKeyTerms(texts: ReadonlyArray<{ text: string; weight: number }>, limit: number): string[] {
+export function extractKeyTerms(
+  texts: ReadonlyArray<{ text: string; weight: number }>,
+  limit: number,
+  known: ReadonlySet<string> = new Set(),
+): string[] {
   const cleaned = texts.map(({ text, weight }) => ({ text: stripLinkTargets(text), weight }));
   // A capitalized word written in lowercase at least as often is an ordinary word (Read, Fix), not a name.
   const lowercase = new Map<string, number>();
@@ -193,9 +203,13 @@ export function extractKeyTerms(texts: ReadonlyArray<{ text: string; weight: num
       }
     }
   }
-  const candidates = new Set(scores.keys());
+  // Short and known words still count as candidates, so their plurals and joins are repeats (GPUs, Takode-style).
+  const candidates = new Set([...scores.keys(), ...known]);
   return [...scores]
-    .filter(([key, entry]) => entry.score >= 2 && !redundant(key, candidates))
+    .filter(
+      ([key, entry]) =>
+        entry.score >= 2 && key.length >= TERM_MIN_CHARS && !known.has(key) && !redundant(key, candidates),
+    )
     .sort((a, b) => b[1].score - a[1].score)
     .slice(0, limit)
     .map(([, entry]) => [...entry.forms].sort((a, b) => b[1] - a[1])[0]![0]);

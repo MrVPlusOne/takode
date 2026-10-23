@@ -491,7 +491,10 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   }
 
   /** Quest titles and key terms per session space, reused for a while: they change slowly and take the longest to build. */
-  const vocabularyCache = new Map<string, { builtAt: number; vocabulary: Promise<WorkspaceVocabulary> }>();
+  const vocabularyCache = new Map<
+    string,
+    { builtAt: number; customVocabulary: string; vocabulary: Promise<WorkspaceVocabulary> }
+  >();
 
   /**
    * Recent quests, activity and terms from the session's space. The activity is read fresh for every
@@ -523,16 +526,18 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     };
 
     const key = `${space}\n${questSpace ?? ""}`;
+    // The terms leave out the user's vocabulary, so a Settings edit rebuilds them right away.
+    const customVocabulary = getSettings().transcriptionConfig.customVocabulary ?? "";
     let cached = vocabularyCache.get(key);
-    if (!cached || now - cached.builtAt > VOCABULARY_CACHE_MS) {
+    if (!cached || now - cached.builtAt > VOCABULARY_CACHE_MS || cached.customVocabulary !== customVocabulary) {
       const build = async () => {
         const quests = (await listQuests()).filter(
           (quest) =>
             getQuestSessionSpaceSlug(quest, { resolveSessionSpaceSlug, defaultSessionSpaceSlug }) === questSpace,
         );
-        return buildWorkspaceVocabulary({ quests, activity: await activitySince(TERM_HOURS), now });
+        return buildWorkspaceVocabulary({ quests, activity: await activitySince(TERM_HOURS), now, customVocabulary });
       };
-      cached = { builtAt: now, vocabulary: build() };
+      cached = { builtAt: now, customVocabulary, vocabulary: build() };
       vocabularyCache.set(key, cached);
       cached.vocabulary.catch(() => vocabularyCache.delete(key));
     }

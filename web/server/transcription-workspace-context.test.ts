@@ -96,15 +96,15 @@ describe("extractKeyTerms", () => {
     // Plurals of candidates or excluded words, adjective forms and joins of candidates repeat a term
     // already picked; capitalized ordinary hyphenated words and counted words are plain English.
     const text =
-      "Use the GPU and GPUs with MSI and MSI-style LLM and LLM-based APIs, T7 and T6 and T7-vs-T6. One-time Read-aloud 3-hourly from 8,096-character text.";
+      "Use the GPU and GPUs with MSI and MSI-style LLM and LLM-based APIs, 12B and 77B and 12B-vs-77B. One-time Read-aloud 3-hourly from 8,096-character text.";
     const terms = extractKeyTerms([{ text, weight: 2 }], 100);
-    expect(terms).toEqual(expect.arrayContaining(["GPU", "MSI", "LLM", "T7", "T6"]));
+    expect(terms).toEqual(expect.arrayContaining(["GPU", "MSI", "LLM", "12B", "77B"]));
     for (const noise of [
       "GPUs",
       "MSI-style",
       "LLM-based",
       "APIs",
-      "T7-vs-T6",
+      "12B-vs-77B",
       "One-time",
       "Read-aloud",
       "3-hourly",
@@ -113,13 +113,25 @@ describe("extractKeyTerms", () => {
       expect(terms).not.toContain(noise);
   });
 
+  it("drops one- and two-character terms, but still treats them as repeated in plurals", () => {
+    // MB, AI and T7 are mostly noise; three-letter acronyms (MCP) stay. CCs is the plural of a dropped term.
+    const terms = extractKeyTerms([{ text: "The MB and KB of AI on T7 for MCP, with CC and CCs.", weight: 2 }], 100);
+    expect(terms).toEqual(["MCP"]);
+  });
+
+  it("leaves out words the caller already knows, and their repeats, so other terms take the slots", () => {
+    // Known words are the user's own vocabulary, lowercased: matched whatever their case in the text.
+    const texts = [{ text: "Then Takode, Codex, Codex-style Takodes, Wenxu and Condor.", weight: 2 }];
+    expect(extractKeyTerms(texts, 2, new Set(["takode", "codex"]))).toEqual(["Wenxu", "Condor"]);
+  });
+
   it("keeps joined names whose parts are not all candidates", () => {
     const terms = extractKeyTerms([{ text: "The QA set and seeded-QA, SWE and SWE-bench.", weight: 2 }], 100);
     expect(terms).toEqual(expect.arrayContaining(["seeded-QA", "SWE-bench"]));
   });
 
   it("returns at most `limit` terms", () => {
-    const text = Array.from({ length: 30 }, (_, i) => `T${i}`).join(" ");
+    const text = Array.from({ length: 30 }, (_, i) => `T${i}0`).join(" ");
     expect(extractKeyTerms([{ text, weight: 2 }], 10)).toHaveLength(10);
   });
 });
@@ -142,6 +154,16 @@ describe("buildWorkspaceVocabulary", () => {
     });
     expect(vocabulary.questTitles).toEqual(["Analyze seeded-QA signals", "Audit Maidas rows"]);
     expect(vocabulary.terms).toEqual(expect.arrayContaining(["seeded-QA", "Condor", "Wenxu", "Maidas"]));
+  });
+
+  it("leaves out terms already in the user's custom vocabulary, whatever their case", () => {
+    const vocabulary = buildWorkspaceVocabulary({
+      now: NOW,
+      quests: [],
+      activity: [thread("a", [[1, "user", "Ask Wenxu whether Condor and MAIDAS are up."]])],
+      customVocabulary: "Takode, condor , Maidas",
+    });
+    expect(vocabulary.terms).toEqual(["Wenxu"]);
   });
 });
 

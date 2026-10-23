@@ -116,6 +116,21 @@ describe("transcription workspace context", () => {
     expect(String(sent.get("prompt"))).toContain('"recent_quests": "Recent quests: Analyze seeded-QA signals"');
   });
 
+  it("leaves the user's vocabulary out of the terms, and rebuilds them when it changes", async () => {
+    // Comment voice input shows the terms on their own (key_terms), apart from the user's vocabulary.
+    const context = { activeId: "active", selectedText: "the job", mainComposerText: "", otherAnnotations: [] };
+    const comment = { annotationContext: JSON.stringify(context), composerText: "" };
+    expect(String((await transcribe(comment)).get("prompt"))).toContain(
+      '"key_terms": "seeded-QA, Kestrel, Wenxu, Condor"',
+    );
+    const settings = settingsManager.getSettings();
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      ...settings,
+      transcriptionConfig: { ...settings.transcriptionConfig, customVocabulary: "Takode, condor" },
+    });
+    expect(String((await transcribe(comment)).get("prompt"))).toContain('"key_terms": "seeded-QA, Kestrel, Wenxu"');
+  });
+
   it("reuses the quest titles and terms between dictations but reads recent activity fresh", async () => {
     await transcribe();
     sessions["session-2"]!.messageHistory.push(userMessage("Ping Lianghong about the eval."));
