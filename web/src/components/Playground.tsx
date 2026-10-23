@@ -11,7 +11,6 @@ import { PlaygroundInlineQuestPreviewSection } from "./playground/PlaygroundInli
 import { PlaygroundThreadResponseSection } from "./playground/PlaygroundThreadResponseSection.js";
 import { PlaygroundTurnActivitySection } from "./playground/PlaygroundTurnActivitySection.js";
 import { PlaygroundWaitingWorkerPreviewSection } from "./playground/PlaygroundWaitingWorkerPreviewSection.js";
-import { PlaygroundThreadContinuationSection } from "./playground/PlaygroundThreadContinuationSection.js";
 import { PlaygroundOriginalThreadSection } from "./playground/PlaygroundOriginalThreadSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
@@ -118,7 +117,6 @@ export function Playground() {
             <PlaygroundThreadResponseSection />
             <PlaygroundTurnActivitySection />
             <PlaygroundWaitingWorkerPreviewSection />
-            <PlaygroundThreadContinuationSection />
             <PlaygroundOriginalThreadSection />
             <PlaygroundInteractiveSections />
             <PlaygroundWorkboardAccessSection />

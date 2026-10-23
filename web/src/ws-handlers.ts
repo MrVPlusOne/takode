@@ -479,7 +479,6 @@ function normalizeHistoryMessages(
       histMsg.type === "codex_auto_pause_recovery_summary" ||
       histMsg.type === "quest_lifecycle_event" ||
       histMsg.type === "thread_attachment_marker" ||
-      histMsg.type === "thread_transition_marker" ||
       histMsg.type === "permission_denied" ||
       histMsg.type === "permission_approved"
     ) {
@@ -954,12 +953,6 @@ function handleParsedMessage(
 
     case "thread_attachment_update": {
       applyThreadAttachmentUpdate(sessionId, data, deps, { messageContext: context });
-      break;
-    }
-
-    case "thread_transition_marker": {
-      const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
-      if (message) store.appendMessage(sessionId, message);
       break;
     }
 

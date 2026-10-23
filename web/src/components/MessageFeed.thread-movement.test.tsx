@@ -28,7 +28,7 @@ beforeAll(() => {
 });
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ChatMessage, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
+import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
 
 const mockMarkdownRenderCount = vi.hoisted(() => ({ count: 0 }));
 
@@ -159,21 +159,6 @@ function movedMarker(overrides: Partial<ThreadAttachmentMarker> & { id: string; 
     ranges: [],
     firstMessageId: overrides.id,
     firstMessageIndex: 0,
-    ...overrides,
-  };
-}
-
-function transitionMarker(
-  overrides: Partial<ThreadTransitionMarker> & { id: string; sourceThreadKey: string; threadKey: string },
-) {
-  return {
-    type: "thread_transition_marker" as const,
-    timestamp: 1,
-    markerKey: `thread-transition:${overrides.id}`,
-    transitionedAt: 1,
-    reason: "route_switch" as const,
-    questId: overrides.threadKey,
-    sourceQuestId: overrides.sourceThreadKey,
     ...overrides,
   };
 }
@@ -474,53 +459,5 @@ describe("MessageFeed - thread movement rows", () => {
 
     expect(screen.getByText("Stable assistant markdown")).toBeTruthy();
     expect(mockMarkdownRenderCount.count).toBe(initialRenderCount);
-  });
-
-  it("renders repeated same-destination route-switch handoffs without duplicate React keys", () => {
-    const sid = "test-duplicate-route-switch-handoff-keys";
-    const firstMarker = transitionMarker({
-      id: "transition-first",
-      sourceThreadKey: "q-910",
-      sourceQuestId: "q-910",
-      threadKey: "q-911",
-      questId: "q-911",
-    });
-    const secondMarker = transitionMarker({
-      id: "transition-second",
-      sourceThreadKey: "q-910",
-      sourceQuestId: "q-910",
-      threadKey: "q-911",
-      questId: "q-911",
-    });
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    setStoreMessages(sid, [
-      makeMessage({
-        id: firstMarker.id,
-        role: "system",
-        content: "Work continued from thread:q-910 to thread:q-911",
-        metadata: { threadTransitionMarker: firstMarker },
-      }),
-      makeMessage({
-        id: secondMarker.id,
-        role: "system",
-        content: "Work continued from thread:q-910 to thread:q-911",
-        metadata: { threadTransitionMarker: secondMarker },
-      }),
-    ]);
-
-    try {
-      render(<MessageFeed sessionId={sid} threadKey="q-910" />);
-
-      expect(screen.getByTestId("thread-transition-marker").textContent).toContain(
-        "Work continued from current thread to thread:q-911",
-      );
-      expect(
-        consoleError.mock.calls.some((args) =>
-          args.some((arg) => String(arg).includes("Encountered two children with the same key")),
-        ),
-      ).toBe(false);
-    } finally {
-      consoleError.mockRestore();
-    }
   });
 });

@@ -157,11 +157,11 @@ interface HandleAssistantMessageDeps {
 function publishThreadTransitionMarker(
   session: AssistantMessageSessionLike,
   marker: ThreadTransitionMarker | null,
-  deps: Pick<HandleAssistantMessageDeps, "broadcastToBrowsers" | "promoteLeaderThreadTabForTransition">,
+  deps: Pick<HandleAssistantMessageDeps, "promoteLeaderThreadTabForTransition">,
 ): void {
+  // Browsers don't show transition markers; live, they only promote the destination tab.
   if (!marker) return;
   deps.promoteLeaderThreadTabForTransition?.(session.id, marker);
-  deps.broadcastToBrowsers(session, marker);
 }
 
 interface HandleAssistantRuntimeDeps extends HandleAssistantMessageDeps {

@@ -1,4 +1,4 @@
-import type { SessionNotification, ThreadTransitionMarker } from "../types.js";
+import type { SessionNotification } from "../types.js";
 
 export function projectionTabKeys(keys: string[]) {
   return keys;
@@ -81,36 +81,6 @@ export function movedMarker(
         count: 1,
         firstMessageId: `u-${questId}`,
         firstMessageIndex: 1,
-      },
-    },
-  };
-}
-
-export function transitionMarker(
-  questId: string,
-  transitionedAt: number,
-  overrides: Partial<ThreadTransitionMarker> = {},
-) {
-  return {
-    id: "transition-" + questId,
-    role: "system",
-    content: "Work continued from Main to thread:" + questId,
-    timestamp: transitionedAt,
-    historyIndex: 2,
-    metadata: {
-      threadTransitionMarker: {
-        type: "thread_transition_marker",
-        id: "transition-" + questId,
-        timestamp: transitionedAt,
-        markerKey: "thread-transition:main->" + questId + ":1",
-        sourceThreadKey: "main",
-        threadKey: questId,
-        questId,
-        transitionedAt,
-        reason: "route_switch",
-        sourceMessageIndex: 1,
-        targetThreadFreshness: "new_quest_thread",
-        ...overrides,
       },
     },
   };

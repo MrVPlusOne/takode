@@ -593,16 +593,15 @@ describe("thread window hydration", () => {
       visibleItemCount: 2,
     });
 
-    expect(mainSync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2, 3, 4, 9]);
+    expect(mainSync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2, 4, 9]);
     expect(mainSync.entries.map((entry) => entry.message.type)).toEqual([
       "user_message",
       "assistant",
       "tool_result_preview",
-      "thread_transition_marker",
       "cross_thread_activity_marker",
       "user_message",
     ]);
-    expect(mainSync.entries[4]?.message).toEqual(
+    expect(mainSync.entries[3]?.message).toEqual(
       expect.objectContaining({
         type: "cross_thread_activity_marker",
         activityKind: "thread_attach",
@@ -779,7 +778,7 @@ describe("thread window hydration", () => {
     expect(destinationSync.entries.map((entry) => entry.history_index)).toEqual([1]);
   });
 
-  it("scopes quest route-switch handoffs to affected thread windows", () => {
+  it("keeps quest route-switch handoffs out of every thread window", () => {
     const sourceToDestination = transitionMarker({
       id: "transition-q1139-q1141",
       sourceThreadKey: "q-1139",
@@ -822,14 +821,23 @@ describe("thread window hydration", () => {
       visibleItemCount: 2,
     });
 
-    // The window producer retains only each thread's current departure. Inbound
-    // markers and unrelated transitions remain in raw/All audit, not this view.
-    expect(sourceSync.entries.map((entry) => entry.message)).toEqual([history[0], sourceToDestination]);
-    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([unrelatedPair, history[3]]);
+    // Transition markers stay in raw history for tab promotion; no feed shows them,
+    // All Threads included.
+    const allSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "all",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    expect(sourceSync.entries.map((entry) => entry.message)).toEqual([history[0]]);
+    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([history[3]]);
     expect(thirdThreadSync.entries).toEqual([]);
+    expect(allSync.entries.map((entry) => entry.message)).toEqual([history[0], history[3]]);
   });
 
-  it("keeps Main-origin route-switch handoffs visible in the Main source window", () => {
+  it("keeps Main-origin route-switch handoffs out of the Main source window", () => {
     const mainToDestination = transitionMarker({
       id: "transition-main-q948",
       sourceThreadKey: "main",
@@ -874,15 +882,9 @@ describe("thread window hydration", () => {
       visibleItemCount: 2,
     });
 
-    // This mirrors the producer-owned Main window shape for the production
-    // feedback: a Main request can do local tool work before moving output into
-    // a quest tab, and Main still needs the durable handoff marker.
-    expect(mainSync.entries.map((entry) => entry.message)).toEqual([
-      history[0],
-      history[1],
-      history[2],
-      mainToDestination,
-    ]);
+    // A Main request can do local tool work before moving output into a quest
+    // tab; the request's "Continued in" row, not the marker, says where it went.
+    expect(mainSync.entries.map((entry) => entry.message)).toEqual([history[0], history[1], history[2]]);
     expect(destinationSync.entries.map((entry) => entry.message)).toEqual([history[4]]);
     expect(thirdThreadSync.entries).toEqual([]);
   });
@@ -928,10 +930,10 @@ describe("thread window hydration", () => {
     const indexes = (sync: ReturnType<typeof buildThreadWindowSync>) =>
       sync.entries.map((entry) => entry.history_index);
 
-    expect(indexes(main)).toEqual([4, 5, 6]);
-    expect(indexes(q2003)).toEqual([0, 1, 2, 3]);
+    expect(indexes(main)).toEqual([4, 5]);
+    expect(indexes(q2003)).toEqual([0, 1, 2]);
     expect(indexes(q2006)).toEqual([7]);
-    expect(indexes(all)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(indexes(all)).toEqual([0, 1, 2, 4, 5, 7]);
     expect(q2003.entries.filter((entry) => entry.message === q2003Event)).toHaveLength(1);
     expect(main.entries.some((entry) => entry.message === q2003Event)).toBe(false);
     expect(q2006.entries.some((entry) => entry.message === q2003Event)).toBe(false);

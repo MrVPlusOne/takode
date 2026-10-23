@@ -69,7 +69,6 @@ import type {
   ThreadAttachmentUpdate,
   ThreadAttachmentUpdateChangedMessage,
   ThreadAttachmentUpdateEntry,
-  ThreadTransitionMarker,
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
@@ -169,7 +168,6 @@ export type {
   ThreadAttachmentUpdate,
   ThreadAttachmentUpdateChangedMessage,
   ThreadAttachmentUpdateEntry,
-  ThreadTransitionMarker,
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
@@ -293,7 +291,6 @@ export interface ChatMessage {
     questId?: string;
     slackThreadId?: string;
     threadAttachmentMarker?: ThreadAttachmentMarker;
-    threadTransitionMarker?: ThreadTransitionMarker;
     crossThreadActivityMarker?: {
       threadKey: string;
       questId?: string;

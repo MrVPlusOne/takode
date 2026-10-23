@@ -1,6 +1,6 @@
 import { compactionMarkerLabel } from "../../shared/compaction-marker.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, ToolResultPreview } from "../types.js";
-import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
+import { formatThreadAttachmentMarkerSummary } from "./thread-projection.js";
 import { isTerminalResultInterrupted } from "../../shared/result-interruption.js";
 import { getRecoveryModelDeliveryContent } from "./injected-event-message.js";
 import {
@@ -470,20 +470,6 @@ export function normalizeHistoryMessageToChatMessages(
         historyIndex,
         variant: "info",
         metadata: { threadAttachmentMarker: histMsg },
-      },
-    ];
-  }
-
-  if (histMsg.type === "thread_transition_marker") {
-    return [
-      {
-        id: histMsg.id,
-        role: "system",
-        content: formatThreadTransitionMarkerSummary(histMsg),
-        timestamp: histMsg.timestamp,
-        historyIndex,
-        variant: "info",
-        metadata: { threadTransitionMarker: histMsg },
       },
     ];
   }

@@ -40,10 +40,8 @@ import {
   isCrossThreadActivityMarkerMessage,
   isMainThreadKey,
   isThreadAttachmentMarkerMessage,
-  isThreadTransitionMarkerMessage,
   normalizeThreadKey,
   recoverRoutedNotificationSourceMessages,
-  retainCurrentThreadContinuation,
 } from "./thread-projection.js";
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
 import {
@@ -252,19 +250,11 @@ function filterProjectedMessagesForThread(
     liveMessages.push(message);
   }
 
-  return retainCurrentThreadContinuation(
-    [...threadLocalMessages, ...filterMessagesForThread(liveMessages, threadKey)],
-    messages,
-    threadKey,
-  );
+  return [...threadLocalMessages, ...filterMessagesForThread(liveMessages, threadKey)];
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
-  return (
-    isThreadAttachmentMarkerMessage(message) ||
-    isThreadTransitionMarkerMessage(message) ||
-    isCrossThreadActivityMarkerMessage(message)
-  );
+  return isThreadAttachmentMarkerMessage(message) || isCrossThreadActivityMarkerMessage(message);
 }
 
 export interface BuildFeedWindowModelInput {

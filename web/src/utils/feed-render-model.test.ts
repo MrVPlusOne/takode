@@ -1602,7 +1602,7 @@ describe("feed render model builders", () => {
     expect(model.messages).toEqual([]);
   });
 
-  it("projects producer-shaped Main-origin handoff markers in the Main selected window", () => {
+  it("keeps producer-shaped Main-origin handoff markers out of the Main selected window", () => {
     const mainToDestination = makeTransitionMarker({
       id: "transition-main-q948",
       sourceThreadKey: "main",
@@ -1690,18 +1690,9 @@ describe("feed render model builders", () => {
       "main-request",
       undefined,
       undefined,
-      "transition-main-q948",
     ]);
-    expect(model.messages.map((message) => message.id)).toEqual([
-      "main-request",
-      "main-tool-use",
-      "transition-main-q948",
-    ]);
-    expect(model.messages.map((message) => message.content)).toContain("Work continued from Main to thread:q-948");
+    expect(model.messages.map((message) => message.id)).toEqual(["main-request", "main-tool-use"]);
     expect(model.messages.map((message) => message.content)).not.toContain("Continuing in q-948");
-    expect(model.messages.map((message) => message.content)).not.toContain(
-      "Work continued from thread:q-950 to thread:q-951",
-    );
   });
 
   it("keeps a historical quest event out of a later unrelated Main handoff", () => {
@@ -1775,11 +1766,7 @@ describe("feed render model builders", () => {
       });
     };
 
-    expect(modelFor("main").messages.map((message) => message.id)).toEqual([
-      "u-main-q2006",
-      "a-main-q2006",
-      "transition-main-q2006",
-    ]);
+    expect(modelFor("main").messages.map((message) => message.id)).toEqual(["u-main-q2006", "a-main-q2006"]);
     expect(modelFor("q-2003").messages.map((message) => message.id)).toEqual(["quest-lifecycle-q2003"]);
     expect(modelFor("q-2006").messages.map((message) => message.id)).toEqual(["a-q2006"]);
     expect(modelFor("all").messages.map((message) => message.id)).toContain("quest-lifecycle-q2003");

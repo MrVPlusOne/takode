@@ -5,7 +5,6 @@ import type {
   SessionNotification,
   ThreadAttachmentMarker,
   ThreadAttachmentMovementSummary,
-  ThreadTransitionMarker,
 } from "../types.js";
 import {
   inferThreadTargetFromTextContent,
@@ -14,7 +13,6 @@ import {
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { currentThreadContinuationId } from "../../shared/thread-continuation.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -33,10 +31,6 @@ export function isAllThreadsKey(threadKey: string): boolean {
 
 export function isThreadAttachmentMarkerMessage(message: ChatMessage): boolean {
   return !!message.metadata?.threadAttachmentMarker;
-}
-
-export function isThreadTransitionMarkerMessage(message: ChatMessage): boolean {
-  return !!message.metadata?.threadTransitionMarker;
 }
 
 export function isCrossThreadActivityMarkerMessage(message: ChatMessage): boolean {
@@ -100,12 +94,6 @@ export function summarizeThreadAttachmentMarkersForThread(
   return { threadKey: target, ...(questId ? { questId } : {}), count, details, markerIds };
 }
 
-export function formatThreadTransitionMarkerSummary(marker: ThreadTransitionMarker): string {
-  const source = formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey);
-  const destination = formatThreadLabel(marker.questId ?? marker.threadKey);
-  return `Work continued from ${source} to ${destination}`;
-}
-
 function normalizedRouteKeys(message: ChatMessage): Set<string> {
   const keys = new Set<string>();
   const add = (value: string | undefined) => {
@@ -129,7 +117,7 @@ function normalizedRouteKeys(message: ChatMessage): Set<string> {
 }
 
 function messageHasThreadRef(message: ChatMessage, threadKey: string): boolean {
-  if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
+  if (isThreadAttachmentMarkerMessage(message)) return false;
   return normalizedRouteKeys(message).has(normalizeThreadKey(threadKey));
 }
 
@@ -284,27 +272,8 @@ export function collectMessageToolUseIds(messages: ChatMessage[]): Set<string> {
   return ids;
 }
 
-function transitionMarkerStartsInThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
-  const target = normalizeThreadKey(threadKey);
-  return (
-    normalizeThreadKey(marker.sourceThreadKey) === target || normalizeThreadKey(marker.sourceQuestId ?? "") === target
-  );
-}
-
-function threadSystemMarkerVisibleInQuestThread(
-  message: ChatMessage,
-  messages: ChatMessage[],
-  threadKey: string,
-): boolean {
-  const attachment = message.metadata?.threadAttachmentMarker;
-  if (attachment) return false;
-  const transition = message.metadata?.threadTransitionMarker;
-  if (transition) return transitionMarkerStartsInThread(transition, threadKey);
-  return false;
-}
-
 function hasExplicitNonMainRoute(message: ChatMessage): boolean {
-  if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
+  if (isThreadAttachmentMarkerMessage(message)) return false;
   if (message.metadata && leaderResponseOriginalThreadKey(message.metadata) === MAIN_THREAD_KEY) return false;
   const inferred = inferredHerdEventRoute(message);
   if (inferred) return true;
@@ -412,13 +381,6 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
       flushHiddenRun();
       continue;
     }
-    if (isThreadTransitionMarkerMessage(message)) {
-      flushHiddenRun();
-      if (isMainThreadKey(message.metadata?.threadTransitionMarker?.sourceThreadKey ?? "")) {
-        projected.push(message);
-      }
-      continue;
-    }
     if (!hasExplicitNonMainRoute(message)) {
       flushHiddenRun();
       projected.push(message);
@@ -447,12 +409,7 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
 function filterQuestThreadMessages(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   const includedToolUseIds = new Set<string>();
   for (const message of messages) {
-    if (
-      !messageHasThreadRef(message, threadKey) &&
-      !threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)
-    ) {
-      continue;
-    }
+    if (!messageHasThreadRef(message, threadKey)) continue;
     for (const toolUseId of messageToolUseIds(message)) {
       includedToolUseIds.add(toolUseId);
     }
@@ -460,10 +417,6 @@ function filterQuestThreadMessages(messages: ChatMessage[], threadKey: string): 
 
   const projected: ChatMessage[] = [];
   for (const message of messages) {
-    if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) {
-      projected.push(message);
-      continue;
-    }
     if (messageHasThreadRef(message, threadKey)) {
       projected.push(message);
       continue;
@@ -489,24 +442,9 @@ export function formatThreadLabel(threadKey: string): string {
 
 export function filterMessagesForThread(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   if (isAllThreadsKey(threadKey)) return messages;
-  const projected = isMainThreadKey(threadKey)
+  return isMainThreadKey(threadKey)
     ? filterMainThreadMessages(messages)
     : filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));
-  return retainCurrentThreadContinuation(projected, messages, threadKey);
-}
-
-/** Apply the same lifetime rule to a server window combined with live events. */
-export function retainCurrentThreadContinuation(
-  projected: ChatMessage[],
-  source: ChatMessage[],
-  threadKey: string,
-): ChatMessage[] {
-  if (isAllThreadsKey(threadKey)) return projected;
-  const currentId = currentThreadContinuationId(source, threadKey);
-  return projected.filter((message) => {
-    const marker = message.metadata?.threadTransitionMarker;
-    return !marker || marker.id === currentId;
-  });
 }
 
 function pendingCodexInputOwnerKeys(input: PendingCodexInput): { mapped: boolean; keys: Set<string> } {

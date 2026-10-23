@@ -756,11 +756,11 @@ export interface CodexAdapterBrowserMessageDeps {
 function publishThreadTransitionMarker(
   session: CodexBrowserMessageSessionLike,
   marker: ThreadTransitionMarker | null,
-  deps: Pick<CodexAdapterBrowserMessageDeps, "broadcastToBrowsers" | "promoteLeaderThreadTabForTransition">,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "promoteLeaderThreadTabForTransition">,
 ): void {
+  // Browsers don't show transition markers; live, they only promote the destination tab.
   if (!marker) return;
   deps.promoteLeaderThreadTabForTransition?.(session.id, marker);
-  deps.broadcastToBrowsers(session, marker);
 }
 
 export function isCodexContextWindowExhaustionMessage(message: unknown): boolean {

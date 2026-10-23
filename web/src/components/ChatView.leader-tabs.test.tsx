@@ -17,7 +17,6 @@ import {
   movedUser,
   needsInputNotification,
   threadMessage,
-  transitionMarker,
 } from "./chat-view-leader-tabs-fixtures.js";
 
 interface MockStoreState {
@@ -1428,7 +1427,7 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
-  it("surfaces a fresh Main to quest transition marker without changing the selected tab", async () => {
+  it("adds a quest tab from the server projection without changing the selected tab", async () => {
     const transitionedAt = 100;
     // Regression for the browser Execute failure: the marker itself is the
     // source evidence for the server-owned projected target even when Questmaster rows lag behind.
@@ -1463,7 +1462,6 @@ describe("ChatView leader open thread tabs", () => {
         "s1",
         [
           { id: "seed-main-source", role: "user", content: "Source Main", timestamp: 1 },
-          transitionMarker("q-9001", transitionedAt),
           threadMessage("q-9001", transitionedAt + 1),
         ],
       ],
@@ -1483,176 +1481,6 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-9001"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-9001");
     expect(window.location.hash).toBe("#/session/s1?thread=q-9001");
-  });
-
-  it("surfaces a live Main transition marker that arrives before history loading finishes", async () => {
-    const transitionedAt = 100;
-    const liveMarker = {
-      ...transitionMarker("q-1648", transitionedAt),
-      historyIndex: -1,
-    };
-    const persistedMarker = {
-      ...liveMarker,
-      historyIndex: 5,
-    };
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys([]),
-      historyLoading: new Map([["s1", true]]),
-      messages: new Map([["s1", []]]),
-      quests: [{ questId: "q-1648", title: "Fresh quest thread", status: "in_progress" }],
-    });
-
-    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    const scope = within(view.container);
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-
-    mockState.messages = new Map([["s1", [liveMarker]]]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-
-    mockState.messages = new Map([["s1", [persistedMarker]]]);
-    mockState.historyLoading = new Map([["s1", false]]);
-    setLeaderProjection(["q-1648"]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648"));
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-  });
-
-  it("does not surface a Main transition marker for an existing quest target", async () => {
-    const transitionedAt = 100;
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-1648"]),
-      messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
-      quests: [{ questId: "q-1648", title: "Existing quest thread", status: "in_progress" }],
-    });
-
-    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    const scope = within(view.container);
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    mockSendToSession.mockClear();
-
-    mockState.messages = new Map([
-      [
-        "s1",
-        [
-          threadMessage("q-1648", transitionedAt - 10),
-          transitionMarker("q-1648", transitionedAt, { targetThreadFreshness: "existing_quest_thread" }),
-        ],
-      ],
-    ]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-  });
-
-  it("does not surface an already-open completed transition target", async () => {
-    const transitionedAt = 100;
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-1648"]),
-      messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
-      quests: [{ questId: "q-1648", title: "Completed quest thread", status: "done" }],
-    });
-
-    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    const scope = within(view.container);
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    mockSendToSession.mockClear();
-
-    mockState.messages = new Map([
-      [
-        "s1",
-        [
-          threadMessage("q-1648", transitionedAt - 10),
-          transitionMarker("q-1648", transitionedAt, { targetThreadFreshness: "new_quest_thread" }),
-        ],
-      ],
-    ]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-  });
-
-  it("does not surface a Main transition marker after manual navigation away from Main", async () => {
-    const transitionedAt = 1;
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
-      messages: new Map([["s1", [threadMessage("q-941", transitionedAt)]]]),
-      quests: [
-        { questId: "q-941", title: "Selected thread", status: "in_progress" },
-        { questId: "q-1648", title: "Fresh quest thread", status: "in_progress" },
-      ],
-    });
-
-    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    const scope = within(view.container);
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    fireEvent.click(scope.getByRole("button", { name: /q-941 Selected thread/i }));
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
-    mockSendToSession.mockClear();
-
-    mockState.messages = new Map([
-      ["s1", [threadMessage("q-941", transitionedAt), transitionMarker("q-1648", transitionedAt)]],
-    ]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
-    expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-  });
-
-  it("does not select or reopen duplicate, replayed, non-Main, or tombstoned transition markers", async () => {
-    const transitionedAt = 100;
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys([]),
-      messages: new Map([["s1", []]]),
-      quests: [
-        { questId: "q-1648", title: "Fresh quest thread", status: "in_progress" },
-        { questId: "q-closed", title: "Closed quest thread", status: "in_progress" },
-        { questId: "q-941", title: "Source quest", status: "in_progress" },
-      ],
-    });
-
-    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-    const scope = within(view.container);
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-
-    mockState.messages = new Map([
-      [
-        "s1",
-        [
-          transitionMarker("q-1648", transitionedAt),
-          transitionMarker("q-closed", transitionedAt),
-          transitionMarker("q-ignored", transitionedAt + 1, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
-        ],
-      ],
-    ]);
-    setLeaderProjection(["q-1648"]);
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648"));
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(mockSendToSession).not.toHaveBeenCalled();
-
-    fireEvent.click(scope.getByTestId("mock-workboard-main"));
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    mockSendToSession.mockClear();
-    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
-
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("surfaces the target thread when a fresh attachment marker moves context from the selected source thread", async () => {

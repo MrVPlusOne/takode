@@ -919,25 +919,6 @@ describe("MessageFeed - message rendering", () => {
         },
       }),
       makeMessage({
-        id: "route-q1306",
-        role: "system",
-        content: "",
-        timestamp: base + 1,
-        metadata: {
-          threadTransitionMarker: {
-            type: "thread_transition_marker",
-            id: "route-q1306",
-            timestamp: base + 1,
-            markerKey: "thread-transition:main->q-1306",
-            sourceThreadKey: "main",
-            threadKey: "q-1306",
-            questId: "q-1306",
-            transitionedAt: base + 1,
-            reason: "route_switch",
-          },
-        },
-      }),
-      makeMessage({
         id: "later-result",
         role: "assistant",
         content: "Later visible turn-end item",
@@ -949,8 +930,6 @@ describe("MessageFeed - message rendering", () => {
 
     const chip = screen.getByLabelText("Thread Ready for Main: q-1307 dispatched");
     const statusFooter = screen.getByTestId("turn-thread-status-footer");
-    // The later Main output clears the old notice without changing footer ownership.
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     const laterItem = screen.getByText("Later visible turn-end item");
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
@@ -991,25 +970,6 @@ describe("MessageFeed - message rendering", () => {
         metadata: {
           threadStatusMarkers: [status],
           threadRefs: [{ threadKey: "q-1320", questId: "q-1320", source: "explicit" }],
-        },
-      }),
-      makeMessage({
-        id: "route-q1320",
-        role: "system",
-        content: "",
-        timestamp: base + 1,
-        metadata: {
-          threadTransitionMarker: {
-            type: "thread_transition_marker",
-            id: "route-q1320",
-            timestamp: base + 1,
-            markerKey: "thread-transition:main->q-1320",
-            sourceThreadKey: "main",
-            threadKey: "q-1320",
-            questId: "q-1320",
-            transitionedAt: base + 1,
-            reason: "route_switch",
-          },
         },
       }),
       makeMessage({
@@ -1499,15 +1459,21 @@ describe("MessageFeed - message rendering", () => {
         content: "",
         timestamp: base + 2,
         metadata: {
-          threadTransitionMarker: {
-            type: "thread_transition_marker",
+          threadAttachmentMarker: {
+            type: "thread_attachment_marker",
             id: "hidden-route-marker",
             timestamp: base + 2,
-            markerKey: "thread-transition:main->repeated-error-route",
-            sourceThreadKey: "main",
-            threadKey: "repeated-error-route",
-            transitionedAt: base + 2,
-            reason: "route_switch",
+            markerKey: "thread-attachment:q-1999:context",
+            threadKey: "q-1999",
+            questId: "q-1999",
+            attachedAt: base + 2,
+            attachedBy: "leader",
+            messageIds: ["context"],
+            messageIndices: [1],
+            ranges: ["1"],
+            count: 1,
+            firstMessageId: "context",
+            firstMessageIndex: 1,
           },
         },
       }),
@@ -1520,9 +1486,9 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="main" />);
 
-    // Suppressed route markers do not render in the collapsed feed, so they
-    // must not split visually adjacent identical error cards into two groups.
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    // Attachment markers do not render in Main, so they must not split
+    // visually adjacent identical error cards into two groups.
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
     expect(screen.getByText("Same error happened 4 times")).toBeTruthy();
     expect(screen.getAllByTestId("grouped-error-message")).toHaveLength(1);
     expect(screen.getAllByText(errorText)).toHaveLength(2);

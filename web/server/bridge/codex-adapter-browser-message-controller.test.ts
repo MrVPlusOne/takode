@@ -199,6 +199,11 @@ async function routeAssistantMessage(
   return broadcasts[0];
 }
 
+/** The route-switch marker a handoff stored in history (browsers are not sent it). */
+function transitionMarkerIn(session: { messageHistory: BrowserIncomingMessage[] }) {
+  return session.messageHistory.find((entry) => entry.type === "thread_transition_marker");
+}
+
 describe("codex-adapter-browser-message-controller thread routing", () => {
   it.each([
     "interrupted",
@@ -1633,8 +1638,9 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       deps,
     );
 
-    expect(broadcasts).toHaveLength(2);
-    expect(broadcasts[0]).toMatchObject({
+    // Browsers don't show transition markers, so only the assistant message is broadcast.
+    expect(broadcasts).toHaveLength(1);
+    expect(transitionMarkerIn(session)).toMatchObject({
       type: "thread_transition_marker",
       sourceThreadKey: "q-940",
       sourceQuestId: "q-940",
@@ -1642,7 +1648,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       questId: "q-941",
       reason: "route_switch",
     });
-    expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
+    expect(broadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
     expect(session.messageHistory).toHaveLength(4);
     expect(session.messageHistory[2]).toMatchObject({ type: "thread_transition_marker" });
     expect(deps.promoteLeaderThreadTabForTransition).toHaveBeenCalledWith(
@@ -1687,8 +1693,9 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       makeDeps(broadcasts),
     );
 
-    expect(broadcasts).toHaveLength(2);
-    expect(broadcasts[0]).toMatchObject({
+    // Browsers don't show transition markers, so only the assistant message is broadcast.
+    expect(broadcasts).toHaveLength(1);
+    expect(transitionMarkerIn(session)).toMatchObject({
       type: "thread_transition_marker",
       sourceThreadKey: "main",
       threadKey: "q-948",
@@ -1697,8 +1704,8 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       sourceMessageIndex: 0,
       targetThreadFreshness: "new_quest_thread",
     });
-    expect(broadcasts[0]).not.toHaveProperty("sourceQuestId");
-    expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-948", questId: "q-948" });
+    expect(transitionMarkerIn(session)).not.toHaveProperty("sourceQuestId");
+    expect(broadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-948", questId: "q-948" });
     expect(session.messageHistory[3]).toMatchObject({ type: "thread_transition_marker", sourceThreadKey: "main" });
   });
 

@@ -3,7 +3,6 @@ import type {
   ContentBlock,
   ThreadWindowEntry,
   ThreadWindowState,
-  ThreadTransitionMarker,
   LeaderThreadResponseProjection,
 } from "../server/session-types.js";
 import {
@@ -22,7 +21,6 @@ import {
   isSessionSentSourceId,
 } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
-import { currentThreadContinuationId } from "./thread-continuation.js";
 import {
   inferThreadTargetFromTextContent,
   isQuestThreadKey,
@@ -818,11 +816,7 @@ function buildThreadConversationItems(
 ): FeedItem[] {
   const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
-  const continuationId = currentThreadContinuationId(messages, threadKey, includeMessage);
-  const visibleItems = items.filter(
-    ({ entry }) => entry.message.type !== "thread_transition_marker" || entry.message.id === continuationId,
-  );
-  return dedupeFeedItems(addTurnClosingResults(visibleItems, messages, includeMessage));
+  return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
 }
 
 function buildFeedItems(
@@ -831,8 +825,10 @@ function buildFeedItems(
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
   if (threadKey === ALL_THREADS_KEY) {
+    // Transition markers stay in history for tab promotion and routing; the user message's
+    // "Continued in" row and the leader's own words say where work went, so no feed shows them.
     return messages.flatMap((message, index) =>
-      includeMessage && !includeMessage(message, index)
+      (includeMessage && !includeMessage(message, index)) || message.type === "thread_transition_marker"
         ? []
         : [{ order: index, entry: { message, history_index: index } }],
     );
@@ -885,9 +881,6 @@ function buildMainFeedItems(
     }
     if (message.type === "thread_transition_marker") {
       flushHiddenRun();
-      if (normalizeSelectedFeedThreadKey(message.sourceThreadKey) === MAIN_THREAD_KEY) {
-        items.push({ order: index, entry: { message, history_index: index } });
-      }
       return;
     }
     if (!hasExplicitNonMainRoute(message)) {
@@ -947,12 +940,7 @@ function buildQuestThreadFeedItems(
   const includedToolRelations = new Set<string>();
   messages.forEach((message, index) => {
     if (includeMessage && !includeMessage(message, index)) return;
-    if (
-      !messageHasThreadRef(message, threadKey) &&
-      !threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)
-    ) {
-      return;
-    }
+    if (!messageHasThreadRef(message, threadKey)) return;
     for (const relationKey of messageToolRelationKeys(message)) includedToolRelations.add(relationKey);
     if (message.type === "tool_result_preview") {
       for (const preview of message.previews) {
@@ -969,10 +957,6 @@ function buildQuestThreadFeedItems(
   const items: FeedItem[] = [];
   messages.forEach((message, index) => {
     if (includeMessage && !includeMessage(message, index)) return;
-    if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) {
-      items.push({ order: index, entry: { message, history_index: index } });
-      return;
-    }
     if (messageHasThreadRef(message, threadKey)) {
       items.push({ order: index, entry: { message, history_index: index } });
       return;
@@ -1595,27 +1579,6 @@ function inferredHerdEventRoute(message: BrowserIncomingMessage): RouteTarget | 
     threadKey: normalizeSelectedFeedThreadKey(target.threadKey),
     ...(target.questId ? { questId: target.questId } : {}),
   };
-}
-
-function transitionMarkerInvolvesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
-  const target = normalizeSelectedFeedThreadKey(threadKey);
-  return (
-    normalizeSelectedFeedThreadKey(marker.sourceThreadKey) === target ||
-    normalizeSelectedFeedThreadKey(marker.sourceQuestId ?? "") === target ||
-    normalizeSelectedFeedThreadKey(marker.threadKey) === target ||
-    normalizeSelectedFeedThreadKey(marker.questId ?? "") === target
-  );
-}
-
-function threadSystemMarkerVisibleInQuestThread(
-  message: BrowserIncomingMessage,
-  messages: ReadonlyArray<BrowserIncomingMessage>,
-  threadKey: string,
-): boolean {
-  void messages;
-  if (message.type === "thread_attachment_marker") return false;
-  if (message.type === "thread_transition_marker") return transitionMarkerInvolvesThread(message, threadKey);
-  return false;
 }
 
 function messageToolUseIds(message: BrowserIncomingMessage): string[] {

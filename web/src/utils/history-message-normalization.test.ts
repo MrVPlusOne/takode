@@ -472,7 +472,9 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     ]);
   });
 
-  it("normalizes thread transition markers into handoff system messages", () => {
+  it("drops thread transition markers, which stay server-side for tab promotion", () => {
+    // The user message's "Continued in" row shows where a request went, so the
+    // feed never shows a separate handoff label.
     const message: BrowserIncomingMessage = {
       type: "thread_transition_marker",
       id: "transition-q-940-q-941",
@@ -487,19 +489,7 @@ describe("normalizeHistoryMessageToChatMessages", () => {
       sourceMessageIndex: 7,
     };
 
-    const normalized = normalizeHistoryMessageToChatMessages(message, 10);
-
-    expect(normalized).toEqual([
-      {
-        id: "transition-q-940-q-941",
-        role: "system",
-        content: "Work continued from thread:q-940 to thread:q-941",
-        timestamp: 1235,
-        historyIndex: 10,
-        variant: "info",
-        metadata: { threadTransitionMarker: message },
-      },
-    ]);
+    expect(normalizeHistoryMessageToChatMessages(message, 10)).toEqual([]);
   });
 
   it("uses compact audit summaries for cross-thread activity markers when provided", () => {

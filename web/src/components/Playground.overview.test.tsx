@@ -199,14 +199,13 @@ describe("Playground", { timeout: 30_000 }, () => {
 
     expect(screen.getAllByText("Earlier context attached to the implementation quest.").length).toBeGreaterThan(0);
 
-    const marker = screen.getAllByTestId("thread-system-marker-cluster")[0];
-    expect(marker).toHaveTextContent("Work continued from Main to thread:q-9002");
+    const marker = screen.getAllByTestId("thread-attachment-marker")[0]!;
+    expect(marker).toHaveTextContent("1 message moved to thread:q-9001");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
-    expect(within(marker).getByRole("button", { name: "Main" })).toBeTruthy();
-    expect(within(marker).getAllByRole("button", { name: "thread:q-9002" }).length).toBeGreaterThan(0);
+    expect(within(marker).getByRole("button", { name: "thread:q-9001" })).toBeTruthy();
     fireEvent.click(within(marker).getByRole("button", { name: "Details" }));
-    expect(marker).toHaveTextContent("1 message moved to thread:q-9001");
+    expect(marker).toHaveTextContent("Ranges: 1");
     expect(
       screen.queryByLabelText(
         "Thread Waiting for thread:q-9002: waiting for q-9001 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
@@ -238,19 +237,13 @@ describe("Playground", { timeout: 30_000 }, () => {
       screen.queryByLabelText("Thread Ready for thread:q-9001: initial implementation answer complete"),
     ).toBeNull();
 
-    const questProjection = screen.getByTestId("playground-quest-thread-projection");
-    // Later work in the selected quest retires its earlier departure.
-    expect(questProjection).not.toHaveTextContent("Work continued from current thread to thread:q-9002");
-    expect(questProjection).not.toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
-
-    const allProjection = screen.getByTestId("playground-all-thread-projection");
-    expect(allProjection).toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
-    expect(allProjection).toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
-    expect(within(allProjection).queryByRole("button", { name: "current thread" })).toBeNull();
-
-    const mainProjection = screen.getByTestId("playground-main-thread-projection");
-    // The later Main approval prose likewise retires Main's earlier departure.
-    expect(mainProjection).not.toHaveTextContent("Work continued from current thread to thread:q-9002");
-    expect(mainProjection).not.toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
+    // No view shows the retired "Work continued" handoff labels, All Threads included.
+    for (const testId of [
+      "playground-quest-thread-projection",
+      "playground-all-thread-projection",
+      "playground-main-thread-projection",
+    ]) {
+      expect(screen.getByTestId(testId)).not.toHaveTextContent("Work continued");
+    }
   });
 });

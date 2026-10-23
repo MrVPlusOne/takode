@@ -367,10 +367,6 @@ function eventTextForMessage(message: BrowserIncomingMessage): string | null {
       return `Thread attachment moved ${message.count} message${message.count === 1 ? "" : "s"} to thread ${
         message.questId ?? message.threadKey
       }`;
-    case "thread_transition_marker":
-      return `Thread transition from ${message.sourceQuestId ?? message.sourceThreadKey} to ${
-        message.questId ?? message.threadKey
-      }`;
     case "cross_thread_activity_marker":
       return message.summary ?? `${message.count} activities in thread ${message.questId ?? message.threadKey}`;
     case "permission_denied":

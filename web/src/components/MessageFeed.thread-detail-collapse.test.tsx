@@ -34,7 +34,7 @@ import {
 } from "../../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
-import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
+import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
@@ -204,21 +204,6 @@ function makePhasedAssistant(
     contentBlocks: [{ type: "text", text: content }],
     metadata: { ...metadata, codexMessagePhase: phase },
   });
-}
-
-function transitionMarker(
-  overrides: Partial<ThreadTransitionMarker> & { id: string; sourceThreadKey: string; threadKey: string },
-) {
-  return {
-    type: "thread_transition_marker" as const,
-    timestamp: 1,
-    markerKey: `thread-transition:${overrides.sourceThreadKey}->${overrides.threadKey}:0`,
-    transitionedAt: 1,
-    reason: "route_switch" as const,
-    questId: overrides.threadKey,
-    sourceQuestId: overrides.sourceThreadKey,
-    ...overrides,
-  };
 }
 
 function crossThreadActivityMarker({
@@ -435,21 +420,8 @@ beforeEach(() => {
 });
 
 function seedThreadMarkerTurn(sessionId: string) {
-  const handoff = transitionMarker({
-    id: "transition-main-q941",
-    sourceThreadKey: "main",
-    threadKey: "q-941",
-    questId: "q-941",
-  });
   setStoreMessages(sessionId, [
     makeMessage({ id: "u1", role: "user", content: "Coordinate q-941" }),
-    makeMessage({
-      id: handoff.id,
-      role: "system",
-      content: "Work continued from Main to thread:q-941",
-      variant: "info",
-      metadata: { threadTransitionMarker: handoff },
-    }),
     makeMessage({
       id: "activity-q941",
       role: "system",
@@ -595,15 +567,12 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Coordinate q-941")).toBeTruthy();
     expect(screen.getByText("Conversation compacted")).toBeTruthy();
     expect(screen.getByText("q-941 handoff noted")).toBeTruthy();
-    expect(screen.queryByText(/Work continued from Main to thread:q-941/)).toBeNull();
     expect(screen.queryByText(/1 activity in thread:q-941/)).toBeNull();
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
   });
 
-  it("keeps other expanded thread details after work has retired a continuation notice", () => {
-    // Ordinary expansion does not resurrect the departure after Main work
-    // returns. Other details and the stored audit marker remain available.
+  it("shows thread detail markers when their containing turn is expanded", () => {
+    // Expanding the turn reveals the cross-thread activity detail it hid.
     const sid = "test-expanded-thread-detail-markers-visible";
     seedThreadMarkerTurn(sid);
     setStoreTurnOverrides(sid, [["u1", true]]);
@@ -611,17 +580,14 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     const marker = screen.getByTestId("cross-thread-activity-marker");
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     expect(marker.textContent).toContain("1 activity in thread:q-941");
     expect(within(marker).getAllByRole("button", { name: "thread:q-941" }).length).toBeGreaterThan(0);
   });
 
-  it("projects bidirectional mixed marker clusters without empty or duplicate rows", () => {
-    // Mirror the reported q-1752 cluster and include the adjacent attachment
-    // and activity shapes that share the thread-system marker renderer.
-    const sid = "test-directional-bidirectional-transition-cluster";
-    const outbound = transitionMarker({ id: "outbound", sourceThreadKey: "q-1752", threadKey: "q-1742" });
-    const inbound = transitionMarker({ id: "inbound", sourceThreadKey: "q-1742", threadKey: "q-1752" });
+  it("projects mixed attachment and activity marker clusters without empty or duplicate rows", () => {
+    // Attachment and activity markers share the thread-system marker renderer: a quest
+    // thread shows only the activity, All Threads shows both with their details.
+    const sid = "test-mixed-thread-marker-cluster";
     setStoreMessages(sid, [
       makeMessage({
         id: "attachment",
@@ -647,18 +613,6 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         },
       }),
       makeMessage({
-        id: outbound.id,
-        role: "system",
-        content: "Work continued from thread:q-1752 to thread:q-1742",
-        metadata: { threadTransitionMarker: outbound },
-      }),
-      makeMessage({
-        id: inbound.id,
-        role: "system",
-        content: "Work continued from thread:q-1742 to thread:q-1752",
-        metadata: { threadTransitionMarker: inbound },
-      }),
-      makeMessage({
         id: "activity",
         role: "system",
         content: "1 activity in thread:q-1752",
@@ -680,69 +634,16 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     const view = render(<MessageFeed sessionId={sid} threadKey="q-1752" onSelectThread={onSelectThread} />);
 
     const marker = screen.getByTestId("cross-thread-activity-marker");
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     expect(marker.textContent).toContain("1 activity in thread:q-1752");
     expect(screen.queryByText("1 message moved to q-1752")).toBeNull();
 
-    // Switching the actual view recomputes labels without changing the shared
-    // marker objects or mixed activity details. The other thread is still away.
-    view.rerender(<MessageFeed sessionId={sid} threadKey="q-1742" onSelectThread={onSelectThread} />);
-    expect(screen.getByTestId("thread-transition-marker").textContent).toBe(
-      "Work continued from current thread to thread:q-1752",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "current thread" }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-1742");
-    fireEvent.click(screen.getByRole("button", { name: "thread:q-1752" }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-1752");
-
     view.rerender(<MessageFeed sessionId={sid} threadKey="all" onSelectThread={onSelectThread} />);
     const audit = screen.getByTestId("thread-system-marker-cluster");
-    expect(audit.textContent).toContain("Work continued from thread:q-1752 to thread:q-1742");
-    expect(audit.textContent).toContain("Work continued from thread:q-1742 to thread:q-1752");
-    expect(within(audit).queryByRole("button", { name: "current thread" })).toBeNull();
+    expect(audit.textContent).toContain("1 message moved to thread:q-1752");
+    fireEvent.click(within(audit).getAllByRole("button", { name: "thread:q-1752" })[0]!);
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-1752");
     fireEvent.click(within(audit).getByRole("button", { name: "Details" }));
     expect(screen.getByTestId("thread-marker-cluster-details").textContent).toContain("Useful activity detail");
-    const stored = (mockStoreValues.messages as Map<string, ChatMessage[]>).get(sid)!;
-    expect(stored.find((message) => message.id === outbound.id)?.content).toBe(
-      "Work continued from thread:q-1752 to thread:q-1742",
-    );
-  });
-
-  it.each([
-    ["main", "current thread", "thread:q-941"],
-    [" Q-941 ", "Main", "current thread"],
-    ["all", "Main", "thread:q-941"],
-    [undefined, "Main", "thread:q-941"],
-  ])("labels only a matching continuation endpoint in view %s", (currentThreadKey, source, destination) => {
-    // Exercise the renderer independently of visibility projection: either
-    // endpoint may match, while an aggregate or absent view supplies no match.
-    const marker = transitionMarker({ id: "continuation", sourceThreadKey: "main", threadKey: "q-941" });
-    const message = makeMessage({
-      id: marker.id,
-      role: "system",
-      content: "Work continued from Main to thread:q-941",
-      metadata: { threadTransitionMarker: marker },
-    });
-    const onSelectThread = vi.fn();
-    render(
-      <FeedEntries
-        entries={[{ kind: "message", msg: message }]}
-        sessionId="test-continuation-endpoint-label"
-        currentThreadKey={currentThreadKey}
-        isCodexSession={false}
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={vi.fn()}
-        onSelectThread={onSelectThread}
-      />,
-    );
-    const row = screen.getByTestId("thread-transition-marker");
-    expect(row.textContent).toBe(`Work continued from ${source} to ${destination}`);
-    fireEvent.click(within(row).getByRole("button", { name: source }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("main");
-    fireEvent.click(within(row).getByRole("button", { name: destination }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-941");
-    expect(within(row).queryByRole("button", { name: "Details" })).toBeNull();
-    expect(message.content).toBe("Work continued from Main to thread:q-941");
   });
 
   it("hides approval and Journey lifecycle notice rows when a turn is collapsed", () => {
@@ -785,12 +686,6 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     // while preserving leader prose and real decision UI as visible rows.
     const sid = "test-q1799-selected-thread-producer-herd-events";
     const threadRef = { threadKey: "q-1799", questId: "q-1799", source: "explicit" as const };
-    const transition = transitionMarker({
-      id: "transition-q1799-q1802",
-      sourceThreadKey: "q-1799",
-      threadKey: "q-1802",
-      questId: "q-1802",
-    });
     mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
@@ -822,12 +717,6 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         threadRef,
         { eventType: "turn_end", lifecycle: ["interrupted"] },
       ),
-      makeMessage({
-        id: transition.id,
-        role: "system",
-        content: "Work continued from thread:q-1799 to thread:q-1802",
-        metadata: { threadRefs: [threadRef], threadTransitionMarker: transition },
-      }),
       makeMessage({
         id: "a-recovery",
         role: "assistant",
@@ -1472,67 +1361,6 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Codex metadata now selects the informative response.")).toBeTruthy();
     expect(screen.getByText("Checking one more internal detail after the response.")).toBeTruthy();
   });
-  it("joins command runs after return while preserving the transition boundary in All Threads", () => {
-    // Later Main tool activity retires the notice, allowing adjacent command
-    // runs to compact together. The raw audit still keeps its original boundary.
-    const sid = "test-compact-tools-around-thread-marker";
-    mockStoreValues.compactToolActivity = true;
-    const timestamp = 1_700_000_000_000;
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Inspect both thread segments", timestamp }),
-      makeMessage({
-        id: "tools-before",
-        role: "assistant",
-        content: "",
-        timestamp: timestamp + 1,
-        contentBlocks: [
-          { type: "tool_use", id: "notify-list", name: "Bash", input: { command: "takode notify list" } },
-          { type: "tool_use", id: "board-detail", name: "Bash", input: { command: "takode board detail q-1777" } },
-        ],
-      }),
-      makeMessage({
-        id: "thread-transition",
-        role: "system",
-        content: "",
-        timestamp: timestamp + 2,
-        metadata: {
-          threadTransitionMarker: {
-            type: "thread_transition_marker",
-            id: "thread-transition",
-            timestamp: timestamp + 2,
-            markerKey: "thread-transition:main->q-1777",
-            sourceThreadKey: "main",
-            threadKey: "q-1777",
-            questId: "q-1777",
-            transitionedAt: timestamp + 2,
-            reason: "route_switch",
-          },
-        },
-      }),
-      makeMessage({
-        id: "tools-after",
-        role: "assistant",
-        content: "",
-        timestamp: timestamp + 3,
-        contentBlocks: [
-          { type: "tool_use", id: "takode-list", name: "Bash", input: { command: "takode list" } },
-          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1777" } },
-        ],
-      }),
-    ]);
-
-    const view = render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
-    expect(screen.getByText("Ran 4 commands")).toBeTruthy();
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
-    view.rerender(<MessageFeed sessionId={sid} threadKey="all" />);
-    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(2);
-    expect(screen.getAllByText("Ran 2 commands")).toHaveLength(2);
-    expect(screen.getByTestId("thread-transition-marker")).toBeTruthy();
-    expect(screen.queryByText("Terminal")).toBeNull();
-  });
-
   it("times every leader quest-thread turn up to the leader's last activity", () => {
     // Leader thread turns used to run until the next human message: the thread's
     // latest turn never showed a time, and older turns counted the idle hour before
