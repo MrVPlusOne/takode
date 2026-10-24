@@ -1,0 +1,126 @@
+import { Hono } from "hono";
+import { readFile } from "node:fs/promises";
+import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactListQuery } from "../../shared/artifact-library.js";
+import { getArtifactLibrary, type ArtifactLibrary } from "../artifact-library.js";
+import type { RouteContext } from "./context.js";
+
+const FIGURE_CONTENT_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+};
+
+/**
+ * The artifact library's API, for the Library page and `takode artifact`: list and search
+ * artifacts, read a version's saved content or a figure's file, and star, rename or merge.
+ */
+export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactLibrary | null = getArtifactLibrary) {
+  const api = new Hono();
+
+  api.get("/artifacts", (c) => {
+    const lib = library();
+    if (!lib) return c.json({ artifacts: [], total: 0, spaces: [] });
+    const query: ArtifactListQuery = {};
+    // An agent sees its own session's space unless it asks for another one, or for all.
+    const space = c.req.query("space") ?? callerSpace(c);
+    if (space && space !== "all") query.space = space;
+    const kind = c.req.query("kind");
+    if (kind) {
+      if (!ARTIFACT_KINDS.includes(kind as ArtifactKind)) return c.json({ error: `Unknown kind: ${kind}` }, 400);
+      query.kind = kind as ArtifactKind;
+    }
+    const since = Number(c.req.query("since"));
+    if (Number.isFinite(since) && since > 0) query.since = since;
+    if (c.req.query("starred") === "1") query.starred = true;
+    const text = c.req.query("q");
+    if (text) query.query = text;
+    const session = c.req.query("session");
+    if (session) query.sessionId = ctx.resolveId(session) ?? session;
+    const limit = Number(c.req.query("limit"));
+    if (Number.isFinite(limit) && limit > 0) query.limit = limit;
+    const offset = Number(c.req.query("offset"));
+    if (Number.isFinite(offset) && offset > 0) query.offset = offset;
+    return c.json({ ...lib.store.list(query), space: query.space ?? null });
+  });
+
+  const callerSpace = (c: import("hono").Context): string | undefined => {
+    const auth = ctx.authenticateCompanionCallerOptional(c);
+    const lib = library();
+    return auth && "callerId" in auth && lib ? lib.spaceFor(auth.callerId) : undefined;
+  };
+
+  /** The artifact the `:id` parameter names, by ID or unique prefix. */
+  const resolve = (lib: ArtifactLibrary | null, ref: string) => (lib ? lib.store.resolveId(ref) : null);
+
+  api.get("/artifacts/:id", (c) => {
+    const lib = library();
+    const id = resolve(lib, c.req.param("id"));
+    const detail = id ? lib!.store.get(id) : null;
+    return detail ? c.json(detail) : c.json({ error: "Artifact not found" }, 404);
+  });
+
+  api.get("/artifacts/:id/versions/:n", async (c) => {
+    const lib = library();
+    const n = Number(c.req.param("n"));
+    if (!lib || !Number.isInteger(n)) return c.json({ error: "Version not found" }, 404);
+    const id = resolve(lib, c.req.param("id"));
+    const content = id ? await lib.store.versionContent(id, n) : null;
+    return content ? c.json(content) : c.json({ error: "This version was not kept" }, 404);
+  });
+
+  api.get("/artifacts/:id/file", async (c) => {
+    const file = library()?.store.figureFile(c.req.param("id"));
+    if (!file) return c.json({ error: "No saved file" }, 404);
+    try {
+      const bytes = await readFile(file.path);
+      return c.body(bytes, 200, {
+        "Content-Type": FIGURE_CONTENT_TYPES[file.ext] ?? "application/octet-stream",
+        // Saved files are named by their content, so a given URL may change only to a newer figure.
+        "Cache-Control": "private, max-age=60",
+        // An SVG is shown as an image, never run as a page.
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+      });
+    } catch {
+      return c.json({ error: "No saved file" }, 404);
+    }
+  });
+
+  /** Rename (`title`) or star (`starred`); renaming updates the line under messages showing it. */
+  api.patch("/artifacts/:id", async (c) => {
+    const lib = library();
+    const id = resolve(lib, c.req.param("id"));
+    if (!lib || !id) return c.json({ error: "Artifact not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const renaming = body.title !== undefined;
+    if (renaming && (typeof body.title !== "string" || !body.title.trim())) {
+      return c.json({ error: "title must be a non-empty string" }, 400);
+    }
+    if (body.starred !== undefined && typeof body.starred !== "boolean") {
+      return c.json({ error: "starred must be a boolean" }, 400);
+    }
+    if (!renaming && body.starred === undefined) return c.json({ error: "Nothing to change" }, 400);
+    if (renaming) lib.store.rename(id, body.title);
+    if (body.starred !== undefined) lib.store.setStarred(id, body.starred);
+    await lib.store.flush();
+    if (renaming) for (const sessionId of lib.store.sessionsShowingArtifact(id)) lib.refreshConversation(sessionId);
+    return c.json(lib.store.get(id));
+  });
+
+  api.post("/artifacts/:id/merge", async (c) => {
+    const lib = library();
+    const body = await c.req.json().catch(() => ({}));
+    if (!lib || typeof body.into !== "string") return c.json({ error: "into must name an artifact" }, 400);
+    const from = resolve(lib, c.req.param("id"));
+    const into = resolve(lib, body.into);
+    const merged = from && into ? lib.store.merge(from, into) : null;
+    if (!merged) return c.json({ error: "Both artifacts must exist, differ and be of the same kind" }, 400);
+    await lib.store.flush();
+    for (const sessionId of merged.affectedSessions) lib.refreshConversation(sessionId);
+    return c.json(merged.artifact);
+  });
+
+  return api;
+}

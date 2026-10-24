@@ -15,6 +15,7 @@ export type Route =
   | { page: "scheduled" }
   | { page: "questmaster" }
   | { page: "memory" }
+  | { page: "library" }
   | { page: "playground" };
 
 const SESSION_PREFIX = "#/session/";
@@ -70,6 +71,7 @@ export function parseHash(hash: string): Route {
   if (path === "#/scheduled") return { page: "scheduled" };
   if (path === "#/questmaster") return { page: "questmaster" };
   if (path === "#/memory" || path === "#/streams") return { page: "memory" };
+  if (path === "#/library") return { page: "library" };
   if (path === "#/playground") return { page: "playground" };
 
   if (path.startsWith(SESSION_PREFIX)) {
@@ -101,7 +103,8 @@ export type SecondaryPage =
   | "environments"
   | "scheduled"
   | "questmaster"
-  | "memory";
+  | "memory"
+  | "library";
 
 const SECONDARY_PAGES: ReadonlySet<string> = new Set<SecondaryPage>([
   "settings",
@@ -112,6 +115,7 @@ const SECONDARY_PAGES: ReadonlySet<string> = new Set<SecondaryPage>([
   "scheduled",
   "questmaster",
   "memory",
+  "library",
 ]);
 
 export function isSecondaryPage(value: string | null | undefined): value is SecondaryPage {

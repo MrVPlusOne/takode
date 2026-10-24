@@ -387,6 +387,7 @@ async function planHandoff(input: {
     await copyRoot(path);
   }
   await copyRoot(`memory/${settings.serverSlug as string}`);
+  await copyRoot(`library/${serverId}`);
   for (const path of [
     `browser-login/${serverId}.json`,
     `landing-gates/${serverId}.json`,

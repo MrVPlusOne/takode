@@ -29,6 +29,7 @@ type ExistingThreadMetadataSource = {
   leaderThreadRole?: NonNullable<ChatMessage["metadata"]>["leaderThreadRole"];
   threadAnswer?: NonNullable<ChatMessage["metadata"]>["threadAnswer"];
   threadResponse?: NonNullable<ChatMessage["metadata"]>["threadResponse"];
+  artifacts?: NonNullable<ChatMessage["metadata"]>["artifacts"];
 };
 
 export function extractTextFromBlocks(blocks: ContentBlock[]): string {
@@ -161,7 +162,8 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     !msg.codexSubagent &&
     !msg.leaderThreadRole &&
     !msg.threadAnswer &&
-    !msg.threadResponse
+    !msg.threadResponse &&
+    !msg.artifacts?.length
   ) {
     return undefined;
   }
@@ -177,6 +179,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.leaderThreadRole ? { leaderThreadRole: msg.leaderThreadRole } : {}),
     ...(msg.threadAnswer ? { threadAnswer: msg.threadAnswer } : {}),
     ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
+    ...(msg.artifacts?.length ? { artifacts: msg.artifacts } : {}),
   };
 }
 

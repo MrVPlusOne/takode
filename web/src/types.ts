@@ -268,6 +268,8 @@ export interface ChatMessage {
   /** Extra structured data for rich rendering (e.g. AskUserQuestion answers, quest claim details) */
   metadata?: {
     markdownReport?: import("../shared/markdown-report.js").MarkdownReportSource;
+    /** Library artifacts this message shows (current versions), for the "Saved in Library" line. */
+    artifacts?: import("../shared/artifact-library.js").ArtifactMessageMarker[];
     /** Present when the report is a guided review: its map, git range and line counts. */
     guidedReview?: import("../shared/guided-review.js").GuidedReviewMeta;
     answers?: { question: string; answer: string }[];

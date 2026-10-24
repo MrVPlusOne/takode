@@ -21,6 +21,8 @@ export interface MarkdownReportMessage {
   questId?: string;
   /** Present when the report is a guided review; `content` is then its Markdown version. */
   guidedReview?: import("./guided-review.js").GuidedReviewMeta;
+  /** The library artifact this report is, added when sent to browsers. */
+  artifacts?: import("./artifact-library.js").ArtifactMessageMarker[];
 }
 
 export function validateMarkdownReportContent(content: unknown): asserts content is string {

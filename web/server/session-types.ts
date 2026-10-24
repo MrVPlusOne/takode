@@ -1081,6 +1081,8 @@ export type BrowserIncomingMessageBase =
       turn_duration_ms?: number;
       notification?: TakodeNotificationPayload;
       threadStatusMarkers?: LeaderThreadStatus[];
+      /** Library artifacts this message shows, added when sent to browsers. */
+      artifacts?: import("../shared/artifact-library.js").ArtifactMessageMarker[];
     }
   | import("../shared/markdown-report.js").MarkdownReportMessage
   | CodexReasoningDetailMessage

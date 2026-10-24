@@ -21,6 +21,7 @@ import {
 } from "./takode-core.js";
 import { handleFileResolve } from "./takode-file-resolve.js";
 import { handleActivity } from "./takode-activity.js";
+import { handleArtifact } from "./takode-artifact.js";
 import { handleReport } from "./takode-report.js";
 import { handleReview } from "./takode-review.js";
 import { handleVisual } from "./takode-visual.js";
@@ -88,6 +89,7 @@ try {
     ["list", { allowSessionlessRead: true }],
     ["search", { allowSessionlessRead: true }],
     ["activity", { allowSessionlessRead: true }],
+    ["artifact", { allowSessionlessRead: true }],
     ["info", { allowSessionlessRead: true }],
     ["leader-context-resume", {}],
     ["file-resolve", {}],
@@ -174,6 +176,9 @@ try {
       break;
     case "activity":
       await handleActivity(base, args);
+      break;
+    case "artifact":
+      await handleArtifact(base, args);
       break;
     case "info":
       await handleInfo(base, args);

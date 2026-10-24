@@ -15,6 +15,7 @@ import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
 import { REPORT_HELP } from "./takode-report.js";
 import { REVIEW_HELP } from "./takode-review.js";
 import { VISUAL_HELP } from "./takode-visual.js";
+import { ARTIFACT_HELP } from "./takode-artifact.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
   BOARD_ADVANCE_HELP,
@@ -519,6 +520,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "activity":
       console.log(ACTIVITY_HELP);
       return true;
+    case "artifact":
+      console.log(ARTIFACT_HELP);
+      return true;
     case "info":
       console.log(INFO_HELP);
       return true;
@@ -766,6 +770,7 @@ Commands:
   report        Publish an exact Markdown file as an annotatable chat report
   review        Publish a guided review of a git range (questions first, then a tour)
   visual        Preview a visual block at phone and desktop size before publishing it
+  artifact      List and read saved artifacts (drafts, reports, figures, visuals, reviews) and their versions
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session

@@ -39,6 +39,7 @@ import { leaderProjectionMessage } from "./leader-projection-lists.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { prepareLeaderHistoryWindow } from "../leader-user-message-id.js";
 import { projectBrowserHistoryMessages, projectBrowserMessage } from "./browser-message-projection.js";
+import { projectArtifactsInMessages, projectArtifactsInThreadEntries } from "../artifact-library.js";
 import { projectBoardUpdateForBrowsers } from "./browser-board-rows.js";
 import { projectFeedAttentionUpdateForBrowsers } from "./feed-attention-lists.js";
 import type { TreeGroupState } from "./tree-group-updates.js";
@@ -1172,7 +1173,7 @@ async function sendHistorySyncAttempt(
 }
 
 export function sendHistoryWindowSync(
-  session: Pick<BrowserTransportSessionLike, "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "messageHistory"> & { id?: string },
   ws: BrowserTransportSocketLike,
   options: {
     fromTurn: number;
@@ -1226,7 +1227,8 @@ export function sendHistoryWindowSync(
       : undefined;
   messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
   const leaderWindow = prepareLeaderHistoryWindow(messages, session.messageHistory);
-  messages = leaderWindow.messages;
+  // Before hashing, so a version replaced since the browser's copy changes the window.
+  messages = session.id ? projectArtifactsInMessages(session.id, leaderWindow.messages) : leaderWindow.messages;
   const windowHash = computeHistoryPayloadSyncHash({ startIdx, messages });
   const cacheHit = options.cachedWindowHash === windowHash;
 
@@ -1290,6 +1292,7 @@ export function sendThreadWindowSync(
     includeMessage: isRootAgentHistoryMessage,
     currentThreadResponseProjection: responseState.projection,
   });
+  sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
   // The answer state is covered too, so a cache hit can leave it out.
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,

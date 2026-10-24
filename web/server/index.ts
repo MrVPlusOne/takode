@@ -63,6 +63,8 @@ import {
 import { PushoverNotifier } from "./pushover.js";
 import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
 import { todoStore } from "./todo-store.js";
+import { ArtifactLibrary, setArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
+import { ArtifactLibraryStore } from "./artifact-library-store.js";
 import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
@@ -727,6 +729,22 @@ projectModelProvenanceMigrationFamilies(launcher, wsBridge, modelProvenanceMigra
   }
 }
 containerManager.restoreState(CONTAINER_STATE_PATH);
+
+// The artifact library reads every session's history as it is saved; at startup it reads the
+// month before it started once (backfill), in the background.
+const artifactLibrary = new ArtifactLibrary(
+  new ArtifactLibraryStore(join(homedir(), ".companion", "library", serverId)),
+  {
+    getSession: (sessionId) => wsBridge.getSession(sessionId),
+    listSessions: () => [...(bridgeAny.sessions as Map<string, LibrarySessionLike>).values()],
+    spaceFor: (sessionId) =>
+      launcher.getSession(sessionId)?.memorySessionSpaceSlug ?? launcher.getMemorySessionSpaceSlug(),
+    refreshConversation: (sessionId) => wsBridge.refreshSessionConversation(sessionId),
+  },
+);
+await artifactLibrary.store.load();
+setArtifactLibrary(artifactLibrary);
+void artifactLibrary.backfill();
 
 // Push-based herd event delivery: wire dispatcher after bridge + launcher are ready
 const herdBridge = Object.assign(wsBridge, {

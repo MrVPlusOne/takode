@@ -63,6 +63,12 @@ import {
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import {
+  ARTIFACT_PLACEHOLDER_LANGUAGE,
+  parseArtifactPlaceholder,
+  parseDraftHeader,
+} from "../../shared/artifact-library.js";
+import { CollapsedArtifact } from "./ArtifactInline.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -1012,11 +1018,13 @@ export const MarkdownContent = memo(function MarkdownContent({
             const isBlock = match || (typeof children === "string" && children.includes("\n"));
 
             if (match?.[1] === "draft") {
-              // A message draft shows as the message it will become, ready to copy into Slack.
+              // A message draft shows as the message it will become, ready to copy into Slack. Its
+              // optional title header names it in the Library and is neither shown nor copied.
+              const draft = parseDraftHeader(String(children).replace(/\n$/, ""));
               return (
-                <MarkdownDraftCard>
+                <MarkdownDraftCard label={draft.title}>
                   <MarkdownContent
-                    text={String(children).replace(/\n$/, "")}
+                    text={draft.body}
                     size={size}
                     sessionId={sessionId}
                     fileBasePath={fileBasePath}
@@ -1029,6 +1037,31 @@ export const MarkdownContent = memo(function MarkdownContent({
                   />
                 </MarkdownDraftCard>
               );
+            }
+
+            // A library version a newer one replaced: one collapsed line; its content was not sent.
+            if (className?.split(/\s+/).includes(`language-${ARTIFACT_PLACEHOLDER_LANGUAGE}`)) {
+              const marker = parseArtifactPlaceholder(String(children).trim());
+              if (marker) {
+                return (
+                  <CollapsedArtifact
+                    marker={marker}
+                    renderMarkdown={(markdown) => (
+                      <MarkdownContent
+                        text={markdown}
+                        size={size}
+                        sessionId={sessionId}
+                        fileBasePath={fileBasePath}
+                        wrapLongContent={wrapLongContent}
+                        onSessionNavigate={onSessionNavigate}
+                        stopLinkPropagation={stopLinkPropagation}
+                        fileLinkMode={fileLinkMode}
+                        questLinkSurface={questLinkSurface}
+                      />
+                    )}
+                  />
+                );
+              }
             }
 
             if (match?.[1] === "visual") {

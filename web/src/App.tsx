@@ -138,6 +138,9 @@ const TodosAndTimersPage = lazyComponent(() =>
   import("./components/TodosAndTimersPage.js").then((module) => module.TodosAndTimersPage),
 );
 const MemoryPage = lazyComponent(() => import("./components/MemoryPage.js").then((module) => module.MemoryPage));
+const LibraryPage = lazyComponent(() =>
+  import("./components/library/LibraryPage.js").then((module) => module.LibraryPage),
+);
 const TerminalPage = lazyComponent(() => import("./components/TerminalPage.js").then((module) => module.TerminalPage));
 const QuestmasterPage = lazyComponent(() =>
   import("./components/QuestmasterPage.js").then((module) => module.QuestmasterPage),
@@ -289,6 +292,7 @@ const SECONDARY_PAGES: Record<SecondaryPage, { label: string; size: SecondaryVie
   scheduled: { label: "To-dos & Timers", size: "page" },
   questmaster: { label: "Questmaster", size: "page" },
   memory: { label: "Memory", size: "page" },
+  library: { label: "Library", size: "page" },
 };
 
 /** The page shown as the secondary view. Settings stays mounted under the Changelog it links to. */
@@ -342,6 +346,12 @@ function renderSecondaryPage(page: SecondaryPage) {
       return (
         <div className="absolute inset-0">
           <MemoryPage embedded />
+        </div>
+      );
+    case "library":
+      return (
+        <div className="absolute inset-0">
+          <LibraryPage />
         </div>
       );
   }

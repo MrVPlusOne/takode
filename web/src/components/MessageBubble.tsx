@@ -85,6 +85,7 @@ import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
 import { MarkdownReport } from "./MarkdownReport.js";
+import { ArtifactSavedLine } from "./ArtifactInline.js";
 import { getRejectedRouteReason, RejectedRouteMessageHeader } from "./RejectedRouteMessageHeader.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -152,7 +153,12 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   if (message.metadata?.markdownReport) {
-    return <MarkdownReport message={message} feedSessionId={sessionId} readOnly={interactionMode === "read-only"} />;
+    return (
+      <>
+        <MarkdownReport message={message} feedSessionId={sessionId} readOnly={interactionMode === "read-only"} />
+        {interactionMode !== "read-only" && <ArtifactSavedLine markers={message.metadata?.artifacts} />}
+      </>
+    );
   }
 
   if (message.role === "system") {
@@ -1463,6 +1469,7 @@ function AssistantMessage({
             images={assistantImagePreviewItems}
             testId="assistant-image-preview-group"
           />
+          {!readOnly && <ArtifactSavedLine markers={message.metadata?.artifacts} />}
         </ImagePathLinkContext.Provider>
         {!readOnly && resolvedNotification && (
           <NotificationMarker

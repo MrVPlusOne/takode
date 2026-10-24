@@ -1,5 +1,6 @@
 import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
 import type { QuestStartedFrom } from "./quest-types.js";
+import { notifySessionSavedForArtifacts } from "./artifact-library.js";
 import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
 import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
 import { viewportHandoffStateMessage } from "./bridge/browser-subscribe-snapshots.js";
@@ -838,6 +839,7 @@ export class WsBridge {
   /** Persist a session to disk (debounced). */
   private persistSession(session: Session): void {
     this.syncedProjections.invalidateSession(session);
+    notifySessionSavedForArtifacts(session.id);
     if (!this.store) return;
     clampFrozenCountController(session);
     this.store.save(buildPersistedSessionPayloadController(session));

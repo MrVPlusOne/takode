@@ -13,6 +13,7 @@ import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygro
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { PlaygroundLongCodeBlockSection } from "./PlaygroundLongCodeBlockSection.js";
 import { PlaygroundVisualBlocksSection } from "./PlaygroundVisualBlocksSection.js";
+import { PlaygroundArtifactLibrarySection } from "./PlaygroundArtifactLibrarySection.js";
 import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
 import { PlaygroundWaitingWorkers } from "./PlaygroundWaitingWorkers.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
@@ -953,6 +954,8 @@ export function PlaygroundOverviewSections() {
           </Card>
         </div>
       </Section>
+
+      <PlaygroundArtifactLibrarySection />
 
       <Section
         title="Markdown Tables"

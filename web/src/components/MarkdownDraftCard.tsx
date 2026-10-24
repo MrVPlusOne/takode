@@ -4,9 +4,9 @@ import { messageCopyForSlack } from "../utils/slack-copy.js";
 /**
  * A message draft (a ```draft fenced block), shown as the formatted message it will become, with one
  * button that copies exactly the draft for Slack: formatting kept, nothing around it. `children` is the
- * draft rendered as Markdown.
+ * draft rendered as Markdown; `label` (the draft's title, or which part of a post it is) replaces "Draft".
  */
-export function MarkdownDraftCard({ children }: { children: ReactNode }) {
+export function MarkdownDraftCard({ children, label }: { children: ReactNode; label?: string }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -37,7 +37,11 @@ export function MarkdownDraftCard({ children }: { children: ReactNode }) {
         >
           <path d="M3 13l1-3.5L11 2.5a1.4 1.4 0 012 2L6 11.5 3 13z" strokeLinejoin="round" />
         </svg>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
+        {label ? (
+          <span className="min-w-0 truncate text-[12px] text-cc-muted">{label}</span>
+        ) : (
+          <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
+        )}
         <button
           type="button"
           onClick={copy}
