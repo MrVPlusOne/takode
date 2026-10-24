@@ -183,12 +183,17 @@ describe("QuestDetailPanel feedback navigation lifecycle", () => {
     render(<QuestDetailPanel />);
     act(() => useStore.getState().openQuestOverlay(quest.questId, undefined, 2));
     let target = document.querySelector<HTMLElement>('[data-feedback-index="2"]')!;
-    expect(target).toHaveClass("ml-4");
+    // The unscoped card sits in the Journey timeline, where agent cards are not indented as replies.
+    // Whatever its spacing, the highlight must not change it, so compare the layout classes around expiry.
+    const layoutClasses = (element: HTMLElement) =>
+      [...element.classList].filter((name) => /^(m[lrxy]?|p[lrxy]?)-/.test(name)).sort();
+    const highlightedLayout = layoutClasses(target);
+    expect(screen.getByTestId("quest-phase-documentation-timeline")).toContainElement(target);
     expect(target).toHaveAttribute("data-feedback-highlighted", "true");
 
     act(() => vi.advanceTimersByTime(2600));
     target = document.querySelector<HTMLElement>('[data-feedback-index="2"]')!;
-    expect(target).toHaveClass("ml-4");
+    expect(layoutClasses(target)).toEqual(highlightedLayout);
     expect(target).toHaveAttribute("data-feedback-highlighted", "false");
   });
 });

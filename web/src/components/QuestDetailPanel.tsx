@@ -1,6 +1,6 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { useSendKey } from "../hooks/useSendKey.js";
@@ -44,7 +44,10 @@ import { QuestQuizSection } from "./QuestQuizSection.js";
 import { QuestCommitEvidenceList, shortCommitSha } from "./QuestCommitEvidence.js";
 import { buildQuestCommitEntries, QuestCommitDiffView, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
 import { useQuestDetailRecord } from "./useQuestDetailRecord.js";
-import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
+import {
+  summarizeQuestPhaseDocumentation,
+  type IndexedQuestFeedbackEntry,
+} from "../../shared/quest-phase-documentation-summary.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
@@ -728,6 +731,255 @@ export function QuestDetailPanel() {
       onNavigate={closePanel}
     />
   );
+  // With phase documentation, unscoped feedback is shown inside the Journey timeline instead of a flat list.
+  const listedFeedbackEntries = phaseDocumentationSummary.hasPhaseDocumentation ? [] : feedbackEntries;
+  // Renders one feedback entry with its actions. Inside the Journey timeline it gets a collapse control.
+  const renderFeedbackEntry = (
+    entry: IndexedQuestFeedbackEntry,
+    { collapseControl }: { collapseControl?: ReactNode } = {},
+  ) => {
+    const entryIndex = entry.index;
+    const isEntryEditing = editingFeedback?.questId === quest.questId && editingFeedback?.index === entryIndex;
+    const isConfirmingDelete =
+      confirmDeleteFeedback?.questId === quest.questId && confirmDeleteFeedback?.index === entryIndex;
+    const isUserFeedback = entry.author === "human";
+    const feedbackSessionId = entry.authorSessionId;
+    const feedbackAuthorLabel = isUserFeedback ? "user" : entry.author;
+    const feedbackAuthorSuffix = isUserFeedback && feedbackSessionId ? "on behalf of user" : undefined;
+    const isNavigationTarget = activeFeedbackTarget?.index === entryIndex;
+    const isHighlighted = highlightedFeedbackIndex === entryIndex;
+    return (
+      <div
+        key={`${entryIndex}:${isNavigationTarget ? activeFeedbackTarget.requestId : 0}`}
+        ref={isNavigationTarget ? handleFeedbackTargetReady : undefined}
+        className={`px-2.5 py-2 rounded-lg text-sm transition-[background-color,box-shadow] duration-500 ${
+          entry.author === "human" || collapseControl ? "" : "ml-4"
+        } ${
+          isHighlighted
+            ? "border border-cc-primary/60 bg-cc-primary/10 text-cc-fg ring-2 ring-cc-primary/40"
+            : entry.author === "human"
+              ? entry.addressed
+                ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
+                : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
+              : "bg-cc-input-bg border border-cc-border text-cc-fg/80"
+        } min-w-0 max-w-full overflow-hidden`}
+        data-feedback-index={entryIndex}
+        data-feedback-highlighted={isHighlighted ? "true" : "false"}
+        tabIndex={-1}
+      >
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mb-0.5 whitespace-nowrap">
+          {collapseControl}
+          {feedbackSessionId ? (
+            <>
+              <CompactSessionLink
+                sessionId={feedbackSessionId}
+                className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
+                onNavigate={closePanel}
+              />
+              {feedbackAuthorSuffix && (
+                <span className="text-[11px] font-medium text-amber-400/70">{feedbackAuthorSuffix}</span>
+              )}
+            </>
+          ) : (
+            <span className={`text-xs font-medium ${isUserFeedback ? "text-amber-400/70" : "text-cc-muted"}`}>
+              {feedbackAuthorLabel}
+            </span>
+          )}
+          <QuestMachineStamp machine={entry.machine} className="text-[11px] text-cc-muted/60" />
+          <span className="font-mono-code text-[10px] text-cc-muted/50">#{entryIndex}</span>
+          <span className="text-[11px] text-cc-muted/40">{timeAgo(entry.ts)}</span>
+          {entry.author === "human" && entry.addressed && (
+            <span className="text-[11px] text-green-500/60 font-medium">addressed</span>
+          )}
+          <span className="ml-auto flex items-center gap-1">
+            {entry.author === "human" && (
+              <button
+                onClick={() => handleToggleAddressed(quest.questId, entryIndex)}
+                className={`px-1 py-0.5 rounded transition-colors cursor-pointer ${
+                  entry.addressed
+                    ? "text-green-500/50 hover:text-green-500/70"
+                    : "text-cc-muted/30 hover:text-green-500/60"
+                }`}
+                title={entry.addressed ? "Mark unaddressed" : "Mark addressed"}
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                </svg>
+              </button>
+            )}
+            {!isEntryEditing && !isConfirmingDelete && (
+              <>
+                <button
+                  onClick={() => {
+                    setConfirmDeleteFeedback(null);
+                    setEditingFeedback({
+                      questId: quest.questId,
+                      index: entryIndex,
+                      text: entry.text,
+                      images: entry.images ?? [],
+                    });
+                  }}
+                  className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
+                  title="Edit feedback"
+                  aria-label={`Edit feedback #${entryIndex}`}
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingFeedback(null);
+                    setConfirmDeleteFeedback({ questId: quest.questId, index: entryIndex });
+                  }}
+                  className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
+                  title={`Delete ${feedbackAuthorLabel} feedback`}
+                  aria-label={`Delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+        {isEntryEditing ? (
+          <div className="flex flex-col gap-1 mt-1">
+            <textarea
+              ref={editFeedbackTextareaRef}
+              value={editingFeedback.text}
+              onChange={(e) => {
+                setEditingFeedback((prev) => (prev ? { ...prev, text: e.target.value } : prev));
+                e.target.style.height = "auto";
+                e.target.style.height = e.target.scrollHeight + "px";
+              }}
+              className="w-full text-sm bg-cc-bg border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-cc-fg focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
+              rows={2}
+              onKeyDown={(e) => {
+                if (feedbackSaveKey.isSendKey(e)) {
+                  e.preventDefault();
+                  if (!feedbackSubmitting) handleEditFeedbackSave();
+                } else if (e.key === "Escape") {
+                  setEditingFeedback(null);
+                }
+              }}
+              onPaste={(e) => {
+                const imgs = extractPastedImages(e);
+                if (imgs.length > 0) handleEditFeedbackImageUpload(imgs);
+              }}
+            />
+            {editingFeedback.images.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {editingFeedback.images.map((img) => (
+                  <QuestImageThumbnail
+                    key={img.id}
+                    image={img}
+                    onOpen={setLightboxSrc}
+                    frameClassName="relative group"
+                    imageClassName="w-10 h-10 object-cover rounded cursor-pointer"
+                    onRemove={() =>
+                      setEditingFeedback((prev) =>
+                        prev ? { ...prev, images: prev.images.filter((im) => im.id !== img.id) } : prev,
+                      )
+                    }
+                    removeButtonClassName="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    removeLabel={`Remove feedback image ${img.filename}`}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleEditFeedbackSave}
+                disabled={feedbackSubmitting}
+                className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 cursor-pointer"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingFeedback(null)}
+                className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : isConfirmingDelete ? (
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={() => handleDeleteFeedback(quest.questId, entryIndex)}
+              disabled={feedbackSubmitting}
+              className="text-xs px-2.5 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 disabled:opacity-40 cursor-pointer"
+              aria-label={`Confirm delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
+            >
+              Confirm delete
+            </button>
+            <button
+              onClick={() => setConfirmDeleteFeedback(null)}
+              className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
+              aria-label={`Cancel delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <>
+            {entry.tldr ? (
+              <div className="space-y-1">
+                <div className="font-medium text-cc-fg">
+                  <MarkdownContent
+                    text={entry.tldr}
+                    size="sm"
+                    sessionId={questMarkdownSessionId}
+                    wrapLongContent
+                    onSessionNavigate={closePanel}
+                  />
+                </div>
+                <details
+                  open={isNavigationTarget || undefined}
+                  className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted"
+                >
+                  <summary className="cursor-pointer select-none">Full feedback</summary>
+                  <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
+                    <MarkdownContent
+                      text={entry.text}
+                      size="sm"
+                      sessionId={questMarkdownSessionId}
+                      wrapLongContent
+                      onSessionNavigate={closePanel}
+                    />
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <MarkdownContent
+                text={entry.text}
+                size="sm"
+                sessionId={questMarkdownSessionId}
+                wrapLongContent
+                onSessionNavigate={closePanel}
+              />
+            )}
+            {entry.images && entry.images.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {entry.images.map((img) => (
+                  <QuestImageThumbnail
+                    key={img.id}
+                    image={img}
+                    onOpen={setLightboxSrc}
+                    frameClassName="relative"
+                    imageClassName="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                    title={img.filename}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return createPortal(
     <div
@@ -1046,6 +1298,7 @@ export function QuestDetailPanel() {
                 feedbackTarget={activeFeedbackTarget}
                 highlightedFeedbackIndex={highlightedFeedbackIndex}
                 onFeedbackTargetReady={handleFeedbackTargetReady}
+                renderFeedbackEntry={renderFeedbackEntry}
                 beforeSummary={
                   <QuestQuizSection
                     items={quest.quizItems}
@@ -1109,268 +1362,14 @@ export function QuestDetailPanel() {
 
               {/* Feedback thread */}
               {(() => {
-                const hasFeedback = feedbackEntries.length > 0;
+                const hasFeedback = listedFeedbackEntries.length > 0;
                 return (
                   <div>
                     {hasFeedback && (
                       <>
-                        <label className="block text-xs text-cc-muted mb-1">
-                          {phaseDocumentationSummary.hasPhaseDocumentation ? "Unscoped Feedback" : "Feedback"}
-                        </label>
+                        <label className="block text-xs text-cc-muted mb-1">Feedback</label>
                         <div className="space-y-2 mb-2">
-                          {feedbackEntries.map((entry) => {
-                            const entryIndex = entry.index;
-                            const isEntryEditing =
-                              editingFeedback?.questId === quest.questId && editingFeedback?.index === entryIndex;
-                            const isConfirmingDelete =
-                              confirmDeleteFeedback?.questId === quest.questId &&
-                              confirmDeleteFeedback?.index === entryIndex;
-                            const isUserFeedback = entry.author === "human";
-                            const feedbackSessionId = entry.authorSessionId;
-                            const feedbackAuthorLabel = isUserFeedback ? "user" : entry.author;
-                            const feedbackAuthorSuffix =
-                              isUserFeedback && feedbackSessionId ? "on behalf of user" : undefined;
-                            const isNavigationTarget = activeFeedbackTarget?.index === entryIndex;
-                            const isHighlighted = highlightedFeedbackIndex === entryIndex;
-                            return (
-                              <div
-                                key={`${entryIndex}:${isNavigationTarget ? activeFeedbackTarget.requestId : 0}`}
-                                ref={isNavigationTarget ? handleFeedbackTargetReady : undefined}
-                                className={`px-2.5 py-2 rounded-lg text-sm transition-[background-color,box-shadow] duration-500 ${
-                                  entry.author === "human" ? "" : "ml-4"
-                                } ${
-                                  isHighlighted
-                                    ? "border border-cc-primary/60 bg-cc-primary/10 text-cc-fg ring-2 ring-cc-primary/40"
-                                    : entry.author === "human"
-                                      ? entry.addressed
-                                        ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
-                                        : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
-                                      : "bg-cc-input-bg border border-cc-border text-cc-fg/80"
-                                } min-w-0 max-w-full overflow-hidden`}
-                                data-feedback-index={entryIndex}
-                                data-feedback-highlighted={isHighlighted ? "true" : "false"}
-                                tabIndex={-1}
-                              >
-                                <div className="flex items-center gap-1.5 mb-0.5">
-                                  {feedbackSessionId ? (
-                                    <>
-                                      <CompactSessionLink
-                                        sessionId={feedbackSessionId}
-                                        className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
-                                        onNavigate={closePanel}
-                                      />
-                                      {feedbackAuthorSuffix && (
-                                        <span className="text-[11px] font-medium text-amber-400/70">
-                                          {feedbackAuthorSuffix}
-                                        </span>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <span
-                                      className={`text-xs font-medium ${
-                                        isUserFeedback ? "text-amber-400/70" : "text-cc-muted"
-                                      }`}
-                                    >
-                                      {feedbackAuthorLabel}
-                                    </span>
-                                  )}
-                                  <QuestMachineStamp machine={entry.machine} className="text-[11px] text-cc-muted/60" />
-                                  <span className="font-mono-code text-[10px] text-cc-muted/50">#{entryIndex}</span>
-                                  <span className="text-[11px] text-cc-muted/40">{timeAgo(entry.ts)}</span>
-                                  {entry.author === "human" && entry.addressed && (
-                                    <span className="text-[11px] text-green-500/60 font-medium">addressed</span>
-                                  )}
-                                  <span className="ml-auto flex items-center gap-1">
-                                    {entry.author === "human" && (
-                                      <button
-                                        onClick={() => handleToggleAddressed(quest.questId, entryIndex)}
-                                        className={`px-1 py-0.5 rounded transition-colors cursor-pointer ${
-                                          entry.addressed
-                                            ? "text-green-500/50 hover:text-green-500/70"
-                                            : "text-cc-muted/30 hover:text-green-500/60"
-                                        }`}
-                                        title={entry.addressed ? "Mark unaddressed" : "Mark addressed"}
-                                      >
-                                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                                          <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                                        </svg>
-                                      </button>
-                                    )}
-                                    {!isEntryEditing && !isConfirmingDelete && (
-                                      <>
-                                        <button
-                                          onClick={() => {
-                                            setConfirmDeleteFeedback(null);
-                                            setEditingFeedback({
-                                              questId: quest.questId,
-                                              index: entryIndex,
-                                              text: entry.text,
-                                              images: entry.images ?? [],
-                                            });
-                                          }}
-                                          className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
-                                          title="Edit feedback"
-                                          aria-label={`Edit feedback #${entryIndex}`}
-                                        >
-                                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                                            <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
-                                          </svg>
-                                        </button>
-                                        <button
-                                          onClick={() => {
-                                            setEditingFeedback(null);
-                                            setConfirmDeleteFeedback({ questId: quest.questId, index: entryIndex });
-                                          }}
-                                          className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
-                                          title={`Delete ${feedbackAuthorLabel} feedback`}
-                                          aria-label={`Delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
-                                        >
-                                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                                            <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
-                                          </svg>
-                                        </button>
-                                      </>
-                                    )}
-                                  </span>
-                                </div>
-                                {isEntryEditing ? (
-                                  <div className="flex flex-col gap-1 mt-1">
-                                    <textarea
-                                      ref={editFeedbackTextareaRef}
-                                      value={editingFeedback.text}
-                                      onChange={(e) => {
-                                        setEditingFeedback((prev) => (prev ? { ...prev, text: e.target.value } : prev));
-                                        e.target.style.height = "auto";
-                                        e.target.style.height = e.target.scrollHeight + "px";
-                                      }}
-                                      className="w-full text-sm bg-cc-bg border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-cc-fg focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
-                                      rows={2}
-                                      onKeyDown={(e) => {
-                                        if (feedbackSaveKey.isSendKey(e)) {
-                                          e.preventDefault();
-                                          if (!feedbackSubmitting) handleEditFeedbackSave();
-                                        } else if (e.key === "Escape") {
-                                          setEditingFeedback(null);
-                                        }
-                                      }}
-                                      onPaste={(e) => {
-                                        const imgs = extractPastedImages(e);
-                                        if (imgs.length > 0) handleEditFeedbackImageUpload(imgs);
-                                      }}
-                                    />
-                                    {editingFeedback.images.length > 0 && (
-                                      <div className="flex flex-wrap gap-1">
-                                        {editingFeedback.images.map((img) => (
-                                          <QuestImageThumbnail
-                                            key={img.id}
-                                            image={img}
-                                            onOpen={setLightboxSrc}
-                                            frameClassName="relative group"
-                                            imageClassName="w-10 h-10 object-cover rounded cursor-pointer"
-                                            onRemove={() =>
-                                              setEditingFeedback((prev) =>
-                                                prev
-                                                  ? { ...prev, images: prev.images.filter((im) => im.id !== img.id) }
-                                                  : prev,
-                                              )
-                                            }
-                                            removeButtonClassName="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                            removeLabel={`Remove feedback image ${img.filename}`}
-                                          />
-                                        ))}
-                                      </div>
-                                    )}
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        onClick={handleEditFeedbackSave}
-                                        disabled={feedbackSubmitting}
-                                        className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 cursor-pointer"
-                                      >
-                                        Save
-                                      </button>
-                                      <button
-                                        onClick={() => setEditingFeedback(null)}
-                                        className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : isConfirmingDelete ? (
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <button
-                                      onClick={() => handleDeleteFeedback(quest.questId, entryIndex)}
-                                      disabled={feedbackSubmitting}
-                                      className="text-xs px-2.5 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 disabled:opacity-40 cursor-pointer"
-                                      aria-label={`Confirm delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
-                                    >
-                                      Confirm delete
-                                    </button>
-                                    <button
-                                      onClick={() => setConfirmDeleteFeedback(null)}
-                                      className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                      aria-label={`Cancel delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    {entry.tldr ? (
-                                      <div className="space-y-1">
-                                        <div className="font-medium text-cc-fg">
-                                          <MarkdownContent
-                                            text={entry.tldr}
-                                            size="sm"
-                                            sessionId={questMarkdownSessionId}
-                                            wrapLongContent
-                                            onSessionNavigate={closePanel}
-                                          />
-                                        </div>
-                                        <details
-                                          open={isNavigationTarget || undefined}
-                                          className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted"
-                                        >
-                                          <summary className="cursor-pointer select-none">Full feedback</summary>
-                                          <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
-                                            <MarkdownContent
-                                              text={entry.text}
-                                              size="sm"
-                                              sessionId={questMarkdownSessionId}
-                                              wrapLongContent
-                                              onSessionNavigate={closePanel}
-                                            />
-                                          </div>
-                                        </details>
-                                      </div>
-                                    ) : (
-                                      <MarkdownContent
-                                        text={entry.text}
-                                        size="sm"
-                                        sessionId={questMarkdownSessionId}
-                                        wrapLongContent
-                                        onSessionNavigate={closePanel}
-                                      />
-                                    )}
-                                    {entry.images && entry.images.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 mt-1">
-                                        {entry.images.map((img) => (
-                                          <QuestImageThumbnail
-                                            key={img.id}
-                                            image={img}
-                                            onOpen={setLightboxSrc}
-                                            frameClassName="relative"
-                                            imageClassName="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                            title={img.filename}
-                                          />
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
+                          {listedFeedbackEntries.map((entry) => renderFeedbackEntry(entry))}
                         </div>
                       </>
                     )}

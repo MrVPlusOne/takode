@@ -170,6 +170,94 @@ describe("QuestPhaseDocumentationTimeline", () => {
   });
 });
 
+describe("QuestPhaseDocumentationTimeline unscoped feedback", () => {
+  // Two dated runs: unscoped feedback lands inside the phase its time falls in, or between the runs
+  // when it was written after one run ended and before the next started.
+  function datedSummary(): QuestPhaseDocumentationSummary {
+    const dated = (runId: string, runOrdinal: number, startedAt: number, completedAt: number, text: string) => ({
+      ...group({ runId, runOrdinal, position: 1, text }),
+      startedAt,
+      completedAt,
+      entries: [{ ...entry(runOrdinal * 100, text), ts: completedAt }],
+    });
+    const groups = [dated("run-1", 1, 1_000, 2_000, "Run one note"), dated("run-2", 2, 5_000, 6_000, "Run two note")];
+    const humanFeedback = (index: number, text: string, ts: number): IndexedQuestFeedbackEntry => ({
+      index,
+      author: "human",
+      text,
+      ts,
+    });
+    return {
+      hasJourneyRuns: true,
+      hasPhaseDocumentation: true,
+      primaryRun: run("run-2", 2, 1),
+      groups,
+      scopedEntries: groups.flatMap((item) => item.entries),
+      unscopedFeedback: [
+        humanFeedback(1, "Before any run", 500),
+        humanFeedback(2, "During run one", 1_500),
+        humanFeedback(3, "**Start** the second run", 3_000),
+        humanFeedback(4, "During run two", 5_500),
+      ],
+    };
+  }
+
+  it("shows feedback collapsed at its time position: between runs and inside phases", () => {
+    render(<QuestPhaseDocumentationTimeline summary={datedSummary()} />);
+
+    const list = screen.getByTestId("quest-phase-documentation-run-list");
+    const topLevel = [...list.children].map((child) =>
+      child.getAttribute("data-testid") === "quest-journey-feedback"
+        ? `feedback ${child.getAttribute("data-feedback-index")}`
+        : child.getAttribute("data-run-key"),
+    );
+    expect(topLevel).toEqual(["feedback 1", "run:run-1", "feedback 3", "run:run-2"]);
+
+    // The older run is collapsed, but its header counts the feedback inside it.
+    expect(screen.getByRole("button", { name: /Earlier Journey run 1/ })).toHaveTextContent("1 feedback");
+    const latestRun = list.querySelector('[data-run-key="run:run-2"]')!;
+    const insidePhase = within(latestRun as HTMLElement).getByTestId("quest-journey-feedback");
+    expect(insidePhase).toHaveAttribute("data-feedback-index", "4");
+
+    // Collapsed rows show a one-line plain-text preview, not the full Markdown entry.
+    const between = screen.getByRole("button", { name: "Show user feedback #3" });
+    expect(between).toHaveTextContent("Start the second run");
+    expect(between.querySelector("strong")).toBeNull();
+  });
+
+  it("expands a feedback row into the full entry and collapses it again", () => {
+    render(<QuestPhaseDocumentationTimeline summary={datedSummary()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show user feedback #3" }));
+    const expanded = document.querySelector<HTMLElement>('[data-feedback-index="3"]')!;
+    expect(expanded).toHaveAttribute("data-feedback-expanded", "true");
+    expect(within(expanded).getByText("Start").tagName).toBe("STRONG");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse feedback #3" }));
+    expect(screen.getByRole("button", { name: "Show user feedback #3" })).toBeInTheDocument();
+  });
+
+  it("uses the supplied renderer for expanded entries and expands a linked entry", async () => {
+    render(
+      <QuestPhaseDocumentationTimeline
+        summary={datedSummary()}
+        feedbackTarget={{ index: 2, requestId: 1 }}
+        renderFeedbackEntry={(item, { collapseControl }) => (
+          <div data-testid="custom-feedback">
+            {collapseControl}
+            Custom {item.text}
+          </div>
+        )}
+      />,
+    );
+
+    // Feedback #2 is inside the collapsed older run; the link opens the run and the entry.
+    await waitFor(() => expect(screen.getByTestId("custom-feedback")).toHaveTextContent("Custom During run one"));
+    expect(screen.getByRole("button", { name: /Earlier Journey run 1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Collapse feedback #2" })).toBeInTheDocument();
+  });
+});
+
 describe("QuestDetailTextSections Journey Details toggle", () => {
   const quest: QuestmasterTask = {
     id: "q-42-v1",

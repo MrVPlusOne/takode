@@ -1,10 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { formatQuestJourneyDuration, getQuestJourneyPhase } from "../../shared/quest-journey.js";
 import {
   phaseDocumentationPreview,
+  type IndexedQuestFeedbackEntry,
   type QuestPhaseDocumentationSummary,
 } from "../../shared/quest-phase-documentation-summary.js";
+import { markdownToPlainText } from "../utils/copy-utils.js";
+import {
+  compareFeedbackTime,
+  placeUnscopedFeedback,
+  type UnscopedFeedbackPlacement,
+} from "../utils/quest-journey-feedback-placement.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { getQuestPhaseAccentValue, getQuestPhaseBorderStyle } from "../utils/quest-phase-theme.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
@@ -20,6 +27,24 @@ interface QuestPhaseDocumentationTimelineProps {
   feedbackTarget?: QuestFeedbackTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
+  /**
+   * Renders an expanded unscoped feedback entry, with `collapseControl` placed in its header.
+   * Without it, expanded entries show their text and images read-only.
+   */
+  renderFeedbackEntry?: JourneyFeedbackRenderer;
+}
+
+export type JourneyFeedbackRenderer = (
+  entry: IndexedQuestFeedbackEntry,
+  options: { collapseControl: ReactNode },
+) => ReactNode;
+
+/** How unscoped feedback is placed and shown within the timeline. */
+interface JourneyFeedbackDisplay {
+  placement: UnscopedFeedbackPlacement;
+  isExpanded: (index: number) => boolean;
+  onToggle: (index: number) => void;
+  render?: JourneyFeedbackRenderer;
 }
 
 type PhaseDocumentationGroup = QuestPhaseDocumentationSummary["groups"][number];
@@ -37,6 +62,14 @@ interface DocumentationRunGroup {
   groups: PhaseDocumentationGroup[];
 }
 
+type TimelineTopLevelItem =
+  | { kind: "run"; run: DocumentationRunGroup }
+  | { kind: "feedback"; entry: IndexedQuestFeedbackEntry };
+
+type PhaseTimelineItem =
+  | { kind: "note"; entry: IndexedQuestFeedbackEntry }
+  | { kind: "feedback"; entry: IndexedQuestFeedbackEntry };
+
 const PHASE_DOCUMENTATION_GROUPS_BEFORE = 5;
 const PHASE_DOCUMENTATION_GROUPS_AFTER = 10;
 const PHASE_DOCUMENTATION_VISIBLE_LIMIT = PHASE_DOCUMENTATION_GROUPS_BEFORE + PHASE_DOCUMENTATION_GROUPS_AFTER + 1;
@@ -49,15 +82,25 @@ export function QuestPhaseDocumentationTimeline({
   feedbackTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
+  renderFeedbackEntry,
 }: QuestPhaseDocumentationTimelineProps) {
   const groups = summary.groups.filter((group) => group.entries.length > 0 || group.phaseStatus !== "pending");
-  const runGroups = buildDocumentationRunGroups(summary, groups);
+  const placement = placeUnscopedFeedback(groups, summary.unscopedFeedback);
+  const runGroups = buildDocumentationRunGroups(summary, groups, placement);
   const renderRunSections = runGroups.length > 1;
   const hasSearchHighlight = Boolean(searchHighlight?.trim());
   const [runExpansionOverrides, setRunExpansionOverrides] = useState<Record<string, boolean>>({});
   const [windowExpansionOverrides, setWindowExpansionOverrides] = useState<Record<string, boolean>>({});
+  const [expandedFeedback, setExpandedFeedback] = useState<Record<number, boolean>>({});
+  const targetIsUnscoped = Boolean(
+    feedbackTarget && summary.unscopedFeedback.some((entry) => entry.index === feedbackTarget.index),
+  );
   const targetGroup = feedbackTarget
-    ? groups.find((group) => group.entries.some((entry) => entry.index === feedbackTarget.index))
+    ? groups.find(
+        (group) =>
+          group.entries.some((entry) => entry.index === feedbackTarget.index) ||
+          placement.byGroupKey.get(group.key)?.some((entry) => entry.index === feedbackTarget.index),
+      )
     : undefined;
   const targetRun = targetGroup
     ? runGroups.find((run) => run.groups.some((group) => group.key === targetGroup.key))
@@ -76,8 +119,28 @@ export function QuestPhaseDocumentationTimeline({
       setWindowExpansionOverrides((current) => (current[key] === true ? current : { ...current, [key]: true }));
     }
   }, [feedbackTarget?.requestId, targetGroupKey, targetRunKey, targetWindowDirection]);
+  useEffect(() => {
+    if (!feedbackTarget || !targetIsUnscoped) return;
+    const index = feedbackTarget.index;
+    setExpandedFeedback((current) => (current[index] ? current : { ...current, [index]: true }));
+  }, [feedbackTarget?.requestId, targetIsUnscoped]);
   if (groups.length === 0) return null;
   const now = Date.now();
+  const feedbackDisplay: JourneyFeedbackDisplay = {
+    placement,
+    isExpanded: (index) => expandedFeedback[index] === true,
+    onToggle: (index) => setExpandedFeedback((current) => ({ ...current, [index]: !current[index] })),
+    render: renderFeedbackEntry,
+  };
+  const topLevelItems = interleaveOutsideFeedback(runGroups, placement.outside);
+  const feedbackItemProps = {
+    display: feedbackDisplay,
+    sessionId,
+    onSessionNavigate,
+    feedbackTarget,
+    highlightedFeedbackIndex,
+    onFeedbackTargetReady,
+  };
 
   function runExpanded(run: DocumentationRunGroup): boolean {
     if (hasSearchHighlight) return true;
@@ -116,7 +179,13 @@ export function QuestPhaseDocumentationTimeline({
       </div>
       {renderRunSections ? (
         <div className="min-w-0 max-w-full space-y-2" data-testid="quest-phase-documentation-run-list">
-          {runGroups.map((run) => {
+          {topLevelItems.map((item) => {
+            if (item.kind === "feedback") {
+              return (
+                <JourneyFeedbackItem key={`feedback-${item.entry.index}`} entry={item.entry} {...feedbackItemProps} />
+              );
+            }
+            const run = item.run;
             const expanded = runExpanded(run);
             return (
               <div
@@ -155,6 +224,7 @@ export function QuestPhaseDocumentationTimeline({
                       feedbackTarget={feedbackTarget}
                       highlightedFeedbackIndex={highlightedFeedbackIndex}
                       onFeedbackTargetReady={onFeedbackTargetReady}
+                      feedbackDisplay={feedbackDisplay}
                       isWindowExpanded={(direction) => windowExpanded(run.key, direction)}
                       onToggleWindow={(direction) => toggleWindow(run.key, direction)}
                     />
@@ -165,19 +235,29 @@ export function QuestPhaseDocumentationTimeline({
           })}
         </div>
       ) : (
-        <PhaseDocumentationGroupList
-          groups={runGroups[0]?.groups ?? groups}
-          runKey={runGroups[0]?.key ?? "all"}
-          now={now}
-          searchHighlight={searchHighlight}
-          sessionId={sessionId}
-          onSessionNavigate={onSessionNavigate}
-          feedbackTarget={feedbackTarget}
-          highlightedFeedbackIndex={highlightedFeedbackIndex}
-          onFeedbackTargetReady={onFeedbackTargetReady}
-          isWindowExpanded={(direction) => windowExpanded(runGroups[0]?.key ?? "all", direction)}
-          onToggleWindow={(direction) => toggleWindow(runGroups[0]?.key ?? "all", direction)}
-        />
+        <div className="min-w-0 max-w-full space-y-1.5">
+          {topLevelItems.map((item) =>
+            item.kind === "feedback" ? (
+              <JourneyFeedbackItem key={`feedback-${item.entry.index}`} entry={item.entry} {...feedbackItemProps} />
+            ) : (
+              <PhaseDocumentationGroupList
+                key={item.run.key}
+                groups={item.run.groups}
+                runKey={item.run.key}
+                now={now}
+                searchHighlight={searchHighlight}
+                sessionId={sessionId}
+                onSessionNavigate={onSessionNavigate}
+                feedbackTarget={feedbackTarget}
+                highlightedFeedbackIndex={highlightedFeedbackIndex}
+                onFeedbackTargetReady={onFeedbackTargetReady}
+                feedbackDisplay={feedbackDisplay}
+                isWindowExpanded={(direction) => windowExpanded(item.run.key, direction)}
+                onToggleWindow={(direction) => toggleWindow(item.run.key, direction)}
+              />
+            ),
+          )}
+        </div>
       )}
     </section>
   );
@@ -193,6 +273,7 @@ function PhaseDocumentationGroupList({
   feedbackTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
+  feedbackDisplay,
   isWindowExpanded,
   onToggleWindow,
 }: {
@@ -205,6 +286,7 @@ function PhaseDocumentationGroupList({
   feedbackTarget?: QuestFeedbackTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
+  feedbackDisplay: JourneyFeedbackDisplay;
   isWindowExpanded: (direction: OmittedPhaseDirection) => boolean;
   onToggleWindow: (direction: OmittedPhaseDirection) => void;
 }) {
@@ -269,6 +351,7 @@ function PhaseDocumentationGroupList({
             feedbackTarget={feedbackTarget}
             highlightedFeedbackIndex={highlightedFeedbackIndex}
             onFeedbackTargetReady={onFeedbackTargetReady}
+            feedbackDisplay={feedbackDisplay}
           />
         );
       })}
@@ -287,6 +370,7 @@ function PhaseDocumentationGroupRow({
   feedbackTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
+  feedbackDisplay,
 }: {
   group: PhaseDocumentationGroup;
   groupIndex: number;
@@ -298,9 +382,17 @@ function PhaseDocumentationGroupRow({
   feedbackTarget?: QuestFeedbackTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
+  feedbackDisplay: JourneyFeedbackDisplay;
 }) {
   const phase = group.phaseId ? getQuestJourneyPhase(group.phaseId) : null;
   const durationLabel = phaseDocumentationDurationLabel(group, now);
+  const items: PhaseTimelineItem[] = [
+    ...group.entries.map((entry) => ({ kind: "note" as const, entry })),
+    ...(feedbackDisplay.placement.byGroupKey.get(group.key) ?? []).map((entry) => ({
+      kind: "feedback" as const,
+      entry,
+    })),
+  ].sort((a, b) => compareFeedbackTime(a.entry, b.entry));
   return (
     <li
       className="grid min-w-0 grid-cols-[16px_minmax(0,1fr)] gap-x-2"
@@ -337,9 +429,23 @@ function PhaseDocumentationGroupRow({
             </span>
           )}
         </div>
-        {group.entries.length > 0 && (
+        {items.length > 0 && (
           <div className="ml-[1.375rem] mt-1 min-w-0 max-w-full space-y-1.5 overflow-hidden">
-            {group.entries.map((entry) => {
+            {items.map(({ kind, entry }) => {
+              if (kind === "feedback") {
+                return (
+                  <JourneyFeedbackItem
+                    key={`feedback-${entry.index}`}
+                    entry={entry}
+                    display={feedbackDisplay}
+                    sessionId={sessionId}
+                    onSessionNavigate={onSessionNavigate}
+                    feedbackTarget={feedbackTarget}
+                    highlightedFeedbackIndex={highlightedFeedbackIndex}
+                    onFeedbackTargetReady={onFeedbackTargetReady}
+                  />
+                );
+              }
               const preview = entry.tldr?.trim() || compactText(phaseDocumentationPreview(entry));
               return (
                 <PhaseDocumentationEntry
@@ -458,6 +564,118 @@ function PhaseDocumentationEntry({
   );
 }
 
+/**
+ * Unscoped feedback shown at its time position: a one-line row by default, the full entry when expanded.
+ */
+function JourneyFeedbackItem({
+  entry,
+  display,
+  sessionId,
+  onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
+}: {
+  entry: IndexedQuestFeedbackEntry;
+  display: JourneyFeedbackDisplay;
+  sessionId?: string;
+  onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
+}) {
+  const expanded = display.isExpanded(entry.index);
+  const isHuman = entry.author === "human";
+  const authorLabel = isHuman ? "user" : entry.author;
+  const toggle = () => display.onToggle(entry.index);
+
+  if (!expanded) {
+    const preview = compactText(markdownToPlainText(entry.tldr?.trim() || entry.text), 240);
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={false}
+        aria-label={`Show ${authorLabel} feedback #${entry.index}`}
+        className={`flex w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-left text-[11px] transition-colors hover:bg-cc-hover/60 ${
+          !isHuman
+            ? "border-cc-border/70 bg-cc-input-bg/40"
+            : entry.addressed
+              ? "border-amber-500/10 bg-amber-500/5"
+              : "border-amber-500/20 bg-amber-500/8"
+        }`}
+        data-testid="quest-journey-feedback"
+        data-feedback-index={entry.index}
+        data-feedback-expanded="false"
+      >
+        <span className="shrink-0 text-[10px] text-cc-muted/60" aria-hidden="true">
+          ▸
+        </span>
+        <span className={`shrink-0 font-medium ${isHuman ? "text-amber-400/80" : "text-cc-muted"}`}>{authorLabel}</span>
+        <span className={`min-w-0 flex-1 truncate ${isHuman && entry.addressed ? "text-cc-muted" : "text-cc-fg/85"}`}>
+          {preview}
+        </span>
+        {isHuman && entry.addressed && (
+          <span className="shrink-0 text-[10px] text-green-500/70" title="Addressed">
+            ✓
+          </span>
+        )}
+        {/* Phone rows keep the preview readable; the expanded entry still shows the index. */}
+        <span className="hidden shrink-0 font-mono-code text-[10px] text-cc-muted/50 sm:inline">#{entry.index}</span>
+        <span className="shrink-0 text-[10px] text-cc-muted/50">{timeAgo(entry.ts)}</span>
+      </button>
+    );
+  }
+
+  const collapseControl = (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-expanded
+      aria-label={`Collapse feedback #${entry.index}`}
+      className="shrink-0 rotate-90 text-[10px] text-cc-muted/60 transition-colors hover:text-cc-fg"
+    >
+      ▸
+    </button>
+  );
+  if (display.render) {
+    return (
+      <div data-testid="quest-journey-feedback" data-feedback-expanded="true">
+        {display.render(entry, { collapseControl })}
+      </div>
+    );
+  }
+  const isTarget = feedbackTarget?.index === entry.index;
+  const isHighlighted = highlightedFeedbackIndex === entry.index;
+  return (
+    <div
+      ref={isTarget ? onFeedbackTargetReady : undefined}
+      className={`min-w-0 max-w-full overflow-hidden rounded-md border px-2 py-1.5 text-xs ${
+        isHighlighted ? "border-cc-primary/60 bg-cc-primary/10 ring-2 ring-cc-primary/40" : "border-cc-border/70"
+      }`}
+      data-testid="quest-journey-feedback"
+      data-feedback-index={entry.index}
+      data-feedback-expanded="true"
+      tabIndex={-1}
+    >
+      <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] text-cc-muted">
+        {collapseControl}
+        <span className="font-medium">{authorLabel}</span>
+        <span className="font-mono-code">#{entry.index}</span>
+        <span className="text-cc-muted/60">{timeAgo(entry.ts)}</span>
+      </div>
+      <MarkdownContent
+        text={entry.text}
+        size="sm"
+        sessionId={sessionId}
+        wrapLongContent
+        onSessionNavigate={onSessionNavigate}
+      />
+      <QuestPhaseNoteImages text={entry.text} images={entry.images} sessionId={sessionId} />
+    </div>
+  );
+}
+
 function compactText(text: string, max = 180): string {
   const compact = text.trim().replace(/\s+/g, " ");
   if (compact.length <= max) return compact;
@@ -467,6 +685,7 @@ function compactText(text: string, max = 180): string {
 function buildDocumentationRunGroups(
   summary: QuestPhaseDocumentationSummary,
   groups: PhaseDocumentationGroup[],
+  placement: UnscopedFeedbackPlacement,
 ): DocumentationRunGroup[] {
   const primaryRunId = summary.primaryRun?.runId;
   const runCount = new Set(groups.flatMap((group) => (group.journeyRunId ? [group.journeyRunId] : []))).size;
@@ -483,6 +702,10 @@ function buildDocumentationRunGroups(
     const isPrimaryRun = Boolean(firstGroup?.journeyRunId && firstGroup.journeyRunId === primaryRunId);
     const isUnmatched = key === "unmatched";
     const entryCount = runGroups.reduce((count, group) => count + group.entries.length, 0);
+    const feedbackCount = runGroups.reduce(
+      (count, group) => count + (placement.byGroupKey.get(group.key)?.length ?? 0),
+      0,
+    );
     const label = isUnmatched
       ? "Other phase notes"
       : isPrimaryRun
@@ -491,6 +714,7 @@ function buildDocumentationRunGroups(
     const metaLabel = [
       `${runGroups.length} phase${runGroups.length === 1 ? "" : "s"}`,
       `${entryCount} note${entryCount === 1 ? "" : "s"}`,
+      ...(feedbackCount > 0 ? [`${feedbackCount} feedback`] : []),
     ].join(" · ");
     return {
       key,
@@ -500,6 +724,28 @@ function buildDocumentationRunGroups(
       groups: runGroups,
     };
   });
+}
+
+/**
+ * Places the feedback that falls outside every run between the runs, by time.
+ * Runs without a recorded start (older data) cannot be dated, so feedback is never moved before them.
+ */
+function interleaveOutsideFeedback(
+  runs: DocumentationRunGroup[],
+  outside: IndexedQuestFeedbackEntry[],
+): TimelineTopLevelItem[] {
+  const items: TimelineTopLevelItem[] = [];
+  let next = 0;
+  for (const run of runs) {
+    const startTimes = run.groups.flatMap((group) => (group.startedAt ? [group.startedAt] : []));
+    const runStart = startTimes.length > 0 ? Math.min(...startTimes) : null;
+    while (runStart !== null && next < outside.length && outside[next]!.ts < runStart) {
+      items.push({ kind: "feedback", entry: outside[next++]! });
+    }
+    items.push({ kind: "run", run });
+  }
+  for (const entry of outside.slice(next)) items.push({ kind: "feedback", entry });
+  return items;
 }
 
 function feedbackTargetWindowDirection(

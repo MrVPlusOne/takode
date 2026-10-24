@@ -6,7 +6,7 @@ import {
 } from "../utils/quest-editor-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
-import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
+import { QuestPhaseDocumentationTimeline, type JourneyFeedbackRenderer } from "./QuestPhaseDocumentationTimeline.js";
 import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { useEffect, useState, type ReactNode } from "react";
@@ -26,6 +26,8 @@ interface QuestDetailTextSectionsProps {
   feedbackTarget?: QuestFeedbackTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
+  /** Renders an expanded unscoped feedback entry shown inside the Journey timeline. */
+  renderFeedbackEntry?: JourneyFeedbackRenderer;
   beforeSummary?: ReactNode;
 }
 
@@ -40,6 +42,7 @@ export function QuestDetailTextSections({
   feedbackTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
+  renderFeedbackEntry,
   beforeSummary,
 }: QuestDetailTextSectionsProps) {
   const description = getQuestDescription(quest);
@@ -48,13 +51,12 @@ export function QuestDetailTextSections({
   const questDebriefTldr = getQuestDebriefTldr(quest);
   const hasFinalDebrief = Boolean(questDebrief);
   const [journeyDetailsExpanded, setJourneyDetailsExpanded] = useState(true);
-  const targetIsScoped = Boolean(
-    feedbackTarget && phaseDocumentationSummary.scopedEntries.some((entry) => entry.index === feedbackTarget.index),
-  );
+  // With phase documentation, the timeline shows every feedback entry, scoped or not.
+  const targetInTimeline = Boolean(feedbackTarget && phaseDocumentationSummary.hasPhaseDocumentation);
   useEffect(() => setJourneyDetailsExpanded(true), [quest.questId]);
   useEffect(() => {
-    if (targetIsScoped) setJourneyDetailsExpanded(true);
-  }, [feedbackTarget?.requestId, targetIsScoped]);
+    if (targetInTimeline) setJourneyDetailsExpanded(true);
+  }, [feedbackTarget?.requestId, targetInTimeline]);
   const detailSearchHighlight = searchHighlight
     ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false }
     : null;
@@ -203,6 +205,7 @@ export function QuestDetailTextSections({
             feedbackTarget={feedbackTarget}
             highlightedFeedbackIndex={highlightedFeedbackIndex}
             onFeedbackTargetReady={onFeedbackTargetReady}
+            renderFeedbackEntry={renderFeedbackEntry}
           />
         </QuestDetailToggleSection>
       )}

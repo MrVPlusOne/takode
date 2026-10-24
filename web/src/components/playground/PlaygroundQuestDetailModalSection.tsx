@@ -97,7 +97,8 @@ function openPlaygroundQuestDetail(questId: "q-42" | "q-44") {
           ],
           journeyRuns,
           feedback: [
-            ...buildPlaygroundPhaseFeedback(journeyRuns, now),
+            ...buildPlaygroundPhaseFeedback(journeyRuns),
+            // Unscoped feedback sits in the Journey timeline by time: inside a phase, between runs, after the Journey.
             {
               author: "human" as const,
               text: "Please also check iPad mini",
@@ -106,16 +107,23 @@ function openPlaygroundQuestDetail(questId: "q-42" | "q-44") {
               authorSessionId: "abc-123",
             },
             {
+              author: "human" as const,
+              text: "User (after the first round): start a second round for **landscape** phones before landing.",
+              ts: now - 5430000,
+              addressed: true,
+              authorSessionId: "playground-leader",
+            },
+            {
               author: "agent" as const,
               text: "Checked on iPad mini -- works correctly with the new wrapper.",
-              ts: now - 3600000,
+              ts: now - 1500000,
               authorSessionId: "abc-123",
               machine: "build-box",
             },
             {
               author: "human" as const,
               text: "Looks good! One more: the close button is hard to tap.",
-              ts: now - 1800000,
+              ts: now - 300000,
               addressed: false,
             },
           ],
@@ -170,12 +178,18 @@ const PLAYGROUND_PHASE_CYCLE = ["alignment", "user-checkpoint", "work", "memory"
 
 function buildPlaygroundJourneyRuns(now: number) {
   return [
-    buildPlaygroundJourneyRun("playground-run-1", 1, 6, now - 9000000),
-    buildPlaygroundJourneyRun("playground-run-2", 2, 20, now - 5400000),
+    buildPlaygroundJourneyRun("playground-run-1", 1, 6, now - 9000000, 600000),
+    buildPlaygroundJourneyRun("playground-run-2", 2, 20, now - 5400000, 240000),
   ];
 }
 
-function buildPlaygroundJourneyRun(runId: string, runOrdinal: number, phaseCount: number, createdAt: number) {
+function buildPlaygroundJourneyRun(
+  runId: string,
+  runOrdinal: number,
+  phaseCount: number,
+  createdAt: number,
+  phaseDuration: number,
+) {
   const phaseIds = Array.from(
     { length: phaseCount },
     (_, index) => PLAYGROUND_PHASE_CYCLE[index % PLAYGROUND_PHASE_CYCLE.length],
@@ -195,18 +209,20 @@ function buildPlaygroundJourneyRun(runId: string, runOrdinal: number, phaseCount
       phasePosition: phaseIndex + 1,
       phaseOccurrence: phaseIds.slice(0, phaseIndex + 1).filter((candidate) => candidate === phaseId).length,
       status: phaseIndex === activeIndex ? ("active" as const) : ("completed" as const),
+      startedAt: createdAt + phaseIndex * phaseDuration,
+      ...(phaseIndex === activeIndex ? {} : { completedAt: createdAt + (phaseIndex + 1) * phaseDuration }),
     })),
   };
 }
 
-function buildPlaygroundPhaseFeedback(journeyRuns: ReturnType<typeof buildPlaygroundJourneyRuns>, now: number) {
+function buildPlaygroundPhaseFeedback(journeyRuns: ReturnType<typeof buildPlaygroundJourneyRuns>) {
   return journeyRuns.flatMap((run, runIndex) =>
     run.phaseOccurrences.map((occurrence, occurrenceIndex) => ({
       author: "agent" as const,
       kind: "phase_summary" as const,
       text: `Playground long Journey detail for run ${runIndex + 1}, phase ${occurrence.phasePosition}.`,
       tldr: `Run ${runIndex + 1} phase ${occurrence.phasePosition} TLDR for collapsed Journey testing.`,
-      ts: now - 5400000 + runIndex * 120000 + occurrenceIndex * 1000,
+      ts: occurrence.startedAt + 30000,
       authorSessionId: "abc-123",
       // Alternate machines so the Playground shows notes stamped by different machines.
       machine: occurrenceIndex % 2 === 0 ? "laptop" : "build-box",

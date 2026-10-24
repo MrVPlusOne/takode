@@ -937,8 +937,15 @@ describe("QuestDetailPanel", () => {
     expect(within(phaseGroups[2]!).queryByTestId("quest-phase-documentation-entry")).toBeNull();
     expect(within(phaseGroups[3]!).getByTestId("quest-phase-documentation-duration")).toHaveTextContent("1m");
     expect(screen.getByText("Full second implementation detail.")).not.toBeVisible();
-    expect(screen.getByText("Unscoped Feedback")).toBeTruthy();
-    expect(screen.getByText("Flat feedback remains visible.")).toBeTruthy();
+    // Unscoped feedback is no longer listed separately: it sits collapsed in the phase its time falls in,
+    // and expands into the full entry with its actions.
+    expect(screen.queryByText("Unscoped Feedback")).toBeNull();
+    const feedbackRow = within(phaseGroups[3]!).getByTestId("quest-journey-feedback");
+    expect(feedbackRow).toHaveAttribute("data-feedback-expanded", "false");
+    expect(feedbackRow).toHaveTextContent("Flat feedback remains visible.");
+    fireEvent.click(feedbackRow);
+    expect(within(phaseGroups[3]!).getByLabelText("Edit feedback #1")).toBeTruthy();
+    expect(within(phaseGroups[3]!).getByLabelText("Collapse feedback #1")).toBeTruthy();
 
     fireEvent.click(within(timeline).getByText("Full phase detail"));
     expect(await screen.findByText("Full second implementation detail.")).toBeVisible();
@@ -980,6 +987,8 @@ describe("QuestDetailPanel", () => {
 
     await waitFor(() => expect(document.querySelector('[data-feedback-index="4"]')).toBeInTheDocument());
     const target = document.querySelector<HTMLElement>('[data-feedback-index="4"]')!;
+    // The entry lives in the Journey timeline (after the undated runs) and is expanded for the link.
+    expect(screen.getByTestId("quest-phase-documentation-timeline")).toContainElement(target);
     expect(within(target).getByText("#4")).toBeInTheDocument();
     expect(target.querySelector("details")).toHaveAttribute("open");
     expect(screen.getByText("Unscoped target body")).toBeVisible();
