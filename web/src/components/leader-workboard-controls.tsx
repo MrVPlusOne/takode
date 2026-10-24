@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TopicIcon } from "./library/library-icons.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { describeBoardPhaseDots, type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
 import { getQuestPhaseAccentValue } from "../utils/quest-phase-theme.js";
@@ -169,6 +170,31 @@ export function LeaderWorkboardTopBarButton({
     >
       <WorkBoardDotsIcon dots={dots} large={compact} />
       {!compact && <span>Board</span>}
+    </button>
+  );
+}
+
+/**
+ * On phones, a leader's topic pages next to Board: opens and closes the topic sheet over the
+ * conversation. Same 36 px square as the Board button. Desktop shows the topic panel, or its
+ * rail, beside the conversation instead.
+ */
+export function LeaderTopicsTopBarButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const label = open ? "Close topics" : "Open topics";
+  const tone = open
+    ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
+    : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover";
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${tone}`}
+      data-testid="topbar-topics-button"
+      aria-pressed={open}
+      aria-label={label}
+      title={label}
+    >
+      <TopicIcon className="h-[18px] w-[18px]" />
     </button>
   );
 }

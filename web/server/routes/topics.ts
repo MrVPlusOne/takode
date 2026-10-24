@@ -56,13 +56,32 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
 
   api.get("/topics", (c) =>
     run(c, async (svc): Promise<TopicListResponse> => {
-      const space = c.req.query("space") ?? callerSpace(svc, caller(c));
+      const leaderId = c.req.query("leader") ? ctx.resolveId(c.req.query("leader")!) : null;
+      const leaderInfo = leaderId ? ctx.launcher.getSession(leaderId) : undefined;
+      // A leader's Library shows the topics of its space that hold its quests.
+      const space =
+        (leaderId ? leaderInfo?.memorySessionSpaceSlug : undefined) ??
+        c.req.query("space") ??
+        callerSpace(svc, caller(c));
       const scoped = space && space !== "all" ? space : undefined;
       const leaders = await svc.leaderStates();
+      let topics = svc.store.list(scoped);
+      if (leaderId) {
+        const own = new Set(
+          (await listQuests())
+            .filter((quest) => (quest as { leaderSessionId?: string }).leaderSessionId === leaderId)
+            .map((quest) => quest.questId),
+        );
+        topics = topics.filter((topic) => topic.questIds.some((questId) => own.has(questId)));
+      }
       return {
-        topics: svc.store.list(scoped),
+        topics,
         changes: svc.store.changes(scoped),
-        leaders: scoped ? leaders.filter((leader) => leader.space === scoped) : leaders,
+        leaders: leaderId
+          ? leaders.filter((leader) => leader.sessionId === leaderId)
+          : scoped
+            ? leaders.filter((leader) => leader.space === scoped)
+            : leaders,
         spaces: [...new Set([...svc.store.spaces(), ...leaders.map((leader) => leader.space)])].sort(),
         paused: scoped ? svc.store.isPaused(scoped) : false,
         budget: scoped ? svc.budget(scoped) : { used: 0, limit: 0, overBudget: false },

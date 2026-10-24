@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import { createPortal } from "react-dom";
 import type {
   CodexNativeSubagentCoverage,
@@ -698,6 +699,7 @@ export function CodexSubagentInspector({
     return lineage;
   }, [childById, selectedChild]);
   const [history, setHistory] = useState<HistoryState>({ phase: "idle" });
+  const listSplit = useSplitWidth("codex-subagent-list", { defaultWidth: 256, min: 200, max: 520 });
   const [, setWarningPresentationRevision] = useState(0);
   const historyCacheRef = useRef(new Map<string, HistoryCacheEntry>());
   const requestRef = useRef<AbortController | null>(null);
@@ -1139,7 +1141,8 @@ export function CodexSubagentInspector({
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
-            className={`${selectedChild ? "hidden lg:flex" : "flex"} min-h-0 w-full min-w-0 flex-col border-r-cc-border bg-cc-card/45 lg:w-60 lg:shrink-0 lg:border-r xl:w-64`}
+            style={listSplit.style}
+            className={`${selectedChild ? "hidden lg:flex" : "flex"} min-h-0 w-full min-w-0 flex-col border-r-cc-border bg-cc-card/45 lg:w-[var(--split-w)] lg:shrink-0 lg:border-r`}
             aria-label="Codex subagent list"
             data-codex-subagent-list="true"
           >
@@ -1188,6 +1191,7 @@ export function CodexSubagentInspector({
               <EmptyListState snapshot={snapshot} scopeTurnId={scopeTurnId} />
             )}
           </aside>
+          <SplitHandle label="Resize the subagent list" className="hidden lg:block" {...listSplit.handleProps} />
 
           <main
             className={`${selectedChild ? "flex" : "hidden lg:flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-cc-bg`}

@@ -315,6 +315,7 @@ interface SharpMetadata {
 interface SharpPipeline {
   metadata(): Promise<SharpMetadata>;
   rotate(): SharpPipeline;
+  extract(region: { left: number; top: number; width: number; height: number }): SharpPipeline;
   resize(options: { width: number; height: number; fit: "inside"; withoutEnlargement?: boolean }): SharpPipeline;
   webp(options: WebpOptions): SharpPipeline;
   toBuffer(): Promise<Buffer>;

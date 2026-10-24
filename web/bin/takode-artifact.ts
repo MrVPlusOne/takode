@@ -4,15 +4,17 @@ import type {
   ArtifactSummary,
   ArtifactVersionContent,
 } from "../shared/artifact-library.js";
-import { ARTIFACT_KIND_LABELS, ARTIFACT_KINDS } from "../shared/artifact-library.js";
+import { ARTIFACT_KIND_LABELS, ARTIFACT_KINDS, formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
 import { apiGet, apiPatch, apiPost, assertKnownFlags, err, formatRelativeTime, parseFlags } from "./takode-core.js";
 
 export const ARTIFACT_HELP = `Usage: takode artifact <list|show|rename|merge> ...
 
-The artifact library: drafts and posts, reports, figures, visuals and guided reviews saved from
-conversations, with revisions grouped as versions. Takode saves them by itself; name a draft with a
-"title: <name>" line and a "---" line at its start so its revisions group under that name.
+The artifact library: drafts and posts, reports, figures, visuals, tables and guided reviews saved
+from conversations, with revisions grouped as versions. Takode saves them by itself; name a draft
+with a "title: <name>" line and a "---" line at its start so its revisions group under that name.
+Each artifact is printed as a ready-to-paste link, [title](artifact:<id>); add :v<n> after the ID
+to link one version.
 
   takode artifact list [--kind <kind>] [--space <name>|all] [--since <time>] [--query <text>] [--starred] [--limit N] [--json]
       Newest first. Default space: your session's. Kinds: ${ARTIFACT_KINDS.join(", ")}.
@@ -22,7 +24,7 @@ conversations, with revisions grouped as versions. Takode saves them by itself; 
   takode artifact merge <id> --into <id>
       Make one artifact's versions versions of another, for revisions saved separately.
 
-<id> is the short ID shown by list (or any unique prefix).`;
+<id> is the short ID in the link (or any unique prefix).`;
 
 const LIST_FLAGS = new Set(["kind", "space", "since", "query", "starred", "limit", "json"]);
 
@@ -94,7 +96,7 @@ export function formatArtifactList(response: ArtifactListResponse & { space?: st
 function formatArtifactRow(artifact: ArtifactSummary): string {
   const version = artifact.versionCount > 1 ? ` v${artifact.versionCount}` : "";
   const star = artifact.starred ? " ★" : "";
-  return `  ${shortId(artifact.id)}  ${ARTIFACT_KIND_LABELS[artifact.kind]}${version}  ${artifact.title}${star}  · ${artifact.threadKey} · ${formatRelativeTime(artifact.updatedAt)}`;
+  return `  ${ARTIFACT_KIND_LABELS[artifact.kind]}${version}  ${formatArtifactLink(artifact.title, artifact.id)}${star}  · ${artifact.threadKey} · ${formatRelativeTime(artifact.updatedAt)}`;
 }
 
 async function showArtifact(base: string, args: string[]): Promise<void> {
@@ -117,11 +119,11 @@ async function showArtifact(base: string, args: string[]): Promise<void> {
     return;
   }
   const lines = [
-    `${shortId(detail.id)}  ${ARTIFACT_KIND_LABELS[detail.kind]}  "${detail.title}"  · space ${detail.space} · ${detail.threadKey}`,
+    `${ARTIFACT_KIND_LABELS[detail.kind]}  ${formatArtifactLink(detail.title, detail.id)}  · space ${detail.space} · ${detail.threadKey}`,
     `Versions: ${detail.versions
       .map((candidate) => `v${candidate.n} ${formatRelativeTime(candidate.at)}${candidate.kept ? "" : " (not kept)"}`)
       .join(", ")}`,
-    `Showing v${n} (thread ${version.source.threadKey}):`,
+    `Showing v${n} (thread ${version.source.threadKey}; this version: ${formatArtifactLink(detail.title, detail.id, n)}):`,
     "",
     formatContent(content, version.kept),
   ];
@@ -139,6 +141,7 @@ function formatContent(content: ArtifactVersionContent | null, kept: boolean): s
         .join("\n\n");
     case "report":
     case "review":
+    case "table":
       return content.markdown;
     case "visual":
       return content.source;

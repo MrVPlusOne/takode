@@ -1,4 +1,5 @@
 import { browserLoadDiagnostics } from "./utils/browser-load-diagnostics.js";
+import { SplitHandle, useSplitWidth } from "./components/SplitHandle.js";
 import {
   useCallback,
   useEffect,
@@ -292,7 +293,7 @@ const SECONDARY_PAGES: Record<SecondaryPage, { label: string; size: SecondaryVie
   scheduled: { label: "To-dos & Timers", size: "page" },
   questmaster: { label: "Questmaster", size: "page" },
   memory: { label: "Memory", size: "page" },
-  library: { label: "Library", size: "page" },
+  library: { label: "Artifacts", size: "page" },
 };
 
 /** The page shown as the secondary view. Settings stays mounted under the Changelog it links to. */
@@ -449,6 +450,9 @@ export default function App() {
   ));
   const activeConversation = activeConversationSessionId ? keepAlive.kept[0] : undefined;
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
+  // Desktop side panels can be resized by dragging their dividers.
+  const sidebarSplit = useSplitWidth("sidebar", { defaultWidth: 260, min: 200, max: 480 });
+  const taskPanelSplit = useSplitWidth("task-panel", { defaultWidth: 280, min: 220, max: 560, side: "right" });
   const viewportWidth = useViewportWidth(zoomLevel);
   // Wide screens float the secondary view (a page and viewers opened from the conversation) over
   // the whole app from the right, as wide as its content needs; phones cover the conversation with
@@ -1071,23 +1075,27 @@ export default function App() {
           inert={secondaryAreaOpen}
           data-testid="app-sidebar-shell"
           data-mobile-sidebar-state={shouldKeepMobileSidebarMounted ? (sidebarOpen ? "open" : "hidden") : undefined}
+          style={
+            isDesktopShell
+              ? { ...sidebarSplit.style, touchAction: "pan-y", overscrollBehaviorX: "none" }
+              : { touchAction: "pan-y", overscrollBehaviorX: "none" }
+          }
           className={`
             ${
               isDesktopShell
-                ? "relative z-auto w-[260px] translate-x-0"
+                ? "relative z-auto w-[var(--split-w)] translate-x-0"
                 : `fixed inset-y-0 left-0 z-40 w-[80vw] transform-gpu ${
                     sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"
                   }`
             }
             h-full shrink-0 overflow-hidden transition-transform duration-200 ease-out
           `}
-          style={{
-            touchAction: "pan-y",
-            overscrollBehaviorX: "none",
-          }}
         >
           <Sidebar onOpenUniversalSearch={openUniversalSearch} />
         </div>
+      )}
+      {shouldRenderSidebar && isDesktopShell && !secondaryAreaOpen && (
+        <SplitHandle label="Resize the sessions panel" {...sidebarSplit.handleProps} />
       )}
 
       {/* Main area, inert with the sidebar and task panel while the secondary view floats over them */}
@@ -1222,10 +1230,14 @@ export default function App() {
             />
           )}
 
+          {isDesktopTaskPanel && !secondaryAreaOpen && (
+            <SplitHandle label="Resize the session panel" {...taskPanelSplit.handleProps} />
+          )}
           <div
             inert={secondaryAreaOpen}
+            style={isDesktopTaskPanel ? taskPanelSplit.style : undefined}
             className={`
-              ${isDesktopTaskPanel ? "relative z-auto w-[280px] translate-x-0" : "fixed z-40 right-0 top-0 w-[280px] translate-x-0"}
+              ${isDesktopTaskPanel ? "relative z-auto w-[var(--split-w)] translate-x-0" : "fixed z-40 right-0 top-0 w-[280px] translate-x-0"}
               h-full shrink-0 transition-all duration-200 overflow-hidden
             `}
           >

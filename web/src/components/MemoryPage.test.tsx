@@ -427,7 +427,9 @@ describe("MemoryPage", () => {
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
     // The machines a note was written on tell the reader which environment its paths describe.
     expect(screen.getByTestId("memory-record-machines")).toHaveTextContent("laptopdevbox");
-    expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]");
+    // The side panel takes its width from a draggable divider.
+    expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[var(--split-w)_minmax(0,1fr)]");
+    expect(screen.getByRole("separator", { name: "Resize the memory side panel" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Memory detail" })).toHaveClass("min-w-0", "overflow-hidden");
     expect(screen.getByTestId("memory-detail-body")).toHaveClass("space-y-4");
     expect(screen.getByTestId("memory-detail-body")).not.toHaveClass("grid");

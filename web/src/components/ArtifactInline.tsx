@@ -134,6 +134,7 @@ export function ArtifactVersionContentView({
       );
     case "report":
     case "review":
+    case "table":
       return <div>{renderMarkdown(content.markdown)}</div>;
     case "visual":
       return <VisualBlock source={content.source} />;

@@ -19,7 +19,11 @@ const topicPath = (id: string) => `/topics/${encodeURIComponent(id)}`;
 
 /** The Library's topics API (see `server/routes/topics.ts`). */
 export const topicApi = {
-  list: (space: string) => request<TopicListResponse>(`/topics?space=${encodeURIComponent(space || "all")}`),
+  /** A space's topics, or with `leader` the topics holding that leader's quests. */
+  list: (space: string, leader?: string | null) =>
+    request<TopicListResponse>(
+      `/topics?space=${encodeURIComponent(space || "all")}${leader ? `&leader=${encodeURIComponent(leader)}` : ""}`,
+    ),
   get: (id: string) => request<TopicDetail>(topicPath(id)),
   rename: (id: string, name: string) => request<TopicSummary>(topicPath(id), { method: "PATCH", body: { name } }),
   merge: (id: string, into: string) =>

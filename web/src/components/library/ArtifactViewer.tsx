@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { ARTIFACT_KIND_LABELS, type ArtifactDetail } from "../../../shared/artifact-library.js";
+import {
+  ARTIFACT_KIND_LABELS,
+  formatArtifactLink,
+  shortArtifactId,
+  type ArtifactDetail,
+} from "../../../shared/artifact-library.js";
+import type { QuestTopicMap } from "../../../shared/library-topics.js";
+import { topicApi } from "../../api/topics.js";
+import { writeClipboardText } from "../../utils/copy-utils.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { useStore } from "../../store.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
+import { openTopicInPanel } from "../../utils/topic-panel.js";
 import { navigateToSessionMessageId } from "../../utils/routing.js";
 import { closeSecondaryPage } from "../../utils/secondary-view.js";
 import { ArtifactVersionLoader, StarIcon } from "../ArtifactInline.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 
 /**
- * One artifact in the Library: its newest version (or the one stepped to), each version's date,
- * a star, renaming, and a link to the message the version came from.
+ * One artifact in the Library, shown large: its newest version (or the one stepped to), each
+ * version's date, a star, renaming, its short ID with Copy link (for mentioning it to a leader),
+ * its topic, and a link to the message the version came from.
  */
 export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: () => void; onChanged: () => void }) {
   const requestedVersion = useLibraryNav((state) => state.version);
@@ -140,7 +150,11 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
             })}
           </span>
         </div>
-        <SourceLink sessionId={source.sessionId} messageId={source.messageId} threadKey={source.threadKey} />
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <SourceLink sessionId={source.sessionId} messageId={source.messageId} threadKey={source.threadKey} />
+          <TopicLink threadKey={detail.threadKey} />
+          <IdChip detail={detail} version={detail.versions.length > 1 ? version.n : undefined} />
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         {version.kept ? (
@@ -161,16 +175,89 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
 
 function ViewerFrame({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="artifact-viewer">
+    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col" data-testid="artifact-viewer">
       <button
         type="button"
         onClick={onBack}
-        className="flex shrink-0 items-center gap-1 px-3 pt-2 text-[13px] text-cc-muted hover:text-cc-fg md:hidden"
+        className="flex shrink-0 items-center gap-1 self-start px-3 pt-2 text-[13px] text-cc-muted hover:text-cc-fg"
       >
         ‹ Library
       </button>
       {children}
     </div>
+  );
+}
+
+/**
+ * The short ID people mention to a leader ("artifact 0f1e2d3c"), with Copy link for an
+ * `[title](artifact:<id>)` link that Takode renders with a preview. With several versions the link
+ * names the one shown.
+ */
+function IdChip({ detail, version }: { detail: ArtifactDetail; version?: number }) {
+  const [copied, setCopied] = useState<"id" | "link" | null>(null);
+  const copy = (what: "id" | "link") => {
+    const text = what === "id" ? shortArtifactId(detail.id) : formatArtifactLink(detail.title, detail.id, version);
+    void writeClipboardText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+  return (
+    <span className="inline-flex items-center gap-1 text-[12.5px] text-cc-muted" data-testid="artifact-id">
+      <button
+        type="button"
+        onClick={() => copy("id")}
+        title="Copy ID"
+        className="rounded-md border border-cc-border bg-cc-card px-1.5 py-0.5 font-mono-code text-[12px] text-cc-fg hover:bg-cc-hover"
+      >
+        {copied === "id" ? "Copied" : shortArtifactId(detail.id)}
+      </button>
+      <button
+        type="button"
+        onClick={() => copy("link")}
+        className="rounded-md px-1.5 py-0.5 text-cc-primary hover:bg-cc-hover"
+      >
+        {copied === "link" ? "Link copied" : "Copy link"}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * "Topic: T7 run ›" when the artifact's quest is filed under a topic: opens the topic in the panel
+ * of the leader whose artifacts are shown (or of the leader on screen).
+ */
+function TopicLink({ threadKey }: { threadKey: string }) {
+  const [topic, setTopic] = useState<QuestTopicMap[string] | null>(null);
+  const scopedLeader = useLibraryNav((state) => state.leaderId);
+  const leaderOnScreen = useStore((state) => {
+    const id = state.currentSessionId;
+    return id && state.sdkSessions.some((session) => session.sessionId === id && session.isOrchestrator) ? id : null;
+  });
+  const leaderId = scopedLeader ?? leaderOnScreen;
+  useEffect(() => {
+    if (!threadKey.startsWith("q-")) return;
+    let cancelled = false;
+    topicApi
+      .questMap("", [threadKey])
+      .then((response) => !cancelled && setTopic(response.map[threadKey] ?? null))
+      .catch((error: Error) => console.warn("[library] Could not look up the artifact's topic:", error.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [threadKey]);
+  if (!topic || !leaderId) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        closeSecondaryPage();
+        openTopicInPanel(leaderId, topic.id);
+      }}
+      className="text-left text-[13px] text-cc-primary hover:underline"
+    >
+      Topic: {topic.name} ›
+    </button>
   );
 }
 
@@ -185,7 +272,7 @@ function SourceLink({ sessionId, messageId, threadKey }: { sessionId: string; me
         closeSecondaryPage();
         navigateToSessionMessageId(sessionId, messageId, { threadKey });
       }}
-      className="mt-1.5 text-left text-[13px] text-cc-primary hover:underline"
+      className="text-left text-[13px] text-cc-primary hover:underline"
     >
       From {name}
       {threadKey && threadKey !== "main" ? ` · ${threadKey}` : ""} ›

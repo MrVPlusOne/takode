@@ -300,6 +300,9 @@ export class TopicStore {
     const into = this.require(intoId);
     if (from.id === into.id) throw new TopicStoreError("A topic cannot be merged into itself.");
     if (from.space !== into.space) throw new TopicStoreError("Topics of different spaces cannot be merged.");
+    if (byAgent && this.userUndidMerge(from.id)) {
+      throw new TopicStoreError(`The user undid merging "${from.name}" before; leave it as its own topic.`, 409);
+    }
     const questIds = this.questsOf(from.id);
     const undo: Undo = { kind: "merge", from: structuredClone(from), intoId, intoAliases: [...into.aliases], questIds };
     for (const questId of questIds) this.s().questTopics[questId] = into.id;
@@ -458,11 +461,19 @@ export class TopicStore {
   }
 
   /** Agent-named topics a day old that nothing joined: candidates to fold into a better topic. */
+  /** Whether the user undid a merge or fold of this topic: the page writer must not redo it. */
+  private userUndidMerge(topicId: string): boolean {
+    return this.s().changes.some(
+      (change) => change.undone && change.undo.kind === "merge" && change.undo.from.id === topicId,
+    );
+  }
+
   foldCandidates(space: string): TopicSummary[] {
     return this.liveTopics(space)
       .filter(
         (topic) =>
           topic.nameSource !== "user" &&
+          !this.userUndidMerge(topic.id) &&
           this.questsOf(topic.id).length < 2 &&
           this.now() - topic.createdAt >= TOPIC_TENTATIVE_MS,
       )

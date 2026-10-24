@@ -1,5 +1,9 @@
 import type { BrowserIncomingMessage, ThreadWindowEntry } from "./session-types.js";
-import { formatArtifactPlaceholder, type ArtifactMessageMarker } from "../shared/artifact-library.js";
+import {
+  formatArtifactPlaceholder,
+  type ArtifactKind,
+  type ArtifactMessageMarker,
+} from "../shared/artifact-library.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { ArtifactLibraryStore, type CaptureResult } from "./artifact-library-store.js";
 import {
@@ -62,10 +66,20 @@ export class ArtifactLibrary {
     }, CAPTURE_DELAY_MS);
   }
 
-  /** Reads every loaded session once, so history from before the library (up to a month) is captured. */
+  /**
+   * Reads every loaded session once, so history from before the library (up to a month) is
+   * captured. Kinds the library learned later are read from that history once as well.
+   */
   backfill(): Promise<void> {
     const ids = this.deps.listSessions().map((session) => session.id);
-    this.running = this.running.then(() => this.captureSessions(ids, { yieldBetween: true }));
+    this.running = this.running.then(async () => {
+      await this.captureSessions(ids, { yieldBetween: true });
+      const kinds = this.store.kindsToBackfill();
+      if (kinds.length === 0) return;
+      await this.captureSessions(ids, { yieldBetween: true, onlyKinds: kinds });
+      this.store.markKindsBackfilled(kinds);
+      await this.store.flush();
+    });
     return this.running;
   }
 
@@ -90,13 +104,18 @@ export class ArtifactLibrary {
     await this.store.flush();
   }
 
-  private async captureSessions(ids: string[], options: { yieldBetween?: boolean } = {}): Promise<void> {
+  private async captureSessions(
+    ids: string[],
+    options: { yieldBetween?: boolean; onlyKinds?: readonly ArtifactKind[] } = {},
+  ): Promise<void> {
     const toRefresh = new Set<string>();
     for (const id of ids) {
       const session = this.deps.getSession(id);
       if (!session) continue;
       try {
-        const result = await this.captureSession(session);
+        const result = options.onlyKinds
+          ? await this.captureKinds(session, options.onlyKinds)
+          : await this.captureSession(session);
         if (result.captured > 0) toRefresh.add(id);
         for (const added of result.newVersions ?? []) {
           const artifact = this.store.get(added.artifactId);
@@ -136,6 +155,22 @@ export class ArtifactLibrary {
       await this.store.captureMessage({ sessionId: session.id, space }, extracted, result);
     }
     this.store.setCursor(session.id, length, length > 0 ? historyMessageId(history[length - 1]) : undefined);
+    return result;
+  }
+
+  /** Reads a session's whole history (within the backfill month) for some kinds only, leaving its cursor alone. */
+  private async captureKinds(session: LibrarySessionLike, kinds: readonly ArtifactKind[]): Promise<CaptureResult> {
+    const result: CaptureResult = { captured: 0, affectedSessions: new Set(), newVersions: [] };
+    const cutoff = this.store.backfillCutoff();
+    const space = this.deps.spaceFor(session.id);
+    for (const message of session.messageHistory) {
+      if (!message || !isRootAgentHistoryMessage(message)) continue;
+      const at = (message as { timestamp?: unknown }).timestamp;
+      if (typeof at === "number" && at < cutoff) continue;
+      const extracted = extractMessageArtifacts(message);
+      if (!extracted?.captures.some((capture) => kinds.includes(capture.kind))) continue;
+      await this.store.captureMessage({ sessionId: session.id, space }, extracted, result, { onlyKinds: kinds });
+    }
     return result;
   }
 

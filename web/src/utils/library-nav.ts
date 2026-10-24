@@ -2,27 +2,26 @@ import { create } from "zustand";
 import { openSecondaryPage } from "./secondary-view.js";
 
 /**
- * What the Library page shows: its tab, and the artifact or topic open in it. Opening an artifact from
- * a conversation (its "Saved in Library" line or a collapsed older version), or a topic from the Done
- * list, opens the Library there; local UI state.
+ * What the Library page (the artifact gallery) shows: whose artifacts, and the artifact open in it.
+ * Opening an artifact from a conversation (its "Saved in Library" line, a collapsed older version
+ * or an artifact link) opens the Library there; a leader's topic panel opens that leader's.
+ * Local UI state.
  */
 interface LibraryNavState {
   artifactId: string | null;
   version: number | null;
-  /** The topic open in the Topics tab. */
-  topicId: string | null;
-  mode: "topics" | "artifacts";
+  /** The leader whose artifacts are shown (what it and its workers made); null for a space or all. */
+  leaderId: string | null;
 }
 
 export const useLibraryNav = create<LibraryNavState>(() => ({
   artifactId: null,
   version: null,
-  topicId: null,
-  mode: "artifacts",
+  leaderId: null,
 }));
 
 export function openLibraryArtifact(artifactId: string, version?: number): void {
-  useLibraryNav.setState({ artifactId, version: version ?? null, mode: "artifacts" });
+  useLibraryNav.setState({ artifactId, version: version ?? null });
   openSecondaryPage("library");
 }
 
@@ -30,16 +29,13 @@ export function showLibraryArtifact(artifactId: string | null, version?: number)
   useLibraryNav.setState({ artifactId, version: version ?? null });
 }
 
-/** Opens the Library's Topics tab at a topic, as the Done list's topic headings do. */
-export function openLibraryTopic(topicId: string | null): void {
-  useLibraryNav.setState({ topicId, mode: "topics" });
+/** Opens the gallery of what a leader and its workers made. */
+export function openLeaderLibrary(leaderId: string): void {
+  useLibraryNav.setState({ leaderId, artifactId: null, version: null });
   openSecondaryPage("library");
 }
 
-export function showLibraryTopic(topicId: string | null): void {
-  useLibraryNav.setState({ topicId });
-}
-
-export function setLibraryMode(mode: "topics" | "artifacts"): void {
-  useLibraryNav.setState({ mode });
+/** Shows a space, or all spaces, instead of a leader's artifacts. */
+export function setLibraryLeader(leaderId: string | null): void {
+  useLibraryNav.setState({ leaderId });
 }

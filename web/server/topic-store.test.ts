@@ -86,6 +86,11 @@ describe("topic store", () => {
     now += 1000;
     store.undo(fold.id);
     expect(store.topicOfQuest("q-2")?.name).toBe("256K twin");
+    // The page writer may not fold it again, and it is no longer offered for folding; the user still can.
+    expect(() => store.merge(twin.id, t7.id, true, "Folded")).toThrow(/undid/);
+    now += TOPIC_TENTATIVE_MS + 1;
+    expect(store.foldCandidates("MSI").map((topic) => topic.name)).not.toContain("256K twin");
+    now -= TOPIC_TENTATIVE_MS + 1;
     // The page that described the fold is asked to drop it.
     expect(store.pendingEvents(t7.id).map((event) => event.text)).toEqual([
       'The user undid: Folded "256K twin" into "T7 run"',

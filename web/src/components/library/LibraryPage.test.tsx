@@ -83,6 +83,7 @@ beforeEach(() => {
         );
       }
       if (url === "/api/artifacts/a1") return new Response(JSON.stringify(DETAIL));
+      if (url.startsWith("/api/topics")) return new Response(JSON.stringify({ topics: [], map: {} }));
       const version = /\/versions\/(\d+)$/.exec(url)?.[1];
       return new Response(
         JSON.stringify({
@@ -97,23 +98,47 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+function clock(at: number): string {
+  return new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 describe("LibraryPage", () => {
-  it("lists artifacts, filters by kind, and steps through an artifact's versions", async () => {
+  it("browses one kind at a time, Figures first, and opens an artifact large with its versions", async () => {
+    localStorage.removeItem("cc-library-kind");
     render(<LibraryPage />);
-    const row = await screen.findByTestId("library-artifact-row");
-    expect(within(row).getByText("T7 thread update")).toBeInTheDocument();
-    expect(row).toHaveTextContent("Post · v3");
-    expect(screen.getByText("Today", { selector: "div" })).toBeInTheDocument();
+    const card = await screen.findByTestId("library-artifact-card");
+    expect(requests[0]).toContain("kind=figure");
+    expect(within(card).getByText("T7 thread update")).toBeInTheDocument();
+    expect(screen.getByText("Today", { selector: "h3" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Kind"), {
-      target: { value: "report" },
-    });
-    await waitFor(() => expect(requests.some((url) => url.includes("kind=report"))).toBe(true));
+    // Another kind, then All (no kind filter), which also names each card's kind.
+    fireEvent.click(screen.getByRole("tab", { name: "Posts" }));
+    await waitFor(() => expect(requests.at(-1)).toContain("kind=post"));
+    fireEvent.click(screen.getByRole("tab", { name: "All" }));
+    await waitFor(() => expect(requests.at(-1)).not.toContain("kind="));
+    // All spaces are shown here, so cards name their space too.
+    expect(await screen.findByText(`Post · v3 · MSI · ${clock(NOW)}`)).toBeInTheDocument();
 
-    fireEvent.click(row);
+    fireEvent.click(screen.getByTestId("library-artifact-card"));
     expect(await screen.findByText("Draft version 3")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-id")).toHaveTextContent("a1");
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
     expect(await screen.findByText("Draft version 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "‹ Library" }));
+    expect(screen.getByTestId("library-gallery")).toBeVisible();
+  });
+
+  it("keeps search and filters behind one button, and says what is filtered", async () => {
+    render(<LibraryPage />);
+    await screen.findByTestId("library-artifact-card");
+    fireEvent.click(screen.getByTestId("library-filter-button"));
+    fireEvent.change(screen.getByLabelText("Search artifacts"), { target: { value: "t7" } });
+    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    await waitFor(() => expect(requests.at(-1)).toMatch(/q=t7.*|since=/));
+    await waitFor(() => expect(requests.at(-1)).toContain("q=t7"));
+    expect(screen.getByTestId("library-active-filters")).toHaveTextContent("“t7” · Last 7 days");
+    fireEvent.click(within(screen.getByTestId("library-active-filters")).getByText("Clear"));
+    await waitFor(() => expect(requests.at(-1)).not.toContain("q=t7"));
   });
 
   it("groups rows by day of their last change", () => {

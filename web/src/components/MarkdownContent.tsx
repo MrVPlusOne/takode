@@ -40,6 +40,7 @@ import { NotificationInlineLink } from "./NotificationInlineLink.js";
 import { parseNotificationLinkHref } from "../../shared/notification-link.js";
 import { parseTodoLinkHref } from "../../shared/todo-link.js";
 import { TodoInlineLink } from "./TodoInlineLink.js";
+import { ArtifactInlineLink } from "./ArtifactInlineLink.js";
 import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
 import {
   KATEX_RENDER_OPTIONS,
@@ -67,6 +68,7 @@ import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 import {
   ARTIFACT_PLACEHOLDER_LANGUAGE,
+  parseArtifactLinkHref,
   parseArtifactPlaceholder,
   parseDraftHeader,
 } from "../../shared/artifact-library.js";
@@ -613,6 +615,7 @@ function transformMarkdownUrl(url: string): string {
     parseQuestLinkTarget(url) ||
     parseSessionLinkFromHref(url) != null ||
     parseNotificationLinkHref(url) ||
+    parseArtifactLinkHref(url) ||
     parseFileLinkFromHref(url)
   ) {
     return url;
@@ -966,6 +969,18 @@ export const MarkdownContent = memo(function MarkdownContent({
                 >
                   {children}
                 </TodoInlineLink>
+              );
+            }
+            const artifactTarget = parseArtifactLinkHref(href);
+            if (artifactTarget) {
+              return (
+                <ArtifactInlineLink
+                  target={artifactTarget}
+                  className={`text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`}
+                  stopPropagation={stopLinkPropagation}
+                >
+                  {children}
+                </ArtifactInlineLink>
               );
             }
             const sessionLink = parseSessionLinkFromHref(href);

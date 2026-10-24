@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import {
   api,
   type MemoryCatalogEntry,
@@ -880,6 +881,7 @@ function commitTouchesPath(commit: MemoryRecentCommit, path: string): boolean {
 }
 
 export function MemoryPage({ embedded = false }: MemoryPageProps) {
+  const sideSplit = useSplitWidth("memory-side-panel", { defaultWidth: 340, min: 240, max: 640 });
   const [spacesState, setSpacesState] = useState<LoadState<MemorySpacesResponse>>({
     status: "loading",
     data: null,
@@ -1235,9 +1237,16 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
 
         <main className="min-h-0 flex-1 overflow-hidden p-3">
           <div
-            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:overflow-hidden"
+            style={sideSplit.style}
+            className="relative grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[var(--split-w)_minmax(0,1fr)] lg:overflow-hidden"
             data-testid="memory-page-layout"
           >
+            <SplitHandle
+              label="Resize the memory side panel"
+              className="hidden lg:block"
+              gapCenter={6}
+              {...sideSplit.handleProps}
+            />
             <section
               className="flex min-h-[420px] flex-col overflow-hidden rounded-md border border-cc-border bg-cc-card lg:min-h-0"
               data-testid="memory-side-panel"

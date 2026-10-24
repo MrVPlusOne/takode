@@ -4,7 +4,8 @@ import { parseDraftHeader } from "../shared/artifact-library.js";
 
 /**
  * Finds the artifacts in one conversation message: draft blocks (posts), titled or untitled visual
- * blocks, images shown in an answer (figures), and published reports and guided reviews. Pure and
+ * blocks, images shown in an answer (figures), tables in an answer's prose, and published reports
+ * and guided reviews. Pure and
  * deterministic, so the same message always yields the same captures in the same order: the
  * library records which capture of a message became which artifact version by its `label`, and
  * the browser projection finds them again by label to collapse superseded ones.
@@ -41,6 +42,13 @@ export type MessageCapture =
       label: string;
       path: string;
       alt: string;
+      spans: TextSpan[];
+    }
+  | {
+      kind: "table";
+      label: string;
+      title: string;
+      markdown: string;
       spans: TextSpan[];
     }
   | {
@@ -126,6 +134,14 @@ interface Fence {
   body: string;
 }
 
+interface TableRef {
+  block: number;
+  start: number;
+  end: number;
+  markdown: string;
+  title: string;
+}
+
 interface ImageRef {
   block: number;
   start: number;
@@ -138,8 +154,9 @@ interface ImageRef {
 export function extractFromTextBlocks(blocks: Array<string | null>): MessageCapture[] {
   const fences: Fence[] = [];
   const images: ImageRef[] = [];
+  const tables: TableRef[] = [];
   blocks.forEach((text, block) => {
-    if (text) scanText(text, block, fences, images);
+    if (text) scanText(text, block, fences, images, tables);
   });
 
   const captures: MessageCapture[] = [];
@@ -198,6 +215,15 @@ export function extractFromTextBlocks(blocks: Array<string | null>): MessageCapt
     post.parts.push(body);
     post.spans.push(spanOf(fence));
   }
+  tables.forEach((table, index) => {
+    captures.push({
+      kind: "table",
+      label: `table#${index}`,
+      title: table.title,
+      markdown: table.markdown,
+      spans: [spanOf(table)],
+    });
+  });
   return captures;
 }
 
@@ -211,8 +237,12 @@ function sameSpan(span: TextSpan, item: { block: number; start: number }): boole
 
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^\n]*$/;
 
-/** Collects draft and visual fences, and images outside any code fence, from one text block. */
-function scanText(text: string, block: number, fences: Fence[], images: ImageRef[]): void {
+/** Collects draft and visual fences, and images and tables outside any code fence, from one text block. */
+function scanText(text: string, block: number, fences: Fence[], images: ImageRef[], tables: TableRef[]): void {
+  const scanProse = (prose: string, base: number) => {
+    scanImages(prose, base, block, images);
+    scanTables(prose, base, block, tables);
+  };
   let offset = 0;
   let open: {
     marker: string;
@@ -244,7 +274,7 @@ function scanText(text: string, block: number, fences: Fence[], images: ImageRef
     }
     const opening = FENCE_OPEN.exec(line);
     if (opening && !(opening[2][0] === "`" && opening[3].includes("`"))) {
-      scanImages(text.slice(proseStart, lineStart), proseStart, block, images);
+      scanProse(text.slice(proseStart, lineStart), proseStart);
       open = {
         marker: opening[2],
         language: opening[3].toLowerCase(),
@@ -253,7 +283,65 @@ function scanText(text: string, block: number, fences: Fence[], images: ImageRef
       };
     }
   }
-  if (!open) scanImages(text.slice(proseStart), proseStart, block, images);
+  if (!open) scanProse(text.slice(proseStart), proseStart);
+}
+
+/** Tables smaller than this many data rows are part of the answer's wording, not something to find later. */
+export const MIN_TABLE_ROWS = 3;
+const TABLE_DELIMITER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
+
+/** Markdown tables in prose with at least `MIN_TABLE_ROWS` data rows, titled by the line before them. */
+function scanTables(prose: string, base: number, block: number, tables: TableRef[]): void {
+  const lines = prose.split("\n");
+  const starts: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    starts.push(offset);
+    offset += line.length + 1;
+  }
+  for (let index = 0; index + 1 < lines.length; index += 1) {
+    if (!lines[index].includes("|") || !TABLE_DELIMITER.test(lines[index + 1])) continue;
+    let end = index + 2;
+    while (end < lines.length && lines[end].includes("|") && lines[end].trim()) end += 1;
+    const rows = end - index - 2;
+    const columns = tableCells(lines[index]).length;
+    if (rows >= MIN_TABLE_ROWS && columns >= 2) {
+      const markdown = lines.slice(index, end).join("\n");
+      tables.push({
+        block,
+        start: base + starts[index],
+        end: base + starts[index] + markdown.length,
+        markdown,
+        title: tableTitle(lines.slice(0, index), tableCells(lines[index])),
+      });
+    }
+    index = end - 1;
+  }
+}
+
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => stripInlineMarkdown(cell))
+    .filter(Boolean);
+}
+
+/**
+ * A table's title: the heading or bold lead line right above it, or that line's text when it
+ * introduces the table ("Per training domain, pass@1:"); otherwise its column names.
+ */
+function tableTitle(before: string[], header: string[]): string {
+  const previous = [...before.slice(-3)].reverse().find((line) => line.trim());
+  const line = previous?.trim() ?? "";
+  const heading = /^#{1,6}[ \t]+(.+?)[ \t#]*$/.exec(line);
+  if (heading) return clipTitle(stripInlineMarkdown(heading[1]));
+  const bold = /^\*\*(.+?)\*\*/.exec(line);
+  if (bold) return clipTitle(stripInlineMarkdown(bold[1]).replace(/[\s:.]+$/, ""));
+  if (line.endsWith(":")) return clipTitle(stripInlineMarkdown(line).replace(/[\s:]+$/, ""));
+  return clipTitle(header.join(" · ") || "Table");
 }
 
 const IMAGE_PATTERN = /!\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;

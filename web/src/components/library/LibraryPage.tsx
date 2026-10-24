@@ -1,327 +1,310 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ARTIFACT_KIND_PLURALS,
   ARTIFACT_KINDS,
-  ARTIFACT_KIND_LABELS,
   type ArtifactKind,
-  type ArtifactListResponse,
   type ArtifactSummary,
 } from "../../../shared/artifact-library.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { useStore } from "../../store.js";
-import { setLibraryMode, showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
-import { TopicsPanel } from "./TopicsPanel.js";
-import { FigureImage, LibraryIcon, StarIcon } from "../ArtifactInline.js";
+import { setLibraryLeader, showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
 import { ArtifactViewer } from "./ArtifactViewer.js";
+import { ArtifactCard } from "./ArtifactThumbnail.js";
+import {
+  ArtifactFilterButton,
+  EMPTY_FILTERS,
+  filtersActive,
+  sinceFor,
+  type ArtifactFilters,
+} from "./ArtifactFilters.js";
 
 /**
- * The Library page: everything agents made for the user, across sessions, newest first, with
- * search, space, kind, date and star filters. Selecting an artifact opens it beside the list on
- * wide screens and in place of the list on phones. Topics come in a later step.
+ * The Library: the gallery of everything agents made for the user, opened when wanted (from a
+ * leader's topic panel for that leader's artifacts, from an artifact link, or from a message's
+ * Library line); the scope menu switches to a whole space or all of them.
+ *
+ * Artifacts are a gallery of large thumbnails, one kind at a time (Figures by default, All last),
+ * newest first under day headings, loading more as you scroll. Search and the other filters sit
+ * behind one button at the top right. Opening an artifact shows it large in place of the gallery.
  */
 
-const PAGE_SIZE = 100;
-const DATE_RANGES = [
-  { value: "any", label: "Any time", ms: 0 },
-  { value: "day", label: "Today", ms: 0 },
-  { value: "week", label: "Last 7 days", ms: 7 * 24 * 3600_000 },
-  { value: "month", label: "Last 30 days", ms: 30 * 24 * 3600_000 },
-] as const;
-type DateRange = (typeof DATE_RANGES)[number]["value"];
+const PAGE_SIZE = 60;
+const KIND_KEY = "cc-library-kind";
+type KindTab = ArtifactKind | "all";
+const KIND_TABS: readonly KindTab[] = [...ARTIFACT_KINDS, "all"];
 
 export function LibraryPage() {
-  const { artifactId, mode } = useLibraryNav();
+  const { artifactId, leaderId } = useLibraryNav();
   const currentSpace = useCurrentSessionSpace();
+  const leaderLabel = useSessionLabel(leaderId);
   const [space, setSpace] = useState<string | null>(null);
-  const [kind, setKind] = useState<ArtifactKind | "">("");
-  const [dateRange, setDateRange] = useState<DateRange>("any");
-  const [starred, setStarred] = useState(false);
-  const [query, setQuery] = useState("");
-  const [response, setResponse] = useState<ArtifactListResponse | null>(null);
+  const [kind, setKindState] = useState<KindTab>(storedKind);
+  const [filters, setFilters] = useState<ArtifactFilters>(EMPTY_FILTERS);
+  const [items, setItems] = useState<ArtifactSummary[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [knownSpaces, setKnownSpaces] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [loading, setLoading] = useState(false);
   const requestRef = useRef(0);
+  // The last leader this Library was opened for, so the scope menu can switch back to it.
+  const lastLeader = useRef<string | null>(leaderId);
+  if (leaderId) lastLeader.current = leaderId;
+  const lastLeaderLabel = useSessionLabel(lastLeader.current);
 
-  // Start in the current session's space; "" means all spaces.
+  // A space chosen in the menu; otherwise the current session's. "" means all spaces.
   const effectiveSpace = space ?? currentSpace ?? "";
+  const scopeKey = leaderId ? `leader:${leaderId}` : `space:${effectiveSpace}`;
 
-  const load = useCallback(() => {
-    const request = ++requestRef.current;
-    artifactApi
-      .list({
-        space: effectiveSpace || undefined,
-        kind: kind || undefined,
-        since: sinceFor(dateRange),
-        starred,
-        query,
-        limit,
-      })
-      .then((next) => {
-        if (request !== requestRef.current) return;
-        setResponse(next);
-        setError(null);
-      })
-      .catch((reason: Error) => request === requestRef.current && setError(reason.message));
-  }, [effectiveSpace, kind, dateRange, starred, query, limit]);
+  const fetchPage = useCallback(
+    (offset: number) => {
+      const request = ++requestRef.current;
+      setLoading(true);
+      artifactApi
+        .list({
+          ...(leaderId ? { leader: leaderId } : { space: effectiveSpace || undefined }),
+          kind: kind === "all" ? undefined : kind,
+          since: sinceFor(filters.dateRange),
+          starred: filters.starred,
+          query: filters.query,
+          threads: filters.topic?.questIds,
+          offset,
+          limit: PAGE_SIZE,
+        })
+        .then((next) => {
+          if (request !== requestRef.current) return;
+          setItems((previous) => (offset === 0 ? next.artifacts : [...previous, ...next.artifacts]));
+          setTotal(next.total);
+          setKnownSpaces(next.spaces);
+          setError(null);
+        })
+        .catch((reason: Error) => request === requestRef.current && setError(reason.message))
+        .finally(() => request === requestRef.current && setLoading(false));
+    },
+    [leaderId, effectiveSpace, kind, filters],
+  );
 
   useEffect(() => {
-    const timer = setTimeout(load, query ? 200 : 0);
+    const timer = setTimeout(() => fetchPage(0), filters.query ? 200 : 0);
     return () => clearTimeout(timer);
-  }, [load, query]);
+  }, [fetchPage, filters.query]);
 
-  const groups = useMemo(() => groupByDay(response?.artifacts ?? []), [response]);
+  const setKind = (next: KindTab) => {
+    setKindState(next);
+    localStorage.setItem(KIND_KEY, next);
+  };
+
   const spaces = useMemo(() => {
-    const known = new Set(response?.spaces ?? []);
+    const known = new Set(knownSpaces);
     if (currentSpace) known.add(currentSpace);
     return [...known].sort();
-  }, [response, currentSpace]);
+  }, [knownSpaces, currentSpace]);
 
+  const scopeSelect = (
+    <select
+      aria-label="Whose Library"
+      value={leaderId ? "leader" : effectiveSpace}
+      onChange={(event) => {
+        const value = event.target.value;
+        if (value === "leader") {
+          setLibraryLeader(lastLeader.current);
+          return;
+        }
+        setLibraryLeader(null);
+        setSpace(value);
+      }}
+      className="takode-native-select min-w-0 max-w-[60vw] shrink rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg md:max-w-[260px]"
+    >
+      {lastLeader.current && <option value="leader">{lastLeaderLabel}</option>}
+      {spaces.map((name) => (
+        <option key={name} value={name}>
+          {lastLeader.current ? `All of ${name}` : name}
+        </option>
+      ))}
+      <option value="">All spaces</option>
+    </select>
+  );
+
+  // Kind tabs, then whose artifacts and the filters; on phones the tabs take their own row below.
   const header = (
-    <div className="flex items-center gap-2">
-      <div
-        className="grid flex-1 grid-cols-2 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[13px]"
-        role="tablist"
-      >
-        {(["topics", "artifacts"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={mode === value}
-            onClick={() => setLibraryMode(value)}
-            className={`py-1.5 ${mode === value ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"}`}
-          >
-            {value === "topics" ? "Topics" : "Artifacts"}
-          </button>
-        ))}
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="order-2 w-full md:order-1 md:w-auto md:max-w-[620px] md:flex-1">
+        <KindTabs kind={kind} onChange={setKind} />
       </div>
-      {spaces.length > 1 && (
-        <select
-          aria-label="Space"
-          value={effectiveSpace}
-          onChange={(event) => setSpace(event.target.value)}
-          className="takode-native-select max-w-[40%] rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-        >
-          <option value="">All spaces</option>
-          {spaces.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      )}
-    </div>
-  );
-
-  const list = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-2 px-3 pb-2 pt-3">
-        {header}
-        <input
-          type="text"
-          inputMode="search"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setLimit(PAGE_SIZE);
-          }}
-          placeholder="Search artifacts"
-          aria-label="Search artifacts"
-          className="w-full rounded-xl border border-cc-border bg-cc-card px-3 py-2 text-base text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60 md:text-sm"
+      <div className="order-1 ml-auto flex min-w-0 items-center gap-2 md:order-2">
+        {scopeSelect}
+        <ArtifactFilterButton
+          filters={filters}
+          onChange={setFilters}
+          topicSource={{ space: effectiveSpace, leaderId }}
         />
-        <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-          <select
-            aria-label="Kind"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as ArtifactKind | "")}
-            className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-          >
-            <option value="">All kinds</option>
-            {ARTIFACT_KINDS.map((value) => (
-              <option key={value} value={value}>
-                {ARTIFACT_KIND_LABELS[value]}s
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Date"
-            value={dateRange}
-            onChange={(event) => setDateRange(event.target.value as DateRange)}
-            className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-          >
-            {DATE_RANGES.map((range) => (
-              <option key={range.value} value={range.value}>
-                {range.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => setStarred((value) => !value)}
-            aria-pressed={starred}
-            aria-label="Starred only"
-            title="Starred only"
-            className={`flex w-10 items-center justify-center rounded-lg border border-cc-border ${
-              starred ? "bg-cc-active text-cc-fg" : "bg-cc-card text-cc-muted hover:text-cc-fg"
-            }`}
-          >
-            <StarIcon filled={starred} />
-          </button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-cc-border" data-testid="library-list">
-        {error ? (
-          <div className="px-4 py-6 text-[13px] text-cc-error">{error}</div>
-        ) : !response ? (
-          <div className="px-4 py-6 text-[13px] text-cc-muted">Loading…</div>
-        ) : response.artifacts.length === 0 ? (
-          <div className="px-4 py-8 text-center text-[13px] text-cc-muted">
-            {query || kind || starred || dateRange !== "any"
-              ? "No artifacts match."
-              : "Drafts, reports, figures, visuals and guided reviews agents make show up here."}
-          </div>
-        ) : (
-          <>
-            {groups.map((group) => (
-              <section key={group.label}>
-                <div className="px-4 pb-1 pt-3 text-[11px] uppercase tracking-wide text-cc-muted">{group.label}</div>
-                {group.artifacts.map((artifact) => (
-                  <ArtifactRow
-                    key={artifact.id}
-                    artifact={artifact}
-                    selected={artifact.id === artifactId}
-                    showSpace={!effectiveSpace}
-                    onOpen={() => showLibraryArtifact(artifact.id)}
-                  />
-                ))}
-              </section>
-            ))}
-            {response.total > response.artifacts.length && (
-              <button
-                type="button"
-                onClick={() => setLimit((value) => value + PAGE_SIZE)}
-                className="w-full py-3 text-[13px] text-cc-primary hover:bg-cc-hover"
-              >
-                Show {Math.min(PAGE_SIZE, response.total - response.artifacts.length)} more
-              </button>
-            )}
-          </>
-        )}
       </div>
     </div>
   );
-
-  if (mode === "topics") {
-    return (
-      <div className="flex h-full min-h-0 flex-col bg-cc-bg" data-testid="library-page">
-        <div className="shrink-0 px-3 pb-2 pt-3 md:w-[380px]">{header}</div>
-        <TopicsPanel space={effectiveSpace} />
-      </div>
-    );
-  }
 
   return (
-    <div className="flex h-full min-h-0 bg-cc-bg" data-testid="library-page">
-      <div
-        className={`${artifactId ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col md:w-[380px] md:shrink-0 md:border-r md:border-cc-border`}
-      >
-        {list}
+    <div className="flex h-full min-h-0 flex-col bg-cc-bg" data-testid="library-page" data-scope={scopeKey}>
+      {artifactId && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ArtifactViewer id={artifactId} onBack={() => showLibraryArtifact(null)} onChanged={() => fetchPage(0)} />
+        </div>
+      )}
+      {/* The gallery stays mounted under an open artifact, so going back keeps its scroll position. */}
+      <div className={`${artifactId ? "hidden" : "flex"} min-h-0 flex-1 flex-col`}>
+        <div className="shrink-0 space-y-2 px-3 pb-2 pt-3">
+          {header}
+          {filtersActive(filters) && (
+            <ActiveFilters filters={filters} onClear={() => setFilters(EMPTY_FILTERS)} total={total} />
+          )}
+        </div>
+        <Gallery
+          items={items}
+          total={total}
+          loading={loading}
+          error={error}
+          kind={kind}
+          showSpace={!leaderId && !effectiveSpace}
+          filtered={filtersActive(filters)}
+          onMore={() => !loading && total !== null && items.length < total && fetchPage(items.length)}
+        />
       </div>
-      {artifactId ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ArtifactViewer id={artifactId} onBack={() => showLibraryArtifact(null)} onChanged={load} />
+    </div>
+  );
+}
+
+/** One kind at a time; All is last, for when the kind is unknown. Equal cells, so the bar stays aligned. */
+function KindTabs({ kind, onChange }: { kind: KindTab; onChange: (kind: KindTab) => void }) {
+  return (
+    <div
+      className="grid grid-cols-7 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[12.5px]"
+      role="tablist"
+      aria-label="Kind"
+    >
+      {KIND_TABS.map((value) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={kind === value}
+          onClick={() => onChange(value)}
+          className={`truncate px-0.5 py-1.5 ${kind === value ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"}`}
+          data-testid="library-kind-tab"
+          data-kind={value}
+        >
+          {value === "all" ? "All" : ARTIFACT_KIND_PLURALS[value]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ActiveFilters({
+  filters,
+  total,
+  onClear,
+}: {
+  filters: ArtifactFilters;
+  total: number | null;
+  onClear: () => void;
+}) {
+  const parts = [
+    filters.query.trim() ? `“${filters.query.trim()}”` : null,
+    filters.topic ? filters.topic.name : null,
+    filters.dateRange !== "any"
+      ? { day: "Today", week: "Last 7 days", month: "Last 30 days" }[filters.dateRange]
+      : null,
+    filters.starred ? "Starred" : null,
+  ].filter(Boolean);
+  return (
+    <div className="flex items-center gap-2 text-[12.5px] text-cc-muted" data-testid="library-active-filters">
+      <span className="min-w-0 flex-1 truncate">
+        {total === null ? "" : `${total} matching `}
+        {parts.join(" · ")}
+      </span>
+      <button type="button" onClick={onClear} className="shrink-0 text-cc-primary hover:underline">
+        Clear
+      </button>
+    </div>
+  );
+}
+
+function Gallery({
+  items,
+  total,
+  loading,
+  error,
+  kind,
+  showSpace,
+  filtered,
+  onMore,
+}: {
+  items: ArtifactSummary[];
+  total: number | null;
+  loading: boolean;
+  error: string | null;
+  kind: KindTab;
+  showSpace: boolean;
+  filtered: boolean;
+  onMore: () => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const onMoreRef = useRef(onMore);
+  onMoreRef.current = onMore;
+  const groups = useMemo(() => groupByDay(items), [items]);
+
+  // Load the next page while the end of the gallery is still a screen away.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => entries[0]?.isIntersecting && onMoreRef.current(), {
+      root: scrollRef.current,
+      rootMargin: "0px 0px 800px 0px",
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6" data-testid="library-gallery">
+      {error ? (
+        <div className="py-6 text-[13px] text-cc-error">{error}</div>
+      ) : total === null ? (
+        <div className="py-6 text-[13px] text-cc-muted">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="py-10 text-center text-[13px] text-cc-muted">
+          {filtered
+            ? "Nothing matches."
+            : kind === "all"
+              ? "Drafts, reports, figures, visuals, tables and guided reviews agents make show up here."
+              : `No ${ARTIFACT_KIND_PLURALS[kind].toLowerCase()} yet.`}
         </div>
       ) : (
-        <div className="hidden min-w-0 flex-1 items-center justify-center text-[13px] text-cc-muted md:flex">
-          <span className="flex items-center gap-2">
-            <LibraryIcon className="h-4 w-4" /> Choose an artifact
-          </span>
-        </div>
+        groups.map((group) => (
+          <section key={group.label}>
+            <h3 className="pb-1.5 pt-3 text-[11px] uppercase tracking-wide text-cc-muted">{group.label}</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] sm:gap-3">
+              {group.artifacts.map((artifact) => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  showKind={kind === "all"}
+                  showSpace={showSpace}
+                  onOpen={() => showLibraryArtifact(artifact.id)}
+                />
+              ))}
+            </div>
+          </section>
+        ))
       )}
+      <div ref={sentinelRef} className="h-px" />
+      {loading && items.length > 0 && <div className="py-3 text-center text-[12px] text-cc-muted">Loading more…</div>}
     </div>
   );
 }
 
-function ArtifactRow({
-  artifact,
-  selected,
-  showSpace,
-  onOpen,
-}: {
-  artifact: ArtifactSummary;
-  selected: boolean;
-  /** Only when all spaces are listed; otherwise every row would repeat it. */
-  showSpace: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`flex w-full items-start gap-3 border-b border-cc-border px-4 py-2.5 text-left ${
-        selected ? "bg-cc-active" : "hover:bg-cc-hover"
-      }`}
-      data-testid="library-artifact-row"
-    >
-      <ArtifactThumb artifact={artifact} />
-      <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-[15px] text-cc-fg">
-          {artifact.title}
-          {artifact.starred && <StarIcon filled className="ml-1 inline h-3 w-3 text-cc-muted" />}
-        </span>
-        <span className="mt-0.5 block truncate text-[12.5px] text-cc-muted">
-          {ARTIFACT_KIND_LABELS[artifact.kind]}
-          {artifact.versionCount > 1 ? ` · v${artifact.versionCount}` : ""}
-          {showSpace ? ` · ${artifact.space}` : ""} · {formatClock(artifact.updatedAt)}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function ArtifactThumb({ artifact }: { artifact: ArtifactSummary }) {
-  const box =
-    "flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-cc-border bg-cc-code-bg text-cc-muted";
-  if (artifact.kind === "figure" && artifact.latest.kept) {
-    return (
-      <span className={box}>
-        <FigureImage id={artifact.id} cover className="h-full border-0" />
-      </span>
-    );
-  }
-  if (artifact.kind === "post") {
-    return (
-      <span className={`${box} items-start justify-start p-1 text-[7px] leading-tight`} aria-hidden="true">
-        {artifact.preview.slice(0, 60)}
-      </span>
-    );
-  }
-  return (
-    <span className={box} aria-hidden="true">
-      <KindIcon kind={artifact.kind} />
-    </span>
-  );
-}
-
-function KindIcon({ kind }: { kind: ArtifactKind }) {
-  const paths: Record<ArtifactKind, string> = {
-    post: "M4 5h16v11H9l-5 4z",
-    report: "M7 3h7l5 5v13H7z M14 3v5h5 M10 13h6 M10 17h6",
-    review: "M8 6h12 M8 12h12 M8 18h12 M4 6h.01 M4 12h.01 M4 18h.01",
-    visual: "M4 20V4 M4 20h16 M7 15l4-4 3 3 5-6",
-    figure: "M3 5h18v14H3z M3 16l5-5 4 4 3-3 6 6",
-  };
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      className="h-5 w-5"
-    >
-      <path d={paths[kind]} />
-    </svg>
-  );
+function storedKind(): KindTab {
+  const stored = typeof localStorage === "undefined" ? null : localStorage.getItem(KIND_KEY);
+  return KIND_TABS.includes(stored as KindTab) ? (stored as KindTab) : "figure";
 }
 
 /** The session space of the session on screen, so the Library starts there. */
@@ -333,17 +316,17 @@ function useCurrentSessionSpace(): string | null {
   });
 }
 
-function sinceFor(range: DateRange): number | undefined {
-  if (range === "any") return undefined;
-  if (range === "day") {
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    return midnight.getTime();
-  }
-  return Date.now() - DATE_RANGES.find((candidate) => candidate.value === range)!.ms;
+/** "#2957 Daily Leader" for a session ID. */
+function useSessionLabel(sessionId: string | null): string {
+  return useStore((state) => {
+    if (!sessionId) return "";
+    const session = state.sdkSessions.find((candidate) => candidate.sessionId === sessionId);
+    const name = session?.name ?? "";
+    return `${session?.sessionNum != null ? `#${session.sessionNum} ` : ""}${name}`.trim() || sessionId.slice(0, 8);
+  });
 }
 
-/** Rows under Today, Yesterday, then dates, by when each artifact last changed. */
+/** Artifacts under Today, Yesterday, then dates, by when each last changed. */
 export function groupByDay(
   artifacts: ArtifactSummary[],
   now = Date.now(),
@@ -362,22 +345,5 @@ function dayLabel(at: number, now: number): string {
   const day = (time: number) => new Date(time).toDateString();
   if (day(at) === day(now)) return "Today";
   if (day(at) === day(now - 24 * 3600_000)) return "Yesterday";
-  return new Date(at).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatClock(at: number): string {
-  const sameDay = new Date(at).toDateString() === new Date().toDateString();
-  return sameDay
-    ? new Date(at).toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : new Date(at).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-      });
+  return new Date(at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }

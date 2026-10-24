@@ -14,7 +14,8 @@ import { hasUnreadSessionAttention } from "../utils/session-attention-status.js"
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { activeBoardPhaseDots } from "./leader-board-summary.js";
-import { LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
+import { LeaderTopicsTopBarButton, LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
+import { setTopicSheetOpen, useTopicSheetOpen } from "../utils/topic-panel.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
@@ -161,6 +162,7 @@ export function TopBar({
     leaderProfilePortrait,
     paused,
   } = useStore(useShallow(getCurrentTopBarSessionState));
+  const topicSheetOpen = useTopicSheetOpen(currentSessionId);
   const [infoOpen, setInfoOpen] = useState(false);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuTarget | null>(null);
@@ -527,6 +529,13 @@ export function TopBar({
             dots={currentLeaderPhaseDots}
             compact={compact}
             onToggle={toggleLeaderWorkboardInPlace}
+          />
+        )}
+        {/* Phones open the topic sheet here; desktop keeps the panel beside the conversation. */}
+        {currentSessionId && isSessionView && isCurrentLeaderSession && compact && (
+          <LeaderTopicsTopBarButton
+            open={topicSheetOpen}
+            onToggle={() => setTopicSheetOpen(currentSessionId, !topicSheetOpen)}
           />
         )}
         {/* Search and Quests live in the sessions panel; needs input and Notify Me in the attention list. */}

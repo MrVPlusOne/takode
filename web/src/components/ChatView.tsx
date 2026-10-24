@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -535,6 +537,7 @@ export function ChatView({
     [preview, sessionId],
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
+  const desktopShell = useDesktopShellLayout();
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
 
   useLayoutEffect(() => {
@@ -1180,6 +1183,9 @@ export function ChatView({
                 sideChat={selectedSideChat}
                 onClose={() => setSelectedSideChatId(null)}
               />
+            )}
+            {!preview && isLeaderSession && (
+              <LeaderTopicPanel leaderId={sessionId} threadKey={selectedThreadKey} desktop={desktopShell} />
             )}
           </div>
         </div>

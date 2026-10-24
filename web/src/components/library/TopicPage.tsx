@@ -1,90 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
-import { ARTIFACT_KIND_LABELS } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
-import { openLibraryArtifact, showLibraryTopic, useLibraryNav } from "../../utils/library-nav.js";
-import { LibraryIcon } from "../ArtifactInline.js";
+import { openLibraryArtifact } from "../../utils/library-nav.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { ArtifactCard } from "./ArtifactThumbnail.js";
 
 /**
- * The Library's Topics tab: topics of a space with their one-line state, the latest changes the
- * page writer made (each with Undo), the per-leader switch and the pause; and a topic's page,
- * quests and artifacts. Topic pages are kept current on the server, so this view refreshes
- * itself while open.
+ * The parts of a leader's topic panel: the per-leader switch and the pause, the latest tidying the
+ * page writer did (each with Undo), a topic's row in the list, and a topic's page with its quests
+ * and what was made. Topic pages are kept current on the server, so an open page refreshes itself.
  */
 
 const REFRESH_MS = 20_000;
 
-export function TopicsPanel({ space }: { space: string }) {
-  const { topicId } = useLibraryNav();
-  const [data, setData] = useState<TopicListResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    topicApi
-      .list(space)
-      .then((next) => {
-        setData(next);
-        setError(null);
-      })
-      .catch((reason: Error) => setError(reason.message));
-  }, [space]);
-
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  const act = (action: Promise<unknown>) => void action.then(load).catch((reason: Error) => setError(reason.message));
-
-  return (
-    <div className="flex min-h-0 flex-1" data-testid="library-topics">
-      <div
-        className={`${topicId ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col overflow-y-auto border-t border-cc-border md:w-[380px] md:shrink-0 md:border-r`}
-      >
-        {error && <div className="px-4 py-3 text-[13px] text-cc-error">{error}</div>}
-        {!data ? (
-          <div className="px-4 py-6 text-[13px] text-cc-muted">Loading…</div>
-        ) : (
-          <>
-            <LeaderSwitches data={data} act={act} />
-            {data.changes.length > 0 && <ChangeList data={data} act={act} />}
-            {data.topics.length === 0 ? (
-              <div className="px-4 py-8 text-center text-[13px] text-cc-muted">
-                {data.leaders.some((leader) => leader.enabled)
-                  ? "Topics appear as leaders file quests under them."
-                  : "Turn topics on for a leader to group its quests by subject, each with a page that stays up to date."}
-              </div>
-            ) : (
-              data.topics.map((topic) => (
-                <TopicRow
-                  key={topic.id}
-                  topic={topic}
-                  selected={topic.id === topicId}
-                  onOpen={() => showLibraryTopic(topic.id)}
-                />
-              ))
-            )}
-          </>
-        )}
-      </div>
-      {topicId ? (
-        <TopicView id={topicId} topics={data?.topics ?? []} onBack={() => showLibraryTopic(null)} onChanged={load} />
-      ) : (
-        <div className="hidden min-w-0 flex-1 items-center justify-center text-[13px] text-cc-muted md:flex">
-          <span className="flex items-center gap-2">
-            <LibraryIcon className="h-4 w-4" /> Choose a topic
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LeaderSwitches({ data, act }: { data: TopicListResponse; act: (action: Promise<unknown>) => void }) {
+export function LeaderSwitches({ data, act }: { data: TopicListResponse; act: (action: Promise<unknown>) => void }) {
   const [open, setOpen] = useState(false);
   const enabled = data.leaders.filter((leader) => leader.enabled);
   const suggested = data.leaders.filter((leader) => leader.suggest);
@@ -169,15 +100,16 @@ function LeaderSwitches({ data, act }: { data: TopicListResponse; act: (action: 
   );
 }
 
-function ChangeList({ data, act }: { data: TopicListResponse; act: (action: Promise<unknown>) => void }) {
+export function ChangeList({ data, act }: { data: TopicListResponse; act: (action: Promise<unknown>) => void }) {
   return (
     <div className="border-b border-cc-border px-4 py-2" data-testid="topic-changes">
-      {data.changes.slice(0, 3).map((change) => (
-        <div key={change.id} className="flex items-center gap-2 py-0.5 text-[13px]">
-          <span className={`min-w-0 flex-1 truncate ${change.undone ? "text-cc-muted line-through" : "text-cc-fg"}`}>
-            {change.text}
-          </span>
-          {!change.undone && (
+      {/* Undone changes have nothing left to act on. */}
+      {data.changes
+        .filter((change) => !change.undone)
+        .slice(0, 3)
+        .map((change) => (
+          <div key={change.id} className="flex items-center gap-2 py-0.5 text-[13px]">
+            <span className="min-w-0 flex-1 truncate text-cc-fg">{change.text}</span>
             <button
               type="button"
               onClick={() => act(topicApi.undo(change.id))}
@@ -185,14 +117,13 @@ function ChangeList({ data, act }: { data: TopicListResponse; act: (action: Prom
             >
               Undo
             </button>
-          )}
-        </div>
-      ))}
+          </div>
+        ))}
     </div>
   );
 }
 
-function TopicRow({ topic, selected, onOpen }: { topic: TopicSummary; selected: boolean; onOpen: () => void }) {
+export function TopicRow({ topic, selected, onOpen }: { topic: TopicSummary; selected: boolean; onOpen: () => void }) {
   return (
     <button
       type="button"
@@ -220,16 +151,19 @@ function TopicRow({ topic, selected, onOpen }: { topic: TopicSummary; selected: 
   );
 }
 
-function TopicView({
+export function TopicView({
   id,
   topics,
   onBack,
   onChanged,
+  embedded = false,
 }: {
   id: string;
   topics: TopicSummary[];
   onBack: () => void;
   onChanged: () => void;
+  /** Inside the topic side panel, which has its own header and back button. */
+  embedded?: boolean;
 }) {
   const [detail, setDetail] = useState<TopicDetail | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
@@ -275,14 +209,14 @@ function TopicView({
 
   if (!detail) {
     return (
-      <TopicFrame onBack={onBack}>
+      <TopicFrame onBack={onBack} embedded={embedded}>
         <p className="p-4 text-[13px] text-cc-muted">{error ?? "Loading…"}</p>
       </TopicFrame>
     );
   }
   const others = topics.filter((topic) => topic.id !== detail.id);
   return (
-    <TopicFrame onBack={onBack}>
+    <TopicFrame onBack={onBack} embedded={embedded}>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-3 [&>*]:max-w-3xl" data-testid="topic-view">
         <div className="flex items-start gap-2">
           {renaming === null ? (
@@ -369,22 +303,19 @@ function TopicView({
         </form>
 
         {artifacts.length > 0 && (
-          <section className="mt-5">
-            <h3 className="mb-1 text-[11px] uppercase tracking-wide text-cc-muted">Artifacts</h3>
-            {artifacts.map((artifact) => (
-              <button
-                key={artifact.id}
-                type="button"
-                onClick={() => openLibraryArtifact(artifact.id)}
-                className="flex w-full items-baseline gap-2 py-1 text-left text-[14px] hover:underline"
-              >
-                <span className="min-w-0 flex-1 truncate text-cc-fg">{artifact.title}</span>
-                <span className="shrink-0 text-[12px] text-cc-muted">
-                  {ARTIFACT_KIND_LABELS[artifact.kind]}
-                  {artifact.versionCount > 1 ? ` · v${artifact.versionCount}` : ""}
-                </span>
-              </button>
-            ))}
+          <section className="mt-5" data-testid="topic-artifacts">
+            <h3 className="mb-1 text-[11px] uppercase tracking-wide text-cc-muted">Made</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(170px,1fr))]">
+              {artifacts.map((artifact) => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  showKind
+                  showSpace={false}
+                  onOpen={() => openLibraryArtifact(artifact.id)}
+                />
+              ))}
+            </div>
           </section>
         )}
 
@@ -436,7 +367,16 @@ function TopicView({
   );
 }
 
-function TopicFrame({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+function TopicFrame({
+  onBack,
+  embedded,
+  children,
+}: {
+  onBack: () => void;
+  embedded: boolean;
+  children: React.ReactNode;
+}) {
+  if (embedded) return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-cc-border">
       <button

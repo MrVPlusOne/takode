@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
-import { LibraryIcon } from "./ArtifactInline.js";
 import {
   DndContext,
   closestCenter,
@@ -139,7 +138,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
   const isScheduledPage = secondaryPage === "scheduled";
   const isQuestmasterPage = secondaryPage === "questmaster";
   const isMemoryPage = secondaryPage === "memory";
-  const isLibraryPage = secondaryPage === "library";
   const isDesktopLayout = useDesktopShellLayout();
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
@@ -755,7 +753,7 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
   };
 
   return (
-    <aside className="w-full sm:w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
+    <aside className="w-full sm:w-[var(--split-w,260px)] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
       <div className="p-4 pb-3 border-b border-cc-border/60">
         <div className="flex items-center gap-2 mb-4">
           <img src={logoSrc} alt="" className="h-12 w-12 shrink-0 rounded-xl object-contain" />
@@ -1192,21 +1190,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
               <path d="M12 5a3 3 0 1 1 6 .1 4 4 0 0 1 2.5 5.8 4 4 0 0 1-.5 6.6A4 4 0 1 1 12 18Z" />
               <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
             </svg>
-          </button>
-          <button
-            title="Library"
-            aria-label="Library"
-            onClick={() => {
-              toggleSecondaryPage("library");
-              if (!isDesktopLayout) {
-                useStore.getState().setSidebarOpen(false);
-              }
-            }}
-            className={`p-2 rounded-lg transition-colors cursor-pointer ${
-              isLibraryPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-            }`}
-          >
-            <LibraryIcon className="w-4 h-4" />
           </button>
           <button
             title="Quests"

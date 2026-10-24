@@ -292,7 +292,12 @@ describe("CodexSubagentInspector", () => {
       within(dialog).getByRole("complementary", {
         name: "Codex subagent list",
       }),
-    ).toHaveClass("lg:w-60", "xl:w-64");
+    ).toHaveClass("lg:w-[var(--split-w)]");
+    // The list keeps a compact default width and can be resized by dragging its divider.
+    expect(within(dialog).getByRole("separator", { name: "Resize the subagent list" })).toHaveAttribute(
+      "aria-valuenow",
+      "256",
+    );
   });
 
   it("fills the measured chat workspace while keeping the child navigator compact", async () => {
@@ -321,7 +326,7 @@ describe("CodexSubagentInspector", () => {
       within(dialog).getByRole("complementary", {
         name: "Codex subagent list",
       }),
-    ).toHaveClass("lg:w-60", "xl:w-64");
+    ).toHaveClass("lg:w-[var(--split-w)]");
 
     workspaceRect = { x: 0, y: 0, width: 760, height: 700 };
     window.dispatchEvent(new Event("resize"));

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactListQuery } from "../../shared/artifact-library.js";
 import { getArtifactLibrary, type ArtifactLibrary } from "../artifact-library.js";
+import { getArtifactThumbnails, type ArtifactThumbnails } from "../artifact-thumbnails.js";
 import type { RouteContext } from "./context.js";
 
 const FIGURE_CONTENT_TYPES: Record<string, string> = {
@@ -17,7 +18,11 @@ const FIGURE_CONTENT_TYPES: Record<string, string> = {
  * The artifact library's API, for the Library page and `takode artifact`: list and search
  * artifacts, read a version's saved content or a figure's file, and star, rename or merge.
  */
-export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactLibrary | null = getArtifactLibrary) {
+export function createArtifactRoutes(
+  ctx: RouteContext,
+  library: () => ArtifactLibrary | null = getArtifactLibrary,
+  thumbnails: () => ArtifactThumbnails | null = getArtifactThumbnails,
+) {
   const api = new Hono();
 
   api.get("/artifacts", (c) => {
@@ -41,6 +46,13 @@ export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactL
     if (threads) query.threadKeys = threads.split(",").filter(Boolean);
     const session = c.req.query("session");
     if (session) query.sessionId = ctx.resolveId(session) ?? session;
+    const leader = c.req.query("leader");
+    if (leader) {
+      const leaderId = ctx.resolveId(leader) ?? leader;
+      query.sessionIds = leaderFamily(ctx, leaderId);
+      // A leader's artifacts are what it and its workers made, wherever their spaces.
+      if (!c.req.query("space")) delete query.space;
+    }
     const limit = Number(c.req.query("limit"));
     if (Number.isFinite(limit) && limit > 0) query.limit = limit;
     const offset = Number(c.req.query("offset"));
@@ -90,6 +102,25 @@ export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactL
     }
   });
 
+  /**
+   * A small WebP of the newest version for the gallery. The URL names the version (`v`, from the
+   * summary's `thumb`), so the browser keeps it for good and asks again only for a newer version.
+   * A visual still being drawn answers 202 at once; the gallery asks again shortly.
+   */
+  api.get("/artifacts/:id/thumb", async (c) => {
+    const theme = c.req.query("theme") === "light" ? "light" : "dark";
+    // Never hold a request while a visual is drawn: browsers allow few requests at once per server.
+    const data = await thumbnails()?.get(c.req.param("id"), theme, { waitForVisual: false });
+    if (data === "pending") {
+      return c.json({ pending: true }, 202, { "Retry-After": "2", "Cache-Control": "no-store" });
+    }
+    if (!data) return c.json({ error: "No thumbnail" }, 404);
+    return c.body(new Uint8Array(data), 200, {
+      "Content-Type": "image/webp",
+      "Cache-Control": c.req.query("v") ? "private, max-age=31536000, immutable" : "private, max-age=60",
+    });
+  });
+
   /** Rename (`title`) or star (`starred`); renaming updates the line under messages showing it. */
   api.patch("/artifacts/:id", async (c) => {
     const lib = library();
@@ -125,4 +156,15 @@ export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactL
   });
 
   return api;
+}
+
+/** A leader and the sessions it herds (workers, reviewers), archived ones included. */
+export function leaderFamily(ctx: RouteContext, leaderId: string): string[] {
+  return [
+    leaderId,
+    ...ctx.launcher
+      .listSessions()
+      .filter((session) => session.herdedBy === leaderId)
+      .map((session) => session.sessionId),
+  ];
 }

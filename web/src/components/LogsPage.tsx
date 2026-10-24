@@ -1,4 +1,5 @@
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import { api, buildLogStreamUrl } from "../api.js";
 import { LOG_LEVELS, type LogLevel, type ServerLogEntry } from "../../shared/logging.js";
 
@@ -56,6 +57,7 @@ function renderMetaWithSessions(entry: ServerLogEntry, sessionLabels: Map<string
 }
 
 export function LogsPage() {
+  const filterSplit = useSplitWidth("log-filters", { defaultWidth: 280, min: 220, max: 520 });
   const isDesktopViewport = typeof window === "undefined" ? true : window.innerWidth >= 1024;
   const [entries, setEntries] = useState<ServerLogEntry[]>([]);
   const [availableComponents, setAvailableComponents] = useState<string[]>([]);
@@ -245,7 +247,16 @@ export function LogsPage() {
           <span className="text-xs text-cc-muted">{filtersOpen ? "Filters expanded" : "Logs prioritized"}</span>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)] min-h-0 flex-1">
+        <div
+          style={filterSplit.style}
+          className="relative grid gap-3 lg:grid-cols-[var(--split-w)_minmax(0,1fr)] min-h-0 flex-1"
+        >
+          <SplitHandle
+            label="Resize the log filters"
+            className="hidden lg:block"
+            gapCenter={6}
+            {...filterSplit.handleProps}
+          />
           {(filtersOpen || isDesktopViewport) && (
             <div className="min-h-0 rounded-2xl border border-cc-border bg-cc-card p-4 space-y-4 overflow-y-auto">
               <div>

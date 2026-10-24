@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,13 +9,14 @@ vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: st
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { artifactApi } from "../../api/artifacts.js";
-import { showLibraryTopic } from "../../utils/library-nav.js";
-import { TopicsPanel } from "./TopicsPanel.js";
+import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
+import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
 
 /**
- * The Library's Topics tab against a mocked API: a leader past about 20 quests gets the hint to
- * turn topics on, the page writer's tidying shows as one line with Undo, and a topic opens on its
- * page with Update now and a place to say what to fix.
+ * A leader's topic panel against a mocked API: a leader past about 20 quests gets the hint to
+ * turn topics on, the page writer's tidying shows as one line with Undo, the panel follows the
+ * quest tab to its topic's page (with Update now and a place to say what to fix), and it sits in
+ * the layout as a collapsible rail on desktop or opens as a sheet on phones.
  */
 
 const NOW = Date.now();
@@ -68,13 +69,15 @@ const DETAIL: TopicDetail = {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  showLibraryTopic(null);
+  localStorage.clear();
+  useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
 });
 
 function mockApi() {
   vi.spyOn(topicApi, "list").mockResolvedValue(LIST);
   vi.spyOn(topicApi, "get").mockResolvedValue(DETAIL);
   vi.spyOn(artifactApi, "list").mockResolvedValue({ artifacts: [], total: 0 } as never);
+  vi.spyOn(topicApi, "questMap").mockResolvedValue({ enabled: true, map: { "q-2713": { id: "t7", name: "T7 run" } } });
   return {
     enable: vi.spyOn(topicApi, "setLeaderEnabled").mockResolvedValue({ enabled: true }),
     undo: vi.spyOn(topicApi, "undo").mockResolvedValue({}),
@@ -83,10 +86,10 @@ function mockApi() {
   };
 }
 
-describe("TopicsPanel", () => {
+describe("TopicSidePanel", () => {
   it("offers to turn topics on, lists topics and undoes the page writer's tidying", async () => {
     const api = mockApi();
-    render(<TopicsPanel space="MSI" />);
+    render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     const hint = await screen.findByTestId("topic-hint");
     expect(hint).toHaveTextContent("#2851 Daily Leader has 24 quests. Group them by topic?");
     fireEvent.click(within(hint).getByText("Turn on"));
@@ -101,10 +104,10 @@ describe("TopicsPanel", () => {
     expect(api.undo).toHaveBeenCalledWith("c1");
   });
 
-  it("opens a topic on its page, with Update now and a fix request", async () => {
+  it("follows the quest tab on screen to its topic's page, with Update now and a fix request", async () => {
     const api = mockApi();
-    render(<TopicsPanel space="MSI" />);
-    fireEvent.click((await screen.findAllByTestId("library-topic-row"))[0]!);
+    // q-2713 is filed under T7 run, so the panel opens on that page.
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const view = await screen.findByTestId("topic-view");
     expect(within(view).getByTestId("topic-page")).toHaveTextContent("Step ~165.");
     expect(view).toHaveTextContent("Launch T7");
@@ -115,5 +118,25 @@ describe("TopicsPanel", () => {
     fireEvent.click(within(view).getByText("Send"));
     expect(api.feedback).toHaveBeenCalledWith("t7", "The LR is 0.02");
     await waitFor(() => expect(view).toHaveTextContent("Sent; the page will be corrected shortly."));
+  });
+
+  it("is part of the desktop layout: open by default, collapsing to a rail naming the topic", async () => {
+    mockApi();
+    render(<LeaderTopicPanel leaderId="l1" threadKey="q-2713" desktop />);
+    expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse topics" }));
+    const rail = await screen.findByTestId("topic-rail");
+    await waitFor(() => expect(rail).toHaveTextContent("T7 run"));
+    fireEvent.click(within(rail).getByRole("button", { name: "Show the topic T7 run" }));
+    expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
+  });
+
+  it("opens as a sheet on phones and stays closed until asked", async () => {
+    mockApi();
+    const { rerender } = render(<LeaderTopicPanel leaderId="l1" threadKey="main" desktop={false} />);
+    expect(screen.queryByTestId("topic-side-panel")).toBeNull();
+    act(() => setTopicSheetOpen("l1", true));
+    rerender(<LeaderTopicPanel leaderId="l1" threadKey="main" desktop={false} />);
+    expect(await screen.findByTestId("topic-side-panel")).toHaveAttribute("data-variant", "sheet");
   });
 });

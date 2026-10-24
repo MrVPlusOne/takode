@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import { ApiError, api } from "../api.js";
 import { useStore } from "../store.js";
 import { useSendKey } from "../hooks/useSendKey.js";
@@ -79,6 +80,7 @@ export function SideChatPanel({
   sideChat: SideChatRecord;
   onClose: () => void;
 }) {
+  const split = useSplitWidth("side-chat", { defaultWidth: 420, min: 300, max: 760, side: "right" });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -281,97 +283,103 @@ export function SideChatPanel({
   };
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-l border-cc-border bg-cc-card sm:w-[360px] lg:w-[420px]">
-      <div className="flex items-start gap-3 border-b border-cc-border px-3 py-2.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold text-cc-fg">Side Chat</h2>
-            <span className="rounded-full border border-cc-border bg-cc-hover/60 px-2 py-0.5 text-[11px] text-cc-muted">
-              {sideChat.messageCount}
-            </span>
-            <SideChatContextBadge sideChat={sideChat} />
+    <>
+      <SplitHandle label="Resize Side Chat" {...split.handleProps} />
+      <aside
+        style={split.style}
+        className="flex min-h-0 w-full shrink-0 flex-col border-l border-cc-border bg-cc-card sm:w-[360px] md:w-[var(--split-w)]"
+      >
+        <div className="flex items-start gap-3 border-b border-cc-border px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-sm font-semibold text-cc-fg">Side Chat</h2>
+              <span className="rounded-full border border-cc-border bg-cc-hover/60 px-2 py-0.5 text-[11px] text-cc-muted">
+                {sideChat.messageCount}
+              </span>
+              <SideChatContextBadge sideChat={sideChat} />
+            </div>
+            <p className="mt-0.5 line-clamp-2 text-xs text-cc-muted">{sideChat.anchorPreview || "Root reply"}</p>
           </div>
-          <p className="mt-0.5 line-clamp-2 text-xs text-cc-muted">{sideChat.anchorPreview || "Root reply"}</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+            aria-label="Close Side Chat"
+            title="Close Side Chat"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1.5 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
-          aria-label="Close Side Chat"
-          title="Close Side Chat"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
-            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-      <div className="border-b border-cc-border bg-cc-hover/30 px-3 py-2 text-xs leading-relaxed text-cc-muted">
-        Read-only Side Chat. Use this workspace for analysis and follow-up questions only. File and repo edits are
-        blocked here; move any change work back to the main session or a quest workflow.
-        {contextStatus.tone === "fallback" && (
-          <div className="mt-2 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-cc-attention">
-            Bounded replay context. Native fork was unavailable, so this Side Chat has bounded root context only.
-            {sideChat.contextFallbackReason ? ` ${sideChat.contextFallbackReason}` : ""}
-          </div>
-        )}
-        {contextStatus.tone === "unknown" && (
-          <div className="mt-2 rounded-md border border-cc-border bg-cc-hover/50 px-2 py-1.5">
-            Context provenance is unknown for this legacy Side Chat.
-          </div>
-        )}
-      </div>
-      <SideChatStatusStrip items={statusItems} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-        {loading && visibleMessages.length === 0 ? (
-          <div className="text-xs text-cc-muted">Loading Side Chat...</div>
-        ) : visibleMessages.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-cc-border px-3 py-3 text-xs text-cc-muted">
-            Ask a follow-up in this read-only Side Chat.
-          </div>
-        ) : (
-          visibleMessages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              sessionId={sideChat.childSessionId}
-              currentThreadKey="main"
-              showSideChatActions={false}
+        <div className="border-b border-cc-border bg-cc-hover/30 px-3 py-2 text-xs leading-relaxed text-cc-muted">
+          Read-only Side Chat. Use this workspace for analysis and follow-up questions only. File and repo edits are
+          blocked here; move any change work back to the main session or a quest workflow.
+          {contextStatus.tone === "fallback" && (
+            <div className="mt-2 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-cc-attention">
+              Bounded replay context. Native fork was unavailable, so this Side Chat has bounded root context only.
+              {sideChat.contextFallbackReason ? ` ${sideChat.contextFallbackReason}` : ""}
+            </div>
+          )}
+          {contextStatus.tone === "unknown" && (
+            <div className="mt-2 rounded-md border border-cc-border bg-cc-hover/50 px-2 py-1.5">
+              Context provenance is unknown for this legacy Side Chat.
+            </div>
+          )}
+        </div>
+        <SideChatStatusStrip items={statusItems} />
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
+          {loading && visibleMessages.length === 0 ? (
+            <div className="text-xs text-cc-muted">Loading Side Chat...</div>
+          ) : visibleMessages.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-cc-border px-3 py-3 text-xs text-cc-muted">
+              Ask a follow-up in this read-only Side Chat.
+            </div>
+          ) : (
+            visibleMessages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                sessionId={sideChat.childSessionId}
+                currentThreadKey="main"
+                showSideChatActions={false}
+              />
+            ))
+          )}
+        </div>
+        <div className="border-t border-cc-border p-3">
+          <div className="rounded-lg border border-cc-border bg-cc-bg">
+            <textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (sendKey.isSendKey(event)) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+              rows={3}
+              placeholder="Reply in Side Chat..."
+              disabled={!canSend}
+              className="min-h-[76px] w-full resize-none bg-transparent px-3 py-2 text-sm text-cc-fg outline-none placeholder:text-cc-muted"
             />
-          ))
-        )}
-      </div>
-      <div className="border-t border-cc-border p-3">
-        <div className="rounded-lg border border-cc-border bg-cc-bg">
-          <textarea
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (sendKey.isSendKey(event)) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-            rows={3}
-            placeholder="Reply in Side Chat..."
-            disabled={!canSend}
-            className="min-h-[76px] w-full resize-none bg-transparent px-3 py-2 text-sm text-cc-fg outline-none placeholder:text-cc-muted"
-          />
-          <div className="flex items-center justify-between border-t border-cc-border/70 px-2 py-2">
-            <span className="min-w-0 pr-2 text-[11px] text-cc-muted">
-              {canSend ? "Read-only Side Chat" : "Side Chat send unavailable"}
-            </span>
-            <button
-              type="button"
-              onClick={() => void send()}
-              disabled={!text.trim() || sending || !canSend}
-              title={sendKey.hint}
-              className="rounded-md bg-cc-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {sending ? "Sending" : pendingCodexInputs.length > 0 ? "Queue" : "Send"}
-            </button>
+            <div className="flex items-center justify-between border-t border-cc-border/70 px-2 py-2">
+              <span className="min-w-0 pr-2 text-[11px] text-cc-muted">
+                {canSend ? "Read-only Side Chat" : "Side Chat send unavailable"}
+              </span>
+              <button
+                type="button"
+                onClick={() => void send()}
+                disabled={!text.trim() || sending || !canSend}
+                title={sendKey.hint}
+                className="rounded-md bg-cc-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sending ? "Sending" : pendingCodexInputs.length > 0 ? "Queue" : "Send"}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

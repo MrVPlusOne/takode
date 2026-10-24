@@ -5,9 +5,10 @@
  * command.
  */
 
-export type ArtifactKind = "post" | "report" | "review" | "visual" | "figure";
+export type ArtifactKind = "post" | "report" | "review" | "visual" | "figure" | "table";
 
-export const ARTIFACT_KINDS: readonly ArtifactKind[] = ["post", "report", "review", "visual", "figure"];
+/** In the order the Library's kind tabs show them. */
+export const ARTIFACT_KINDS: readonly ArtifactKind[] = ["figure", "visual", "table", "post", "report", "review"];
 
 /** User-facing names of the kinds, singular. */
 export const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
@@ -16,6 +17,17 @@ export const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
   review: "Guided review",
   visual: "Visual",
   figure: "Figure",
+  table: "Table",
+};
+
+/** Plural names, for the Library's kind tabs. */
+export const ARTIFACT_KIND_PLURALS: Record<ArtifactKind, string> = {
+  post: "Posts",
+  report: "Reports",
+  review: "Reviews",
+  visual: "Visuals",
+  figure: "Figures",
+  table: "Tables",
 };
 
 /** Where a version appeared: a message of a session's conversation. */
@@ -61,6 +73,16 @@ export interface ArtifactSummary {
   latest: ArtifactVersionSummary;
   /** First characters of the newest version's text, for previews and search results. */
   preview: string;
+  /**
+   * The start of the newest version's text with its lines kept, for the gallery's text thumbnails
+   * (posts, reports, reviews, tables).
+   */
+  excerpt?: string;
+  /**
+   * Set when the artifact has a picture thumbnail (figures, visuals): changes with the newest
+   * version, so thumbnail URLs carrying it can be cached for good.
+   */
+  thumb?: string;
 }
 
 export interface ArtifactDetail extends ArtifactSummary {
@@ -71,6 +93,7 @@ export interface ArtifactDetail extends ArtifactSummary {
 export type ArtifactVersionContent =
   | { kind: "post"; parts: string[]; figureIds: string[] }
   | { kind: "report" | "review"; markdown: string; sourcePath?: string }
+  | { kind: "table"; markdown: string }
   | { kind: "visual"; source: string }
   | { kind: "figure"; path: string; fileUrl: string | null };
 
@@ -85,6 +108,11 @@ export interface ArtifactListQuery {
   sessionId?: string;
   /** Only artifacts made in these tabs (quest threads), such as a topic's quests. */
   threadKeys?: string[];
+  /**
+   * Only artifacts of these sessions (a leader and its workers): made in one of them, or shown in
+   * one of their messages.
+   */
+  sessionIds?: string[];
   limit?: number;
   offset?: number;
 }
@@ -130,6 +158,32 @@ export function parseArtifactPlaceholder(body: string): ArtifactMessageMarker | 
   } catch {
     return null;
   }
+}
+
+/** URL of an artifact's thumbnail picture; `thumb` (from the summary) makes it cacheable for good. */
+export function artifactThumbUrl(artifact: { id: string; thumb?: string }, theme: "dark" | "light"): string | null {
+  if (!artifact.thumb) return null;
+  return `/api/artifacts/${encodeURIComponent(artifact.id)}/thumb?v=${artifact.thumb}&theme=${theme}`;
+}
+
+/** Short ID shown to people and used in links: the first 8 characters, unique in practice. */
+export function shortArtifactId(id: string): string {
+  return id.slice(0, 8);
+}
+
+/**
+ * Takode link to an artifact: `[title](artifact:<id>)`, or `[title](artifact:<id>:v<n>)` for one
+ * version. The ID may be a unique prefix of at least 4 characters.
+ */
+export function formatArtifactLink(title: string, id: string, version?: number): string {
+  const label = title.replace(/[[\]\\]/g, (char) => `\\${char}`);
+  return `[${label}](artifact:${shortArtifactId(id)}${version ? `:v${version}` : ""})`;
+}
+
+export function parseArtifactLinkHref(href: string | undefined | null): { id: string; version?: number } | null {
+  const match = /^artifact:([0-9a-f-]{4,36})(?::v(\d+))?$/i.exec(href?.trim() ?? "");
+  if (!match) return null;
+  return { id: match[1].toLowerCase(), ...(match[2] ? { version: Number(match[2]) } : {}) };
 }
 
 /**

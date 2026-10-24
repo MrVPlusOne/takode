@@ -15,7 +15,14 @@ import { createTopicRoutes } from "./topics.js";
 
 vi.mock("../quest-store.js", () => {
   const quests = [
-    { questId: "q-1", title: "Launch T7", status: "done", sessionSpaceSlug: "MSI", createdAt: 1 },
+    {
+      questId: "q-1",
+      title: "Launch T7",
+      status: "done",
+      sessionSpaceSlug: "MSI",
+      createdAt: 1,
+      leaderSessionId: "leader",
+    },
     { questId: "q-2", title: "256K twin", status: "in_progress", sessionSpaceSlug: "MSI", createdAt: 2 },
   ];
   return {
@@ -108,5 +115,15 @@ describe("topic routes", () => {
     const written = await send(`/topics/${topic.id}/page`, "POST", { markdown: "## Where it stands\nLaunched." });
     expect(written.status).toBe(200);
     expect(store.pendingEvents(topic.id).map((event) => event.kind)).toEqual(["quest_done"]);
+  });
+
+  it("shows a leader's Library the topics of its own quests", async () => {
+    const { app, store } = await setup();
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.assign({ questId: "q-2", space: "MSI", name: "Seeded QA", by: "agent", byAgent: false });
+    const everything = await (await app.request("/topics?space=MSI")).json();
+    expect(everything.topics.map((topic: { name: string }) => topic.name).sort()).toEqual(["Seeded QA", "T7 run"]);
+    const own = await (await app.request("/topics?leader=leader")).json();
+    expect(own.topics.map((topic: { name: string }) => topic.name)).toEqual(["T7 run"]);
   });
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { YarnBallSpinner } from "./CatIcons.js";
@@ -19,6 +20,7 @@ interface ClaudeMdEditorProps {
 
 export function ClaudeMdEditor({ cwd, open, initialPath, onClose }: ClaudeMdEditorProps) {
   const [files, setFiles] = useState<ClaudeMdFile[]>([]);
+  const fileListSplit = useSplitWidth("claude-md-files", { defaultWidth: 200, min: 150, max: 420 });
   const [loading, setLoading] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [editContent, setEditContent] = useState("");
@@ -203,7 +205,10 @@ export function ClaudeMdEditor({ cwd, open, initialPath, onClose }: ClaudeMdEdit
               </div>
 
               {/* Desktop: file tabs sidebar */}
-              <div className="hidden sm:flex shrink-0 w-[200px] border-r border-cc-border bg-cc-sidebar flex-col">
+              <div
+                style={fileListSplit.style}
+                className="hidden sm:flex shrink-0 w-[var(--split-w)] border-r border-cc-border bg-cc-sidebar flex-col"
+              >
                 <div className="px-3 py-2 text-[10px] font-semibold text-cc-muted uppercase tracking-wider border-b border-cc-border">
                   Files
                 </div>
@@ -264,6 +269,7 @@ export function ClaudeMdEditor({ cwd, open, initialPath, onClose }: ClaudeMdEdit
                   </div>
                 )}
               </div>
+              <SplitHandle label="Resize the file list" className="hidden sm:block" {...fileListSplit.handleProps} />
 
               {/* Editor area */}
               <div className="flex-1 flex flex-col min-w-0">

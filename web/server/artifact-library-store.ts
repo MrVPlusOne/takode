@@ -28,6 +28,8 @@ export const UNTITLED_POST_GROUPING_MS = 12 * 60 * 60 * 1000;
 /** Figures larger than this are recorded but not copied. */
 export const MAX_FIGURE_COPY_BYTES = 20 * 1024 * 1024;
 const PREVIEW_CHARS = 240;
+/** Kinds the library learned to find after it first started; their earlier history is read once. */
+const KINDS_ADDED_LATER: readonly ArtifactKind[] = ["table"];
 const CURSOR_WRITE_INTERVAL_MS = 60_000;
 
 interface StoredVersion extends ArtifactVersionSummary {
@@ -51,6 +53,8 @@ interface StoredArtifact {
   updatedAt: number;
   starred: boolean;
   preview: string;
+  /** The newest version's text with its lines kept, for text thumbnails; see `ArtifactSummary.excerpt`. */
+  excerpt?: string;
   /** The figure's file path, for figures. */
   path?: string;
   /** The newest version's parts, for posts: an older message's draft equal to one of them is still current. */
@@ -75,6 +79,8 @@ interface LibraryIndex {
   messages: Record<string, MessageEntry[]>;
   /** Per session: how many history messages were already read, and the ID of the last one. */
   cursors: Record<string, { count: number; lastId?: string }>;
+  /** Kinds added after the library started whose earlier history was already read for them. */
+  backfilledKinds?: ArtifactKind[];
 }
 
 export interface CaptureContext {
@@ -108,6 +114,7 @@ export class ArtifactLibraryStore {
       const parsed = JSON.parse(await readFile(join(this.root, "index.json"), "utf-8")) as LibraryIndex;
       if (parsed?.version !== 1 || typeof parsed.artifacts !== "object") throw new Error("unknown index format");
       this.index = parsed;
+      await this.fillMissingExcerpts();
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
         // Never overwrite an index we could not read; keep it aside and start a fresh one.
@@ -123,9 +130,39 @@ export class ArtifactLibraryStore {
         keys: {},
         messages: {},
         cursors: {},
+        // A new library reads every kind from the start.
+        backfilledKinds: [...KINDS_ADDED_LATER],
       };
       this.dirty = true;
       await this.flush();
+    }
+  }
+
+  /** Kinds added after this library started whose earlier history still needs reading for them. */
+  kindsToBackfill(): ArtifactKind[] {
+    const done = this.state().backfilledKinds ?? [];
+    return KINDS_ADDED_LATER.filter((kind) => !done.includes(kind));
+  }
+
+  markKindsBackfilled(kinds: readonly ArtifactKind[]): void {
+    const index = this.state();
+    index.backfilledKinds = [...new Set([...(index.backfilledKinds ?? []), ...kinds])];
+    this.dirty = true;
+  }
+
+  /** Artifacts saved before excerpts existed get one from their newest saved text. */
+  private async fillMissingExcerpts(): Promise<void> {
+    for (const artifact of Object.values(this.state().artifacts)) {
+      if (artifact.excerpt !== undefined || artifact.kind === "figure" || artifact.kind === "visual") continue;
+      const stored = artifact.versions.at(-1)?.stored;
+      if (!stored) continue;
+      try {
+        const content = JSON.parse(await readFile(join(this.root, "text", stored), "utf-8")) as ArtifactVersionContent;
+        artifact.excerpt = excerptOf(content);
+        this.dirty = true;
+      } catch (error) {
+        console.error(`[artifact-library] Could not read ${stored} for its excerpt:`, error);
+      }
     }
   }
 
@@ -158,10 +195,16 @@ export class ArtifactLibraryStore {
   }
 
   /** Records one message's captures as artifact versions. */
-  async captureMessage(ctx: CaptureContext, extracted: ExtractedMessage, result: CaptureResult): Promise<void> {
+  async captureMessage(
+    ctx: CaptureContext,
+    extracted: ExtractedMessage,
+    result: CaptureResult,
+    options: { onlyKinds?: readonly ArtifactKind[] } = {},
+  ): Promise<void> {
     const index = this.state();
     const messageKey = messageIndexKey(ctx.sessionId, extracted.messageId);
-    if (index.messages[messageKey]) return;
+    const existing = index.messages[messageKey];
+    if (existing && !options.onlyKinds) return;
     const ref: ArtifactMessageRef = {
       sessionId: ctx.sessionId,
       messageId: extracted.messageId,
@@ -171,13 +214,16 @@ export class ArtifactLibraryStore {
     const entries: MessageEntry[] = [];
     const figureIdsByLabel = new Map<string, string>();
     for (const capture of extracted.captures) {
+      // Reading a message again for a new kind adds only that kind's captures.
+      if (options.onlyKinds && !options.onlyKinds.includes(capture.kind)) continue;
+      if (existing?.some((entry) => entry.label === capture.label)) continue;
       const entry = await this.captureOne(ctx, ref, capture, figureIdsByLabel, result);
       if (!entry) continue;
       entries.push(entry);
       if (capture.kind === "figure") figureIdsByLabel.set(capture.label, entry.artifactId);
     }
     if (entries.length === 0) return;
-    index.messages[messageKey] = entries;
+    index.messages[messageKey] = [...(existing ?? []), ...entries];
     result.captured += entries.length;
     this.dirty = true;
   }
@@ -207,6 +253,7 @@ export class ArtifactLibraryStore {
         updatedAt: ref.at,
         starred: false,
         preview: prepared.preview,
+        ...(prepared.excerpt !== undefined ? { excerpt: prepared.excerpt } : {}),
         ...(capture.kind === "figure" ? { path: capture.path } : {}),
         versions: [],
       };
@@ -233,6 +280,7 @@ export class ArtifactLibraryStore {
     if (prepared.postParts) artifact.latestParts = prepared.postParts;
     artifact.updatedAt = Math.max(artifact.updatedAt, ref.at);
     artifact.preview = prepared.preview;
+    if (prepared.excerpt !== undefined) artifact.excerpt = prepared.excerpt;
     if (
       artifact.titleSource !== "user" &&
       (prepared.titleSource === "explicit" || artifact.titleSource === "derived")
@@ -270,6 +318,7 @@ export class ArtifactLibraryStore {
     title: string;
     titleSource: StoredArtifact["titleSource"];
     preview: string;
+    excerpt?: string;
     stored?: string;
     parts?: number;
     figureIds?: string[];
@@ -293,6 +342,11 @@ export class ArtifactLibraryStore {
       title = capture.title ?? visualAltTitle(capture.source);
       titleSource = capture.title ? "explicit" : "derived";
       previewText = visualAltTitle(capture.source);
+    } else if (capture.kind === "table") {
+      content = { kind: "table", markdown: capture.markdown };
+      title = capture.title;
+      titleSource = "derived";
+      previewText = capture.markdown;
     } else {
       content = {
         kind: capture.kind,
@@ -315,6 +369,7 @@ export class ArtifactLibraryStore {
       title,
       titleSource,
       preview: previewOf(previewText),
+      ...(content.kind === "visual" ? {} : { excerpt: excerptOf(content) }),
       stored,
       ...(content.kind === "post"
         ? { parts: content.parts.length, figureIds: content.figureIds, postParts: content.parts }
@@ -415,11 +470,13 @@ export class ArtifactLibraryStore {
     const all = Object.values(this.state().artifacts);
     const spaces = [...new Set(all.map((artifact) => artifact.space))].sort();
     const words = (query.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const inSessions = query.sessionIds ? this.artifactsOfSessions(query.sessionIds) : null;
     const matches = all
       .filter((artifact) => !query.space || artifact.space === query.space)
       .filter((artifact) => !query.kind || artifact.kind === query.kind)
       .filter((artifact) => !query.sessionId || artifact.sessionId === query.sessionId)
       .filter((artifact) => !query.threadKeys || query.threadKeys.includes(artifact.threadKey))
+      .filter((artifact) => !inSessions || inSessions.has(artifact.id))
       .filter((artifact) => !query.starred || artifact.starred)
       .filter((artifact) => query.since === undefined || artifact.updatedAt >= query.since)
       .filter((artifact) => {
@@ -435,6 +492,20 @@ export class ArtifactLibraryStore {
       total: matches.length,
       spaces,
     };
+  }
+
+  /** Artifacts made in any of these sessions or shown in one of their messages. */
+  private artifactsOfSessions(sessionIds: readonly string[]): Set<string> {
+    const sessions = new Set(sessionIds);
+    const ids = new Set<string>();
+    for (const artifact of Object.values(this.state().artifacts)) {
+      if (sessions.has(artifact.sessionId)) ids.add(artifact.id);
+    }
+    for (const [key, entries] of Object.entries(this.state().messages)) {
+      if (!sessions.has(key.slice(0, key.indexOf("\n")))) continue;
+      for (const entry of entries) ids.add(entry.artifactId);
+    }
+    return ids;
   }
 
   /** An artifact ID from an exact ID or a unique prefix of at least 4 characters. */
@@ -470,6 +541,30 @@ export class ArtifactLibraryStore {
     }
     if (!version.stored) return null;
     return JSON.parse(await readFile(join(this.root, "text", version.stored), "utf-8")) as ArtifactVersionContent;
+  }
+
+  /** What the newest version's thumbnail is made from, keyed by its version; null for kinds shown as text. */
+  thumbnailSource(
+    ref: string,
+  ):
+    | { kind: "figure"; key: string; filePath: string }
+    | { kind: "visual"; key: string; visualSource: () => Promise<string> }
+    | null {
+    const id = this.resolveId(ref);
+    const artifact = id ? this.state().artifacts[id] : undefined;
+    const key = artifact ? thumbKey(artifact) : undefined;
+    const latest = artifact?.versions.at(-1);
+    if (!artifact || !key || !latest?.stored) return null;
+    if (artifact.kind === "figure") return { kind: "figure", key, filePath: join(this.root, "files", latest.stored) };
+    const stored = latest.stored;
+    return {
+      kind: "visual",
+      key,
+      visualSource: async () => {
+        const content = JSON.parse(await readFile(join(this.root, "text", stored), "utf-8")) as ArtifactVersionContent;
+        return content.kind === "visual" ? content.source : "";
+      },
+    };
   }
 
   /** The newest figure file, for serving. */
@@ -593,6 +688,9 @@ function groupingKey(ctx: CaptureContext, ref: ArtifactMessageRef, capture: Mess
         : `visual|${ctx.sessionId}|${ref.messageId}|${capture.label}`;
     case "figure":
       return `figure|${capture.path}`;
+    case "table":
+      // Each table is its own artifact: tables in later answers are new results, not revisions.
+      return `table|${ctx.sessionId}|${ref.messageId}|${capture.label}`;
     case "report":
     case "review":
       return `${capture.kind}|${ctx.space}|${capture.sourcePath}`;
@@ -631,6 +729,21 @@ function visualAltTitle(source: string): string {
   const alt = /^alt:[ \t]*(.+?)[ \t]*$/im.exec(source.split(/\n---[ \t]*\n/)[0] ?? "")?.[1];
   const text = alt || "Visual";
   return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text;
+}
+
+const EXCERPT_CHARS = 700;
+const EXCERPT_LINES = 16;
+
+/** The start of a text version, lines kept, for the gallery's text thumbnails. */
+export function excerptOf(content: ArtifactVersionContent): string {
+  const text =
+    content.kind === "post"
+      ? content.parts.join("\n\n")
+      : content.kind === "report" || content.kind === "review" || content.kind === "table"
+        ? content.markdown
+        : "";
+  const lines = text.replace(/\r/g, "").split("\n").slice(0, EXCERPT_LINES).join("\n").trimEnd();
+  return lines.length > EXCERPT_CHARS ? lines.slice(0, EXCERPT_CHARS) : lines;
 }
 
 function previewOf(text: string): string {
@@ -673,5 +786,15 @@ function summarize(artifact: StoredArtifact): ArtifactSummary {
     versionCount: artifact.versions.length,
     latest: publicVersion(artifact.versions.at(-1)!),
     preview: artifact.preview,
+    ...(artifact.excerpt ? { excerpt: artifact.excerpt } : {}),
+    ...(thumbKey(artifact) ? { thumb: thumbKey(artifact) } : {}),
   };
+}
+
+/** Identifies the newest version's picture thumbnail; none for kinds shown as text, or a figure not kept. */
+export function thumbKey(artifact: { kind: ArtifactKind; versions: Array<{ sha: string; kept: boolean }> }) {
+  const latest = artifact.versions.at(-1);
+  if (!latest) return undefined;
+  if (artifact.kind === "visual" || (artifact.kind === "figure" && latest.kept)) return latest.sha.slice(0, 16);
+  return undefined;
 }

@@ -65,6 +65,7 @@ import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
 import { todoStore } from "./todo-store.js";
 import { ArtifactLibrary, setArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
 import { ArtifactLibraryStore } from "./artifact-library-store.js";
+import { ArtifactThumbnails, setArtifactThumbnails } from "./artifact-thumbnails.js";
 import { startLibraryTopics } from "./topic-service-startup.js";
 import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
@@ -1339,6 +1340,16 @@ const visualRenderHost = ((host) =>
 );
 const visualRenderer = new VisualRenderer({ assetBase: `http://${visualRenderHost}:${port}` });
 app.route("/", createVisualRoutes({ renderer: visualRenderer }));
+setArtifactThumbnails(
+  new ArtifactThumbnails(artifactLibrary.store, {
+    renderVisual: async (source, theme, width) => {
+      const result = await visualRenderer.render({ source, theme, width, screenshot: true });
+      // Without Chrome nothing is remembered as failed, so thumbnails appear once it is installed.
+      if (result.status === "unavailable") throw new Error(result.detail ?? "Chrome is unavailable");
+      return result.status === "ok" && result.screenshotPng ? Buffer.from(result.screenshotPng, "base64") : null;
+    },
+  }),
+);
 app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPort));
 app.route("/api", createUserActivityRoutes(needsInputReminders));
 app.route(

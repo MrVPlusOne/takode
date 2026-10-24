@@ -80,8 +80,16 @@ async function setup() {
   const ctx = {
     resolveId: (raw: string) => raw,
     authenticateCompanionCallerOptional: () => (caller ? { callerId: caller, caller: {} } : null),
+    launcher: { listSessions: () => [{ sessionId: "msi-worker", herdedBy: "msi-leader" }] },
   } as unknown as RouteContext;
-  const app = createArtifactRoutes(ctx, () => library);
+  const thumbnails = {
+    get: async (id: string) => (id === "missing" ? null : id === "drawing" ? "pending" : Buffer.from("webp")),
+  };
+  const app = createArtifactRoutes(
+    ctx,
+    () => library,
+    () => thumbnails as never,
+  );
   return {
     app,
     store,
@@ -139,5 +147,20 @@ describe("artifact routes", () => {
     expect(await merged.json()).toMatchObject({ versionCount: 2 });
     expect(refreshed).toContain("takode-leader");
     expect((await app.request(`/artifacts/${release.id}`)).status).toBe(404);
+  });
+
+  it("scopes a leader's Library to it and its workers, and serves thumbnails for good under a versioned URL", async () => {
+    const { app } = await setup();
+    const own = await (await app.request("/artifacts?leader=msi-leader&space=all")).json();
+    expect(own.artifacts.map((artifact: { title: string }) => artifact.title).sort()).toEqual(["T7 update", "evals"]);
+
+    const versioned = await app.request("/artifacts/abc/thumb?v=0123456789abcdef&theme=light");
+    expect(versioned.headers.get("content-type")).toBe("image/webp");
+    expect(versioned.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect((await app.request("/artifacts/missing/thumb?v=1")).status).toBe(404);
+    // A visual still being drawn answers at once, uncached, for the gallery to ask again.
+    const drawing = await app.request("/artifacts/drawing/thumb?v=1");
+    expect(drawing.status).toBe(202);
+    expect(drawing.headers.get("cache-control")).toBe("no-store");
   });
 });

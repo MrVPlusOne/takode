@@ -1094,7 +1094,7 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
   const showTasks = hasSession;
 
   return (
-    <aside className="w-[280px] h-full flex flex-col overflow-hidden bg-cc-card border-l border-cc-border">
+    <aside className="w-[var(--split-w,280px)] h-full flex flex-col overflow-hidden bg-cc-card border-l border-cc-border">
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-cc-border">
         <span className="text-sm font-semibold text-cc-fg tracking-tight">Session</span>
