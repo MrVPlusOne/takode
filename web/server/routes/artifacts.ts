@@ -37,6 +37,8 @@ export function createArtifactRoutes(ctx: RouteContext, library: () => ArtifactL
     if (c.req.query("starred") === "1") query.starred = true;
     const text = c.req.query("q");
     if (text) query.query = text;
+    const threads = c.req.query("threads");
+    if (threads) query.threadKeys = threads.split(",").filter(Boolean);
     const session = c.req.query("session");
     if (session) query.sessionId = ctx.resolveId(session) ?? session;
     const limit = Number(c.req.query("limit"));

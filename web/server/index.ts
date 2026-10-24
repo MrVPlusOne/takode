@@ -65,6 +65,7 @@ import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
 import { todoStore } from "./todo-store.js";
 import { ArtifactLibrary, setArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
 import { ArtifactLibraryStore } from "./artifact-library-store.js";
+import { startLibraryTopics } from "./topic-service-startup.js";
 import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
@@ -740,10 +741,17 @@ const artifactLibrary = new ArtifactLibrary(
     spaceFor: (sessionId) =>
       launcher.getSession(sessionId)?.memorySessionSpaceSlug ?? launcher.getMemorySessionSpaceSlug(),
     refreshConversation: (sessionId) => wsBridge.refreshSessionConversation(sessionId),
+    onNewVersion: (version) => topicService.artifactSaved(version),
   },
 );
 await artifactLibrary.store.load();
 setArtifactLibrary(artifactLibrary);
+const topicService = await startLibraryTopics({
+  serverId,
+  wsBridge,
+  launcher,
+  sessionName: (sessionId) => sessionNames.getName(sessionId),
+});
 void artifactLibrary.backfill();
 
 // Push-based herd event delivery: wire dispatcher after bridge + launcher are ready

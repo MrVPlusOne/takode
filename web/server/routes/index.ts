@@ -29,6 +29,7 @@ import { createTakodeRoutes } from "./takode.js";
 import { createMarkdownReportRoutes } from "./markdown-reports.js";
 import { createGuidedReviewRoutes } from "./guided-reviews.js";
 import { createArtifactRoutes } from "./artifacts.js";
+import { createTopicRoutes } from "./topics.js";
 import { createQuestRoutes } from "./quests.js";
 import { createQuestOutcomeRoutes } from "./quest-outcome-routes.js";
 import { createRecordingsRoutes } from "./recordings.js";
@@ -271,6 +272,7 @@ export function createRoutes(
   api.route("/", createMarkdownReportRoutes(ctx));
   api.route("/", createGuidedReviewRoutes(ctx));
   api.route("/", createArtifactRoutes(ctx));
+  api.route("/", createTopicRoutes(ctx));
   api.route("/", createSettingsRoutes(ctx));
   api.route("/", createChangelogRoutes(ctx));
   api.route("/", createTranscriptionRoutes(ctx));

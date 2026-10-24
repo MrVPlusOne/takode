@@ -7,6 +7,7 @@ import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
 import type { MessageSearchResult } from "../../api/session-message-search.js";
+import type { QuestTopicMap } from "../../../shared/library-topics.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { LoadRecentMessages } from "../ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
@@ -112,7 +113,14 @@ const loadPlaygroundRecentMessages: LoadRecentMessages = async (query, offset) =
   return { results: matches.slice(offset, end), nextOffset: end < matches.length ? end : null };
 };
 
-function PhoneFrame({ placement }: { placement: "top" | "bottom" }) {
+/** For a leader with topics on: its Done list grouped by the topics its quests are filed under. */
+const DONE_TOPICS: QuestTopicMap = {
+  "q-9479": { id: "topic-feed", name: "Feed polish" },
+  "q-9470": { id: "topic-feed", name: "Feed polish" },
+  "q-9469": { id: "topic-light", name: "Light theme" },
+};
+
+function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"; topics?: boolean }) {
   const [current, setCurrent] = useState("q-9482");
   const [tabs, setTabs] = useState(TABS);
   const [closedTabs, setClosedTabs] = useState(CLOSED_TABS);
@@ -158,6 +166,7 @@ function PhoneFrame({ placement }: { placement: "top" | "bottom" }) {
         onClose={close}
         loadRecentMessages={loadPlaygroundRecentMessages}
         onOpenMessage={(threadKey) => select(threadKey)}
+        doneTopics={topics ? { map: DONE_TOPICS, onOpenTopic: () => {} } : undefined}
       />
     </div>
   );
@@ -168,11 +177,14 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it)."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, the Done list is grouped by topic, each with a link to its topic page, and quests without a topic last under Other."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">
             <PhoneFrame placement="top" />
+          </Card>
+          <Card label="Topics on (open Done: grouped by topic)">
+            <PhoneFrame placement="top" topics />
           </Card>
           <Card label="At the bottom (lists open upward)">
             <div className="pt-72">

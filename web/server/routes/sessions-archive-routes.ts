@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { setLibrarySessionArchiver } from "../library-session-creator.js";
 import { recreateWorktreeIfMissing } from "../migration.js";
 import { containerManager } from "../container-manager.js";
 import { getActorSessionId, getArchiveSource } from "./sessions-helpers.js";
@@ -150,6 +151,8 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     }
     return worktreeResult;
   }
+
+  setLibrarySessionArchiver((sessionId) => archiveSingleSession(sessionId));
 
   api.post("/sessions/:id/archive", async (c) => {
     const id = resolveId(c.req.param("id"));

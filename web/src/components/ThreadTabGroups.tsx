@@ -4,6 +4,7 @@
  * progress, finished). A chip lists its tabs; Find opens a sheet that lists either the
  * user's messages or every tab, open and closed, newest first.
  */
+import type { QuestTopicMap } from "../../shared/library-topics.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
@@ -133,6 +134,8 @@ export interface ThreadTabGroupBarProps extends RowContext {
   onOpenMessage?: (threadKey: string, messageId: string) => void;
   /** Where the bar sits; group lists open away from the screen edge. */
   placement?: "top" | "bottom";
+  /** For a leader with Library topics on: the Done list groups its tabs under their topics. */
+  doneTopics?: { map: QuestTopicMap; onOpenTopic: (topicId: string) => void };
 }
 
 /**
@@ -147,6 +150,7 @@ export function ThreadTabGroupBar({
   loadRecentMessages,
   onOpenMessage,
   placement = "top",
+  doneTopics,
   ...rows
 }: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
@@ -310,9 +314,31 @@ export function ThreadTabGroupBar({
                 ) : undefined
               }
             />
-            {groups[openGroup].map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-            ))}
+            {openGroup === "done" && doneTopics
+              ? groupByTopic(groups.done, doneTopics.map).map((section) => (
+                  <div key={section.topic?.id ?? "other"} data-testid="thread-tab-topic-section">
+                    <div className="flex items-center gap-1.5 px-4 pb-0.5 pt-2.5 text-[13px] text-cc-muted">
+                      <span className="min-w-0 truncate text-cc-fg">{section.topic?.name ?? "Other"}</span>
+                      <span>· {section.tabs.length}</span>
+                      {section.topic && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenGroup(null);
+                            doneTopics.onOpenTopic(section.topic!.id);
+                          }}
+                          className="ml-auto shrink-0 text-cc-primary hover:underline"
+                        >
+                          Topic ›
+                        </button>
+                      )}
+                    </div>
+                    {section.tabs.map((tab) => (
+                      <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
+                    ))}
+                  </div>
+                ))
+              : groups[openGroup].map((tab) => <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />)}
           </div>
         </>
       )}
@@ -337,6 +363,29 @@ export function ThreadTabGroupBar({
       )}
     </div>
   );
+}
+
+/**
+ * Done tabs under their topics: topics ordered by their newest tab (the list is newest first),
+ * tabs without a topic last under "Other".
+ */
+export function groupByTopic(
+  tabs: readonly PrimaryThreadChip[],
+  map: QuestTopicMap,
+): Array<{ topic: { id: string; name: string } | null; tabs: PrimaryThreadChip[] }> {
+  const sections = new Map<string, { topic: { id: string; name: string } | null; tabs: PrimaryThreadChip[] }>();
+  const other: PrimaryThreadChip[] = [];
+  for (const tab of tabs) {
+    const topic = tab.questId ? map[tab.questId] : undefined;
+    if (!topic) {
+      other.push(tab);
+      continue;
+    }
+    const section = sections.get(topic.id) ?? { topic, tabs: [] };
+    section.tabs.push(tab);
+    sections.set(topic.id, section);
+  }
+  return [...sections.values(), ...(other.length ? [{ topic: null, tabs: other }] : [])];
 }
 
 function isActiveOutput(tab: PrimaryThreadChip, activeOutputThreadKey: string | null): boolean {

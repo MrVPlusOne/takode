@@ -28,6 +28,14 @@ export interface ArtifactLibraryDeps {
   spaceFor: (sessionId: string) => string;
   /** Re-sends a session's conversation to its browsers after its messages' projection changed. */
   refreshConversation: (sessionId: string) => void;
+  /** Called for each new version, after it is saved. */
+  onNewVersion?: (input: {
+    sessionId: string;
+    threadKey: string;
+    title: string;
+    kind: string;
+    version: number;
+  }) => void;
 }
 
 const CAPTURE_DELAY_MS = 50;
@@ -90,6 +98,17 @@ export class ArtifactLibrary {
       try {
         const result = await this.captureSession(session);
         if (result.captured > 0) toRefresh.add(id);
+        for (const added of result.newVersions ?? []) {
+          const artifact = this.store.get(added.artifactId);
+          if (!artifact) continue;
+          this.deps.onNewVersion?.({
+            sessionId: id,
+            threadKey: added.threadKey,
+            title: artifact.title,
+            kind: artifact.kind,
+            version: added.n,
+          });
+        }
         for (const affected of result.affectedSessions) toRefresh.add(affected);
       } catch (error) {
         console.error(`[artifact-library] Capture failed for session ${id}:`, error);
@@ -101,7 +120,7 @@ export class ArtifactLibrary {
   }
 
   private async captureSession(session: LibrarySessionLike): Promise<CaptureResult> {
-    const result: CaptureResult = { captured: 0, affectedSessions: new Set() };
+    const result: CaptureResult = { captured: 0, affectedSessions: new Set(), newVersions: [] };
     const history = session.messageHistory;
     const length = history.length;
     const start = this.store.cursorFor(session.id, history, (index) => historyMessageId(history[index]));
@@ -237,8 +256,16 @@ export function setArtifactLibrary(library: ArtifactLibrary | null): void {
 }
 
 /** Hook for session saves; does nothing until the library is started. */
+const sessionSaveListeners: Array<(sessionId: string) => void> = [];
+
+/** Other Library parts (topics) that read sessions as they are saved. */
+export function addSessionSaveListener(listener: (sessionId: string) => void): void {
+  sessionSaveListeners.push(listener);
+}
+
 export function notifySessionSavedForArtifacts(sessionId: string): void {
   activeLibrary?.sessionSaved(sessionId);
+  for (const listener of sessionSaveListeners) listener(sessionId);
 }
 
 export function projectArtifactsInMessages(

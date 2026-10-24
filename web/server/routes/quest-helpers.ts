@@ -1,3 +1,4 @@
+import { getTopicService } from "./topics.js";
 import type { QuestTitlePreview, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import type { WsBridge } from "../ws-bridge.js";
@@ -22,6 +23,7 @@ export function recordQuestSource(wsBridge: WsBridge, quest: QuestmasterTask): v
 }
 
 export function broadcastQuestUpdate(wsBridge: WsBridge, quest?: QuestmasterTask): void {
+  if (quest) getTopicService()?.questChanged(quest);
   wsBridge.broadcastGlobal({
     type: "quest_list_updated",
     ...(quest ? { quest: buildQuestTitlePreview(quest) } : {}),

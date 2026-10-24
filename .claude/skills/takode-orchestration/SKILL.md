@@ -191,6 +191,10 @@ takode search auth
 takode search jwt --all
 ```
 
+### Library topics and artifacts
+
+When the user turned Library topics on for you (`quest create` then reminds you to file quests with `--topic`), file each quest under the subject the user would look for later, in their words, reusing an existing topic when one fits (`takode topic list`). Before answering a question about a past subject ("remind me what we decided about X"), read its page with `takode topic show <topic>`, then the linked messages for detail. `takode artifact list` / `show` find drafts, reports and figures made earlier, with their versions.
+
 ### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
 
 Show what the user did in a time window (default: the last 24 hours): every message the user typed by hand and every final message the user was shown (answers to those messages, leader answers that name no message, published reports), as one narrative per session thread, with indexes for `takode read`. From a session it covers that session's own space unless `--space` names others. Use it to catch up on activity, for example for a daily briefing.

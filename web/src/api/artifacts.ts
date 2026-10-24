@@ -28,6 +28,8 @@ export interface ArtifactListParams {
   query?: string;
   limit?: number;
   offset?: number;
+  /** Only artifacts made in these quest tabs, such as a topic's quests. */
+  threads?: string[];
 }
 
 /** The artifact library's API (see `server/routes/artifacts.ts`). */
@@ -40,6 +42,7 @@ export const artifactApi = {
     if (params.since) query.set("since", String(params.since));
     if (params.starred) query.set("starred", "1");
     if (params.query?.trim()) query.set("q", params.query.trim());
+    if (params.threads?.length) query.set("threads", params.threads.join(","));
     if (params.limit) query.set("limit", String(params.limit));
     if (params.offset) query.set("offset", String(params.offset));
     return request<ArtifactListResponse>(`/artifacts?${query}`);

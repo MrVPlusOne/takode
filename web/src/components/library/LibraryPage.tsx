@@ -8,7 +8,8 @@ import {
 } from "../../../shared/artifact-library.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { useStore } from "../../store.js";
-import { showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
+import { setLibraryMode, showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
+import { TopicsPanel } from "./TopicsPanel.js";
 import { FigureImage, LibraryIcon, StarIcon } from "../ArtifactInline.js";
 import { ArtifactViewer } from "./ArtifactViewer.js";
 
@@ -28,9 +29,8 @@ const DATE_RANGES = [
 type DateRange = (typeof DATE_RANGES)[number]["value"];
 
 export function LibraryPage() {
-  const { artifactId } = useLibraryNav();
+  const { artifactId, mode } = useLibraryNav();
   const currentSpace = useCurrentSessionSpace();
-  const [mode, setMode] = useState<"topics" | "artifacts">("artifacts");
   const [space, setSpace] = useState<string | null>(null);
   const [kind, setKind] = useState<ArtifactKind | "">("");
   const [dateRange, setDateRange] = useState<DateRange>("any");
@@ -75,105 +75,101 @@ export function LibraryPage() {
     return [...known].sort();
   }, [response, currentSpace]);
 
+  const header = (
+    <div className="flex items-center gap-2">
+      <div
+        className="grid flex-1 grid-cols-2 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[13px]"
+        role="tablist"
+      >
+        {(["topics", "artifacts"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => setLibraryMode(value)}
+            className={`py-1.5 ${mode === value ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"}`}
+          >
+            {value === "topics" ? "Topics" : "Artifacts"}
+          </button>
+        ))}
+      </div>
+      {spaces.length > 1 && (
+        <select
+          aria-label="Space"
+          value={effectiveSpace}
+          onChange={(event) => setSpace(event.target.value)}
+          className="takode-native-select max-w-[40%] rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
+        >
+          <option value="">All spaces</option>
+          {spaces.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+
   const list = (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-2 px-3 pb-2 pt-3">
-        <div className="flex items-center gap-2">
-          <div
-            className="grid flex-1 grid-cols-2 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[13px]"
-            role="tablist"
+        {header}
+        <input
+          type="text"
+          inputMode="search"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setLimit(PAGE_SIZE);
+          }}
+          placeholder="Search artifacts"
+          aria-label="Search artifacts"
+          className="w-full rounded-xl border border-cc-border bg-cc-card px-3 py-2 text-base text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60 md:text-sm"
+        />
+        <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+          <select
+            aria-label="Kind"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as ArtifactKind | "")}
+            className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
           >
-            {(["topics", "artifacts"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={mode === value}
-                onClick={() => setMode(value)}
-                className={`py-1.5 ${mode === value ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"}`}
-              >
-                {value === "topics" ? "Topics" : "Artifacts"}
-              </button>
+            <option value="">All kinds</option>
+            {ARTIFACT_KINDS.map((value) => (
+              <option key={value} value={value}>
+                {ARTIFACT_KIND_LABELS[value]}s
+              </option>
             ))}
-          </div>
-          {spaces.length > 1 && (
-            <select
-              aria-label="Space"
-              value={effectiveSpace}
-              onChange={(event) => setSpace(event.target.value)}
-              className="takode-native-select max-w-[40%] rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-            >
-              <option value="">All spaces</option>
-              {spaces.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          )}
+          </select>
+          <select
+            aria-label="Date"
+            value={dateRange}
+            onChange={(event) => setDateRange(event.target.value as DateRange)}
+            className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
+          >
+            {DATE_RANGES.map((range) => (
+              <option key={range.value} value={range.value}>
+                {range.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setStarred((value) => !value)}
+            aria-pressed={starred}
+            aria-label="Starred only"
+            title="Starred only"
+            className={`flex w-10 items-center justify-center rounded-lg border border-cc-border ${
+              starred ? "bg-cc-active text-cc-fg" : "bg-cc-card text-cc-muted hover:text-cc-fg"
+            }`}
+          >
+            <StarIcon filled={starred} />
+          </button>
         </div>
-        {mode === "artifacts" && (
-          <>
-            <input
-              type="text"
-              inputMode="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setLimit(PAGE_SIZE);
-              }}
-              placeholder="Search artifacts"
-              aria-label="Search artifacts"
-              className="w-full rounded-xl border border-cc-border bg-cc-card px-3 py-2 text-base text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60 md:text-sm"
-            />
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-              <select
-                aria-label="Kind"
-                value={kind}
-                onChange={(event) => setKind(event.target.value as ArtifactKind | "")}
-                className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-              >
-                <option value="">All kinds</option>
-                {ARTIFACT_KINDS.map((value) => (
-                  <option key={value} value={value}>
-                    {ARTIFACT_KIND_LABELS[value]}s
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Date"
-                value={dateRange}
-                onChange={(event) => setDateRange(event.target.value as DateRange)}
-                className="takode-native-select min-w-0 rounded-lg border border-cc-border bg-cc-card px-2 py-1.5 text-[13px] text-cc-fg"
-              >
-                {DATE_RANGES.map((range) => (
-                  <option key={range.value} value={range.value}>
-                    {range.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setStarred((value) => !value)}
-                aria-pressed={starred}
-                aria-label="Starred only"
-                title="Starred only"
-                className={`flex w-10 items-center justify-center rounded-lg border border-cc-border ${
-                  starred ? "bg-cc-active text-cc-fg" : "bg-cc-card text-cc-muted hover:text-cc-fg"
-                }`}
-              >
-                <StarIcon filled={starred} />
-              </button>
-            </div>
-          </>
-        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-cc-border" data-testid="library-list">
-        {mode === "topics" ? (
-          <div className="px-4 py-8 text-center text-[13px] text-cc-muted">
-            Topics group your quests and artifacts by subject. They are coming in a later step.
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="px-4 py-6 text-[13px] text-cc-error">{error}</div>
         ) : !response ? (
           <div className="px-4 py-6 text-[13px] text-cc-muted">Loading…</div>
@@ -213,6 +209,15 @@ export function LibraryPage() {
       </div>
     </div>
   );
+
+  if (mode === "topics") {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-cc-bg" data-testid="library-page">
+        <div className="shrink-0 px-3 pb-2 pt-3 md:w-[380px]">{header}</div>
+        <TopicsPanel space={effectiveSpace} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 bg-cc-bg" data-testid="library-page">

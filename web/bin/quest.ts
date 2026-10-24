@@ -100,6 +100,7 @@ import {
   postQuestStatusMutation,
 } from "./quest-status-mutation.js";
 import { createQuestServerClient } from "./quest-server-client.js";
+import { fileQuestUnderTopic, remindAboutTopic } from "./quest-topic.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -802,6 +803,7 @@ async function cmdCreate(): Promise<void> {
     "session-space",
     "follow-up-of",
     "source-message",
+    "topic",
     "image",
     "images",
     "json",
@@ -877,6 +879,11 @@ async function cmdCreate(): Promise<void> {
       const imageNote = resolvedImages?.length ? `, ${resolvedImages.length} image(s)` : "";
       console.log(`Created ${quest.questId}: "${quest.title}" (${quest.status}${imageNote})`);
       console.log(`Use this exact quest ID for follow-up commands: ${quest.questId}`);
+    }
+    if (!directCodex) {
+      const topic = option("topic");
+      if (topic) await fileQuestUnderTopic(questServer, quest.questId, topic);
+      else if (!jsonOutput) await remindAboutTopic(questServer, quest.questId);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
@@ -1286,6 +1293,7 @@ async function cmdEdit(): Promise<void> {
     "follow-up-of",
     "clear-follow-up-of",
     "source-message",
+    "topic",
     "json",
   ]);
   const id = positional(0);
@@ -1327,11 +1335,27 @@ async function cmdEdit(): Promise<void> {
     tags === undefined &&
     sessionSpaceSlug === undefined &&
     relationships === undefined &&
-    !("startedFromUserMessageId" in sourceMessage)
+    !("startedFromUserMessageId" in sourceMessage) &&
+    option("topic") === undefined
   ) {
     die(
       "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, --clear-follow-up-of, or --source-message is required",
     );
+  }
+
+  if (
+    option("topic") !== undefined &&
+    Object.keys(sourceMessage).length === 0 &&
+    title === undefined &&
+    description === undefined &&
+    tldr === undefined &&
+    tags === undefined &&
+    sessionSpaceSlug === undefined &&
+    relationships === undefined
+  ) {
+    if (directCodex) die("--topic needs a Takode-managed session");
+    await fileQuestUnderTopic(questServer, id, option("topic")!);
+    return;
   }
 
   try {
@@ -1360,6 +1384,8 @@ async function cmdEdit(): Promise<void> {
     } else {
       console.log(`Updated ${quest.questId} "${quest.title}"`);
     }
+    const topic = option("topic");
+    if (topic && !directCodex) await fileQuestUnderTopic(questServer, quest.questId, topic);
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
     die((e as Error).message);

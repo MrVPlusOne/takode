@@ -86,6 +86,8 @@ export interface CaptureContext {
 export interface CaptureResult {
   captured: number;
   affectedSessions: Set<string>;
+  /** Versions this capture added, with the tab they appeared in. */
+  newVersions?: Array<{ artifactId: string; n: number; threadKey: string }>;
 }
 
 export class ArtifactLibraryStore {
@@ -242,6 +244,7 @@ export class ArtifactLibraryStore {
       for (const sessionId of this.sessionsShowingArtifact(artifact.id)) result.affectedSessions.add(sessionId);
     }
     this.dirty = true;
+    result.newVersions?.push({ artifactId: artifact.id, n: version.n, threadKey: ref.threadKey });
     return { label: capture.label, artifactId: artifact.id, n: version.n };
   }
 
@@ -416,6 +419,7 @@ export class ArtifactLibraryStore {
       .filter((artifact) => !query.space || artifact.space === query.space)
       .filter((artifact) => !query.kind || artifact.kind === query.kind)
       .filter((artifact) => !query.sessionId || artifact.sessionId === query.sessionId)
+      .filter((artifact) => !query.threadKeys || query.threadKeys.includes(artifact.threadKey))
       .filter((artifact) => !query.starred || artifact.starred)
       .filter((artifact) => query.since === undefined || artifact.updatedAt >= query.since)
       .filter((artifact) => {

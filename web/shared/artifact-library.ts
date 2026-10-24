@@ -83,6 +83,8 @@ export interface ArtifactListQuery {
   starred?: boolean;
   query?: string;
   sessionId?: string;
+  /** Only artifacts made in these tabs (quest threads), such as a topic's quests. */
+  threadKeys?: string[];
   limit?: number;
   offset?: number;
 }

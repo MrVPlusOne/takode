@@ -82,6 +82,7 @@ import { buildSessionBackendLaunchSettings } from "./session-create-launch-setti
 import { resolveSessionSpaceForCreate } from "./session-create-space.js";
 import { buildBrowserSessionDetail } from "./session-detail-response.js";
 import { treeGroupUpdates } from "../bridge/tree-group-updates.js";
+import { setLibrarySessionCreator } from "../library-session-creator.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -814,6 +815,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       codexNonLeaderAutoCompactThresholdPercent: binarySettings.codexNonLeaderAutoCompactThresholdPercent,
       ...backendLaunchSettings,
       allowedTools: body.allowedTools,
+      ...(body.hidden === true ? { hidden: true } : {}),
       env: envVars,
       backendType: backend,
       containerId,
@@ -866,6 +868,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await applySessionPostLaunch(session, sessionConfig);
     return session;
   };
+  setLibrarySessionCreator(createSessionFromBody);
 
   api.post("/sessions/create", async (c) => {
     const body = await c.req.json().catch(() => ({}));
