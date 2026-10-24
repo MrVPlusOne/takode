@@ -38,7 +38,7 @@ One agent in one terminal is easy to follow. Ten agents across five tabs is not:
   <img src="docs/screenshots/readme-decision.jpg" alt="A leader asking the user to test a fix on their phone, with numbered steps and a question card offering two suggested replies or a free-text answer" width="90%" />
 </p>
 
-**3. Review the result.** The leader reports what changed and why, links the exact commits, and attaches a short quiz so you can check you understood the fix. Each commit opens in a compact diff view.
+**3. Review the result.** The leader reports what changed and why, and links the exact commits. When you asked for an explanation or research, or ask to be quizzed, it can add a short quiz so you can check what you learned. Each commit opens in a compact diff view.
 
 <p align="center">
   <img src="docs/screenshots/readme-commit-diff.jpg" alt="Takode commit view with code and test line totals, a file picker, and a syntax-highlighted diff" width="90%" />

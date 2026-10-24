@@ -65,6 +65,7 @@ describe("ensureQuestmasterIntegration", () => {
     for (const [filename, template] of [
       ["SKILL.md", "quest-skill-docs.md"],
       ["memory-completion.md", "quest-memory-completion.md"],
+      ["quiz.md", "quest-quiz.md"],
     ]) {
       const canonical = await readFile(new URL(`./templates/${template}`, import.meta.url), "utf-8");
       for (const home of [".claude", ".agents"]) {

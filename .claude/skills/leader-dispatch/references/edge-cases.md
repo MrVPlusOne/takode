@@ -79,4 +79,4 @@ When reporting a completed quest to the user, lead with the delivered result or 
 
 Do not lead with routine internals such as command lists, raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, or ordinary verification. Keep those in phase docs, Port notes, structured commit metadata, final debriefs, or memory notes unless the exact detail is directly useful.
 
-If quiz metadata exists when the leader reports final completion, write the useful completion summary first, then render the quiz directive in the proper leader response location.
+Most quests have no quiz. If Memory wrote one, then when the leader reports final completion, write the useful completion summary first, then render the quiz directive in the proper leader response location.

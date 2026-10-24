@@ -22,10 +22,12 @@ const MEMORY_COMPLETION_TEMPLATE_PATH = join(
   "templates",
   "quest-memory-completion.md",
 );
+const QUIZ_TEMPLATE_PATH = join(dirname(fileURLToPath(import.meta.url)), "templates", "quest-quiz.md");
 const MEMORY_SKILL_TEMPLATE_PATH = join(dirname(fileURLToPath(import.meta.url)), "templates", "memory-skill-docs.md");
 const GENERATED_QUEST_SKILL_FILES = [
   { relativePath: "SKILL.md", templatePath: TEMPLATE_PATH },
   { relativePath: "memory-completion.md", templatePath: MEMORY_COMPLETION_TEMPLATE_PATH },
+  { relativePath: "quiz.md", templatePath: QUIZ_TEMPLATE_PATH },
 ] as const;
 const GENERATED_MEMORY_SKILL_FILES = [{ relativePath: "SKILL.md", templatePath: MEMORY_SKILL_TEMPLATE_PATH }] as const;
 

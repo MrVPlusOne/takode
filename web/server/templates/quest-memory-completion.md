@@ -61,23 +61,7 @@ Metadata reconciliation is a final-scope accuracy check for the quest title, TLD
 
 ## Quest quiz metadata
 
-Generate or refresh quest quiz metadata when active recall would help the human retain the important mental model from the accepted quest. Use `quest quiz set <quest-id> --items-file <path|->` to attach concise question/answer pairs.
-
-If quiz metadata exists or was updated, the visible completion message still needs a complementary useful outcome summary; the quiz is not a replacement for that summary. Render `{[(Quest Quiz: q-N)]}` on its own physical line where the inline quiz should appear.
-
-Quiz items should be self-contained from the quest record and accepted scope. Focus on major work/change, new discoveries, and critical related background knowledge surfaced by the agent during the quest: implementation mechanisms, root causes, validation limits, failure modes, operational procedures, surprising facts, reusable lessons, and meaningful interface/protocol/command/syntax/invocation details when remembering them helps the user operate, debug, or evaluate the result later.
-
-Before saving quiz metadata, run a source-of-origin preflight for each candidate. Reject or rewrite items whose answer mainly comes from the user's original request, accepted scope, explicit preference, or User Checkpoint selection. Do not ask the user to recall what they already knew, requested, chose, or approved. Prefer items whose answer came from agent-discovered implementation evidence, investigation findings, validation evidence, or durable operational learning. If the accepted work has no non-user-authored durable learning value, skip quiz generation and say so in the phase note.
-
-Concrete examples:
-- Reject: "Which option did the checkpoint accept?"
-- Reject: "What should `Thread Ready` do?"
-- Reject: "Which artifacts did the accepted scope preserve?" when the answer is copied from the user-approved option.
-- Rewrite/allow: "What internal mechanism carries ready-result unread state?" when the answer came from implementation.
-- Rewrite/allow: "Why do manual close tombstones beat later completed-board refreshes?" when the answer came from root-cause analysis.
-- Allow: "What Port target metadata prevents worktree-backed leaders from syncing to the wrong checkout?" when the answer came from the discovered failure mode.
-
-Do not turn future-agent/system-memory facts into user-facing quiz questions; preserve those in file-based memory or instruction surfaces when appropriate. Keep answers plain-language, use bullets when an answer contains a list, and preflight each item for self-containment, user value, human-vs-agent memory separation, clarity, and source grounding.
+Most quests get no quiz. Write one during Memory only when the user asked for one, when the quest answered a request for an explanation, tutorial or research, or, rarely, when something is especially important for the user to know. Otherwise skip it without mentioning the skip. When you do write one, follow `quiz.md`, and say in your handoff that the quest has a quiz so the completion report shows it.
 
 ## Commit metadata
 

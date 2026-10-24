@@ -19,7 +19,7 @@ Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<p
 | Retained Alignment | `PLANNING` | Existing occurrences preserve their pending approval and history. New Journeys start at Work. |
 | Work | `WORKING` | Assigned worker completes the authorized work end-to-end, syncs tracked changes, maintains one current Work note, and attaches synchronized target code SHAs or explicit zero-code evidence through the guarded transition. |
 | User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The assigned worker resumes the current quest in Work to apply the approved routing; same-quest choices continue the work. |
-| Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/quiz/check hygiene, cleanup/follow-up routing, and quest completion. |
+| Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/check hygiene, an optional quiz when one helps, cleanup/follow-up routing, and quest completion. |
 | Landing | `LANDING` | System-managed, never planned by hand. The quest waits for its submitted landing-queue change; Takode records the landed commits as Work evidence and completes the quest, or keeps it here as bounced with a Work and a Memory occurrence added for the fix. |
 
 Historical v1 phase metadata remains available only so stored Quest Detail timelines and old phase notes render intelligibly.
