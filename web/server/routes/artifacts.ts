@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
-import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactListQuery } from "../../shared/artifact-library.js";
+import {
+  ARTIFACT_KINDS,
+  type ArtifactGuidedReview,
+  type ArtifactKind,
+  type ArtifactListQuery,
+} from "../../shared/artifact-library.js";
 import { getArtifactLibrary, type ArtifactLibrary } from "../artifact-library.js";
 import { getArtifactThumbnails, type ArtifactThumbnails } from "../artifact-thumbnails.js";
 import { sharedLocalImageVariantStore } from "../local-image-variant-store.js";
@@ -83,7 +88,13 @@ export function createArtifactRoutes(
     if (!lib || !Number.isInteger(n)) return c.json({ error: "Version not found" }, 404);
     const id = resolve(lib, c.req.param("id"));
     const content = id ? await lib.store.versionContent(id, n) : null;
-    return content ? c.json(content) : c.json({ error: "This version was not kept" }, 404);
+    if (!content) return c.json({ error: "This version was not kept" }, 404);
+    if (content.kind === "review") {
+      const source = lib.store.get(id!)?.versions.find((version) => version.n === n)?.source;
+      const review = source && guidedReviewOf(ctx, source.sessionId, source.messageId);
+      if (review) return c.json({ ...content, review });
+    }
+    return c.json(content);
   });
 
   api.get("/artifacts/:id/file", async (c) => {
@@ -175,4 +186,24 @@ export function leaderFamily(ctx: RouteContext, leaderId: string): string[] {
       .filter((session) => session.herdedBy === leaderId)
       .map((session) => session.sessionId),
   ];
+}
+
+/**
+ * A guided review's walkthrough, from the report message it was published in. Reviews are saved as
+ * their Markdown only, so the Library reads the walkthrough (stops and their code) from history.
+ */
+function guidedReviewOf(ctx: RouteContext, sessionId: string, messageId: string): ArtifactGuidedReview | null {
+  const history = ctx.wsBridge.getSession(sessionId)?.messageHistory ?? [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.type !== "markdown_report" || message.id !== messageId || !message.guidedReview) continue;
+    return {
+      messageId: message.id,
+      sessionId: message.source.sessionId,
+      threadKey: message.threadKey || "main",
+      ...(message.questId ? { questId: message.questId } : {}),
+      meta: message.guidedReview,
+    };
+  }
+  return null;
 }

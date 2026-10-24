@@ -30,8 +30,13 @@ export function MarkdownReport({
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
       <GuidedReviewCard
-        message={message}
-        meta={guidedReview}
+        target={{
+          messageId: message.id,
+          sessionId: source.sessionId,
+          threadKey: message.metadata?.threadKey ?? "main",
+          ...(message.metadata?.questId ? { questId: message.metadata.questId } : {}),
+          meta: guidedReview,
+        }}
         actions={!readOnly ? <ReportReadAloudButton message={message} sessionId={source.sessionId} /> : undefined}
       />
     </>

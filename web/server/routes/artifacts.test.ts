@@ -51,6 +51,18 @@ function assistant(id: string, text: string): BrowserIncomingMessage {
   } as BrowserIncomingMessage;
 }
 
+/** A guided review published by a worker into the leader's q-12 tab. */
+const REVIEW = {
+  type: "markdown_report",
+  id: "report-1",
+  timestamp: Date.now(),
+  content: "# Guided review: Kept chats\n\nWhat it does.",
+  source: { sessionId: "takode-worker", reportId: "r1", sourcePath: "/tmp/review.md", sha256: "x" },
+  threadKey: "q-12",
+  questId: "q-12",
+  guidedReview: { reviewId: "rv-1", map: { title: "Kept chats" }, range: { repo: "companion" }, stats: { files: 2 } },
+} as unknown as BrowserIncomingMessage;
+
 async function setup() {
   const figure = join(fixtures, "evals.png");
   await writeFile(figure, "png bytes");
@@ -64,7 +76,7 @@ async function setup() {
     },
     {
       id: "takode-leader",
-      messageHistory: [assistant("m3", "```draft\ntitle: Release note\n---\nhi\n```")],
+      messageHistory: [assistant("m3", "```draft\ntitle: Release note\n---\nhi\n```"), REVIEW],
     },
   ];
   const refreshed: string[] = [];
@@ -85,6 +97,7 @@ async function setup() {
     resolveId: (raw: string) => raw,
     authenticateCompanionCallerOptional: () => (caller ? { callerId: caller, caller: {} } : null),
     launcher: { listSessions: () => [{ sessionId: "msi-worker", herdedBy: "msi-leader" }] },
+    wsBridge: { getSession: (id: string) => sessions.find((session) => session.id === id) },
   } as unknown as RouteContext;
   const thumbnails = {
     get: async (id: string) => (id === "missing" ? null : id === "drawing" ? "pending" : Buffer.from("webp")),
@@ -132,6 +145,20 @@ describe("artifact routes", () => {
     const post = store.list({ query: "T7" }).artifacts[0];
     const content = await (await app.request(`/artifacts/${post.id.slice(0, 8)}/versions/1`)).json();
     expect(content).toEqual({ kind: "post", parts: ["hello"], figureIds: [] });
+  });
+
+  it("gives a guided review's version what opens its walkthrough, read from the message it was published in", async () => {
+    // Reviews are saved as their Markdown only; the Library shows the chat's review card, so the
+    // version comes with the walkthrough from the report message, and answers go to its publisher.
+    const { app, store } = await setup();
+    const review = store.list({ kind: "review" }).artifacts[0]!;
+    const content = await (await app.request(`/artifacts/${review.id}/versions/1`)).json();
+    expect(content).toMatchObject({
+      kind: "review",
+      markdown: expect.stringContaining("Guided review: Kept chats"),
+      review: { messageId: "report-1", sessionId: "takode-worker", threadKey: "q-12", questId: "q-12" },
+    });
+    expect(content.review.meta.reviewId).toBe("rv-1");
   });
 
   it("serves a figure as the full view the chat prepared, converted once for both", async () => {

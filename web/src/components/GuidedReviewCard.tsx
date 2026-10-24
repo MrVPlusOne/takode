@@ -1,28 +1,13 @@
-import type { ChatMessage } from "../types.js";
-import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 import { openGuidedReview, useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
 import { ReviewCounts } from "./GuidedReviewParts.js";
 
-/** A guided review in the feed: what it covers and what it asks of the reader, with a button that opens its walkthrough. */
-export function GuidedReviewCard({
-  message,
-  meta,
-  actions,
-}: {
-  message: ChatMessage;
-  meta: GuidedReviewMeta;
-  actions?: React.ReactNode;
-}) {
-  const source = message.metadata!.markdownReport!;
+/**
+ * A guided review, in the feed or the Library: what it covers and what it asks of the reader, with
+ * a button that opens its walkthrough.
+ */
+export function GuidedReviewCard({ target, actions }: { target: GuidedReviewTarget; actions?: React.ReactNode }) {
+  const { meta } = target;
   const sent = useGuidedReviewState((state) => state.drafts[meta.reviewId]?.sentAt !== undefined);
-  const threadKey = message.metadata?.threadKey ?? "main";
-  const target: GuidedReviewTarget = {
-    messageId: message.id,
-    sessionId: source.sessionId,
-    threadKey,
-    ...(message.metadata?.questId ? { questId: message.metadata.questId } : {}),
-    meta,
-  };
   return (
     <div className="min-w-0 rounded-lg border border-cc-border bg-cc-card px-3 py-2.5" data-testid="guided-review-card">
       <div className="flex items-start gap-2">

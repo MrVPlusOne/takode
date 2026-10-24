@@ -161,7 +161,9 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
           <ArtifactVersionLoader
             id={detail.id}
             version={version.n}
-            renderMarkdown={(markdown) => <MarkdownContent text={markdown} sessionId={source.sessionId} />}
+            renderMarkdown={(markdown, options) => (
+              <MarkdownContent text={markdown} sessionId={source.sessionId} fileBasePath={options?.fileBasePath} />
+            )}
           />
         ) : (
           <p className="py-2 text-[13px] text-cc-muted">

@@ -92,10 +92,26 @@ export interface ArtifactDetail extends ArtifactSummary {
 /** A version's content: post parts, Markdown (reports, reviews), visual source, or a figure file. */
 export type ArtifactVersionContent =
   | { kind: "post"; parts: string[]; figureIds: string[] }
-  | { kind: "report" | "review"; markdown: string; sourcePath?: string }
+  | {
+      kind: "report" | "review";
+      markdown: string;
+      sourcePath?: string;
+      /** A review's walkthrough, read from the message it was published in when that is still there. */
+      review?: ArtifactGuidedReview;
+    }
   | { kind: "table"; markdown: string }
   | { kind: "visual"; source: string }
   | { kind: "figure"; path: string; fileUrl: string | null };
+
+/** What opens a guided review's walkthrough: its message, where answers go, and the review itself. */
+export interface ArtifactGuidedReview {
+  messageId: string;
+  /** The session the review was published in; answers go back to it. */
+  sessionId: string;
+  threadKey: string;
+  questId?: string;
+  meta: import("./guided-review.js").GuidedReviewMeta;
+}
 
 /** Library list filters; all optional. */
 export interface ArtifactListQuery {

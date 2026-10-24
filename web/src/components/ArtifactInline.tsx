@@ -1,3 +1,5 @@
+import { GuidedReviewCard } from "./GuidedReviewCard.js";
+import { Lightbox } from "./Lightbox.js";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
@@ -10,7 +12,8 @@ import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
 import { VisualBlock } from "./VisualBlock.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
-export type RenderMarkdown = (text: string) => ReactNode;
+/** Renders a version's Markdown; a report passes its file's path so its relative file links resolve. */
+export type RenderMarkdown = (text: string, options?: { fileBasePath?: string }) => ReactNode;
 
 /**
  * A version a newer one replaced, collapsed to one line in the conversation. Its content was not
@@ -132,15 +135,19 @@ export function ArtifactVersionContentView({
           )}
         </div>
       );
-    case "report":
     case "review":
+      // The same card the chat shows, opening the walkthrough; the Markdown when the message is gone.
+      if (content.review) return <GuidedReviewCard target={content.review} />;
+      return <div>{renderMarkdown(content.markdown)}</div>;
+    case "report":
+      return <div>{renderMarkdown(content.markdown, { fileBasePath: content.sourcePath })}</div>;
     case "table":
       return <div>{renderMarkdown(content.markdown)}</div>;
     case "visual":
       return <VisualBlock source={content.source} />;
     case "figure":
       return content.fileUrl ? (
-        <img src={content.fileUrl} alt="" className="max-h-[70vh] max-w-full rounded-lg border border-cc-border" />
+        <ZoomableFigure src={content.fileUrl} />
       ) : (
         <p className="py-1 text-[13px] text-cc-muted">Only the newest version of a figure is kept.</p>
       );
@@ -235,5 +242,23 @@ export function StarIcon({ filled = false, className = "h-4 w-4" }: { filled?: b
     >
       <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** A figure shown large; tapping it opens the image viewer, as in chat. */
+function ZoomableFigure({ src }: { src: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block max-w-full cursor-zoom-in"
+        aria-label="Open the figure"
+      >
+        <img src={src} alt="" className="max-h-[70vh] max-w-full rounded-lg border border-cc-border" />
+      </button>
+      {open && <Lightbox src={src} onClose={() => setOpen(false)} />}
+    </>
   );
 }
