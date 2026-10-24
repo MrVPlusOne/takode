@@ -26,6 +26,13 @@ export function isMainThreadKey(threadKey: string): boolean {
   return normalizeThreadKey(threadKey) === MAIN_THREAD_KEY;
 }
 
+/** Whether a feed for `viewKey` shows `threadKey`'s work: the thread itself, or a topic conversation holding it. */
+export function threadViewShows(viewKey: string, threadKey: string): boolean {
+  const view = normalizeThreadKey(viewKey);
+  const thread = normalizeThreadKey(threadKey);
+  return view === thread || (topicThreadMembers(view)?.includes(thread) ?? false);
+}
+
 export function isAllThreadsKey(threadKey: string): boolean {
   return normalizeThreadKey(threadKey) === ALL_THREADS_KEY;
 }

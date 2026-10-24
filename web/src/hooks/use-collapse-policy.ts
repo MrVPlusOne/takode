@@ -7,7 +7,7 @@ import {
 } from "../../shared/thread-status-marker.js";
 import { useStore } from "../store.js";
 import { getAssistantVisibleMarkdown } from "../utils/assistant-message-renderability.js";
-import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "../components/AssistantQuestQuizContent.js";
 import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
 import type { Turn } from "./use-feed-model.js";
@@ -41,7 +41,7 @@ export function canAutoCollapseReadyThread({
   if (sessionStatus === "compacting" || sessionStatus === "reverting") return false;
   if (sessionStatus !== "running") return true;
   if (!activeTurnThreadKey) return false;
-  return normalizeThreadKey(activeTurnThreadKey) !== normalizeThreadKey(currentThreadKey);
+  return !threadViewShows(currentThreadKey, activeTurnThreadKey);
 }
 
 function matchesReadyMessageId(messageId: string, status: LeaderThreadStatus): boolean {

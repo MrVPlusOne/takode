@@ -94,6 +94,19 @@ describe("bounded browser conversation delivery", () => {
     ).toBe(true);
   });
 
+  it("delivers a topic conversation the live work of its quests, unrouted turn activity included", () => {
+    // A topic view's key names its quests; live events used to match only the key itself, so the
+    // view showed nothing of a running turn until the turn ended and the window was refreshed.
+    const socketData = threadSocket("topic:q-3+q-12");
+    const session = { messageHistory: [], activeTurnRoute: { threadKey: "q-12", questId: "q-12" } };
+    const routed = { type: "assistant", threadKey: "q-3", timestamp: 1 } as unknown as BrowserIncomingMessage;
+    const unrouted = { type: "tool_progress", tool_use_id: "t1" } as unknown as BrowserIncomingMessage;
+    const other = { type: "assistant", threadKey: "q-99", timestamp: 1 } as unknown as BrowserIncomingMessage;
+    expect(shouldDeliverBrowserEventToSocket(session, routed, socketData)).toBe(true);
+    expect(shouldDeliverBrowserEventToSocket(session, unrouted, socketData)).toBe(true);
+    expect(shouldDeliverBrowserEventToSocket(session, other, socketData)).toBe(false);
+  });
+
   it("keeps pre-subscribe conversation events fail-closed until a selected view exists", () => {
     const routed = {
       type: "user_message",

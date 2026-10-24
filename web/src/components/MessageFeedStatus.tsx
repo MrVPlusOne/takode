@@ -10,7 +10,7 @@ import { WaitingChip } from "./WaitingChip.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { formatElapsed, formatTokens } from "./message-feed-utils.js";
-import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 
 const FLOATING_FEED_CHIP_CLASS =
@@ -662,7 +662,7 @@ function formatActiveTurnLabel(
 ): string {
   if (context.isLeaderSession) {
     if (!activeTurnRoute) return "Purring...";
-    if (normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(currentThreadKey)) return "Active here";
+    if (threadViewShows(currentThreadKey, activeTurnRoute.threadKey)) return "Active here";
     return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
   }
 
@@ -684,7 +684,7 @@ function leaderActiveTurnNavigationTarget(
   if (!context.isLeaderSession || !activeTurnRoute?.threadKey) return null;
   const targetThreadKey = normalizeThreadKey(activeTurnRoute.threadKey);
   if (!targetThreadKey) return null;
-  if (targetThreadKey === normalizeThreadKey(currentThreadKey)) return null;
+  if (threadViewShows(currentThreadKey, targetThreadKey)) return null;
   return targetThreadKey;
 }
 

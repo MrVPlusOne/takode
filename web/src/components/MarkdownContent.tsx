@@ -54,6 +54,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
 import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.js";
+import { InlineLocalImage, InlineLocalImagesContext, localImageOf } from "./inline-local-images.js";
 import { openFileViewer, opensInBrowserTab } from "./FileViewer.js";
 import {
   buildFileLinkBrowserUrl,
@@ -778,6 +779,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
   const preparedMath = useMemo(() => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(text)), [text]);
   const imagePathLinks = useContext(ImagePathLinkContext);
+  const inlineLocalImages = useContext(InlineLocalImagesContext);
   const imagePathLinksPlugin = useMemo<NonNullable<MarkdownOptions["remarkPlugins"]>>(
     () =>
       imagePathLinks
@@ -1018,6 +1020,18 @@ export const MarkdownContent = memo(function MarkdownContent({
             // surfaces show local image paths as thumbnails below the text.
             const source = typeof src === "string" ? src : "";
             const fileLink = source ? renderFileLink(source, alt || getPathBasename(source) || source) : null;
+            const localImage = inlineLocalImages && source ? localImageOf(source) : null;
+            if (localImage) {
+              return (
+                <InlineLocalImage
+                  {...localImage}
+                  alt={alt ?? ""}
+                  sessionId={inlineLocalImages!.sessionId ?? sessionId}
+                  refreshKey={inlineLocalImages!.refreshKey}
+                  fallback={fileLink}
+                />
+              );
+            }
             return fileLink ?? <img src={src} alt={alt} {...props} />;
           },
           blockquote: ({ children }) => (

@@ -6,6 +6,7 @@ import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
 
 /**
@@ -15,6 +16,7 @@ import { ArtifactCard } from "./ArtifactThumbnail.js";
  */
 
 const REFRESH_MS = 20_000;
+const IMAGE_REFRESH_MS = 60_000;
 const ARTIFACTS_SHOWN = 3;
 
 export function TopicView({
@@ -129,11 +131,16 @@ export function TopicView({
 
         <div className="mt-3" data-testid="topic-page">
           {body ? (
-            <TopicPageBody
-              body={body}
-              status={detail.nowItems ?? []}
-              onDone={leaderId ? (key, done) => act(topicApi.nowDone(detail.id, key, leaderId, done)) : undefined}
-            />
+            // Pages show local images inline, re-read each minute: monitors rewrite plots in place.
+            <InlineLocalImagesContext.Provider
+              value={{ sessionId: leaderId, refreshKey: String(Math.floor(Date.now() / IMAGE_REFRESH_MS)) }}
+            >
+              <TopicPageBody
+                body={body}
+                status={detail.nowItems ?? []}
+                onDone={leaderId ? (key, done) => act(topicApi.nowDone(detail.id, key, leaderId, done)) : undefined}
+              />
+            </InlineLocalImagesContext.Provider>
           ) : (
             <p className="text-[14px] text-cc-muted">The page is being written.</p>
           )}

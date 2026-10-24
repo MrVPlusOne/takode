@@ -1,3 +1,4 @@
+import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
@@ -374,6 +375,9 @@ export function shouldDeliverBrowserEventToSocket(
   const selectedThreadKey = normalizeSelectedFeedThreadKey(view.request.threadKey);
   const routeKeys = conversationRouteKeys(session, message);
   if (selectedThreadKey === MAIN_THREAD_KEY) return routeKeys.size === 0 || routeKeys.has(MAIN_THREAD_KEY);
+  // A topic conversation shows its quests' live work as each quest's own tab would.
+  const members = topicThreadMembers(selectedThreadKey);
+  if (members) return members.some((member) => routeKeys.has(member));
   return routeKeys.has(selectedThreadKey);
 }
 
