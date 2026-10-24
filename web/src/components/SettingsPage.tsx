@@ -46,6 +46,7 @@ import {
 import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
 import { SettingsSessionNamerSection } from "./SettingsSessionNamerSection.js";
 import { SettingsWorkerSlotsSection } from "./SettingsWorkerSlotsSection.js";
+import { SettingsScribeSection } from "./SettingsScribeSection.js";
 import {
   NumberStepper,
   SegmentedControl,
@@ -1006,6 +1007,11 @@ export function SettingsPage({
               <SettingsWorkerSlotsSection
                 settings={loadedSettings}
                 hidden={settingsSearch.rowHidden("sessions", "worker-slots")}
+              />
+
+              <SettingsScribeSection
+                settings={loadedSettings}
+                hidden={settingsSearch.rowHidden("sessions", "scribe-backend")}
               />
 
               <SettingsSessionNamerSection

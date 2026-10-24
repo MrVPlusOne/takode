@@ -71,7 +71,6 @@ function createRouteApp(): Hono {
       getLauncherSessionInfo: vi.fn((sessionId: string) => ({
         isOrchestrator: sessionId === "leader-1",
         lastActivityAt: 0,
-        ...(sessionId === "scribe-1" ? { scribeFor: "leader-1" } : {}),
       })),
       getSession: vi.fn((sessionId: string) => sessions.get(sessionId)),
       listSessions: vi.fn(() => []),
@@ -193,21 +192,6 @@ describe("Takode board Journey metadata route", () => {
       activePhaseIndex: 0,
       currentPhaseId: "work",
     });
-  });
-
-  it("refuses to assign quest work to the leader's Scribe", async () => {
-    // The Scribe is in the herd but only keeps topic pages; a leader must not dispatch to it.
-    const res = await postBoard({
-      questId: "q-9",
-      worker: "scribe-1",
-      workerNum: 13,
-      status: "WORKING",
-      phases: ["work", "memory"],
-    });
-
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: expect.stringContaining("#13 is a Scribe") });
-    expect(session.board.has("q-9")).toBe(false);
   });
 
   it("rejects a direct Codex-owned quest before creating a Takode Journey row", async () => {

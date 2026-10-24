@@ -248,11 +248,11 @@ function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: strin
 }
 
 /**
- * What the leader's Scribe is doing, live: "Filing 120 of 336 quests", "Updating T7 run…", "Up to
+ * What the leader's Scribe is doing, live: "Sorting recent work into topics: 120 of 336 quests", "Updating T7 run…", "Up to
  * date". Tapping Scribe opens its session.
  */
 function ScribeStatusLine({ activity }: { activity: ScribeActivity }) {
-  const busy = activity.state === "filing" || activity.state === "updating" || activity.state === "starting";
+  const busy = activity.state === "initializing" || activity.state === "updating" || activity.state === "starting";
   const quiet = activity.state === "paused" || activity.state === "over_budget";
   return (
     <div

@@ -58,7 +58,7 @@ const LIST: TopicListResponse = {
   suggestions: [],
 };
 
-/** The same leader once topics are on: its Scribe is filing, a rename waits for the user. */
+/** The same leader once topics are on: its Scribe is initializing, a rename waits for the user. */
 const ON: TopicListResponse = {
   ...LIST,
   leaders: [{ ...LIST.leaders[0]!, enabled: true, suggest: false }],
@@ -67,8 +67,8 @@ const ON: TopicListResponse = {
   ],
   scribe: {
     activity: {
-      state: "filing",
-      text: "Filing 120 of 336 quests",
+      state: "initializing",
+      text: "Sorting recent work into topics: 120 of 336 quests",
       sessionId: "scribe-1",
       sessionNum: 3300,
       progress: { done: 120, total: 336 },
@@ -149,8 +149,8 @@ describe("TopicSidePanel", () => {
     const instructions = vi.spyOn(topicApi, "setScribeInstructions").mockResolvedValue({ instructions: "x" });
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     const status = await screen.findByTestId("scribe-status");
-    expect(status).toHaveTextContent("Scribe #3300 · Filing 120 of 336 quests");
-    expect(status).toHaveAttribute("data-state", "filing");
+    expect(status).toHaveTextContent("Scribe #3300 · Sorting recent work into topics: 120 of 336 quests");
+    expect(status).toHaveAttribute("data-state", "initializing");
 
     const suggestions = screen.getByTestId("topic-suggestions");
     expect(suggestions).toHaveTextContent("Rename “T7 run” to “Coding T7”?");

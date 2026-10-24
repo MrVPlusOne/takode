@@ -201,6 +201,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "Worker Slots herd limit parallel workers per leader Claude Codex",
       },
       {
+        id: "scribe-backend",
+        text: "Scribes Scribe backend Library topics topic pages same as leader Claude Codex",
+      },
+      {
         id: "namer-enabled",
         text: "Session Namer auto-name sessions enabled names",
         subsection: "session-namer",

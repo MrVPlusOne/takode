@@ -696,6 +696,8 @@ export interface AppSettings {
   shortcutSettings?: ShortcutSettings;
   sessionDefaults: SessionDefaultsSettings;
   workerSlotLimits: WorkerSlotLimits;
+  /** Backend of leaders' Scribes: the leader's own, or a fixed one. */
+  scribeBackend?: "leader" | "claude" | "codex";
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1445,6 +1447,7 @@ export const api = {
     shortcutSettings?: ShortcutSettings;
     sessionDefaults?: SessionDefaultsSettings;
     workerSlotLimits?: Partial<WorkerSlotLimits>;
+    scribeBackend?: "leader" | "claude" | "codex";
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

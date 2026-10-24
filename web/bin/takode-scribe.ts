@@ -7,8 +7,9 @@ import { need } from "./takode-topic.js";
 export const SCRIBE_HELP = `Usage: takode scribe <command> ...
 
 A leader with Library topics on has a Scribe: a special worker in its herd that keeps the topic
-pages from that leader's activity. Its routine turns don't reach the leader; it speaks up only with a
-question. To steer it beyond these commands, message it: takode send <its session> "...".
+pages from that leader's activity. Takode sends it what changed by itself; its routine turns don't
+reach the leader, and it speaks up only when it needs the leader. It never takes quest work. To
+steer it beyond these commands, message it: takode send <its session> "...".
 
 For leaders:
   takode scribe status [--leader <session>] [--json]   What your Scribe is doing, its spend, the
@@ -22,7 +23,10 @@ For the Scribe:
   takode scribe changes <topic>                        The page and your leader's events since your
                                                        last write
   takode scribe write-page <topic> --file <path>|-     Save the whole page
-  takode scribe quests [--unfiled] [--since 30d]       Your leader's recent quests
+  takode scribe write-page <topic> --unchanged         Nothing on the page needs to change: mark
+                                                       what changes showed as read
+  takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
+                                                       with no topic yet)
 
 Topics themselves (list, show, set, move, rename, merge): takode topic.`;
 
@@ -76,16 +80,26 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
       return;
     }
     case "write-page": {
-      const ref = need(positionals[0], "takode scribe write-page <topic> --file <path>|-");
-      if (typeof flags.file !== "string") err("Usage: takode scribe write-page <topic> --file <path>|-");
+      const usage = "takode scribe write-page <topic> --file <path>|- (or --unchanged)";
+      const ref = need(positionals[0], usage);
+      if (flags.unchanged === true) {
+        const detail = (await apiPost(base, `${pagePath(ref)}/page`, { unchanged: true })) as { name: string };
+        console.log(`Marked what changed on "${detail.name}" as read; the page stays as it is.`);
+        return;
+      }
+      if (typeof flags.file !== "string") err(`Usage: ${usage}`);
       const markdown = await readOptionTextFile(flags.file, "--file");
-      const detail = (await apiPost(base, `${pagePath(ref)}/page`, { markdown })) as { name: string };
+      const detail = (await apiPost(base, `${pagePath(ref)}/page`, { markdown })) as {
+        name: string;
+        warnings?: string[];
+      };
       console.log(`Saved the page of "${detail.name}" (${markdown.length} characters).`);
+      for (const warning of detail.warnings ?? []) console.log(`Warning: ${warning}`);
       return;
     }
     case "quests": {
       const params = new URLSearchParams(typeof flags.leader === "string" ? { leader: flags.leader } : {});
-      if (flags.unfiled === true) params.set("unfiled", "1");
+      if (flags.unsorted === true) params.set("unsorted", "1");
       if (typeof flags.since === "string") params.set("since", String(parseActivityTime(flags.since, Date.now())));
       const { quests } = (await apiGet(base, `/scribe/quests?${params}`)) as {
         quests: Array<{

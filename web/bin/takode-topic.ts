@@ -56,8 +56,10 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
       const result = (await apiPatch(base, topicPath(ref), {
         name,
         ...(typeof flags.reason === "string" ? { reason: flags.reason } : {}),
-      })) as TopicSummary & { suggested?: TopicRenameSuggestion };
-      if (result.suggested) {
+      })) as TopicSummary & { suggested?: TopicRenameSuggestion; skipped?: string };
+      if (result.skipped) {
+        console.log(`Not renamed: ${result.skipped}`);
+      } else if (result.suggested) {
         console.log(
           `"${result.suggested.topicName}" was named by the user, so this is a suggestion: the user accepts or dismisses renaming it to "${result.suggested.name}" in the topics panel.`,
         );
@@ -72,7 +74,11 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
       const topic = (await apiPost(base, `${topicPath(from)}/merge`, {
         into,
         fold: flags.fold === true,
-      })) as TopicSummary;
+      })) as TopicSummary & { skipped?: string };
+      if (topic.skipped) {
+        console.log(`Not merged: ${topic.skipped}`);
+        return;
+      }
       console.log(
         `${flags.fold === true ? "Folded" : "Merged"} into "${topic.name}" (${topic.questIds.length} quests).`,
       );

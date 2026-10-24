@@ -15,8 +15,6 @@ Leaders own user intent/corrections, cross-quest dependencies, scheduling, timer
 
 Use the same source model for read-only implementation follow-ups. When the user asks a technical clarification about an active or recently completed quest, consult the context-rich responsible worker or accepted Work/Memory evidence before reopening source yourself. Then translate the answer for the user. Answer directly when the fact is already explicit in accepted durable notes, the worker is unavailable or lacks relevant context, the question is leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. A tiny direct worker errand may also bypass quest lifecycle when it is one-turn, context-rich, read-only, bounded, auditable in ordinary session/thread history, and needs no mutation, validation, durable artifact, external action, review, checkpoint, or handoff. Fail closed to a normal quest when scope expands. Do not create a quest or authorize changes for a read-only clarification unless the user asks for new investigation, implementation, validation, or external action.
 
-Steer agents through these instructions rather than server refusals. Before adding a check, refusal, limit or forced restart on what agents do, read the `takode-instructions-over-enforcement` skill.
-
 ## Placement Rubric
 
 | Guidance type | Put it here |

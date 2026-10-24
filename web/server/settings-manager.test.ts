@@ -82,6 +82,7 @@ describe("settings-manager", () => {
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
+      scribeBackend: "leader",
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -726,6 +727,7 @@ describe("settings-manager", () => {
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
+      scribeBackend: "leader",
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -745,6 +747,15 @@ describe("settings-manager", () => {
     writeFileSync(settingsPath, JSON.stringify({ workerSlotLimits: { claude: 0, codex: 6 } }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().workerSlotLimits).toEqual({ claude: 8, codex: 6 });
+  });
+
+  it("runs Scribes on the leader's backend unless Settings name one", () => {
+    // Users with only one backend can still use topics; an unknown saved value falls back to the default.
+    expect(getSettings().scribeBackend).toBe("leader");
+    expect(updateSettings({ scribeBackend: "codex" }).scribeBackend).toBe("codex");
+    writeFileSync(settingsPath, JSON.stringify({ scribeBackend: "gemini" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().scribeBackend).toBe("leader");
   });
 
   it("normalizes per-model Codex leader recycle thresholds from disk", () => {

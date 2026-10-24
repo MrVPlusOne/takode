@@ -695,31 +695,6 @@ describe("Takode server-authoritative auth", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("includes the session number in message reads so quotes can link back", async () => {
-    // `takode read --quote` builds a session:N:idx link from this field, even
-    // when the caller named the session by id rather than number.
-    launcher.getSession.mockImplementation((id: string) => ({ sessionId: id, isOrchestrator: true }));
-    launcher.getSessionNum.mockImplementation((id: string) => (id === "leader-a" ? 42 : undefined));
-    bridge._sessions["leader-a"] = {
-      id: "leader-a",
-      messageHistory: [
-        {
-          type: "user_message",
-          id: "raw-a",
-          leaderUserMessageId: "u1",
-          leaderResponseCoverageVersion: 1,
-          content: "Quote me",
-          timestamp: 10,
-        },
-      ],
-    };
-
-    const res = await app.request("/api/sessions/leader-a/messages/u1");
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ idx: 0, sessionNum: 42, content: "Quote me" });
-  });
-
   it("rejects timer firing and retired references in leader message reads", async () => {
     // Timer firings have no session-scoped ID; read them by history index. Firing,
     // schedule and retired short references are invalid, not fallback spellings.

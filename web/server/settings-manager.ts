@@ -124,7 +124,16 @@ export interface CompanionSettings {
   sessionDefaults?: SessionDefaultsSettings;
   /** Most herded workers per leader, by the leader's backend. Optional for backward-compatible tests/mocks. */
   workerSlotLimits?: WorkerSlotLimits;
+  /** Backend of leaders' Scribes: the leader's own ("leader") or a fixed one. Optional for tests/mocks. */
+  scribeBackend?: ScribeBackendSetting;
   updatedAt: number;
+}
+
+/** Which backend a leader's Scribe runs on. */
+export type ScribeBackendSetting = "leader" | "claude" | "codex";
+
+function normalizeScribeBackend(value: unknown): ScribeBackendSetting {
+  return value === "claude" || value === "codex" ? value : "leader";
 }
 
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
@@ -264,6 +273,7 @@ let settings: CompanionSettings = {
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
+  scribeBackend: "leader",
   updatedAt: 0,
 };
 
@@ -547,6 +557,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     shortcutSettings: parseShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
+    scribeBackend: normalizeScribeBackend(raw?.scribeBackend),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -690,6 +701,7 @@ export function updateSettings(
       | "shortcutSettings"
       | "sessionDefaults"
       | "workerSlotLimits"
+      | "scribeBackend"
       | "serverSlug"
       | "serverTimeZone"
       | "restartUpdatesCheckout"
@@ -717,6 +729,7 @@ export function updateSettings(
   if (defined.workerSlotLimits) {
     defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }
+  if (defined.scribeBackend !== undefined) defined.scribeBackend = normalizeScribeBackend(defined.scribeBackend);
   if (typeof defined.serverSlug === "string") {
     const normalizedSlug = normalizeServerSlug(defined.serverSlug);
     if (!isValidServerSlug(normalizedSlug)) {

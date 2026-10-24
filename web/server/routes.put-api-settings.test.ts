@@ -1546,6 +1546,22 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).not.toHaveBeenCalled();
   });
 
+  it("saves which backend Scribes run on and rejects unknown ones", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scribeBackend: "codex" }),
+    });
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ scribeBackend: "codex" }));
+    const bad = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scribeBackend: "gemini" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("changes one follow-up reminder setting and keeps the others", async () => {
     // The mocked saved settings have no reminder settings, so the rest stay at their defaults.
     const res = await app.request("/api/settings", {

@@ -5,11 +5,11 @@ import type { WsBridge } from "./ws-bridge.js";
 import { listQuests } from "./quest-store.js";
 import { addSessionSaveListener } from "./artifact-library.js";
 import { archiveLibrarySession, createLibrarySession } from "./library-session-creator.js";
-import { resolveResultContextWindow } from "./bridge/context-usage.js";
 import { setTopicService } from "./routes/topics.js";
 import { TopicService, historyMessageText, type TopicLeaderInfo, type TopicSessionLike } from "./topic-service.js";
 import { TopicStore } from "./topic-store.js";
 import { setScribeHooks } from "./scribe-registry.js";
+import { getSettings } from "./settings-manager.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../shared/library-topics.js";
 
 /**
@@ -34,6 +34,7 @@ export async function startLibraryTopics(input: {
       space: info.memorySessionSpaceSlug ?? launcher.getMemorySessionSpaceSlug(),
       isOrchestrator: info.isOrchestrator === true,
       archived: info.archived === true,
+      ...(info.backendType ? { backendType: info.backendType } : {}),
     };
   };
   const service = new TopicService(new TopicStore(join(homedir(), ".companion", "library", input.serverId)), {
@@ -57,11 +58,15 @@ export async function startLibraryTopics(input: {
     },
     createScribe: async (leader) => {
       const leaderState = wsBridge.getSession(leader.sessionId)?.state;
+      const backend = scribeBackendFor(leader);
       const { sessionId } = await createLibrarySession(
         {
-          backend: "claude",
+          backend,
           cwd: homedir(),
-          permissionMode: "bypassPermissions",
+          // Full access without prompts, as a leader's workers usually run; nobody watches a Scribe.
+          ...(backend === "codex"
+            ? { permissionMode: "codex-full-access", askPermission: false }
+            : { permissionMode: "bypassPermissions" }),
           noAutoName: true,
           fixedName: "Scribe",
           ...(leaderState?.treeGroupId ? { treeGroupId: leaderState.treeGroupId } : {}),
@@ -69,26 +74,17 @@ export async function startLibraryTopics(input: {
         { scribeFor: leader.sessionId },
       );
       launcher.herdSessions(leader.sessionId, [sessionId], { force: true });
-      const bridgeSession = wsBridge.getSession(sessionId);
-      // The Scribe never reads or writes memory; the catalog would only cost tokens.
-      if (bridgeSession) bridgeSession.pendingStartupMemoryCatalogInjection = false;
       return sessionId;
     },
     isScribeAlive: (sessionId) => {
       const info = launcher.getSession(sessionId);
       return !!info && !info.archived;
     },
-    scribeContextTokens: (sessionId) => {
-      const session = wsBridge.getSession(sessionId);
-      if (!session) return 0;
-      const result = session.messageHistory.findLast((message) => message.type === "result");
-      const window =
-        (result?.type === "result" ? resolveResultContextWindow(undefined, result.data.modelUsage) : undefined) ??
-        200_000;
-      return ((session.state.context_used_percent ?? 0) / 100) * window;
-    },
     isScribeBusy: (sessionId) => wsBridge.getSession(sessionId)?.isGenerating === true,
     retireScribe: (sessionId) => archiveLibrarySession(sessionId),
+    notifyLeader: (leaderId, text) => {
+      wsBridge.injectUserMessage(leaderId, text, { ...LIBRARY_MESSAGE_SOURCE });
+    },
     messageText: (sessionNum, index) => {
       const sessionId = launcher.resolveSessionId(String(sessionNum));
       const message = sessionId ? wsBridge.getSession(sessionId)?.messageHistory[index] : undefined;
@@ -99,10 +95,19 @@ export async function startLibraryTopics(input: {
   await service.store.load();
   setScribeHooks({
     isScribe: (sessionId) => !!launcher.getSession(sessionId)?.scribeFor,
-    turnEnded: (sessionId) => service.scribeTurnEnded(sessionId),
+    turnEnded: (sessionId) => {
+      service.scribeTurnEnded(sessionId).catch((error) => console.error("[library-topics] Scribe turn end:", error));
+    },
   });
   launcher.scribeLeaderName = (leaderId) => input.sessionName(leaderId);
   setTopicService(service);
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;
+}
+
+/** The Scribe's backend: the leader's own unless Settings name one. */
+function scribeBackendFor(leader: TopicLeaderInfo): "claude" | "codex" {
+  const setting = getSettings().scribeBackend ?? "leader";
+  if (setting !== "leader") return setting;
+  return leader.backendType === "codex" ? "codex" : "claude";
 }

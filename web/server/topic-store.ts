@@ -22,6 +22,7 @@ import {
 
 const MAX_EVENTS_PER_TOPIC = 200;
 const MAX_CHANGES = 300;
+const MAX_QUESTS_TOLD = 500;
 
 interface StoredTopic {
   id: string;
@@ -67,10 +68,12 @@ interface TopicState {
   version: 1;
   topics: Record<string, StoredTopic>;
   questTopics: Record<string, string>;
-  enabledLeaders: Record<string, { enabledAt: number; backfilledAt?: number }>;
+  enabledLeaders: Record<string, { enabledAt: number; initializedAt?: number }>;
   hintDismissed: Record<string, number>;
   /** Per leader: its Scribe. */
   scribes?: Record<string, StoredScribe>;
+  /** Sequence number of the newest event, so a Scribe is sent each event exactly once. */
+  eventSeq?: number;
   /** Retired design: one hidden page writer per space. Read once at startup to archive them. */
   writers?: Record<string, string>;
   suggestions?: StoredSuggestion[];
@@ -85,8 +88,12 @@ interface StoredScribe {
   paused?: boolean;
   /** The user's instructions for how to group the leader's topics. */
   instructions?: ScribeInstructions;
-  /** What replaced Scribes spent in their last day, so the budget still counts it. */
-  retiredSpend?: Array<{ at: number; amount: number }>;
+  /** Events up to this sequence number were sent to the Scribe. */
+  deliveredSeq?: number;
+  /** Quests with no topic the Scribe was already told about (newest last, capped). */
+  questsTold?: string[];
+  /** Save time of the grouping instructions this Scribe session was sent. */
+  instructionsSentAt?: number;
 }
 
 export interface ScribeInstructions {
@@ -152,25 +159,31 @@ export class TopicStore {
     return Object.keys(this.s().enabledLeaders);
   }
 
-  /** Turns topics on or off for a leader; returns whether the leader still needs its month backfilled. */
-  setLeaderEnabled(sessionId: string, enabled: boolean): { needsBackfill: boolean } {
+  /** Turns topics on or off for a leader; returns whether its Scribe still has to initialize. */
+  setLeaderEnabled(sessionId: string, enabled: boolean): { needsInitialization: boolean } {
     const leaders = this.s().enabledLeaders;
     if (!enabled) {
       if (leaders[sessionId]) {
         delete leaders[sessionId];
         this.dirty = true;
       }
-      return { needsBackfill: false };
+      return { needsInitialization: false };
     }
     leaders[sessionId] ??= { enabledAt: this.now() };
     this.dirty = true;
-    return { needsBackfill: !leaders[sessionId].backfilledAt };
+    return { needsInitialization: !leaders[sessionId].initializedAt };
   }
 
-  markBackfilled(sessionId: string): void {
+  /** Topics are on for the leader and its Scribe has not been asked to initialize yet. */
+  needsInitialization(sessionId: string): boolean {
+    const leader = this.s().enabledLeaders[sessionId];
+    return !!leader && !leader.initializedAt;
+  }
+
+  markInitialized(sessionId: string): void {
     const leader = this.s().enabledLeaders[sessionId];
     if (!leader) return;
-    leader.backfilledAt = this.now();
+    leader.initializedAt = this.now();
     this.dirty = true;
   }
 
@@ -189,10 +202,46 @@ export class TopicStore {
     return this.s().scribes?.[leaderId]?.sessionId;
   }
 
+  /** Sets a leader's Scribe session; a new session has been sent no grouping instructions yet. */
   setScribeSession(leaderId: string, sessionId: string | undefined): void {
     const scribe = this.scribeRecord(leaderId);
     if (scribe.sessionId === sessionId) return;
     scribe.sessionId = sessionId;
+    scribe.instructionsSentAt = undefined;
+    this.dirty = true;
+  }
+
+  /** Events up to this sequence number were sent to the leader's Scribe. */
+  deliveredSeq(leaderId: string): number {
+    return this.s().scribes?.[leaderId]?.deliveredSeq ?? 0;
+  }
+
+  /** The newest event's sequence number. */
+  eventSeq(): number {
+    return this.s().eventSeq ?? 0;
+  }
+
+  /** Marks events up to `seq`, and these quests with no topic, as sent to the Scribe. */
+  markDelivered(leaderId: string, seq: number, questIds: readonly string[] = []): void {
+    const scribe = this.scribeRecord(leaderId);
+    scribe.deliveredSeq = Math.max(seq, scribe.deliveredSeq ?? 0);
+    if (questIds.length) scribe.questsTold = [...(scribe.questsTold ?? []), ...questIds].slice(-MAX_QUESTS_TOLD);
+    this.dirty = true;
+  }
+
+  questsTold(leaderId: string): ReadonlySet<string> {
+    return new Set(this.s().scribes?.[leaderId]?.questsTold ?? []);
+  }
+
+  /** Whether the Scribe session has been sent the current grouping instructions. */
+  instructionsSent(leaderId: string): boolean {
+    const scribe = this.s().scribes?.[leaderId];
+    return !scribe?.instructions || scribe.instructionsSentAt === scribe.instructions.updatedAt;
+  }
+
+  markInstructionsSent(leaderId: string): void {
+    const scribe = this.scribeRecord(leaderId);
+    scribe.instructionsSentAt = scribe.instructions?.updatedAt;
     this.dirty = true;
   }
 
@@ -217,24 +266,6 @@ export class TopicStore {
     const clean = text.trim().slice(0, 4000);
     this.scribeRecord(leaderId).instructions = clean ? { text: clean, updatedAt: this.now() } : undefined;
     this.dirty = true;
-  }
-
-  /** Keeps a replaced Scribe's recent spend in its leader's budget for a day. */
-  recordRetiredScribeSpend(leaderId: string, amount: number): void {
-    const scribe = this.scribeRecord(leaderId);
-    scribe.retiredSpend = [...(scribe.retiredSpend ?? []), { at: this.now(), amount }];
-    this.dirty = true;
-  }
-
-  retiredScribeSpend(leaderId: string, since: number): number {
-    const scribe = this.s().scribes?.[leaderId];
-    const entries = scribe?.retiredSpend ?? [];
-    const recent = entries.filter((entry) => entry.at >= since);
-    if (scribe && recent.length !== entries.length) {
-      scribe.retiredSpend = recent;
-      this.dirty = true;
-    }
-    return recent.reduce((sum, entry) => sum + entry.amount, 0);
   }
 
   /** Page writers of the retired per-space design, to be archived once; forgets them. */
@@ -315,6 +346,7 @@ export class TopicStore {
       at: this.now(),
       kind: "quest_filed",
       questId: input.questId,
+      ...(input.byAgent ? { byScribe: true } : {}),
       ...(input.leaderId ? { leaderId: input.leaderId } : {}),
     });
     if (previous) {
@@ -363,14 +395,21 @@ export class TopicStore {
    * A Scribe's new name for a topic the user named: shown to the user with Accept and Dismiss,
    * and nothing changes until accepted. A name the user dismissed is not suggested again.
    */
-  suggestRename(topicId: string, name: string, leaderId: string | undefined, reason?: string): TopicRenameSuggestion {
+  suggestRename(
+    topicId: string,
+    name: string,
+    leaderId: string | undefined,
+    reason?: string,
+  ): TopicRenameSuggestion | { skipped: string } {
     const topic = this.require(topicId);
     const clean = cleanName(name);
     const suggestions = (this.s().suggestions ??= []);
     const same = (candidate: StoredSuggestion) =>
       candidate.topicId === topic.id && normalizeName(candidate.name) === normalizeName(clean);
     if (suggestions.some((candidate) => same(candidate) && candidate.status === "dismissed")) {
-      throw new TopicStoreError(`The user dismissed renaming "${topic.name}" to "${clean}"; keep the name.`, 409);
+      return {
+        skipped: `The user dismissed renaming "${topic.name}" to "${clean}" before, so it is not suggested again.`,
+      };
     }
     const pending = suggestions.find((candidate) => same(candidate) && candidate.status === "pending");
     if (pending) return this.publicSuggestion(pending)!;
@@ -431,9 +470,6 @@ export class TopicStore {
     const into = this.require(intoId);
     if (from.id === into.id) throw new TopicStoreError("A topic cannot be merged into itself.");
     if (from.space !== into.space) throw new TopicStoreError("Topics of different spaces cannot be merged.");
-    if (byAgent && this.userUndidMerge(from.id)) {
-      throw new TopicStoreError(`The user undid merging "${from.name}" before; leave it as its own topic.`, 409);
-    }
     const questIds = this.questsOf(from.id);
     const undo: Undo = { kind: "merge", from: structuredClone(from), intoId, intoAliases: [...into.aliases], questIds };
     for (const questId of questIds) this.s().questTopics[questId] = into.id;
@@ -443,7 +479,12 @@ export class TopicStore {
     into.events = [...into.events, ...from.events].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS_PER_TOPIC);
     into.updatedAt = this.now();
     from.mergedInto = into.id;
-    this.addEvent(into.id, { at: this.now(), kind: "message", text: `${verb} "${from.name}" into this topic` });
+    this.addEvent(into.id, {
+      at: this.now(),
+      kind: "message",
+      text: `${verb} "${from.name}" into this topic`,
+      ...(byAgent ? { byScribe: true } : {}),
+    });
     this.recordChange(into.space, `${verb} "${from.name}" into "${into.name}"`, byAgent, undo);
     this.dirty = true;
     return this.summary(into);
@@ -510,7 +551,9 @@ export class TopicStore {
   addEvent(topicId: string, event: TopicEvent): void {
     const topic = this.live(topicId);
     if (!topic) return;
-    topic.events.push(event);
+    const state = this.s();
+    state.eventSeq = (state.eventSeq ?? 0) + 1;
+    topic.events.push({ ...event, seq: state.eventSeq });
     if (topic.events.length > MAX_EVENTS_PER_TOPIC) topic.events.splice(0, topic.events.length - MAX_EVENTS_PER_TOPIC);
     this.dirty = true;
   }
@@ -560,6 +603,16 @@ export class TopicStore {
     topic.updatedAt = this.now();
     this.dirty = true;
     return this.detail(topic.id);
+  }
+
+  /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
+  markCovered(topicId: string, upToDateAt: number, leaderId: string): void {
+    const topic = this.require(topicId);
+    topic.coveredThrough = {
+      ...topic.coveredThrough,
+      [leaderId]: Math.max(upToDateAt, topic.coveredThrough?.[leaderId] ?? 0),
+    };
+    this.dirty = true;
   }
 
   // ─── Reads ────────────────────────────────────────────────────────────────
@@ -621,8 +674,8 @@ export class TopicStore {
     };
   }
 
-  /** Whether the user undid a merge or fold of this topic: a Scribe must not redo it. */
-  private userUndidMerge(topicId: string): boolean {
+  /** Whether the user undid a merge or fold of this topic: a Scribe should not redo it. */
+  userUndidMerge(topicId: string): boolean {
     return this.s().changes.some(
       (change) => change.undone && change.undo.kind === "merge" && change.undo.from.id === topicId,
     );

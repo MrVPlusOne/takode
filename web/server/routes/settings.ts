@@ -1083,6 +1083,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
+      scribeBackend: settings.scribeBackend ?? "leader",
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -1331,6 +1332,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.sendKeyScheme !== undefined && !isSendKeyScheme(body.sendKeyScheme)) {
       return c.json({ error: 'sendKeyScheme must be "enter" or "mod-enter"' }, 400);
     }
+    if (body.scribeBackend !== undefined && !["leader", "claude", "codex"].includes(body.scribeBackend as string)) {
+      return c.json({ error: 'scribeBackend must be "leader", "claude" or "codex"' }, 400);
+    }
     if (body.workerSlotLimits !== undefined) {
       const limits = body.workerSlotLimits as Record<string, unknown> | null;
       const valid =
@@ -1467,6 +1471,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "shortcutSettings",
       "sessionDefaults",
       "workerSlotLimits",
+      "scribeBackend",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1544,6 +1549,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       workerSlotLimits: body.workerSlotLimits
         ? normalizeWorkerSlotLimits({ ...getSettings().workerSlotLimits, ...body.workerSlotLimits })
         : undefined,
+      scribeBackend: body.scribeBackend as "leader" | "claude" | "codex" | undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
       serverTimeZone: normalizedServerTimeZone,
     };

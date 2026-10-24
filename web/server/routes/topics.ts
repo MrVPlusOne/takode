@@ -150,17 +150,17 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** A leader's quests from a recent window, for filing them into topics; a Scribe gets its leader's. */
+  /** A leader's quests from a recent window, for sorting them into topics; a Scribe gets its leader's. */
   api.get("/scribe/quests", (c) =>
     run(c, async (svc) => {
       const leader = leaderFor(svc, c);
       if (!leader) throw new TopicStoreError("Name the leader.", 404);
       const since = Number(c.req.query("since")) || Date.now() - 30 * 24 * 3600_000;
-      const unfiled = c.req.query("unfiled") === "1";
+      const unsorted = c.req.query("unsorted") === "1";
       const quests = (await listQuests())
         .filter((quest) => (quest as { leaderSessionId?: string }).leaderSessionId === leader)
         .filter((quest) => quest.createdAt >= since)
-        .filter((quest) => !unfiled || !svc.store.topicOfQuest(quest.questId))
+        .filter((quest) => !unsorted || !svc.store.topicOfQuest(quest.questId))
         .sort((a, b) => a.createdAt - b.createdAt);
       return {
         quests: quests.map((quest) => ({
@@ -194,7 +194,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         byAgent: !!scribeLeader(svc, callerId),
         ...(questLeader ? { leaderId: questLeader } : {}),
       });
-      if (questLeader && svc.store.isLeaderEnabled(questLeader)) svc.schedule(questLeader);
+      if (questLeader) svc.changed(questLeader);
       return result;
     }),
   );
@@ -247,9 +247,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       const sessionId = ctx.resolveId(c.req.param("leader"));
       if (!sessionId || typeof body.text !== "string") throw new TopicStoreError("Name a leader and send text.");
-      if (scribeLeader(svc, caller(c))) throw new TopicStoreError("The grouping instructions are the user's.", 403);
       svc.store.setScribeInstructions(sessionId, body.text);
-      svc.instructionsChanged(sessionId);
+      svc.changed(sessionId);
       return { instructions: svc.store.scribeInstructions(sessionId)?.text ?? "" };
     }),
   );
@@ -260,10 +259,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       const sessionId = ctx.resolveId(c.req.param("leader"));
       if (!sessionId) throw new TopicStoreError("Leader not found.", 404);
-      if (scribeLeader(svc, caller(c)))
-        throw new TopicStoreError("Only the user or the leader pauses the Scribe.", 403);
       svc.store.setScribePaused(sessionId, body.paused === true);
-      if (body.paused !== true) svc.schedule(sessionId, 0);
+      if (body.paused !== true) svc.changed(sessionId);
       return { paused: svc.store.isScribePaused(sessionId) };
     }),
   );
@@ -338,31 +335,37 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /**
-   * Saves a page. Quoted decisions must appear in the messages they link to. A Scribe's write
-   * covers what it read through `changes` and is refused when another Scribe saved the page since.
+   * Saves a page, or with `unchanged` marks what the Scribe read through `changes` as needing no
+   * change. A Scribe's write covers what it read and is refused when another Scribe saved the page
+   * since, so no Scribe's work is lost. A quote that isn't in the message it links to is saved
+   * anyway and reported back as a warning.
    */
   api.post("/scribe/topics/:id/page", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
       const body = await c.req.json().catch(() => ({}));
-      if (typeof body.markdown !== "string") throw new TopicStoreError("Send the page as markdown.");
-      const problems = svc.checkQuotes(body.markdown);
-      if (problems.length) {
-        throw new TopicStoreError(
-          `Not saved: quoted text must appear in the message it links to.\n${problems.map((problem) => `- ${problem}`).join("\n")}`,
-        );
-      }
       const callerId = caller(c);
       const leaderId = scribeLeader(svc, callerId);
       const key = `${topic.id}|${callerId ?? ""}`;
       const read = served.get(key);
+      if (body.unchanged === true) {
+        if (!leaderId || !read) throw new TopicStoreError("Read the topic with `takode scribe changes` first.");
+        svc.store.markCovered(topic.id, read.through, leaderId);
+        served.delete(key);
+        svc.pageSaved();
+        return { ...svc.store.detail(topic.id), warnings: [] };
+      }
+      if (typeof body.markdown !== "string") throw new TopicStoreError("Send the page as markdown.");
       const detail = svc.store.writePage(topic.id, body.markdown, read?.through ?? Date.now(), {
         ...(leaderId ? { leaderId } : {}),
         ...(read ? { revision: read.revision } : {}),
       });
       served.delete(key);
       svc.pageSaved();
-      return detail;
+      return {
+        ...detail,
+        warnings: svc.checkQuotes(body.markdown).map((problem) => `${problem}: fix the quote or its link`),
+      };
     }),
   );
 
@@ -375,7 +378,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const scribe = scribeLeader(svc, caller(c));
       if (scribe && topic.nameSource === "user") {
         const reason = typeof body.reason === "string" ? body.reason : undefined;
-        return { suggested: svc.store.suggestRename(topic.id, body.name, scribe, reason) };
+        const suggested = svc.store.suggestRename(topic.id, body.name, scribe, reason);
+        return "skipped" in suggested ? suggested : { suggested };
       }
       return svc.store.rename(topic.id, body.name, scribe ? "agent" : "user", !!scribe);
     }),
@@ -387,12 +391,12 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       if (typeof body.into !== "string") throw new TopicStoreError("Name the topic to merge into.");
       const into = topicFor(svc, c, body.into);
-      return svc.store.merge(
-        from.id,
-        into.id,
-        !!scribeLeader(svc, caller(c)),
-        body.fold === true ? "Folded" : "Merged",
-      );
+      const byScribe = !!scribeLeader(svc, caller(c));
+      // A Scribe isn't stopped by an error here: it is told the user undid this before, and nothing changes.
+      if (byScribe && svc.store.userUndidMerge(from.id)) {
+        return { skipped: `The user undid merging "${from.name}" before, so it stays its own topic.` };
+      }
+      return svc.store.merge(from.id, into.id, byScribe, body.fold === true ? "Folded" : "Merged");
     }),
   );
 
@@ -403,7 +407,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
       if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should update it.");
-      return { result: await svc.ask(leaderId, { force: true, topicId: topic.id }) };
+      return { result: await svc.requestUpdate(leaderId, topic.id) };
     }),
   );
 

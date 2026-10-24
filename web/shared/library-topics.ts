@@ -31,6 +31,10 @@ export interface TopicEvent {
   kind: "quest_filed" | "quest_done" | "message" | "artifact" | "feedback";
   /** The leader whose activity it came from; its Scribe handles it. */
   leaderId?: string;
+  /** Made by a Scribe's own filing or tidying: it needs a page update but is not news to Scribes. */
+  byScribe?: boolean;
+  /** Order in which events were recorded, so each is sent to a Scribe exactly once. */
+  seq?: number;
   questId?: string;
   /** Session and history index of the message, for links. */
   sessionId?: string;
@@ -80,12 +84,12 @@ export interface TopicRenameSuggestion {
 
 /** What a leader's Scribe is doing, for the panel's status line and `takode scribe status`. */
 export interface ScribeActivity {
-  state: "off" | "starting" | "filing" | "updating" | "waiting" | "idle" | "paused" | "over_budget";
-  /** One line for people: "Filing 120 of 336 quests", "Updating T7 run…", "Up to date". */
+  state: "off" | "starting" | "initializing" | "updating" | "waiting" | "idle" | "paused" | "over_budget";
+  /** One line for people: "Sorting recent work into topics: 120 of 336 quests", "Updating T7 run…", "Up to date". */
   text: string;
   sessionId?: string;
   sessionNum?: number | null;
-  /** While filing the leader's recent quests. */
+  /** While sorting the leader's recent quests into topics. */
   progress?: { done: number; total: number };
   /** Events no page includes yet. */
   pending: number;

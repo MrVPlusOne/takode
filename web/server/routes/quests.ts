@@ -1335,9 +1335,6 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (knownSession.isOrchestrator) {
       return c.json({ error: "Leader sessions cannot claim quests. Dispatch to a worker instead." }, 403);
     }
-    if (knownSession.scribeFor) {
-      return c.json({ error: "A Scribe keeps its leader's topic pages and cannot claim quests." }, 403);
-    }
     const leaderSessionId = resolveClaimLeaderSessionId(launcher, knownSession);
     try {
       const questId = c.req.param("questId");
@@ -1432,9 +1429,6 @@ export function createQuestRoutes(ctx: RouteContext) {
     const targetSession = launcher.getSession(targetSessionId);
     if (!targetSession) return c.json({ error: `Unknown sessionId: ${targetSessionId}` }, 400);
     if (targetSession.isOrchestrator) return c.json({ error: "Leaders cannot be assigned quest ownership" }, 403);
-    if (targetSession.scribeFor) {
-      return c.json({ error: "A Scribe keeps its leader's topic pages and cannot be assigned quest ownership" }, 403);
-    }
     if (targetSession.archived) return c.json({ error: "Cannot reassign quest ownership to an archived session" }, 400);
     const reason = ownershipReason(body.reason);
     if (!reason) return c.json({ error: "Reassign reason is required" }, 400);

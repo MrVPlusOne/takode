@@ -65,8 +65,8 @@ async function setup() {
     createScribe: async () => "scribe",
     isScribeAlive: () => true,
     isScribeBusy: () => false,
-    scribeContextTokens: () => 0,
     retireScribe: async () => {},
+    notifyLeader: () => {},
     messageText: (sessionNum, index) => (sessionNum === 7 && index === 4 ? "Keep 0.02, launch now" : null),
     broadcastChanged: () => {},
   });
@@ -116,21 +116,44 @@ describe("topic routes", () => {
     expect(store.resolve(topic.id)).toMatchObject({ name: "Coding T7", nameSource: "user" });
   });
 
-  it("refuses a page whose quoted decision is not in the message it links to", async () => {
+  it("saves a page whose quoted decision is not in its linked message, and warns about it", async () => {
+    // A warning instead of a refusal: the Scribe fixes the quote, and a wrong check can't make it loop.
     const { store, send } = await setup();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
     const bad = await send(`/scribe/topics/${topic.id}/page`, "POST", {
       markdown: '## Your decisions\n- "Use 0.05 instead" ([message](session:7:4))',
     });
-    expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toContain('"Use 0.05 instead" is not in message session:7:4');
+    expect(bad.status).toBe(200);
+    expect((await bad.json()).warnings).toEqual([
+      expect.stringContaining('"Use 0.05 instead" is not in message session:7:4'),
+    ]);
+    expect(store.resolve(topic.id)?.page).toContain("Use 0.05 instead");
     const good = await send(`/scribe/topics/${topic.id}/page`, "POST", {
       markdown: '## Your decisions\n- "keep 0.02, launch now" ([message](session:7:4))',
     });
-    expect(good.status).toBe(200);
+    expect((await good.json()).warnings).toEqual([]);
   });
 
-  it("tells a leader its Scribe's status and grouping instructions, which the Scribe may not change", async () => {
+  it("tells a Scribe, without an error, when the user already dismissed a name or undid a fold", async () => {
+    const { store, send, setCaller } = await setup();
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "user", byAgent: false });
+    const { topic: twin } = store.assign({ questId: "q-2", space: "MSI", name: "Twin", by: "agent", byAgent: false });
+    const suggestion = store.suggestRename(topic.id, "Coding T7", "leader") as { id: string };
+    store.answerSuggestion(suggestion.id, false);
+    store.merge(twin.id, topic.id, true, "Folded");
+    store.undo(store.changes("MSI")[0]!.id);
+
+    setCaller("scribe");
+    const renamed = await send(`/topics/${topic.id}`, "PATCH", { name: "Coding T7" });
+    expect(renamed.status).toBe(200);
+    expect((await renamed.json()).skipped).toContain("dismissed");
+    const merged = await send(`/topics/${twin.id}/merge`, "POST", { into: topic.id, fold: true });
+    expect(merged.status).toBe(200);
+    expect((await merged.json()).skipped).toContain("undid");
+    expect(store.topicOfQuest("q-2")?.name).toBe("Twin");
+  });
+
+  it("tells a leader or its Scribe the Scribe's status, and lets either set instructions or pause", async () => {
     const { app, send, setCaller } = await setup();
     setCaller("leader");
     await send("/scribe/leader/instructions", "POST", { text: "One topic per training run." });
@@ -138,14 +161,17 @@ describe("topic routes", () => {
     expect(status).toMatchObject({
       scribe: { instructions: "One topic per training run.", paused: false, activity: { state: "off" } },
     });
-    // The leader can pause its Scribe; the Scribe can change neither the instructions nor the pause.
     await send("/scribe/leader/pause", "POST", { paused: true });
     expect((await (await app.request("/scribe/status")).json()).scribe.paused).toBe(true);
+    // The Scribe saves lasting requirements itself (its brief says when), and reads its own
+    // leader's status without naming it.
     setCaller("scribe");
-    expect((await send("/scribe/leader/instructions", "POST", { text: "x" })).status).toBe(403);
-    expect((await send("/scribe/leader/pause", "POST", { paused: false })).status).toBe(403);
-    // The Scribe reads its own leader's status without naming it.
-    expect((await (await app.request("/scribe/status")).json()).leader.sessionId).toBe("leader");
+    expect((await send("/scribe/leader/instructions", "POST", { text: "Interviews in one topic." })).status).toBe(200);
+    const own = await (await app.request("/scribe/status")).json();
+    expect(own).toMatchObject({
+      leader: { sessionId: "leader" },
+      scribe: { instructions: "Interviews in one topic." },
+    });
   });
 
   it("writes a page that covers what the Scribe read of its leader's events, so later events stay pending", async () => {
@@ -189,6 +215,13 @@ describe("topic routes", () => {
     expect(written.status).toBe(200);
     expect(store.pendingEvents(topic.id, "leader").map((event) => event.kind)).toEqual(["quest_done"]);
     expect(store.pendingEvents(topic.id, "other").map((event) => event.questId)).toEqual(["q-9"]);
+
+    // Nothing to change for the rest: marking it read leaves the page as it is.
+    await app.request(`/scribe/topics/${topic.id}/changes`);
+    const unchanged = await send(`/scribe/topics/${topic.id}/page`, "POST", { unchanged: true });
+    expect(unchanged.status).toBe(200);
+    expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
+    expect(store.resolve(topic.id)?.page).toBe("## Where it stands\nLaunched.");
   });
 
   it("shows a leader's panel the topics of its own quests", async () => {

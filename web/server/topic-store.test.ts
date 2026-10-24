@@ -5,15 +5,8 @@ import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { TopicStore, pageSummary } from "./topic-store.js";
-import {
-  TopicService,
-  TOPIC_UPDATE_DELAY_MS,
-  SCRIBE_CONTEXT_LIMIT,
-  sessionSpend,
-  historyMessageText,
-  type TopicSessionLike,
-} from "./topic-service.js";
-import { TOPIC_TENTATIVE_MS } from "../shared/library-topics.js";
+import { TopicService, sessionSpend, historyMessageText, type TopicSessionLike } from "./topic-service.js";
+import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
 /**
  * Library topics on disposable state: filing quests under topics in the user's words, tentative
@@ -80,13 +73,21 @@ describe("topic store", () => {
     // Renames keep the old name findable.
     expect(store.findByName("MSI", "Find 12B duties")?.name).toBe("T7 run");
 
-    const first = store.suggestRename(topic.id, "Coding T7", "leader", "Two runs now share this topic");
+    const first = store.suggestRename(
+      topic.id,
+      "Coding T7",
+      "leader",
+      "Two runs now share this topic",
+    ) as TopicRenameSuggestion;
     expect(store.suggestions("MSI")).toEqual([expect.objectContaining({ topicName: "T7 run", name: "Coding T7" })]);
     store.answerSuggestion(first.id, false);
     expect(store.suggestions("MSI")).toEqual([]);
-    // A dismissed name is not suggested again; another one can be, and accepting renames as the user.
-    expect(() => store.suggestRename(topic.id, "coding  t7", "leader")).toThrow(/dismissed/);
-    const second = store.suggestRename(topic.id, "T7 coding run", "leader");
+    // A dismissed name is not suggested again (the Scribe is told why, with no error); another one can
+    // be, and accepting renames as the user.
+    expect(store.suggestRename(topic.id, "coding  t7", "leader")).toMatchObject({
+      skipped: expect.stringContaining("dismissed"),
+    });
+    const second = store.suggestRename(topic.id, "T7 coding run", "leader") as TopicRenameSuggestion;
     expect(store.answerSuggestion(second.id, true)).toMatchObject({ name: "T7 coding run", nameSource: "user" });
   });
 
@@ -104,8 +105,8 @@ describe("topic store", () => {
     now += 1000;
     store.undo(fold.id);
     expect(store.topicOfQuest("q-2")?.name).toBe("256K twin");
-    // A Scribe may not fold it again, and it is no longer offered for folding; the user still can.
-    expect(() => store.merge(twin.id, t7.id, true, "Folded")).toThrow(/undid/);
+    // Takode knows the user undid it (a Scribe that tries again is told so), and it is no longer offered for folding.
+    expect(store.userUndidMerge(twin.id)).toBe(true);
     now += TOPIC_TENTATIVE_MS + 1;
     expect(store.foldCandidates("MSI").map((topic) => topic.name)).not.toContain("256K twin");
     now -= TOPIC_TENTATIVE_MS + 1;
@@ -195,7 +196,7 @@ async function setupService() {
     ["leader", leader],
     ["other", { id: "other", messageHistory: [], state: {} }],
   ]);
-  // 25 older quests make the leader worth a hint; recent ones are what a Scribe files.
+  // 25 older quests make the leader worth a hint; recent ones are what a Scribe sorts.
   const quests: Quest[] = Array.from({ length: 25 }, (_, index) => ({
     questId: `q-${index}`,
     title: `Old quest ${index}`,
@@ -204,9 +205,9 @@ async function setupService() {
     status: "done",
   }));
   const injected: Array<{ sessionId: string; text: string }> = [];
+  const notices: Array<{ leaderId: string; text: string }> = [];
   const created: string[] = [];
   const busy = new Set<string>();
-  const contextTokens = new Map<string, number>();
   const retired: string[] = [];
   const messages = new Map<string, string>();
   const service = new TopicService(store, {
@@ -228,78 +229,111 @@ async function setupService() {
     },
     isScribeAlive: (id) => sessions.has(id),
     isScribeBusy: (id) => busy.has(id),
-    scribeContextTokens: (id) => contextTokens.get(id) ?? 0,
     retireScribe: async (id) => {
       retired.push(id);
       sessions.delete(id);
     },
+    notifyLeader: (leaderId, text) => notices.push({ leaderId, text }),
     messageText: (sessionNum, index) => messages.get(`${sessionNum}:${index}`) ?? null,
     broadcastChanged: () => {},
     now: () => Date.now(),
   });
-  return { store, service, leader, sessions, quests, injected, created, busy, contextTokens, retired, messages };
+  return { store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages };
 }
 
-/** Turns topics on for a leader and settles its first filing, so later tests start from quiet. */
+/** Turns topics on for a leader and ends its initialization turn, so later tests start from quiet. */
 async function enable(service: TopicService, store: TopicStore, leaderId: string) {
   await service.setLeaderEnabled(leaderId, true);
   const scribe = store.scribeSession(leaderId)!;
-  service.scribeTurnEnded(scribe);
+  await service.scribeTurnEnded(scribe);
   return scribe;
 }
 
+/** A page with everything of the leader up to now, as a Scribe's write after reading `changes`. */
+function writePage(store: TopicStore, name: string, leaderId = "leader") {
+  store.writePage(store.findByName("MSI", name)!.id, "## Where it stands\nUp to date.", Date.now(), { leaderId });
+}
+
 describe("topic service", () => {
-  it("suggests topics at about 20 quests; turning them on starts a Scribe that files the leader's month", async () => {
+  it("suggests topics at about 20 quests; turning them on starts a Scribe and asks it to initialize", async () => {
     const { service, injected, store, created, retired } = await setupService();
     expect((await service.leaderStates())[0]).toMatchObject({ enabled: false, questCount: 25, suggest: true });
 
+    store.setScribeInstructions("leader", "One topic per training run.");
     await service.setLeaderEnabled("leader", true);
     expect(created).toEqual(["scribe-leader-1"]);
     expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1"]);
-    expect(injected[0].text).toContain("takode scribe quests --unfiled");
+    expect(injected[0].text).toContain("Start initialization for your leader #7");
+    expect(injected[0].text).toContain("sort its recent work into topics");
+    expect(injected[0].text).toContain('grouping instructions: "One topic per training run."');
 
-    // Off archives the Scribe; on again starts a new one, which files what is still unfiled.
+    // Off archives the Scribe; on again starts a new one, which initializes and is told the instructions.
     await service.setLeaderEnabled("leader", false);
     expect(retired).toEqual(["scribe-leader-1"]);
     expect(store.scribeSession("leader")).toBeUndefined();
     await service.setLeaderEnabled("leader", true);
     expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
-    expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1", "scribe-leader-2"]);
+    expect(injected.at(-1)).toMatchObject({
+      sessionId: "scribe-leader-2",
+      text: expect.stringContaining("One topic per training run."),
+    });
   });
 
-  it("asks a leader's Scribe a minute after the user's messages in its topic's quest, batching them", async () => {
-    const { service, injected, store, leader } = await setupService();
+  it("sends what changed as soon as the Scribe is idle, and holds later changes until its turn ends", async () => {
+    const { service, injected, store, leader, busy } = await setupService();
     const scribe = await enable(service, store, "leader");
     store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
-    store.writePage(store.findByName("MSI", "T7 run")!.id, "## Where it stands\nFiled.", Date.now(), {
-      leaderId: "leader",
-    });
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.at(-1)?.text).toContain("q-2713 was put under this topic");
+    vi.advanceTimersByTime(10);
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
     injected.length = 0;
     vi.advanceTimersByTime(1000);
 
+    // The user's messages in the quest's tab go out at once, with links to the messages.
     leader.messageHistory.push(userMessage("Keep 0.02, launch now", "q-2713", Date.now()));
-    service.sessionSaved("leader");
-    leader.messageHistory.push(userMessage("Also redo the plots by data", "q-2713", Date.now()));
-    service.sessionSaved("leader");
-    // Messages in other tabs or without a topic are not events.
     leader.messageHistory.push(userMessage("unrelated", "main", Date.now()));
     service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toMatchObject({ sessionId: scribe });
+    expect(injected[0].text).toContain('the user wrote in q-2713 ([message](session:7:0)): "Keep 0.02, launch now"');
+    expect(injected[0].text).not.toContain("unrelated");
 
-    expect(injected).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
-    expect(injected.map((message) => message.sessionId)).toEqual([scribe]);
-    expect(injected[0].text).toContain('"T7 run"');
-    expect(injected[0].text).toContain("takode scribe changes");
-    const topic = store.findByName("MSI", "T7 run")!;
-    expect(store.pendingEvents(topic.id, "leader").map((event) => event.text)).toEqual(
-      expect.arrayContaining(["Keep 0.02, launch now", "Also redo the plots by data"]),
-    );
+    // While it works, the next message waits, and goes out when its turn ends.
+    busy.add(scribe);
+    leader.messageHistory.push(userMessage("Also redo the plots by data", "q-2713", Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    vi.advanceTimersByTime(10);
+    writePage(store, "T7 run");
+    busy.delete(scribe);
+    await service.scribeTurnEnded(scribe);
+    expect(injected).toHaveLength(2);
+    expect(injected[1].text).toContain("Also redo the plots by data");
+    expect(injected[1].text).not.toContain("Keep 0.02");
   });
 
-  it("shares a topic between leaders: each Scribe covers its own leader's events", async () => {
+  it("does not echo a Scribe's own sorting and tidying back to it", async () => {
+    const { service, injected, store } = await setupService();
+    await enable(service, store, "leader");
+    injected.length = 0;
+    // A Scribe's filing (byAgent) needs a page update but is no news to the Scribe.
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(0);
+    expect(store.pendingEvents(store.findByName("MSI", "T7 run")!.id, "leader")).toHaveLength(1);
+  });
+
+  it("shares a topic between leaders: each Scribe hears and covers its own leader's events", async () => {
     const { service, injected, store } = await setupService();
     const a = await enable(service, store, "leader");
     const b = await enable(service, store, "other");
+    injected.length = 0;
     const { topic } = store.assign({
       questId: "q-1",
       space: "MSI",
@@ -309,48 +343,50 @@ describe("topic service", () => {
       leaderId: "leader",
     });
     store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "other" });
-    injected.length = 0;
-
-    expect(store.pendingEvents(topic.id, "leader").map((event) => event.questId)).toEqual(["q-1"]);
-    expect(await service.ask("leader")).toBe("asked");
-    expect(injected.map((message) => message.sessionId)).toEqual([a]);
+    expect(await service.deliver("leader")).toBe("sent");
+    expect(await service.deliver("other")).toBe("sent");
+    expect(injected.map((message) => message.sessionId)).toEqual([a, b]);
+    expect(injected[0].text).toContain("q-1 was put under");
+    expect(injected[0].text).not.toContain("q-2");
 
     // A's page covers A's events only; B's Scribe still has its own to add.
     const revision = store.pageRevision(topic.id);
     store.writePage(topic.id, "## Where it stands\nA's part.", Date.now(), { leaderId: "leader", revision });
     expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
     expect(store.pendingEvents(topic.id, "other").map((event) => event.questId)).toEqual(["q-2"]);
-    expect(await service.ask("other")).toBe("asked");
-    expect(injected.at(-1)?.sessionId).toBe(b);
     // A write based on the page before A's is refused, so B merges instead of overwriting.
     expect(() =>
       store.writePage(topic.id, "## Where it stands\nB only.", Date.now(), { leaderId: "other", revision }),
     ).toThrow(/updated this page since you read it/);
   });
 
-  it("lists a leader's recent quests with no topic, and passes on changed grouping instructions", async () => {
+  it("names new quests with no topic and changed grouping instructions, each once", async () => {
     const { service, injected, store, quests } = await setupService();
-    await enable(service, store, "leader");
+    const scribe = await enable(service, store, "leader");
     injected.length = 0;
+    vi.advanceTimersByTime(1000);
     quests.push({
       questId: "q-90",
       title: "Check the twin",
-      createdAt: NOW,
+      createdAt: Date.now(),
       leaderSessionId: "leader",
       status: "refined",
     });
     store.setScribeInstructions("leader", "One topic per training run.");
-    service.instructionsChanged("leader");
+    service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
     expect(injected[0].text).toContain('grouping instructions changed: "One topic per training run."');
     expect(injected[0].text).toContain("- q-90 Check the twin");
+
+    // Nothing new after its turn: no message.
+    vi.advanceTimersByTime(10);
+    await service.scribeTurnEnded(scribe);
+    expect(injected).toHaveLength(1);
   });
 
-  it("counts a request answered when the Scribe's turn ends, even with no page written", async () => {
-    // A turn that only files quests or folds topics writes no page; events that came in meanwhile
-    // must still reach the Scribe, and the status must not wait for a page that never comes.
-    const { service, injected, store, busy } = await setupService();
+  it("reminds a Scribe once when it stops with work left, then tells its leader", async () => {
+    const { service, injected, notices, store } = await setupService();
     const scribe = await enable(service, store, "leader");
     const { topic } = store.assign({
       questId: "q-1",
@@ -360,51 +396,45 @@ describe("topic service", () => {
       byAgent: false,
       leaderId: "leader",
     });
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
     injected.length = 0;
-    expect(await service.ask("leader")).toBe("asked");
-    busy.add(scribe);
 
-    // An event while the Scribe works on that request waits for its turn to end.
-    service.event(topic.id, "leader", { at: Date.now(), kind: "message", text: "Launch it" });
-    await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
+    await service.scribeTurnEnded(scribe);
     expect(injected).toHaveLength(1);
+    expect(injected[0].text).toContain('"T7 run": 1 event not on its page yet');
+    expect(injected[0].text).toContain("--unchanged");
 
-    // The turn ends without a page: the held update goes out after the usual pause.
-    busy.delete(scribe);
-    service.scribeTurnEnded(scribe);
-    expect((await service.activity("leader")).state).toBe("waiting");
-    await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
-    expect(injected).toHaveLength(2);
-    expect(injected[1].text).toContain('"T7 run"');
+    await service.scribeTurnEnded(scribe);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      leaderId: "leader",
+      text: expect.stringContaining("Your Scribe #101 stopped twice"),
+    });
+
+    // Marking the events read counts as done: the next message and turn end need no reminder.
+    vi.advanceTimersByTime(10);
+    service.event(topic.id, "leader", { at: Date.now(), kind: "message", text: "Launch it" });
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersByTime(10);
+    store.markCovered(topic.id, Date.now(), "leader");
+    injected.length = 0;
+    await service.scribeTurnEnded(scribe);
+    expect(injected).toHaveLength(0);
   });
 
-  it("tells a replacement Scribe the grouping instructions its predecessor was told", async () => {
-    const { service, injected, store, contextTokens } = await setupService();
-    const first = await enable(service, store, "leader");
-    store.setScribeInstructions("leader", "One topic per training run.");
-    service.instructionsChanged("leader");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(injected.at(-1)).toMatchObject({
-      sessionId: first,
-      text: expect.stringContaining("One topic per training run."),
-    });
-    service.scribeTurnEnded(first);
-
-    // The first Scribe grew too long and is replaced before the next request; the new one is told.
-    contextTokens.set(first, SCRIBE_CONTEXT_LIMIT + 1);
-    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
-    expect(await service.ask("leader")).toBe("asked");
-    const second = store.scribeSession("leader")!;
-    expect(second).not.toBe(first);
-    expect(injected.at(-1)).toMatchObject({
-      sessionId: second,
-      text: expect.stringContaining('grouping instructions changed: "One topic per training run."'),
-    });
+  it("reminds a Scribe whose initialization sorted nothing", async () => {
+    const { service, injected, store, quests } = await setupService();
+    quests.push({ questId: "q-91", title: "A", createdAt: NOW, leaderSessionId: "leader", status: "done" });
+    await service.setLeaderEnabled("leader", true);
+    await service.scribeTurnEnded(store.scribeSession("leader")!);
+    expect(injected.at(-1)?.text).toContain("none of 1 recent quests is under a topic yet");
   });
 
   it("waits while paused or over budget, and Update now goes through anyway", async () => {
     const { service, injected, store, sessions } = await setupService();
     const scribe = await enable(service, store, "leader");
+    store.setScribePaused("leader", true);
     injected.length = 0;
     const { topic } = store.assign({
       questId: "q-1",
@@ -414,48 +444,20 @@ describe("topic service", () => {
       byAgent: false,
       leaderId: "leader",
     });
-
-    store.setScribePaused("leader", true);
-    expect(await service.ask("leader")).toBe("paused");
+    expect(await service.deliver("leader")).toBe("paused");
     store.setScribePaused("leader", false);
 
     // The Scribe spent more than a tenth of what its leader spent today.
     sessions.get("leader")!.messageHistory.push(...turn(Date.now(), 1000));
     sessions.get(scribe)!.messageHistory.push(...turn(Date.now(), 200));
     expect(service.budget("leader")).toMatchObject({ overBudget: true });
-    expect(await service.ask("leader")).toBe("over_budget");
-    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
+    expect(await service.deliver("leader")).toBe("over_budget");
+    expect(await service.requestUpdate("leader", topic.id)).toBe("sent");
     expect(injected).toHaveLength(1);
+    expect(injected[0].text).toContain('The user asked to update now: "T7 run"');
   });
 
-  it("replaces a Scribe whose conversation grew long, but never while it works on a request", async () => {
-    const { service, store, injected, contextTokens, retired, sessions, created } = await setupService();
-    await service.setLeaderEnabled("leader", true);
-    const { topic } = store.assign({
-      questId: "q-1",
-      space: "MSI",
-      name: "T7 run",
-      by: "agent",
-      byAgent: false,
-      leaderId: "leader",
-    });
-    // The filing request is still open: a fix request goes to the same Scribe.
-    contextTokens.set("scribe-leader-1", SCRIBE_CONTEXT_LIMIT + 1);
-    sessions.get("scribe-leader-1")!.messageHistory.push(...turn(Date.now(), 200));
-    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
-    expect(retired).toEqual([]);
-
-    // Once its turn is over, the next request starts a fresh Scribe.
-    service.scribeTurnEnded("scribe-leader-1");
-    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
-    expect(retired).toEqual(["scribe-leader-1"]);
-    expect(created.at(-1)).toBe("scribe-leader-2");
-    expect(injected.at(-1)?.sessionId).toBe("scribe-leader-2");
-    // What the replaced Scribe spent still counts against the day's budget.
-    expect(service.budget("leader").used).toBe(1000);
-  });
-
-  it("reports what the Scribe is doing: filing, updating, waiting, up to date", async () => {
+  it("reports what the Scribe is doing: initializing, updating, waiting, up to date", async () => {
     const { service, store, quests, busy } = await setupService();
     quests.push(
       { questId: "q-91", title: "A", createdAt: NOW, leaderSessionId: "leader", status: "done" },
@@ -463,22 +465,28 @@ describe("topic service", () => {
     );
     expect((await service.activity("leader")).state).toBe("off");
     await service.setLeaderEnabled("leader", true);
-    store.assign({ questId: "q-91", space: "MSI", name: "Runs", by: "agent", byAgent: false, leaderId: "leader" });
+    store.assign({ questId: "q-91", space: "MSI", name: "Runs", by: "agent", byAgent: true, leaderId: "leader" });
     expect(await service.activity("leader")).toMatchObject({
-      state: "filing",
-      text: "Filing 1 of 2 quests",
+      state: "initializing",
+      text: "Sorting recent work into topics: 1 of 2 quests",
       sessionId: "scribe-leader-1",
     });
-    service.scribeTurnEnded("scribe-leader-1");
+    store.assign({ questId: "q-92", space: "MSI", name: "Runs", by: "agent", byAgent: false, leaderId: "leader" });
+    writePage(store, "Runs");
+    await service.scribeTurnEnded("scribe-leader-1");
     busy.add("scribe-leader-1");
-    await service.ask("leader", { force: true });
     expect((await service.activity("leader")).text).toBe("Updating Runs…");
     busy.clear();
-    service.scribeTurnEnded("scribe-leader-1");
-    expect(await service.activity("leader")).toMatchObject({ state: "waiting", pending: 1 });
-    store.writePage(store.findByName("MSI", "Runs")!.id, "## Where it stands\nOk.", Date.now(), {
+    store.addEvent(store.findByName("MSI", "Runs")!.id, {
+      at: Date.now() + 1,
+      kind: "message",
       leaderId: "leader",
+      text: "x",
     });
+    await service.scribeTurnEnded("scribe-leader-1");
+    expect(await service.activity("leader")).toMatchObject({ state: "waiting", pending: 1 });
+    vi.advanceTimersByTime(10);
+    writePage(store, "Runs");
     expect(await service.activity("leader")).toMatchObject({ state: "idle", text: "Up to date" });
   });
 
