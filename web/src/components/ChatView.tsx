@@ -1,5 +1,9 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
+import { TopicConversationButton, TopicConversationHeader, useTopicConversation } from "./library/TopicConversation.js";
+import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
+import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
+import { topicThreadKey } from "../../shared/topic-thread-key.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
@@ -623,6 +627,15 @@ export function ChatView({
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
     selectedThreadKey.toLowerCase() !== ALL_THREADS_KEY &&
     isQuestThreadKey(selectedThreadKey);
+  // A quest tab can show its whole topic as one conversation.
+  const topicFeedFor = useTopicConversationTab(sessionId);
+  const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
+  const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
+  const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+  const topicFeed = useMemo<TopicFeed | null>(
+    () => (topicFeedOn ? { questIds: topicConversation.questIds } : null),
+    [topicFeedOn, topicConversation],
+  );
   const selectedSideQuestOf = useSideQuestOf(showQuestThreadBanner ? sessionId : undefined, selectedThreadKey);
   const sessionQuestBannerRow = useMemo(
     () =>
@@ -827,6 +840,7 @@ export function ChatView({
   );
   // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);
+  const phoneTopicTopRef = useRef<HTMLDivElement | null>(null);
   const handleCloseThreadTab = useCallback(
     (threadKey: string, nextThreadKey = MAIN_THREAD_KEY) => {
       const normalized = normalizeThreadKey(threadKey);
@@ -1125,7 +1139,16 @@ export function ChatView({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
-              {!preview && showQuestThreadBanner && (
+              {!preview && topicFeedOn && (
+                <div ref={questStripRef} className="contents">
+                  <TopicConversationHeader
+                    leaderId={sessionId}
+                    topic={topicConversation}
+                    onClose={() => closeTopicConversation(sessionId)}
+                  />
+                </div>
+              )}
+              {!preview && showQuestThreadBanner && !topicFeedOn && (
                 <div ref={questStripRef} className="contents">
                   <QuestThreadBanner
                     row={selectedThreadRow}
@@ -1134,6 +1157,14 @@ export function ChatView({
                     monitorSessionId={sessionId}
                     diffSessionId={sessionId}
                     onCloseTab={closeSelectedThreadTab}
+                    extraChip={
+                      topicConversation && (
+                        <TopicConversationButton
+                          count={topicConversation.questIds.length}
+                          onOpen={() => openTopicConversation(sessionId, selectedThreadKey)}
+                        />
+                      )
+                    }
                   />
                 </div>
               )}
@@ -1149,8 +1180,10 @@ export function ChatView({
               {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
                 <SessionDiffBanner sessionId={sessionId} />
               )}
+              {/* Where the phone topic panel starts: just under the thread strip. */}
+              <div ref={phoneTopicTopRef} aria-hidden="true" />
               <ViewportHandoffThreadEntryGate
-                key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`}
+                key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
                 sessionId={preview ? null : sessionId}
                 threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
                 entryId={viewportHandoffThreadEntryRef.current.entryId}
@@ -1166,14 +1199,16 @@ export function ChatView({
                   enabled={isLeaderSession && !preview}
                   refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
                 >
-                  <MessageFeed
-                    sessionId={sessionId}
-                    threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                    projectThreadRoutes={isLeaderSession}
-                    onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                    showCodexSubagentControl={!preview}
-                    markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                  />
+                  <TopicFeedContext.Provider value={topicFeed}>
+                    <MessageFeed
+                      sessionId={sessionId}
+                      threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                      projectThreadRoutes={isLeaderSession}
+                      onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                      showCodexSubagentControl={!preview}
+                      markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                    />
+                  </TopicFeedContext.Provider>
                 </StartedQuestsProvider>
               </ViewportHandoffThreadEntryGate>
             </div>
@@ -1185,7 +1220,12 @@ export function ChatView({
               />
             )}
             {!preview && isLeaderSession && (
-              <LeaderTopicPanel leaderId={sessionId} threadKey={selectedThreadKey} desktop={desktopShell} />
+              <LeaderTopicPanel
+                leaderId={sessionId}
+                threadKey={selectedThreadKey}
+                desktop={desktopShell}
+                phoneTopRef={phoneTopicTopRef}
+              />
             )}
           </div>
         </div>

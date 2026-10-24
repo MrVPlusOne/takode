@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.js";
+import { NOW_ITEM_STALE_MS, type NowItemStatus, nowSectionOf } from "../../../shared/topic-now-items.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.js";
@@ -128,7 +129,11 @@ export function TopicView({
 
         <div className="mt-3" data-testid="topic-page">
           {body ? (
-            <MarkdownContent text={body} />
+            <TopicPageBody
+              body={body}
+              status={detail.nowItems ?? []}
+              onDone={leaderId ? (key, done) => act(topicApi.nowDone(detail.id, key, leaderId, done)) : undefined}
+            />
           ) : (
             <p className="text-[14px] text-cc-muted">The page is being written.</p>
           )}
@@ -168,6 +173,108 @@ export function TopicView({
       </div>
     </TopicFrame>
   );
+}
+
+/**
+ * The page, with each Now item showing when it appeared (muted after a week without news) and a
+ * button to mark it done, which tells the Scribe.
+ */
+function TopicPageBody({
+  body,
+  status,
+  onDone,
+}: {
+  body: string;
+  status: NowItemStatus[];
+  onDone?: (key: string, done: boolean) => void;
+}) {
+  const section = nowSectionOf(body);
+  if (!section) return <MarkdownContent text={body} />;
+  const byKey = new Map(status.map((item) => [item.key, item]));
+  return (
+    <>
+      <MarkdownContent text={section.before} />
+      <ul className="mb-3 mt-1 flex flex-col gap-1.5" data-testid="topic-now-items">
+        {section.items.map((item) => (
+          <NowItemRow key={item.key} text={item.text} status={byKey.get(item.key)} onDone={onDone} itemKey={item.key} />
+        ))}
+      </ul>
+      {section.after && <MarkdownContent text={section.after} />}
+    </>
+  );
+}
+
+function NowItemRow({
+  itemKey,
+  text,
+  status,
+  onDone,
+}: {
+  itemKey: string;
+  text: string;
+  status?: NowItemStatus;
+  onDone?: (key: string, done: boolean) => void;
+}) {
+  const done = !!status?.doneAt;
+  const stale = !done && !!status && Date.now() - status.lastNews > NOW_ITEM_STALE_MS;
+  return (
+    <li className="flex items-start gap-2" data-testid="topic-now-item" data-stale={stale || undefined}>
+      <span aria-hidden="true" className="mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full bg-cc-fg/80" />
+      <div className="min-w-0 flex-1">
+        <div className={done ? "line-through opacity-50" : stale ? "opacity-60" : ""}>
+          <MarkdownContent text={text} />
+        </div>
+        {status && (
+          <div className="text-[12px] text-cc-muted">
+            {done ? (
+              <>
+                Marked done; the Scribe takes it off the page.{" "}
+                {onDone && (
+                  <button
+                    type="button"
+                    onClick={() => onDone(itemKey, false)}
+                    className="text-cc-primary hover:underline"
+                  >
+                    Undo
+                  </button>
+                )}
+              </>
+            ) : stale ? (
+              `No news since ${day(status.lastNews)}`
+            ) : (
+              `Since ${day(status.since)}`
+            )}
+          </div>
+        )}
+      </div>
+      {onDone && !done && (
+        <button
+          type="button"
+          onClick={() => onDone(itemKey, true)}
+          aria-label="Mark done"
+          title="Mark done"
+          className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          data-testid="topic-now-done"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            className="h-[18px] w-[18px]"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            aria-hidden="true"
+          >
+            <circle cx="10" cy="10" r="7.25" />
+            <path d="m7 10.2 2 2 4-4.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+    </li>
+  );
+}
+
+function day(at: number): string {
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /** The name, with Rename and Merge in a small menu rather than on the page. */

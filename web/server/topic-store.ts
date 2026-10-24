@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { type NowItemStatus, nowSectionOf } from "../shared/topic-now-items.js";
 import {
   TOPIC_TENTATIVE_MS,
   type QuestTopicMap,
@@ -43,8 +44,18 @@ interface StoredTopic {
   /** Bumped by each page write, so a Scribe that read an older page cannot overwrite a newer one. */
   pageRevision?: number;
   events: TopicEvent[];
+  /** The page's Now items by key (see `nowSectionOf`): when each appeared or was last reworded. */
+  nowItems?: Record<string, StoredNowItem>;
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
+}
+
+interface StoredNowItem {
+  since: number;
+  changedAt: number;
+  text: string;
+  /** The user marked it done on the page. */
+  doneAt?: number;
 }
 
 type Undo =
@@ -81,6 +92,8 @@ interface TopicState {
   suggestions?: StoredSuggestion[];
   /** Per leader: history messages already read for events. */
   cursors: Record<string, number>;
+  /** Per quest under a topic: its ticked checks and feedback entries already turned into events. */
+  questMarks?: Record<string, QuestMark>;
   changes: StoredChange[];
 }
 
@@ -98,6 +111,12 @@ interface StoredScribe {
   instructionsSentAt?: number;
   /** The page format the Scribe last wrote its pages in (it is asked once to rewrite older ones). */
   pageFormat?: number;
+}
+
+/** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
+export interface QuestMark {
+  checked: string[];
+  feedback: number;
 }
 
 export interface ScribeInstructions {
@@ -288,6 +307,16 @@ export class TopicStore {
     delete this.s().writers;
     this.dirty = true;
     return ids;
+  }
+
+  questMark(questId: string): QuestMark | undefined {
+    return this.s().questMarks?.[questId];
+  }
+
+  setQuestMark(questId: string, mark: QuestMark): void {
+    const state = this.s();
+    state.questMarks = { ...state.questMarks, [questId]: mark };
+    this.dirty = true;
   }
 
   cursorFor(leaderId: string): number | undefined {
@@ -608,6 +637,7 @@ export class TopicStore {
       );
     }
     topic.page = markdown;
+    topic.nowItems = this.nextNowItems(topic, markdown);
     if (options.leaderId) {
       topic.coveredThrough = {
         ...topic.coveredThrough,
@@ -622,6 +652,60 @@ export class TopicStore {
     topic.updatedAt = this.now();
     this.dirty = true;
     return this.detail(topic.id);
+  }
+
+  /**
+   * Per Now item of the page: when it appeared, its latest news (rewording, or an event of a quest
+   * it links) and whether the user marked it done. Pages saved before items were tracked date
+   * their items from the page's save.
+   */
+  nowStatus(topicId: string): NowItemStatus[] {
+    const topic = this.require(topicId);
+    const section = nowSectionOf(topic.page);
+    if (!section) return [];
+    const fallback = topic.writtenAt ?? topic.updatedAt;
+    return section.items.map((item) => {
+      const stored = topic.nowItems?.[item.key];
+      const questNews = topic.events
+        .filter((event) => event.questId && item.questIds.includes(event.questId))
+        .reduce((latest, event) => Math.max(latest, event.at), 0);
+      const since = stored?.since ?? fallback;
+      return {
+        key: item.key,
+        since,
+        lastNews: Math.max(stored?.changedAt ?? since, questNews),
+        ...(stored?.doneAt ? { doneAt: stored.doneAt } : {}),
+      };
+    });
+  }
+
+  /** The user marked a Now item done on the page (or took it back); returns the item's text. */
+  markNowDone(topicId: string, key: string, done = true): string {
+    const topic = this.require(topicId);
+    const item = nowSectionOf(topic.page)?.items.find((candidate) => candidate.key === key);
+    if (!item) throw new TopicStoreError("That item is no longer on the page.", 404);
+    const at = this.now();
+    const stored = topic.nowItems?.[key] ?? {
+      since: topic.writtenAt ?? at,
+      changedAt: topic.writtenAt ?? at,
+      text: item.text,
+    };
+    const { doneAt: _previous, ...rest } = stored;
+    topic.nowItems = { ...topic.nowItems, [key]: done ? { ...rest, doneAt: at } : rest };
+    this.dirty = true;
+    return item.text;
+  }
+
+  private nextNowItems(topic: StoredTopic, markdown: string): Record<string, StoredNowItem> {
+    const at = this.now();
+    const previous = topic.nowItems ?? untrackedNowItems(topic);
+    const next: Record<string, StoredNowItem> = {};
+    for (const item of nowSectionOf(markdown)?.items ?? []) {
+      const stored = previous[item.key];
+      if (!stored) next[item.key] = { since: at, changedAt: at, text: item.text };
+      else next[item.key] = stored.text === item.text ? stored : { ...stored, text: item.text, changedAt: at };
+    }
+    return next;
   }
 
   /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
@@ -816,6 +900,14 @@ function normalizeName(name: string): string {
 
 function eventKey(event: TopicEvent): string {
   return `${event.at}|${event.kind}|${event.questId ?? ""}|${event.messageIndex ?? ""}`;
+}
+
+/** Items of a page saved before items were tracked, dated from that save. */
+function untrackedNowItems(topic: StoredTopic): Record<string, StoredNowItem> {
+  const at = topic.writtenAt ?? topic.updatedAt;
+  return Object.fromEntries(
+    (nowSectionOf(topic.page)?.items ?? []).map((item) => [item.key, { since: at, changedAt: at, text: item.text }]),
+  );
 }
 
 function publicChange(change: StoredChange): TopicChange {

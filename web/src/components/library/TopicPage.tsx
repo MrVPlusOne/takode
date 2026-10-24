@@ -77,11 +77,6 @@ export function LeaderSwitches({
               onChange={(event) => act(topicApi.setScribePaused(leader.sessionId, !event.target.checked))}
             />
             <span className="text-cc-fg">Keep pages up to date</span>
-            <span className="ml-auto text-cc-muted">
-              {data.scribe && data.scribe.budget.limit > 0
-                ? `${Math.round((10 * data.scribe.budget.used) / data.scribe.budget.limit)}% of this leader's use today`
-                : ""}
-            </span>
           </label>
           <button
             type="button"

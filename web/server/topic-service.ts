@@ -1,11 +1,10 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
-import type { QuestmasterTask } from "./quest-types.js";
+import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import {
-  SCRIBE_BUDGET_SHARE,
   TOPIC_HINT_QUEST_COUNT,
   type TopicEvent,
   type TopicLeaderState,
@@ -29,8 +28,7 @@ import {
  * idle, Takode sends it one message with everything that changed for its leader since the last
  * one; while it works, new events wait for its turn to end. If it stops with work of a message
  * left, it gets one reminder, and then its leader is told. Topics stay shared across the session
- * space, so pages can hold several leaders' work. A Scribe's spend stays within a share of its
- * leader's own, and the user can pause it.
+ * space, so pages can hold several leaders' work. The user can pause a Scribe.
  */
 
 export interface TopicSessionLike {
@@ -78,7 +76,6 @@ export interface TopicServiceDeps {
 
 /** A message whose turn never ended stops blocking the next one after this long. */
 const STALE_DELIVERY_MS = 15 * 60_000;
-const SPEND_WINDOW_MS = 24 * 60 * 60_000;
 /** Initialization sorts the leader's quests of this window. */
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const EXCERPT_CHARS = 280;
@@ -86,7 +83,7 @@ const EXCERPT_CHARS = 280;
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
 export const PAGE_FORMAT = 3;
 
-export type DeliveryResult = "sent" | "nothing" | "paused" | "over_budget" | "busy" | "off";
+export type DeliveryResult = "sent" | "nothing" | "paused" | "busy" | "off";
 
 /** A message the Scribe got and has not finished a turn on yet. */
 interface Delivery {
@@ -173,6 +170,7 @@ export class TopicService {
       if (quest.status !== "done") this.changed(leaderId);
       return;
     }
+    this.noteResolutions(topic.id, leaderId, quest);
     if (quest.status !== "done") return;
     const already = topic.events.some((event) => event.kind === "quest_done" && event.questId === quest.questId);
     if (already) return;
@@ -190,6 +188,36 @@ export class TopicService {
     });
   }
 
+  /**
+   * A check for the user ticked, or a note the user or the leader added to the quest, is news for
+   * the topic's Now: it is how the Scribe hears that something was resolved wherever the user said
+   * so. Phase write-ups by workers are not (finishing the quest reports its wrap-up). The first
+   * look at a quest only records where it stands.
+   */
+  private noteResolutions(topicId: string, leaderId: string, quest: QuestmasterTask): void {
+    const checks = (quest as { verificationItems?: Array<{ text: string; checked: boolean }> }).verificationItems ?? [];
+    const feedback = (quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? [];
+    const checked = checks.filter((item) => item.checked).map((item) => item.text);
+    const mark = this.store.questMark(quest.questId);
+    this.store.setQuestMark(quest.questId, { checked, feedback: feedback.length });
+    if (!mark) return;
+    const at = this.now();
+    for (const text of checked.filter((item) => !mark.checked.includes(item))) {
+      this.event(topicId, leaderId, { at, kind: "check", questId: quest.questId, text: excerpt(text, 400) });
+    }
+    for (const entry of feedback.slice(mark.feedback)) {
+      const byLeader = entry.author === "human" || entry.authorSessionId === leaderId;
+      const plainNote = !entry.kind || entry.kind === "comment";
+      if (!byLeader || !plainNote || entry.deletedAt) continue;
+      this.event(topicId, leaderId, {
+        at: entry.ts ?? at,
+        kind: "note",
+        questId: quest.questId,
+        text: excerpt(entry.text),
+      });
+    }
+  }
+
   /** A new artifact version saved in a quest's tab is an event for that quest's topic. */
   artifactSaved(input: { sessionId: string; threadKey: string; title: string; kind: string; version: number }): void {
     if (!this.store.loaded || !input.threadKey.startsWith("q-")) return;
@@ -203,6 +231,15 @@ export class TopicService {
       sessionId: input.sessionId,
       text: `${input.kind} "${input.title}"${input.version > 1 ? ` v${input.version}` : ""}`,
     });
+  }
+
+  /** The user marked a Now item done on the page (or took it back): the Scribe hears about it. */
+  nowDone(topicId: string, leaderId: string, key: string, done = true): void {
+    const item = excerpt(this.store.markNowDone(topicId, key, done), 400);
+    const text = done
+      ? `the user marked this Now item done on the page: "${item}"`
+      : `the user took back marking this Now item done; keep it: "${item}"`;
+    this.event(topicId, leaderId, { at: this.now(), kind: "now_done", text });
   }
 
   /** Update now: the topic goes to the leader's Scribe with its next message, paused or not. */
@@ -235,8 +272,7 @@ export class TopicService {
 
   /**
    * Sends the leader's Scribe what changed since its last message, if it is idle; otherwise the
-   * changes wait for its turn to end. A topic the user asked to update now goes even when paused
-   * or over budget.
+   * changes wait for its turn to end. A topic the user asked to update now goes even when paused.
    */
   deliver(leaderId: string): Promise<DeliveryResult> {
     const previous = this.chains.get(leaderId) ?? Promise.resolve();
@@ -254,7 +290,6 @@ export class TopicService {
     const forcedIds = [...(this.forced.get(leaderId) ?? [])];
     if (!forcedIds.length) {
       if (this.store.isScribePaused(leaderId)) return "paused";
-      if (this.budget(leaderId).overBudget) return "over_budget";
     }
     const current = this.store.scribeSession(leaderId);
     if (current && this.deps.isScribeAlive(current) && this.isWorking(leaderId, current)) return "busy";
@@ -522,14 +557,13 @@ export class TopicService {
     return problems;
   }
 
-  // ─── Status, budget and leader states ─────────────────────────────────────
+  // ─── Status and leader states ─────────────────────────────────────────────
 
   /** A leader's Scribe: what it is doing and how the user set it. */
   async overview(leaderId: string): Promise<ScribeOverview> {
     return {
       activity: await this.activity(leaderId),
       paused: this.store.isScribePaused(leaderId),
-      budget: this.budget(leaderId),
       instructions: this.store.scribeInstructions(leaderId)?.text ?? "",
     };
   }
@@ -587,24 +621,10 @@ export class TopicService {
     if (this.store.isScribePaused(leaderId)) {
       return { state: "paused", text: pending ? `Paused · ${pending} events not on pages` : "Paused", ...base };
     }
-    if (pending && this.budget(leaderId).overBudget) {
-      return { state: "over_budget", text: `${pending} events wait for budget`, ...base };
-    }
     if (pending) {
       return { state: "waiting", text: `${pending} event${pending === 1 ? "" : "s"} not on pages yet`, ...base };
     }
     return { state: "idle", text: "Up to date", ...base };
-  }
-
-  /** A Scribe's spend over the last day against a share of its leader's spend. */
-  budget(leaderId: string): { used: number; limit: number; overBudget: boolean } {
-    const since = this.now() - SPEND_WINDOW_MS;
-    const leaderSpend = sessionSpend(this.deps.getSession(leaderId), since);
-    const scribe = this.store.scribeSession(leaderId);
-    const used = scribe ? sessionSpend(this.deps.getSession(scribe), since) : 0;
-    const limit = leaderSpend * SCRIBE_BUDGET_SHARE;
-    // With no measured leader spend yet (a fresh day or backend without usage), do not block the first updates.
-    return { used, limit, overBudget: limit > 0 && used > limit };
   }
 
   async leaderStates(): Promise<TopicLeaderState[]> {
@@ -669,43 +689,6 @@ function normalizeQuote(text: string): string {
     .replace(/[*_`]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-/**
- * Spend of a session since a time, from its turns' token usage, weighted roughly like Claude's
- * prices (cache reads cheap, output dear), so leaders and Scribes compare fairly.
- */
-export function sessionSpend(session: TopicSessionLike | undefined, since: number): number {
-  if (!session) return 0;
-  let spend = 0;
-  // Results carry no time of their own: walking back, a result counts once its turn's earlier
-  // timed message is found inside the window.
-  let unplaced = 0;
-  for (let index = session.messageHistory.length - 1; index >= 0; index -= 1) {
-    const message = session.messageHistory[index] as { type?: string; timestamp?: number; data?: { usage?: Usage } };
-    if (message.type === "result" && message.data?.usage) unplaced += weightedTokens(message.data.usage);
-    if (typeof message.timestamp !== "number") continue;
-    if (message.timestamp < since) return spend;
-    spend += unplaced;
-    unplaced = 0;
-  }
-  return spend + unplaced;
-}
-
-interface Usage {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-}
-
-export function weightedTokens(usage: Usage): number {
-  return (
-    (usage.input_tokens ?? 0) +
-    1.25 * (usage.cache_creation_input_tokens ?? 0) +
-    0.1 * (usage.cache_read_input_tokens ?? 0) +
-    5 * (usage.output_tokens ?? 0)
-  );
 }
 
 function excerpt(text: string, limit = EXCERPT_CHARS): string {

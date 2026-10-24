@@ -4,6 +4,7 @@
  * leader, a worker in its herd). Topics and their pages are opt-in per leader.
  * Shared by the server, the browser and the `takode topic` and `takode scribe` commands.
  */
+import type { NowItemStatus } from "./topic-now-items.js";
 
 /** Who named a topic: names the user chose are never changed automatically. */
 export type TopicNameSource = "user" | "agent";
@@ -28,7 +29,11 @@ export interface TopicSummary {
 
 export interface TopicEvent {
   at: number;
-  kind: "quest_filed" | "quest_done" | "message" | "artifact" | "undone";
+  /**
+   * check: a User review check of a quest was ticked; note: the user's or leader's note on a
+   * quest; now_done: the user marked a Now item done on the page.
+   */
+  kind: "quest_filed" | "quest_done" | "message" | "artifact" | "undone" | "check" | "note" | "now_done";
   /** The leader whose activity it came from; its Scribe handles it. */
   leaderId?: string;
   /** Made by a Scribe's own filing or tidying: it needs a page update but is not news to Scribes. */
@@ -50,6 +55,8 @@ export interface TopicDetail extends TopicSummary {
   events: TopicEvent[];
   /** Titles and states of the topic's quests, when the server includes them. */
   quests?: Array<{ questId: string; title: string; status: string }>;
+  /** Per item of the page's Now section, when the server includes them. */
+  nowItems?: NowItemStatus[];
 }
 
 /** One line in the Library's change list; every change can be undone. */
@@ -86,7 +93,7 @@ export interface TopicRenameSuggestion {
 
 /** What a leader's Scribe is doing, for the panel's status line and `takode scribe status`. */
 export interface ScribeActivity {
-  state: "off" | "starting" | "initializing" | "updating" | "waiting" | "idle" | "paused" | "over_budget";
+  state: "off" | "starting" | "initializing" | "updating" | "waiting" | "idle" | "paused";
   /** One line for people: "Sorting recent work into topics: 120 of 336 quests", "Updating T7 run…", "Up to date". */
   text: string;
   sessionId?: string;
@@ -103,8 +110,6 @@ export interface ScribeOverview {
   activity: ScribeActivity;
   /** "Keep pages up to date" is off: events wait until the user asks for an update. */
   paused: boolean;
-  /** Spend over the last day against its budget (a share of its leader's spend). */
-  budget: { used: number; limit: number; overBudget: boolean };
   /** The user's instructions for how to group the leader's topics ("" when none). */
   instructions: string;
 }
@@ -127,8 +132,6 @@ export type QuestTopicMap = Record<string, { id: string; name: string }>;
 export const TOPIC_HINT_QUEST_COUNT = 20;
 /** A topic stays tentative this long unless a second quest joins. */
 export const TOPIC_TENTATIVE_MS = 24 * 60 * 60 * 1000;
-/** A Scribe's daily spend may reach this share of its leader's own. */
-export const SCRIBE_BUDGET_SHARE = 0.1;
 
 /** Source of the requests Takode sends a Scribe. */
 export const LIBRARY_MESSAGE_SOURCE = { sessionId: "library", sessionLabel: "Library" } as const;

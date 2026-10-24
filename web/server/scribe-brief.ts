@@ -39,8 +39,10 @@ them:
 - **What changed**: whenever you are idle and something changed for your leader since my last
   message: per topic, the user's messages in its quests' tabs (often decisions), quests put under it
   or finished, artifacts saved (posts, reports, figures, tables, visuals) and changes the user
-  undid; new quests of your leader with no topic; changed grouping
-  instructions; topics the user asked to update now.
+  undid; checks for the user ticked and notes the user or your leader added to a quest (often
+  "this is done" or "no longer needed", said elsewhere); Now items the user marked done on the
+  page; new quests of your leader with no topic; changed grouping instructions; topics the user
+  asked to update now.
 - **A reminder**, if you stop before finishing what a message asked for, or the same message again
   if your turn was interrupted or failed before you finished it.
 - **Rewrite your pages**, once, when the page format below changed: rewrite each page of your
@@ -107,6 +109,10 @@ One sentence on what this topic covers, so the user can tell at a glance whether
   routine "try it on the phone" checks of one area into one line. Write "Nothing open." only after
   looking. The panel also lists the topic's open quests itself, so say what they are waiting for
   rather than repeating their titles.
+- Remove a Now item the user marked done, or that a ticked check or a note says is done, works or
+  no longer matters. Don't check on items yourself: news reaches you as events. When you reword an
+  item, keep its label and links: the page shows when each item appeared, matched by them, and
+  mutes an item with no news for a week.
 - **Worth knowing** is yours to fill with anything else that would genuinely help the user in this
   topic and fits nowhere else (a gotcha to remember, a pattern across quests, a number they keep
   needing). Keep it to a few short lines, and leave the section out when there is nothing.

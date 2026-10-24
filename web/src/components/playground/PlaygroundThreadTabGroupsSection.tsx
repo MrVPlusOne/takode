@@ -166,7 +166,7 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         onClose={close}
         loadRecentMessages={loadPlaygroundRecentMessages}
         onOpenMessage={(threadKey) => select(threadKey)}
-        doneTopics={topics ? { map: DONE_TOPICS, onOpenTopic: () => {} } : undefined}
+        doneTopics={topics ? { map: DONE_TOPICS, onOpenConversation: () => {} } : undefined}
       />
     </div>
   );
@@ -177,13 +177,13 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, the Done list is grouped by topic, each with a link to its topic page, and quests without a topic last under Other."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, the Done list shows the five newest finished quests, then one row per topic (tap to read the topic as one conversation, ▾ to list its quests), then the quests under no topic."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">
             <PhoneFrame placement="top" />
           </Card>
-          <Card label="Topics on (open Done: grouped by topic)">
+          <Card label="Topics on (open Done: recent, then topics)">
             <PhoneFrame placement="top" topics />
           </Card>
           <Card label="At the bottom (lists open upward)">

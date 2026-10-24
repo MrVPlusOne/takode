@@ -27,6 +27,7 @@ import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
 } from "./thread-routing.js";
+import { topicThreadMembers } from "./topic-thread-key.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -835,6 +836,15 @@ function buildThreadConversationItems(
   threadKey: string,
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
+  // A topic conversation is its quests' threads merged in time order.
+  const members = topicThreadMembers(threadKey);
+  if (members) {
+    return dedupeFeedItems(
+      members.flatMap((member) =>
+        addTurnClosingResults(buildQuestThreadFeedItems(messages, member, includeMessage), messages, includeMessage),
+      ),
+    );
+  }
   const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
   return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));

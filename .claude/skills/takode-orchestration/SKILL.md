@@ -200,8 +200,9 @@ When the user turned Library topics on for you (`quest create` then reminds you 
 With topics on, a worker named **Scribe** joins your herd (`[scribe]` in `takode list`) and keeps the topic pages from your activity. It runs continuously in the background: Takode messages it by itself whenever something changes (your quests, the user's messages in their tabs, artifacts saved there), so you need not brief it, and it uses no worker slot.
 
 - **Not a worker for quests.** Never dispatch quest work to it or put it on the board; spawn or reuse a normal worker.
+- **Tell it what the user resolved.** When the user says something is done, works or no longer matters, wherever they say it (Main, a briefing, another quest's tab), tick the matching User review check (`quest check q-N <index>`) or add a short note to that quest (`quest feedback add q-N --text "..."`). Either reaches the Scribe, which then drops the item from the topic's Now. The Scribe never checks on things by itself, so this is how it hears.
 - **Quiet by default.** Its routine turns don't reach you. It asks you with needs-input only when it is stuck or something is unclear. If it stops twice without finishing, Takode tells you; look with `takode peek`, steer it with `takode send`, or tell the user.
-- **Commands.** `takode scribe status` shows what it is doing, its spend and renames waiting for the user. `takode scribe instructions "<text>"` saves lasting grouping instructions when the user gives them to you. `takode scribe pause` / `resume` stop and restart its updates. `takode topic` is for the topics themselves.
+- **Commands.** `takode scribe status` shows what it is doing and renames waiting for the user. `takode scribe instructions "<text>"` saves lasting grouping instructions when the user gives them to you. `takode scribe pause` / `resume` stop and restart its updates. `takode topic` is for the topics themselves.
 
 ### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
 

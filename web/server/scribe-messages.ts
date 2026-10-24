@@ -123,6 +123,12 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
       return `${time} · ${text} was saved in ${quest}`;
     case "undone":
       return `${time} · ${text}`;
+    case "check":
+      return `${time} · in ${quest}, a check for the user was ticked: "${text}"`;
+    case "note":
+      return `${time} · note on ${quest}: "${text}"`;
+    case "now_done":
+      return `${time} · ${text}`;
   }
 }
 

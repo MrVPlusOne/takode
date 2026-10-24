@@ -282,6 +282,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const quests = await Promise.all(detail.questIds.map((questId) => getQuest(questId)));
       return {
         ...detail,
+        nowItems: svc.store.nowStatus(detail.id),
         quests: quests.flatMap((quest) =>
           quest ? [{ questId: quest.questId, title: quest.title, status: quest.status }] : [],
         ),
@@ -400,7 +401,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** Update now: ask the Scribe of the panel's leader for this topic regardless of the pause and budget. */
+  /** Update now: ask the Scribe of the panel's leader for this topic even while paused. */
   api.post("/topics/:id/update", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
@@ -408,6 +409,19 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
       if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should update it.");
       return { result: await svc.requestUpdate(leaderId, topic.id) };
+    }),
+  );
+
+  /** The user marked a Now item done on the page: the panel's leader's Scribe hears about it. */
+  api.post("/topics/:id/now-done", (c) =>
+    run(c, async (svc) => {
+      const topic = topicFor(svc, c, c.req.param("id"));
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.key !== "string") throw new TopicStoreError("Name the item.");
+      const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
+      if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should hear about it.");
+      svc.nowDone(topic.id, leaderId, body.key, body.done !== false);
+      return { ok: true };
     }),
   );
 

@@ -12,8 +12,8 @@ reach the leader, and it speaks up only when it needs the leader. It never takes
 steer it beyond these commands, message it: takode send <its session> "...".
 
 For leaders:
-  takode scribe status [--leader <session>] [--json]   What your Scribe is doing, its spend, the
-                                                       user's grouping instructions, renames waiting
+  takode scribe status [--leader <session>] [--json]   What your Scribe is doing, the user's
+                                                       grouping instructions, renames waiting
   takode scribe instructions "<text>"                  Set the user's grouping instructions, when the
                                                        user asks you to ("" clears them)
   takode scribe pause | resume                         Stop or restart automatic page updates
@@ -138,16 +138,11 @@ export function formatScribeStatus(status: ScribeStatusResponse): string {
   const leader = `#${status.leader.sessionNum ?? "?"}`;
   if (!status.enabled)
     return `Topics are off for ${leader}, so it has no Scribe; the user turns topics on in the topics panel.`;
-  const { activity, budget, paused, instructions } = status.scribe;
+  const { activity, paused, instructions } = status.scribe;
   const scribe = activity.sessionNum != null ? `#${activity.sessionNum}` : "not started";
-  // The budget's limit is a share of the leader's spend, so the share used is used / limit of it.
-  const spend =
-    budget.limit > 0
-      ? ` · spent ${Math.round((budget.used / budget.limit) * 10)}% of the leader's spend today (limit 10%)`
-      : "";
   const lines = [
     `Topics for ${leader} (space ${status.leader.space ?? "?"}): ${status.topics} topic${status.topics === 1 ? "" : "s"}`,
-    `Scribe ${scribe}: ${activity.text}${paused ? " (paused)" : ""}${spend}`,
+    `Scribe ${scribe}: ${activity.text}${paused ? " (paused)" : ""}`,
     `Grouping instructions: ${instructions ? `"${instructions}"` : "none"}`,
   ];
   for (const suggestion of status.suggestions) {

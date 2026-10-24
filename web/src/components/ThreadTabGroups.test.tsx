@@ -270,26 +270,25 @@ describe("ThreadTabGroupBar", () => {
     expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
   });
 
-  it("groups the Done list by topic for a leader with topics on, opening a topic's page from its heading", () => {
-    // Topics on: q-13 and q-15 share a topic, q-14 has none and goes last under Other.
-    const onOpenTopic = vi.fn();
+  it("lists recent finished tabs, then topics that open as one conversation, for a leader with topics on", () => {
+    // Topics on: q-13 and q-15 share a topic, q-14 has none. Tapping the topic row opens the topic
+    // conversation from its newest tab and closes the list.
+    const onOpenConversation = vi.fn();
     renderBar({
       doneTopics: {
         map: { "q-13": { id: "t1", name: "Relay" }, "q-15": { id: "t1", name: "Relay" } },
-        onOpenTopic,
+        onOpenConversation,
       },
     });
     fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
-    const sections = screen.getAllByTestId("thread-tab-topic-section");
-    expect(sections.map((section) => section.textContent?.split("·")[0])).toEqual(["Relay", "Other"]);
-    const rows = (section: HTMLElement) =>
-      within(section)
-        .getAllByTestId("thread-tab-list-row")
-        .map((row) => row.dataset.threadKey);
-    expect(rows(sections[0]!)).toEqual(expect.arrayContaining(["q-13", "q-15"]));
-    expect(rows(sections[1]!)).not.toContain("q-13");
-    fireEvent.click(within(sections[0]!).getByText("Topic ›"));
-    expect(onOpenTopic).toHaveBeenCalledWith("t1");
+    const list = screen.getByTestId("done-topic-list");
+    expect(within(list).getAllByTestId("thread-tab-list-row").length).toBeGreaterThan(0);
+    const topic = within(list).getByTestId("done-topic-row");
+    expect(topic.textContent).toContain("Relay");
+    fireEvent.click(within(topic).getByText("Relay"));
+    expect(onOpenConversation).toHaveBeenCalledTimes(1);
+    expect(["q-13", "q-15"]).toContain(onOpenConversation.mock.calls[0]![0]);
+    expect(screen.queryByTestId("done-topic-list")).toBeNull();
   });
 
   it("offers Close all only in the Done list", () => {

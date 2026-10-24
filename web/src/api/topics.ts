@@ -35,6 +35,9 @@ export const topicApi = {
   /** Asks the Scribe of the leader whose panel this is to update the page now. */
   updateNow: (id: string, leader?: string | null) =>
     request<{ result: string }>(`${topicPath(id)}/update`, { method: "POST", body: leader ? { leader } : {} }),
+  /** Marks a Now item of the page done (or takes it back); the panel's leader's Scribe hears it. */
+  nowDone: (id: string, key: string, leader: string, done = true) =>
+    request<{ ok: boolean }>(`${topicPath(id)}/now-done`, { method: "POST", body: { key, leader, done } }),
   answerSuggestion: (suggestionId: string, accept: boolean) =>
     request<unknown>(`/topics/suggestions/${encodeURIComponent(suggestionId)}`, { method: "POST", body: { accept } }),
   /** The user's instructions for how the leader's Scribe groups topics. */

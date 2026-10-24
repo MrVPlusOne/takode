@@ -3,6 +3,7 @@
  * tabs as status groups (ThreadTabGroups) on every screen size, with the tab menu
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
+import { openTopicConversation } from "../utils/topic-conversation.js";
 import { useCallback, useState } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -15,7 +16,6 @@ import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js"
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
 import { useLeaderTopicMap } from "../hooks/use-leader-topic-map.js";
-import { openTopicInPanel } from "../utils/topic-panel.js";
 import type { LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import { searchSessionMessages } from "../api/session-message-search.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
@@ -251,7 +251,15 @@ export function ThreadTabRail({
         onSelect={openThread}
         onClose={onCloseThreadTab}
         doneTopics={
-          topicMap ? { map: topicMap, onOpenTopic: (topicId) => openTopicInPanel(sessionId, topicId) } : undefined
+          topicMap
+            ? {
+                map: topicMap,
+                onOpenConversation: (threadKey) => {
+                  openThread(threadKey);
+                  openTopicConversation(sessionId, threadKey);
+                },
+              }
+            : undefined
         }
         onOpenMenu={(tab) =>
           tabMenuItems(tab).length > 0

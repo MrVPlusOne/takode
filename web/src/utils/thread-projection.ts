@@ -12,6 +12,7 @@ import {
   normalizeThreadTarget,
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
+import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
@@ -114,6 +115,20 @@ function normalizedRouteKeys(message: ChatMessage): Set<string> {
   add(inferred?.threadKey);
   add(inferred?.questId);
   return keys;
+}
+
+/** The first of `questIds` a message is routed to, for a topic conversation's quest boundaries. */
+export function topicMemberOfMessage(message: ChatMessage, questIds: readonly string[]): string | null {
+  if (isThreadAttachmentMarkerMessage(message)) return null;
+  // The message's own thread first: an answer in one quest often mentions another.
+  const metadata = message.metadata;
+  const inferred = inferredHerdEventRoute(message);
+  for (const primary of [metadata?.threadKey, metadata?.questId, inferred?.threadKey, inferred?.questId]) {
+    const key = primary ? normalizeThreadKey(primary) : "";
+    if (questIds.includes(key)) return key;
+  }
+  const keys = normalizedRouteKeys(message);
+  return questIds.find((questId) => keys.has(questId)) ?? null;
 }
 
 function messageHasThreadRef(message: ChatMessage, threadKey: string): boolean {
@@ -442,6 +457,11 @@ export function formatThreadLabel(threadKey: string): string {
 
 export function filterMessagesForThread(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   if (isAllThreadsKey(threadKey)) return messages;
+  const members = topicThreadMembers(threadKey);
+  if (members) {
+    const included = new Set(members.flatMap((member) => filterQuestThreadMessages(messages, member)));
+    return messages.filter((message) => included.has(message));
+  }
   return isMainThreadKey(threadKey)
     ? filterMainThreadMessages(messages)
     : filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));

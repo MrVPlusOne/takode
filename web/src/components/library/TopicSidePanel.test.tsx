@@ -76,7 +76,6 @@ const ON: TopicListResponse = {
       pending: 0,
     },
     paused: false,
-    budget: { used: 0, limit: 0, overBudget: false },
     instructions: "",
   },
 };
@@ -181,6 +180,30 @@ describe("TopicSidePanel", () => {
     expect(api.update).toHaveBeenCalledWith("t7", "l1");
   });
 
+  it("dates each Now item, mutes one with no news for a week, and marks one done for the Scribe", async () => {
+    // The server reports per Now item when it appeared and its latest news; the page shows that
+    // date, mutes an item quiet for over a week, and a done tap goes to the panel leader's Scribe.
+    mockApi();
+    const day = 24 * 60 * 60 * 1000;
+    vi.mocked(topicApi.get).mockResolvedValue({
+      ...DETAIL,
+      page: "T7.\n## Now\n- **Next:** compare with the twin ([q-2797](quest:q-2797)).\n- **On hold:** the QA seeds.\n## Recent\n- Oct 23",
+      nowItems: [
+        { key: "next|quest:q-2797", since: NOW - day, lastNews: NOW - day },
+        { key: "on hold|the qa seeds", since: NOW - 10 * day, lastNews: NOW - 10 * day },
+      ],
+    });
+    const done = vi.spyOn(topicApi, "nowDone").mockResolvedValue({ ok: true });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const items = await screen.findAllByTestId("topic-now-item");
+    expect(items[0]).toHaveTextContent("Since");
+    expect(items[0]).not.toHaveAttribute("data-stale");
+    expect(items[1]).toHaveTextContent("No news since");
+    expect(items[1]).toHaveAttribute("data-stale", "true");
+    fireEvent.click(within(items[1]!).getByRole("button", { name: "Mark done" }));
+    expect(done).toHaveBeenCalledWith("t7", "on hold|the qa seeds", "l1", true);
+  });
+
   it("shows the Scribe's live status, rename suggestions to answer, and the grouping instructions box", async () => {
     const api = mockApi();
     vi.spyOn(topicApi, "list").mockResolvedValue(ON);
@@ -221,5 +244,43 @@ describe("TopicSidePanel", () => {
     act(() => setTopicSheetOpen("l1", true));
     rerender(<LeaderTopicPanel leaderId="l1" threadKey="main" desktop={false} />);
     expect(await screen.findByTestId("topic-side-panel")).toHaveAttribute("data-variant", "sheet");
+  });
+
+  it("keeps the dismissed phone sheet and recently shown pages mounted, so they come back as left", async () => {
+    // Dismissing the sheet to glance at the chat used to unmount it, losing the page and its
+    // scroll position. Now the sheet stays mounted (hidden) and so do the last few topic pages.
+    mockApi();
+    vi.mocked(topicApi.get).mockImplementation(async (id: string) =>
+      id === "qa" ? { ...DETAIL, id: "qa", name: "Seeded QA", page: "QA seeds." } : DETAIL,
+    );
+    act(() => setTopicSheetOpen("l1", true));
+    render(<LeaderTopicPanel leaderId="l1" threadKey="q-2713" desktop={false} />);
+    const view = await screen.findByTestId("topic-view");
+    await waitFor(() => expect(within(view).getByTestId("topic-lead")).toHaveTextContent("T7 is the 12B"));
+    view.scrollTop = 240;
+
+    act(() => setTopicSheetOpen("l1", false));
+    // It slides away first, then hides.
+    await waitFor(() => expect(screen.queryByTestId("topic-side-panel")).not.toBeVisible());
+    act(() => setTopicSheetOpen("l1", true));
+    expect(screen.getByTestId("topic-side-panel")).toBeVisible();
+    expect(screen.getAllByTestId("topic-view")[0]).toBe(view);
+    expect(view.scrollTop).toBe(240);
+
+    // Another topic and back: the first page is the same element, still scrolled.
+    fireEvent.click(screen.getByRole("button", { name: /All topics/ }));
+    expect(view).not.toBeVisible();
+    fireEvent.click(await within(screen.getByTestId("topic-panel-list")).findByText("Seeded QA"));
+    await waitFor(() => expect(screen.getByText("QA seeds.")).toBeVisible());
+    // A topic picked over the tab's own stays picked when the sheet is dismissed and reopened.
+    act(() => setTopicSheetOpen("l1", false));
+    await waitFor(() => expect(screen.queryByTestId("topic-side-panel")).not.toBeVisible());
+    act(() => setTopicSheetOpen("l1", true));
+    expect(screen.getByText("QA seeds.")).toBeVisible();
+    expect(view).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /All topics/ }));
+    fireEvent.click(within(screen.getByTestId("topic-panel-list")).getByText("T7 run"));
+    expect(view).toBeVisible();
+    expect(view.scrollTop).toBe(240);
   });
 });

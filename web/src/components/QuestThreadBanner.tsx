@@ -451,6 +451,7 @@ export function QuestThreadBanner({
   diffSessionId,
   onCloseTab,
   sideQuestOf,
+  extraChip,
 }: {
   row?: QuestThreadBannerRow;
   threadKey: string;
@@ -463,6 +464,8 @@ export function QuestThreadBanner({
   diffSessionId?: string;
   /** Closes the thread tab this strip names; only passed while that tab can close. */
   onCloseTab?: () => void;
+  /** One more chip at the end of the details row, such as the tab's topic on a phone. */
+  extraChip?: ReactNode;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const [collapsed, setCollapsed] = useState(false);
@@ -658,6 +661,7 @@ export function QuestThreadBanner({
                 {monitorSessionId && !isSessionBanner && (
                   <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
                 )}
+                {extraChip}
               </div>
             </div>
           )}

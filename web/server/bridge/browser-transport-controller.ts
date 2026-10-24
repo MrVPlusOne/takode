@@ -1,3 +1,4 @@
+import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
@@ -1279,7 +1280,8 @@ export function sendThreadWindowSync(
     Math.floor(options.itemCount || getThreadWindowItemCount(normalizedVisibleItemCount, normalizedSectionItemCount)),
   );
   const threadKey = normalizeSelectedFeedThreadKey(options.threadKey);
-  const responseState = buildLeaderThreadResponseState(session, threadKey);
+  // A topic conversation shows its quests' answers as they are; answer state is per quest.
+  const responseState = topicThreadMembers(threadKey) ? null : buildLeaderThreadResponseState(session, threadKey);
   const sync = buildThreadWindowSync({
     messageHistory: session.messageHistory,
     threadKey,
@@ -1290,7 +1292,7 @@ export function sendThreadWindowSync(
     targetMessageId: options.targetMessageId,
     targetHistoryIndex: options.targetHistoryIndex,
     includeMessage: isRootAgentHistoryMessage,
-    currentThreadResponseProjection: responseState.projection,
+    currentThreadResponseProjection: responseState?.projection,
   });
   sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
   // The answer state is covered too, so a cache hit can leave it out.

@@ -3,7 +3,7 @@ import { create } from "zustand";
 /**
  * A leader's topic panel. On desktop it is part of the layout beside the conversation, open by
  * default and collapsible to a slim rail; whether it is collapsed is remembered per leader in this
- * browser. On phones it is a sheet opened from the top bar, closed until asked for. Someone can
+ * browser. On phones it is a page that slides in from the right, opened from the top bar. Someone can
  * also ask to show a topic in it, such as from the Done list or an artifact. Local UI state.
  */
 interface TopicPanelState {
@@ -60,4 +60,31 @@ export function useTopicPanelOpen(leaderId: string | null | undefined): boolean 
 
 export function useTopicSheetOpen(leaderId: string | null | undefined): boolean {
   return useTopicPanel((state) => !!leaderId && state.sheets.includes(leaderId));
+}
+
+/**
+ * Topic pages a panel keeps mounted (hidden) besides the one on screen, so going back to one
+ * shows it where it was left, like the kept conversations.
+ */
+export const KEPT_TOPIC_PAGES = 3;
+
+export interface KeptTopicPage {
+  topicId: string;
+  /** First-shown order. Pages render in this order so a kept page's DOM never moves. */
+  seq: number;
+}
+
+/**
+ * The kept pages after showing `topicId` (null while the topic list is on screen): most recently
+ * shown first, at most `limit`. Returns `kept` itself when nothing changed.
+ */
+export function nextKeptTopicPages(
+  kept: KeptTopicPage[],
+  topicId: string | null,
+  limit = KEPT_TOPIC_PAGES,
+): KeptTopicPage[] {
+  if (!topicId || kept[0]?.topicId === topicId) return kept;
+  const existing = kept.find((page) => page.topicId === topicId);
+  const seq = existing?.seq ?? Math.max(-1, ...kept.map((page) => page.seq)) + 1;
+  return [{ topicId, seq }, ...kept.filter((page) => page.topicId !== topicId)].slice(0, limit);
 }

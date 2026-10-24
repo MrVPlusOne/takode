@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { TopicStore, pageSummary } from "./topic-store.js";
-import { PAGE_FORMAT, TopicService, sessionSpend, historyMessageText, type TopicSessionLike } from "./topic-service.js";
+import { PAGE_FORMAT, TopicService, historyMessageText, type TopicSessionLike } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
 /**
  * Library topics on disposable state: filing quests under topics in the user's words, tentative
  * topics, renames that never touch a name the user chose, merges and moves with Undo, and the
- * leader's Scribe being told what changed as soon as it is idle, within its budget and not while paused.
+ * leader's Scribe being told what changed as soon as it is idle, and not while paused.
  */
 
 const NOW = Date.UTC(2026, 9, 23, 19, 0);
@@ -158,19 +158,6 @@ function userMessage(text: string, threadKey: string, at: number): BrowserIncomi
 }
 
 /** A turn as history holds it: the user's timed message, then the untimed result with the turn's usage. */
-function turn(at: number, output: number): BrowserIncomingMessage[] {
-  return [{ type: "user_message", content: "go", timestamp: at } as BrowserIncomingMessage, result(output)];
-}
-
-function result(output: number): BrowserIncomingMessage {
-  return {
-    type: "result",
-    data: {
-      usage: { input_tokens: 0, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    },
-  } as unknown as BrowserIncomingMessage;
-}
-
 type Quest = { questId: string; title: string; createdAt: number; leaderSessionId: string; status: string };
 
 const LEADERS = {
@@ -435,6 +422,98 @@ describe("topic service", () => {
     expect(injected.at(-1)?.text).toContain("none of 1 recent quests is under a topic yet");
   });
 
+  it("hears about checks ticked and notes the user or leader adds to a quest, not workers' write-ups", async () => {
+    // Something the user resolves elsewhere reaches the topic as a ticked check or a leader's note
+    // on the quest; the first look at a quest only records where it stands.
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const topic = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: true,
+      leaderId: "leader",
+    });
+    await service.scribeTurnEnded(scribe);
+    const quest = (checked: boolean, feedback: object[]) =>
+      ({
+        questId: "q-1",
+        title: "Launch T7",
+        status: "in_progress",
+        leaderSessionId: "leader",
+        verificationItems: [{ text: "Try it on the phone", checked }],
+        feedback,
+      }) as unknown as QuestmasterTask;
+    const userNote = { author: "human", text: "Jiayi: the dashboard works now", ts: NOW, authorSessionId: "leader" };
+    service.questChanged(quest(false, [userNote]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.detail(topic.topic.id).events.filter((event) => event.kind === "note")).toHaveLength(0);
+
+    injected.length = 0;
+    service.questChanged(
+      quest(true, [
+        userNote,
+        { author: "agent", text: "Work done", ts: NOW, authorSessionId: "worker", kind: "phase_summary" },
+        { author: "agent", text: "Worker comment", ts: NOW, authorSessionId: "worker" },
+        { author: "agent", text: "The user says the old export no longer matters", ts: NOW, authorSessionId: "leader" },
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const events = store.detail(topic.topic.id).events;
+    expect(events.filter((event) => event.kind === "check").map((event) => event.text)).toEqual([
+      "Try it on the phone",
+    ]);
+    expect(events.filter((event) => event.kind === "note").map((event) => event.text)).toEqual([
+      "The user says the old export no longer matters",
+    ]);
+    expect(injected[0]!.text).toContain('in q-1, a check for the user was ticked: "Try it on the phone"');
+  });
+
+  it("dates Now items, keeps the date through rewording, and passes a done mark to the Scribe", async () => {
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: true,
+      leaderId: "leader",
+    });
+    await service.scribeTurnEnded(scribe);
+    const page = (next: string) =>
+      `T7.\n\n## Now\n- **Next:** compare with the twin ([q-1](quest:q-1)).\n- **Next:** ${next}\n\n## Recent\n- Oct 23`;
+    now = NOW;
+    store.writePage(topic.id, page("send the guide."), NOW, { leaderId: "leader" });
+    now = NOW + 3 * DAY;
+    // The first item is reworded but keeps its label and link; the second is new.
+    store.writePage(
+      topic.id,
+      page("ask about budgets.").replace("compare with the twin", "compare with the 256K twin"),
+      NOW,
+      { leaderId: "leader" },
+    );
+    const [twin, budgets] = store.nowStatus(topic.id);
+    expect(twin).toMatchObject({ since: NOW, lastNews: NOW + 3 * DAY });
+    expect(budgets).toMatchObject({ since: NOW + 3 * DAY });
+
+    // An event of a linked quest is news about the item.
+    now = NOW + 4 * DAY;
+    store.addEvent(topic.id, { at: now, kind: "artifact", questId: "q-1", text: "report" });
+    expect(store.nowStatus(topic.id)[0]!.lastNews).toBe(NOW + 4 * DAY);
+
+    injected.length = 0;
+    service.nowDone(topic.id, "leader", budgets!.key);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.nowStatus(topic.id)[1]!.doneAt).toBe(now);
+    expect(injected[0]!.text).toContain(
+      'the user marked this Now item done on the page: "**Next:** ask about budgets."',
+    );
+    service.nowDone(topic.id, "leader", budgets!.key, false);
+    expect(store.nowStatus(topic.id)[1]!.doneAt).toBeUndefined();
+  });
+
   it("tells the Scribe which checks a finished quest left for the user", async () => {
     // Unticked checks are often what Now needs ("try it on the phone", "send the guide").
     const { service, injected, store } = await setupService();
@@ -513,9 +592,9 @@ describe("topic service", () => {
     expect((await service.activity("leader")).text).toBe("Stopped before finishing; your leader was told");
   });
 
-  it("waits while paused or over budget, and Update now goes through anyway", async () => {
-    const { service, injected, store, sessions } = await setupService();
-    const scribe = await enable(service, store, "leader");
+  it("waits while paused, and Update now goes through anyway", async () => {
+    const { service, injected, store } = await setupService();
+    await enable(service, store, "leader");
     store.setScribePaused("leader", true);
     injected.length = 0;
     const { topic } = store.assign({
@@ -527,13 +606,6 @@ describe("topic service", () => {
       leaderId: "leader",
     });
     expect(await service.deliver("leader")).toBe("paused");
-    store.setScribePaused("leader", false);
-
-    // The Scribe spent more than a tenth of what its leader spent today.
-    sessions.get("leader")!.messageHistory.push(...turn(Date.now(), 1000));
-    sessions.get(scribe)!.messageHistory.push(...turn(Date.now(), 200));
-    expect(service.budget("leader")).toMatchObject({ overBudget: true });
-    expect(await service.deliver("leader")).toBe("over_budget");
     expect(await service.requestUpdate("leader", topic.id)).toBe("sent");
     expect(injected).toHaveLength(1);
     expect(injected[0].text).toContain('The user asked to update now: "T7 run"');
@@ -600,14 +672,5 @@ describe("topic service", () => {
       '- "keep 0.02 … the plots" ([message](session:7:12)) joins parts with an ellipsis.',
     ].join("\n");
     expect(service.checkQuotes(page)).toEqual(['"Use 0.05 instead" is not in message session:7:12']);
-  });
-
-  it("weighs spend like token prices and ignores turns older than a day", () => {
-    const session: TopicSessionLike = {
-      id: "s",
-      messageHistory: [...turn(NOW - 2 * 24 * 3600_000, 1000), ...turn(NOW, 100)],
-      state: {},
-    };
-    expect(sessionSpend(session, NOW - 24 * 3600_000)).toBe(500);
   });
 });
