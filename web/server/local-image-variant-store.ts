@@ -34,6 +34,13 @@ const THUMBNAIL_QUALITY = 80;
  * too large for a browser to show well are scaled down.
  */
 const FULL_MAX_DIM = 4096;
+/**
+ * How long opening an image waits for its full-view copy before sending the original.
+ * Near-lossless WebP of a large screenshot takes seconds (3 s for 2880x1800 on an idle
+ * machine, over 10 s under load) and the browser receives nothing meanwhile, whereas
+ * the original starts downloading at once. The copy still finishes for later opens.
+ */
+const DEFAULT_FULL_WAIT_MS = 500;
 /** Formats of the original an agent-readable `.takode-agent.` copy is made from, by extension. */
 const AGENT_COPY_ORIGINAL_TYPES: Record<string, string> = {
   png: "image/png",
@@ -44,12 +51,21 @@ const AGENT_COPY_ORIGINAL_TYPES: Record<string, string> = {
 
 export class LocalImageVariantStore {
   private readonly baseDir: string;
+  private readonly fullWaitMs: number;
+  /** Encodes in progress by cache key, so requests for the same image share one encode. */
+  private readonly encoding = new Map<string, Promise<LocalImageVariant>>();
 
-  constructor(baseDir = DEFAULT_BASE_DIR) {
+  constructor(baseDir = DEFAULT_BASE_DIR, options: { fullWaitMs?: number } = {}) {
     this.baseDir = baseDir;
+    this.fullWaitMs = options.fullWaitMs ?? DEFAULT_FULL_WAIT_MS;
     mkdirSync(this.baseDir, { recursive: true });
   }
 
+  /**
+   * The cached variant of an image, made on first request. A full view that is not ready
+   * within `fullWaitMs` is answered with the original (under its own ETag, so a browser
+   * that cached it fetches the smaller copy next time) while the copy keeps encoding.
+   */
   async getVariant(
     sourcePath: string,
     sourceContentType: string,
@@ -72,17 +88,39 @@ export class LocalImageVariantStore {
     const sourceVariant = { path: absolutePath, contentType, cacheHit: false, etag };
     if (contentType === "image/svg+xml") return sourceVariant;
 
-    const cached = await this.findCachedVariant(cacheKey, etag);
-    if (cached) {
-      return cached;
+    // Checked before the disk cache, which may hold a variant file that is still being written.
+    if (!this.encoding.has(cacheKey.hash)) {
+      const cached = await this.findCachedVariant(cacheKey, etag);
+      if (cached) return cached;
     }
+    let encoding = this.encoding.get(cacheKey.hash);
+    if (!encoding) {
+      encoding = this.encodeVariant(cacheKey, sourceVariant).finally(() => this.encoding.delete(cacheKey.hash));
+      this.encoding.set(cacheKey.hash, encoding);
+    }
+    if (kind === "thumbnail") return encoding;
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<null>((resolveWait) => {
+      timer = setTimeout(() => resolveWait(null), this.fullWaitMs);
+    });
+    const ready = await Promise.race([encoding, waited]).finally(() => clearTimeout(timer));
+    if (ready) return ready;
+    encoding.catch((error: unknown) => console.warn("[image-variants] Full-view encode failed:", absolutePath, error));
+    return { ...sourceVariant, etag: `"${cacheKey.hash}-original"` };
+  }
+
+  private async encodeVariant(
+    cacheKey: { kind: LocalImageVariantKind; hash: string },
+    sourceVariant: LocalImageVariant,
+  ): Promise<LocalImageVariant> {
     await mkdir(this.baseDir, { recursive: true });
-    const source = (await readFile(absolutePath)) as Buffer;
+    const source = (await readFile(sourceVariant.path)) as Buffer;
     let data: Buffer;
+    let contentType = sourceVariant.contentType;
 
     try {
-      if (kind === "thumbnail") {
+      if (cacheKey.kind === "thumbnail") {
         data = await createImageThumbnailBuffer(source, { maxDim: THUMBNAIL_MAX_DIM, quality: THUMBNAIL_QUALITY });
         contentType = "image/webp";
       } else {
@@ -92,7 +130,7 @@ export class LocalImageVariantStore {
       }
     } catch (error) {
       if (isSharpUnavailableError(error)) {
-        if (kind === "full") return sourceVariant;
+        if (cacheKey.kind === "full") return sourceVariant;
         throw new Error(SHARP_UNAVAILABLE_MESSAGE);
       }
       throw error;
@@ -104,7 +142,7 @@ export class LocalImageVariantStore {
       path: variantPath,
       contentType,
       cacheHit: false,
-      etag,
+      etag: sourceVariant.etag,
     };
   }
 

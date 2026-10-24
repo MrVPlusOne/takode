@@ -1,9 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { LocalImageVariantStore } from "./local-image-variant-store.js";
+
+// Wraps the real encoder so tests can count encodes and hold one until they release it.
+vi.mock("./image-optimizer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./image-optimizer.js")>();
+  return { ...actual, optimizeImageBufferForStore: vi.fn(actual.optimizeImageBufferForStore) };
+});
+import * as imageOptimizer from "./image-optimizer.js";
 import { makeIncompressibleJpeg, makeScreenshotLikePng, meanPixelDifference } from "./test-fixtures/images.js";
 
 describe("LocalImageVariantStore", () => {
@@ -14,10 +21,12 @@ describe("LocalImageVariantStore", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "local-image-variants-"));
     cacheDir = join(tempDir, "cache");
-    store = new LocalImageVariantStore(cacheDir);
+    // Encodes here may be slow on a busy machine; these tests are about the variant, not the wait.
+    store = new LocalImageVariantStore(cacheDir, { fullWaitMs: 60_000 });
   });
 
   afterEach(async () => {
+    vi.mocked(imageOptimizer.optimizeImageBufferForStore).mockClear();
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -109,6 +118,51 @@ describe("LocalImageVariantStore", () => {
     await writeFile(loneCopyPath, await readFile(agentCopyPath));
     const lone = await store.getVariant(loneCopyPath, "image/jpeg", "full");
     expect(await sharp(await readFile(lone.path)).metadata()).toMatchObject({ width: 430, height: 932 });
+  });
+
+  it("sends the original when the full view is not ready in time, and the encoded copy on later opens", async () => {
+    // Near-lossless WebP of a large screenshot takes seconds and the browser receives
+    // nothing meanwhile; the original starts downloading at once instead.
+    const encoder = vi.mocked(imageOptimizer.optimizeImageBufferForStore);
+    const actualEncode = encoder.getMockImplementation()!;
+    let release!: () => void;
+    const released = new Promise<void>((resolveRelease) => (release = resolveRelease));
+    encoder.mockImplementationOnce(async (...args) => {
+      await released;
+      return actualEncode(...args);
+    });
+    const quickStore = new LocalImageVariantStore(cacheDir, { fullWaitMs: 20 });
+    const sourcePath = join(tempDir, "screenshot.png");
+    await writeFile(sourcePath, await makeScreenshotLikePng(1600, 1200));
+
+    const first = await quickStore.getVariant(sourcePath, "image/png", "full");
+    expect(first).toMatchObject({ path: sourcePath, contentType: "image/png" });
+
+    // A second open while the encode runs joins it instead of starting another.
+    const second = await quickStore.getVariant(sourcePath, "image/png", "full");
+    expect(second).toMatchObject({ path: sourcePath, etag: first.etag });
+    expect(encoder).toHaveBeenCalledTimes(1);
+
+    release();
+    await vi.waitFor(async () => {
+      const later = await quickStore.getVariant(sourcePath, "image/png", "full");
+      expect(later).toMatchObject({ contentType: "image/webp", cacheHit: true });
+      // A browser holding the original revalidates with its own ETag, so it gets the smaller copy.
+      expect(later.etag).not.toBe(first.etag);
+    }, 30_000);
+    expect(encoder).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one encode between simultaneous requests for the same image", async () => {
+    const encoder = vi.mocked(imageOptimizer.optimizeImageBufferForStore);
+    const sourcePath = join(tempDir, "screenshot.png");
+    await writeFile(sourcePath, await makeScreenshotLikePng(800, 600));
+
+    const variants = await Promise.all([1, 2, 3].map(() => store.getVariant(sourcePath, "image/png", "full")));
+
+    expect(new Set(variants.map((variant) => variant.path)).size).toBe(1);
+    expect(variants[0]?.contentType).toBe("image/webp");
+    expect(encoder).toHaveBeenCalledTimes(1);
   });
 });
 
