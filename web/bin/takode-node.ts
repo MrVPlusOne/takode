@@ -37,6 +37,7 @@
  */
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parentClaudeSessionWarning } from "../server/cli-launcher-env.js";
@@ -54,6 +55,9 @@ import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "../server/skill-symlink
 import { ensureTakodeIntegration } from "../server/takode-integration.js";
 import { setLandingRunnerApiPort } from "../server/landing-runner-launcher.js";
 import { runPreListenStartupReadiness } from "../server/startup-readiness.js";
+import { findCrowdedDirectories } from "../server/remote-host/crowded-directory-check.js";
+import { WORKTREES_BASE } from "../server/git-utils.js";
+import { crowdedDirectoryWarning } from "../shared/crowded-directories.js";
 
 const args = process.argv.slice(2);
 const USAGE =
@@ -117,6 +121,12 @@ async function main(): Promise<void> {
     );
   }
   const build = await readCheckoutCommit(packageRoot);
+  const crowdedDirectories = await findCrowdedDirectories({
+    takodeRoot: packageRoot,
+    tempDir: tmpdir(),
+    worktreesDir: WORKTREES_BASE,
+  });
+  for (const directory of crowdedDirectories) console.warn(`[takode node] ${crowdedDirectoryWarning(directory)}`);
   const restart = () => {
     agent?.stop();
     proxy.stop();
@@ -128,6 +138,7 @@ async function main(): Promise<void> {
     apiProxyPort: proxy.port,
     commands,
     build,
+    crowdedDirectories,
     machineName: await readMachineName(),
     saveMachineName: (name) => saveMachineName(name),
     ...(sharedCheckout

@@ -8,6 +8,7 @@ import { getEnrichedPath } from "../path-resolver.js";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
+import type { CrowdedDirectory } from "../../shared/crowded-directories.js";
 import type { UpdatePreparation } from "./host-update.js";
 import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
@@ -85,6 +86,8 @@ export interface HostAgentOptions {
    * changing what runs. Throws when it cannot.
    */
   prepareUpdate?: (commit: string, bundle: Buffer | null) => Promise<UpdatePreparation>;
+  /** Folders that slow Bun starts on this machine (findCrowdedDirectories), reported to the coordinator. */
+  crowdedDirectories?: CrowdedDirectory[];
   /** Link features to offer the coordinator; all this build knows unless a test stands in for an older host. */
   linkFeatures?: readonly HostLinkFeature[];
   /** First reconnect delay after a link drop; doubles up to 15s (2s for a coordinator on this machine). */
@@ -223,6 +226,7 @@ export class HostAgent {
         ...(this.options.commands && Object.keys(this.options.commands).length > 0
           ? { commandOverrides: this.options.commands }
           : {}),
+        ...(this.options.crowdedDirectories?.length ? { crowdedDirectories: this.options.crowdedDirectories } : {}),
       });
     };
     socket.onmessage = (event) => {

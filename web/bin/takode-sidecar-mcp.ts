@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod";

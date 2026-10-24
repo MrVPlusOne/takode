@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { readFile } from "node:fs/promises";
 import {
   isMemoryServerCommand,

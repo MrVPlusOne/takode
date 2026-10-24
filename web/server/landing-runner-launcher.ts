@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LandingTarget } from "../shared/landing-queue.js";
+import { bunCommandArgs, bunCommandEnv } from "../shared/bun-command-launch.js";
 import { REMOTE_HOST_ENV } from "../shared/remote-host-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
 
@@ -64,8 +65,13 @@ export async function startLandingRunner(
   try {
     const child = spawn(
       process.execPath,
-      [TAKODE_CLI, "land", "run", "--foreground", "--branch", input.target.branch, "--log", logPath],
-      { cwd: input.baseCheckout, detached: true, stdio: ["ignore", log.fd, log.fd], env },
+      bunCommandArgs(TAKODE_CLI, ["land", "run", "--foreground", "--branch", input.target.branch, "--log", logPath]),
+      {
+        cwd: input.baseCheckout,
+        detached: true,
+        stdio: ["ignore", log.fd, log.fd],
+        env: bunCommandEnv(env, input.baseCheckout),
+      },
     );
     await Promise.race([
       once(child, "spawn"),

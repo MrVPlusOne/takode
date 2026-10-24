@@ -348,14 +348,20 @@ describe("QuestmasterPage status display", () => {
   });
 
   it("shows only open human feedback, not addressed feedback", async () => {
+    const feedback = (addressed: boolean) => ({ author: "human", text: "Note", ts: 1, addressed });
     mockState.quests = [
-      // The list endpoint sends feedback as counts (feedbackSummary), not entries.
+      // The list endpoint sends feedback as counts (feedbackSummary), not entries. The page first
+      // shows the store's quests, whose counts come from the entries, so both must agree: when the
+      // fixture kept its default unaddressed entry, a slow machine checked that first render and
+      // saw "1 open" on the addressed quest.
       {
         ...buildVerificationQuest({ id: "q-95-v1", questId: "q-95", title: "Open feedback quest" }),
+        feedback: [feedback(false), feedback(true)],
         feedbackSummary: { humanTotal: 2, humanUnaddressed: 1, humanAddressed: 1 },
       } as unknown as QuestmasterTask,
       {
         ...buildVerificationQuest({ id: "q-96-v1", questId: "q-96", title: "Addressed feedback quest" }),
+        feedback: [feedback(true)],
         feedbackSummary: { humanTotal: 1, humanUnaddressed: 0, humanAddressed: 1 },
       } as unknown as QuestmasterTask,
     ];

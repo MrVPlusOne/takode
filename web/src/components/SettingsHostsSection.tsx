@@ -1,3 +1,4 @@
+import { type CrowdedDirectory, crowdedDirectoryWarning } from "../../shared/crowded-directories.js";
 import { useState, type ReactNode } from "react";
 import { HostCliSettings } from "./HostCliSettings.js";
 import {
@@ -68,6 +69,7 @@ export function SettingsHostsSection() {
             <div className="mt-0.5 text-cc-muted" data-testid="settings-local-node">
               {localNodeDescription(local.node, serverBuild)}
             </div>
+            <CrowdedDirectoryWarnings directories={local.node.crowdedDirectories} />
             <HostCliSettings
               hostId={local.id}
               settings={local.settings}
@@ -98,6 +100,7 @@ export function SettingsHostsSection() {
                   {host.autoUpdate && !host.buildMismatch ? " · auto-update on" : ""}
                 </div>
                 <HostBuildWarning host={host} serverBuild={serverBuild} />
+                <CrowdedDirectoryWarnings directories={host.crowdedDirectories} />
               </div>
               <button
                 type="button"
@@ -261,6 +264,20 @@ function HostBuildWarning({ host, serverBuild }: { host: RemoteHost; serverBuild
     >
       {warning}
     </div>
+  );
+}
+
+/** Folders whose size slows every Bun start on the machine: where they are and how to fix them. */
+function CrowdedDirectoryWarnings({ directories }: { directories: CrowdedDirectory[] | undefined }) {
+  if (!directories?.length) return null;
+  return (
+    <>
+      {directories.map((directory) => (
+        <div key={directory.path} data-testid="host-crowded-directory" className="mt-0.5 text-cc-warning break-words">
+          {crowdedDirectoryWarning(directory)}
+        </div>
+      ))}
+    </>
   );
 }
 

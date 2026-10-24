@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants, homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { bunCommandArgs, bunCommandEnv } from "../shared/bun-command-launch.js";
 import {
   landingLeaseKey,
   FULL_SUITE_POOL_PREFIX,
@@ -531,18 +532,21 @@ async function landRun(base: string, flags: Flags): Promise<void> {
   const handle = await open(logPath, "a");
   const child = spawn(
     process.execPath,
-    [process.argv[1]!, "land", "run", "--foreground", "--branch", ctx.target.branch, "--log", logPath],
+    bunCommandArgs(process.argv[1]!, ["land", "run", "--foreground", "--branch", ctx.target.branch, "--log", logPath]),
     {
       cwd: ctx.baseCheckout,
       detached: true,
       stdio: ["ignore", handle.fd, handle.fd],
-      env: {
-        ...process.env,
-        COMPANION_PORT: String(new URL(base).port),
-        COMPANION_SESSION_ID: runner.sessionId,
-        COMPANION_AUTH_TOKEN: runner.token,
-        TAKODE_API_PORT: "",
-      },
+      env: bunCommandEnv(
+        {
+          ...process.env,
+          COMPANION_PORT: String(new URL(base).port),
+          COMPANION_SESSION_ID: runner.sessionId,
+          COMPANION_AUTH_TOKEN: runner.token,
+          TAKODE_API_PORT: "",
+        },
+        ctx.baseCheckout,
+      ),
     },
   );
   child.unref();

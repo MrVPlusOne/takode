@@ -9,6 +9,8 @@
  * never do, and nothing does on a remote host, whose coordinator holds the
  * only copy.
  */
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { readFile } from "node:fs/promises";
 import {
   isStreamWriteCommand,

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { CodexSidecarActor } from "./codex-sidecar-auth.js";
 import { QUEST_COMMAND_RUNNER_TIMEOUT_MS } from "../shared/quest-command-transport.js";
+import { bunCommandArgs, bunCommandEnv } from "../shared/bun-command-launch.js";
 
 const QUEST_CLI_PATH = fileURLToPath(new URL("../bin/quest.ts", import.meta.url));
 const TAKODE_MANAGED_CONTEXT_ENV = [
@@ -48,9 +49,10 @@ export async function runCodexQuestCommand(request: CodexQuestCommandRequest): P
   const cwd = request.actor.cwd ?? process.cwd();
   const env = questCommandEnvironment(request.actor, cwd);
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [QUEST_CLI_PATH, ...request.args], {
+    // Started from the Takode folder so Bun does not list the session directory's parents; it switches back.
+    const child = spawn(process.execPath, bunCommandArgs(QUEST_CLI_PATH, request.args), {
       cwd,
-      env,
+      env: bunCommandEnv(env, cwd),
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });

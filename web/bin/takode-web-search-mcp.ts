@@ -8,6 +8,8 @@
  * (server/claude-copilot-web-tools.ts), so the search uses the same Copilot
  * address and sign-in as Claude itself.
  */
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

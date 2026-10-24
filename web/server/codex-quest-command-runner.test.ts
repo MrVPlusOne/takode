@@ -65,8 +65,11 @@ describe("Codex Quest command runner", () => {
     expect(result).toEqual({ exitCode: 0, stdout: "exact stdout\n", stderr: "exact stderr\n" });
     const [executable, argv, options] = spawnMock.mock.calls[0]!;
     expect(executable).toBe(process.execPath);
-    expect(argv[0]).toMatch(/\/web\/bin\/quest\.ts$/);
-    expect(argv.slice(1)).toEqual(["show", "q-7", "--json"]);
+    // Bun starts in the Takode web folder and the CLI switches back to the session directory.
+    expect(argv[0]).toBe("--cwd");
+    expect(argv[1]).toMatch(/\/web$/);
+    expect(argv[2]).toMatch(/\/web\/bin\/quest\.ts$/);
+    expect(argv.slice(3)).toEqual(["show", "q-7", "--json"]);
     expect(options).toMatchObject({ cwd: "/repo", shell: false, stdio: ["pipe", "pipe", "pipe"] });
     expect(options.env).toMatchObject({
       TAKODE_QUEST_SERVER_EXECUTION: "1",
@@ -74,6 +77,7 @@ describe("Codex Quest command runner", () => {
       TAKODE_CODEX_TURN_ID: "turn-2",
       TAKODE_CODEX_TOOL_USE_ID: "tool-3",
       TAKODE_CODEX_CWD: "/repo",
+      TAKODE_CALLER_CWD: "/repo",
     });
     expect(options.env.COMPANION_SESSION_ID).toBeUndefined();
     expect(options.env.COMPANION_AUTH_TOKEN).toBeUndefined();
@@ -116,7 +120,7 @@ describe("Codex Quest command runner", () => {
 
     expect(result.exitCode).toBe(0);
     const [, argv, options] = spawnMock.mock.calls[0]!;
-    expect(argv.slice(1)).toEqual(["claim", "q-7"]);
+    expect(argv.slice(3)).toEqual(["claim", "q-7"]);
     expect(options.env.TAKODE_ROLE).toBeUndefined();
     expect(options.env.TAKODE_API_PORT).toBeUndefined();
     expect(options.env.COMPANION_SESSION_NUMBER).toBeUndefined();

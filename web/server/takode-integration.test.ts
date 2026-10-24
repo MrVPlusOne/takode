@@ -49,28 +49,34 @@ describe("ensureTakodeIntegration", () => {
     expect(sharedWrite).toBeDefined();
 
     const sharedWrapper = String(sharedWrite?.[1] ?? "");
-    expect(sharedWrapper).toContain('exec bun "/repo/web/bin/takode.ts" "$@"');
-    expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" "/repo/web/bin/takode.ts" "$@"');
+    expect(sharedWrapper).toContain('exec bun --cwd "/repo/web" "/repo/web/bin/takode.ts" "$@"');
+    expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" --cwd "/repo/web" "/repo/web/bin/takode.ts" "$@"');
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/takode.ts");
 
     const sidecarMcpWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/takode-sidecar-mcp",
     );
     expect(sidecarMcpWrite).toBeDefined();
-    expect(String(sidecarMcpWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/takode-sidecar-mcp.ts" "$@"');
+    expect(String(sidecarMcpWrite?.[1] ?? "")).toContain(
+      'exec bun --cwd "/repo/web" "/repo/web/bin/takode-sidecar-mcp.ts" "$@"',
+    );
     expect(String(sidecarMcpWrite?.[1] ?? "")).not.toContain("/repo/worktrees/wt-1");
 
     // Claude sessions on GitHub Copilot start this MCP server by name from PATH.
     const webSearchMcpWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/takode-web-search-mcp",
     );
-    expect(String(webSearchMcpWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/takode-web-search-mcp.ts" "$@"');
+    expect(String(webSearchMcpWrite?.[1] ?? "")).toContain(
+      'exec bun --cwd "/repo/web" "/repo/web/bin/takode-web-search-mcp.ts" "$@"',
+    );
 
     const agentBrowserWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/agent-browser",
     );
     expect(agentBrowserWrite).toBeDefined();
-    expect(String(agentBrowserWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/agent-browser.ts" "$@"');
+    expect(String(agentBrowserWrite?.[1] ?? "")).toContain(
+      'exec bun --cwd "/repo/web" "/repo/web/bin/agent-browser.ts" "$@"',
+    );
   });
 
   it("keeps copied takode wrappers identical across worktrees of the same repo", async () => {
@@ -102,7 +108,7 @@ describe("ensureTakodeIntegration", () => {
       (call) => call[0] === "/home/tester/.companion/bin/takode-sidecar-mcp",
     );
     expect(String(sidecarWrite?.[1] ?? "")).toContain(
-      'exec bun "/installed/the-companion/bin/takode-sidecar-mcp.ts" "$@"',
+      'exec bun --cwd "/installed/the-companion" "/installed/the-companion/bin/takode-sidecar-mcp.ts" "$@"',
     );
     expect(String(sidecarWrite?.[1] ?? "")).not.toContain("/installed/web/bin");
   });

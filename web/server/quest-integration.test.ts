@@ -128,8 +128,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(sharedWrite).toBeDefined();
 
     const sharedWrapper = String(sharedWrite?.[1] ?? "");
-    expect(sharedWrapper).toContain('exec bun "/repo/web/bin/quest.ts" "$@"');
-    expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" "/repo/web/bin/quest.ts" "$@"');
+    expect(sharedWrapper).toContain('exec bun --cwd "/repo/web" "/repo/web/bin/quest.ts" "$@"');
+    expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" --cwd "/repo/web" "/repo/web/bin/quest.ts" "$@"');
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/quest.ts");
     expect(fsMocks.writeFileSync).not.toHaveBeenCalledWith(
       "/home/tester/.companion/bin/servers/server-a/quest",
@@ -142,7 +142,7 @@ describe("ensureQuestmasterIntegration", () => {
     );
     expect(memoryWrite).toBeDefined();
     const memoryWrapper = String(memoryWrite?.[1] ?? "");
-    expect(memoryWrapper).toContain('exec bun "/repo/web/bin/memory.ts" "$@"');
+    expect(memoryWrapper).toContain('exec bun --cwd "/repo/web" "/repo/web/bin/memory.ts" "$@"');
     expect(memoryWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/memory.ts");
 
     const streamWrite = fsMocks.writeFileSync.mock.calls.find(
@@ -150,7 +150,7 @@ describe("ensureQuestmasterIntegration", () => {
     );
     expect(streamWrite).toBeDefined();
     const streamWrapper = String(streamWrite?.[1] ?? "");
-    expect(streamWrapper).toContain('exec bun "/repo/web/bin/stream.ts" "$@"');
+    expect(streamWrapper).toContain('exec bun --cwd "/repo/web" "/repo/web/bin/stream.ts" "$@"');
     expect(streamWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/stream.ts");
   });
 

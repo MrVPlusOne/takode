@@ -17,6 +17,7 @@ function host(overrides: Partial<RemoteHost>): RemoteHost {
     settings: { claudeBinary: "", codexBinary: "" },
     defaultWorktreeRoot: null,
     commandOverrides: {},
+    crowdedDirectories: [],
     ...overrides,
   };
 }

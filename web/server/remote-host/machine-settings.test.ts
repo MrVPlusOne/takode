@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
-import { HostAgent } from "./host-agent.js";
+import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostLinkManager } from "./host-link-manager.js";
 import type { HostMachineSettings } from "../../shared/host-protocol.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
@@ -28,8 +28,12 @@ describe("machine settings over the host link", () => {
   let started: string[];
   let codexBinaries: unknown[];
 
-  function startAgent(commands: { claude?: string; codex?: string } = {}): HostAgent {
+  function startAgent(
+    commands: { claude?: string; codex?: string } = {},
+    extra: Partial<HostAgentOptions> = {},
+  ): HostAgent {
     const next = new HostAgent({
+      ...extra,
       coordinatorUrl: "http://coordinator.test",
       token: "token",
       apiProxyPort: 45_678,
@@ -83,6 +87,14 @@ describe("machine settings over the host link", () => {
     await waitFor(() => started.length === 2);
     expect(started[1]).toBe("claude");
     expect(codexBinaries[1]).toBe("/opt/codex");
+  });
+
+  // The node finds crowded folders when it starts; Settings shows them for the machine.
+  it("reports the folders that slow Bun starts on the host", async () => {
+    const crowded = { path: "/tmp", entries: 200_000, more: true, affects: ["temp" as const] };
+    agent = startAgent({}, { crowdedDirectories: [crowded] });
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.status(hostId).crowdedDirectories).toEqual([crowded]);
   });
 
   it("lets the node's flags override the stored settings and reports them", async () => {

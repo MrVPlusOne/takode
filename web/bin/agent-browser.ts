@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { type ChildProcess, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";

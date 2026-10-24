@@ -34,6 +34,8 @@
  *   optimize-image  Write an optimized .takode-agent sibling image
  */
 
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import {
   listQuests,
   getQuest as getStoredQuest,

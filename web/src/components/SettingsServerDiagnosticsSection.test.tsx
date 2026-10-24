@@ -126,6 +126,7 @@ describe("SettingsServerDiagnosticsSection", () => {
       updateWaitingFor: null,
       settings: { claudeBinary: "", codexBinary: "" },
       commandOverrides: {},
+      crowdedDirectories: [],
       ...overrides,
     });
     vi.stubGlobal(

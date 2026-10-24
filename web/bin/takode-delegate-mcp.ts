@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

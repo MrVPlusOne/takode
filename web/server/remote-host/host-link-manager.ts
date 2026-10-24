@@ -20,6 +20,7 @@ import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
 import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
 import type { HostUpdateMode } from "./host-update-sessions.js";
+import type { CrowdedDirectory } from "../../shared/crowded-directories.js";
 
 /**
  * How long after a host connects, or a process starts there, before an update
@@ -91,6 +92,8 @@ export interface HostLinkStatus {
   updateWaitingFor: string | null;
   /** Programs the host's `takode node` was started with (`--claude`, `--codex`), which win over its settings. */
   commandOverrides: Partial<Record<HostProgramRole, string>>;
+  /** Folders that slow Bun starts on the host, as its node found them when it started. */
+  crowdedDirectories: CrowdedDirectory[];
 }
 
 /** What a caller needs to start a process on a host; mirrors the Agent SDK's spawn options. */
@@ -155,6 +158,7 @@ interface HostLink {
   /** A host operation was already logged as sent to a mismatched build of this host instance. */
   mismatchWarned: boolean;
   commandOverrides: Partial<Record<HostProgramRole, string>>;
+  crowdedDirectories: CrowdedDirectory[];
   nextCommandSeq: number;
   unacked: QueuedCommand[];
   processes: Map<string, RemoteProcess>;
@@ -268,6 +272,7 @@ export class HostLinkManager {
             : (this.updateBlocker?.(hostId, this.updateMode(link)) ?? null)
           : null,
       commandOverrides: { ...link?.commandOverrides },
+      crowdedDirectories: link?.crowdedDirectories ?? [],
     };
   }
 
@@ -584,6 +589,7 @@ export class HostLinkManager {
       link.updateError = null;
       link.mismatchWarned = false;
       link.commandOverrides = { ...hello.commandOverrides };
+      link.crowdedDirectories = hello.crowdedDirectories ?? [];
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
     link.lastStartAt = this.now();
@@ -815,6 +821,7 @@ export class HostLinkManager {
         updateError: null,
         mismatchWarned: false,
         commandOverrides: {},
+        crowdedDirectories: [],
         nextCommandSeq: 1,
         unacked: [],
         processes: new Map(),

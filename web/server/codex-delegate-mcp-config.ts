@@ -1,5 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bunCommandArgs } from "../shared/bun-command-launch.js";
 
 const takodeDelegateMcpServerName = "takode_delegate";
 const serverDir = dirname(fileURLToPath(import.meta.url));
@@ -82,7 +83,8 @@ export function buildTakodeDelegateMcpConfig(
   return {
     enabled,
     command: process.execPath,
-    args: [takodeDelegateMcpScriptPath],
+    // Started from the Takode folder so Bun does not list the session directory's parents.
+    args: bunCommandArgs(takodeDelegateMcpScriptPath, []),
     env: selectedEnv,
   };
 }

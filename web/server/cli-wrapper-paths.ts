@@ -1,6 +1,7 @@
 import { exec as execCb } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { CALLER_CWD_ENV } from "../shared/bun-command-launch.js";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 
 export const COMPANION_BIN_DIR = join(homedir(), ".companion", "bin");
@@ -53,13 +54,18 @@ async function resolveGitRepoRoot(packageRoot: string): Promise<string | null> {
 }
 
 function buildBunExec(commandName: string, scriptPath: string): string {
-  return `if command -v bun >/dev/null 2>&1; then
-  exec bun "${scriptPath}" "$@"
+  // Start Bun from the Takode web folder, not the caller's directory: Bun lists every folder above its
+  // working directory when it starts, which takes seconds under a huge one. bin/caller-cwd.ts switches back.
+  const bunArgs = `--cwd "${dirname(dirname(scriptPath))}" "${scriptPath}" "$@"`;
+  return `export ${CALLER_CWD_ENV}="$PWD"
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun ${bunArgs}
 fi
 
 if [ -x "$HOME/.bun/bin/bun" ]; then
   export PATH="$HOME/.bun/bin:$PATH"
-  exec "$HOME/.bun/bin/bun" "${scriptPath}" "$@"
+  exec "$HOME/.bun/bin/bun" ${bunArgs}
 fi
 
 echo "${commandName}: bun not found (looked in PATH and \\$HOME/.bun/bin/bun)" >&2

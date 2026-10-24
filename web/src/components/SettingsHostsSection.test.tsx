@@ -21,6 +21,7 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
     settings: { claudeBinary: "", codexBinary: "" },
     defaultWorktreeRoot: "/home/agent/.companion/worktrees",
     commandOverrides: {},
+    crowdedDirectories: [],
     ...overrides,
   };
 }
@@ -239,6 +240,22 @@ describe("SettingsHostsSection", () => {
 
   // This machine's sessions always run under its node, so its card shows how
   // the node is doing and offers no switch to turn it off.
+  // A takode node reports folders whose size slows every Bun start on its machine;
+  // each machine's card says where they are and how to fix them.
+  it("warns about crowded folders on this machine and on hosts", async () => {
+    serveHostRoutes([
+      hostRow({
+        id: "h1",
+        name: "devbox",
+        crowdedDirectories: [{ path: "/tmp", entries: 200_000, more: true, affects: ["temp"] }],
+      }),
+    ]);
+    render(<SettingsHostsSection />);
+    const [warning] = await screen.findAllByTestId("host-crowded-directory");
+    expect(warning!.textContent).toContain("/tmp holds over 200,000 entries");
+    expect(screen.getAllByTestId("host-crowded-directory")).toHaveLength(1);
+  });
+
   it("shows this machine's node status without a switch", async () => {
     serveHostRoutes([]);
     render(<SettingsHostsSection />);

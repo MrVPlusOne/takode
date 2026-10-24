@@ -32,6 +32,8 @@
  *   direction's compressed messages on this connection (see `host-link-codec.ts`).
  */
 
+import type { CrowdedDirectory } from "./crowded-directories.js";
+
 export const HOST_PROTOCOL_VERSION = 3;
 
 /** Path the host connects to, with `Authorization: Bearer <host token>`. */
@@ -233,6 +235,8 @@ export type HostToCoordinator =
       processes?: string[];
       /** Link features this host can use; absent from older hosts. */
       features?: HostLinkFeature[];
+      /** Folders that slow Bun starts on this host, found when the node started; absent from older hosts. */
+      crowdedDirectories?: CrowdedDirectory[];
     }
   | { t: "event"; procId: string; seq: number; event: HostProcessEvent }
   | { t: "command_ack"; seq: number }

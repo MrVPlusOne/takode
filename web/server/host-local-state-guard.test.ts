@@ -74,6 +74,8 @@ const INVENTORY: Record<string, string> = {
   "bin/takode-sidecar-client.ts -> server/codex-sidecar-auth.ts":
     "Credentials for the Takode server on this machine, used by a standalone Codex task",
   "bin/takode-land.ts: landing": "Checkouts, scratch space and logs of landing runs on this machine",
+  "bin/takode-node.ts -> server/git-utils.ts":
+    "Counts the entries of this machine's worktree folder, whose size slows Bun starts there",
   "bin/takode-node.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
   "bin/takode-node.ts -> server/machine-identity.ts":
     "This machine's name belongs to the machine; the node reports it to the coordinator",

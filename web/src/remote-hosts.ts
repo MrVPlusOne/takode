@@ -1,3 +1,4 @@
+import type { CrowdedDirectory } from "../shared/crowded-directories.js";
 import { useSyncExternalStore } from "react";
 
 /** Per-machine settings; empty values mean the defaults. */
@@ -49,6 +50,8 @@ export interface RemoteHost {
   defaultWorktreeRoot: string | null;
   /** Programs the host's `takode node` was started with (`--claude`, `--codex`); they win over `settings`. */
   commandOverrides: { claude?: string; codex?: string };
+  /** Folders that slow Bun starts on the machine, found when its node started. */
+  crowdedDirectories: CrowdedDirectory[];
 }
 
 /** The server's own machine, which runs sessions that have no host. */

@@ -4,6 +4,8 @@
  * Server-authoritative orchestration commands.
  */
 
+// Must stay the first import: it restores the caller's working directory.
+import "./caller-cwd.js";
 import { handleUserContent } from "./takode-user-content-commands.js";
 import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
