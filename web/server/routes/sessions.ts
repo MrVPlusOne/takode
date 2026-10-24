@@ -850,6 +850,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   const createSessionFromBody = async (
     body: any,
     recycledWorktreeInfo?: WorktreeSessionInfo,
+    internal: { scribeFor?: string } = {},
   ): Promise<Awaited<ReturnType<CliLauncher["launch"]>>> => {
     const backendRaw = body.backend ?? "claude";
     const backend = parseBackendSelection(backendRaw);
@@ -864,11 +865,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
       sessionConfig.launchOptions.cwd = recycledWorktreeInfo.worktreePath;
       sessionConfig.launchOptions.worktreeInfo = recycledWorktreeInfo;
     }
+    // A Scribe (set only by the server, never from a request body) gets its brief as instructions.
+    if (internal.scribeFor) {
+      sessionConfig.launchOptions.scribeFor = internal.scribeFor;
+      sessionConfig.launchOptions.extraInstructions = launcher.getScribeInstructions(internal.scribeFor);
+    }
     const session = await launcher.launch(sessionConfig.launchOptions);
     await applySessionPostLaunch(session, sessionConfig);
     return session;
   };
-  setLibrarySessionCreator(createSessionFromBody);
+  setLibrarySessionCreator((body, internal) => createSessionFromBody(body, undefined, internal));
 
   api.post("/sessions/create", async (c) => {
     const body = await c.req.json().catch(() => ({}));

@@ -371,7 +371,12 @@ export function getBoardWorkerSlotUsage(
   const sessions = deps.listSessions();
   return {
     used: sessions.filter(
-      (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
+      (candidate: any) =>
+        !candidate.archived &&
+        candidate.herdedBy === sessionId &&
+        candidate.reviewerOf === undefined &&
+        // A leader's Scribe is not a worker for slots.
+        !candidate.scribeFor,
     ).length,
     limit: getWorkerSlotLimit(sessions.find((candidate: any) => candidate.sessionId === sessionId)?.backendType),
   };

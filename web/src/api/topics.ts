@@ -32,9 +32,22 @@ export const topicApi = {
     request<TopicSummary>("/topics/move", { method: "POST", body: { questId, topic } }),
   undo: (changeId: string) =>
     request<unknown>(`/topics/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST", body: {} }),
-  updateNow: (id: string) => request<{ result: string }>(`${topicPath(id)}/update`, { method: "POST", body: {} }),
-  feedback: (id: string, text: string) =>
-    request<{ ok: true }>(`${topicPath(id)}/feedback`, { method: "POST", body: { text } }),
+  /** Asks the Scribe of the leader whose panel this is to update the page now. */
+  updateNow: (id: string, leader?: string | null) =>
+    request<{ result: string }>(`${topicPath(id)}/update`, { method: "POST", body: leader ? { leader } : {} }),
+  /** A fix for the page, for the Scribe of the panel's leader. */
+  feedback: (id: string, text: string, leader?: string | null) =>
+    request<{ ok: true }>(`${topicPath(id)}/feedback`, {
+      method: "POST",
+      body: { text, ...(leader ? { leader } : {}) },
+    }),
+  answerSuggestion: (suggestionId: string, accept: boolean) =>
+    request<unknown>(`/topics/suggestions/${encodeURIComponent(suggestionId)}`, { method: "POST", body: { accept } }),
+  setGroupingNotes: (leaderSessionId: string, text: string) =>
+    request<{ groupingNotes: string }>(`/topics/leaders/${encodeURIComponent(leaderSessionId)}/notes`, {
+      method: "POST",
+      body: { text },
+    }),
   setLeaderEnabled: (sessionId: string, enabled: boolean) =>
     request<{ enabled: boolean }>(`/topics/leaders/${encodeURIComponent(sessionId)}`, {
       method: "POST",
@@ -45,8 +58,9 @@ export const topicApi = {
       method: "POST",
       body: {},
     }),
-  setPaused: (space: string, paused: boolean) =>
-    request<{ paused: boolean }>(`/topics/spaces/${encodeURIComponent(space)}/pause`, {
+  /** Pauses or resumes a leader's Scribe. */
+  setPaused: (leaderSessionId: string, paused: boolean) =>
+    request<{ paused: boolean }>(`/topics/leaders/${encodeURIComponent(leaderSessionId)}/pause`, {
       method: "POST",
       body: { paused },
     }),

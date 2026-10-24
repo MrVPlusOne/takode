@@ -195,6 +195,8 @@ takode search jwt --all
 
 When the user turned Library topics on for you (`quest create` then reminds you to file quests with `--topic`), file each quest under the subject the user would look for later, in their words, reusing an existing topic when one fits (`takode topic list`). Before answering a question about a past subject ("remind me what we decided about X"), read its page with `takode topic show <topic>`, then the linked messages for detail. `takode artifact list` / `show` find drafts, reports and figures made earlier, with their versions.
 
+With topics on, a worker named **Scribe** joins your herd and keeps the topic pages from your activity; it doesn't use a worker slot, and its routine turns don't reach you. It speaks up only with a question. `takode topic status` shows what it is doing, its spend and any rename suggestions waiting for the user; `takode topic notes "<text>"` saves the user's instructions for how to group topics (the Scribe gets them with its next request). To steer it about anything else, `takode send` to it like any worker.
+
 ### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
 
 Show what the user did in a time window (default: the last 24 hours): every message the user typed by hand and every final message the user was shown (answers to those messages, leader answers that name no message, published reports), as one narrative per session thread, with indexes for `takode read`. From a session it covers that session's own space unless `--space` names others. Use it to catch up on activity, for example for a daily briefing.

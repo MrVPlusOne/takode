@@ -83,6 +83,8 @@ export interface TakodeTurnEndEventData {
     summary: string;
     /** Quiet turns this held event stands for, when earlier held ones were merged into it. */
     count?: number;
+    /** A Scribe's routine turn: not held for the leader at all (see `resolveQuietTurn`). */
+    silent?: boolean;
   };
   /** Why a quiet-marked turn was delivered normally anyway. */
   quiet_ignored?: string;

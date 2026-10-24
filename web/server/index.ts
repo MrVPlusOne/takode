@@ -1532,6 +1532,11 @@ const websocketHandlers: WebSocketHandler<SocketData> = {
   },
 };
 
+// Archive the page writers of the retired one-per-space design, now that sessions can be archived.
+void topicService
+  .retireLegacyWriters()
+  .catch((error) => console.error("[library-topics] Could not retire the old page writers:", error));
+
 const server = Bun.serve<SocketData>({
   hostname: listenHost,
   port,

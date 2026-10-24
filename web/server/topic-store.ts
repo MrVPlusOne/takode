@@ -8,14 +8,16 @@ import {
   type TopicDetail,
   type TopicEvent,
   type TopicNameSource,
+  type TopicRenameSuggestion,
   type TopicSummary,
 } from "../shared/library-topics.js";
 
 /**
  * Library topics on disk (`topics.json` beside the artifact library): topics per session space,
  * which topic each quest is filed under, each topic's page and the events since it was written,
- * the per-leader switch, the per-space pause, and the change list whose entries can be undone.
- * Writes are whole-file and atomic, chained so they land in order.
+ * and per leader: the switch, the pause, its topics writer, the user's grouping instructions and
+ * how far each page covers its activity. Also the change list whose entries can be undone, and
+ * rename suggestions waiting for the user. Writes are whole-file and atomic, chained in order.
  */
 
 const MAX_EVENTS_PER_TOPIC = 200;
@@ -30,8 +32,13 @@ interface StoredTopic {
   createdAt: number;
   updatedAt: number;
   page: string | null;
+  /** Newest event any page write covered (for display); see `coveredThrough` per leader. */
   upToDateAt: number | null;
   writtenAt: number | null;
+  /** Per leader: the page covers that leader's events up to this time. */
+  coveredThrough?: Record<string, number>;
+  /** Bumped by each page write, so a writer that read an older page cannot overwrite a newer one. */
+  pageRevision?: number;
   events: TopicEvent[];
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
@@ -46,19 +53,35 @@ interface StoredChange extends TopicChange {
   undo: Undo;
 }
 
+interface StoredSuggestion {
+  id: string;
+  topicId: string;
+  name: string;
+  reason?: string;
+  leaderId?: string;
+  at: number;
+  status: "pending" | "accepted" | "dismissed";
+}
+
 interface TopicState {
   version: 1;
   topics: Record<string, StoredTopic>;
   questTopics: Record<string, string>;
   enabledLeaders: Record<string, { enabledAt: number; backfilledAt?: number }>;
   hintDismissed: Record<string, number>;
+  /** Per leader: its writer is paused. */
   paused: Record<string, boolean>;
-  /** Hidden session that writes a space's pages. */
+  /** Retired design: one hidden page writer per space. Kept only to retire those sessions. */
   writers: Record<string, string>;
+  /** Per leader: its topics writer, a worker in its herd. */
+  leaderWriters?: Record<string, string>;
+  /** Per leader: the user's instructions for how to group its topics. */
+  groupingNotes?: Record<string, { text: string; updatedAt: number }>;
+  suggestions?: StoredSuggestion[];
   /** Per leader: history messages already read for events. */
   cursors: Record<string, number>;
   changes: StoredChange[];
-  /** Per space: what replaced page writers spent in their last day, so the budget still counts it. */
+  /** Per leader: what replaced writers spent in their last day, so the budget still counts it. */
   retiredSpend?: Record<string, Array<{ at: number; amount: number }>>;
 }
 
@@ -153,45 +176,74 @@ export class TopicStore {
     return !!this.s().hintDismissed[sessionId];
   }
 
-  isPaused(space: string): boolean {
-    return !!this.s().paused[space];
+  isPaused(leaderId: string): boolean {
+    return !!this.s().paused[leaderId];
   }
 
-  setPaused(space: string, paused: boolean): void {
-    if (paused) this.s().paused[space] = true;
-    else delete this.s().paused[space];
+  setPaused(leaderId: string, paused: boolean): void {
+    if (paused) this.s().paused[leaderId] = true;
+    else delete this.s().paused[leaderId];
     this.dirty = true;
   }
 
-  writerFor(space: string): string | undefined {
-    return this.s().writers[space];
+  writerFor(leaderId: string): string | undefined {
+    return this.s().leaderWriters?.[leaderId];
   }
 
-  setWriter(space: string, sessionId: string): void {
-    this.s().writers[space] = sessionId;
+  setWriter(leaderId: string, sessionId: string): void {
+    const state = this.s();
+    state.leaderWriters = { ...state.leaderWriters, [leaderId]: sessionId };
     this.dirty = true;
   }
 
-  /** Keeps a replaced writer's recent spend in the space's budget for a day. */
-  recordRetiredSpend(space: string, amount: number): void {
+  clearWriter(leaderId: string): void {
+    if (!this.s().leaderWriters?.[leaderId]) return;
+    delete this.s().leaderWriters![leaderId];
+    this.dirty = true;
+  }
+
+  leaderOfWriter(sessionId: string): string | undefined {
+    return Object.entries(this.s().leaderWriters ?? {}).find(([, id]) => id === sessionId)?.[0];
+  }
+
+  /** Writers of the retired per-space design, to be archived once; forgets them. */
+  takeLegacyWriters(): string[] {
+    const ids = Object.values(this.s().writers);
+    if (ids.length === 0) return [];
+    this.s().writers = {};
+    this.dirty = true;
+    return ids;
+  }
+
+  /** Keeps a replaced writer's recent spend in its leader's budget for a day. */
+  recordRetiredSpend(leaderId: string, amount: number): void {
     const state = this.s();
     state.retiredSpend ??= {};
-    state.retiredSpend[space] = [...(state.retiredSpend[space] ?? []), { at: this.now(), amount }];
+    state.retiredSpend[leaderId] = [...(state.retiredSpend[leaderId] ?? []), { at: this.now(), amount }];
     this.dirty = true;
   }
 
-  retiredSpend(space: string, since: number): number {
-    const entries = this.s().retiredSpend?.[space] ?? [];
+  retiredSpend(leaderId: string, since: number): number {
+    const entries = this.s().retiredSpend?.[leaderId] ?? [];
     const recent = entries.filter((entry) => entry.at >= since);
     if (recent.length !== entries.length) {
-      this.s().retiredSpend![space] = recent;
+      this.s().retiredSpend![leaderId] = recent;
       this.dirty = true;
     }
     return recent.reduce((sum, entry) => sum + entry.amount, 0);
   }
 
-  spaceOfWriter(sessionId: string): string | undefined {
-    return Object.entries(this.s().writers).find(([, id]) => id === sessionId)?.[0];
+  groupingNotes(leaderId: string): { text: string; updatedAt: number } | undefined {
+    return this.s().groupingNotes?.[leaderId];
+  }
+
+  setGroupingNotes(leaderId: string, text: string): void {
+    const state = this.s();
+    const clean = text.trim().slice(0, 4000);
+    state.groupingNotes ??= {};
+    if (clean) state.groupingNotes[leaderId] = { text: clean, updatedAt: this.now() };
+    else delete state.groupingNotes[leaderId];
+    this.dirty = true;
   }
 
   cursorFor(leaderId: string): number | undefined {
@@ -238,7 +290,15 @@ export class TopicStore {
    * Files a quest under a topic by name, creating the topic when none of the space has that name.
    * Filing a quest already under another topic moves it, and the move can be undone.
    */
-  assign(input: { questId: string; space: string; name: string; by: TopicNameSource; byAgent: boolean }): {
+  assign(input: {
+    questId: string;
+    space: string;
+    name: string;
+    by: TopicNameSource;
+    byAgent: boolean;
+    /** The quest's leader, whose Scribe hears of the filing. */
+    leaderId?: string;
+  }): {
     topic: TopicSummary;
     created: boolean;
     moved: boolean;
@@ -251,7 +311,12 @@ export class TopicStore {
     if (previous?.id === topic.id) return { topic: this.summary(topic), created, moved: false };
     this.s().questTopics[input.questId] = topic.id;
     topic.updatedAt = this.now();
-    this.addEvent(topic.id, { at: this.now(), kind: "quest_filed", questId: input.questId });
+    this.addEvent(topic.id, {
+      at: this.now(),
+      kind: "quest_filed",
+      questId: input.questId,
+      ...(input.leaderId ? { leaderId: input.leaderId } : {}),
+    });
     if (previous) {
       this.recordChange(
         input.space,
@@ -292,6 +357,72 @@ export class TopicStore {
     topic.updatedAt = this.now();
     this.dirty = true;
     return this.summary(topic);
+  }
+
+  /**
+   * A writer's new name for a topic the user named: shown to the user with Accept and Dismiss,
+   * and nothing changes until accepted. A name the user dismissed is not suggested again.
+   */
+  suggestRename(topicId: string, name: string, leaderId: string | undefined, reason?: string): TopicRenameSuggestion {
+    const topic = this.require(topicId);
+    const clean = cleanName(name);
+    const suggestions = (this.s().suggestions ??= []);
+    const same = (candidate: StoredSuggestion) =>
+      candidate.topicId === topic.id && normalizeName(candidate.name) === normalizeName(clean);
+    if (suggestions.some((candidate) => same(candidate) && candidate.status === "dismissed")) {
+      throw new TopicStoreError(`The user dismissed renaming "${topic.name}" to "${clean}"; keep the name.`, 409);
+    }
+    const pending = suggestions.find((candidate) => same(candidate) && candidate.status === "pending");
+    if (pending) return this.publicSuggestion(pending)!;
+    // A newer suggestion for the same topic replaces an older pending one.
+    for (const candidate of suggestions) {
+      if (candidate.topicId === topic.id && candidate.status === "pending") candidate.status = "dismissed";
+    }
+    const suggestion: StoredSuggestion = {
+      id: randomUUID(),
+      topicId: topic.id,
+      name: clean,
+      ...(reason?.trim() ? { reason: reason.trim().slice(0, 300) } : {}),
+      ...(leaderId ? { leaderId } : {}),
+      at: this.now(),
+      status: "pending",
+    };
+    suggestions.push(suggestion);
+    if (suggestions.length > MAX_CHANGES) suggestions.splice(0, suggestions.length - MAX_CHANGES);
+    this.dirty = true;
+    return this.publicSuggestion(suggestion)!;
+  }
+
+  suggestions(space?: string): TopicRenameSuggestion[] {
+    return (this.s().suggestions ?? [])
+      .filter((suggestion) => suggestion.status === "pending")
+      .flatMap((suggestion) => {
+        const view = this.publicSuggestion(suggestion);
+        const topic = this.live(suggestion.topicId);
+        return view && topic && (!space || topic.space === space) ? [view] : [];
+      });
+  }
+
+  /** The user's answer to a rename suggestion; accepting renames the topic in the user's name. */
+  answerSuggestion(id: string, accept: boolean): TopicSummary | null {
+    const suggestion = (this.s().suggestions ?? []).find((candidate) => candidate.id === id);
+    if (!suggestion || suggestion.status !== "pending") throw new TopicStoreError("Suggestion not found.", 404);
+    suggestion.status = accept ? "accepted" : "dismissed";
+    this.dirty = true;
+    return accept ? this.rename(suggestion.topicId, suggestion.name, "user", false) : null;
+  }
+
+  private publicSuggestion(suggestion: StoredSuggestion): TopicRenameSuggestion | null {
+    const topic = this.live(suggestion.topicId);
+    if (!topic) return null;
+    return {
+      id: suggestion.id,
+      topicId: topic.id,
+      topicName: topic.name,
+      name: suggestion.name,
+      ...(suggestion.reason ? { reason: suggestion.reason } : {}),
+      at: suggestion.at,
+    };
   }
 
   /** Moves every quest of `fromId` into `intoId`; "fold" is the same for a tentative topic nothing joined. */
@@ -384,17 +515,47 @@ export class TopicStore {
     this.dirty = true;
   }
 
-  /** Events the page does not include yet. */
-  pendingEvents(topicId: string): TopicEvent[] {
-    const topic = this.require(topicId);
-    return topic.events.filter((event) => topic.upToDateAt === null || event.at > topic.upToDateAt);
+  /**
+   * Events the page does not include yet; with `leaderId`, only that leader's (and events of no
+   * leader), as its writer handles them.
+   */
+  pendingEvents(topicId: string, leaderId?: string): TopicEvent[] {
+    return pendingOf(this.require(topicId), leaderId);
   }
 
-  writePage(topicId: string, markdown: string, upToDateAt: number): TopicDetail {
+  pageRevision(topicId: string): number {
+    return this.require(topicId).pageRevision ?? 0;
+  }
+
+  /**
+   * Saves a page that covers the writer's leader's events up to `upToDateAt`. With `revision`,
+   * the write is refused when another writer saved the page since this one read it.
+   */
+  writePage(
+    topicId: string,
+    markdown: string,
+    upToDateAt: number,
+    options: { leaderId?: string; revision?: number } = {},
+  ): TopicDetail {
     const topic = this.require(topicId);
     if (!markdown.trim()) throw new TopicStoreError("The page is empty.");
+    if (options.revision !== undefined && options.revision !== (topic.pageRevision ?? 0)) {
+      throw new TopicStoreError(
+        "Another leader's Scribe updated this page since you read it. Run `takode topic changes` again and merge your update into the current page.",
+        409,
+      );
+    }
     topic.page = markdown;
+    if (options.leaderId) {
+      topic.coveredThrough = {
+        ...topic.coveredThrough,
+        [options.leaderId]: Math.max(upToDateAt, topic.coveredThrough?.[options.leaderId] ?? 0),
+      };
+    } else {
+      topic.coveredThrough = undefined;
+    }
     topic.upToDateAt = Math.max(upToDateAt, topic.upToDateAt ?? 0);
+    topic.pageRevision = (topic.pageRevision ?? 0) + 1;
     topic.writtenAt = this.now();
     topic.updatedAt = this.now();
     this.dirty = true;
@@ -456,11 +617,10 @@ export class TopicStore {
       questIds,
       summary: pageSummary(topic.page),
       upToDateAt: topic.upToDateAt,
-      pendingEvents: topic.events.filter((event) => topic.upToDateAt === null || event.at > topic.upToDateAt).length,
+      pendingEvents: pendingOf(topic).length,
     };
   }
 
-  /** Agent-named topics a day old that nothing joined: candidates to fold into a better topic. */
   /** Whether the user undid a merge or fold of this topic: the page writer must not redo it. */
   private userUndidMerge(topicId: string): boolean {
     return this.s().changes.some(
@@ -468,6 +628,7 @@ export class TopicStore {
     );
   }
 
+  /** Agent-named topics a day old that nothing joined: candidates to fold into a better topic. */
   foldCandidates(space: string): TopicSummary[] {
     return this.liveTopics(space)
       .filter(
@@ -541,6 +702,21 @@ export class TopicStore {
     if (!this.state) throw new Error("Topic store is not loaded");
     return this.state;
   }
+}
+
+/**
+ * Events a page does not cover. Each leader's coverage counts for its own events; events of no
+ * leader (older ones) count as covered by any write.
+ */
+function pendingOf(topic: StoredTopic, leaderId?: string): TopicEvent[] {
+  const none = Number.NEGATIVE_INFINITY;
+  // Pages written before per-leader coverage cover everyone's events up to `upToDateAt`.
+  const covered = (leader: string | undefined) =>
+    leader && topic.coveredThrough ? (topic.coveredThrough[leader] ?? none) : (topic.upToDateAt ?? none);
+  return topic.events.filter((event) => {
+    if (leaderId && event.leaderId && event.leaderId !== leaderId) return false;
+    return event.at > covered(event.leaderId);
+  });
 }
 
 function cleanName(name: string): string {

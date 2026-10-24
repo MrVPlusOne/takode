@@ -1,6 +1,7 @@
 /**
- * Library topics: subjects named in the user's words that group a leader's quests, each with a
- * page the space's page writer keeps current. Topics and their pages are opt-in per leader.
+ * Library topics: subjects named in the user's words that group quests of a session space, each
+ * with a page kept current by the topics writers of the leaders whose quests it holds (one writer
+ * per leader, in its herd). Topics and their pages are opt-in per leader.
  * Shared by the server, the browser and the `takode topic` command.
  */
 
@@ -28,6 +29,8 @@ export interface TopicSummary {
 export interface TopicEvent {
   at: number;
   kind: "quest_filed" | "quest_done" | "message" | "artifact" | "feedback";
+  /** The leader whose activity it came from; its topics writer handles it. */
+  leaderId?: string;
   questId?: string;
   /** Session and history index of the message, for links. */
   sessionId?: string;
@@ -65,14 +68,43 @@ export interface TopicLeaderState {
   suggest: boolean;
 }
 
+/** A new name the topics writer suggests for a topic the user named; nothing changes until accepted. */
+export interface TopicRenameSuggestion {
+  id: string;
+  topicId: string;
+  topicName: string;
+  name: string;
+  reason?: string;
+  at: number;
+}
+
+/** What a leader's topics writer is doing, for the panel's status line and `takode topic status`. */
+export interface TopicWriterStatus {
+  state: "off" | "starting" | "filing" | "updating" | "waiting" | "idle" | "paused" | "over_budget";
+  /** One line for people: "Filing 120 of 336 quests", "Updating T7 run…", "Up to date". */
+  text: string;
+  writerSessionId?: string;
+  writerSessionNum?: number | null;
+  /** While filing the leader's recent quests. */
+  progress?: { done: number; total: number };
+  /** Events no page includes yet. */
+  pending: number;
+  lastPageAt?: number;
+}
+
 export interface TopicListResponse {
   topics: TopicSummary[];
   changes: TopicChange[];
   leaders: TopicLeaderState[];
   spaces: string[];
   paused: boolean;
-  /** The page writer's spend over the last day against its budget (a share of the leaders' spend). */
+  /** The writer's spend over the last day against its budget (a share of its leader's spend). */
   budget: { used: number; limit: number; overBudget: boolean };
+  /** Renames waiting for the user to accept or dismiss. */
+  suggestions: TopicRenameSuggestion[];
+  /** With a leader: its writer's status and the user's instructions for grouping its topics. */
+  writer?: TopicWriterStatus;
+  groupingNotes?: string;
 }
 
 /** Quests filed under a topic, for grouping the Done list: questId to topic. */
@@ -82,5 +114,8 @@ export type QuestTopicMap = Record<string, { id: string; name: string }>;
 export const TOPIC_HINT_QUEST_COUNT = 20;
 /** A topic stays tentative this long unless a second quest joins. */
 export const TOPIC_TENTATIVE_MS = 24 * 60 * 60 * 1000;
-/** The page writer's daily spend may reach this share of the leaders' own. */
+/** A topics writer's daily spend may reach this share of its leader's own. */
 export const STORYTELLER_BUDGET_SHARE = 0.1;
+
+/** Source of the requests Takode sends a topics writer. */
+export const LIBRARY_MESSAGE_SOURCE = { sessionId: "library", sessionLabel: "Library" } as const;

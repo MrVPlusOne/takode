@@ -12,7 +12,9 @@ import {
 import { backdropClickProps } from "../../utils/backdrop-click.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
-import { ChangeList, LeaderSwitches, TopicRow, TopicView } from "./TopicPage.js";
+import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow, TopicView } from "./TopicPage.js";
+import { navigateToSession } from "../../utils/routing.js";
+import type { TopicWriterStatus } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, TopicIcon } from "./library-icons.js";
 
 const REFRESH_MS = 20_000;
@@ -118,16 +120,25 @@ export function TopicSidePanel({
           {collapses ? <CollapseIcon className="h-4 w-4" /> : "✕"}
         </button>
       </div>
+      {data?.writer && data.writer.state !== "off" && <ScribeStatusLine status={data.writer} />}
       {error && <div className="px-3 py-2 text-[13px] text-cc-error">{error}</div>}
+      {data && <RenameSuggestions data={data} act={act} />}
       {shown ? (
-        <TopicView id={shown} topics={data?.topics ?? []} onBack={() => setChosen("")} onChanged={load} embedded />
+        <TopicView
+          id={shown}
+          topics={data?.topics ?? []}
+          onBack={() => setChosen("")}
+          onChanged={load}
+          embedded
+          leaderId={leaderId}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto" data-testid="topic-panel-list">
           {!data ? (
             <div className="px-3 py-4 text-[13px] text-cc-muted">Loading…</div>
           ) : (
             <>
-              <LeaderSwitches data={data} act={act} />
+              <LeaderSwitches data={data} leaderId={leaderId} act={act} />
               {data.changes.some((change) => !change.undone) && <ChangeList data={data} act={act} />}
               {threadKey.startsWith("q-") && (
                 <div className="px-4 pt-2 text-[12.5px] text-cc-muted">{threadKey} isn't filed under a topic yet.</div>
@@ -232,6 +243,52 @@ function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: strin
       >
         <GalleryIcon className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * What the leader's Scribe is doing, live: "Filing 120 of 336 quests", "Updating T7 run…", "Up to
+ * date". Tapping Scribe opens its session.
+ */
+function ScribeStatusLine({ status }: { status: TopicWriterStatus }) {
+  const busy = status.state === "filing" || status.state === "updating" || status.state === "starting";
+  const quiet = status.state === "paused" || status.state === "over_budget";
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 border-b border-cc-border px-3 py-1.5 text-[12.5px] text-cc-muted"
+      data-testid="scribe-status"
+      data-state={status.state}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          busy ? "bg-cc-primary" : quiet ? "bg-cc-muted/50" : "bg-cc-success"
+        }`}
+      />
+      <span className="min-w-0 flex-1 truncate">
+        {status.writerSessionId ? (
+          <button
+            type="button"
+            onClick={() => navigateToSession(status.writerSessionId!)}
+            className="text-cc-primary hover:underline"
+            title="Open the Scribe's session"
+          >
+            Scribe{status.writerSessionNum != null ? ` #${status.writerSessionNum}` : ""}
+          </button>
+        ) : (
+          "Scribe"
+        )}{" "}
+        · <span className="text-cc-fg">{status.text}</span>
+      </span>
+      {status.progress && status.progress.total > 0 && (
+        <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-cc-border" aria-hidden="true">
+          <span
+            className="block h-full bg-cc-primary"
+            style={{ width: `${Math.round((100 * status.progress.done) / status.progress.total)}%` }}
+          />
+        </span>
+      )}
     </div>
   );
 }

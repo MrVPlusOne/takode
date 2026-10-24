@@ -170,7 +170,8 @@ export async function handleList(base: string, args: string[]): Promise<void> {
   const shownReviewerCount = filtered.length - shownWorkerCount;
   const activeHerdWorkerCount =
     isOrchestrator && mySessionId
-      ? sessions.filter((s) => !s.archived && s.herdedBy === mySessionId && s.reviewerOf === undefined).length
+      ? sessions.filter((s) => !s.archived && s.herdedBy === mySessionId && s.reviewerOf === undefined && !s.scribeFor)
+          .length
       : null;
 
   // Group sessions by project (repo root or cwd).

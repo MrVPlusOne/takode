@@ -3,9 +3,14 @@
  * leader. The worker's `{[(Quiet: ...)]}` marker is only a request: any turn that
  * failed, asked something, changed its quest, answered a leader or user message,
  * or leaves nothing to resume the worker still reaches the leader.
+ *
+ * A Scribe (a leader's topics writer) is quiet by default: its turns need no marker,
+ * Takode resumes it with its next request, and a routine turn is dropped rather than
+ * held, so the leader hears from it only when it failed, asked, or answered the leader.
  */
 import { extractQuietMarkerFromText } from "../../shared/quiet-turn-marker.js";
 import { LANDING_QUEUE_MESSAGE_SOURCE } from "../../shared/landing-queue.js";
+import { LIBRARY_MESSAGE_SOURCE } from "../../shared/library-topics.js";
 import type { ContentBlock, TakodeTurnEndEventData } from "../session-types.js";
 import { isSystemSourceTag, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
 
@@ -32,8 +37,15 @@ export function resolveQuietTurn(
   deps: {
     /** Whether something will start the worker's next turn: a timer, a background job, a lease queue, ... */
     hasResumeSource: (sessionId: string) => boolean;
+    /** Whether the session is a leader's Scribe. */
+    isScribe?: (sessionId: string) => boolean;
   },
 ): QuietTurnOutcome {
+  if (deps.isScribe?.(session.id)) {
+    const ignoredReason = quietIgnoredReason(session, turn, turnStartedAt, { hasResumeSource: () => true });
+    if (ignoredReason) return { quiet_ignored: ignoredReason };
+    return { quiet: { summary: findTurnQuietSummary(session) ?? "Scribe update", silent: true } };
+  }
   const summary = findTurnQuietSummary(session);
   if (summary === null) return {};
   const ignoredReason = quietIgnoredReason(session, turn, turnStartedAt, deps);
@@ -90,13 +102,14 @@ function answeredSomeone(session: QuietTurnSession): boolean {
   });
 }
 
-/** Messages Takode itself sends: system notices, timer firings, landing-queue and lease outcomes. */
+/** Messages Takode itself sends: system notices, timer firings, landing-queue and lease outcomes, Scribe requests. */
 function isTakodeNoticeSource(agentSource: { sessionId: string } | undefined): boolean {
   if (!agentSource) return false;
   return (
     isSystemSourceTag(agentSource) ||
     isTimerSourceTag(agentSource) ||
     agentSource.sessionId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
+    agentSource.sessionId === LIBRARY_MESSAGE_SOURCE.sessionId ||
     agentSource.sessionId.startsWith("resource-lease:")
   );
 }

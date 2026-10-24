@@ -12,6 +12,7 @@ import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safet
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { resolveQuietTurn as resolveQuietTurnController } from "./bridge/quiet-turn.js";
+import { isScribeSession } from "./scribe-registry.js";
 import { listSessionWaits } from "./bridge/board-stall-participants.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -1930,6 +1931,7 @@ export function getGenerationLifecycleDeps(host: any) {
     isHerdedWorker: (session: Session) => host.isHerdedWorkerSession(session),
     resolveQuietTurn: (session: Session, turn: TakodeTurnEndEventData, turnStartedAt: number | null) =>
       resolveQuietTurnController(session, turn, turnStartedAt, {
+        isScribe: isScribeSession,
         hasResumeSource: (sessionId) =>
           (host.timerManager?.listTimers(sessionId).length ?? 0) > 0 ||
           listSessionWaits(sessionId, {

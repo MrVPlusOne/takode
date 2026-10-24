@@ -208,6 +208,12 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   noAutoName?: boolean;
   /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */
   reviewerOf?: number;
+  /**
+   * Set on a leader's Scribe (its topics writer), a special worker in its herd: the leader's
+   * session ID. It gets the Scribe brief as instructions, its routine turns don't notify the leader,
+   * and it uses no worker slot.
+   */
+  scribeFor?: string;
   /** Server-issued secret used to authenticate privileged REST calls from this session. */
   sessionAuthToken?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */

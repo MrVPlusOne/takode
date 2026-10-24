@@ -21,6 +21,7 @@ import { TOPIC_TENTATIVE_MS } from "../shared/library-topics.js";
  */
 
 const NOW = Date.UTC(2026, 9, 23, 19, 0);
+const DAY = 24 * 60 * 60 * 1000;
 let root: string;
 let now = NOW;
 
@@ -58,7 +59,7 @@ describe("topic store", () => {
     expect(store.foldCandidates("MSI").map((topic) => topic.id)).toEqual([lonely.topic.id]);
   });
 
-  it("never lets the page writer rename a topic the user named; renames keep the old name findable", async () => {
+  it("never lets a Scribe rename a topic the user named: it suggests, and the user accepts or dismisses", async () => {
     const store = await newStore();
     const { topic } = store.assign({
       questId: "q-1",
@@ -69,7 +70,17 @@ describe("topic store", () => {
     });
     store.rename(topic.id, "T7 run", "user", false);
     expect(() => store.rename(topic.id, "Coding T7", "agent", true)).toThrow(/named by the user/);
+    // Renames keep the old name findable.
     expect(store.findByName("MSI", "Find 12B duties")?.name).toBe("T7 run");
+
+    const first = store.suggestRename(topic.id, "Coding T7", "leader", "Two runs now share this topic");
+    expect(store.suggestions("MSI")).toEqual([expect.objectContaining({ topicName: "T7 run", name: "Coding T7" })]);
+    store.answerSuggestion(first.id, false);
+    expect(store.suggestions("MSI")).toEqual([]);
+    // A dismissed name is not suggested again; another one can be, and accepting renames as the user.
+    expect(() => store.suggestRename(topic.id, "coding  t7", "leader")).toThrow(/dismissed/);
+    const second = store.suggestRename(topic.id, "T7 coding run", "leader");
+    expect(store.answerSuggestion(second.id, true)).toMatchObject({ name: "T7 coding run", nameSource: "user" });
   });
 
   it("merges, moves and undoes each change", async () => {
@@ -148,77 +159,113 @@ function result(output: number): BrowserIncomingMessage {
   } as unknown as BrowserIncomingMessage;
 }
 
+type Quest = { questId: string; title: string; createdAt: number; leaderSessionId: string; status: string };
+
+const LEADERS = {
+  leader: {
+    sessionId: "leader",
+    sessionNum: 7,
+    name: "Daily Leader",
+    space: "MSI",
+    isOrchestrator: true,
+    archived: false,
+  },
+  other: {
+    sessionId: "other",
+    sessionNum: 9,
+    name: "Data Leader",
+    space: "MSI",
+    isOrchestrator: true,
+    archived: false,
+  },
+};
+
 async function setupService() {
   vi.useFakeTimers({ now: NOW, toFake: ["setTimeout", "clearTimeout", "Date"] });
   const store = await newStore();
   const leader: TopicSessionLike = { id: "leader", messageHistory: [], state: { treeGroupId: "msi-group" } };
-  const sessions = new Map<string, TopicSessionLike>([["leader", leader]]);
+  const sessions = new Map<string, TopicSessionLike>([
+    ["leader", leader],
+    ["other", { id: "other", messageHistory: [], state: {} }],
+  ]);
+  // 25 older quests make the leader worth a hint; recent ones are what a Scribe files.
+  const quests: Quest[] = Array.from({ length: 25 }, (_, index) => ({
+    questId: `q-${index}`,
+    title: `Old quest ${index}`,
+    createdAt: NOW - 40 * DAY,
+    leaderSessionId: "leader",
+    status: "done",
+  }));
   const injected: Array<{ sessionId: string; text: string }> = [];
-  let writers = 0;
+  const created: string[] = [];
+  const busy = new Set<string>();
   const contextTokens = new Map<string, number>();
   const retired: string[] = [];
+  const messages = new Map<string, string>();
   const service = new TopicService(store, {
     getSession: (id) => sessions.get(id),
-    getLeaderInfo: (id) =>
-      id === "leader"
-        ? { sessionId: id, sessionNum: 7, name: "Daily Leader", space: "MSI", isOrchestrator: true, archived: false }
-        : undefined,
-    listLeaders: () => [
-      { sessionId: "leader", sessionNum: 7, name: "Daily Leader", space: "MSI", isOrchestrator: true, archived: false },
-    ],
-    sessionNum: () => 7,
-    listQuests: async () =>
-      Array.from({ length: 25 }, (_, index) => ({
-        questId: `q-${index}`,
-        leaderSessionId: "leader",
-      })) as unknown as QuestmasterTask[],
+    getLeaderInfo: (id) => LEADERS[id as keyof typeof LEADERS],
+    listLeaders: () => Object.values(LEADERS),
+    sessionNum: (id) => (id.startsWith("scribe") ? 100 + Number(id.split("-")[2]) : 7),
+    leaderOf: (id) => (id in LEADERS ? id : undefined),
+    listQuests: async () => quests as unknown as QuestmasterTask[],
     inject: (sessionId, text) => {
       injected.push({ sessionId, text });
       return true;
     },
-    createWriter: async () => {
-      writers += 1;
-      const id = `writer-${writers}`;
+    createWriter: async (info) => {
+      const id = `scribe-${info.sessionId}-${created.length + 1}`;
+      created.push(id);
       sessions.set(id, { id, messageHistory: [], state: {} });
       return id;
     },
     isWriterAlive: (id) => sessions.has(id),
+    isWriterBusy: (id) => busy.has(id),
     writerContextTokens: (id) => contextTokens.get(id) ?? 0,
     retireWriter: async (id) => {
       retired.push(id);
       sessions.delete(id);
     },
+    messageText: (sessionNum, index) => messages.get(`${sessionNum}:${index}`) ?? null,
     broadcastChanged: () => {},
     now: () => Date.now(),
   });
-  return { store, service, leader, sessions, injected, contextTokens, retired };
+  return { store, service, leader, sessions, quests, injected, created, busy, contextTokens, retired, messages };
+}
+
+/** Turns topics on for a leader and settles its first filing, so later tests start from quiet. */
+async function enable(service: TopicService, store: TopicStore, leaderId: string) {
+  await service.setLeaderEnabled(leaderId, true);
+  service.pageWritten(leaderId);
+  return store.writerFor(leaderId)!;
 }
 
 describe("topic service", () => {
-  it("suggests topics at about 20 quests and, once on, files the leader's month through the page writer", async () => {
-    const { service, injected, store } = await setupService();
+  it("suggests topics at about 20 quests; turning them on starts a Scribe that files the leader's month", async () => {
+    const { service, injected, store, created, retired } = await setupService();
     expect((await service.leaderStates())[0]).toMatchObject({ enabled: false, questCount: 25, suggest: true });
 
     await service.setLeaderEnabled("leader", true);
-    expect(store.isLeaderEnabled("leader")).toBe(true);
-    // The writer is introduced, then asked to file the month.
-    expect(injected.map((message) => message.sessionId)).toEqual(["writer-1", "writer-1"]);
-    expect(injected[1].text).toContain("takode topic quests --leader leader");
-    // Turning it off and on again files only what is still unfiled, with the same writer.
+    expect(created).toEqual(["scribe-leader-1"]);
+    expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1"]);
+    expect(injected[0].text).toContain("takode topic quests --unfiled");
+
+    // Off archives the Scribe; on again starts a new one, which files what is still unfiled.
     await service.setLeaderEnabled("leader", false);
-    expect(store.isLeaderEnabled("leader")).toBe(false);
+    expect(retired).toEqual(["scribe-leader-1"]);
+    expect(store.writerFor("leader")).toBeUndefined();
     await service.setLeaderEnabled("leader", true);
-    expect(injected.map((message) => message.sessionId)).toEqual(["writer-1", "writer-1", "writer-1"]);
-    expect(injected[2].text).toContain("--unfiled");
+    expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
+    expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1", "scribe-leader-2"]);
   });
 
-  it("asks the page writer about a minute after the user's messages in a topic's quest, batching them", async () => {
+  it("asks a leader's Scribe a minute after the user's messages in its topic's quest, batching them", async () => {
     const { service, injected, store, leader } = await setupService();
-    await service.setLeaderEnabled("leader", true);
-    store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
-    store.writePage(store.findByName("MSI", "T7 run")!.id, "## Where it stands\nFiled.", Date.now());
-    // The writer answered the backfill, so new events may ask again.
-    service.pageWritten("MSI");
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    store.writePage(store.findByName("MSI", "T7 run")!.id, "## Where it stands\nFiled.", Date.now(), {
+      leaderId: "leader",
+    });
     injected.length = 0;
     vi.advanceTimersByTime(1000);
 
@@ -232,53 +279,156 @@ describe("topic service", () => {
 
     expect(injected).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
-    expect(injected).toHaveLength(1);
+    expect(injected.map((message) => message.sessionId)).toEqual([scribe]);
     expect(injected[0].text).toContain('"T7 run"');
     expect(injected[0].text).toContain("takode topic changes");
     const topic = store.findByName("MSI", "T7 run")!;
-    expect(store.pendingEvents(topic.id).map((event) => event.text)).toEqual(
+    expect(store.pendingEvents(topic.id, "leader").map((event) => event.text)).toEqual(
       expect.arrayContaining(["Keep 0.02, launch now", "Also redo the plots by data"]),
     );
   });
 
+  it("shares a topic between leaders: each Scribe covers its own leader's events", async () => {
+    const { service, injected, store } = await setupService();
+    const a = await enable(service, store, "leader");
+    const b = await enable(service, store, "other");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "other" });
+    injected.length = 0;
+
+    expect(store.pendingEvents(topic.id, "leader").map((event) => event.questId)).toEqual(["q-1"]);
+    expect(await service.ask("leader")).toBe("asked");
+    expect(injected.map((message) => message.sessionId)).toEqual([a]);
+
+    // A's page covers A's events only; B's Scribe still has its own to add.
+    const revision = store.pageRevision(topic.id);
+    store.writePage(topic.id, "## Where it stands\nA's part.", Date.now(), { leaderId: "leader", revision });
+    expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
+    expect(store.pendingEvents(topic.id, "other").map((event) => event.questId)).toEqual(["q-2"]);
+    expect(await service.ask("other")).toBe("asked");
+    expect(injected.at(-1)?.sessionId).toBe(b);
+    // A write based on the page before A's is refused, so B merges instead of overwriting.
+    expect(() =>
+      store.writePage(topic.id, "## Where it stands\nB only.", Date.now(), { leaderId: "other", revision }),
+    ).toThrow(/updated this page since you read it/);
+  });
+
+  it("lists a leader's recent quests with no topic, and passes on changed grouping instructions", async () => {
+    const { service, injected, store, quests } = await setupService();
+    await enable(service, store, "leader");
+    injected.length = 0;
+    quests.push({
+      questId: "q-90",
+      title: "Check the twin",
+      createdAt: NOW,
+      leaderSessionId: "leader",
+      status: "refined",
+    });
+    store.setGroupingNotes("leader", "One topic per training run.");
+    service.notesChanged("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    expect(injected[0].text).toContain('grouping instructions changed: "One topic per training run."');
+    expect(injected[0].text).toContain("- q-90 Check the twin");
+  });
+
   it("waits while paused or over budget, and Update now goes through anyway", async () => {
     const { service, injected, store, sessions } = await setupService();
-    await service.setLeaderEnabled("leader", true);
+    const scribe = await enable(service, store, "leader");
     injected.length = 0;
-    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
 
-    store.setPaused("MSI", true);
-    expect(await service.ask("MSI")).toBe("paused");
-    store.setPaused("MSI", false);
+    store.setPaused("leader", true);
+    expect(await service.ask("leader")).toBe("paused");
+    store.setPaused("leader", false);
 
-    // The writer spent more than a tenth of what the leader spent today.
+    // The Scribe spent more than a tenth of what its leader spent today.
     sessions.get("leader")!.messageHistory.push(...turn(Date.now(), 1000));
-    sessions.get(store.writerFor("MSI")!)!.messageHistory.push(...turn(Date.now(), 200));
-    expect(service.budget("MSI")).toMatchObject({ overBudget: true });
-    expect(await service.ask("MSI")).toBe("over_budget");
-    expect(await service.ask("MSI", { force: true, topicId: topic.id })).toBe("asked");
+    sessions.get(scribe)!.messageHistory.push(...turn(Date.now(), 200));
+    expect(service.budget("leader")).toMatchObject({ overBudget: true });
+    expect(await service.ask("leader")).toBe("over_budget");
+    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
     expect(injected).toHaveLength(1);
   });
 
-  it("replaces a page writer whose conversation grew long, but never while it works on a request", async () => {
-    const { service, store, injected, contextTokens, retired, sessions } = await setupService();
+  it("replaces a Scribe whose conversation grew long, but never while it works on a request", async () => {
+    const { service, store, injected, contextTokens, retired, sessions, created } = await setupService();
     await service.setLeaderEnabled("leader", true);
-    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
-    // The backfill is still being answered: a fix request goes to the same writer.
-    contextTokens.set("writer-1", WRITER_CONTEXT_LIMIT + 1);
-    sessions.get("writer-1")!.messageHistory.push(...turn(Date.now(), 200));
-    expect(await service.ask("MSI", { force: true, topicId: topic.id })).toBe("asked");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    // The filing request is still open: a fix request goes to the same Scribe.
+    contextTokens.set("scribe-leader-1", WRITER_CONTEXT_LIMIT + 1);
+    sessions.get("scribe-leader-1")!.messageHistory.push(...turn(Date.now(), 200));
+    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
     expect(retired).toEqual([]);
-    expect(injected.at(-1)?.sessionId).toBe("writer-1");
 
-    // Once it has written, the next request starts a fresh writer, introduced first.
-    service.pageWritten("MSI");
-    expect(await service.ask("MSI", { force: true, topicId: topic.id })).toBe("asked");
-    expect(retired).toEqual(["writer-1"]);
-    expect(store.writerFor("MSI")).toBe("writer-2");
-    // What the replaced writer spent still counts against the day's budget.
-    expect(service.budget("MSI").used).toBe(1000);
-    expect(injected.slice(-2).map((message) => message.sessionId)).toEqual(["writer-2", "writer-2"]);
+    // Once it has written, the next request starts a fresh Scribe.
+    service.pageWritten("leader");
+    expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
+    expect(retired).toEqual(["scribe-leader-1"]);
+    expect(created.at(-1)).toBe("scribe-leader-2");
+    expect(injected.at(-1)?.sessionId).toBe("scribe-leader-2");
+    // What the replaced Scribe spent still counts against the day's budget.
+    expect(service.budget("leader").used).toBe(1000);
+  });
+
+  it("reports what the Scribe is doing: filing, updating, waiting, up to date", async () => {
+    const { service, store, quests, busy } = await setupService();
+    quests.push(
+      { questId: "q-91", title: "A", createdAt: NOW, leaderSessionId: "leader", status: "done" },
+      { questId: "q-92", title: "B", createdAt: NOW, leaderSessionId: "leader", status: "done" },
+    );
+    expect((await service.status("leader")).state).toBe("off");
+    await service.setLeaderEnabled("leader", true);
+    store.assign({ questId: "q-91", space: "MSI", name: "Runs", by: "agent", byAgent: false, leaderId: "leader" });
+    expect(await service.status("leader")).toMatchObject({
+      state: "filing",
+      text: "Filing 1 of 2 quests",
+      writerSessionId: "scribe-leader-1",
+    });
+    service.pageWritten("leader");
+    busy.add("scribe-leader-1");
+    await service.ask("leader", { force: true });
+    expect((await service.status("leader")).text).toBe("Updating Runs…");
+    busy.clear();
+    service.pageWritten("leader");
+    expect(await service.status("leader")).toMatchObject({ state: "waiting", pending: 1 });
+    store.writePage(store.findByName("MSI", "Runs")!.id, "## Where it stands\nOk.", Date.now(), {
+      leaderId: "leader",
+    });
+    expect(await service.status("leader")).toMatchObject({ state: "idle", text: "Up to date" });
+  });
+
+  it("checks that quoted decisions appear in the messages they link to", async () => {
+    const { service, messages } = await setupService();
+    messages.set("7:12", "Ok — keep 0.02, launch now. And   redo the plots");
+    const page = [
+      '- Oct 21 · "Keep 0.02, launch now" ([message](session:7:12)), and "redo the plots" ([message](session:7:12)).',
+      '- Oct 22 · "Use 0.05 instead" ([message](session:7:12)).',
+      '- Oct 23 · "Anything at all" ([message](session:7:99)) is not checked: that message cannot be read.',
+      '- "keep 0.02 … the plots" ([message](session:7:12)) joins parts with an ellipsis.',
+    ].join("\n");
+    expect(service.checkQuotes(page)).toEqual(['"Use 0.05 instead" is not in message session:7:12']);
   });
 
   it("weighs spend like token prices and ignores turns older than a day", () => {

@@ -1,4 +1,5 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
+import { isScribeSession } from "./scribe-registry.js";
 import { isCurrentWorkerReport } from "./worker-report-event.js";
 import { formatWorkerReport } from "../shared/worker-report.js";
 import { formatLeaseWaitDuration } from "../shared/resource-lease-message.js";
@@ -606,6 +607,12 @@ export class HerdEventDispatcher {
       inbox.recentEventKeys.set(eventKey, Date.now());
       trimRecentEventKeys(inbox);
       this.traceDelivery(orchId, "coalesced_committed", event);
+      return;
+    }
+
+    // A Scribe's routine activity never reaches its leader; its questions, failures and replies do.
+    if (isRoutineScribeEvent(event)) {
+      this.traceDelivery(orchId, "suppressed", event);
       return;
     }
 
@@ -1948,4 +1955,19 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   if (a.size !== b.size) return false;
   for (const v of a) if (!b.has(v)) return false;
   return true;
+}
+
+/**
+ * Events of a Scribe (a leader's topics writer) the leader need not see: its silent routine
+ * turns, and its own lifecycle (Takode archives and replaces Scribes by itself).
+ */
+export function isRoutineScribeEvent(event: TakodeEvent): boolean {
+  if (!isScribeSession(event.sessionId)) return false;
+  if (event.event === "turn_end") return !!event.data.quiet?.silent;
+  return (
+    event.event === "session_archived" ||
+    event.event === "session_disconnected" ||
+    event.event === "herd_reassigned" ||
+    event.event === "permission_resolved"
+  );
 }

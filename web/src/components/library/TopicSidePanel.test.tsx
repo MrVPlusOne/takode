@@ -57,6 +57,25 @@ const LIST: TopicListResponse = {
   spaces: ["MSI"],
   paused: false,
   budget: { used: 0, limit: 0, overBudget: false },
+  suggestions: [],
+};
+
+/** The same leader once topics are on: its Scribe is filing, a rename waits for the user. */
+const ON: TopicListResponse = {
+  ...LIST,
+  leaders: [{ ...LIST.leaders[0]!, enabled: true, suggest: false }],
+  suggestions: [
+    { id: "s1", topicId: "t7", topicName: "T7 run", name: "Coding T7", reason: "Two runs share it", at: NOW },
+  ],
+  writer: {
+    state: "filing",
+    text: "Filing 120 of 336 quests",
+    writerSessionId: "scribe-1",
+    writerSessionNum: 3300,
+    progress: { done: 120, total: 336 },
+    pending: 0,
+  },
+  groupingNotes: "",
 };
 
 const DETAIL: TopicDetail = {
@@ -87,7 +106,7 @@ function mockApi() {
 }
 
 describe("TopicSidePanel", () => {
-  it("offers to turn topics on, lists topics and undoes the page writer's tidying", async () => {
+  it("offers to turn topics on, lists topics and undoes the Scribe's tidying", async () => {
     const api = mockApi();
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     const hint = await screen.findByTestId("topic-hint");
@@ -112,12 +131,35 @@ describe("TopicSidePanel", () => {
     expect(within(view).getByTestId("topic-page")).toHaveTextContent("Step ~165.");
     expect(view).toHaveTextContent("Launch T7");
 
+    // Both go to the Scribe of the leader whose panel this is.
     fireEvent.click(within(view).getByText("Update now"));
-    expect(api.update).toHaveBeenCalledWith("t7");
+    expect(api.update).toHaveBeenCalledWith("t7", "l1");
     fireEvent.change(within(view).getByLabelText("Fix this page"), { target: { value: "The LR is 0.02" } });
     fireEvent.click(within(view).getByText("Send"));
-    expect(api.feedback).toHaveBeenCalledWith("t7", "The LR is 0.02");
-    await waitFor(() => expect(view).toHaveTextContent("Sent; the page will be corrected shortly."));
+    expect(api.feedback).toHaveBeenCalledWith("t7", "The LR is 0.02", "l1");
+    await waitFor(() => expect(view).toHaveTextContent("Sent to the Scribe; the page will be corrected shortly."));
+  });
+
+  it("shows the Scribe's live status, rename suggestions to answer, and the grouping instructions box", async () => {
+    const api = mockApi();
+    vi.spyOn(topicApi, "list").mockResolvedValue(ON);
+    const answer = vi.spyOn(topicApi, "answerSuggestion").mockResolvedValue({});
+    const notes = vi.spyOn(topicApi, "setGroupingNotes").mockResolvedValue({ groupingNotes: "x" });
+    render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
+    const status = await screen.findByTestId("scribe-status");
+    expect(status).toHaveTextContent("Scribe #3300 · Filing 120 of 336 quests");
+    expect(status).toHaveAttribute("data-state", "filing");
+
+    const suggestions = screen.getByTestId("topic-suggestions");
+    expect(suggestions).toHaveTextContent("Rename “T7 run” to “Coding T7”?");
+    fireEvent.click(within(suggestions).getByText("Accept"));
+    expect(answer).toHaveBeenCalledWith("s1", true);
+
+    fireEvent.click(screen.getByText("Settings and grouping"));
+    fireEvent.change(screen.getByLabelText("How to group my topics"), { target: { value: "One topic per run." } });
+    fireEvent.click(within(screen.getByTestId("topic-grouping-notes")).getByText("Save"));
+    expect(notes).toHaveBeenCalledWith("l1", "One topic per run.");
+    expect(api.enable).not.toHaveBeenCalled();
   });
 
   it("is part of the desktop layout: open by default, collapsing to a rail naming the topic", async () => {

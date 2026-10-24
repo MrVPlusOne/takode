@@ -896,10 +896,11 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       archived?: boolean;
       herdedBy?: string;
       reviewerOf?: number;
+      scribeFor?: string;
       workerSlotLimit?: number;
     }>;
     const activeHerdWorkers = allSessions.filter(
-      (s) => !s.archived && s.herdedBy === leaderSessionId && s.reviewerOf === undefined,
+      (s) => !s.archived && s.herdedBy === leaderSessionId && s.reviewerOf === undefined && !s.scribeFor,
     );
     const limit = allSessions.find((s) => s.sessionId === leaderSessionId)?.workerSlotLimit;
     if (limit !== undefined && activeHerdWorkers.length > limit) {

@@ -110,6 +110,8 @@ export interface LaunchOptions {
   slackThreadReadOnly?: boolean;
   /** Hidden implementation session omitted from normal session lists. */
   hidden?: boolean;
+  /** Starts a leader's Scribe: the leader's session ID (see `SdkSessionInfo.scribeFor`). */
+  scribeFor?: string;
   /** Whether this session should consume a normal public #N session number. Defaults to true. */
   publicSessionNumber?: boolean;
   parentSessionId?: string;

@@ -44,29 +44,35 @@ afterEach(async () => {
 async function setup() {
   const store = new TopicStore(root);
   await store.load();
-  store.setWriter("MSI", "writer");
+  store.setWriter("leader", "scribe");
   const injected: string[] = [];
   const service = new TopicService(store, {
     getSession: () => undefined,
     getLeaderInfo: () => undefined,
     listLeaders: () => [],
     sessionNum: () => null,
+    leaderOf: () => undefined,
     listQuests: async () => [],
     inject: (_sessionId, text) => {
       injected.push(text);
       return true;
     },
-    createWriter: async () => "writer",
+    createWriter: async () => "scribe",
     isWriterAlive: () => true,
+    isWriterBusy: () => false,
     writerContextTokens: () => 0,
     retireWriter: async () => {},
+    messageText: (sessionNum, index) => (sessionNum === 7 && index === 4 ? "Keep 0.02, launch now" : null),
     broadcastChanged: () => {},
   });
   let caller: string | null = null;
   const ctx = {
     resolveId: (raw: string) => raw,
     authenticateCompanionCallerOptional: () => (caller ? { callerId: caller, caller: {} } : null),
-    launcher: { getSession: () => ({ memorySessionSpaceSlug: "MSI" }), getSessionNum: () => 7 },
+    launcher: {
+      getSession: (id: string) => ({ memorySessionSpaceSlug: "MSI", isOrchestrator: id === "leader" }),
+      getSessionNum: () => 7,
+    },
   } as unknown as RouteContext;
   const app = createTopicRoutes(ctx, () => service);
   const send = (path: string, method: string, body: object) =>
@@ -86,38 +92,93 @@ describe("topic routes", () => {
     expect(status).toEqual({ enabled: true, space: "MSI", topics: ["T7 run"] });
   });
 
-  it("refuses the page writer's rename of a topic the user named, but lets the user rename it", async () => {
-    const { store, send, setCaller } = await setup();
+  it("turns a Scribe's rename of a topic the user named into a suggestion, while the user renames directly", async () => {
+    const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "user", byAgent: false });
 
-    setCaller("writer");
-    const refused = await send(`/topics/${topic.id}`, "PATCH", { name: "Coding T7" });
-    expect(refused.status).toBe(403);
+    setCaller("scribe");
+    const suggested = await (
+      await send(`/topics/${topic.id}`, "PATCH", { name: "Coding T7", reason: "Two runs share it" })
+    ).json();
+    expect(suggested.suggested).toMatchObject({ topicName: "T7 run", name: "Coding T7", reason: "Two runs share it" });
+    expect(store.resolve(topic.id)?.name).toBe("T7 run");
 
+    // The panel shows it; accepting renames the topic in the user's name.
     setCaller(null);
-    const renamed = await (await send(`/topics/${topic.id}`, "PATCH", { name: "T7 coding run" })).json();
-    expect(renamed.name).toBe("T7 coding run");
+    const list = await (await app.request("/topics?space=MSI")).json();
+    expect(list.suggestions).toHaveLength(1);
+    await send(`/topics/suggestions/${list.suggestions[0].id}`, "POST", { accept: true });
+    expect(store.resolve(topic.id)).toMatchObject({ name: "Coding T7", nameSource: "user" });
   });
 
-  it("writes a page that covers what the writer read, so later events stay pending", async () => {
-    const { app, store, send, setCaller } = await setup();
+  it("refuses a page whose quoted decision is not in the message it links to", async () => {
+    const { store, send } = await setup();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
-    store.addEvent(topic.id, { at: Date.now() + 10, kind: "message", questId: "q-1", sessionId: "leader", text: "Go" });
+    const bad = await send(`/topics/${topic.id}/page`, "POST", {
+      markdown: '## Your decisions\n- "Use 0.05 instead" ([message](session:7:4))',
+    });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toContain('"Use 0.05 instead" is not in message session:7:4');
+    const good = await send(`/topics/${topic.id}/page`, "POST", {
+      markdown: '## Your decisions\n- "keep 0.02, launch now" ([message](session:7:4))',
+    });
+    expect(good.status).toBe(200);
+  });
 
-    setCaller("writer");
+  it("tells a leader its Scribe's status and grouping instructions, which the Scribe may not change", async () => {
+    const { app, send, setCaller } = await setup();
+    setCaller("leader");
+    await send("/topics/leaders/leader/notes", "POST", { text: "One topic per training run." });
+    const status = await (await app.request("/topics/status")).json();
+    expect(status).toMatchObject({ groupingNotes: "One topic per training run.", scribe: { state: "off" } });
+    setCaller("scribe");
+    expect((await send("/topics/leaders/leader/notes", "POST", { text: "x" })).status).toBe(403);
+    // The Scribe reads its own leader's status without naming it.
+    expect((await (await app.request("/topics/status")).json()).leader.sessionId).toBe("leader");
+  });
+
+  it("writes a page that covers what the Scribe read of its leader's events, so later events stay pending", async () => {
+    const { app, store, send, setCaller } = await setup();
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    store.addEvent(topic.id, {
+      at: Date.now() + 10,
+      kind: "message",
+      leaderId: "leader",
+      questId: "q-1",
+      sessionId: "leader",
+      text: "Go",
+    });
+    // Another leader's event is for that leader's Scribe.
+    store.addEvent(topic.id, { at: Date.now() + 11, kind: "quest_done", leaderId: "other", questId: "q-9" });
+
+    setCaller("scribe");
     const read = await (await app.request(`/topics/${topic.id.slice(0, 8)}/changes`)).json();
     expect(read.events.map((event: { kind: string }) => event.kind)).toEqual(["quest_filed", "message"]);
     expect(read.events[1].sessionNum).toBe(7);
     expect(read.quests).toEqual([{ questId: "q-1", title: "Launch T7", status: "done" }]);
 
     // An event that arrives while the writer is writing is not covered by the page.
-    store.addEvent(topic.id, { at: Date.now() + 20, kind: "quest_done", questId: "q-1", text: "Launch T7" });
+    store.addEvent(topic.id, {
+      at: Date.now() + 20,
+      kind: "quest_done",
+      leaderId: "leader",
+      questId: "q-1",
+      text: "Launch T7",
+    });
     const written = await send(`/topics/${topic.id}/page`, "POST", { markdown: "## Where it stands\nLaunched." });
     expect(written.status).toBe(200);
-    expect(store.pendingEvents(topic.id).map((event) => event.kind)).toEqual(["quest_done"]);
+    expect(store.pendingEvents(topic.id, "leader").map((event) => event.kind)).toEqual(["quest_done"]);
+    expect(store.pendingEvents(topic.id, "other").map((event) => event.questId)).toEqual(["q-9"]);
   });
 
-  it("shows a leader's Library the topics of its own quests", async () => {
+  it("shows a leader's panel the topics of its own quests", async () => {
     const { app, store } = await setup();
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
     store.assign({ questId: "q-2", space: "MSI", name: "Seeded QA", by: "agent", byAgent: false });

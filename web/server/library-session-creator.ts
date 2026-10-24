@@ -3,7 +3,10 @@
  * memory space), for server features that start their own agent, such as the Library's page writer.
  * Registered by the sessions routes, which own session preparation.
  */
-export type LibrarySessionCreator = (body: Record<string, unknown>) => Promise<{ sessionId: string }>;
+export type LibrarySessionCreator = (
+  body: Record<string, unknown>,
+  internal?: { scribeFor?: string },
+) => Promise<{ sessionId: string }>;
 
 let creator: LibrarySessionCreator | null = null;
 
@@ -11,9 +14,12 @@ export function setLibrarySessionCreator(next: LibrarySessionCreator): void {
   creator = next;
 }
 
-export function createLibrarySession(body: Record<string, unknown>): Promise<{ sessionId: string }> {
+export function createLibrarySession(
+  body: Record<string, unknown>,
+  internal?: { scribeFor?: string },
+): Promise<{ sessionId: string }> {
   if (!creator) throw new Error("Sessions cannot be created yet.");
-  return creator(body);
+  return creator(body, internal);
 }
 
 /** Archives a session the way the session API does; registered by the archive routes. */

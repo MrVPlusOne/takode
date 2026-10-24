@@ -1,4 +1,5 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
+import { buildScribeInstructions } from "./scribe-brief.js";
 import { terminateKnownProcess } from "./cli-launcher-termination.js";
 import { recordCodexProcessTermination } from "./codex-close-diagnostics.js";
 import { randomUUID, createHash } from "node:crypto";
@@ -244,10 +245,23 @@ export class CliLauncher {
    * full orchestration prompt again from the isOrchestrator flag.
    */
   private relaunchExtraInstructions(info: SdkSessionInfo, backend: BackendType): string | undefined {
-    return info.isOrchestrator
-      ? this.getOrchestratorGuardrails(backend)
-      : (info.codexWorkerV2Cutover?.oneShotExtraInstructions ?? undefined);
+    if (info.isOrchestrator) return this.getOrchestratorGuardrails(backend);
+    if (info.scribeFor) return this.getScribeInstructions(info.scribeFor);
+    return info.codexWorkerV2Cutover?.oneShotExtraInstructions ?? undefined;
   }
+
+  /** A Scribe's brief, naming its leader; rebuilt for every launch so it is always current. */
+  getScribeInstructions(leaderId: string): string {
+    const leader = this.sessions.get(leaderId);
+    return buildScribeInstructions({
+      leaderNum: leader?.sessionNum ?? null,
+      leaderName: (leader && this.scribeLeaderName?.(leaderId)) || leader?.name || leaderId.slice(0, 8),
+      space: leader?.memorySessionSpaceSlug ?? this.getMemorySessionSpaceSlug(),
+    });
+  }
+
+  /** The display name of a leader, for its Scribe's brief; set by the server, which knows names. */
+  scribeLeaderName?: (leaderId: string) => string | undefined;
 
   /** Whether the session waits for its host to connect so it can take over its still-running process. */
   isAwaitingHostReattach(sessionId: string): boolean {
@@ -722,6 +736,7 @@ export class CliLauncher {
       envSlug: options.envSlug,
       blockedEnvKeys: options.blockedEnvKeys?.length ? Array.from(new Set(options.blockedEnvKeys)) : undefined,
       hidden: options.hidden === true,
+      ...(options.scribeFor ? { scribeFor: options.scribeFor } : {}),
       publicSessionNumber: options.publicSessionNumber !== false,
       parentSessionId: options.parentSessionId,
       isOrchestrator: options.isOrchestrator === true,

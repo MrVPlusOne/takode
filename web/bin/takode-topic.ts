@@ -1,25 +1,38 @@
-import type { TopicDetail, TopicListResponse, TopicSummary } from "../shared/library-topics.js";
+import type {
+  TopicDetail,
+  TopicListResponse,
+  TopicRenameSuggestion,
+  TopicSummary,
+  TopicWriterStatus,
+} from "../shared/library-topics.js";
+import { formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
 import { apiGet, apiPatch, apiPost, err, formatRelativeTime, parseFlags, readOptionTextFile } from "./takode-core.js";
 
 export const TOPIC_HELP = `Usage: takode topic <command> ...
 
-Library topics group a leader's quests by subject, in the user's words, each with a page kept
-current from the conversations. They are on only for leaders the user turned them on for.
+Library topics group quests by subject, in the user's words, each with a page that a leader's
+Scribe (a special worker in its herd) keeps current by itself. They are on only for leaders the
+user turned them on for; normal work needs nothing from the leader but filing quests with --topic.
 
   takode topic list [--space <name>|all] [--json]     Topics of your space, newest first
   takode topic show <topic> [--json]                   A topic's page and quests (read it before
                                                        answering questions about the topic)
+  takode topic status [--leader <session>] [--json]    Your Scribe: what it is doing, the user's
+                                                       grouping instructions, renames waiting
+  takode topic notes "<text>"                          Set the user's grouping instructions, when the
+                                                       user asks you to ("" clears them)
   takode topic set q-N "<topic>"                       File a quest under a topic (new name: new topic)
   takode topic move q-N "<topic>"                      File a quest under another topic
-  takode topic rename <topic> "<name>"
+  takode topic rename <topic> "<name>" [--reason "<why>"]
   takode topic merge <from> <into> [--fold]
+To steer your Scribe beyond that, message it: takode send <its session> "...".
 
-For the page writer:
-  takode topic guide                                   How to write topic pages
-  takode topic changes <topic>                         The page and what happened since it was written
+For the Scribe:
+  takode topic guide                                   Its brief
+  takode topic changes <topic>                         The page and your leader's events since
   takode topic write-page <topic> --file <path>|-
-  takode topic quests --leader <session> [--unfiled] [--since 30d]
+  takode topic quests [--unfiled] [--since 30d]        Your leader's recent quests
 
 <topic> is a topic's name, or the short ID shown by list.`;
 
@@ -76,9 +89,41 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
     }
     case "rename": {
       const [ref, name] = positionals;
-      if (!ref || !name) err('Usage: takode topic rename <topic> "<name>"');
-      const topic = (await apiPatch(base, topicPath(ref), { name })) as TopicSummary;
-      console.log(`Renamed to "${topic.name}".`);
+      if (!ref || !name) err('Usage: takode topic rename <topic> "<name>" [--reason "<why>"]');
+      const result = (await apiPatch(base, topicPath(ref), {
+        name,
+        ...(typeof flags.reason === "string" ? { reason: flags.reason } : {}),
+      })) as TopicSummary & { suggested?: TopicRenameSuggestion };
+      if (result.suggested) {
+        console.log(
+          `"${result.suggested.topicName}" was named by the user, so this is a suggestion: the user accepts or dismisses renaming it to "${result.suggested.name}" in the topics panel.`,
+        );
+      } else {
+        console.log(`Renamed to "${result.name}".`);
+      }
+      return;
+    }
+    case "status": {
+      const params = typeof flags.leader === "string" ? `?leader=${encodeURIComponent(flags.leader)}` : "";
+      const status = (await apiGet(base, `/topics/status${params}`)) as TopicStatusResponse;
+      if (flags.json === true) console.log(JSON.stringify(status, null, 2));
+      else console.log(formatTopicStatus(status));
+      return;
+    }
+    case "notes": {
+      const text = positionals[0];
+      if (text === undefined) err('Usage: takode topic notes "<text>"  (empty text clears them)');
+      const status = (await apiGet(base, "/topics/status")) as TopicStatusResponse;
+      const { groupingNotes } = (await apiPost(
+        base,
+        `/topics/leaders/${encodeURIComponent(status.leader.sessionId)}/notes`,
+        { text },
+      )) as { groupingNotes: string };
+      console.log(
+        groupingNotes
+          ? `Grouping instructions saved; the Scribe follows them from its next update.`
+          : "Grouping instructions cleared.",
+      );
       return;
     }
     case "merge": {
@@ -94,9 +139,7 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
       return;
     }
     case "quests": {
-      if (typeof flags.leader !== "string")
-        err("Usage: takode topic quests --leader <session> [--unfiled] [--since 30d]");
-      const params = new URLSearchParams({ leader: flags.leader });
+      const params = new URLSearchParams(typeof flags.leader === "string" ? { leader: flags.leader } : {});
       if (flags.unfiled === true) params.set("unfiled", "1");
       if (typeof flags.since === "string") params.set("since", String(parseActivityTime(flags.since, Date.now())));
       const { quests } = (await apiGet(base, `/topics/leader-quests?${params}`)) as {
@@ -137,6 +180,37 @@ interface TopicChangesResponse {
   }>;
   quests: Array<{ questId: string; title: string; status: string }>;
   artifacts: Array<{ id: string; kind: string; title: string; versions: number; questId: string; updatedAt: number }>;
+}
+
+interface TopicStatusResponse {
+  leader: { sessionId: string; sessionNum: number | null; space: string | null };
+  enabled: boolean;
+  topics: number;
+  scribe: TopicWriterStatus;
+  paused: boolean;
+  spendShare: number | null;
+  groupingNotes: string;
+  suggestions: TopicRenameSuggestion[];
+}
+
+/** A few lines: on or off, what the Scribe is doing, the instructions, and renames waiting for the user. */
+export function formatTopicStatus(status: TopicStatusResponse): string {
+  const leader = `#${status.leader.sessionNum ?? "?"}`;
+  if (!status.enabled) return `Topics are off for ${leader}; the user turns them on in the topics panel.`;
+  const scribe = status.scribe.writerSessionNum != null ? `#${status.scribe.writerSessionNum}` : "not started";
+  const lines = [
+    `Topics for ${leader} (space ${status.leader.space ?? "?"}): ${status.topics} topic${status.topics === 1 ? "" : "s"}`,
+    `Scribe ${scribe}: ${status.scribe.text}${status.paused ? " (paused)" : ""}${
+      status.spendShare !== null
+        ? ` · spent ${Math.round(status.spendShare * 100)}% of the leader's spend today (limit 10%)`
+        : ""
+    }`,
+    `Grouping instructions: ${status.groupingNotes ? `"${status.groupingNotes}"` : "none"}`,
+  ];
+  for (const suggestion of status.suggestions) {
+    lines.push(`Waiting for the user: rename "${suggestion.topicName}" to "${suggestion.name}"`);
+  }
+  return lines.join("\n");
 }
 
 function need(value: string | undefined, usage: string): string {
@@ -180,7 +254,7 @@ function formatChanges(response: TopicChangesResponse): string {
     "## Quests",
     ...response.quests.map((quest) => `- [${quest.questId}](quest:${quest.questId}) ${quest.status}: ${quest.title}`),
     "",
-    `## What happened since the page was written (${response.events.length})`,
+    `## What happened since your last write (${response.events.length})`,
     ...response.events.map((event) => {
       const when = new Date(event.at).toLocaleString();
       const link =
@@ -194,7 +268,7 @@ function formatChanges(response: TopicChangesResponse): string {
     ...(response.artifacts.length
       ? response.artifacts.map(
           (artifact) =>
-            `- ${artifact.title} (${artifact.kind}${artifact.versions > 1 ? `, ${artifact.versions} versions` : ""}, ${artifact.questId}, ${new Date(artifact.updatedAt).toLocaleDateString()})`,
+            `- ${formatArtifactLink(artifact.title, artifact.id)} (${artifact.kind}${artifact.versions > 1 ? `, ${artifact.versions} versions` : ""}, ${artifact.questId}, ${new Date(artifact.updatedAt).toLocaleDateString()})`,
         )
       : ["- none"]),
     "",

@@ -102,4 +102,32 @@ describe("resolveQuietTurn", () => {
       quiet_ignored: reason,
     });
   });
+
+  it("keeps a Scribe's routine turns silent without a marker, but delivers its questions and replies to its leader", () => {
+    const scribe = { hasResumeSource: () => false, isScribe: () => true };
+    const libraryRequest = timerTurn("Updated the T7 run page.", {
+      messageHistory: [
+        assistant("earlier turn"),
+        { type: "user_message", content: "Update the topic pages", agentSource: { sessionId: "library" } },
+        assistant("Updated the T7 run page."),
+      ],
+    });
+    // Takode resumes a Scribe with its next request, so nothing else needs to.
+    expect(resolveQuietTurn(libraryRequest, RESULT, 0, scribe)).toEqual({
+      quiet: { summary: "Scribe update", silent: true },
+    });
+    expect(resolveQuietTurn(libraryRequest, { ...RESULT, is_error: true }, 0, scribe)).toEqual({
+      quiet_ignored: "the turn failed",
+    });
+    const leaderAsked = timerTurn("Done: I re-filed the twin's quests.", {
+      messageHistory: [
+        assistant("earlier turn"),
+        { type: "user_message", content: "Re-file the twin", agentSource: { sessionId: "leader-1" } },
+        assistant("Done: I re-filed the twin's quests."),
+      ],
+    });
+    expect(resolveQuietTurn(leaderAsked, RESULT, 0, scribe)).toEqual({
+      quiet_ignored: "the turn answered a leader or user message",
+    });
+  });
 });
