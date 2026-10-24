@@ -60,6 +60,7 @@ If a bulky field is useful, expose it by name and document the reveal path in he
 - Keep compact output sufficient for safe orchestration: exact IDs, session numbers, quest IDs, affected rows, worker/reviewer state, wait/blocker state, and errors should remain visible.
 - Add tests for compact defaults and explicit reveal paths whenever changing output that can contain bulky fields.
 - Include at least one fixture with a large/debug field, such as `injectedSystemPrompt`, to prove default output omits it.
+- Before making a command refuse or reject what an agent asks, read the `takode-instructions-over-enforcement` skill: prefer a warning in the output, and keep refusals for real safety needs with a message that says how to proceed.
 - Avoid solving context bloat only with UI truncation. Prevent unnecessary payloads at the command/output boundary first.
 
 ## Leader-Facing Guidance
