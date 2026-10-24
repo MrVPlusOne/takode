@@ -1,6 +1,10 @@
 import sharp from "sharp";
 
-/** Flat panels with thin dark lines, roughly like UI text rows: PNG-friendly, as screenshots are. */
+/**
+ * A screenshot-like PNG: flat panels with thin dark lines, roughly like UI text rows, above a
+ * soft picture (as when a screenshot shows a photo or chart). Like real screenshots, a
+ * quality-90 WebP of it is far smaller than the PNG.
+ */
 export async function makeScreenshotLikePng(width: number, height: number): Promise<Buffer> {
   const pixels = Buffer.alloc(width * height * 3, 245);
   for (let y = 0; y < height; y++) {
@@ -9,7 +13,13 @@ export async function makeScreenshotLikePng(width: number, height: number): Prom
       if (x % 9 < 6) pixels.fill(40 + (x % 120), (y * width + x) * 3, (y * width + x) * 3 + 3);
     }
   }
+  const pictureHeight = Math.round(height / 2);
+  const picture = await sharp(await makeNoisePng(width, pictureHeight))
+    .blur(3)
+    .png()
+    .toBuffer();
   return sharp(pixels, { raw: { width, height, channels: 3 } })
+    .composite([{ input: picture, left: 0, top: height - pictureHeight }])
     .png()
     .toBuffer();
 }

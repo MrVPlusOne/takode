@@ -10,8 +10,10 @@ import {
   assistantMessageId,
   extractFromTextBlocks,
   extractMessageArtifacts,
+  messageImageReferences,
   type TextSpan,
 } from "./artifact-extract.js";
+import type { LocalImageReference } from "../shared/local-image-references.js";
 
 /**
  * Connects the artifact library to conversations. Every session's history is read as it is
@@ -40,6 +42,10 @@ export interface ArtifactLibraryDeps {
     kind: string;
     version: number;
   }) => void;
+  /** Called with the local images each new agent answer shows or links, to prepare their previews. */
+  onImagesShown?: (sessionId: string, images: LocalImageReference[]) => void;
+  /** Called for each new figure version, to prepare its gallery thumbnail. */
+  onFigureSaved?: (artifactId: string) => void;
 }
 
 const CAPTURE_DELAY_MS = 50;
@@ -62,7 +68,7 @@ export class ArtifactLibrary {
       this.timer = null;
       const ids = [...this.pending];
       this.pending.clear();
-      this.running = this.running.then(() => this.captureSessions(ids));
+      this.running = this.running.then(() => this.captureSessions(ids, { live: true }));
     }, CAPTURE_DELAY_MS);
   }
 
@@ -98,7 +104,7 @@ export class ArtifactLibrary {
       this.timer = null;
       const ids = [...this.pending];
       this.pending.clear();
-      this.running = this.running.then(() => this.captureSessions(ids));
+      this.running = this.running.then(() => this.captureSessions(ids, { live: true }));
     }
     await this.running;
     await this.store.flush();
@@ -106,7 +112,12 @@ export class ArtifactLibrary {
 
   private async captureSessions(
     ids: string[],
-    options: { yieldBetween?: boolean; onlyKinds?: readonly ArtifactKind[] } = {},
+    options: {
+      yieldBetween?: boolean;
+      onlyKinds?: readonly ArtifactKind[];
+      /** New messages, rather than history read at startup: their images are prepared. */
+      live?: boolean;
+    } = {},
   ): Promise<void> {
     const toRefresh = new Set<string>();
     for (const id of ids) {
@@ -115,11 +126,12 @@ export class ArtifactLibrary {
       try {
         const result = options.onlyKinds
           ? await this.captureKinds(session, options.onlyKinds)
-          : await this.captureSession(session);
+          : await this.captureSession(session, options.live ?? false);
         if (result.captured > 0) toRefresh.add(id);
         for (const added of result.newVersions ?? []) {
           const artifact = this.store.get(added.artifactId);
           if (!artifact) continue;
+          if (options.live && artifact.kind === "figure") this.deps.onFigureSaved?.(artifact.id);
           this.deps.onNewVersion?.({
             sessionId: id,
             threadKey: added.threadKey,
@@ -138,7 +150,7 @@ export class ArtifactLibrary {
     for (const id of toRefresh) this.deps.refreshConversation(id);
   }
 
-  private async captureSession(session: LibrarySessionLike): Promise<CaptureResult> {
+  private async captureSession(session: LibrarySessionLike, live: boolean): Promise<CaptureResult> {
     const result: CaptureResult = { captured: 0, affectedSessions: new Set(), newVersions: [] };
     const history = session.messageHistory;
     const length = history.length;
@@ -150,6 +162,10 @@ export class ArtifactLibrary {
       if (!message || !isRootAgentHistoryMessage(message)) continue;
       const at = (message as { timestamp?: unknown }).timestamp;
       if (typeof at === "number" && at < cutoff) continue;
+      if (live) {
+        const images = messageImageReferences(message);
+        if (images.length > 0) this.deps.onImagesShown?.(session.id, images);
+      }
       const extracted = extractMessageArtifacts(message);
       if (!extracted) continue;
       await this.store.captureMessage({ sessionId: session.id, space }, extracted, result);

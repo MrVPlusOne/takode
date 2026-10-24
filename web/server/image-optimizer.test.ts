@@ -31,9 +31,9 @@ afterEach(() => {
 });
 
 describe("optimizeImageBufferForStore", () => {
-  it("encodes screenshots as near-lossless WebP: smaller, same size, nearly identical pixels", async () => {
-    // Chat uploads, quest attachments, agent copies and the viewer share this policy.
-    // Near-lossless keeps small text crisp, where JPEG smeared it and added colour fringes.
+  it("encodes screenshots as quality-90 WebP: smaller, same size, nearly identical pixels", async () => {
+    // Chat uploads, quest attachments and the viewer share this policy. Quality 90 at a low
+    // effort keeps text sharp at a fraction of near-lossless WebP's CPU cost.
     const png = await makeScreenshotLikePng(900, 700);
 
     const result = await optimizeImageBufferForStore(png, "image/png");
@@ -44,13 +44,12 @@ describe("optimizeImageBufferForStore", () => {
     expect(await meanPixelDifference(png, result.data)).toBeLessThan(2);
   });
 
-  it("encodes photo-like sources as quality-90 WebP rather than near-lossless", async () => {
-    // Near-lossless would keep a JPEG's noise and grow the file, so lossy sources take the lossy encode.
+  it("encodes photo-like sources as quality-90 WebP at effort 2", async () => {
     const jpeg = await sharp(await makeNoisePng(600, 400))
       .blur(2)
       .jpeg({ quality: 95 })
       .toBuffer();
-    const lossy = await sharp(jpeg).webp({ quality: 90 }).toBuffer();
+    const lossy = await sharp(jpeg).webp({ quality: 90, effort: 2 }).toBuffer();
 
     const result = await optimizeImageBufferForStore(jpeg, "image/jpeg");
 
@@ -58,13 +57,13 @@ describe("optimizeImageBufferForStore", () => {
     expect(result.data.equals(lossy)).toBe(true);
   });
 
-  it("falls back to quality-90 WebP when a near-lossless encode would be over 2 MB", async () => {
-    // Photo-like PNGs are huge as near-lossless WebP; the cap keeps stored copies small and
-    // far inside model providers' per-image limits.
+  it("falls back to quality-90 WebP when a fast lossless model copy would be over 2 MB", async () => {
+    // Photo-like PNGs are huge as lossless WebP; the cap keeps model copies small and far
+    // inside model providers' per-image limits.
     const png = await makeNoisePng(1000, 1000);
-    const lossy = await sharp(png).webp({ quality: 90 }).toBuffer();
+    const lossy = await sharp(png).webp({ quality: 90, effort: 2 }).toBuffer();
 
-    const result = await optimizeImageBufferForStore(png, "image/png");
+    const result = await optimizeImageBufferForStore(png, "image/png", { priority: "speed" });
 
     expect(result.mediaType).toBe("image/webp");
     expect(result.data.equals(lossy)).toBe(true);
@@ -119,9 +118,9 @@ describe("optimizeAgentImageFile", () => {
     expect(meta.height).toBeLessThanOrEqual(1920);
   });
 
-  it("favours encode speed for model copies: exact lossless pixels instead of near-lossless", async () => {
+  it("favours encode speed for model copies: exact lossless pixels at the lowest effort", async () => {
     // Agents make a copy per screenshot, so model copies use lossless WebP at the lowest
-    // effort (about 0.1 s for a full-size screenshot instead of 1-1.5 s for near-lossless).
+    // effort (about 0.1 s for a full-size screenshot).
     const inputPath = join(tempDir, "ui.png");
     const png = await makeScreenshotLikePng(900, 700);
     await writeFile(inputPath, png);

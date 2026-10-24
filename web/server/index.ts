@@ -63,6 +63,7 @@ import {
 import { PushoverNotifier } from "./pushover.js";
 import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
 import { todoStore } from "./todo-store.js";
+import { prepareChatImages, prepareLibraryThumbnail } from "./chat-image-preparation.js";
 import { ArtifactLibrary, setArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
 import { ArtifactLibraryStore } from "./artifact-library-store.js";
 import { ArtifactThumbnails, setArtifactThumbnails } from "./artifact-thumbnails.js";
@@ -743,6 +744,8 @@ const artifactLibrary = new ArtifactLibrary(
       launcher.getSession(sessionId)?.memorySessionSpaceSlug ?? launcher.getMemorySessionSpaceSlug(),
     refreshConversation: (sessionId) => wsBridge.refreshSessionConversation(sessionId),
     onNewVersion: (version) => topicService.artifactSaved(version),
+    onImagesShown: (sessionId, images) => prepareChatImages(sessionId, images, wsBridge),
+    onFigureSaved: prepareLibraryThumbnail,
   },
 );
 await artifactLibrary.store.load();

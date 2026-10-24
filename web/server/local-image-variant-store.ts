@@ -25,7 +25,7 @@ export interface LocalImageVariant {
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "image-variants");
 /** Bumped per kind when its recipe changes, so stale cached variants are not served. */
-const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v2", full: "v4" };
+const CACHE_VERSIONS: Record<LocalImageVariantKind, string> = { thumbnail: "v3", full: "v5" };
 const THUMBNAIL_MAX_DIM = 300;
 const THUMBNAIL_QUALITY = 80;
 /**
@@ -36,9 +36,9 @@ const THUMBNAIL_QUALITY = 80;
 const FULL_MAX_DIM = 4096;
 /**
  * How long opening an image waits for its full-view copy before sending the original.
- * Near-lossless WebP of a large screenshot takes seconds (3 s for 2880x1800 on an idle
- * machine, over 10 s under load) and the browser receives nothing meanwhile, whereas
- * the original starts downloading at once. The copy still finishes for later opens.
+ * Encoding a large screenshot takes about 0.2 s, but several times that while other work
+ * loads the machine, and the browser receives nothing meanwhile, whereas the original
+ * starts downloading at once. The copy still finishes for later opens.
  */
 const DEFAULT_FULL_WAIT_MS = 500;
 /** Formats of the original an agent-readable `.takode-agent.` copy is made from, by extension. */
@@ -49,11 +49,25 @@ const AGENT_COPY_ORIGINAL_TYPES: Record<string, string> = {
   webp: "image/webp",
 };
 
+interface VariantSource {
+  kind: LocalImageVariantKind;
+  /** The file the variant is made from: for a full view, the original behind an agent copy. */
+  original: LocalImageVariant;
+  hash: string;
+}
+
+/**
+ * Smaller copies of local images for the browser: a thumbnail for the feed and a full view
+ * for the image viewer and the Library. Copies are cached on disk by the image's content, so
+ * the same picture linked from a chat and saved in the Library is converted once.
+ */
 export class LocalImageVariantStore {
   private readonly baseDir: string;
   private readonly fullWaitMs: number;
   /** Encodes in progress by cache key, so requests for the same image share one encode. */
   private readonly encoding = new Map<string, Promise<LocalImageVariant>>();
+  /** Content hashes by path, size and modification time, so a file is read for its hash once. */
+  private readonly contentHashes = new Map<string, string>();
 
   constructor(baseDir = DEFAULT_BASE_DIR, options: { fullWaitMs?: number } = {}) {
     this.baseDir = baseDir;
@@ -71,116 +85,112 @@ export class LocalImageVariantStore {
     sourceContentType: string,
     kind: LocalImageVariantKind,
   ): Promise<LocalImageVariant> {
-    let absolutePath = resolve(sourcePath);
-    let contentType = sourceContentType;
-    if (kind === "full") {
-      // Agents often link the reduced copy they read themselves; people get its original.
-      const original = await originalOfAgentCopy(absolutePath);
-      if (original) ({ path: absolutePath, contentType } = original);
-    }
-    const sourceStat = await stat(absolutePath);
-    if (!sourceStat.isFile()) {
-      throw new Error("image path is not a file");
-    }
-
-    const cacheKey = this.cacheKeyFor(absolutePath, sourceStat.size, sourceStat.mtimeMs, kind);
-    const etag = `"${cacheKey.hash}"`;
-    const sourceVariant = { path: absolutePath, contentType, cacheHit: false, etag };
-    if (contentType === "image/svg+xml") return sourceVariant;
-
-    // Checked before the disk cache, which may hold a variant file that is still being written.
-    if (!this.encoding.has(cacheKey.hash)) {
-      const cached = await this.findCachedVariant(cacheKey, etag);
-      if (cached) return cached;
-    }
-    let encoding = this.encoding.get(cacheKey.hash);
-    if (!encoding) {
-      encoding = this.encodeVariant(cacheKey, sourceVariant).finally(() => this.encoding.delete(cacheKey.hash));
-      this.encoding.set(cacheKey.hash, encoding);
-    }
-    if (kind === "thumbnail") return encoding;
+    const source = await this.sourceFor(sourcePath, sourceContentType, kind);
+    const variant = this.variantFor(source);
+    if (kind === "thumbnail") return variant;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const waited = new Promise<null>((resolveWait) => {
       timer = setTimeout(() => resolveWait(null), this.fullWaitMs);
     });
-    const ready = await Promise.race([encoding, waited]).finally(() => clearTimeout(timer));
+    const ready = await Promise.race([variant, waited]).finally(() => clearTimeout(timer));
     if (ready) return ready;
-    encoding.catch((error: unknown) => console.warn("[image-variants] Full-view encode failed:", absolutePath, error));
-    return { ...sourceVariant, etag: `"${cacheKey.hash}-original"` };
+    variant.catch((error: unknown) =>
+      console.warn("[image-variants] Full-view encode failed:", source.original.path, error),
+    );
+    return { ...source.original, etag: `"${source.hash}-original"` };
   }
 
-  private async encodeVariant(
-    cacheKey: { kind: LocalImageVariantKind; hash: string },
-    sourceVariant: LocalImageVariant,
-  ): Promise<LocalImageVariant> {
+  /** Makes an image's thumbnail and full view ahead of time, so they are ready when someone opens it. */
+  async prepare(sourcePath: string, sourceContentType: string): Promise<void> {
+    for (const kind of ["thumbnail", "full"] as const) {
+      await this.variantFor(await this.sourceFor(sourcePath, sourceContentType, kind));
+    }
+  }
+
+  private async sourceFor(
+    sourcePath: string,
+    sourceContentType: string,
+    kind: LocalImageVariantKind,
+  ): Promise<VariantSource> {
+    let path = resolve(sourcePath);
+    let contentType = sourceContentType;
+    if (kind === "full") {
+      // Agents often link the reduced copy they read themselves; people get its original.
+      const original = await originalOfAgentCopy(path);
+      if (original) ({ path, contentType } = original);
+    }
+    const sourceStat = await stat(path);
+    if (!sourceStat.isFile()) {
+      throw new Error("image path is not a file");
+    }
+    const hash = createHash("sha256")
+      .update(`${CACHE_VERSIONS[kind]}\0${kind}\0`)
+      .update(await this.contentHash(path, sourceStat.size, sourceStat.mtimeMs))
+      .digest("hex")
+      .slice(0, 32);
+    return { kind, hash, original: { path, contentType, cacheHit: false, etag: `"${hash}"` } };
+  }
+
+  /** The cached variant, the encode already making it, or a new encode. */
+  private async variantFor(source: VariantSource): Promise<LocalImageVariant> {
+    if (source.original.contentType === "image/svg+xml") return source.original;
+    // Checked before the disk cache, which may hold a variant file that is still being written.
+    if (!this.encoding.has(source.hash)) {
+      const cached = await this.findCachedVariant(source);
+      if (cached) return cached;
+    }
+    let encoding = this.encoding.get(source.hash);
+    if (!encoding) {
+      encoding = this.encodeVariant(source).finally(() => this.encoding.delete(source.hash));
+      this.encoding.set(source.hash, encoding);
+    }
+    return encoding;
+  }
+
+  private async contentHash(path: string, size: number, mtimeMs: number): Promise<string> {
+    const key = `${path}\0${size}\0${mtimeMs}`;
+    let hash = this.contentHashes.get(key);
+    if (!hash) {
+      hash = createHash("sha256")
+        .update(await readFile(path))
+        .digest("hex");
+      this.contentHashes.set(key, hash);
+    }
+    return hash;
+  }
+
+  private async encodeVariant(source: VariantSource): Promise<LocalImageVariant> {
     await mkdir(this.baseDir, { recursive: true });
-    const source = (await readFile(sourceVariant.path)) as Buffer;
-    let data: Buffer;
-    let contentType = sourceVariant.contentType;
+    const data = (await readFile(source.original.path)) as Buffer;
+    let encoded: Buffer;
+    let contentType = source.original.contentType;
 
     try {
-      if (cacheKey.kind === "thumbnail") {
-        data = await createImageThumbnailBuffer(source, { maxDim: THUMBNAIL_MAX_DIM, quality: THUMBNAIL_QUALITY });
+      if (source.kind === "thumbnail") {
+        encoded = await createImageThumbnailBuffer(data, { maxDim: THUMBNAIL_MAX_DIM, quality: THUMBNAIL_QUALITY });
         contentType = "image/webp";
       } else {
-        const viewable = await optimizeImageBufferForStore(source, contentType, { maxDim: FULL_MAX_DIM });
-        if (!viewable.reencoded) return sourceVariant;
-        ({ data, mediaType: contentType } = viewable);
+        const viewable = await optimizeImageBufferForStore(data, contentType, { maxDim: FULL_MAX_DIM });
+        if (!viewable.reencoded) return source.original;
+        ({ data: encoded, mediaType: contentType } = viewable);
       }
     } catch (error) {
       if (isSharpUnavailableError(error)) {
-        if (cacheKey.kind === "full") return sourceVariant;
+        if (source.kind === "full") return source.original;
         throw new Error(SHARP_UNAVAILABLE_MESSAGE);
       }
       throw error;
     }
 
-    const variantPath = this.variantPathFor(cacheKey, contentType);
-    await writeFile(variantPath, data);
-    return {
-      path: variantPath,
-      contentType,
-      cacheHit: false,
-      etag: sourceVariant.etag,
-    };
+    const variantPath = join(this.baseDir, `${source.kind}-${source.hash}.${MIME_TO_EXT[contentType] ?? "bin"}`);
+    await writeFile(variantPath, encoded);
+    return { path: variantPath, contentType, cacheHit: false, etag: source.original.etag };
   }
 
-  private cacheKeyFor(
-    absolutePath: string,
-    sourceSize: number,
-    sourceMtimeMs: number,
-    kind: LocalImageVariantKind,
-  ): { kind: LocalImageVariantKind; hash: string } {
-    const key = createHash("sha256")
-      .update(CACHE_VERSIONS[kind])
-      .update("\0")
-      .update(kind)
-      .update("\0")
-      .update(absolutePath)
-      .update("\0")
-      .update(String(sourceSize))
-      .update("\0")
-      .update(String(sourceMtimeMs))
-      .digest("hex")
-      .slice(0, 32);
-    return { kind, hash: key };
-  }
-
-  private variantPathFor(key: { kind: LocalImageVariantKind; hash: string }, contentType: string): string {
-    const ext = MIME_TO_EXT[contentType] ?? "bin";
-    return join(this.baseDir, `${key.kind}-${key.hash}.${ext}`);
-  }
-
-  private async findCachedVariant(
-    key: {
-      kind: LocalImageVariantKind;
-      hash: string;
-    },
-    etag: string,
-  ): Promise<LocalImageVariant | null> {
+  private async findCachedVariant(source: VariantSource): Promise<LocalImageVariant | null> {
     if (!(await fileExists(this.baseDir))) return null;
-    const prefix = `${key.kind}-${key.hash}.`;
+    const prefix = `${source.kind}-${source.hash}.`;
     const files = await readdir(this.baseDir);
     const match = files.find((file) => file.startsWith(prefix));
     if (!match) return null;
@@ -188,9 +198,17 @@ export class LocalImageVariantStore {
       path: join(this.baseDir, match),
       contentType: contentTypeFromExtension(match),
       cacheHit: true,
-      etag,
+      etag: source.original.etag,
     };
   }
+}
+
+let shared: LocalImageVariantStore | null = null;
+
+/** The server's store, shared by the image routes and background preparation. */
+export function sharedLocalImageVariantStore(): LocalImageVariantStore {
+  shared ??= new LocalImageVariantStore();
+  return shared;
 }
 
 /** The original beside a `.takode-agent.` copy (`shot.png` for `shot.takode-agent.jpeg`), if it is still there. */

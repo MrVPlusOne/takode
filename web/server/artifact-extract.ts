@@ -1,6 +1,7 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import { parseDraftHeader } from "../shared/artifact-library.js";
+import { findLocalImageReferences, type LocalImageReference } from "../shared/local-image-references.js";
 
 /**
  * Finds the artifacts in one conversation message: draft blocks (posts), titled or untitled visual
@@ -87,6 +88,16 @@ export function extractMessageArtifacts(message: BrowserIncomingMessage): Extrac
     at: typeof message.timestamp === "number" ? message.timestamp : 0,
     captures,
   };
+}
+
+/** The local images a root agent answer shows or links, found as the chat feed finds them. */
+export function messageImageReferences(message: BrowserIncomingMessage): LocalImageReference[] {
+  if (message.type !== "assistant" || message.parent_tool_use_id || message.codexSubagent != null) return [];
+  const content = message.message?.content;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block) =>
+    block && block.type === "text" && typeof block.text === "string" ? findLocalImageReferences(block.text) : [],
+  );
 }
 
 export function assistantMessageId(message: BrowserIncomingMessage): string | undefined {

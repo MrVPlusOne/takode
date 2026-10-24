@@ -11,7 +11,7 @@ import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 import {
-  LocalImageVariantStore,
+  sharedLocalImageVariantStore,
   type LocalImageVariant,
   type LocalImageVariantKind,
 } from "../local-image-variant-store.js";
@@ -34,7 +34,7 @@ const MAX_FOLDER_CHECKS = 20;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const MAX_FILE_LINK_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_LINK_PDF_BYTES = 100 * 1024 * 1024;
-const IMAGE_MIME_BY_EXT: Record<string, string> = {
+export const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -325,7 +325,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       },
     };
   };
-  const localImageVariantStore = ctx.localImageVariantStore ?? new LocalImageVariantStore();
+  const localImageVariantStore = ctx.localImageVariantStore ?? sharedLocalImageVariantStore();
 
   // ─── Filesystem browsing ─────────────────────────────────────
 

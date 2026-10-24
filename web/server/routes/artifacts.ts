@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactListQuery } from "../../shared/artifact-library.js";
 import { getArtifactLibrary, type ArtifactLibrary } from "../artifact-library.js";
 import { getArtifactThumbnails, type ArtifactThumbnails } from "../artifact-thumbnails.js";
+import { sharedLocalImageVariantStore } from "../local-image-variant-store.js";
 import type { RouteContext } from "./context.js";
 
 const FIGURE_CONTENT_TYPES: Record<string, string> = {
@@ -87,11 +88,18 @@ export function createArtifactRoutes(
 
   api.get("/artifacts/:id/file", async (c) => {
     const file = library()?.store.figureFile(c.req.param("id"));
-    if (!file) return c.json({ error: "No saved file" }, 404);
+    const contentType = file && FIGURE_CONTENT_TYPES[file.ext];
+    if (!file || !contentType) return c.json({ error: "No saved file" }, 404);
     try {
-      const bytes = await readFile(file.path);
+      // The full view the chat's image viewer uses: the same picture is converted once for both.
+      const variant = await (ctx.localImageVariantStore ?? sharedLocalImageVariantStore()).getVariant(
+        file.path,
+        contentType,
+        "full",
+      );
+      const bytes = await readFile(variant.path);
       return c.body(bytes, 200, {
-        "Content-Type": FIGURE_CONTENT_TYPES[file.ext] ?? "application/octet-stream",
+        "Content-Type": variant.contentType,
         // Saved files are named by their content, so a given URL may change only to a newer figure.
         "Cache-Control": "private, max-age=60",
         // An SVG is shown as an image, never run as a page.

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { extractFromTextBlocks, extractMessageArtifacts } from "./artifact-extract.js";
 import { ArtifactLibraryStore, UNTITLED_POST_GROUPING_MS } from "./artifact-library-store.js";
-import { ArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
+import { ArtifactLibrary, type ArtifactLibraryDeps, type LibrarySessionLike } from "./artifact-library.js";
 import { ARTIFACT_PLACEHOLDER_LANGUAGE, parseDraftHeader } from "../shared/artifact-library.js";
 
 /**
@@ -80,7 +80,11 @@ function textOf(message: BrowserIncomingMessage): string {
   return message.message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 }
 
-async function setup(sessions: LibrarySessionLike[], now = NOW) {
+async function setup(
+  sessions: LibrarySessionLike[],
+  now = NOW,
+  hooks: Pick<ArtifactLibraryDeps, "onImagesShown" | "onFigureSaved"> = {},
+) {
   const refreshed: string[] = [];
   const store = new ArtifactLibraryStore(root, () => now);
   await store.load();
@@ -89,6 +93,7 @@ async function setup(sessions: LibrarySessionLike[], now = NOW) {
     listSessions: () => sessions,
     spaceFor: () => "MSI",
     refreshConversation: (id) => refreshed.push(id),
+    ...hooks,
   });
   return { store, library, refreshed };
 }
@@ -350,5 +355,32 @@ describe("versions and projection", () => {
       title: "Launch note",
       versionCount: 3,
     });
+  });
+  it("prepares the previews of images new answers show, but not of history read at startup", async () => {
+    // Images an agent shows or links get their thumbnails and full views made in the background
+    // before anyone opens them; history read at startup is old and is left alone.
+    const figure = join(fixtures, "chart.png");
+    await writeFile(figure, "png bytes");
+    const session: LibrarySessionLike = {
+      id: "s1",
+      messageHistory: [assistant("Earlier: /tmp/old-shot.png", NOW - DAY)],
+    };
+    const shown: Array<{ sessionId: string; paths: string[] }> = [];
+    const figures: string[] = [];
+    const { store, library } = await setup([session], NOW, {
+      onImagesShown: (sessionId, images) => shown.push({ sessionId, paths: images.map((image) => image.path) }),
+      onFigureSaved: (artifactId) => figures.push(artifactId),
+    });
+    await library.backfill();
+    expect(shown).toEqual([]);
+
+    session.messageHistory.push(
+      assistant(`![chart](${figure}) and [the shot](file:docs/shot.png), not \`code\` text`, NOW),
+    );
+    library.sessionSaved("s1");
+    await library.idle();
+    expect(shown).toEqual([{ sessionId: "s1", paths: [figure, "docs/shot.png"] }]);
+    expect(figures).toEqual(store.list({ kind: "figure" }).artifacts.map((artifact) => artifact.id));
+    expect(figures).toHaveLength(1);
   });
 });

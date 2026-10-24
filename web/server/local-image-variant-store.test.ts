@@ -57,9 +57,9 @@ describe("LocalImageVariantStore", () => {
     expect(regenerated.etag).not.toBe(first.etag);
   });
 
-  it("re-encodes a screenshot for the full view as near-lossless WebP: smaller, same size, nearly identical pixels", async () => {
-    // The full view is where people read screenshots. Near-lossless WebP keeps small
-    // text crisp (JPEG smeared it) while sending far fewer bytes than the PNG.
+  it("re-encodes a screenshot for the full view as WebP: smaller, same size, nearly identical pixels", async () => {
+    // The full view is where people read screenshots: it keeps their size and nearly
+    // every pixel while sending far fewer bytes than the PNG.
     const sourcePath = join(tempDir, "screenshot.png");
     const source = await makeScreenshotLikePng(1600, 1200);
     await writeFile(sourcePath, source);
@@ -163,6 +163,35 @@ describe("LocalImageVariantStore", () => {
     expect(new Set(variants.map((variant) => variant.path)).size).toBe(1);
     expect(variants[0]?.contentType).toBe("image/webp");
     expect(encoder).toHaveBeenCalledTimes(1);
+  });
+  it("converts the same picture once, wherever it is", async () => {
+    // A chat links the agent's file and the Library keeps its own copy of it; both are served
+    // from one conversion, so the copy prepared for the chat also serves the gallery.
+    const encoder = vi.mocked(imageOptimizer.optimizeImageBufferForStore);
+    const source = await makeScreenshotLikePng(800, 600);
+    const chatPath = join(tempDir, "shot.png");
+    const libraryPath = join(tempDir, "library-copy.png");
+    await writeFile(chatPath, source);
+    await writeFile(libraryPath, source);
+
+    const forChat = await store.getVariant(chatPath, "image/png", "full");
+    const forGallery = await store.getVariant(libraryPath, "image/png", "full");
+
+    expect(forGallery).toMatchObject({ path: forChat.path, cacheHit: true, etag: forChat.etag });
+    expect(encoder).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepares an image's thumbnail and full view ahead of the first request", async () => {
+    const sourcePath = join(tempDir, "screenshot.png");
+    await writeFile(sourcePath, await makeScreenshotLikePng(800, 600));
+
+    await store.prepare(sourcePath, "image/png");
+
+    expect(await store.getVariant(sourcePath, "image/png", "thumbnail")).toMatchObject({ cacheHit: true });
+    expect(await store.getVariant(sourcePath, "image/png", "full")).toMatchObject({
+      cacheHit: true,
+      contentType: "image/webp",
+    });
   });
 });
 

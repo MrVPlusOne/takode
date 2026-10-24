@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "../session-types.js";
@@ -7,6 +7,8 @@ import type { RouteContext } from "./context.js";
 import { ArtifactLibraryStore } from "../artifact-library-store.js";
 import { ArtifactLibrary, type LibrarySessionLike } from "../artifact-library.js";
 import { createArtifactRoutes } from "./artifacts.js";
+import { LocalImageVariantStore } from "../local-image-variant-store.js";
+import { makeScreenshotLikePng } from "../test-fixtures/images.js";
 
 /**
  * The library API on a disposable store: an agent's list defaults to its own session's space,
@@ -77,7 +79,9 @@ async function setup() {
   await library.backfill();
   refreshed.length = 0;
   let caller: string | null = null;
+  const variants = new LocalImageVariantStore(join(root, "variants"), { fullWaitMs: 60_000 });
   const ctx = {
+    localImageVariantStore: variants,
     resolveId: (raw: string) => raw,
     authenticateCompanionCallerOptional: () => (caller ? { callerId: caller, caller: {} } : null),
     launcher: { listSessions: () => [{ sessionId: "msi-worker", herdedBy: "msi-leader" }] },
@@ -93,6 +97,9 @@ async function setup() {
   return {
     app,
     store,
+    variants,
+    sessions,
+    library,
     refreshed,
     setCaller: (id: string | null) => (caller = id),
   };
@@ -125,6 +132,24 @@ describe("artifact routes", () => {
     const post = store.list({ query: "T7" }).artifacts[0];
     const content = await (await app.request(`/artifacts/${post.id.slice(0, 8)}/versions/1`)).json();
     expect(content).toEqual({ kind: "post", parts: ["hello"], figureIds: [] });
+  });
+
+  it("serves a figure as the full view the chat prepared, converted once for both", async () => {
+    // The chat's copy of a screenshot is made when the agent shows it; the gallery's figure is
+    // the Library's own copy of the same bytes, so it is served from that conversion.
+    const { app, store, variants, sessions, library } = await setup();
+    const shot = join(fixtures, "shot.png");
+    await writeFile(shot, await makeScreenshotLikePng(800, 600));
+    await variants.prepare(shot, "image/png");
+    sessions[0]!.messageHistory.push(assistant("m4", `![shot](${shot})`));
+    library.sessionSaved("msi-leader");
+    await library.idle();
+
+    const figure = store.list({ kind: "figure", query: "shot" }).artifacts[0]!;
+    const file = await app.request(`/artifacts/${figure.id}/file`);
+    expect(file.headers.get("content-type")).toBe("image/webp");
+    const fullViews = (await readdir(join(root, "variants"))).filter((name) => name.startsWith("full-"));
+    expect(fullViews).toHaveLength(1);
   });
 
   it("renames and merges, refreshing the conversations that show them", async () => {

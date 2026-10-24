@@ -3,16 +3,20 @@ import { basename, dirname, extname, join } from "node:path";
 
 export const STORE_MAX_DIM = 1920;
 /**
- * WebP settings per `OptimizeOptions.priority`: one for lossless sources such as
- * screenshots, one for lossy sources such as photos (where a lossless encode would
- * grow the file) and for lossless results over `LOSSLESS_SOURCE_MAX_BYTES`.
- * - size: near-lossless level 60 looks identical and keeps small text crisp at about
- *   40% of the PNG, but takes about 1-1.5 s for a full-size screenshot.
+ * WebP settings per `OptimizeOptions.priority`. `lossless`, when set, is for lossless
+ * sources such as screenshots; `lossy` is for lossy sources such as photos (where a
+ * lossless encode would grow the file), for lossless sources without a `lossless`
+ * setting, and for lossless results over `LOSSLESS_SOURCE_MAX_BYTES`.
+ * - size: quality-90 WebP at effort 2. On 24 large screenshots (5.3 MP) it took 0.23 s
+ *   each and kept 26% of the PNG bytes; the near-lossless level 60 used before kept 28%
+ *   but took 2.9 s, as its preprocessing is slow at any effort. Text stays sharp at
+ *   normal zoom; colored glyph edges soften slightly at 4x. Effort 4 doubled the time
+ *   for 1-2% fewer bytes.
  * - speed: exact lossless pixels at the lowest effort take about 0.1 s, at roughly
  *   the size of the JPEG q85 copies Takode used to make.
  */
-const WEBP_SETTINGS: Record<OptimizePriority, { lossless: WebpOptions; lossy: WebpOptions }> = {
-  size: { lossless: { quality: 60, nearLossless: true }, lossy: { quality: 90 } },
+const WEBP_SETTINGS: Record<OptimizePriority, { lossless?: WebpOptions; lossy: WebpOptions }> = {
+  size: { lossy: { quality: 90, effort: 2 } },
   speed: { lossless: { lossless: true, effort: 0 }, lossy: { quality: 90, effort: 2 } },
 };
 /**
@@ -123,9 +127,8 @@ export async function resizeImageBufferForStore(
 }
 
 /**
- * Compress an image as WebP while keeping it close to the original: lossless sources
- * such as screenshots keep small text crisp where JPEG smeared it, and lossy sources
- * such as photos become quality-90 WebP (see `WEBP_SETTINGS`). Images larger than
+ * Compress an image as WebP while keeping it close to the original: quality-90 WebP keeps
+ * small text sharp where JPEG smeared it (see `WEBP_SETTINGS`). Images larger than
  * `maxDim` (default {@link STORE_MAX_DIM}) are scaled down first. Vector and animated
  * images, and images the encode would not make smaller, come back unchanged. This is
  * the one policy for every copy Takode makes: model-readable `.takode-agent.` files,
@@ -165,7 +168,7 @@ export async function optimizeImageBufferForStore(
         pipeline = pipeline.resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true });
       return pipeline.webp(webp).toBuffer();
     };
-    let encoded = isLosslessRasterFormat(meta.format) ? await encode(settings.lossless) : null;
+    let encoded = settings.lossless && isLosslessRasterFormat(meta.format) ? await encode(settings.lossless) : null;
     if (!encoded || encoded.length > LOSSLESS_SOURCE_MAX_BYTES) encoded = await encode(settings.lossy);
     if (!resized && encoded.length >= data.length) return unchanged;
 
