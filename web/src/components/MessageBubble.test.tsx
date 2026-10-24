@@ -426,7 +426,7 @@ describe("MessageBubble - user messages", () => {
     expect(images.length).toBe(0);
   });
 
-  it("opens lightbox when clicking an image thumbnail", () => {
+  it("opens lightbox when clicking an image thumbnail", async () => {
     const msg = makeMessage({
       role: "user",
       content: "Check this",
@@ -440,7 +440,7 @@ describe("MessageBubble - user messages", () => {
     fireEvent.click(thumbnail);
 
     // The lightbox should now be open with the full-size image
-    const lightboxImage = screen.getByTestId("lightbox-image");
+    const lightboxImage = await screen.findByTestId("lightbox-image");
     expect(lightboxImage).toBeTruthy();
     expect(lightboxImage.getAttribute("src")).toBe("/api/images/test-session/img-1/full");
   });
@@ -483,7 +483,7 @@ describe("MessageBubble - user messages", () => {
     expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
   });
 
-  it("renders assistant-mentioned local images as a thumbnail-only preview group", () => {
+  it("renders assistant-mentioned local images as a thumbnail-only preview group", async () => {
     const msg = makeMessage({
       role: "assistant",
       content: "",
@@ -503,7 +503,7 @@ describe("MessageBubble - user messages", () => {
 
     fireEvent.click(within(previewGroup).getByRole("button", { name: "Open image desktop.png" }));
     expect(screen.getByRole("dialog", { name: "Image preview: desktop.png" })).toBeTruthy();
-    expect(screen.getByTestId("image-preview-modal-image").getAttribute("src")).toBe(
+    expect((await screen.findByTestId("image-preview-modal-image")).getAttribute("src")).toBe(
       "/api/fs/image?path=%2Ftmp%2Fdesktop.png&variant=full",
     );
   });

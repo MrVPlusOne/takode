@@ -1327,7 +1327,7 @@ describe("QuestDetailPanel", () => {
     expect(text.indexOf("Initial quest description with screenshots")).toBeLessThan(text.indexOf("Full Debrief"));
   });
 
-  it("shows image previews after Full Debrief when it contains supported local image links", () => {
+  it("shows image previews after Full Debrief when it contains supported local image links", async () => {
     const quest = makeVerificationQuest({
       description: "Initial quest description.",
       debrief: "Final debrief evidence: [mobile](file:artifacts/mobile.png) and [notes](file:artifacts/notes.txt).",
@@ -1348,7 +1348,7 @@ describe("QuestDetailPanel", () => {
     );
 
     fireEvent.click(within(debriefImages).getByRole("button", { name: "Open image mobile.png" }));
-    expect(screen.getByTestId("image-preview-modal-image").getAttribute("src")).toBe(
+    expect((await screen.findByTestId("image-preview-modal-image")).getAttribute("src")).toBe(
       "/api/fs/file-link/image?path=artifacts%2Fmobile.png&isRelative=1&variant=full&sessionId=session-abc",
     );
   });

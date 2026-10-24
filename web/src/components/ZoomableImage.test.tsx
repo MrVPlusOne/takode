@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ZoomableImage } from "./ZoomableImage.js";
 
 // jsdom has no layout, so give the image a 200x100 box at the viewport origin
@@ -90,15 +90,86 @@ describe("ZoomableImage", () => {
 
   it("zooms with the mouse wheel and resets when the image changes", () => {
     const { stage, image, rerender } = renderZoomable();
+    fireEvent.load(image);
     fireEvent.wheel(stage, { deltaY: -200, clientX: 0, clientY: 0 });
     expect(readTransform(image).scale).toBeGreaterThan(1.4);
 
+    // The loaded image stays on screen while the next one loads, unzoomed.
     rerender(
       <div>
         <ZoomableImage src="/b.png" alt="preview" imageTestId="image" />
       </div>,
     );
     expect(readTransform(image)).toEqual({ x: 0, y: 0, scale: 1 });
+  });
+
+  describe("loading a new image", () => {
+    // Previous/Next used to change the counter while the old image stayed on screen,
+    // undimmed, until the new one arrived. Now the old one stays only as a dimmed
+    // placeholder under a spinner, and the new one replaces it once it has loaded.
+    function renderLoaded(src: string | null) {
+      const view = render(<ZoomableImage src={src} alt="preview" imageTestId="image" />);
+      fireEvent.load(screen.getByTestId("image"));
+      const rerender = (next: string | null) =>
+        view.rerender(<ZoomableImage src={next} alt="preview" imageTestId="image" />);
+      return { ...view, rerender, stage: screen.getByTestId("zoomable-image-stage") };
+    }
+
+    function shownImages(stage: HTMLElement) {
+      return [...stage.querySelectorAll("img")].filter((img) => !img.classList.contains("opacity-0"));
+    }
+
+    it("keeps the previous image, dimmed under a spinner once slow, until the new one loads", () => {
+      vi.useFakeTimers();
+      const { rerender, stage } = renderLoaded("/a.png");
+      expect(stage.getAttribute("aria-busy")).toBeNull();
+
+      // Still downloading: no element for the new image yet.
+      rerender(null);
+      expect(shownImages(stage).map((img) => img.getAttribute("src"))).toEqual(["/a.png"]);
+      expect(stage.getAttribute("aria-busy")).toBe("true");
+      // A quick load swaps without dimming or a spinner.
+      expect(screen.queryByTestId("zoomable-image-loading")).toBeNull();
+      expect(shownImages(stage)[0].classList.contains("brightness-50")).toBe(false);
+
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.getByTestId("zoomable-image-loading")).toBeTruthy();
+      expect(shownImages(stage)[0].classList.contains("brightness-50")).toBe(true);
+
+      // The new image loads hidden, then replaces the old one.
+      rerender("/b.png");
+      const next = screen.getByTestId("image");
+      expect(next.getAttribute("src")).toBe("/b.png");
+      expect(next.classList.contains("opacity-0")).toBe(true);
+      expect(shownImages(stage).map((img) => img.getAttribute("src"))).toEqual(["/a.png"]);
+
+      fireEvent.load(next);
+      expect(stage.querySelectorAll("img")).toHaveLength(1);
+      expect(screen.getByTestId("image")).toBe(next);
+      expect(next.classList.contains("opacity-0")).toBe(false);
+      expect(screen.queryByTestId("zoomable-image-loading")).toBeNull();
+      expect(stage.getAttribute("aria-busy")).toBeNull();
+    });
+
+    it("shows only the last requested image after a quick run of changes", () => {
+      // Previous/Next pressed quickly: an image requested earlier must never replace the last one.
+      const { rerender, stage } = renderLoaded("/a.png");
+      rerender("/b.png");
+      const abandoned = screen.getByTestId("image");
+      rerender("/c.png");
+      expect(abandoned.isConnected).toBe(false);
+
+      fireEvent.load(screen.getByTestId("image"));
+      expect([...stage.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual(["/c.png"]);
+    });
+
+    it("shows a failed image as broken instead of loading forever", () => {
+      const { rerender, stage } = renderLoaded("/a.png");
+      rerender("/missing.png");
+      fireEvent.error(screen.getByTestId("image"));
+      expect([...stage.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual(["/missing.png"]);
+      expect(stage.getAttribute("aria-busy")).toBeNull();
+    });
   });
 
   it("lets plain taps on the empty stage reach the parent but not drags or image taps", () => {

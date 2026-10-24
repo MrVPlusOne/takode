@@ -6,6 +6,7 @@ import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
+import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
 import {
   forgetThumbnailLoaded,
   rememberThumbnailLoaded,
@@ -402,6 +403,8 @@ function ImagePreviewModal({
   const dockTarget = useSecondaryViewTarget(true, onClose, "media");
   const docked = dockTarget !== null;
   const canNavigate = images.length > 1;
+  const download = useImageDownload(image?.fullUrl ?? "");
+  const sizeLabel = formatImageDownload(download);
 
   const selectOffset = useCallback(
     (offset: number) => {
@@ -474,6 +477,13 @@ function ImagePreviewModal({
             >
               {image.filename}
             </span>
+            {/* The line is always there so the filename does not move when the size arrives. */}
+            <span
+              className="block min-w-0 w-full truncate font-mono-code text-[11px] leading-tight tabular-nums text-cc-muted"
+              data-testid="image-preview-modal-size"
+            >
+              {sizeLabel ?? "\u00a0"}
+            </span>
           </div>
           <div
             className="col-start-3 flex shrink-0 items-center gap-1.5 justify-self-end"
@@ -495,9 +505,9 @@ function ImagePreviewModal({
         </div>
         {image.sourcePath && <ModalSourcePath key={image.sourcePath} path={image.sourcePath} />}
         <ZoomableImage
-          src={image.fullUrl}
+          src={download.displaySrc}
           alt={image.filename}
-          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4"
+          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4"
           imageClassName="max-h-full max-w-full object-contain"
           imageTestId="image-preview-modal-image"
           onSwipe={canNavigate ? (direction) => selectOffset(direction === "next" ? 1 : -1) : undefined}

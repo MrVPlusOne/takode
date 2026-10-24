@@ -102,7 +102,7 @@ describe("MessageBubble image path links", () => {
     // The same viewer as a thumbnail click: the message's images, positioned at the clicked one.
     expect(screen.getByRole("dialog", { name: "Image preview: two.webp" })).toBeTruthy();
     expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("2 of 2");
-    expect(screen.getByTestId("image-preview-modal-image").getAttribute("src")).toBe(
+    expect((await screen.findByTestId("image-preview-modal-image")).getAttribute("src")).toBe(
       "/api/fs/image?path=%2Ftmp%2Fshots%2Ftwo.webp&variant=full",
     );
     const pathRow = screen.getByTestId("image-preview-modal-path");

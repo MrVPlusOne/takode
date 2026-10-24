@@ -748,7 +748,7 @@ describe("Composer image attachments", () => {
     const thumbnail = screen.getByAltText("phone-shot.png") as HTMLImageElement;
     expect(thumbnail.getAttribute("src")).toBe(`/api/images/s1/${imageId}/thumb`);
     fireEvent.click(thumbnail);
-    expect(within(screen.getByTestId("lightbox-backdrop")).getByRole("img").getAttribute("src")).toBe(
+    expect((await within(screen.getByTestId("lightbox-backdrop")).findByRole("img")).getAttribute("src")).toBe(
       `/api/images/s1/${imageId}/full`,
     );
     fireEvent.keyDown(document, { key: "Escape" });

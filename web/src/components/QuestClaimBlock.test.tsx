@@ -149,7 +149,7 @@ describe("QuestClaimBlock", () => {
     expect(screen.getByText("Inspect final UI")).toBeInTheDocument();
   });
 
-  it("opens quest thumbnails in the shared lightbox overlay", () => {
+  it("opens quest thumbnails in the shared lightbox overlay", async () => {
     render(
       <QuestClaimBlock
         quest={{
@@ -164,6 +164,6 @@ describe("QuestClaimBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
     fireEvent.click(screen.getByAltText("preview.png"));
 
-    expect(screen.getByTestId("lightbox-image")).toHaveAttribute("src", "/api/quests/_images/img-1");
+    expect(await screen.findByTestId("lightbox-image")).toHaveAttribute("src", "/api/quests/_images/img-1");
   });
 });

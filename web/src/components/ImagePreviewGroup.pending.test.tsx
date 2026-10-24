@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Profiler, useLayoutEffect, useState } from "react";
 import "@testing-library/jest-dom";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
@@ -230,7 +230,7 @@ describe("ImagePreviewGroup pending attachments", () => {
     expect(within(group).getByRole("button", { name: "Open image origin.png" })).toBeEnabled();
   });
 
-  it("keeps an opened local modal visible while its backend fallback loads", () => {
+  it("keeps an opened local modal visible while its backend fallback loads", async () => {
     const image = makeImage("origin-modal", {
       thumbnailUrl: "blob:origin-modal",
       fullUrl: "blob:origin-modal",
@@ -247,7 +247,9 @@ describe("ImagePreviewGroup pending attachments", () => {
     fireEvent.error(thumbnailFor(group, "origin-modal"));
 
     expect(screen.getByRole("dialog", { name: "Image preview: origin-modal.png" })).toBeVisible();
-    expect(screen.getByTestId("image-preview-modal-image")).toHaveAttribute("src", "/full/origin-modal.png");
+    await waitFor(() =>
+      expect(screen.getByTestId("image-preview-modal-image")).toHaveAttribute("src", "/full/origin-modal.png"),
+    );
     expect(within(group).getByRole("button", { name: "Loading image origin-modal.png" })).toBeDisabled();
 
     fireEvent.load(thumbnailFor(group, "origin-modal"));

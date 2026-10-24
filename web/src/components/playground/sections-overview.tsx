@@ -110,6 +110,7 @@ import {
   PLAYGROUND_SESSION_ROWS,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
 } from "./fixtures.js";
+import { PlaygroundImageViewerLoading } from "./PlaygroundImageViewerLoading.js";
 import {
   Card,
   CODEX_DEMO_SESSION,
@@ -917,6 +918,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Standalone lightbox trigger">
             <PlaygroundLightboxDemo />
+          </Card>
+          <Card label="Viewer loading the next image">
+            <PlaygroundImageViewerLoading />
           </Card>
           <Card label="Tool result image preview — click to open lightbox">
             <ToolBlock

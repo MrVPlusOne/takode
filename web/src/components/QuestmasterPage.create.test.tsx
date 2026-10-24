@@ -179,7 +179,7 @@ describe("QuestmasterPage quest creation", () => {
     fireEvent.click(await screen.findByAltText("draft.png"));
 
     expect(openSpy).not.toHaveBeenCalled();
-    expect(screen.getByTestId("lightbox-image")).toHaveAttribute("src", "/api/quests/_images/img-upload");
+    expect(await screen.findByTestId("lightbox-image")).toHaveAttribute("src", "/api/quests/_images/img-upload");
 
     openSpy.mockRestore();
   });

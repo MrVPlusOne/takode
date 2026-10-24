@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import { YarnBallSpinner } from "./CatIcons.js";
 
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
@@ -10,6 +11,8 @@ const DOUBLE_TAP_DISTANCE_PX = 30;
 const SWIPE_DISTANCE_PX = 60;
 const FLICK_DISTANCE_PX = 25;
 const FLICK_MS = 250;
+/** A load that finishes sooner swaps images without dimming or a spinner, so it does not flicker. */
+const SLOW_LOAD_MS = 150;
 
 interface Point {
   x: number;
@@ -32,9 +35,10 @@ interface Gesture {
 }
 
 interface ZoomableImageProps {
-  src: string;
+  /** The image to show; null while it is still downloading. */
+  src: string | null;
   alt: string;
-  /** Classes for the stage: the gesture surface that frames the image. */
+  /** Classes for the stage: the gesture surface that frames the image. It must be positioned. */
   className?: string;
   imageClassName?: string;
   imageTestId?: string;
@@ -57,6 +61,11 @@ interface ZoomableImageProps {
  * Clicks on the image, or ending a drag or pinch, do not propagate, so a parent's
  * click-to-close only fires for plain taps on the empty stage. Zoom resets when
  * `src` changes.
+ *
+ * While a new `src` loads, the previous image stays in place, dimmed under a spinner once
+ * the load takes noticeably long, and the new one replaces it only when it has loaded, so
+ * the stage never shows the previous image as if it were the new one, nor a blank flash.
+ * `imageTestId` marks the newest requested image, even while it is still loading.
  */
 export function ZoomableImage({
   src,
@@ -77,6 +86,11 @@ export function ZoomableImage({
   const suppressClickRef = useRef(false);
   // A one-finger touch drag that began on the unzoomed image, until a second finger joins.
   const swipeRef = useRef<{ start: Point; time: number } | null>(null);
+  // The last requested image that finished loading (or failed to), which is the one on screen.
+  const [shownSrc, setShownSrc] = useState<string | null>(null);
+  const loading = src === null || src !== shownSrc;
+  const keepShown = loading && shownSrc !== null;
+  const [slow, setSlow] = useState(false);
 
   // Image layout position with the current transform removed. The transform
   // origin is the image's top-left corner, so translation is the only offset.
@@ -123,7 +137,16 @@ export function ZoomableImage({
 
   useEffect(() => {
     applyTransform({ scale: 1, x: 0, y: 0 });
-  }, [src]);
+  }, [src, shownSrc]);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_LOAD_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   // Slide the unzoomed image sideways with the finger; applyTransform's clamp would pin it.
   const showSwipeOffset = (dx: number, animate = false) => {
@@ -233,17 +256,46 @@ export function ZoomableImage({
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
       onClick={handleClick}
+      aria-busy={loading || undefined}
       data-testid="zoomable-image-stage"
     >
-      <img
-        ref={imageRef}
-        src={src}
-        alt={alt}
-        className={imageClassName}
-        style={{ transformOrigin: "0 0" }}
-        draggable={false}
-        data-testid={imageTestId}
-      />
+      {/* Keys keep each image's element (and its loaded pixels) as it moves between these slots. */}
+      {keepShown && (
+        <img
+          key={shownSrc}
+          ref={imageRef}
+          src={shownSrc}
+          alt=""
+          aria-hidden="true"
+          className={`${imageClassName} transition-[filter] ${slow ? "brightness-50" : ""}`}
+          style={{ transformOrigin: "0 0" }}
+          draggable={false}
+        />
+      )}
+      {src !== null && (
+        <img
+          key={src}
+          ref={keepShown ? undefined : imageRef}
+          src={src}
+          alt={alt}
+          className={keepShown ? `${imageClassName} pointer-events-none absolute opacity-0` : imageClassName}
+          style={{ transformOrigin: "0 0" }}
+          draggable={false}
+          onLoad={() => setShownSrc(src)}
+          onError={() => setShownSrc(src)}
+          data-testid={imageTestId}
+        />
+      )}
+      {loading && slow && (
+        <div
+          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          data-testid="zoomable-image-loading"
+        >
+          <span className="rounded-full border border-cc-border bg-cc-card/90 p-2 shadow-lg">
+            <YarnBallSpinner className="h-6 w-6 text-cc-primary" />
+          </span>
+        </div>
+      )}
     </div>
   );
 }

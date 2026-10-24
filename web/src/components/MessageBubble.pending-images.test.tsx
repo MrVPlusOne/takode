@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 
 vi.mock("../api.js", () => ({
@@ -51,7 +51,7 @@ function userMessage(overrides: Partial<ChatMessage>): ChatMessage {
 }
 
 describe("MessageBubble pending image attachments", () => {
-  it("hydrates exact pending slots and replaces them in place as thumbnails load", () => {
+  it("hydrates exact pending slots and replaces them in place as thumbnails load", async () => {
     // This is the producer-shaped reconnect form: ordered server ImageRefs,
     // not a client-invented count inferred from image request timing.
     const historyMessage: BrowserIncomingMessage = {
@@ -86,7 +86,7 @@ describe("MessageBubble pending image attachments", () => {
     expect(within(group).getAllByTestId("image-preview-thumbnail-image")).toHaveLength(2);
 
     fireEvent.click(firstSlot);
-    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("/api/images/session-1/first/full");
+    expect((await screen.findByTestId("lightbox-image")).getAttribute("src")).toBe("/api/images/session-1/first/full");
   });
 
   it("removes terminally failed slots instead of leaving loading placeholders", () => {
@@ -132,7 +132,7 @@ describe("MessageBubble pending image attachments", () => {
     expect(thumbnail.getAttribute("src")).toBe("data:image/png;base64,ZmFrZQ==");
   });
 
-  it("closes an invalid lightbox selection and does not reopen it when the same attachment returns", () => {
+  it("closes an invalid lightbox selection and does not reopen it when the same attachment returns", async () => {
     const image = { imageId: "reused", media_type: "image/png" as const, sourceName: "reused.png" };
     const initial = userMessage({ images: [image] });
     const { rerender } = render(<MessageBubble message={initial} sessionId="session-1" />);
@@ -140,7 +140,7 @@ describe("MessageBubble pending image attachments", () => {
     let group = screen.getByTestId("user-image-preview-group");
     fireEvent.load(within(group).getByTestId("image-preview-thumbnail-image"));
     fireEvent.click(within(group).getByRole("button", { name: "Open image reused.png" }));
-    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("/api/images/session-1/reused/full");
+    expect((await screen.findByTestId("lightbox-image")).getAttribute("src")).toBe("/api/images/session-1/reused/full");
 
     rerender(<MessageBubble message={{ ...initial, images: [] }} sessionId="session-1" />);
     expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
@@ -151,7 +151,7 @@ describe("MessageBubble pending image attachments", () => {
     expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
   });
 
-  it("keeps an open lightbox visible on the authoritative backend fallback after a local error", () => {
+  it("keeps an open lightbox visible on the authoritative backend fallback after a local error", async () => {
     render(
       <MessageBubble
         message={userMessage({
@@ -174,7 +174,11 @@ describe("MessageBubble pending image attachments", () => {
     expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("blob:local-fallback");
 
     fireEvent.error(within(group).getByTestId("image-preview-thumbnail-image"));
-    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("/api/images/session-1/local-fallback/full");
+    await waitFor(() =>
+      expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe(
+        "/api/images/session-1/local-fallback/full",
+      ),
+    );
   });
 
   it("tracks same-ID local URL replacements without downgrading when shared local state retires", () => {

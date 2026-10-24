@@ -91,12 +91,12 @@ export function registerSessionImageRoutes(
     const { sessionId, imageId } = c.req.param();
     const path = await imageStore.getOriginalPath(sessionId, imageId);
     if (!path) return c.json({ error: "Image not found" }, 404);
-    const file = Bun.file(path);
-    return new Response(file, {
-      headers: {
-        "Content-Type": file.type || "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      },
+    // The image viewer shows download progress against Content-Length, which a streamed file lacks.
+    const data = await readFile(path);
+    return c.body(data, 200, {
+      "Content-Type": Bun.file(path).type || "application/octet-stream",
+      "Content-Length": String(data.byteLength),
+      "Cache-Control": "public, max-age=31536000, immutable",
     });
   });
 }

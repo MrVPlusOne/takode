@@ -618,3 +618,42 @@ describeBun("GET /api/images/:sessionId/:imageId/thumb", () => {
     }
   });
 });
+
+describeBun("GET /api/images/:sessionId/:imageId/full", () => {
+  it("serves the original with its Content-Length, which the image viewer's progress needs", async () => {
+    // A streamed file response is sent chunked, so the viewer could not show the image's size while it downloads.
+    const tempRoot = await mkdtemp(join(tmpdir(), "routes-full-"));
+    const origPath = join(tempRoot, "orig.png");
+    try {
+      await writeFile(origPath, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+      const imageStore = { getOriginalPath: vi.fn(async () => origPath) } as any;
+
+      const imageApp = new Hono();
+      imageApp.route(
+        "/api",
+        createRoutes(
+          launcher,
+          bridge,
+          sessionStore,
+          tracker,
+          { getInfo: () => null, spawn: () => "", kill: () => {} } as any,
+          undefined,
+          recorder,
+          undefined,
+          timerManager,
+          imageStore,
+        ),
+      );
+
+      const res = await imageApp.request("/api/images/sess-1/img-1/full");
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Length")).toBe("6");
+      expect(res.headers.get("Content-Type")).toBe("image/png");
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+      expect((await res.arrayBuffer()).byteLength).toBe(6);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});

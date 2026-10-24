@@ -35,8 +35,10 @@ describe("ImagePreviewGroup viewer swipes", () => {
     expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("3 of 3");
   });
 
-  it("does not move a lone image when swiped", () => {
+  it("does not move a lone image when swiped", async () => {
     const stage = openViewer([image("only")]);
+    // The viewer shows the image once its download settles.
+    await screen.findByTestId("image-preview-modal-image");
 
     fireEvent.pointerDown(stage, { pointerId: 1, pointerType: "touch", button: 0, clientX: 300, clientY: 100 });
     fireEvent.pointerMove(stage, { pointerId: 1, pointerType: "touch", button: 0, clientX: 150, clientY: 100 });

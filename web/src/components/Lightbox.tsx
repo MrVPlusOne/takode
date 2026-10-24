@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -16,12 +17,15 @@ interface LightboxProps {
 /**
  * Image lightbox: in the secondary view floating over the app's right side on wide
  * screens, otherwise a full-screen modal on document.body. The image is displayed at its
- * natural size, constrained to fit, and can be zoomed and panned. Click around the image
- * or press Escape to close.
+ * natural size, constrained to fit, and can be zoomed and panned, with its file size (and
+ * download progress while it loads) in the top-left corner. Click around the image or press
+ * Escape to close.
  */
 export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProps) {
   const dockTarget = useSecondaryViewTarget(true, onClose, "media");
   const docked = dockTarget !== null;
+  const download = useImageDownload(src);
+  const sizeLabel = formatImageDownload(download);
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -74,8 +78,19 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
         </svg>
       </button>
 
+      {sizeLabel && (
+        <span
+          className={`pointer-events-none absolute top-4 left-4 z-10 rounded-full px-2.5 py-1 font-mono-code text-xs tabular-nums ${
+            docked ? "bg-cc-card text-cc-muted" : "bg-black/60 text-white/90 ring-1 ring-white/15"
+          }`}
+          data-testid="lightbox-size"
+        >
+          {sizeLabel}
+        </span>
+      )}
+
       <ZoomableImage
-        src={src}
+        src={download.displaySrc}
         alt={alt}
         className="absolute inset-0 flex items-center justify-center"
         imageClassName={`${
