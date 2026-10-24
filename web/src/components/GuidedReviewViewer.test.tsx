@@ -338,11 +338,10 @@ function tileTexts(container: HTMLElement): string[] {
 
 describe("formatGuidedReviewAnswers", () => {
   it("puts the message about the whole review first, quoted, so it reads as the user's instruction", () => {
-    const text = formatGuidedReviewAnswers(
-      makeGuidedReviewMetaFixture(),
-      {},
-      "Don't change anything.\nDraft comments.",
-    );
+    const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), {
+      answers: {},
+      message: "Don't change anything.\nDraft comments.",
+    });
     expect(text.split("\n").slice(0, 5)).toEqual([
       "Guided review answers: Retry profile loads and cache profiles",
       "",
@@ -353,7 +352,9 @@ describe("formatGuidedReviewAnswers", () => {
   });
 
   it("keeps multi-line answers readable and marks unanswered questions", () => {
-    const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), { 1: "One hour.\nAnd clear on edit." });
+    const text = formatGuidedReviewAnswers(makeGuidedReviewMetaFixture(), {
+      answers: { 1: "One hour.\nAnd clear on edit." },
+    });
     expect(text.split("\n").slice(2)).toEqual([
       "1. Retry every error up to 4 times?",
       "   Answer: not answered",

@@ -1209,6 +1209,14 @@ select {
 .dark .diff-line-del {
   background: rgba(252, 129, 129, 0.08);
 }
+/* Lines with a comment (guided reviews): a bar at the left edge and a tint over the add/remove colour. */
+.diff-line.diff-line-marked {
+  box-shadow: inset 3px 0 0 var(--color-cc-primary);
+  background-image: linear-gradient(
+    color-mix(in oklab, var(--color-cc-primary) 18%, transparent),
+    color-mix(in oklab, var(--color-cc-primary) 18%, transparent)
+  );
+}
 .diff-word-add {
   background: rgba(45, 125, 70, 0.25);
   border-radius: 2px;

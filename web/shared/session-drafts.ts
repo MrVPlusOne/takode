@@ -44,7 +44,29 @@ export interface SyncedGuidedReviewDraft {
   answers: Record<string, string>;
   /** The user's message about the review as a whole, such as what should happen next. */
   message?: string;
+  /** Comments on lines of a stop's code, in the order they were made. */
+  lineComments?: GuidedReviewLineComment[];
   sentAt?: number;
+}
+
+/**
+ * A comment on a range of lines in the code a guided review shows. A range can mix lines the
+ * change kept or added with lines it removed, which have no number in the file after the change,
+ * so it keeps the new-file numbers of the first and the old-file numbers of the second.
+ */
+export interface GuidedReviewLineComment {
+  id: string;
+  /** The stop (index in the map's stops) whose code the lines were selected in. */
+  stop: number;
+  /** Repository-relative path of the file, as the stop's code reference names it. */
+  path: string;
+  /** First and last new-file line number of the commented lines that exist after the change. */
+  lines?: [number, number];
+  /** First and last old-file line number of the commented lines the change removed. */
+  removedLines?: [number, number];
+  /** The commented lines as shown, each starting with its diff marker (`+`, `-` or a space). */
+  code: string;
+  comment: string;
 }
 
 /** Answers per question key for one unsubmitted needs-input prompt. */
@@ -101,6 +123,7 @@ export const MAX_NEEDS_INPUT_DRAFT_QUESTIONS = 50;
 export const MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS = 20_000;
 const MAX_CLIENT_ID_CHARS = 100;
 const MAX_GUIDED_REVIEW_ANSWERS = 60;
+const MAX_GUIDED_REVIEW_LINE_COMMENTS = 200;
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9-]{1,100}$/;
 
 /** Identifies a draft within a session, for per-draft bookkeeping. */
@@ -112,19 +135,63 @@ export function sessionDraftKey(
   return `needs-input:${write.notificationId}`;
 }
 
-/** Empty answers and messages are dropped; a draft with neither that was never sent is stored as cleared. */
+/** Empty answers and messages are dropped; a draft with nothing left that was never sent is stored as cleared. */
 export function normalizeSyncedGuidedReviewDraft(
   draft: SyncedGuidedReviewDraft | null,
 ): SyncedGuidedReviewDraft | null {
   if (!draft) return null;
   const answers = Object.fromEntries(Object.entries(draft.answers).filter(([, value]) => value.trim() !== ""));
   const message = draft.message?.trim() ? draft.message : undefined;
-  if (!Object.keys(answers).length && message === undefined && draft.sentAt === undefined) return null;
+  const lineComments = draft.lineComments?.length ? draft.lineComments : undefined;
+  if (!Object.keys(answers).length && message === undefined && !lineComments && draft.sentAt === undefined) return null;
   return {
     answers,
     ...(message !== undefined ? { message } : {}),
+    ...(lineComments ? { lineComments } : {}),
     ...(draft.sentAt !== undefined ? { sentAt: draft.sentAt } : {}),
   };
+}
+
+function readGuidedReviewLineComments(value: unknown): GuidedReviewLineComment[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_GUIDED_REVIEW_LINE_COMMENTS)
+    throw new Error("draft.lineComments must be a list of at most 200 comments.");
+  const isRange = (range: unknown) =>
+    Array.isArray(range) &&
+    range.length === 2 &&
+    range.every((line) => Number.isSafeInteger(line) && line > 0) &&
+    range[0] <= range[1];
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== "string" ||
+      !entry.id ||
+      entry.id.length > 100 ||
+      !Number.isSafeInteger(entry.stop) ||
+      (entry.stop as number) < 0 ||
+      typeof entry.path !== "string" ||
+      !entry.path ||
+      entry.path.length > 1000 ||
+      (entry.lines === undefined && entry.removedLines === undefined) ||
+      (entry.lines !== undefined && !isRange(entry.lines)) ||
+      (entry.removedLines !== undefined && !isRange(entry.removedLines)) ||
+      typeof entry.code !== "string" ||
+      entry.code.length > MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS ||
+      typeof entry.comment !== "string" ||
+      !entry.comment.trim() ||
+      entry.comment.length > MAX_NEEDS_INPUT_DRAFT_ANSWER_CHARS
+    )
+      throw new Error("Each line comment needs an ID, its stop, file and lines, the code, and a comment.");
+    return {
+      id: entry.id,
+      stop: entry.stop as number,
+      path: entry.path,
+      ...(entry.lines ? { lines: entry.lines as [number, number] } : {}),
+      ...(entry.removedLines ? { removedLines: entry.removedLines as [number, number] } : {}),
+      code: entry.code,
+      comment: entry.comment,
+    };
+  });
 }
 
 function readGuidedReviewDraft(value: unknown): SyncedGuidedReviewDraft {
@@ -144,9 +211,11 @@ function readGuidedReviewDraft(value: unknown): SyncedGuidedReviewDraft {
   if (value.sentAt !== undefined && (typeof value.sentAt !== "number" || !Number.isFinite(value.sentAt))) {
     throw new Error("draft.sentAt must be a time.");
   }
+  const lineComments = readGuidedReviewLineComments(value.lineComments);
   return {
     answers: value.answers as Record<string, string>,
     ...(value.message !== undefined ? { message: value.message as string } : {}),
+    ...(lineComments ? { lineComments } : {}),
     ...(value.sentAt !== undefined ? { sentAt: value.sentAt as number } : {}),
   };
 }

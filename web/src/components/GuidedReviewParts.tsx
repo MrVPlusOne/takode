@@ -12,13 +12,15 @@ import {
 import {
   GUIDED_REVIEW_REACTIONS,
   closeGuidedReview,
+  lineCommentCovers,
   setGuidedReviewAnswer,
   setGuidedReviewMessage,
   useGuidedReviewState,
   type GuidedReviewTarget,
 } from "../guided-review-state.js";
 import { sendGuidedReviewAnswers } from "../guided-review-send.js";
-import { DiffViewer } from "./DiffViewer.js";
+import { DiffViewer, type DiffLineNumbers } from "./DiffViewer.js";
+import { reviewCodeAttributes } from "./GuidedReviewLineComments.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { VoiceAnswerField } from "./NeedsInputAnswerField.js";
 
@@ -312,20 +314,25 @@ export function useReviewSend(target: GuidedReviewTarget) {
   const [failed, setFailed] = useState(false);
   const questions = map.stops.filter((stop) => stop.tier === "decide").length;
   const answered = map.stops.filter((stop, index) => stop.tier === "decide" && draft?.answers[index]?.trim()).length;
+  const comments = draft?.lineComments ?? [];
+  const commentCount = comments.length ? ` · ${comments.length} comment${comments.length === 1 ? "" : "s"}` : "";
   const status =
     draft?.sentAt !== undefined
       ? "Answers sent"
       : failed
         ? "Not sent: the connection is down."
-        : questions
-          ? `${answered} of ${questions} answered`
-          : "Answers are optional";
+        : (questions ? `${answered} of ${questions} answered` : "Answers are optional") + commentCount;
   return {
     status,
     failed,
     sent: draft?.sentAt !== undefined,
-    canSend: Boolean(draft?.message?.trim()) || Object.values(draft?.answers ?? {}).some((answer) => answer.trim()),
-    isAnswered: (index: number) => Boolean(draft?.answers[index]?.trim()),
+    canSend:
+      Boolean(draft?.message?.trim()) ||
+      comments.length > 0 ||
+      Object.values(draft?.answers ?? {}).some((answer) => answer.trim()),
+    /** Whether the stop has an answer or a comment on its code. */
+    isAnswered: (index: number) =>
+      Boolean(draft?.answers[index]?.trim()) || comments.some((comment) => comment.stop === index),
     send: () => {
       const ok = sendGuidedReviewAnswers(target);
       setFailed(!ok);
@@ -357,7 +364,7 @@ export function ReviewEndSections({
         >
           <div className="divide-y divide-cc-border rounded-xl border border-cc-border">
             {checked.map(({ stop, index }) => (
-              <CheckedRow key={index} stop={stop} sessionId={target.sessionId} />
+              <CheckedRow key={index} stop={stop} index={index} target={target} />
             ))}
           </div>
         </Section>
@@ -424,7 +431,7 @@ function SummaryFiles({ summary }: { summary: GuidedReviewSummary }) {
 }
 
 /** A checked stop: one line that opens, like any disclosure, to its evidence and code. */
-function CheckedRow({ stop, sessionId }: { stop: GuidedReviewStop; sessionId: string }) {
+function CheckedRow({ stop, index, target }: { stop: GuidedReviewStop; index: number; target: GuidedReviewTarget }) {
   const [open, setOpen] = useState(false);
   const files = [...new Set(stop.code.map((ref) => ref.path.split("/").pop()))].join(", ");
   return (
@@ -444,9 +451,9 @@ function CheckedRow({ stop, sessionId }: { stop: GuidedReviewStop; sessionId: st
       {open && (
         <div className="pl-6">
           <div className={`mt-1 ${NOTE_CLASS}`}>
-            <ReviewMarkdown text={stop.note} sessionId={sessionId} />
+            <ReviewMarkdown text={stop.note} sessionId={target.sessionId} />
           </div>
-          <ReviewCode refs={stop.code} />
+          <ReviewCode refs={stop.code} target={target} stop={index} />
         </div>
       )}
     </div>
@@ -490,8 +497,19 @@ function Section({
   );
 }
 
-/** The code a stop points at, as saved with the review. */
-export function ReviewCode({ refs, full = false }: { refs: GuidedReviewCodeRef[]; full?: boolean }) {
+/** The code a stop points at, as saved with the review, with the lines the user commented on marked. */
+export function ReviewCode({
+  refs,
+  target,
+  stop,
+  full = false,
+}: {
+  refs: GuidedReviewCodeRef[];
+  target: GuidedReviewTarget;
+  /** The stop's index in the map, which comments on this code belong to. */
+  stop: number;
+  full?: boolean;
+}) {
   if (refs.some((ref) => ref.snippet === undefined)) {
     return (
       <div className="mt-2 text-[13px] text-cc-muted">
@@ -502,7 +520,9 @@ export function ReviewCode({ refs, full = false }: { refs: GuidedReviewCodeRef[]
   return (
     <div className="space-y-2">
       {refs.map((ref, index) => (
-        <ReviewSnippet key={`${ref.path}:${ref.lines?.join("-") ?? "all"}:${index}`} diff={ref.snippet!} full={full} />
+        <div key={`${ref.path}:${ref.lines?.join("-") ?? "all"}:${index}`} {...reviewCodeAttributes(stop, ref.path)}>
+          <ReviewSnippet diff={ref.snippet!} full={full} reviewId={target.meta.reviewId} path={ref.path} />
+        </div>
       ))}
     </div>
   );
@@ -513,8 +533,25 @@ export function ReviewCode({ refs, full = false }: { refs: GuidedReviewCodeRef[]
  * wrapping, and a tall snippet shows a scrollable window with a bar below that expands it to full
  * height. `full` shows all of it from the start.
  */
-function ReviewSnippet({ diff, full }: { diff: string; full: boolean }) {
+function ReviewSnippet({
+  diff,
+  full,
+  reviewId,
+  path,
+}: {
+  diff: string;
+  full: boolean;
+  reviewId: string;
+  path: string;
+}) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const comments = useGuidedReviewState((state) => state.drafts[reviewId]?.lineComments);
+  const isLineMarked = useMemo(() => {
+    const here = comments?.filter((comment) => comment.path === path) ?? [];
+    return here.length
+      ? (_file: string, line: DiffLineNumbers) => here.some((comment) => lineCommentCovers(comment, line))
+      : undefined;
+  }, [comments, path]);
   const [overflows, setOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const open = full || expanded;
@@ -542,7 +579,7 @@ function ReviewSnippet({ diff, full }: { diff: string; full: boolean }) {
         className={open ? "" : "max-h-[22rem] overflow-y-auto overscroll-y-contain"}
         data-testid="guided-review-snippet"
       >
-        <DiffViewer unifiedDiff={diff} mode="full" showLineNumbers stickyFileHeaders />
+        <DiffViewer unifiedDiff={diff} mode="full" showLineNumbers stickyFileHeaders isLineMarked={isLineMarked} />
       </div>
       {!full && (overflows || expanded) && (
         <button

@@ -17,7 +17,7 @@ export function sendGuidedReviewAnswers(target: GuidedReviewTarget): boolean {
   if (draft?.sentAt !== undefined) return false;
   const sent = sendToSession(target.sessionId, {
     type: "user_message",
-    content: formatGuidedReviewAnswers(target.meta, draft?.answers ?? {}, draft?.message),
+    content: formatGuidedReviewAnswers(target.meta, draft),
     threadKey: target.threadKey,
     ...(target.threadKey !== "main" ? { questId: target.questId ?? target.threadKey } : {}),
     inputSource: "composer",

@@ -40,6 +40,14 @@ export interface DiffViewerProps {
   collapsibleFiles?: boolean;
   /** Place file navigation in a host toolbar while retaining parsed order and collapse ownership here. */
   fileNavigationTarget?: HTMLElement | null;
+  /** Lines to mark (such as lines with comments), by file name and the line's old and new numbers. */
+  isLineMarked?: (fileName: string, line: DiffLineNumbers) => boolean;
+}
+
+/** A diff line's numbers: old for lines that existed before the change, new for lines that exist after. */
+export interface DiffLineNumbers {
+  oldLineNo?: number;
+  newLineNo?: number;
 }
 
 export interface DiffViewerSourceFile {
@@ -518,13 +526,20 @@ function DiffLineRow({
   line,
   showLineNumbers,
   highlightedHtml,
+  marked,
 }: {
   line: DiffLine;
   showLineNumbers: boolean;
   highlightedHtml: string | null;
+  marked: boolean;
 }) {
   return (
-    <div className={`diff-line diff-line-${line.type}`}>
+    // The numbers let a selection in the code be read back as line numbers.
+    <div
+      className={`diff-line diff-line-${line.type}${marked ? " diff-line-marked" : ""}`}
+      data-old-line={line.oldLineNo}
+      data-new-line={line.newLineNo}
+    >
       {showLineNumbers && (
         <>
           <span className="diff-gutter diff-gutter-old">{line.oldLineNo ?? ""}</span>
@@ -543,10 +558,12 @@ function HunkBlock({
   hunk,
   showLineNumbers,
   highlighted,
+  isMarked,
 }: {
   hunk: DiffHunk;
   showLineNumbers: boolean;
   highlighted: HighlightedLineMaps;
+  isMarked: (line: DiffLineNumbers) => boolean;
 }) {
   return (
     <div className="diff-hunk">
@@ -557,6 +574,7 @@ function HunkBlock({
           line={line}
           showLineNumbers={showLineNumbers}
           highlightedHtml={getLineHtml(line, highlighted)}
+          marked={isMarked(line)}
         />
       ))}
     </div>
@@ -696,6 +714,7 @@ export const DiffViewer = memo(function DiffViewer({
   stickyFileHeaders = false,
   collapsibleFiles = false,
   fileNavigationTarget,
+  isLineMarked,
 }: DiffViewerProps) {
   const isCompact = mode === "compact";
   const showLineNumbers = showLineNumbersProp ?? false;
@@ -818,6 +837,7 @@ export const DiffViewer = memo(function DiffViewer({
         const highlighted = highlightedByFile.get(`${fi}:${resolvedFileName}`) ?? EMPTY_HIGHLIGHTED_LINES;
         const fileCollapseKey = `${fi}:${resolvedFileName}`;
         const isFileCollapsed = !!collapsedFiles[fileCollapseKey];
+        const isMarked = (line: DiffLineNumbers) => !!isLineMarked?.(resolvedFileName, line);
         const renderedBlocks = blocks.map((block) => {
           if (block.type === "hunk") {
             return (
@@ -826,6 +846,7 @@ export const DiffViewer = memo(function DiffViewer({
                 hunk={block.hunk}
                 showLineNumbers={showLineNumbers}
                 highlighted={highlighted}
+                isMarked={isMarked}
               />
             );
           }
@@ -863,6 +884,7 @@ export const DiffViewer = memo(function DiffViewer({
                   line={line}
                   showLineNumbers={showLineNumbers}
                   highlightedHtml={getLineHtml(line, highlighted)}
+                  marked={isMarked(line)}
                 />
               ))}
               {remainingCount > 0 && (

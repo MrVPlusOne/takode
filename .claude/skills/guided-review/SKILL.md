@@ -5,7 +5,7 @@ description: Use only when the user asks for a code review they will read themse
 
 # Guided review
 
-A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user a walkthrough, one stop at a time: your overview, then each stop with your explanation and an answer field beside the exact code drawn from git, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers, with an optional message about the whole review, come back to your session as one message.
+A guided review lets the user review a large change in minutes without giving up the parts only they can judge. You review every line yourself, then publish a **map** with `takode review`. Takode shows the user a walkthrough, one stop at a time: your overview, then each stop with your explanation and an answer field beside the exact code drawn from git, then what you checked and what you summarized. The full change opens from git with one tap. The user's answers, with an optional message about the whole review and any comments they left on lines of the code, come back to your session as one message.
 
 It is a user-facing feature only: use it when the user asks for a review they will read, not for agent-to-agent reviews such as a reviewer checking a worker's change.
 
@@ -17,6 +17,7 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread. A worker publishes into its own session (`--thread main`) and tells its leader, who shares it where the user reads it (below).
 6. When the answers arrive, read them as the user's review, not as orders to implement. They may start with the user's message about the whole review; follow it and the context: whose change it is and what the user asked for. A review of the user's own change often leads to making the changes; a review of someone else's pull request usually does not, and the user may want only your answers, or comments drafted for them to post. When it is unclear what should happen next, ask before acting. Never post to GitHub or message other people as the user.
+   Comments on the code come last, under "Comments on the code", each naming the file and lines (numbered as in the file after the change; "removed lines" are numbered as before it), the stop they were made on, the lines quoted as a diff and the comment. Treat each like a review comment on those exact lines, read with the same judgment as the answers: open the file at the head of the range, respond to every comment, and when replying name the file and lines so the user can tell which comment you mean.
 
 ## Sharing a review into another thread
 

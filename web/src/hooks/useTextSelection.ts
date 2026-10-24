@@ -41,7 +41,7 @@ interface SelectedTextBoundaryNodes {
 }
 
 /** Return the intersection between a Range and one node's contents. */
-function intersectRangeWithNodeContents(range: Range, node: Node): Range | null {
+export function intersectRangeWithNodeContents(range: Range, node: Node): Range | null {
   if (!range.intersectsNode(node)) return null;
 
   const document = node.nodeType === Node.DOCUMENT_NODE ? (node as Document) : node.ownerDocument;
@@ -208,14 +208,31 @@ function computeMenuPosition(rect: DOMRect, touch: boolean): { x: number; y: num
 }
 
 /**
- * Detects text selection within assistant message content inside the given container.
+ * Decides which part of a selection the menu acts on: the selection's Range clipped to the one
+ * place it belongs to, or null when the menu should not show for it.
+ */
+export type SelectionScopeResolver = (selection: Selection, range: Range, container: HTMLElement) => Range | null;
+
+/** Chat's rule: the selection lies within one Markdown scope of a single assistant message. */
+export const resolveChatSelectionScope: SelectionScopeResolver = (selection, range, container) => {
+  const message = findSelectionMessage(selection, range, container);
+  return message ? findOwnedChatSelectionRange(range, message) : null;
+};
+
+/**
+ * Detects text selection inside the given container that `resolveScope` accepts, by default text
+ * within a single assistant message's content.
  *
  * Returns selection state with position data for rendering a floating context menu.
- * Only activates for non-empty selections fully within a single assistant message.
  * On touch devices, delays evaluation to let the native selection UI finalize.
  */
-export function useTextSelection(containerRef: RefObject<HTMLElement | null>): TextSelectionState {
+export function useTextSelection(
+  containerRef: RefObject<HTMLElement | null>,
+  resolveScope: SelectionScopeResolver = resolveChatSelectionScope,
+): TextSelectionState {
   const [state, setState] = useState<Omit<TextSelectionState, "clear" | "dismiss">>(EMPTY_STATE);
+  const resolveScopeRef = useRef(resolveScope);
+  resolveScopeRef.current = resolveScope;
   const rafRef = useRef<number>(0);
   const touchDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track whether we should suppress the next selectionchange (after programmatic clear)
@@ -279,8 +296,7 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
 
       let ownedRange: Range | null;
       try {
-        const message = findSelectionMessage(sel, sourceRange, container!);
-        ownedRange = message ? findOwnedChatSelectionRange(sourceRange, message) : null;
+        ownedRange = resolveScopeRef.current(sel, sourceRange, container!);
       } catch {
         setState(EMPTY_STATE);
         return;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import { useGuidedReviewState, type GuidedReviewTarget } from "../guided-review-state.js";
 import {
   NOTE_CLASS,
@@ -16,6 +16,7 @@ import {
   type IndexedStop,
   type ReviewPart,
 } from "./GuidedReviewParts.js";
+import { AllLineComments, LineCommentLayer, StopLineComments } from "./GuidedReviewLineComments.js";
 
 /**
  * A guided review as a walkthrough, one stop at a time: an overview first, then each stop with the
@@ -40,7 +41,13 @@ export function Walkthrough({
   // A sent review opens on its wrap-up, where the answers that were sent are listed.
   const [step, setStep] = useState(() => (review.sent ? last : 0));
   const [direction, setDirection] = useState(1);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The scroller as state too: the comment layer watches selections in it once it exists.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const attachScroller = useCallback((element: HTMLDivElement | null) => {
+    scrollRef.current = element;
+    setScroller(element);
+  }, []);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
 
   const go = (next: number) => {
@@ -106,7 +113,7 @@ export function Walkthrough({
         </div>
       </div>
       <div
-        ref={scrollRef}
+        ref={attachScroller}
         className="@container min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
@@ -129,6 +136,7 @@ export function Walkthrough({
           {step === last && (
             <div className="space-y-4">
               <YourAnswers target={target} tour={tour} onSelect={(n) => go(n + 1)} />
+              <AllLineComments target={target} />
               <ReviewMessage target={target} />
               <ReviewEndSections target={target} onOpenFullDiff={onOpenFullDiff} />
             </div>
@@ -163,14 +171,16 @@ export function Walkthrough({
           )}
         </div>
       </div>
+      <LineCommentLayer target={target} container={scroller} />
     </>
   );
 }
 
 /**
- * One stop: when the review is at least 70rem wide, the explanation and answer stay in a narrow
- * left column while the code takes the rest; narrower, where side by side would cramp the code
- * (below roughly 80 characters), they stack as explanation, code, answer.
+ * One stop: when the review is at least 70rem wide, the explanation, answer and comments on the
+ * code stay in a narrow left column while the code takes the rest; narrower, where side by side
+ * would cramp the code (below roughly 80 characters), they stack as explanation, code, comments,
+ * answer.
  */
 function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedReviewTarget; entry: IndexedStop }) {
   return (
@@ -182,12 +192,16 @@ function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedRev
         <div className="order-1">
           <StopHeading stop={stop} sessionId={target.sessionId} />
         </div>
-        <div className="order-3">
+        <div className="order-4">
           <StopAnswer target={target} stop={stop} index={index} stacked />
+        </div>
+        {/* Stacked, the comments follow the code they are on; beside the code, they follow the answer. */}
+        <div className="order-3">
+          <StopLineComments target={target} stop={index} />
         </div>
       </div>
       <div className="order-2 min-w-0">
-        <ReviewCode refs={stop.code} full />
+        <ReviewCode refs={stop.code} target={target} stop={index} full />
       </div>
     </div>
   );

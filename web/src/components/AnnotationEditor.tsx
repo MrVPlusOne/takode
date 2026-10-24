@@ -1,5 +1,5 @@
 import { VoiceInputIcon } from "./VoiceInputIcon.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { addTranscriptionTag } from "../../shared/transcription-tag.js";
@@ -33,6 +33,9 @@ export function AnnotationEditor({
   threadTitle,
   position,
   sourceUnavailable,
+  target,
+  quotesCode = false,
+  focusComposerOnKeySave = true,
   onSave,
   onCancel,
   onRemove,
@@ -44,6 +47,15 @@ export function AnnotationEditor({
   threadTitle?: string;
   position?: { x: number; y: number };
   sourceUnavailable?: boolean;
+  /** What the comment is on, shown above the quote; a report comment names its report by default. */
+  target?: ReactNode;
+  /** The selected text is code: quoted in a monospace font with its lines and indentation kept. */
+  quotesCode?: boolean;
+  /**
+   * Whether a save with the send key focuses the message box, so a second send key sends the
+   * message. Off where the comments are sent some other way.
+   */
+  focusComposerOnKeySave?: boolean;
   onSave: (comment: string) => void;
   onCancel: () => void;
   onRemove?: () => void;
@@ -230,12 +242,14 @@ export function AnnotationEditor({
           }
         }}
       >
-        {annotation.reportSource && (
-          <div className="mb-2 flex">
-            <ReportCommentTarget source={annotation.reportSource} />
-          </div>
+        {(target ?? annotation.reportSource) && (
+          <div className="mb-2 flex">{target ?? <ReportCommentTarget source={annotation.reportSource!} />}</div>
         )}
-        <blockquote className="mb-3 max-h-24 overflow-auto whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-3 text-xs text-cc-muted">
+        <blockquote
+          className={`mb-3 max-h-24 overflow-auto border-l-2 border-cc-primary/60 pl-3 text-xs text-cc-muted ${
+            quotesCode ? "whitespace-pre font-mono-code" : "whitespace-pre-wrap break-words"
+          }`}
+        >
           {annotation.selectedText}
         </blockquote>
         {sourceUnavailable && (
@@ -253,7 +267,7 @@ export function AnnotationEditor({
             if (!saveKey.isSendKey(event)) return;
             event.preventDefault();
             if (!canSave) return;
-            focusComposerOnClose.current = true;
+            focusComposerOnClose.current = focusComposerOnKeySave;
             onSave(text);
           }}
           placeholder="Add your comment…"
