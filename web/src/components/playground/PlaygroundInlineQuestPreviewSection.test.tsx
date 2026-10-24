@@ -183,13 +183,13 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(within(live).getByRole("status")).toHaveTextContent("optional title layer is omitted");
 
     const richControl = within(controls).getByRole("button", {
-      name: "Show fine-pointer eye-hover details",
+      name: "Show fine-pointer icon-hover details",
     });
     richControl.focus();
     fireEvent.click(richControl);
     let dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
-    expect(dialog).toHaveTextContent("Reveal rich quest context from the integrated eye");
+    expect(dialog).toHaveTextContent("Reveal rich quest context by hovering the thread icon");
     expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Done");
     expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
       "A deterministic Playground fixture for the accepted chat-feed inline quest preview contract.",
@@ -203,7 +203,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       "#/session/7?thread=q-9413",
     );
     live = within(section).getByTestId("playground-inline-quest-preview-live");
-    expect(within(live).getByRole("button", { name: /Preview q-9413 feedback #4/ })).toHaveAttribute(
+    expect(within(live).getByRole("button", { name: /^Open the q-9413 thread/ })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -212,7 +212,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show eye-hover hydration error",
+        name: "Show icon-hover hydration error",
       }),
     );
     dialog = await screen.findByRole("dialog");
@@ -226,7 +226,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show keyboard-activated eye details",
+        name: "Show keyboard activation without a thread",
       }),
     );
     dialog = await screen.findByRole("dialog");
@@ -242,7 +242,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show first-touch modal sheet",
+        name: "Show first touch without a thread",
       }),
     );
     dialog = await screen.findByRole("dialog");
@@ -309,7 +309,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
         ?.some((row) => row.questId === "q-9413"),
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer eye-hover details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer icon-hover details" }));
     const dialog = await screen.findByRole("dialog");
     // The fixture re-seeds its numbered sessions after the refresh, so the button names the leader again.
     expect(await within(dialog).findByRole("link", { name: "Open Thread #7" })).toHaveAttribute(
@@ -379,7 +379,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       name: "Inline quest preview fixture state",
     });
     const richControl = within(controls).getByRole("button", {
-      name: "Show fine-pointer eye-hover details",
+      name: "Show fine-pointer icon-hover details",
     });
 
     fireEvent.click(richControl);

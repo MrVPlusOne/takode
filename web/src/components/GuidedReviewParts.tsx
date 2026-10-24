@@ -146,11 +146,18 @@ export function ReviewCounts({
 
 /**
  * Review text (the overview, notes, summaries and sent answers), rendered as chat renders it so
- * Takode links work. A link to a session or message closes the review, which would otherwise
- * cover the conversation the link opened.
+ * Takode links work, quest links with their thread icon. A link to a session, message or quest
+ * thread closes the review, which would otherwise cover the conversation the link opened.
  */
 export function ReviewMarkdown({ text, sessionId }: { text: string; sessionId: string }) {
-  return <MarkdownContent text={text} sessionId={sessionId} onSessionNavigate={closeGuidedReview} />;
+  return (
+    <MarkdownContent
+      text={text}
+      sessionId={sessionId}
+      onSessionNavigate={closeGuidedReview}
+      questLinkSurface="chat-feed"
+    />
+  );
 }
 
 /** A stop's kind, its question or title, and the agent's note on why it matters. */

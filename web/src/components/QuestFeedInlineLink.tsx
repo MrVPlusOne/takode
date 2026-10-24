@@ -17,15 +17,22 @@ import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
-import type { QuestmasterTask } from "../types.js";
+import type { AppState } from "../store-types.js";
+import type { QuestListPreview, QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { currentCachedQuestDetail, hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { getQuestRecordStatusTheme } from "../utils/quest-status-theme.js";
 import { getQuestStatusPresentation } from "../utils/quest-status-presentation.js";
-import { findQuestJourneyContext } from "../utils/quest-journey-context.js";
+import { findQuestJourneyContext, resolveQuestSessionTargets } from "../utils/quest-journey-context.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
-import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
+import {
+  isSessionThreadRoute,
+  navigateToSessionThread,
+  openQuestOverlayRouteAware,
+  withQuestFeedbackInHash,
+  withQuestIdInHash,
+} from "../utils/routing.js";
 import {
   QuestPreviewCardContent,
   QuestPreviewHeaderAction,
@@ -67,6 +74,23 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
     questIndexCache.set(quests, index);
   }
   return index.get(questId.toLowerCase()) ?? null;
+}
+
+/**
+ * The leader whose thread tab belongs to the quest, as far as the browser already knows: from the
+ * quest's record when loaded, else from a loaded board that holds it. Resolved like the preview's
+ * Open Thread button.
+ */
+function selectQuestThreadLeaderId(state: AppState, questId: string): string | null {
+  const quest =
+    state.questDetails?.get(questId) ?? findQuestById(state.quests ?? [], questId) ?? ({ questId } as QuestListPreview);
+  const context = findQuestJourneyContext(
+    quest,
+    state.sessionBoards,
+    state.sessionCompletedBoards,
+    state.sessionBoardRowStatuses,
+  );
+  return resolveQuestSessionTargets(quest, context, state.sdkSessions).leaderSessionId;
 }
 
 type PreviewPhase = "idle" | "arming" | "micro" | "rich-loading" | "rich-ready" | "rich-error";
@@ -223,6 +247,7 @@ export function QuestFeedInlineLink({
   className,
   stopPropagation,
   onNavigate,
+  onSessionNavigate,
   feedbackIndex,
   loadQuest = hydrateQuestDetail,
 }: {
@@ -232,6 +257,8 @@ export function QuestFeedInlineLink({
   className: string;
   stopPropagation: boolean;
   onNavigate?: () => void;
+  /** Called after going to a session (the quest's thread, or a session from the preview), so a covering view can close. */
+  onSessionNavigate?: () => void;
   loadQuest?: (questId: string) => Promise<QuestmasterTask | null>;
 }) {
   const normalizedQuestId = questId.toLowerCase();
@@ -250,6 +277,7 @@ export function QuestFeedInlineLink({
       titlePreviewKnown: titlePreviews?.has(normalizedQuestId) ?? false,
     });
   });
+  const threadLeaderSessionId = useStore((state) => selectQuestThreadLeaderId(state, normalizedQuestId));
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
   const darkMode = useStore((state) => state.darkMode);
   const hash = useHashLocation();
@@ -758,12 +786,25 @@ export function QuestFeedInlineLink({
     [claimThisPreview, setPhase, setRichOpenMode, startRichHydration],
   );
 
-  const activateRichPreview = useCallback(
+  // The icon after the link goes to the quest's thread in its leader, like the preview's Open Thread;
+  // hovering it still previews. With no known thread, or inside that thread already, it opens the
+  // preview instead, whose Open quest goes on to the quest.
+  const activateTrigger = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       if (stopPropagation) event.stopPropagation();
-      openExplicitRichPreview(pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse"));
+      const state = useStore.getState();
+      const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId);
+      if (!leaderSessionId || isSessionThreadRoute(window.location.hash, leaderSessionId, normalizedQuestId)) {
+        openExplicitRichPreview(pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse"));
+        return;
+      }
+      const leaderSessionNum = state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum;
+      closeAllRef.current(false);
+      navigateToSessionThread(leaderSessionId, normalizedQuestId, false, leaderSessionNum ?? leaderSessionId);
+      onNavigate?.();
+      onSessionNavigate?.();
     },
-    [openExplicitRichPreview, stopPropagation],
+    [normalizedQuestId, onNavigate, onSessionNavigate, openExplicitRichPreview, stopPropagation],
   );
 
   const handleLinkClick = useCallback(
@@ -775,7 +816,7 @@ export function QuestFeedInlineLink({
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       // A touch tap previews the quest, keeping the conversation in view; the preview's Open quest is
-      // one more tap. A mouse or keyboard click opens the full view, where hovering the eye previews.
+      // one more tap. A mouse or keyboard click opens the full view; hovering the icon previews.
       if (pointerType === "touch" && event.detail !== 0) {
         openExplicitRichPreview("touch");
         return;
@@ -810,8 +851,8 @@ export function QuestFeedInlineLink({
     }
     const sourceRects = collectNonEmptyClientRects(source);
     const previewRects = collectNonEmptyClientRects(preview);
-    // Touch-first devices hide the eye (a tap on the link previews), so the preview then
-    // anchors to the link's last line instead.
+    // When the icon has no box (hidden by the surrounding styles), the preview anchors to the
+    // link's last line instead.
     const triggerRect = previewRects[0] ?? sourceRects[sourceRects.length - 1];
     const viewport = getVisualViewportRect();
     if (
@@ -1078,9 +1119,13 @@ export function QuestFeedInlineLink({
   usePreviewSheetHistoryEntry(richOpen && richPlacement?.kind === "bottom-sheet", richRef, () =>
     closeAllRef.current(false),
   );
-  const previewAccessibleLabel = canonicalTitle
-    ? `Preview ${targetLabel}: ${canonicalTitle}`
-    : `Preview ${targetLabel}`;
+  const jumpsToThread =
+    threadLeaderSessionId !== null && !isSessionThreadRoute(hash, threadLeaderSessionId, normalizedQuestId);
+  const triggerAccessibleLabel = jumpsToThread
+    ? `Open the ${questId} thread${canonicalTitle ? `: ${canonicalTitle}` : ""}`
+    : canonicalTitle
+      ? `Preview ${targetLabel}: ${canonicalTitle}`
+      : `Preview ${targetLabel}`;
   return (
     <>
       <span className="cc-feed-quest-link-pair" data-testid="quest-feed-link-pair">
@@ -1120,8 +1165,8 @@ export function QuestFeedInlineLink({
           ref={previewRef}
           type="button"
           className="cc-feed-quest-preview-trigger"
-          aria-label={previewAccessibleLabel}
-          aria-haspopup="dialog"
+          aria-label={triggerAccessibleLabel}
+          aria-haspopup={jumpsToThread ? undefined : "dialog"}
           aria-expanded={richOpen}
           aria-controls={dialogId}
           data-rich-open-mode={richOpenMode ?? undefined}
@@ -1149,11 +1194,20 @@ export function QuestFeedInlineLink({
             if (event.key === "Enter" || event.key === " ") pendingPreviewPointerTypeRef.current = null;
             if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
           }}
-          onClick={activateRichPreview}
+          onClick={activateTrigger}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-            <path d="M1.5 8s2.2-3.75 6.5-3.75S14.5 8 14.5 8 12.3 11.75 8 11.75 1.5 8 1.5 8Z" />
-            <circle cx="8" cy="8" r="1.6" />
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="8" r="7" />
+            <path d="M4.5 8h6.5" />
+            <path d="M8 5l3 3-3 3" />
           </svg>
         </button>
       </span>
@@ -1161,9 +1215,9 @@ export function QuestFeedInlineLink({
         richPlacement?.kind === "popover" &&
         richPlacement.hoverActivationRect &&
         createPortal(
-          // The real eye stays the only accessible control. This pointer-only body portal
+          // The real icon stays the only accessible control. This pointer-only body portal
           // bridges the app root's transform stacking context when the hover card covers it.
-          // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible eye control
+          // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible icon control
           <span
             ref={hoverActivationProxyRef}
             aria-hidden="true"
@@ -1188,7 +1242,7 @@ export function QuestFeedInlineLink({
               hoverActivationPointerDownRef.current = false;
               schedulePointerGeometry();
             }}
-            onClick={activateRichPreview}
+            onClick={activateTrigger}
           />,
           document.body,
         )}
@@ -1255,6 +1309,11 @@ export function QuestFeedInlineLink({
               closeAllRef.current(false);
               onNavigate?.();
             }}
+            onSessionNavigate={() => {
+              closeAllRef.current(false);
+              onNavigate?.();
+              onSessionNavigate?.();
+            }}
             nextFocusable={nextFocusableRef.current}
             onPointerEnter={(event) => handlePointerEnter("rich", event)}
             onPointerLeave={(event) => handlePointerLeave("rich", event)}
@@ -1285,6 +1344,7 @@ const QuestFeedRichPreview = forwardRef<
     onRetry: () => void;
     onClose: (returnFocus: boolean, dismissalModality?: string) => void;
     onNavigate: () => void;
+    onSessionNavigate: () => void;
     nextFocusable: HTMLElement | null;
     onPointerEnter: (event: PointerEvent<HTMLDivElement>) => void;
     onPointerLeave: (event: PointerEvent<HTMLDivElement>) => void;
@@ -1308,6 +1368,7 @@ const QuestFeedRichPreview = forwardRef<
     onRetry,
     onClose,
     onNavigate,
+    onSessionNavigate,
     nextFocusable,
     onPointerEnter,
     onPointerLeave,
@@ -1446,7 +1507,7 @@ const QuestFeedRichPreview = forwardRef<
           headingId={headingId}
           headerAction={isModal ? undefined : primaryAction}
           suppressNestedHoverCards
-          onSessionNavigate={onNavigate}
+          onSessionNavigate={onSessionNavigate}
           omitSessionActions={isModal}
         />
       ) : (
@@ -1521,7 +1582,7 @@ const QuestFeedRichPreview = forwardRef<
             quest={quest}
             size="touch"
             className="basis-full justify-end"
-            onNavigate={onNavigate}
+            onNavigate={onSessionNavigate}
           />
         )}
         {isModal && (

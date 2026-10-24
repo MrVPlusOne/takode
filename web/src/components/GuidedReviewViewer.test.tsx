@@ -211,6 +211,8 @@ describe("guided review", () => {
     const walkthrough = within(viewer).getByTestId("guided-review-walkthrough");
     expect(walkthrough.querySelector(".cc-quest-link")).toHaveTextContent("q-2813");
     expect(walkthrough).not.toHaveTextContent("quest:q-2813");
+    // Quest links carry the chat feed's thread icon, which closes the review when it jumps.
+    expect(within(walkthrough).getByTestId("quest-feed-preview-button")).toBeInTheDocument();
 
     fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
     expect(currentStop(viewer)).toHaveTextContent("Asked for in #5.");

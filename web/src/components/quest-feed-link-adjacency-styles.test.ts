@@ -28,17 +28,19 @@ describe("chat-feed quest link adjacency styles", () => {
     expect(eye).toContain("margin-inline-start: 0.12em");
   });
 
-  it("keeps the eye from making its line taller and hides it on touch-first devices", async () => {
+  it("keeps the thread icon from making its line taller and shows it on touch-first devices", async () => {
     // A box taller than the text pushed lines with quest links apart; negative block margins
-    // keep the eye out of the line height, and touch hit area comes from an ::after overlay
-    // rather than the layout box. Phones drop the eye because tapping the link previews.
+    // keep the icon out of the line height, and touch hit area comes from an ::after overlay
+    // rather than the layout box. Phones show the icon because tapping it is how they reach the
+    // quest's thread (tapping the link previews), and the hit area grows rightward from the icon
+    // so it never covers the link's own text.
     const css = await readFile(new URL("../index.css", import.meta.url), "utf8");
-    const eye = ruleBody(css, ".cc-feed-quest-preview-trigger");
-    expect(eye).toContain("height: 1.2em");
-    expect(eye).toContain("margin-block: -0.3em");
-    expect(css).toMatch(
-      /@media \(hover: none\) and \(pointer: coarse\) \{\s*\.cc-feed-quest-preview-trigger \{\s*display: none;/,
-    );
-    expect(ruleBody(css, ".cc-feed-quest-preview-trigger-force-coarse::after")).toContain("width: 44px");
+    const icon = ruleBody(css, ".cc-feed-quest-preview-trigger");
+    expect(icon).toContain("height: 1.2em");
+    expect(icon).toContain("margin-block: -0.3em");
+    expect(css).not.toMatch(/\.cc-feed-quest-preview-trigger \{\s*display: none;/);
+    const touchTarget = ruleBody(css, ".cc-feed-quest-preview-trigger-force-coarse::after");
+    expect(touchTarget).toContain("left: 0");
+    expect(touchTarget).toContain("height: 44px");
   });
 });

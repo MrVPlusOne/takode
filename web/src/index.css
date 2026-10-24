@@ -112,9 +112,10 @@ html, body {
 }
 
 /*
- * The preview eye sits in the text like a glyph: about one em, a hair after the link, and
+ * The jump-to-thread icon sits in the text like a glyph: about one em, a hair after the link, and
  * negative block margins so it never makes its line taller. Where a touch pointer exists, an
- * invisible ::after enlarges only the tap target, not the layout.
+ * invisible ::after enlarges only the tap target, not the layout. It grows rightward from the
+ * icon so it never covers the link, whose tap opens the preview.
  */
 .cc-feed-quest-preview-trigger {
   position: relative;
@@ -160,29 +161,22 @@ html, body {
   .cc-feed-quest-preview-trigger::after {
     content: "";
     position: absolute;
-    left: 50%;
+    left: 0;
     top: 50%;
-    width: 44px;
+    width: 36px;
     height: 44px;
-    transform: translate(-50%, -50%);
+    transform: translateY(-50%);
   }
 }
 
 .cc-feed-quest-preview-trigger-force-coarse::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: 0;
   top: 50%;
-  width: 44px;
+  width: 36px;
   height: 44px;
-  transform: translate(-50%, -50%);
-}
-
-/* On a touch-first device a tap on the link itself opens the preview, so the eye is redundant. */
-@media (hover: none) and (pointer: coarse) {
-  .cc-feed-quest-preview-trigger {
-    display: none;
-  }
+  transform: translateY(-50%);
 }
 
 .cc-thread-link {

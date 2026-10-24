@@ -6,6 +6,19 @@ import type { QuestmasterTask } from "../types.js";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { createLeaderThreadTabsProjectionEnvelope } from "../test-fixtures/leader-thread-tabs-projection.js";
+import {
+  quest,
+  deferred,
+  domRect,
+  geometryFixture,
+  setGeometryFixture,
+  setVisualViewport,
+  setMatchMedia,
+  renderFeedLink,
+  setUpQuestFeedLinkTest,
+  tearDownQuestFeedLinkTest,
+  resetGeometryFixture,
+} from "../test-fixtures/quest-feed-inline-link.js";
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
@@ -17,162 +30,9 @@ vi.mock("../api.js", () => ({
 
 const mockGetQuestValidated = vi.mocked(api.getQuestValidated);
 
-function quest(overrides: Partial<QuestmasterTask> & { questId: string; title: string }): QuestmasterTask {
-  const { questId, title, ...rest } = overrides;
-  return {
-    id: `${questId}-v1`,
-    questId,
-    version: 1,
-    status: "refined",
-    title,
-    description: "Detailed quest description",
-    createdAt: 1,
-    ...rest,
-  } as QuestmasterTask;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function domRect(x: number, y: number, width: number, height: number): DOMRect {
-  return DOMRect.fromRect({ x, y, width, height });
-}
-
-interface GeometryFixture {
-  sourceRects: DOMRect[];
-  previewRect: DOMRect;
-  /** The eye is not rendered (no client rects), as on touch-first devices. */
-  eyeHidden?: boolean;
-  nextControlRect: DOMRect;
-  nearbyControlRects: DOMRect[];
-  microRect: DOMRect;
-  richRect: DOMRect;
-}
-
-let geometryFixture: GeometryFixture;
-
-function resetGeometryFixture() {
-  geometryFixture = {
-    sourceRects: [domRect(100, 100, 82, 20)],
-    previewRect: domRect(186, 97, 26, 26),
-    nextControlRect: domRect(520, 100, 80, 30),
-    nearbyControlRects: [],
-    microRect: domRect(0, 0, 320, 58),
-    richRect: domRect(0, 0, 560, 300),
-  };
-}
-
-function installGeometry() {
-  vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function getClientRects(this: Element) {
-    const element = this as HTMLElement;
-    if (element.dataset.testid === "quest-feed-preview-button") {
-      return (geometryFixture.eyeHidden ? [] : [geometryFixture.previewRect]) as unknown as DOMRectList;
-    }
-    if (element.matches("a.cc-quest-link")) {
-      return geometryFixture.sourceRects as unknown as DOMRectList;
-    }
-    if (element.matches("button[data-next-control]")) {
-      return [geometryFixture.nextControlRect] as unknown as DOMRectList;
-    }
-    if (element.matches("[data-nearby-control]")) {
-      return geometryFixture.nearbyControlRects as unknown as DOMRectList;
-    }
-    return [] as unknown as DOMRectList;
-  });
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function getBoundingClientRect(
-    this: Element,
-  ) {
-    const element = this as HTMLElement;
-    if (element.dataset.testid === "quest-feed-title-preview") return geometryFixture.microRect;
-    if (element.dataset.testid === "quest-feed-rich-preview") return geometryFixture.richRect;
-    return domRect(0, 0, 0, 0);
-  });
-}
-
-function setVisualViewport({ left, top, width, height }: { left: number; top: number; width: number; height: number }) {
-  Object.defineProperty(window, "visualViewport", {
-    configurable: true,
-    value: {
-      offsetLeft: left,
-      offsetTop: top,
-      width,
-      height,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    },
-  });
-}
-
-function setMatchMedia({ coarse = false }: { coarse?: boolean } = {}) {
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn((query: string) => ({
-      matches: query === "(any-pointer: coarse)" ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-}
-
-function renderFeedLink(
-  questId: string,
-  options: { feedbackIndex?: number; title?: string; nextControl?: boolean } = {},
-) {
-  const cached = options.title ? quest({ questId, title: options.title }) : null;
-  if (cached) {
-    useStore.setState({
-      questDetails: new Map([[questId.toLowerCase(), cached]]),
-      questDetailEtags: new Map([[questId.toLowerCase(), `"${questId}-etag"`]]),
-    });
-    mockGetQuestValidated.mockResolvedValue({ status: "not-modified", etag: `"${questId}-etag"` });
-  }
-  return render(
-    <div data-message-id={`message-${questId}`}>
-      <QuestInlineLink questId={questId} feedbackIndex={options.feedbackIndex} surface="chat-feed">
-        {options.feedbackIndex === undefined ? questId : `${questId} feedback #${options.feedbackIndex}`}
-      </QuestInlineLink>
-      {options.nextControl && <button data-next-control="true">Next control</button>}
-    </div>,
-  );
-}
-
 describe("QuestInlineLink chat-feed preview", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    useStore.getState().reset();
-    useStore.setState({ zoomLevel: 1 });
-    mockGetQuestValidated.mockReset();
-    setMatchMedia();
-    resetGeometryFixture();
-    Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
-    window.location.hash = "#/session/s1";
-    installGeometry();
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
+  beforeEach(setUpQuestFeedLinkTest);
+  afterEach(tearDownQuestFeedLinkTest);
 
   it("keeps the native link and icon-only Preview control in one fixed-gap inline unit", () => {
     renderFeedLink("q-42", { feedbackIndex: 5, title: "Stable exact target", nextControl: true });
@@ -571,12 +431,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("rescales wrapped-link placement from the latest fine-pointer fragment", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(20, 20, 70, 18), domRect(20, 70, 70, 18)],
       previewRect: domRect(240, 300, 70, 28),
       microRect: domRect(0, 0, 180, 54),
-    };
+    });
     renderFeedLink("q-77", { title: "Wrapped pointer title" });
     const link = screen.getByRole("link", { name: "q-77" });
 
@@ -885,271 +745,6 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(dialog).getByTestId("quest-feed-feedback-unavailable")).toHaveTextContent("stable index");
   });
 
-  it("puts Open Worker and Open Thread at the top, ahead of the exact feedback actions", async () => {
-    // The user reviews quests from this preview and most often wants the quest's leader thread, so
-    // both jump buttons sit directly under the title instead of in the footer or participant list.
-    const cached = quest({
-      questId: "q-490",
-      title: "Leader thread jump",
-      sessionId: "worker-490",
-      claimedAt: 2,
-      leaderSessionId: "leader-490",
-      feedback: [
-        {
-          author: "human",
-          text: "Keep the exact feedback action primary.",
-          ts: 1,
-        },
-      ],
-    });
-    useStore.setState({
-      questDetails: new Map([["q-490", cached]]),
-      questDetailEtags: new Map([["q-490", '"leader-route"']]),
-      sdkSessions: [
-        {
-          sessionId: "worker-490",
-          sessionNum: 6490,
-          archived: false,
-          state: "running",
-          cwd: "/tmp/worker-490",
-          createdAt: 1,
-        },
-        {
-          sessionId: "leader-490",
-          sessionNum: 7490,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-490",
-          createdAt: 1,
-        },
-      ],
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({
-      status: "not-modified",
-      etag: '"leader-route"',
-    });
-    renderFeedLink("q-490", { feedbackIndex: 0 });
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-490 feedback #0/ }));
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", { name: "Leader thread jump" });
-    const primary = within(dialog).getByTestId("quest-feed-primary-action");
-    const worker = within(dialog).getByRole("link", {
-      name: "Open Worker #6490",
-    });
-    const thread = within(dialog).getByRole("link", {
-      name: "Open Thread #7490",
-    });
-    const parent = within(dialog).getByTestId("quest-feed-parent-action");
-    expect(primary).toHaveTextContent("Open feedback #0");
-    expect(worker).toHaveAttribute("href", "#/session/6490");
-    expect(thread).toHaveAttribute("href", "#/session/7490?thread=q-490");
-    // The jump buttons sit right under the status line and title, ahead of the summaries and the
-    // footer's exact-feedback parent action.
-    const statusRow = within(dialog).getByTestId("quest-hover-status-row");
-    expect(statusRow.compareDocumentPosition(worker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(worker.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(thread.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The buttons are the only place the worker (here the owner session) and the leader appear.
-    expect(within(dialog).queryByTestId("quest-hover-owner-session")).toBeNull();
-    expect(within(dialog).queryByTestId("quest-hover-leader-session")).toBeNull();
-
-    fireEvent.click(thread);
-    expect(window.location.hash).toBe("#/session/7490?thread=q-490");
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("opens the recorded leader's quest thread without needing that leader's board or tabs loaded", async () => {
-    // Quest views opened outside the leader session have no copy of its board or tab projection.
-    // The leader session itself decides on arrival whether the thread exists (falling back to Main).
-    const cached = quest({
-      questId: "q-493",
-      title: "Unloaded leader route",
-      leaderSessionId: "leader-493",
-    });
-    useStore.setState({
-      questDetails: new Map([["q-493", cached]]),
-      questDetailEtags: new Map([["q-493", '"unloaded-route"']]),
-      sdkSessions: [
-        {
-          sessionId: "leader-493",
-          sessionNum: 7493,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-493",
-          createdAt: 1,
-        },
-      ],
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({
-      status: "not-modified",
-      etag: '"unloaded-route"',
-    });
-    renderFeedLink("q-493");
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-493/ }));
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", {
-      name: "Unloaded leader route",
-    });
-    expect(within(dialog).getByRole("link", { name: "Open Thread #7493" })).toHaveAttribute(
-      "href",
-      "#/session/7493?thread=q-493",
-    );
-  });
-
-  it("uses the worker's leader for Open Thread when the quest recorded no leader", async () => {
-    const cached = quest({
-      questId: "q-491",
-      title: "Herded worker leader fallback",
-      sessionId: "worker-491",
-      claimedAt: 2,
-    });
-    useStore.setState({
-      questDetails: new Map([["q-491", cached]]),
-      questDetailEtags: new Map([["q-491", '"herded-route"']]),
-      sdkSessions: [
-        {
-          sessionId: "worker-491",
-          archived: false,
-          herdedBy: "leader-491",
-          state: "running",
-          cwd: "/tmp/worker-491",
-          createdAt: 1,
-        },
-        {
-          sessionId: "leader-491",
-          sessionNum: 7491,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-491",
-          createdAt: 1,
-        },
-      ],
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({
-      status: "not-modified",
-      etag: '"herded-route"',
-    });
-    renderFeedLink("q-491");
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-491/ }));
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", {
-      name: "Herded worker leader fallback",
-    });
-    expect(within(dialog).queryByTestId("quest-hover-leader-session")).toBeNull();
-    expect(within(dialog).getByRole("link", { name: "Open Thread #7491" })).toHaveAttribute(
-      "href",
-      "#/session/7491?thread=q-491",
-    );
-  });
-
-  it("offers Open Thread for a dispatched quest its worker has not claimed yet", async () => {
-    // Reproduces the "No leader session for this quest" report: right after dispatch the quest has
-    // no owner and no recorded leader (both arrive with the worker's claim), but the leader's board
-    // already holds the row with its worker.
-    const cached = quest({ questId: "q-495", title: "Freshly dispatched quest", status: "refined" });
-    useStore.setState({
-      questDetails: new Map([["q-495", cached]]),
-      questDetailEtags: new Map([["q-495", '"dispatched"']]),
-      sessionBoards: new Map([
-        [
-          "leader-495",
-          [{ questId: "q-495", status: "WORKING", worker: "worker-495", workerNum: 7496, updatedAt: 1, createdAt: 1 }],
-        ],
-      ]),
-      sdkSessions: [
-        {
-          sessionId: "leader-495",
-          sessionNum: 7495,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-495",
-          createdAt: 1,
-        },
-      ],
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"dispatched"' });
-    renderFeedLink("q-495");
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-495/ }));
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", { name: "Freshly dispatched quest" });
-    expect(within(dialog).getByRole("link", { name: "Open Thread #7495" })).toHaveAttribute(
-      "href",
-      "#/session/7495?thread=q-495",
-    );
-    expect(within(dialog).getByTestId("quest-open-worker")).not.toBeDisabled();
-  });
-
-  it("keeps a disabled Open Worker in place when the quest has only a leader", async () => {
-    // Both buttons always share the same spot, so a missing session disables its button instead of
-    // shifting the other one.
-    const cached = quest({
-      questId: "q-492",
-      title: "Leader-only quest",
-      leaderSessionId: "leader-492",
-    });
-    useStore.setState({
-      questDetails: new Map([["q-492", cached]]),
-      questDetailEtags: new Map([["q-492", '"leader-only"']]),
-      sdkSessions: [
-        {
-          sessionId: "leader-492",
-          sessionNum: 7492,
-          archived: false,
-          isOrchestrator: true,
-          state: "running",
-          cwd: "/tmp/leader-492",
-          createdAt: 1,
-        },
-      ],
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({
-      status: "not-modified",
-      etag: '"leader-only"',
-    });
-    renderFeedLink("q-492");
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-492/ }));
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", { name: "Leader-only quest" });
-    const worker = within(dialog).getByTestId("quest-open-worker");
-    expect(worker).toBeDisabled();
-    expect(worker).toHaveTextContent("Open Worker");
-    expect(within(dialog).getByTestId("quest-open-thread")).toHaveAttribute("href", "#/session/7492?thread=q-492");
-  });
-
-  it("omits the session buttons for a quest with no worker or leader", async () => {
-    const cached = quest({ questId: "q-494", title: "Unassigned quest" });
-    useStore.setState({
-      questDetails: new Map([["q-494", cached]]),
-      questDetailEtags: new Map([["q-494", '"unassigned"']]),
-    });
-    mockGetQuestValidated.mockResolvedValueOnce({
-      status: "not-modified",
-      etag: '"unassigned"',
-    });
-    renderFeedLink("q-494");
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-494/ }));
-    await act(async () => Promise.resolve());
-
-    expect(
-      within(screen.getByRole("dialog", { name: "Unassigned quest" })).queryByTestId("quest-session-actions"),
-    ).toBeNull();
-  });
-
   it("retains direct actions on error, retries by id, and rejects a stale route completion", async () => {
     const first = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
     const fresh = quest({ questId: "q-50", title: "Recovered title", tldr: "Recovered detail" });
@@ -1418,12 +1013,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("suppresses only the title shell when no legal rendered placement exists", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 300 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 100 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(100, 40, 82, 20)],
       previewRect: domRect(188, 36, 72, 28),
       microRect: domRect(0, 0, 284, 58),
-    };
+    });
     renderFeedLink("q-59", { title: "No-fit title" });
     const link = screen.getByRole("link", { name: "q-59" });
     const preview = screen.getByRole("button", { name: /Preview q-59/ });
@@ -1440,12 +1035,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("uses final rendered dimensions and visual-viewport offsets at 150 percent zoom", async () => {
     useStore.setState({ zoomLevel: 1.5 });
     setVisualViewport({ left: 25, top: 15, width: 800, height: 650 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(249, 100, 82, 20)],
       previewRect: domRect(337, 96, 72, 28),
       microRect: domRect(0, 0, 480, 87),
-    };
+    });
     renderFeedLink("q-60", { title: "Rendered zoom title" });
 
     fireEvent.pointerEnter(screen.getByRole("link", { name: "q-60" }), {
@@ -1466,10 +1061,10 @@ describe("QuestInlineLink chat-feed preview", () => {
   });
 
   it("switches a desktop no-fit popover to a right-edge-docked nonmodal side sheet", async () => {
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       richRect: domRect(0, 0, 560, 700),
-    };
+    });
     renderFeedLink("q-66", { title: "Right docked sheet" });
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-66/ }), { detail: 0 });
@@ -1489,10 +1084,10 @@ describe("QuestInlineLink chat-feed preview", () => {
     const cached = quest({ questId: "q-69", title: "Viewport-wide exclusions" });
     useStore.setState({ questDetails: new Map([["q-69", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "fresh", data: cached, etag: '"q-69"' });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       nearbyControlRects: [domRect(180, 128, 680, 360)],
-    };
+    });
     render(
       <>
         <div className="message-feed-scroll-surface" data-message-id="local-feed-only">
@@ -1528,10 +1123,10 @@ describe("QuestInlineLink chat-feed preview", () => {
     const cached = quest({ questId: "q-83", title: "Filtered phantom controls" });
     useStore.setState({ questDetails: new Map([["q-83", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "fresh", data: cached, etag: '"q-83"' });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       nearbyControlRects: [domRect(0, 0, 1200, 800)],
-    };
+    });
     render(
       <>
         <div className="message-feed-scroll-surface" data-message-id="phantom-control-feed">
@@ -1563,10 +1158,10 @@ describe("QuestInlineLink chat-feed preview", () => {
     const cached = quest({ questId: "q-87", title: "Focusable controls stay protected" });
     useStore.setState({ questDetails: new Map([["q-87", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "fresh", data: cached, etag: '"q-87"' });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       nearbyControlRects: [domRect(0, 0, 1200, 800)],
-    };
+    });
     render(
       <>
         <div className="message-feed-scroll-surface" data-message-id="focusable-control-feed">
@@ -1591,12 +1186,12 @@ describe("QuestInlineLink chat-feed preview", () => {
 
   it("uses a top-edge-docked desktop sheet when neither inline side can fit", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(180, 400, 420, 28)],
       previewRect: domRect(610, 396, 70, 36),
       richRect: domRect(0, 0, 560, 500),
-    };
+    });
     renderFeedLink("q-67", { title: "Top docked sheet" });
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-67/ }), { detail: 0 });
@@ -1614,12 +1209,12 @@ describe("QuestInlineLink chat-feed preview", () => {
     useStore.setState({ zoomLevel: 4 });
     setMatchMedia({ coarse: true });
     setVisualViewport({ left: 25, top: 15, width: 430, height: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(120, 100, 82, 20)],
       previewRect: domRect(210, 92, 88, 44),
       richRect: domRect(0, 0, 960, 420),
-    };
+    });
     renderFeedLink("q-68", { title: "High zoom sheet" });
 
     const preview = screen.getByRole("button", { name: /Preview q-68/ });
@@ -1643,12 +1238,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("keeps fine-pointer legacy hover sizing within a zoomed visual viewport", async () => {
     useStore.setState({ zoomLevel: 2 });
     setVisualViewport({ left: 25, top: 15, width: 430, height: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(249, 100, 82, 20)],
       previewRect: domRect(337, 96, 26, 26),
       richRect: domRect(0, 0, 414, 484),
-    };
+    });
     renderFeedLink("q-680", { title: "Responsive legacy hover" });
 
     const preview = screen.getByRole("button", { name: /Preview q-680/ });
@@ -1670,12 +1265,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("reuses legacy eye-relative hover placement even when the top-clamped card covers the eye", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(100, 110, 600, 280)],
       previewRect: domRect(710, 235, 26, 26),
       richRect: domRect(0, 0, 560, 400),
-    };
+    });
     renderFeedLink("q-84", { title: "Overlapping legacy hover detail" });
     const preview = screen.getByRole("button", { name: /Preview q-84/ });
 
@@ -1727,12 +1322,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("restores focused-link title intent after leaving an overlapping hover card", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(100, 110, 600, 280)],
       previewRect: domRect(710, 235, 26, 26),
       richRect: domRect(0, 0, 560, 400),
-    };
+    });
     renderFeedLink("q-88", { title: "Focused overlap recovery" });
     const link = screen.getByRole("link", { name: "q-88" });
     const preview = screen.getByRole("button", { name: /Preview q-88/ });
@@ -1761,12 +1356,12 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("falls back to a labelled modal sheet when explicit desktop placement has no legal fit", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
-    geometryFixture = {
+    setGeometryFixture({
       ...geometryFixture,
       sourceRects: [domRect(100, 110, 600, 280)],
       previewRect: domRect(710, 230, 70, 36),
       richRect: domRect(0, 0, 760, 400),
-    };
+    });
     renderFeedLink("q-74", { title: "Impossible rich placement" });
     const preview = screen.getByRole("button", { name: /Preview q-74/ });
 

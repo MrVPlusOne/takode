@@ -388,6 +388,13 @@ function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
   return resolveSessionIdFromRoute(sessionRef, useStore.getState().sdkSessions as SdkSessionInfo[]) === sessionId;
 }
 
+/** Whether the hash already shows the given thread of the given session. */
+export function isSessionThreadRoute(hash: string, sessionId: string, threadKey: string): boolean {
+  const route = parseHash(hash);
+  if (route.page !== "session" || !routeTargetsSession(route.sessionId, sessionId)) return false;
+  return (threadRouteFromHash(hash).threadKey ?? MAIN_THREAD_KEY) === normalizeThreadKey(threadKey);
+}
+
 /**
  * Retire the current message-level route after deliberate viewport movement.
  * The initial deep link remains fully functional, but replacing its history

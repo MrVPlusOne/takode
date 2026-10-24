@@ -26,6 +26,7 @@ export function QuestInlineLink({
   stopPropagation = false,
   hoverCardZIndexClassName,
   onNavigate,
+  onSessionNavigate,
   feedbackIndex,
   surface = "legacy",
 }: {
@@ -36,6 +37,8 @@ export function QuestInlineLink({
   stopPropagation?: boolean;
   hoverCardZIndexClassName?: string;
   onNavigate?: () => void;
+  /** Chat-feed links only: called after going to a session (the quest's thread icon or the preview's session buttons). */
+  onSessionNavigate?: () => void;
   surface?: "legacy" | "chat-feed";
 }) {
   if (surface === "chat-feed") {
@@ -47,6 +50,7 @@ export function QuestInlineLink({
         className={className}
         stopPropagation={stopPropagation}
         onNavigate={onNavigate}
+        onSessionNavigate={onSessionNavigate}
       >
         {children}
       </QuestFeedInlineLink>

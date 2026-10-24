@@ -45,7 +45,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     buttonLabel: "Show idle state",
     questId: "q-9410",
     title: "Keep exact chat links independently navigable",
-    description: "The exact anchor and its adjacent icon-only eye are both present before any interaction.",
+    description: "The exact anchor and the jump-to-thread icon after it are both present before any interaction.",
   },
   {
     id: "title",
@@ -54,7 +54,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     questId: "q-9411",
     title: "Keep link focus limited to the title-only preview",
     description:
-      "Keyboard focus on the native text link reveals its pointer-inert title and current validated status; the eye stays separate.",
+      "Keyboard focus on the native text link reveals its pointer-inert title and current validated status; the icon stays separate.",
   },
   {
     id: "no-fit",
@@ -67,38 +67,39 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
   },
   {
     id: "rich",
-    label: "Eye hover / rich",
-    buttonLabel: "Show fine-pointer eye-hover details",
+    label: "Icon hover / rich",
+    buttonLabel: "Show fine-pointer icon-hover details",
     questId: "q-9413",
-    title: "Reveal rich quest context from the integrated eye",
+    title: "Reveal rich quest context by hovering the thread icon",
     description:
-      "Fine-pointer entry on the eye hydrates the local by-ID fixture, opens near the eye, and puts Open Worker and Open Thread at the top.",
+      "Fine-pointer entry on the thread icon hydrates the local by-ID fixture, opens near the icon, and puts Open Worker and Open Thread at the top. Clicking the icon goes straight to the quest's thread.",
   },
   {
     id: "error",
-    label: "Eye hover / error",
-    buttonLabel: "Show eye-hover hydration error",
+    label: "Icon hover / error",
+    buttonLabel: "Show icon-hover hydration error",
     questId: "q-9414",
-    title: "Retain exact navigation when eye details fail to hydrate",
+    title: "Retain exact navigation when icon details fail to hydrate",
     description:
-      "Eye hover drives a deterministic loader rejection so Retry, direct navigation, and Close remain inspectable.",
+      "Icon hover drives a deterministic loader rejection so Retry, direct navigation, and Close remain inspectable.",
   },
   {
     id: "keyboard",
-    label: "Eye keyboard action",
-    buttonLabel: "Show keyboard-activated eye details",
+    label: "No thread / keyboard",
+    buttonLabel: "Show keyboard activation without a thread",
     questId: "q-9415",
-    title: "Open rich quest context from an explicit eye keyboard action",
-    description: "The eye receives focus without opening a title layer, then Enter opens the labelled rich surface.",
+    title: "Open the preview when the quest has no thread to go to",
+    description:
+      "The icon receives focus without opening a title layer; with no leader thread, Enter opens the labelled rich surface instead of jumping.",
   },
   {
     id: "coarse",
-    label: "First touch / sheet",
-    buttonLabel: "Show first-touch modal sheet",
+    label: "No thread / touch",
+    buttonLabel: "Show first touch without a thread",
     questId: "q-9416",
-    title: "Use a separate eye touch target and a modal bottom sheet",
+    title: "Fall back to the modal sheet when a tapped quest has no thread",
     description:
-      "A first-touch eye activation opens the real modal sheet and forces the 44 px Playground target style.",
+      "A first touch on the icon of a quest with no leader thread opens the real modal sheet and forces the Playground's enlarged touch target.",
   },
   {
     id: "link-touch",
@@ -168,9 +169,10 @@ const PREVIEW_QUEST_BY_ID = new Map(
             completedAt,
             verificationItems: [],
             verificationInboxUnread: false,
-            debrief: "The eye now presents the established full quest preview without replacing native link behavior.",
+            debrief:
+              "Hovering the thread icon presents the established full quest preview without replacing native link behavior.",
             debriefTldr:
-              "The established full preview stays available from the eye while native links, exact feedback, and non-blocking geometry remain intact.",
+              "The established full preview stays available from the thread icon while native links, exact feedback, and non-blocking geometry remain intact.",
             journeyRuns: [
               {
                 runId: "playground-completed-run",
@@ -643,7 +645,7 @@ export function PlaygroundInlineQuestPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Inline Quest Preview"
-        description="Chat-feed-only quest links keep native navigation and a distinct rich-preview eye in one cohesive fixed-gap unit. Select any state to drive the real compact and rich preview behavior deterministically."
+        description="Chat-feed-only quest links keep native navigation and a jump-to-thread icon in one cohesive fixed-gap unit: clicking the icon opens the quest's leader thread, hovering it previews. Select any state to drive the real compact and rich preview behavior deterministically."
       >
         <div className="grid gap-4 xl:grid-cols-2">
           <Card label="Deterministic state controls">
@@ -695,8 +697,8 @@ export function PlaygroundInlineQuestPreviewSection() {
             <Card label="Fixed adjacency and scope boundary — real parsed Markdown">
               <ScopeBoundaryFixture />
               <p className="mt-3 text-xs text-cc-muted">
-                The narrow feed fixture keeps the link and eye together while surrounding prose wraps. Only the explicit
-                chat-feed producer adds the eye; the adjacent non-feed surface keeps legacy behavior.
+                The narrow feed fixture keeps the link and icon together while surrounding prose wraps. Only the
+                explicit chat-feed producer adds the icon; the adjacent non-feed surface keeps legacy behavior.
               </p>
             </Card>
           </div>
@@ -705,8 +707,8 @@ export function PlaygroundInlineQuestPreviewSection() {
             <Card label="Fixed quiz adjacency and link-color parity">
               <ColorParityFixture />
               <p className="mt-3 text-xs text-cc-muted">
-                Each eye remains fixed beside its anchor and derives that exact rendered color: standard feed links stay
-                blue, while the constrained inline quiz link and eye stay orange.
+                Each icon remains fixed beside its anchor and derives that exact rendered color: standard feed links
+                stay blue, while the constrained inline quiz link and icon stay orange.
               </p>
             </Card>
           </div>

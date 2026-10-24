@@ -933,6 +933,7 @@ export const MarkdownContent = memo(function MarkdownContent({
                   wrapLongContent={wrapLongContent}
                   stopPropagation={stopLinkPropagation}
                   surface={questLinkSurface}
+                  onSessionNavigate={onSessionNavigate}
                 >
                   {children}
                 </QuestMarkdownLink>
@@ -1138,12 +1139,14 @@ function QuestMarkdownLink({
   wrapLongContent,
   stopPropagation,
   surface,
+  onSessionNavigate,
 }: {
   target: QuestLinkTarget;
   children: ReactNode;
   wrapLongContent: boolean;
   stopPropagation: boolean;
   surface: QuestLinkSurface;
+  onSessionNavigate?: () => void;
 }) {
   const className = `cc-quest-link hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
   return (
@@ -1153,6 +1156,7 @@ function QuestMarkdownLink({
       className={className}
       stopPropagation={stopPropagation}
       surface={surface}
+      onSessionNavigate={onSessionNavigate}
     >
       {children}
     </QuestInlineLink>
