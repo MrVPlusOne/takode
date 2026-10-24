@@ -36,6 +36,8 @@ interface StoredTopic {
   /** Newest event any page write covered (for display); see `coveredThrough` per leader. */
   upToDateAt: number | null;
   writtenAt: number | null;
+  /** When a Scribe last confirmed the page needs no change (`write-page --unchanged`). */
+  checkedAt?: number;
   /** Per leader: the page covers that leader's events up to this time. */
   coveredThrough?: Record<string, number>;
   /** Bumped by each page write, so a Scribe that read an older page cannot overwrite a newer one. */
@@ -577,6 +579,12 @@ export class TopicStore {
     return pendingOf(this.require(topicId), leaderId);
   }
 
+  /** When a Scribe last saved the page or confirmed it needs no change. */
+  pageTouchedAt(topicId: string): number {
+    const topic = this.require(topicId);
+    return Math.max(topic.writtenAt ?? 0, topic.checkedAt ?? 0);
+  }
+
   pageRevision(topicId: string): number {
     return this.require(topicId).pageRevision ?? 0;
   }
@@ -619,6 +627,7 @@ export class TopicStore {
   /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
   markCovered(topicId: string, upToDateAt: number, leaderId: string): void {
     const topic = this.require(topicId);
+    topic.checkedAt = this.now();
     topic.coveredThrough = {
       ...topic.coveredThrough,
       [leaderId]: Math.max(upToDateAt, topic.coveredThrough?.[leaderId] ?? 0),

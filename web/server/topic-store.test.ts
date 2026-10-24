@@ -473,11 +473,44 @@ describe("topic service", () => {
     expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics");
     expect(injected[0]!.text).toContain("rebuild Now from what its quests left open");
 
+    // A turn that rewrote nothing gets a reminder naming the pages left; the request stands.
     vi.advanceTimersByTime(10);
     await service.scribeTurnEnded(scribe);
+    expect(injected).toHaveLength(2);
+    expect(injected[1]!.text).toContain('1 page isn\'t rewritten yet: "T7 run"');
+    expect(store.pageFormat("leader")).toBe(PAGE_FORMAT - 1);
+
+    // Once every page is rewritten, the format is recorded and nobody is asked again. A page the
+    // Scribe confirmed as already current (`write-page --unchanged`) counts as rewritten.
+    vi.advanceTimersByTime(10);
+    now = Date.now(); // the store's clock, which stamps when the page was checked
+    store.markCovered(store.findByName("MSI", "T7 run")!.id, Date.now(), "leader");
+    await service.scribeTurnEnded(scribe);
+    expect(store.pageFormat("leader")).toBe(PAGE_FORMAT);
     service.askOutdatedScribes();
     await vi.advanceTimersByTimeAsync(0);
-    expect(injected).toHaveLength(1);
+    expect(injected).toHaveLength(2);
+  });
+
+  it("sends a request again when the turn that took it was interrupted, then tells the leader", async () => {
+    // At a restart a Scribe's turn can be cut off before it starts (its process was replaced); the
+    // status must not say "Up to date" and the request must not be lost.
+    const { service, injected, notices, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    const request = injected.at(-1)!.text;
+    expect((await service.activity("leader")).text).toBe("Request sent; waiting for the Scribe");
+
+    await service.scribeTurnEnded(scribe, { unfinished: true });
+    expect(injected.at(-1)!.text).toContain("Your last turn was interrupted or failed");
+    expect(injected.at(-1)!.text).toContain(request);
+    expect((await service.activity("leader")).text).toBe("Asked again; waiting for the Scribe");
+
+    await service.scribeTurnEnded(scribe, { unfinished: true });
+    expect(notices.at(-1)!.text).toContain("its turn was interrupted or failed before it finished");
+    expect((await service.activity("leader")).text).toBe("Stopped before finishing; your leader was told");
   });
 
   it("waits while paused or over budget, and Update now goes through anyway", async () => {
@@ -536,6 +569,7 @@ describe("topic service", () => {
     expect(await service.activity("leader")).toMatchObject({ state: "waiting", pending: 1 });
     vi.advanceTimersByTime(10);
     writePage(store, "Runs");
+    await service.scribeTurnEnded("scribe-leader-1");
     expect(await service.activity("leader")).toMatchObject({ state: "idle", text: "Up to date" });
   });
 

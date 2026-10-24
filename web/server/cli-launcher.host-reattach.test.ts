@@ -340,6 +340,18 @@ describe("sessions on this machine's own node", () => {
     expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
   });
 
+  // Input sent while the session waited for its node (a Scribe's request, a herd event) is queued
+  // without a launch; the server is told when the outdated process ends so it can start the session.
+  it("tells the server when it ends an outdated process, so waiting input gets a fresh start", async () => {
+    const launcher = await restartWithProcessRunning("instructions from before the restart");
+    const ended: string[] = [];
+    launcher.onOutdatedProcessEndedCallback((sessionId) => ended.push(sessionId));
+
+    link!.drop();
+    await waitFor(() => launcher.getSession("s-1")?.state === "exited");
+    expect(ended).toEqual(["s-1"]);
+  });
+
   // A message can wake the session before its node is back; that launch
   // starts a new process too rather than taking over the outdated one.
   it("starts afresh when a launch is requested before the node is back", async () => {

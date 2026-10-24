@@ -122,6 +122,7 @@ export class CliLauncher {
     | ((sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter) => void)
     | null = null;
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
+  private onOutdatedProcessEnded: ((sessionId: string) => void) | null = null;
   private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   /** Why each session's latest launch failed, so a failed relaunch can say. */
@@ -187,12 +188,14 @@ export class CliLauncher {
           void this.relaunch(sessionId);
           continue;
         }
-        // Stopped like an idle session, so it starts afresh on its next message.
+        // Stopped like an idle session, so it starts afresh on its next message (or now, when input
+        // already waits for it).
         this.hostReattach.delete(sessionId);
         this.endOutdatedHostProcess(sessionId, proc);
         info.state = "exited";
         info.exitCode = -1;
         this.persistState();
+        this.onOutdatedProcessEnded?.(sessionId);
       }
     });
   }
@@ -376,6 +379,15 @@ export class CliLauncher {
    *  auto-relaunch requests from the adapter disconnect handler. */
   onBeforeRelaunchCallback(cb: (sessionId: string, backendType: BackendType) => void): void {
     this.onBeforeRelaunch = cb;
+  }
+
+  /**
+   * Called when a session's process that outlived the previous server was ended for running outdated
+   * instructions instead of being taken over. Input sent while it waited for its host (a message,
+   * a herd event) is still queued, so the server relaunches it then.
+   */
+  onOutdatedProcessEndedCallback(cb: (sessionId: string) => void): void {
+    this.onOutdatedProcessEnded = cb;
   }
 
   onModelProvenanceMigrationCallback(cb: (sessionId: string, migration: ModelProvenanceMigration) => void): void {

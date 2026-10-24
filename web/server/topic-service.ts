@@ -13,7 +13,13 @@ import {
   type ScribeOverview,
 } from "../shared/library-topics.js";
 import type { TopicStore } from "./topic-store.js";
-import { initializationMessage, leaderNotice, reminderMessage, updateMessage } from "./scribe-messages.js";
+import {
+  initializationMessage,
+  leaderNotice,
+  reminderMessage,
+  retryMessage,
+  updateMessage,
+} from "./scribe-messages.js";
 
 /**
  * Keeps topic pages current with one Scribe per leader that has topics on: a worker in that
@@ -86,10 +92,19 @@ export type DeliveryResult = "sent" | "nothing" | "paused" | "over_budget" | "bu
 interface Delivery {
   sentAt: number;
   purpose: "initialize" | "update";
+  /** The message, sent again when the turn that took it was interrupted or failed. */
+  text: string;
+  /** It asked the Scribe to rewrite every page in the current format. */
+  rewrite: boolean;
   /** Events up to this sequence number were in it. */
   throughSeq: number;
   topics: string[];
   reminded: boolean;
+}
+
+/** How a Scribe's turn ended: an interrupted or failed turn did not do what it was asked. */
+export interface ScribeTurnOutcome {
+  unfinished: boolean;
 }
 
 export class TopicService {
@@ -97,6 +112,8 @@ export class TopicService {
   private awaiting = new Map<string, Delivery>();
   /** Per leader: topics the user asked to have updated now, sent with the next message. */
   private forced = new Map<string, Set<string>>();
+  /** Per leader: what was left when the Scribe stopped again after a reminder (shown in its status). */
+  private stalled = new Map<string, string[]>();
   /** Per leader: deliveries run one at a time, so two events never send two messages. */
   private chains = new Map<string, Promise<unknown>>();
   private readonly now: () => number;
@@ -254,6 +271,7 @@ export class TopicService {
       this.store.markInitialized(leaderId);
       this.store.markInstructionsSent(leaderId);
       this.store.setPageFormat(leaderId, PAGE_FORMAT);
+      this.stalled.delete(leaderId);
       // Initialization covers the recent quests and whatever happened before it.
       this.store.markDelivered(
         leaderId,
@@ -263,6 +281,8 @@ export class TopicService {
       this.awaiting.set(leaderId, {
         sentAt: this.now(),
         purpose: "initialize",
+        text,
+        rewrite: false,
         throughSeq,
         topics: [],
         reminded: false,
@@ -317,14 +337,22 @@ export class TopicService {
       unsorted.map((quest) => quest.questId),
     );
     this.store.markInstructionsSent(leaderId);
-    if (rewritePages) this.store.setPageFormat(leaderId, PAGE_FORMAT);
+    this.stalled.delete(leaderId);
     const names = rewritePages
       ? this.store
           .list(leader.space)
           .filter((topic) => topic.questIds.some((id) => ownQuests.has(id)))
           .map((topic) => topic.name)
       : [...new Set([...forcedNames, ...topics.map((topic) => topic.name)])];
-    this.awaiting.set(leaderId, { sentAt: this.now(), purpose: "update", throughSeq, topics: names, reminded: false });
+    this.awaiting.set(leaderId, {
+      sentAt: this.now(),
+      purpose: "update",
+      text,
+      rewrite: rewritePages,
+      throughSeq,
+      topics: names,
+      reminded: false,
+    });
     return this.sent();
   }
 
@@ -347,22 +375,33 @@ export class TopicService {
   }
 
   /**
-   * A Scribe ended a turn. If work of its last message is left, it gets one reminder; if it
-   * stops again with work left, its leader is told. Then whatever changed meanwhile is sent.
+   * A Scribe ended a turn. If the turn was interrupted or failed, or work of its last message is
+   * left, it gets one more try (the message again, or a reminder of what is left); if it stops
+   * again unfinished, its leader is told. Then whatever changed meanwhile is sent.
    */
-  async scribeTurnEnded(sessionId: string): Promise<void> {
+  async scribeTurnEnded(sessionId: string, outcome: ScribeTurnOutcome = { unfinished: false }): Promise<void> {
     const leaderId = this.store.leaderOfScribe(sessionId);
     if (!leaderId) return;
     const delivery = this.awaiting.get(leaderId);
     this.awaiting.delete(leaderId);
     if (delivery) {
-      const left = await this.workLeft(leaderId, delivery);
-      if (left.length && !delivery.reminded && this.deps.inject(sessionId, reminderMessage(left))) {
+      const left = outcome.unfinished
+        ? ["its turn was interrupted or failed before it finished"]
+        : await this.workLeft(leaderId, delivery);
+      const retry = outcome.unfinished ? retryMessage(delivery.text) : reminderMessage(left);
+      if (left.length && !delivery.reminded && this.deps.inject(sessionId, retry)) {
         this.awaiting.set(leaderId, { ...delivery, sentAt: this.now(), reminded: true });
         this.deps.broadcastChanged();
         return;
       }
-      if (left.length) this.deps.notifyLeader(leaderId, leaderNotice(this.deps.sessionNum(sessionId), left));
+      if (left.length) {
+        this.stalled.set(leaderId, left);
+        this.deps.notifyLeader(leaderId, leaderNotice(this.deps.sessionNum(sessionId), left));
+      } else {
+        this.stalled.delete(leaderId);
+        // The pages are rewritten only once the Scribe has actually done it.
+        if (delivery.rewrite) this.store.setPageFormat(leaderId, PAGE_FORMAT);
+      }
     }
     this.deps.broadcastChanged();
     await this.deliver(leaderId);
@@ -380,6 +419,18 @@ export class TopicService {
         .filter((topic) => topic.upToDateAt === null)
         .map((topic) => `"${topic.name}" has no page yet`);
       return done === 0 && total > 0 ? [`none of ${total} recent quests is under a topic yet`, ...pageless] : pageless;
+    }
+    if (delivery.rewrite) {
+      // A page confirmed as already current (`--unchanged`) counts as rewritten.
+      const stale = topics.filter((topic) => this.store.pageTouchedAt(topic.id) < delivery.sentAt);
+      if (stale.length) {
+        return [
+          `${stale.length} page${stale.length === 1 ? " isn't" : "s aren't"} rewritten yet: ${stale
+            .slice(0, 5)
+            .map((topic) => `"${topic.name}"`)
+            .join(", ")}${stale.length > 5 ? " and more" : ""}`,
+        ];
+      }
     }
     return this.store.list(leader.space).flatMap((topic) => {
       const unread = this.store
@@ -521,6 +572,17 @@ export class TopicService {
         ? `Updating ${names.slice(0, 2).join(", ")}${names.length > 2 ? ` and ${names.length - 2} more` : ""}…`
         : "Working…";
       return { state: "updating", text, ...base };
+    }
+    // A request is out but no turn has picked it up yet (the Scribe may still be starting).
+    if (delivery && this.now() - delivery.sentAt < STALE_DELIVERY_MS) {
+      return {
+        state: "waiting",
+        text: delivery.reminded ? "Asked again; waiting for the Scribe" : "Request sent; waiting for the Scribe",
+        ...base,
+      };
+    }
+    if (this.stalled.has(leaderId)) {
+      return { state: "waiting", text: "Stopped before finishing; your leader was told", ...base };
     }
     if (this.store.isScribePaused(leaderId)) {
       return { state: "paused", text: pending ? `Paused · ${pending} events not on pages` : "Paused", ...base };

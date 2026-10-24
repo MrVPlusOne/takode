@@ -95,8 +95,10 @@ export async function startLibraryTopics(input: {
   await service.store.load();
   setScribeHooks({
     isScribe: (sessionId) => !!launcher.getSession(sessionId)?.scribeFor,
-    turnEnded: (sessionId) => {
-      service.scribeTurnEnded(sessionId).catch((error) => console.error("[library-topics] Scribe turn end:", error));
+    turnEnded: (sessionId, outcome) => {
+      service
+        .scribeTurnEnded(sessionId, outcome)
+        .catch((error) => console.error("[library-topics] Scribe turn end:", error));
     },
   });
   launcher.scribeLeaderName = (leaderId) => input.sessionName(leaderId);

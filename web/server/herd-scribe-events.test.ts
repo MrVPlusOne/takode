@@ -32,9 +32,21 @@ describe("noteTurnEnded", () => {
   it("tells the topic service only about Scribes' turn ends", () => {
     // Every session's turn end passes through here; a Scribe's ends the request it worked on.
     const ended: string[] = [];
-    setScribeHooks({ isScribe: (id) => id === "scribe", turnEnded: (id) => ended.push(id) });
+    const outcomes: boolean[] = [];
+    setScribeHooks({
+      isScribe: (id) => id === "scribe",
+      turnEnded: (id, outcome) => {
+        ended.push(id);
+        outcomes.push(outcome.unfinished);
+      },
+    });
     noteTurnEnded("worker");
-    noteTurnEnded("scribe");
+    noteTurnEnded("scribe", { reason: "result" });
     expect(ended).toEqual(["scribe"]);
+    // A stuck turn cleared by the watchdog or a disconnect did not finish; a provisional end is no end.
+    noteTurnEnded("scribe", { reason: "stuck_auto_recovery", interrupted: true });
+    noteTurnEnded("scribe", { reason: "cli_disconnect" });
+    noteTurnEnded("scribe", { reason: "x", provisional: true });
+    expect(outcomes).toEqual([false, true, true]);
   });
 });

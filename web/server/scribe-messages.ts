@@ -84,6 +84,11 @@ export function reminderMessage(left: string[]): string {
   ].join("\n");
 }
 
+/** The last message again, after the turn that took it was interrupted or failed. */
+export function retryMessage(text: string): string {
+  return `Your last turn was interrupted or failed before you finished, so here is my last message again:\n\n${text}`;
+}
+
 /** For the leader, when its Scribe stopped again after the reminder. */
 export function leaderNotice(scribeNum: number | null, left: string[]): string {
   const scribe = `#${scribeNum ?? "?"}`;

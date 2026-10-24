@@ -6,8 +6,21 @@
  */
 interface ScribeHooks {
   isScribe: (sessionId: string) => boolean;
-  turnEnded: (sessionId: string) => void;
+  /** `unfinished`: the turn was interrupted or failed rather than finished normally. */
+  turnEnded: (sessionId: string, outcome: { unfinished: boolean }) => void;
 }
+
+/** What a turn end says about whether the turn finished, as `turn_end` event data carries it. */
+export interface TurnEndOutcome {
+  reason?: string;
+  is_error?: boolean;
+  interrupted?: boolean;
+  provisional?: boolean;
+  recovery_pending?: boolean;
+}
+
+/** Turn-end reasons of a turn that stopped before it finished (a disconnect, a stuck turn, a failed start). */
+const UNFINISHED_REASON = /disconnect|stuck|timeout|failure|error|interrupt|suppressed/;
 
 let hooks: ScribeHooks = { isScribe: () => false, turnEnded: () => {} };
 
@@ -19,7 +32,12 @@ export function isScribeSession(sessionId: string): boolean {
   return hooks.isScribe(sessionId);
 }
 
-/** Called for every session's turn end; only a Scribe's reaches the topic service. */
-export function noteTurnEnded(sessionId: string): void {
-  if (hooks.isScribe(sessionId)) hooks.turnEnded(sessionId);
+/**
+ * Called for every session's turn end; only a Scribe's reaches the topic service. A provisional
+ * end (the backend may still finish) is not a turn end yet.
+ */
+export function noteTurnEnded(sessionId: string, data: TurnEndOutcome = {}): void {
+  if (!hooks.isScribe(sessionId) || data.provisional || data.recovery_pending) return;
+  const unfinished = !!data.interrupted || !!data.is_error || UNFINISHED_REASON.test(data.reason ?? "");
+  hooks.turnEnded(sessionId, { unfinished });
 }

@@ -41,7 +41,8 @@ them:
   or finished, artifacts saved (posts, reports, figures, tables, visuals) and changes the user
   undid; new quests of your leader with no topic; changed grouping
   instructions; topics the user asked to update now.
-- **A reminder**, if you stop before finishing what a message asked for.
+- **A reminder**, if you stop before finishing what a message asked for, or the same message again
+  if your turn was interrupted or failed before you finished it.
 - **Rewrite your pages**, once, when the page format below changed: rewrite each page of your
   leader's topics in the current format.
 

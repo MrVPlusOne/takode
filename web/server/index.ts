@@ -887,6 +887,20 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
   }
 });
 
+// A process that outlived the restart but ran outdated instructions was ended rather than taken
+// over; input sent while it waited for its host would otherwise sit queued with the turn stuck.
+launcher.onOutdatedProcessEndedCallback((sessionId) => {
+  const bridgeSession = wsBridge.getSession(sessionId);
+  if (!bridgeSession) return;
+  const waiting =
+    bridgeSession.isGenerating ||
+    bridgeSession.pendingMessages.length > 0 ||
+    bridgeSession.pendingCodexInputs.length > 0;
+  if (!waiting) return;
+  console.log(`[server] Input waits for session ${sessionId} after its outdated process ended; relaunching`);
+  relaunchQueue.request(sessionId, { trailing: false });
+});
+
 // Start watching PRs when git info is resolved for a session
 wsBridge.onGitInfoReady = (sessionId, cwd, branch) => {
   prPoller.watch(sessionId, cwd, branch);
