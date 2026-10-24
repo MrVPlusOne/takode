@@ -327,6 +327,7 @@ export function QuestFeedInlineLink({
   const mountedRef = useRef(true);
   const hoverTargetsRef = useRef(new Set<ControlKey>());
   const focusTargetsRef = useRef(new Set<ControlKey>());
+  const pointerFocusedRef = useRef(new Set<ControlKey>());
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -695,9 +696,16 @@ export function QuestFeedInlineLink({
 
   const handleFocus = useCallback(
     (control: ControlKey) => {
-      focusTargetsRef.current.add(control);
       clearTimer(leaveTimerRef);
-      if (pointerFocusSuppressedRef.current) return;
+      // Focus a click gave (a link keeps it while the quest view it opened is up) owns no preview, or
+      // leaving the link would never close the card. The browser hands that focus back when the window
+      // regains focus, so it stays click focus until the control really loses focus.
+      if (pointerFocusSuppressedRef.current || pointerFocusedRef.current.has(control)) {
+        pointerFocusedRef.current.add(control);
+        focusTargetsRef.current.delete(control);
+        return;
+      }
+      focusTargetsRef.current.add(control);
       if (control === "preview") {
         if (phaseRef.current === "arming" || phaseRef.current === "micro") closeAllRef.current(false);
         return;
@@ -714,6 +722,8 @@ export function QuestFeedInlineLink({
   const handleBlur = useCallback(
     (control: ControlKey, event: FocusEvent<HTMLElement>) => {
       focusTargetsRef.current.delete(control);
+      // When the window loses focus the control stays the active element.
+      if (document.activeElement !== event.currentTarget) pointerFocusedRef.current.delete(control);
       const next = event.relatedTarget;
       if (next === linkRef.current) focusTargetsRef.current.add("link");
       if (next === previewRef.current) focusTargetsRef.current.add("preview");

@@ -381,6 +381,56 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
+  it("closes the hover title after the clicked link's quest view was closed with Escape", async () => {
+    // The reported stuck card: clicking the link focuses it (Chrome focuses links on mouse-down), the
+    // quest view opens without taking focus, and Escape closes it, so the link keeps that click focus.
+    // Hovering the link again then opened a title card that leaving never closed, because the click
+    // focus counted as keyboard focus holding the card open.
+    renderFeedLink("q-46", { title: "Reopened after the quest view" });
+    const link = screen.getByRole("link", { name: "q-46" });
+
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+    fireEvent.pointerDown(link, { pointerType: "mouse" });
+    act(() => link.focus());
+    fireEvent.click(link, { detail: 1 });
+    expect(useStore.getState().questOverlayId).toBe("q-46");
+    act(() => useStore.getState().closeQuestOverlay());
+    await act(async () => vi.runOnlyPendingTimers());
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    expect(document.activeElement).toBe(link);
+
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
+  });
+
+  it("does not open the title when the window gives a clicked link its focus back", async () => {
+    // Switching to another app and back blurs and refocuses the focused element. Focus a click gave
+    // stays click focus, so the returning focus must not open a card nothing would close.
+    renderFeedLink("q-45", { title: "Refocused click" });
+    const link = screen.getByRole("link", { name: "q-45" });
+
+    fireEvent.pointerDown(link, { pointerType: "mouse" });
+    act(() => link.focus());
+    await act(async () => vi.runOnlyPendingTimers());
+    fireEvent.blur(link);
+    await act(async () => vi.runOnlyPendingTimers());
+    fireEvent.focus(link);
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
+
+    // Keyboard focus that arrives after the click focus is gone still shows the title.
+    act(() => link.blur());
+    await act(async () => vi.runOnlyPendingTimers());
+    act(() => link.focus());
+    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+  });
+
   it("opens rich detail from both Enter and Space only after explicit eye activation", async () => {
     renderFeedLink("q-78", { title: "Keyboard eye detail" });
     const preview = screen.getByRole("button", { name: /Preview q-78/ });
