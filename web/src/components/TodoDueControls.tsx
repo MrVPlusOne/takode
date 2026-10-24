@@ -91,11 +91,14 @@ export function todoDueQuickPicks(now: number): { label: string; due: string }[]
 export function TodoDueQuickPicks({
   due,
   busy,
+  disabled = false,
   now,
   onSet,
 }: {
   due: string | undefined;
   busy: boolean;
+  /** Shown but not changeable, e.g. for a Done to-do. */
+  disabled?: boolean;
   now: number;
   onSet: (due: string | null) => void;
 }) {
@@ -117,7 +120,7 @@ export function TodoDueQuickPicks({
           <button
             key={pick.label}
             type="button"
-            disabled={busy}
+            disabled={busy || disabled}
             aria-pressed={due === pick.due}
             onClick={() => {
               setPicking(false);
@@ -131,14 +134,15 @@ export function TodoDueQuickPicks({
         <button
           type="button"
           aria-pressed={other}
-          aria-expanded={picking}
+          aria-expanded={picking && !disabled}
+          disabled={disabled}
           onClick={() => setPicking((open) => !open)}
           className={segment(other || picking)}
         >
           Date…
         </button>
       </div>
-      {picking && (
+      {picking && !disabled && (
         <TodoDueEditor
           key={due ?? ""}
           due={due}

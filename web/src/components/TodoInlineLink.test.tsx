@@ -383,14 +383,18 @@ describe("to-do links", () => {
     expect(checkCircle().getAttribute("aria-label")).toBe("Reopen Reply to Alice");
     expect(celebrate).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Moved to Done");
-    // A Done to-do has no due date to change, as on the To-dos page.
-    expect(screen.queryByTestId("todo-preview-due")).toBeNull();
+    // A Done to-do keeps its due date shortcuts on screen, disabled, so the sheet keeps its height
+    // and the title does not jump when it is completed.
+    const dueShortcuts = within(screen.getByRole("group", { name: "Due date shortcuts" })).getAllByRole("button");
+    expect(dueShortcuts.length).toBe(4);
+    expect(dueShortcuts.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
 
     // The Undo link restores Doing.
     fingerTap(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));
     expect(undoCompletion).toHaveBeenCalledWith("td-1", "undo-token");
     expect(checkCircle().getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Today" }).disabled).toBe(false);
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Updated");
 
     // The circle completes it the same way, and a second tap while the receipt lasts undoes it.

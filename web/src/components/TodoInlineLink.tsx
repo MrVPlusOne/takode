@@ -423,6 +423,9 @@ function ItemPreview({
   const saveKey = useSendKey("Save");
   const editing = draft !== null;
   const current = !item.archivedAt && item.status !== "done";
+  // A Done to-do keeps its due date and move controls, disabled, so the sheet keeps its height
+  // and the title stays in place when it is completed or reopened.
+  const done = item.status === "done";
   const now = useTodoDueNow(current && item.due ? [item.due] : []);
   const overdue = isTodoOverdue(item, now);
   const categories = state.categories.filter((candidate) => !candidate.archivedAt || candidate.id === item.categoryId);
@@ -479,9 +482,9 @@ function ItemPreview({
   };
   const busy = (control: string) => action.pending && busyControl === control;
 
-  // Measured after the sheet shows the to-do done: completing removes the due and move rows, which
-  // moves the circle. The celebration plays on the circle beside the title, which it checks, also
-  // when Done was chosen in the status control, or on that control while editing hides the circle.
+  // Measured after the sheet shows the to-do done, so the anchor matches what is on screen. The
+  // celebration plays on the circle beside the title, which it checks, also when Done was chosen
+  // in the status control, or on that control while editing hides the circle.
   useLayoutEffect(() => {
     const control = celebrateFrom.current;
     if (!control || item.status !== "done") return;
@@ -608,18 +611,19 @@ function ItemPreview({
         ))}
       </select>
     ),
-    due: current ? (
+    due: !item.archivedAt ? (
       <div className="space-y-2">
         <TodoDueQuickPicks
           due={item.due}
           busy={action.pending}
+          disabled={done}
           now={now}
           onSet={(due) => run("due", () => source.setItemDue(item.id, due))}
         />
         {item.due && (
           <div className="flex items-center justify-between gap-2">
             <span
-              className={`inline-flex items-center gap-1 ${overdue ? "text-cc-error" : "text-cc-fg"}`}
+              className={`inline-flex items-center gap-1 ${overdue ? "text-cc-error" : done ? "text-cc-muted" : "text-cc-fg"}`}
               data-testid="todo-preview-due"
             >
               <CalendarIcon className="h-3.5 w-3.5" />
@@ -627,7 +631,7 @@ function ItemPreview({
             </span>
             <button
               type="button"
-              disabled={action.pending}
+              disabled={action.pending || done}
               onClick={() => run("due", () => source.setItemDue(item.id, null))}
               className="rounded-md px-1.5 py-0.5 text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
             >
@@ -640,16 +644,16 @@ function ItemPreview({
     quests: quests ? <MarkdownContent text={quests} size="md" /> : null,
     // Moving and archiving are the page's own changes, so the link preview leaves them out.
     moveUp:
-      onPage && current
+      onPage && !item.archivedAt
         ? {
-            disabled: action.pending || index <= 0,
+            disabled: action.pending || done || index <= 0,
             run: () => run("up", () => source.moveItem(item.id, { beforeItemId: siblings[index - 1]!.id })),
           }
         : null,
     moveDown:
-      onPage && current
+      onPage && !item.archivedAt
         ? {
-            disabled: action.pending || index < 0 || index >= siblings.length - 1,
+            disabled: action.pending || done || index < 0 || index >= siblings.length - 1,
             run: () => run("down", () => source.moveItem(item.id, { afterItemId: siblings[index + 1]!.id })),
           }
         : null,
@@ -821,8 +825,8 @@ function TodoBody({
           text={titleMarkdown}
           className={`font-semibold ${
             done
-              ? `inline bg-[linear-gradient(currentColor,currentColor)] bg-[length:100%_1.5px] bg-[position:0_55%] bg-no-repeat !text-cc-muted [&>p]:inline ${
-                  crossOff ? "motion-safe:animate-[todo-cross-off_350ms_ease-out_both]" : ""
+              ? `!text-cc-muted [&>p]:inline [&>p]:bg-[linear-gradient(currentColor,currentColor)] [&>p]:bg-[length:100%_1.5px] [&>p]:bg-[position:0_55%] [&>p]:bg-no-repeat ${
+                  crossOff ? "motion-safe:[&>p]:animate-[todo-cross-off_350ms_ease-out_both]" : ""
                 }`
               : ""
           }`}

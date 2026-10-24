@@ -395,6 +395,23 @@ describe("TodoListPanel", () => {
     await waitFor(() => expect(mocks.archiveTodoItem).toHaveBeenCalledWith("td-2"));
   });
 
+  it("keeps a Done to-do's due date and move controls in its sheet, disabled", async () => {
+    // Hiding them made the sheet shrink and the title jump the moment a to-do was completed or
+    // reopened; disabled controls keep the layout where the user's eyes are.
+    render(<TodoListPanel />);
+    fireEvent.click(within(await screen.findByTestId("todo-done-section")).getByText("Done"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Finished" }));
+    const sheet = await screen.findByTestId("todo-preview");
+    await within(sheet).findByText("Finished");
+    expect(within(sheet).getByRole("button", { name: "↑ Move up" })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "↓ Move down" })).toBeDisabled();
+    for (const button of within(within(sheet).getByRole("group", { name: "Due date shortcuts" })).getAllByRole(
+      "button",
+    ))
+      expect(button).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "Archive" })).toBeEnabled();
+  });
+
   it("marks only overdue current rows", async () => {
     // td-1 is long overdue, td-2 is due far in the future, and the Done td-3 is past its date but never overdue.
     const state = makeState();
