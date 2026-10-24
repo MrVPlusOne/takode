@@ -1601,6 +1601,21 @@ describe("MarkdownContent quest links", () => {
       expect(item.closest("button")).toBeNull();
     });
 
+    it("sends a line range's start and end to the Takode VS Code extension", async () => {
+      mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+      mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-range" });
+      await openMenu("[config.ts:53-54](file:/tmp/project/config.ts:53-54)", "config.ts:53-54");
+      fireEvent.click(await screen.findByText("Open in VS Code"));
+      await waitFor(() =>
+        expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+          absolutePath: "/tmp/project/config.ts",
+          line: 53,
+          column: 1,
+          endLine: 54,
+        }),
+      );
+    });
+
     it("shows the remote VSCode error when the server reports no running VSCode window", async () => {
       mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
       mockOpenVsCodeRemoteFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));

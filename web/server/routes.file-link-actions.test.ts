@@ -117,6 +117,32 @@ describe("file-link filesystem actions", () => {
     });
   });
 
+  it("resolves a relative link in a worktree session against that worktree, not the main checkout", async () => {
+    // A worker's links name files in its own checkout, which can differ from the main one.
+    const worktree = join(tempDir, ".companion", "worktrees", "repo", "repo-wt-2", "web");
+    const main = join(tempDir, "repo", "web");
+    await mkdir(worktree, { recursive: true });
+    await mkdir(main, { recursive: true });
+    await writeFile(join(worktree, "b.ts"), "worktree\n");
+    await writeFile(join(main, "b.ts"), "main\n");
+
+    const res = await get("/fs/file-link/text", { path: "web/b.ts", isRelative: "1", sessionId: "wt" });
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ absolutePath: join(worktree, "b.ts"), content: "worktree\n" });
+  });
+
+  it("falls back to the main checkout when a gone worktree's file is not in the session's worktree", async () => {
+    // A file that exists only in the main checkout (not yet in this worktree) is still found.
+    const main = join(tempDir, "repo", "web");
+    await mkdir(main, { recursive: true });
+    await writeFile(join(main, "c.ts"), "main only\n");
+    const stale = join(tempDir, ".companion", "worktrees", "repo", "repo-wt-1", "web", "c.ts");
+
+    const res = await get("/fs/file-link/text", { path: stale, isRelative: "0", sessionId: "wt" });
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ absolutePath: join(main, "c.ts"), content: "main only\n" });
+  });
+
   it("lists a linked folder, folders first, without hidden entries", async () => {
     await mkdir(join(tempDir, "shots", "older"), { recursive: true });
     await writeFile(join(tempDir, "shots", "b.png"), "png");
