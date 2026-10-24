@@ -144,14 +144,16 @@ describe("landing hand-off through the real board routes", () => {
       landingQueue: queue,
       injectUserMessage: (sessionId: string, text: string) => void messages.push({ session: sessionId, text }),
       // Stands in for the quest routes' completion step, which these tests do not mount.
+      // Records the completion only once it is written, so a test that waits for `completed` then
+      // reads the finished quest; recording it first let the store write lose that race under load.
       completeLandedQuest: async (id: string, completion: ParkedQuestCompletion, workerSessionId: string) => {
-        completed.push({ questId: id, completion, workerSessionId });
         await store.completeQuest(id, completion.verificationItems, {
           sessionId: workerSessionId,
           debrief: completion.debrief,
           debriefTldr: completion.debriefTldr,
         });
         session.board.delete(id);
+        completed.push({ questId: id, completion, workerSessionId });
       },
     };
     const { registerTakodeBoardRoutes } = await import("./takode-board.js");

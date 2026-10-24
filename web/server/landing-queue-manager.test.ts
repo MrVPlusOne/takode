@@ -98,9 +98,15 @@ describe("landing queue manager", () => {
   const mapping = (n: number): LandingCommitMapping[] => [
     { source: sha(100 + n), target: sha(200 + n), subject: `change ${n}` },
   ];
-  /** Let the queue's deferred work (starting runners, telling owners) run. */
+  /**
+   * Let the queue's deferred work (starting runners, telling owners) finish. That work does real
+   * file I/O, so a fixed number of event-loop turns was not enough on a loaded machine. The one
+   * timer turn first lets a lease promotion, which the lease manager reports on a zero-delay timer
+   * scheduled before this one, hand its work to the queue.
+   */
   const settle = async () => {
-    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await queue.whenIdle();
   };
   /** The runner the latest launch started, as its routes would see it. */
   const runner = (request = launches.at(-1)!): LandingRunnerCaller =>
@@ -340,9 +346,10 @@ describe("landing queue manager", () => {
   });
 
   it("gives up on a runner that could not start, frees the lease and tries the next machine", async () => {
+    // Fail launches before submitting: the first submit's runner start may run while the second submit is saved.
+    launchFailure = new Error("the host is offline");
     await submit("a", 1, { hostId: "laptop" });
     await submit("b", 2, { hostId: "devbox" });
-    launchFailure = new Error("the host is offline");
     await settle();
     expect(launches).toEqual([]);
     const snapshot = await queue.snapshot(target);

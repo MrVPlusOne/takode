@@ -677,7 +677,7 @@ function measureEmptyBoundary(
     for (let x = 0; x < size; x += 1) {
       const dx = x - center;
       const dy = y - center;
-      const distance = Math.hypot(dx, dy);
+      const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance > radius - 2 || distance < radius * 0.68) continue;
       const sourceX = Math.round(left + x);
       const sourceY = Math.round(top + y);
@@ -766,8 +766,12 @@ function estimateBackgroundColor(raw: Buffer, width: number, height: number): [n
   return [median(red), median(green), median(blue)];
 }
 
+// Per-pixel distances use Math.sqrt: Bun's Math.hypot took most of a full portrait validation.
 function colorDistance(raw: Buffer, index: number, background: [number, number, number]): number {
-  return Math.hypot(raw[index] - background[0], raw[index + 1] - background[1], raw[index + 2] - background[2]);
+  const red = raw[index] - background[0];
+  const green = raw[index + 1] - background[1];
+  const blue = raw[index + 2] - background[2];
+  return Math.sqrt(red * red + green * green + blue * blue);
 }
 
 function edgeMagnitude(gray: Float32Array, width: number, x: number, y: number): number {
@@ -788,7 +792,7 @@ function edgeMagnitude(gray: Float32Array, width: number, x: number, y: number):
     gray[bottom + x - 1] +
     2 * gray[bottom + x] +
     gray[bottom + x + 1];
-  return Math.hypot(gx, gy);
+  return Math.sqrt(gx * gx + gy * gy);
 }
 
 async function writeFallbackPortrait(): Promise<LeaderProfilePortrait> {
@@ -863,8 +867,13 @@ async function validateVariant(
   }
 
   const raw = await sharp(path).ensureAlpha().raw().toBuffer();
-  const alphaValues: number[] = [];
-  for (let index = 3; index < raw.length; index += 4) alphaValues.push(raw[index]);
+  let transparentPixels = 0;
+  let opaquePixels = 0;
+  for (let index = 3; index < raw.length; index += 4) {
+    if (raw[index] <= 8) transparentPixels += 1;
+    if (raw[index] >= 240) opaquePixels += 1;
+  }
+  const pixelCount = raw.length / 4;
 
   const cornerCoordinates = [
     [0, 0],
@@ -874,8 +883,8 @@ async function validateVariant(
   ] as const;
   const cornerAlphaMax = Math.max(...cornerCoordinates.map(([x, y]) => raw[(y * expectedSize + x) * 4 + 3]));
   const centerAlpha = raw[(Math.floor(expectedSize / 2) * expectedSize + Math.floor(expectedSize / 2)) * 4 + 3];
-  const transparentRatio = alphaValues.filter((alpha) => alpha <= 8).length / alphaValues.length;
-  const opaqueRatio = alphaValues.filter((alpha) => alpha >= 240).length / alphaValues.length;
+  const transparentRatio = transparentPixels / pixelCount;
+  const opaqueRatio = opaquePixels / pixelCount;
   const emptyBoundary = measureEmptyBoundary(raw, expectedSize, expectedSize, 0, 0, expectedSize);
   const content = analyzePortraitContent(raw, expectedSize, expectedSize);
   const visualCenterOffsetX = (content.centerX / expectedSize - 0.5) * 2;
@@ -1296,7 +1305,9 @@ function escapeXml(value: string): string {
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
+  // A typed array sorts numerically without a comparator callback, which made this the
+  // slowest step of validating every portrait (seconds per full validation).
+  const sorted = Float64Array.from(values).sort();
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 

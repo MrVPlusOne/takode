@@ -41,7 +41,8 @@ import {
 installPlaygroundTestEnvironment();
 
 // A full-catalog render costs about 4-8 s of CPU on its own, so several concurrent
-// suite runs need more than the default 10 s; tests with larger needs set their own.
+// suite runs need more than the default 10 s (some took 30-45 s with two full runs at
+// once on the DevBox); tests with larger needs set their own.
 /**
  * Hovers the `index`th quoted line's "open" link in an answer reference and returns a
  * copy of its preview, dismissed again with Escape so the next hover finds only its own.
@@ -55,7 +56,7 @@ function hoverQuotedMessage(reference: HTMLElement, index: number): HTMLElement 
   return preview;
 }
 
-describe("Playground", { timeout: 30_000 }, () => {
+describe("Playground", { timeout: 60_000 }, () => {
   it("contrasts one-message-per-destination Recent browsing with exhaustive scoped Messages hits", async () => {
     // The paired fixture makes the product boundary inspectable without relying on live session history.
     render(<PlaygroundUniversalSearchStates />);

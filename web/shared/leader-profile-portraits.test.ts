@@ -64,7 +64,9 @@ describe("leader profile portrait metadata", () => {
     expect(getLeaderProfilePortrait("shmi3")).toMatchObject({ id: "shmi3-01", poolId: "shmi" });
   });
 
-  it("keeps generated round assets mechanically centered", async () => {
+  // Decodes and measures every checked-in portrait (over 300 images): about 3 s of CPU alone,
+  // several times that while a full suite or several run at once, so it gets a longer budget.
+  it("keeps generated round assets mechanically centered", { timeout: 30_000 }, async () => {
     const validation = await validateLeaderProfilePortraitAssets(
       LEADER_PROFILE_PORTRAITS,
       FALLBACK_LEADER_PROFILE_PORTRAIT,

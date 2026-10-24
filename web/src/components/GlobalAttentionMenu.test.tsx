@@ -155,7 +155,8 @@ describe("GlobalAttentionMenu", () => {
 
     render(<GlobalAttentionMenu />);
     const pill = await screen.findByTestId("attention-list-button");
-    expect(pill).toHaveTextContent("1");
+    // The count arrives with the fetched queue, after the pill first renders.
+    await waitFor(() => expect(pill).toHaveTextContent("1"));
     fireEvent.click(pill);
 
     const list = screen.getByRole("dialog", {

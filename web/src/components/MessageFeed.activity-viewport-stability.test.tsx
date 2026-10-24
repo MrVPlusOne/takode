@@ -1549,7 +1549,9 @@ describe("composer overlay scroll reachability", () => {
             description: "",
             type: "delay",
             originalSpec: "152h",
-            nextFireAt: Date.now() + 13 * 3_600_000,
+            // Half an hour past 13h: the chip rounds down to whole hours, so a fixture due in exactly
+            // 13h showed "in 12h" when rendering took over a second on a loaded machine.
+            nextFireAt: Date.now() + 13.5 * 3_600_000,
             createdAt: Date.now() - 139 * 3_600_000,
             fireCount: 0,
           },

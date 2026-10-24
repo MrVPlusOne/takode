@@ -61,17 +61,22 @@ describe("ClaudeSdkAdapter model catalog", () => {
     adapter = new ClaudeSdkAdapter("catalog-session", { cwd: dir, claudeBinary: binary, env: {} });
 
     await expect(adapter.started).resolves.toBe(true);
-    await vi.waitFor(() =>
-      expect(getClaudeModelCatalog()).toEqual([
-        {
-          value: "claude-opus-5.5",
-          label: "Opus 5.5 (default)",
-          description: "",
-          isDefault: true,
-          supportedReasoningLevels: [{ effort: "high" }, { effort: "max" }],
-        },
-        { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "", supportedReasoningLevels: [] },
-      ]),
+    // The catalog arrives once the fake CLI process has started and answered
+    // initialization, which takes seconds on a loaded machine; the default
+    // one-second wait is too short for a process start.
+    await vi.waitFor(
+      () =>
+        expect(getClaudeModelCatalog()).toEqual([
+          {
+            value: "claude-opus-5.5",
+            label: "Opus 5.5 (default)",
+            description: "",
+            isDefault: true,
+            supportedReasoningLevels: [{ effort: "high" }, { effort: "max" }],
+          },
+          { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "", supportedReasoningLevels: [] },
+        ]),
+      { timeout: 8_000 },
     );
   });
 });

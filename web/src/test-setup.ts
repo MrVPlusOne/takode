@@ -14,6 +14,13 @@ afterEach(() => {
 });
 
 if (typeof window !== "undefined") {
+  // findBy* queries and waitFor give up after one second by default. Large components (the new
+  // session modal, Playground sections) can take longer than that to render and query while
+  // several test runs share the machine, so wait longer for the expected state; passing tests
+  // finish as soon as it appears. Loaded only for jsdom files to keep node files light.
+  const { configure } = await import("@testing-library/react");
+  configure({ asyncUtilTimeout: 5_000 });
+
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({

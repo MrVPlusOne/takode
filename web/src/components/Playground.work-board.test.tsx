@@ -26,8 +26,9 @@ import { getPlaygroundSection, installPlaygroundTestEnvironment } from "./Playgr
 installPlaygroundTestEnvironment();
 
 // A full-catalog render costs about 4-8 s of CPU on its own, so several concurrent
-// suite runs need more than the default 10 s; tests with larger needs set their own.
-describe("Playground", { timeout: 30_000 }, () => {
+// suite runs need more than the default 10 s (some took 30-45 s with two full runs at
+// once on the DevBox); tests with larger needs set their own.
+describe("Playground", { timeout: 60_000 }, () => {
   it("documents that Main shows neither the resolved reminder nor the quest thread's answered prompt", () => {
     render(<Playground />);
 

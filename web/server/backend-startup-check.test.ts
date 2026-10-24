@@ -1,4 +1,7 @@
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -92,8 +95,22 @@ describe("backend startup check", () => {
   });
 
   it("stops an install that runs past its time limit", async () => {
-    await writeJson("package.json", { name: "fake-web", version: "1.0.0" });
-    // A 1 ms limit fires before Bun can finish, exercising the kill path.
-    await expect(installDependencies(webRoot, 1)).rejects.toThrow(/Stopped after 0 s\./);
+    // The install resolves a dependency from a local registry that never answers, so it cannot
+    // finish before the limit. An install with nothing to fetch could beat even a 1 ms limit
+    // when a loaded machine ran its exit before the timer.
+    const sockets = new Set<Socket>();
+    const registry = createServer(() => {});
+    registry.on("connection", (socket) => sockets.add(socket));
+    registry.listen(0, "127.0.0.1");
+    await once(registry, "listening");
+    const { port } = registry.address() as AddressInfo;
+    try {
+      await writeJson("package.json", { name: "fake-web", version: "1.0.0", dependencies: { "left-pad": "1.3.0" } });
+      await writeFile(join(webRoot, "bunfig.toml"), `[install]\nregistry = "http://127.0.0.1:${port}/"\n`);
+      await expect(installDependencies(webRoot, 200)).rejects.toThrow(/Stopped after 0 s\./);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      registry.close();
+    }
   });
 });

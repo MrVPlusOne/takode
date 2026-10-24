@@ -41,7 +41,12 @@ export default defineConfig({
       "shared/**/*.test.ts",
     ],
     setupFiles: ["src/test-setup.ts"],
-    globalSetup: ["scripts/vitest-disposable-home.ts", "scripts/vitest-session-env.ts"],
+    // The tmpdir setup runs first, so the disposable HOME is created inside it.
+    globalSetup: [
+      "scripts/vitest-disposable-tmpdir.ts",
+      "scripts/vitest-disposable-home.ts",
+      "scripts/vitest-session-env.ts",
+    ],
     maxWorkers,
   },
 });

@@ -123,6 +123,9 @@ describe("server shutdown", () => {
     // Backend output handled during the listener stage can accept more work; the save after it waits for it.
     const late = gate<void>();
     const h = setup({
+      // The test releases the work itself; with the default 100 ms limit a loaded machine could
+      // give up on it during the 30 ms pause below and save early.
+      acceptedWorkTimeoutMs: 60_000,
       stopListener: vi.fn(async () => {
         h.admission.track(late.promise, "browser user_message for session s1");
       }),

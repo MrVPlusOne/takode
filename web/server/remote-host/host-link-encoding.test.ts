@@ -63,14 +63,20 @@ describe("host link encoding", () => {
     return agent;
   }
 
-  /** Run the echo program on a host, send it `input` lines one by one, and return its output once `done` holds. */
+  /**
+   * Run the echo program on a host, send it `input` lines one by one, and return its output once `done` holds.
+   * Each line is sent only after the previous one's echo arrived, so every echo reaches the host as its own
+   * stdout chunk. A fixed pause between lines let a loaded machine read two lines at once and merge their
+   * output, turning the text echo and the following bytes into one chunk that is not valid UTF-8.
+   */
   async function runEcho(hostId: string, input: string[], done: (output: Buffer) => boolean): Promise<Buffer> {
     const proc = manager.spawn(hostId, { command: process.execPath, args: ["-e", PROGRAM], env: {} });
     const output = collect(proc);
     await once(proc, "spawn");
     for (const line of input) {
+      const before = output().length;
       proc.stdin.write(line);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await waitFor(() => output().length > before);
     }
     await waitFor(() => done(output()));
     proc.kill("SIGTERM");

@@ -137,6 +137,8 @@ export class LandingQueueManager {
   private loaded: Promise<void> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private operationQueue: Promise<unknown> = Promise.resolve();
+  /** Work started outside the caller's request (runner starts, outcome messages) that has not finished yet. */
+  private background = new Set<Promise<void>>();
   /** Failures in a row per queue key, with the time of the next attempt. */
   private trouble = new Map<string, QueueTrouble>();
   /** Queue keys whose runner is being started right now. */
@@ -160,6 +162,15 @@ export class LandingQueueManager {
   destroy(): void {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = null;
+  }
+
+  /**
+   * Resolves once the work the queue deferred (starting runners, telling owners
+   * and the quest side about outcomes) has finished, including work that work
+   * started in turn. It does not wait for the periodic sweep.
+   */
+  async whenIdle(): Promise<void> {
+    while (this.background.size > 0) await Promise.all(this.background);
   }
 
   async submit(input: LandingSubmitInput): Promise<{ entry: LandingEntry; ahead: number; activeRunId?: string }> {
@@ -473,7 +484,7 @@ export class LandingQueueManager {
       return entry;
     });
     // The owner (or leader) asked for this, so nobody needs the queue's message; quest bookkeeping still runs.
-    void this.deps.onEntryResolved?.(entry).catch(logError);
+    if (this.deps.onEntryResolved) this.track(this.deps.onEntryResolved(entry));
     this.pumpSoon(entry.key);
     return entry;
   }
@@ -617,7 +628,18 @@ export class LandingQueueManager {
   }
 
   private pumpSoon(key: string): void {
-    setTimeout(() => void this.pump(key).catch(logError), 0);
+    this.later(() => this.pump(key));
+  }
+
+  /** Run `work` on a later turn of the event loop, outside the current operation, and track it for whenIdle. */
+  private later(work: () => Promise<unknown>): void {
+    this.track(new Promise((resolve) => setTimeout(resolve, 0)).then(work));
+  }
+
+  private track(work: Promise<unknown>): void {
+    const done = work.then(() => undefined, logError);
+    this.background.add(done);
+    void done.then(() => this.background.delete(done));
   }
 
   /** Bring one queue forward: take the port lease and start a runner when changes wait and none runs. */
@@ -839,7 +861,7 @@ export class LandingQueueManager {
     }
     await this.save();
     this.republishRun(run);
-    setTimeout(() => void this.announce(resolved, run, report), 0);
+    this.later(() => this.announce(resolved, run, report));
   }
 
   /** Tell owners about their outcomes, after the quest side had its say. Runs outside the queue's lock. */

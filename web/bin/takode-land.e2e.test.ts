@@ -365,10 +365,13 @@ describe("takode land end to end", () => {
     await git(owner, ["commit", "--quiet", "-m", "break the gate"]);
     launchFailure = "the host is offline";
     expect((await takode("owner", owner, "land", "submit", "--skip-test", "fixture", "--branch", "main")).code).toBe(0);
-    await vi.waitFor(async () =>
-      expect((await takode("owner", owner, "land", "status", "--branch", "main")).out).toContain(
-        "problem: The landing runner could not start",
-      ),
+    // Each check starts the CLI, which alone can outlast the default one-second wait on a loaded machine.
+    await vi.waitFor(
+      async () =>
+        expect((await takode("owner", owner, "land", "status", "--branch", "main")).out).toContain(
+          "problem: The landing runner could not start",
+        ),
+      { timeout: 15_000 },
     );
     // A session with nothing waiting cannot start runners; the owner of the waiting change can.
     const stranger = await workerWith("stranger", "stranger.txt");

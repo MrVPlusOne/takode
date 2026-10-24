@@ -119,7 +119,10 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     vi.unstubAllGlobals();
   });
 
-  it("drives idle, link-title, eye-hover, keyboard, error, and touch states through the real component", async () => {
+  // Walks every preview state in one test; it took about 12 s with two full runs at once.
+  it("drives idle, link-title, eye-hover, keyboard, error, and touch states through the real component", {
+    timeout: 30_000,
+  }, async () => {
     render(<PlaygroundInlineQuestPreviewSection />);
 
     const section = screen.getByRole("heading", { name: "Inline Quest Preview" }).closest("section")!;

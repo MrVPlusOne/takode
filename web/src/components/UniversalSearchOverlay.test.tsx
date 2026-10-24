@@ -1192,6 +1192,8 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "recent" } });
     await advanceSearchDebounce();
+    // The new query's results arrive after the debounce; Enter before they render has nothing to open.
+    await waitFor(() => expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true"));
     fireEvent.keyDown(dialog, { key: "Enter" });
 
     expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "user-new", "main");
@@ -1495,6 +1497,8 @@ describe("UniversalSearchOverlay", () => {
     const input = screen.getByRole("searchbox");
     fireEvent.change(input, { target: { value: "new" } });
     await advanceSearchDebounce();
+    // The second search starts once the debounced query renders, which can trail the timer on a loaded machine.
+    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalledTimes(2));
 
     resolveNew(
       messageSearchResponse(
