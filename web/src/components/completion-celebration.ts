@@ -169,7 +169,8 @@ function openLayer(anchor: CelebrationAnchor | null): HTMLElement | null {
     top: `${anchor.y}px`,
     width: "0",
     height: "0",
-    zIndex: "70",
+    // Above every sheet and dialog, so completing a to-do from its sheet shows too.
+    zIndex: "1400",
     pointerEvents: "none",
     transform: `scale(${anchor.scale})`,
   });
@@ -212,7 +213,7 @@ function copyRow(row: HTMLElement, check: HTMLElement, scale: number): HTMLEleme
     width: `${row.offsetWidth}px`,
     height: `${row.offsetHeight}px`,
     margin: "0",
-    zIndex: "69",
+    zIndex: "1399",
     pointerEvents: "none",
     transform: `scale(${scale})`,
     transformOrigin: "0 0",

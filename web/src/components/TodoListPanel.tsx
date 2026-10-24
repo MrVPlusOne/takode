@@ -27,6 +27,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { TodoComposer } from "./TodoComposer.js";
 import { TodoDueLabel } from "./TodoDueControls.js";
 import { TodoItemSheet } from "./TodoInlineLink.js";
+import { TodoStatusCircle } from "./TodoItemDesktopLayout.js";
 import { activeTodoCategories, TodoManagementDrawer } from "./TodoManagementDrawer.js";
 import { TodoQuestChips } from "./TodoQuestChips.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
@@ -127,19 +128,9 @@ function TodoMarker({
       disabled={disabled}
       aria-label={item.status === "done" ? `Reopen ${title}` : `Complete ${title}`}
       onClick={onClick}
-      className="-m-1.5 shrink-0 p-1.5 disabled:opacity-40"
+      className="group/check -m-1.5 shrink-0 p-1.5 disabled:opacity-40"
     >
-      <span
-        className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border-[1.5px] text-[10px] ${
-          item.status === "done"
-            ? "border-emerald-500 bg-emerald-500 text-white"
-            : item.status === "doing"
-              ? "border-amber-500 text-amber-500 hover:border-emerald-500 hover:text-emerald-500"
-              : "border-cc-muted/60 text-transparent hover:border-emerald-500 hover:text-emerald-500"
-        }`}
-      >
-        {item.status === "doing" ? <span className="h-2 w-2 rounded-full bg-current" /> : "✓"}
-      </span>
+      <TodoStatusCircle status={item.status} className="h-[18px] w-[18px] text-[10px]" />
     </button>
   );
 }

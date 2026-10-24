@@ -1,10 +1,11 @@
 /**
- * The to-do sheet's parts and its desktop layout. The sheet builds each part once (the text or its
- * editor, the settings, the actions) and a layout arranges them: one column on phones, with the
- * status control under the thumb, and on desktop a wide dialog with the text on the left and every
- * control in a side panel on the right, so reading and changing the to-do stay apart.
+ * The to-do sheet's parts and its desktop layout. The sheet builds each part once (the text with
+ * its check circle, or its editor, the settings, the actions) and a layout arranges them: one
+ * column on phones, with the status control under the thumb, and on desktop a wide dialog with the
+ * text on the left and every control in a side panel on the right, so reading and changing the
+ * to-do stay apart.
  */
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { TODO_STATUSES, type TodoStatus } from "../../shared/todo-types.js";
 
 /** A button-like action of the sheet; null when the sheet does not offer it. */
@@ -84,6 +85,65 @@ export function TodoStatusControl({ status, size }: { status: TodoStatusControlS
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The status circle of the To-dos page: an empty ring for Todo (turning green under a mouse), an
+ * amber ring with a dot for Doing, a filled green check for Done. `className` sets its size.
+ */
+export function TodoStatusCircle({ status, className }: { status: TodoStatus; className: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex shrink-0 items-center justify-center rounded-full border-[1.5px] ${className} ${
+        status === "done"
+          ? "border-emerald-500 bg-emerald-500 text-white"
+          : status === "doing"
+            ? "border-amber-500 text-amber-500 group-hover/check:border-emerald-500 group-hover/check:text-emerald-500"
+            : "border-cc-muted/60 text-transparent group-hover/check:border-emerald-500 group-hover/check:text-emerald-500"
+      }`}
+    >
+      {status === "doing" ? <span className="h-[45%] w-[45%] rounded-full bg-current" /> : "✓"}
+    </span>
+  );
+}
+
+/**
+ * The sheet's check circle beside the title, tapped to cross the to-do off or take it back. It
+ * shows Doing like the list's circle; the status control at the bottom changes the same status.
+ */
+export function TodoCheckButton({
+  ref,
+  status,
+  title,
+  onToggle,
+  disabled,
+  busy,
+}: {
+  ref: Ref<HTMLButtonElement>;
+  status: TodoStatus;
+  title: string;
+  onToggle: () => void;
+  disabled: boolean;
+  busy: boolean;
+}) {
+  const done = status === "done";
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      aria-pressed={done}
+      aria-busy={busy || undefined}
+      aria-label={done ? `Reopen ${title}` : `Complete ${title}`}
+      title={done ? "Reopen" : "Mark done"}
+      data-testid="todo-preview-check"
+      className="group/check -m-2 shrink-0 rounded-full p-2 disabled:opacity-60 pointer-coarse:-m-2.5 pointer-coarse:p-2.5"
+    >
+      <TodoStatusCircle status={status} className="h-[22px] w-[22px] text-[12px]" />
+    </button>
   );
 }
 

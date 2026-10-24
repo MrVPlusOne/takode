@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { summarizeTodoItems, todoLinkSummary, type TodoLinkTarget } from "../../shared/todo-link.js";
 import { isTodoOverdue } from "../../shared/todo-due.js";
@@ -29,7 +38,12 @@ import {
   type TodoItemSummarySource,
   useTodoItemSummaries,
 } from "./todo-item-summaries.js";
-import { TodoItemDesktopLayout, type TodoItemParts, TodoStatusControl } from "./TodoItemDesktopLayout.js";
+import {
+  TodoCheckButton,
+  TodoItemDesktopLayout,
+  type TodoItemParts,
+  TodoStatusControl,
+} from "./TodoItemDesktopLayout.js";
 import { TodoProvenance } from "./TodoProvenance.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 
@@ -371,9 +385,10 @@ const SECONDARY_BUTTON_CLASS =
 
 /**
  * An existing to-do: its text, where it lives, its due date and linked quests, with the changes the
- * To-dos page offers for it: edit the text, move it between Todo, Doing and Done (with a short Undo
- * after completing it) and set or clear the due date. These are the user's own actions, like the
- * page's. It builds each part once and lays them out for a phone or a desktop screen.
+ * To-dos page offers for it: edit the text, move it between Todo, Doing and Done, or tick the circle
+ * beside its title, with a celebration and a short Undo after completing it, and set or clear the
+ * due date. These are the user's own actions, like the page's. It builds each part once and lays
+ * them out for a phone or a desktop screen.
  */
 function ItemPreview({
   desktop,
@@ -399,6 +414,11 @@ function ItemPreview({
   const [busyControl, setBusyControl] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [undo, setUndo] = useState<TodoCompletionUndoHandle | null>(null);
+  // Set when the user completes the to-do here, so its title is crossed off as they watch.
+  const [justCompleted, setJustCompleted] = useState(false);
+  // The control the user just completed the to-do with, celebrated once the sheet shows it done.
+  const celebrateFrom = useRef<Element | null>(null);
+  const checkRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveKey = useSendKey("Save");
   const editing = draft !== null;
@@ -459,18 +479,53 @@ function ItemPreview({
   };
   const busy = (control: string) => action.pending && busyControl === control;
 
+  // Measured after the sheet shows the to-do done: completing removes the due and move rows, which
+  // moves the circle. The celebration plays on the circle beside the title, which it checks, also
+  // when Done was chosen in the status control, or on that control while editing hides the circle.
+  useLayoutEffect(() => {
+    const control = celebrateFrom.current;
+    if (!control || item.status !== "done") return;
+    celebrateFrom.current = null;
+    playCompletionCelebration(celebrationAnchor(checkRef.current ?? control));
+  }, [item.status, justCompleted]);
+
+  const complete = (busyKey: string, control: Element) =>
+    run(
+      busyKey,
+      () => source.setItemStatus(item.id, "done"),
+      (response) => {
+        setUndo(response.completionUndo ?? null);
+        setJustCompleted(true);
+        celebrateFrom.current = control;
+      },
+    );
   const setStatus = (status: TodoStatus, control: Element) => {
     if (status === item.status) return;
-    const celebrateAt = status === "done" ? celebrationAnchor(control) : null;
+    if (status === "done") {
+      complete("status:done", control);
+      return;
+    }
+    setJustCompleted(false);
     run(
       `status:${status}`,
       () => source.setItemStatus(item.id, status),
-      (response) => {
-        setUndo(status === "done" ? (response.completionUndo ?? null) : null);
-        if (status === "done") playCompletionCelebration(celebrateAt);
-      },
+      () => setUndo(null),
     );
   };
+  const toggleCheck = () => {
+    if (item.status !== "done") {
+      complete("check", checkRef.current!);
+      return;
+    }
+    // Unchecking a just-completed to-do undoes it, back to Doing if it was; later it reopens as Todo.
+    setJustCompleted(false);
+    run(
+      "check",
+      () => (canUndo ? source.undoCompletion(item.id, undo!.token) : source.setItemStatus(item.id, "todo")),
+      () => setUndo(null),
+    );
+  };
+  const title = deriveTodoMarkdown(item.markdown).titleMarkdown;
   const draftValid = draft !== null && !!deriveTodoMarkdown(draft).titleMarkdown;
   const saveDraft = () => {
     if (draft === null || !draftValid) return;
@@ -513,7 +568,27 @@ function ItemPreview({
   const parts: TodoItemParts = {
     editing,
     pending: action.pending,
-    content: editing ? editor : <TodoBody markdown={item.markdown} />,
+    content: editing ? (
+      editor
+    ) : (
+      <TodoBody
+        markdown={item.markdown}
+        done={item.status === "done"}
+        crossOff={justCompleted}
+        check={
+          item.archivedAt ? null : (
+            <TodoCheckButton
+              ref={checkRef}
+              status={item.status}
+              title={title}
+              onToggle={toggleCheck}
+              disabled={action.pending && !busy("check")}
+              busy={busy("check")}
+            />
+          )
+        }
+      />
+    ),
     category: item.archivedAt ? (
       <span className="text-cc-fg">
         {categories.find((candidate) => candidate.id === item.categoryId)?.name ?? item.categoryId}
@@ -720,13 +795,40 @@ function PhoneItemLayout({ parts }: { parts: TodoItemParts }) {
   );
 }
 
-/** A to-do's Markdown body: the first line as its title, later lines as details. */
-function TodoBody({ markdown }: { markdown: string }) {
+/**
+ * A to-do's Markdown body: the first line as its title, later lines as details, with the check
+ * circle before the title. A done to-do's title is crossed off; `crossOff` draws the line across
+ * it, for a to-do the user just completed.
+ */
+function TodoBody({
+  markdown,
+  done,
+  crossOff,
+  check,
+}: {
+  markdown: string;
+  done: boolean;
+  crossOff: boolean;
+  check: ReactNode;
+}) {
   const { titleMarkdown, detailsMarkdown } = deriveTodoMarkdown(markdown);
   return (
-    <div className="mt-1">
-      <MarkdownContent text={titleMarkdown} className="font-semibold" />
-      {detailsMarkdown && <MarkdownContent text={detailsMarkdown} size="md" className="mt-1" />}
+    <div className="mt-1 flex items-start gap-3">
+      {check && <div className="flex h-[1.6em] items-center">{check}</div>}
+      <div className="min-w-0 flex-1">
+        {/* A drawn line rather than line-through, so it can be drawn across as the to-do is completed. */}
+        <MarkdownContent
+          text={titleMarkdown}
+          className={`font-semibold ${
+            done
+              ? `inline bg-[linear-gradient(currentColor,currentColor)] bg-[length:100%_1.5px] bg-[position:0_55%] bg-no-repeat !text-cc-muted [&>p]:inline ${
+                  crossOff ? "motion-safe:animate-[todo-cross-off_350ms_ease-out_both]" : ""
+                }`
+              : ""
+          }`}
+        />
+        {detailsMarkdown && <MarkdownContent text={detailsMarkdown} size="md" className="mt-1" />}
+      </div>
     </div>
   );
 }

@@ -97,6 +97,14 @@ describe("playCompletionCelebration", () => {
 
     expect(celebrationAnchor(null)).toBeNull();
   });
+
+  it("draws above an open sheet, so completing a to-do from its sheet shows", () => {
+    // The to-do sheet is a dialog at z-index 82; the celebration once played hidden underneath it.
+    setup();
+    const { check } = todoRow();
+    playCompletionCelebration(celebrationAnchor(check));
+    expect(Number(document.querySelector<HTMLElement>("[data-celebration]")!.style.zIndex)).toBeGreaterThan(82);
+  });
 });
 
 describe("playCheckPop and playSparkle", () => {

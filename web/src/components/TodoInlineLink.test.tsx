@@ -77,6 +77,8 @@ const markerOf = (name: string) =>
 
 const statusButton = (name: string) =>
   within(screen.getByRole("group", { name: "Status" })).getByRole("button", { name });
+/** The check circle beside the to-do's title, tapped to complete it or take it back. */
+const checkCircle = () => screen.getByTestId("todo-preview-check");
 
 // Each test supplies only the to-do changes it exercises. Link markers read the default list unless
 // a test supplies its own summaries.
@@ -146,9 +148,11 @@ describe("to-do links", () => {
     expect(dialog.textContent).toContain("Old detail");
     expect(within(dialog).getByLabelText<HTMLSelectElement>("Category").value).toBe("cat-inbox");
     expect(screen.getByRole("link", { name: "q-7" }).getAttribute("href")).toContain("q-7");
-    // The status control shows the status; there is no separate status chip.
+    // The status control and the check circle show the status; there is no separate status chip.
     expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true");
     expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("false");
+    expect(within(dialog).getByRole("button", { name: "Complete Reply to Alice" })).toBe(checkCircle());
+    expect(checkCircle().getAttribute("aria-pressed")).toBe("false");
     expect(screen.queryByTestId("todo-preview-status")).toBeNull();
     // The user made this to-do, so there is no provenance line.
     expect(screen.queryByTestId("todo-provenance")).toBeNull();
@@ -175,6 +179,11 @@ describe("to-do links", () => {
     expect(within(phone.dialog).getByText("Reply to Alice").compareDocumentPosition(edit)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    // The check circle sits before the title, as on the To-dos page.
+    expect(
+      checkCircle().compareDocumentPosition(within(phone.dialog).getByText("Reply to Alice")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     phone.unmount();
 
     // Desktop: the text and Edit on the left, every control in the side panel on the right.
@@ -334,7 +343,7 @@ describe("to-do links", () => {
 
     // Marking it done in the preview updates the link right away, before any reload.
     fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Complete Reply to Alice" }));
     await waitFor(() => expect(markerOf("reply to Alice").dataset.status).toBe("done"));
 
     // A change elsewhere reloads the statuses; an answer older than what the page has is ignored.
@@ -345,14 +354,19 @@ describe("to-do links", () => {
     expect(markerOf("reply to Alice").dataset.status).toBe("todo");
   });
 
-  it("moves a to-do to Done from its preview and offers the To-dos page's Undo", async () => {
-    // Marking a to-do done is the main reason to act on it from a link. The server's short-lived
-    // completion receipt gives the same Undo as the To-dos page, restoring the exact earlier status.
-    const setItemStatus = vi.fn(async () => ({
-      state: withItem({ status: "done", completedAt: Date.now() }, 6),
-      completionUndo: { itemId: "td-1", token: "undo-token", expiresAt: Date.now() + 30_000 },
+  it("completes a to-do from the status control or the check circle, celebrating and offering Undo", async () => {
+    // Crossing a to-do off is the main reason to act on it from a link. Done in the status control
+    // and the circle beside the title do the same thing. The server's short-lived completion
+    // receipt gives the same Undo as the To-dos page, restoring the exact earlier status, both from
+    // the Undo link and from tapping the checked circle again.
+    let revision = 5;
+    const setItemStatus = vi.fn(async (_itemId: string, status: TodoItem["status"]) => ({
+      state: withItem(status === "done" ? { status, completedAt: Date.now() } : { status }, ++revision),
+      ...(status === "done"
+        ? { completionUndo: { itemId: "td-1", token: "undo-token", expiresAt: Date.now() + 30_000 } }
+        : {}),
     }));
-    const undoCompletion = vi.fn(async () => ({ state: withItem({ status: "doing" }, 7) }));
+    const undoCompletion = vi.fn(async () => ({ state: withItem({ status: "doing" }, ++revision) }));
     renderLink(
       { loadState: async () => withItem({ status: "doing" }), setItemStatus, undoCompletion },
       "[reply to Alice](todo:td-1)",
@@ -364,16 +378,52 @@ describe("to-do links", () => {
     fingerTap(statusButton("Done"));
     await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
     expect(setItemStatus).toHaveBeenCalledWith("td-1", "done");
-    // Completing from the sheet celebrates too, once the server confirms it.
+    // Done checks the circle beside the title and celebrates, once the server confirms it.
+    expect(checkCircle().getAttribute("aria-pressed")).toBe("true");
+    expect(checkCircle().getAttribute("aria-label")).toBe("Reopen Reply to Alice");
     expect(celebrate).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Moved to Done");
     // A Done to-do has no due date to change, as on the To-dos page.
     expect(screen.queryByTestId("todo-preview-due")).toBeNull();
 
+    // The Undo link restores Doing.
     fingerTap(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));
     expect(undoCompletion).toHaveBeenCalledWith("td-1", "undo-token");
+    expect(checkCircle().getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByTestId("todo-preview-footer-status").textContent).toContain("Updated");
+
+    // The circle completes it the same way, and a second tap while the receipt lasts undoes it.
+    fingerTap(checkCircle());
+    await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
+    expect(celebrate).toHaveBeenCalledTimes(2);
+    fingerTap(checkCircle());
+    await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));
+    expect(undoCompletion).toHaveBeenCalledTimes(2);
+    expect(celebrate).toHaveBeenCalledTimes(2);
+  });
+
+  it("reopens a to-do completed earlier as Todo from its check circle", async () => {
+    // Without a fresh completion receipt there is no earlier status to restore, as on the To-dos page.
+    const setItemStatus = vi.fn(async () => ({ state: withItem({ status: "todo" }, 6) }));
+    const undoCompletion = vi.fn();
+    renderLink(
+      {
+        loadState: async () => withItem({ status: "done", completedAt: Date.now() - 86_400_000 }),
+        setItemStatus,
+        undoCompletion,
+      },
+      "[reply to Alice](todo:td-1)",
+    );
+    fingerTap(screen.getByRole("link", { name: "reply to Alice" }));
+    await screen.findByText("Reply to Alice");
+
+    celebrate.mockClear();
+    fingerTap(screen.getByRole("button", { name: "Reopen Reply to Alice" }));
+    await waitFor(() => expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("true"));
+    expect(setItemStatus).toHaveBeenCalledWith("td-1", "todo");
+    expect(undoCompletion).not.toHaveBeenCalled();
+    expect(celebrate).not.toHaveBeenCalled();
   });
 
   it("shows a failed change next to the controls and keeps the to-do as it was", async () => {
@@ -387,6 +437,7 @@ describe("to-do links", () => {
     fingerTap(statusButton("Doing"));
     expect((await screen.findByRole("alert")).textContent).toBe("Could not update the to-do. Server unreachable");
     expect(statusButton("Todo").getAttribute("aria-pressed")).toBe("true");
+    expect(checkCircle().getAttribute("aria-pressed")).toBe("false");
   });
 
   it("edits the to-do text in the preview without losing the draft to a stray tap", async () => {

@@ -936,6 +936,16 @@ select {
   }
 }
 
+/* A completed to-do's title is crossed off: its strike line is drawn from left to right. */
+@keyframes todo-cross-off {
+  from {
+    background-size: 0% 1.5px;
+  }
+  to {
+    background-size: 100% 1.5px;
+  }
+}
+
 @keyframes cc-answered-pop {
   from {
     scale: 0.4;
