@@ -33,6 +33,7 @@ const MAX_DIFF_FILES = 500;
 const MAX_FOLDER_CHECKS = 20;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const MAX_FILE_LINK_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_LINK_PDF_BYTES = 100 * 1024 * 1024;
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -517,12 +518,65 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       }
       if (!target.isFile) return c.json({ error: "Not a file", absolutePath: target.absolutePath }, 400);
       if ((target.size ?? 0) > MAX_FILE_LINK_TEXT_BYTES) {
-        return c.json({ error: "File too large (>2MB)", absolutePath: target.absolutePath }, 413);
+        return c.json({ error: "File too large (>2MB)", absolutePath: target.absolutePath, size: target.size }, 413);
       }
-      const content = (await machineFor(target.hostId).readFile(target.absolutePath)).toString("utf-8");
-      return c.json({ absolutePath: target.absolutePath, content });
+      const bytes = await machineFor(target.hostId).readFile(target.absolutePath);
+      // A NUL byte in the first 8 KB marks a binary file, as git and most editors decide.
+      if (bytes.subarray(0, 8192).includes(0)) {
+        return c.json({ error: "Not a text file", absolutePath: target.absolutePath, size: target.size }, 415);
+      }
+      return c.json({ absolutePath: target.absolutePath, content: bytes.toString("utf-8") });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot read file" }, 404);
+    }
+  });
+
+  /**
+   * A linked PDF's bytes, read on the machine that holds the linking session's files, for the
+   * browser's own PDF viewer in a new tab. Only PDFs: other files are not served raw from Takode's origin.
+   */
+  api.get("/fs/file-link/pdf", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.text("path required", 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (extname(target.absolutePath).toLowerCase() !== ".pdf") return c.text("Not a PDF", 400);
+      if (!target.exists || !target.isFile) {
+        if (target.hostId && !hostIsOnline(target.hostId)) {
+          const host = await ctx.launcher.remoteHosts?.registry.get(target.hostId);
+          return c.text(`The PDF is on ${host?.name ?? "a remote host"}, which is offline.`, 503);
+        }
+        return c.text(`No PDF at ${target.absolutePath}`, 404);
+      }
+      if ((target.size ?? 0) > MAX_FILE_LINK_PDF_BYTES) return c.text("The PDF is larger than 100 MB", 413);
+      const bytes = await machineFor(target.hostId).readFile(target.absolutePath);
+      return c.body(new Uint8Array(bytes), 200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(basename(target.absolutePath))}`,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+    } catch (error) {
+      return c.text(error instanceof Error ? error.message : "Cannot read the PDF", 404);
+    }
+  });
+
+  /** A linked folder's files and subfolders, listed on the machine that holds the linking session's files. */
+  api.get("/fs/file-link/folder", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.json({ error: "path required" }, 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.exists) {
+        if (target.hostId && !hostIsOnline(target.hostId)) {
+          return remoteHostFailure(c, null, target.hostId, ctx.launcher.remoteHosts?.registry);
+        }
+        return c.json({ error: "Folder not found", absolutePath: target.absolutePath }, 404);
+      }
+      if (!target.isDirectory) return c.json({ error: "Not a folder", absolutePath: target.absolutePath }, 400);
+      return c.json(await onMachine(target.hostId, "listFolderEntries", target.absolutePath, false));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot list folder" }, 404);
     }
   });
 

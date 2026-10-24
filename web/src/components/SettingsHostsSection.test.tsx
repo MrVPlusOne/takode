@@ -206,6 +206,26 @@ describe("SettingsHostsSection", () => {
     expect(screen.queryByTestId("h1-worktree-root-default")).toBeNull();
   });
 
+  // Open in VS Code opens files on the user's own computer, so each machine says how that computer
+  // reaches it: it is that computer, or over SSH by a host name; the SSH field shows only for SSH.
+  it("sets how the user's editor reaches a machine's files", async () => {
+    const requests = serveHostRoutes([hostRow({ id: "h1", name: "devbox" })]);
+    render(<SettingsHostsSection />);
+    const access = (await screen.findByLabelText("Open its files in your editor", {
+      selector: "#h1-editor-access",
+    })) as HTMLSelectElement;
+    expect(access.value).toBe("");
+    expect(screen.queryByLabelText("SSH host", { selector: "#h1-ssh-host" })).toBeNull();
+
+    await act(async () => fireEvent.change(access, { target: { value: "ssh" } }));
+    await waitFor(() => expect(requests).toContain("PUT /api/hosts/h1/settings"));
+    const sshHost = await screen.findByLabelText("SSH host", { selector: "#h1-ssh-host" });
+    fireEvent.focus(sshHost);
+    fireEvent.change(sshHost, { target: { value: " devbox " } });
+    await act(async () => fireEvent.blur(sshHost));
+    await waitFor(() => expect((sshHost as HTMLInputElement).value).toBe("devbox"));
+  });
+
   // A host that has not connected since the server started has not reported
   // its home directory, so the field says where the default is and that the
   // full path appears once it connects.

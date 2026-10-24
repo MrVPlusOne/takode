@@ -1,5 +1,5 @@
 import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
-import { listDirectories } from "../directory-listing.js";
+import { listDirectories, listFolderEntries } from "../directory-listing.js";
 import { deliverMcpOAuthCallback } from "../mcp-oauth-callback.js";
 import { readCommitDetails } from "../git-commit-reader.js";
 import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git-utils.js";
@@ -26,6 +26,8 @@ import { requestOnHost } from "./session-machine.js";
  */
 const operations = {
   listDirectories: (path: string | undefined, showHidden: boolean) => listDirectories(path, showHidden),
+  // A folder's files and subfolders, for Takode's file viewer.
+  listFolderEntries: (path: string, showHidden: boolean) => listFolderEntries(path, showHidden),
   // For each program, whether this machine can find it (the New Session backend picker).
   findPrograms: (programs: string[]) => programs.map((program) => resolveBinary(program) !== null),
   repoInfo: (cwd: string) => getRepoInfoAsync(cwd),

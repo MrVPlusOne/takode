@@ -46,6 +46,74 @@ export function HostCliSettings({
         />
       ))}
       <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} defaultRoot={defaultWorktreeRoot} />
+      <EditorAccessField hostId={hostId} access={settings.editorAccess ?? ""} sshHost={settings.sshHost ?? ""} />
+    </div>
+  );
+}
+
+const EDITOR_ACCESS_OPTIONS: Array<{ value: NonNullable<MachineSettings["editorAccess"]>; label: string }> = [
+  { value: "", label: "Not set up" },
+  { value: "local", label: "It's my computer" },
+  { value: "ssh", label: "Over SSH (Remote-SSH)" },
+];
+
+/**
+ * How Open in VS Code (or Cursor) reaches this machine's files. Editor links open on the user's
+ * own computer, so a file on another machine opens through Remote-SSH by the host name that
+ * computer's SSH config knows it by. Until it is set, the button is shown grayed out.
+ */
+function EditorAccessField({ hostId, access, sshHost }: { hostId: string; access: string; sshHost: string }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const host = useSavedField(hostId, "sshHost", sshHost);
+  const selectId = `${hostId}-editor-access`;
+  const sshHostInputId = `${hostId}-ssh-host`;
+
+  async function choose(next: string) {
+    setSaving(true);
+    setError("");
+    try {
+      await updateMachineSettings(hostId, { editorAccess: next as MachineSettings["editorAccess"] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-cc-fg mb-1" htmlFor={selectId}>
+        Open its files in your editor
+      </label>
+      <select
+        id={selectId}
+        value={access}
+        onChange={(event) => void choose(event.target.value)}
+        className={`${INPUT_CLASS} font-sans`}
+      >
+        {EDITOR_ACCESS_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {access === "ssh" && (
+        <div className="mt-2">
+          <label className="block text-xs font-medium text-cc-fg mb-1" htmlFor={sshHostInputId}>
+            SSH host
+          </label>
+          <input id={sshHostInputId} type="text" {...host.inputProps} placeholder="devbox" className={INPUT_CLASS} />
+          {host.status}
+        </div>
+      )}
+      <p className="mt-1 text-[11px] text-cc-muted">
+        Used by Open in VS Code, which opens files on your own computer. Choose "It's my computer" for the machine your
+        browser runs on; for another machine, give the host name your computer's SSH config uses for it, and VS Code
+        opens its files through the Remote-SSH extension.
+      </p>
+      {saving && <p className="mt-1 text-[11px] text-cc-muted">Saving...</p>}
+      {error && <p className="mt-1 text-[11px] text-cc-error">{error}</p>}
     </div>
   );
 }

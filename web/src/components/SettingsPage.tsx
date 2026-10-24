@@ -1049,8 +1049,9 @@ export function SettingsPage({
                   <option value="none">None</option>
                 </select>
                 <p className="mt-1.5 text-xs text-cc-muted">
-                  Used for clickable <code className="font-mono">file:</code> links in chat messages. Choose remote to
-                  open files through the Takode server's VSCode extension on that machine.
+                  File links open in Takode's own viewer. This editor is used by its Open in VS Code button and a link's
+                  long-press menu; under Hosts, choose how your computer opens each machine's files ("It's my computer"
+                  or over SSH). Choose remote to open files through the Takode server's VSCode extension.
                 </p>
                 {editorError && <div className="mt-1.5">{errorBox(editorError)}</div>}
                 {editorSaving && <p className="mt-1.5 text-xs text-cc-muted">Saving...</p>}

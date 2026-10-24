@@ -233,11 +233,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "cli",
     title: "Editor",
-    description: "Which editor opens file links.",
+    description: "Which editor Open in VS Code uses on file links.",
     items: [
       {
         id: "editor",
-        text: "File Link Editor VSCode local remote Cursor none editor",
+        text: "File Link Editor VSCode local remote Cursor none editor Open in VS Code Remote-SSH",
         aliases: ["vscode"],
       },
     ],
@@ -266,12 +266,12 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     id: "hosts",
     title: "Hosts",
     description:
-      "This server's machine and other machines that run sessions, their names, and the Claude Code and Codex programs each one runs.",
+      "This server's machine and other machines that run sessions, their names, the Claude Code and Codex programs each one runs, and how your editor opens their files.",
     aliases: ["remote", "machine", "devbox", "backend", "binary", "path", "cli"],
     items: [
       {
         id: "hosts",
-        text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI keep sessions running survive server restart local node",
+        text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI keep sessions running survive server restart local node open files in your editor VS Code Remote-SSH SSH host",
       },
       {
         id: "user-content",

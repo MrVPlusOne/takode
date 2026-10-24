@@ -23,6 +23,22 @@ export function buildLocalEditorUri(target: VsCodeOpenFileTarget, editor: "vscod
   return `${pathUri}:${Math.max(1, target.line ?? 1)}:${Math.max(1, target.column ?? 1)}`;
 }
 
+/**
+ * An editor link that opens a file on another machine through Remote-SSH, by the SSH host name the
+ * user's computer knows that machine as: `vscode://vscode-remote/ssh-remote+<host>/<path>:<line>:<column>`.
+ */
+export function buildSshEditorUri(
+  target: VsCodeOpenFileTarget,
+  editor: "vscode-local" | "cursor",
+  sshHost: string,
+): string {
+  const scheme = editor === "cursor" ? "cursor" : "vscode";
+  const encodedPath = encodeURI(target.absolutePath).replace(/[#?]/g, encodeURIComponent);
+  const pathUri = `${scheme}://vscode-remote/ssh-remote+${encodeURIComponent(sshHost)}${encodedPath.startsWith("/") ? "" : "/"}${encodedPath}`;
+  if (target.targetKind === "directory") return pathUri;
+  return `${pathUri}:${Math.max(1, target.line ?? 1)}:${Math.max(1, target.column ?? 1)}`;
+}
+
 function isAbsolutePath(path: string): boolean {
   return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
 }

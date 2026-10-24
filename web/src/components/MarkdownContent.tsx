@@ -18,7 +18,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { rehypeCommitGroups } from "../utils/markdown-commit-groups.js";
-import { api } from "../api.js";
+import { api, type EditorKind } from "../api.js";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
@@ -29,7 +29,9 @@ import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { VisualBlock } from "./VisualBlock.js";
 import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
 import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
-import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
+import { showEditorOpenError } from "../utils/vscode-bridge.js";
+import { editorOpenFor } from "../utils/editor-open.js";
+import { useFileMachine } from "../remote-hosts.js";
 import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } from "../utils/quest-link-target.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { HighlightedText, buildHighlightPattern } from "./HighlightedText.js";
@@ -51,7 +53,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
 import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.js";
-import { isMarkdownFilePath, openMarkdownFileViewer } from "./MarkdownFileViewer.js";
+import { openFileViewer, opensInBrowserTab } from "./FileViewer.js";
 import {
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
@@ -441,10 +443,6 @@ function resolveFileLinkTarget(target: FileLinkTarget, base: FileLinkBaseContext
     column: target.column,
     ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
   };
-}
-
-function isHtmlFileLinkTarget(target: FileLinkTarget): boolean {
-  return /\.html$/i.test(target.path);
 }
 
 function formatFileLinkLocation(target: Pick<FileLinkTarget, "line" | "column" | "endLine">): string {
@@ -1215,6 +1213,7 @@ function FileMarkdownLink({
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [fileInfo, setFileInfo] = useState<FileLinkResolveResponse | null>(null);
   const [fileInfoError, setFileInfoError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EditorKind | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const resolvedTarget = useMemo(() => resolveFileLinkTarget(target, basePath), [basePath, target]);
   const actionTarget = useMemo<FileLinkActionTarget>(
@@ -1231,6 +1230,10 @@ function FileMarkdownLink({
     let cancelled = false;
     setFileInfo(null);
     setFileInfoError(null);
+    api
+      .getSettings()
+      .then((settings) => !cancelled && setEditor(settings.editorConfig?.editor ?? "none"))
+      .catch(() => !cancelled && setEditor("none"));
     resolveFileLinkAction(actionTarget)
       .then((info) => {
         if (!cancelled) setFileInfo(info);
@@ -1243,27 +1246,10 @@ function FileMarkdownLink({
     };
   }, [actionTarget, menuPosition]);
 
-  const openEditorTarget = useCallback(async (openTarget: ResolvedFileLinkTarget) => {
-    let settings;
-    try {
-      settings = await api.getSettings();
-    } catch {
-      return;
-    }
-    const { absolutePath, line, column, endLine } = openTarget;
-    await openFileWithEditorPreference(
-      {
-        absolutePath,
-        line,
-        column,
-        ...(Number.isFinite(endLine) ? { endLine } : {}),
-      },
-      settings.editorConfig?.editor ?? "none",
-    );
-  }, []);
-
+  // Images open in the image preview; everything else in Takode's file viewer, read on the
+  // machine that holds the file, which works on phones and across machines. The editor is an
+  // explicit action in the viewer and the link's menu.
   const openDefaultTarget = useCallback(async () => {
-    if (!resolvedTarget) return;
     try {
       const info = await resolveFileLinkAction(actionTarget);
       if (info.isImage) {
@@ -1271,27 +1257,16 @@ function FileMarkdownLink({
         return;
       }
     } catch (error) {
-      console.warn("[MarkdownContent] Failed to resolve file link before preview; opening in editor.", error);
+      console.warn("[MarkdownContent] Failed to resolve file link before opening it; opening the viewer.", error);
     }
-    let openTarget = resolvedTarget;
-    if (resolvedTarget.fallbackAbsolutePath) {
-      try {
-        await api.readFile(resolvedTarget.absolutePath, actionTarget.sessionId);
-      } catch {
-        openTarget = {
-          ...resolvedTarget,
-          absolutePath: resolvedTarget.fallbackAbsolutePath,
-        };
-      }
-    }
-    try {
-      await openEditorTarget(openTarget);
-    } catch (error) {
-      showEditorOpenError(error instanceof Error ? error.message : String(error));
-    }
-  }, [actionTarget, openEditorTarget, resolvedTarget]);
+    openFileViewer({
+      ...actionTarget,
+      ...(target.line > 1 || Number.isFinite(target.endLine) ? { line: target.line } : {}),
+      ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
+    });
+  }, [actionTarget, target.endLine, target.line]);
 
-  const opensInBrowser = isHtmlFileLinkTarget(target);
+  const opensInBrowser = opensInBrowserTab(target.path);
   const onClick = useCallback(
     (e: MouseEvent<HTMLAnchorElement>) => {
       if (stopPropagation) e.stopPropagation();
@@ -1299,10 +1274,6 @@ function FileMarkdownLink({
       e.preventDefault();
       // An image the message already previews opens in that preview's viewer.
       if (imagePathLinks?.open({ path: target.path, isRelative: target.isRelative })) return;
-      if (isMarkdownFilePath(target.path)) {
-        openMarkdownFileViewer(actionTarget);
-        return;
-      }
       void openDefaultTarget();
     },
     [actionTarget, imagePathLinks, openDefaultTarget, opensInBrowser, stopPropagation, target.isRelative, target.path],
@@ -1315,20 +1286,25 @@ function FileMarkdownLink({
     : `${target.path}${locationSuffix} (unable to resolve repo-relative path)`;
   // Long-press on touch, right-click on desktop.
   const longPress = useLongPress((x, y) => setMenuPosition({ x, y }));
-  const openBackendResolvedEditor = useCallback(async () => {
-    try {
-      const info = await resolveFileLinkAction(actionTarget);
-      if (!info.exists) throw new Error("File not found");
-      await openEditorTarget({
-        absolutePath: info.absolutePath,
-        line: target.line,
-        column: target.column,
-        ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
-      });
-    } catch (error) {
-      showEditorOpenError(error instanceof Error ? error.message : String(error));
-    }
-  }, [actionTarget, openEditorTarget, target.column, target.endLine, target.line]);
+  // Editor links open on the user's own computer: the machine holding the file decides whether
+  // that works directly, over Remote-SSH, or not at all (see editorOpenFor).
+  const machine = useFileMachine(fileInfo ? (fileInfo.hostId ?? null) : undefined);
+  const editorOpen = fileInfo && editor ? editorOpenFor(editor, machine) : null;
+  const openInEditor = useCallback(() => {
+    if (editorOpen?.kind !== "available" || !fileInfo) return;
+    editorOpen
+      .open({
+        absolutePath: fileInfo.absolutePath,
+        ...(fileInfo.isDirectory
+          ? { targetKind: "directory" as const }
+          : {
+              line: target.line,
+              column: target.column,
+              ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
+            }),
+      })
+      .catch((error: unknown) => showEditorOpenError(error instanceof Error ? error.message : String(error)));
+  }, [editorOpen, fileInfo, target.column, target.endLine, target.line]);
   const copyBackendResolvedPath = useCallback(async () => {
     try {
       const info = await resolveFileLinkAction(actionTarget);
@@ -1348,10 +1324,16 @@ function FileMarkdownLink({
     setPreviewUrl(buildFileLinkImageVariantUrl(actionTarget, "full"));
   }, [actionTarget]);
   const menuItems = useMemo<ContextMenuItem[]>(() => {
-    const items: ContextMenuItem[] = [
-      { label: "Open in Editor", onClick: () => void openBackendResolvedEditor() },
-      { label: "Copy File Path", onClick: () => void copyBackendResolvedPath() },
-    ];
+    const items: ContextMenuItem[] = [];
+    if (editorOpen?.kind === "available") items.push({ label: editorOpen.label, onClick: openInEditor });
+    if (editorOpen?.kind === "unavailable") {
+      items.push({
+        label: `${editorOpen.label}: not set up for ${machine?.name ?? "this machine"}`,
+        onClick: () => {},
+        disabled: true,
+      });
+    }
+    items.push({ label: "Copy File Path", onClick: () => void copyBackendResolvedPath() });
     if (!fileInfo && !fileInfoError) {
       items.push({ label: "Checking file...", onClick: () => {}, disabled: true });
       return items;
@@ -1367,17 +1349,17 @@ function FileMarkdownLink({
     }
     if (fileInfo && !fileInfo.exists) {
       items.push({ label: "File unavailable", onClick: () => {}, disabled: true });
-    } else if (fileInfo && !fileInfo.isImage) {
-      items.push({ label: "No image preview", onClick: () => {}, disabled: true });
     } else if (fileInfoError) {
       items.push({ label: fileInfoError, onClick: () => {}, disabled: true });
     }
     return items;
   }, [
     copyBackendResolvedPath,
+    editorOpen,
     fileInfo,
     fileInfoError,
-    openBackendResolvedEditor,
+    machine?.name,
+    openInEditor,
     previewBackendResolvedImage,
     revealBackendResolvedPath,
   ]);

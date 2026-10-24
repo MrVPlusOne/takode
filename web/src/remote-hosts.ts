@@ -8,6 +8,19 @@ export interface MachineSettings {
   codexBinary: string;
   /** Absolute folder for session worktrees on that machine; empty or missing means the machine's default. */
   worktreeRoot?: string;
+  /** How the user's computer opens this machine's files in an editor: as itself, over SSH, or not set up (empty). */
+  editorAccess?: "" | "local" | "ssh";
+  /** The SSH host name the user's computer reaches this machine by. */
+  sshHost?: string;
+}
+
+/** The machine holding files of a host id from the server (null or absent for the server's own machine). */
+export function useFileMachine(hostId: string | null | undefined): { name: string; settings: MachineSettings } | null {
+  const { hosts, local } = useRemoteHosts();
+  if (hostId === undefined) return null;
+  if (!hostId) return local ? { name: local.name, settings: local.settings } : null;
+  const host = hosts.find((candidate) => candidate.id === hostId);
+  return host ? { name: host.name, settings: host.settings } : null;
 }
 
 /** A registered remote host and its link status, as `GET /api/hosts` reports it. */

@@ -58,3 +58,54 @@ async function existingFolders(
   );
   return found.filter((place) => place !== null);
 }
+
+/** One entry of a folder shown in Takode's file viewer. */
+export interface FolderEntry {
+  name: string;
+  /** Absolute path on the machine that listed it. */
+  path: string;
+  isDirectory: boolean;
+  /** Size in bytes; 0 for folders. */
+  size: number;
+  /** Last change, in milliseconds since the epoch. */
+  modifiedAt: number;
+}
+
+export interface FolderListing {
+  path: string;
+  entries: FolderEntry[];
+  /** More entries exist than `entries` holds. */
+  truncated: boolean;
+}
+
+/** Entries one folder listing returns at most. */
+export const MAX_FOLDER_ENTRIES = 1000;
+
+/**
+ * The files and subfolders of `path` on this machine, folders first, then by name. Symbolic links
+ * show what they point to; a broken one is left out. Hidden entries are left out unless asked for.
+ */
+export async function listFolderEntries(path: string, showHidden: boolean): Promise<FolderListing> {
+  const basePath = resolve(expandTilde(path));
+  const names = (await readdir(basePath))
+    .filter((name) => showHidden || !name.startsWith("."))
+    .sort((a, b) => a.localeCompare(b));
+  const listed = await Promise.all(
+    names.slice(0, MAX_FOLDER_ENTRIES).map(async (name) => {
+      const entryPath = join(basePath, name);
+      const info = await stat(entryPath).catch(() => null);
+      if (!info) return null;
+      return {
+        name,
+        path: entryPath,
+        isDirectory: info.isDirectory(),
+        size: info.isDirectory() ? 0 : info.size,
+        modifiedAt: info.mtimeMs,
+      };
+    }),
+  );
+  const entries = listed
+    .filter((entry): entry is FolderEntry => entry !== null)
+    .sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name));
+  return { path: basePath, entries, truncated: names.length > MAX_FOLDER_ENTRIES };
+}

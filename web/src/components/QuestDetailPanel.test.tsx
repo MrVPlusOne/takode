@@ -19,6 +19,12 @@ const mockGetQuestValidated = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
+const mockOpenFileViewer = vi.hoisted(() => vi.fn());
+// File links open Takode's file viewer; these tests only check which file and lines a link names.
+vi.mock("./FileViewer.js", async () => {
+  const actual = await vi.importActual<typeof import("./FileViewer.js")>("./FileViewer.js");
+  return { ...actual, openFileViewer: mockOpenFileViewer };
+});
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
@@ -786,9 +792,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("Full agent-dense feedback body.")).toBeVisible();
   });
 
-  it("renders custom file links in feedback TLDR metadata through the markdown file opener", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+  it("renders custom file links in feedback TLDR metadata through the file viewer", async () => {
     const quest = makeVerificationQuest({
       feedback: [
         {
@@ -810,18 +814,13 @@ describe("QuestDetailPanel", () => {
     fireEvent.click(screen.getByRole("link", { name: "QuestDetailPanel.tsx:42" }));
 
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//repo/web/src/components/QuestDetailPanel.tsx:42:1",
-        "_blank",
-        "noopener,noreferrer",
+      expect(mockOpenFileViewer).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "web/src/components/QuestDetailPanel.tsx", isRelative: true, line: 42 }),
       );
     });
-    openSpy.mockRestore();
   });
 
   it("renders standard Markdown repo file links in feedback TLDRs without auto-linking plain paths", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     const quest = makeVerificationQuest({
       feedback: [
         {
@@ -844,13 +843,10 @@ describe("QuestDetailPanel", () => {
     fireEvent.click(screen.getByRole("link", { name: "QuestDetailPanel" }));
 
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//repo/web/src/components/QuestDetailPanel.tsx:42:1",
-        "_blank",
-        "noopener,noreferrer",
+      expect(mockOpenFileViewer).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "web/src/components/QuestDetailPanel.tsx", isRelative: true, line: 42 }),
       );
     });
-    openSpy.mockRestore();
   });
 
   it("shows phase TLDRs on the quest documentation timeline with full detail collapsed", async () => {

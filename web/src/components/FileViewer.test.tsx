@@ -5,18 +5,43 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
 
 const mockReadFileLinkText = vi.fn();
+const mockGetSettings = vi.fn();
+const mockUseFileMachine = vi.fn();
 
 vi.mock("../api/file-link-actions.js", async () => {
   const actual = await vi.importActual<typeof import("../api/file-link-actions.js")>("../api/file-link-actions.js");
-  return { ...actual, readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args) };
+  return {
+    ...actual,
+    readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
+    // Files in FILES exist; anything else is missing.
+    resolveFileLinkAction: async ({ path }: { path: string }) => ({
+      absolutePath: path,
+      requestedPath: path,
+      exists: path in FILES,
+      isFile: path in FILES,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: false,
+      platform: "linux",
+    }),
+  };
+});
+vi.mock("../api.js", async () => {
+  const actual = await vi.importActual<typeof import("../api.js")>("../api.js");
+  return { ...actual, api: { ...actual.api, getSettings: (...args: unknown[]) => mockGetSettings(...args) } };
+});
+vi.mock("../remote-hosts.js", async () => {
+  const actual = await vi.importActual<typeof import("../remote-hosts.js")>("../remote-hosts.js");
+  return { ...actual, useFileMachine: (...args: unknown[]) => mockUseFileMachine(...args) };
 });
 
-import { MarkdownFileViewerHost, openMarkdownFileViewer } from "./MarkdownFileViewer.js";
+import { FileViewerHost, closeFileViewers, openFileViewer } from "./FileViewer.js";
 import { closeSecondaryViewers, setSecondaryViewTarget } from "../utils/secondary-view.js";
 
 const FILES: Record<string, string> = {
   "/reports/briefing.md": "# Briefing\n\nSee [the details](notes/details.md).",
   "/reports/notes/details.md": "# Details\n\nNothing else.",
+  "/home/coder/run.py": "print('hi')",
 };
 
 function popstateOnce(): Promise<void> {
@@ -28,11 +53,14 @@ function popstateOnce(): Promise<void> {
  * stack of sheets: links in a viewed file open the next file above it, resolved beside the file
  * and through the same session, and the phone's back gesture closes only the top one.
  */
-describe("MarkdownFileViewer", () => {
+describe("FileViewer", () => {
   beforeEach(() => {
     useStore.getState().reset();
     window.history.replaceState(null, "", "#/session/s1");
     mockReadFileLinkText.mockReset();
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
+    mockUseFileMachine.mockReturnValue({ name: "devbox", settings: { claudeBinary: "", codexBinary: "" } });
+    act(() => closeFileViewers());
     mockReadFileLinkText.mockImplementation(async ({ path }: { path: string }) => {
       if (!(path in FILES)) throw new Error("File not found");
       return { absolutePath: path, content: FILES[path] };
@@ -47,10 +75,10 @@ describe("MarkdownFileViewer", () => {
     // StrictMode runs mount effects twice, as the development app does; a viewer must still stay open.
     render(
       <StrictMode>
-        <MarkdownFileViewerHost />
+        <FileViewerHost />
       </StrictMode>,
     );
-    act(() => openMarkdownFileViewer({ path: "/reports/briefing.md", isRelative: false, sessionId: "s1" }));
+    act(() => openFileViewer({ path: "/reports/briefing.md", isRelative: false, sessionId: "s1" }));
 
     const briefing = await screen.findByRole("dialog", { name: "briefing.md" });
     fireEvent.click(await within(briefing).findByRole("link", { name: "the details" }));
@@ -77,10 +105,10 @@ describe("MarkdownFileViewer", () => {
   });
 
   it("closes the top file with Escape and leaves the one below open", async () => {
-    render(<MarkdownFileViewerHost />);
+    render(<FileViewerHost />);
     act(() => {
-      openMarkdownFileViewer({ path: "/reports/briefing.md", isRelative: false });
-      openMarkdownFileViewer({ path: "/reports/notes/details.md", isRelative: false });
+      openFileViewer({ path: "/reports/briefing.md", isRelative: false });
+      openFileViewer({ path: "/reports/notes/details.md", isRelative: false });
     });
     await screen.findByRole("dialog", { name: "details.md" });
 
@@ -93,12 +121,43 @@ describe("MarkdownFileViewer", () => {
   });
 
   it("shows why a file cannot be opened", async () => {
-    render(<MarkdownFileViewerHost />);
-    act(() => openMarkdownFileViewer({ path: "/reports/missing.md", isRelative: false }));
+    render(<FileViewerHost />);
+    act(() => openFileViewer({ path: "/reports/missing.md", isRelative: false }));
 
     const viewer = await screen.findByRole("dialog", { name: "missing.md" });
-    expect((await within(viewer).findByRole("alert")).textContent).toBe("Cannot open this file: File not found");
+    expect((await within(viewer).findByRole("alert")).textContent).toBe(
+      "Cannot open this: Nothing at /reports/missing.md",
+    );
     fireEvent.click(within(viewer).getByRole("button", { name: "Close file" }));
+  });
+
+  // Open in VS Code opens on the user's own computer, so it works for another machine's files only
+  // over Remote-SSH. Until that machine is set up, the button is grayed out and its tooltip says why.
+  it("grays out Open in VS Code for a machine that isn't set up, and opens over SSH once it is", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const view = render(<FileViewerHost />);
+    act(() => openFileViewer({ path: "/home/coder/run.py", isRelative: false, line: 1 }));
+
+    const viewer = await screen.findByRole("dialog", { name: "run.py" });
+    const button = await within(viewer).findByRole("button", { name: "Open in VS Code" });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.parentElement?.getAttribute("title")).toContain("VS Code can't reach devbox yet");
+    fireEvent.click(button);
+    expect(openSpy).not.toHaveBeenCalled();
+
+    mockUseFileMachine.mockReturnValue({
+      name: "devbox",
+      settings: { claudeBinary: "", codexBinary: "", editorAccess: "ssh", sshHost: "devbox" },
+    });
+    view.rerender(<FileViewerHost />);
+    fireEvent.click(within(viewer).getByRole("button", { name: "Open in VS Code" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "vscode://vscode-remote/ssh-remote+devbox/home/coder/run.py:1:1",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    openSpy.mockRestore();
   });
 
   // On wide screens the app registers a secondary view area floating over the app: files open
@@ -108,10 +167,10 @@ describe("MarkdownFileViewer", () => {
     document.body.appendChild(area);
     act(() => setSecondaryViewTarget(area));
     try {
-      render(<MarkdownFileViewerHost />);
+      render(<FileViewerHost />);
       act(() => {
-        openMarkdownFileViewer({ path: "/reports/briefing.md", isRelative: false });
-        openMarkdownFileViewer({ path: "/reports/notes/details.md", isRelative: false });
+        openFileViewer({ path: "/reports/briefing.md", isRelative: false });
+        openFileViewer({ path: "/reports/notes/details.md", isRelative: false });
       });
       const details = await screen.findByRole("dialog", { name: "details.md" });
       expect(area.contains(details)).toBe(true);

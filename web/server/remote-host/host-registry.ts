@@ -271,6 +271,10 @@ function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettin
   if (typeof patch.claudeBinary === "string") defined.claudeBinary = patch.claudeBinary.trim();
   if (typeof patch.codexBinary === "string") defined.codexBinary = patch.codexBinary.trim();
   if (typeof patch.worktreeRoot === "string") defined.worktreeRoot = patch.worktreeRoot.trim();
+  if (patch.editorAccess === "" || patch.editorAccess === "local" || patch.editorAccess === "ssh") {
+    defined.editorAccess = patch.editorAccess;
+  }
+  if (typeof patch.sshHost === "string") defined.sshHost = patch.sshHost.trim();
   return defined;
 }
 

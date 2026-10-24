@@ -2,6 +2,7 @@
 import { api } from "../api.js";
 import {
   buildLocalEditorUri,
+  buildSshEditorUri,
   ensureVsCodeEditorPreference,
   openFileWithEditorPreference,
   openPathWithEditorPreference,
@@ -78,6 +79,23 @@ describe("vscode-bridge", () => {
     expect(buildLocalEditorUri({ absolutePath: "/workspace/project", targetKind: "directory" }, "cursor")).toBe(
       "cursor://file//workspace/project",
     );
+  });
+
+  it("keeps spaces, # and ? inside the path of an editor URI", () => {
+    // `#` and `?` would otherwise end the path inside the vscode:// URI.
+    expect(buildLocalEditorUri({ absolutePath: "/tmp/My Logs/run #2?.log", line: 4 }, "vscode-local")).toBe(
+      "vscode://file//tmp/My%20Logs/run%20%232%3F.log:4:1",
+    );
+  });
+
+  it("builds Remote-SSH editor URIs for files and folders on another machine", () => {
+    // VS Code's Remote-SSH extension opens vscode://vscode-remote/ssh-remote+<host>/<path>.
+    expect(
+      buildSshEditorUri({ absolutePath: "/home/coder/a b.ts", line: 7, column: 2 }, "vscode-local", "devbox"),
+    ).toBe("vscode://vscode-remote/ssh-remote+devbox/home/coder/a%20b.ts:7:2");
+    expect(
+      buildSshEditorUri({ absolutePath: "/home/coder/reports/", targetKind: "directory" }, "cursor", "condor1-cpu"),
+    ).toBe("cursor://vscode-remote/ssh-remote+condor1-cpu/home/coder/reports/");
   });
 
   it("posts directory-open requests to the embedded VS Code wrapper without file coordinates", () => {

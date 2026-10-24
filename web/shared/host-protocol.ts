@@ -75,7 +75,16 @@ export interface HostMachineSettings {
    * keeps uncommitted work when the host moves to another machine.
    */
   worktreeRoot?: string;
+  /**
+   * How the user's own computer opens this machine's files in VS Code or Cursor: "local" when this
+   * machine is that computer, "ssh" over Remote-SSH as `sshHost`; empty when not set up.
+   */
+  editorAccess?: EditorAccess;
+  /** The SSH host name the user's computer reaches this machine by, for Remote-SSH editor links. */
+  sshHost?: string;
 }
+
+export type EditorAccess = "" | "local" | "ssh";
 
 export type HostCommand =
   | {

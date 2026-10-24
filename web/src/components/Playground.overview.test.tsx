@@ -91,13 +91,14 @@ describe("Playground", { timeout: 30_000 }, () => {
     expect(streamingFixture.textContent).not.toBe(incompleteOutput);
   });
 
-  it("documents native browser opening and retained alternatives for HTML file links", () => {
+  it("documents file links: the viewer for folders, code and Markdown, a tab for HTML", () => {
     // The shared message-link change must remain directly inspectable in the Playground.
     render(<PlaygroundOverviewSections />);
 
     expect(screen.getByRole("heading", { name: "File Link Context Menu" })).toBeTruthy();
-    expect(screen.getByText("Chat markdown with browser, viewer, editor, and image file links")).toBeTruthy();
+    expect(screen.getByText("Chat markdown with folder, code, Markdown, HTML and image file links")).toBeTruthy();
     expect(screen.getByText(/interactive HTML demo/)).toBeTruthy();
+    expect(screen.getByText(/\[its folder\]/)).toBeTruthy();
     expect(screen.getByText(/markdown-reports\.md/)).toBeTruthy();
   });
 

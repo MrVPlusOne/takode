@@ -76,6 +76,20 @@ describe("host routes", () => {
     expect((await (await put(host.id, { worktreeRoot: "" })).json()).settings.worktreeRoot).toBe("");
   });
 
+  // Open in VS Code reaches a machine's files from the user's own computer: directly when that
+  // machine is the computer, otherwise through Remote-SSH by the host name its SSH config uses.
+  it("stores how the user's editor reaches a machine, accepting only SSH host names", async () => {
+    const { host } = await registry.register("devbox");
+    const res = await put(host.id, { editorAccess: "ssh", sshHost: " devbox " });
+    expect((await res.json()).settings).toMatchObject({ editorAccess: "ssh", sshHost: "devbox" });
+    expect(registry.machineSettings(host.id)).toMatchObject({ editorAccess: "ssh", sshHost: "devbox" });
+
+    // The host name becomes part of an editor link, so anything but a host name or alias is refused.
+    expect((await put(host.id, { sshHost: "devbox/../x?y" })).status).toBe(400);
+    expect((await put(host.id, { editorAccess: "remote" })).status).toBe(400);
+    expect((await (await put(host.id, { editorAccess: "local" })).json()).settings.editorAccess).toBe("local");
+  });
+
   // Empty, a machine's worktree folder is ~/.companion/worktrees in that
   // machine's own home, which can be elsewhere (node-local disk on a cluster).
   // The list resolves it from the home directory the host reported, and has

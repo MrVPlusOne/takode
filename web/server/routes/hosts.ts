@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { isAbsolute } from "node:path";
 import type { HostLinkManager } from "../remote-host/host-link-manager.js";
+import type { EditorAccess } from "../../shared/host-protocol.js";
 import { LOCAL_HOST_ID, type HostRegistry, type RegisteredHost } from "../remote-host/host-registry.js";
 import { machineNameError, type ThisMachine } from "../machine-identity.js";
 import { defaultWorktreesBase, WORKTREES_BASE } from "../git-utils.js";
@@ -52,7 +53,7 @@ export function createHostRoutes(
   api.put("/hosts/:id/settings", async (c) => {
     const id = c.req.param("id");
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    for (const field of ["claudeBinary", "codexBinary", "worktreeRoot"]) {
+    for (const field of ["claudeBinary", "codexBinary", "worktreeRoot", "sshHost"]) {
       if (body[field] !== undefined && typeof body[field] !== "string") {
         return c.json({ error: `${field} must be a string` }, 400);
       }
@@ -61,10 +62,24 @@ export function createHostRoutes(
     if (typeof body.worktreeRoot === "string" && body.worktreeRoot.trim() && !isAbsolute(body.worktreeRoot.trim())) {
       return c.json({ error: "The worktree folder must be an absolute path" }, 400);
     }
+    if (
+      body.editorAccess !== undefined &&
+      body.editorAccess !== "" &&
+      body.editorAccess !== "local" &&
+      body.editorAccess !== "ssh"
+    ) {
+      return c.json({ error: 'editorAccess must be "", "local" or "ssh"' }, 400);
+    }
+    // It becomes part of an editor link, so only an SSH host name or alias is accepted.
+    if (typeof body.sshHost === "string" && body.sshHost.trim() && !/^[A-Za-z0-9._@:-]+$/.test(body.sshHost.trim())) {
+      return c.json({ error: "The SSH host must be a host name or alias from your SSH config" }, 400);
+    }
     const settings = await registry.updateMachineSettings(id, {
       ...(typeof body.claudeBinary === "string" ? { claudeBinary: body.claudeBinary } : {}),
       ...(typeof body.codexBinary === "string" ? { codexBinary: body.codexBinary } : {}),
       ...(typeof body.worktreeRoot === "string" ? { worktreeRoot: body.worktreeRoot } : {}),
+      ...(typeof body.editorAccess === "string" ? { editorAccess: body.editorAccess as EditorAccess } : {}),
+      ...(typeof body.sshHost === "string" ? { sshHost: body.sshHost } : {}),
     });
     if (!settings) return c.json({ error: "Host not found" }, 404);
     links.pushSettings(id);

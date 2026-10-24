@@ -10,6 +10,8 @@ const mockGetQuestValidated = vi.fn();
 const mockResolveFileLinkAction = vi.fn();
 const mockRevealFileLinkInFinder = vi.fn();
 const mockReadFileLinkText = vi.fn();
+const mockReadFileLinkFolder = vi.fn();
+const mockUseFileMachine = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -28,11 +30,19 @@ vi.mock("../api/file-link-actions.js", async () => {
     resolveFileLinkAction: (...args: unknown[]) => mockResolveFileLinkAction(...args),
     revealFileLinkInFinder: (...args: unknown[]) => mockRevealFileLinkInFinder(...args),
     readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
+    readFileLinkFolder: (...args: unknown[]) => mockReadFileLinkFolder(...args),
   };
 });
 
+// The machine holding a file decides how Open in VS Code reaches it; tests choose it directly.
+vi.mock("../remote-hosts.js", async () => {
+  const actual = await vi.importActual<typeof import("../remote-hosts.js")>("../remote-hosts.js");
+  return { ...actual, useFileMachine: (...args: unknown[]) => mockUseFileMachine(...args) };
+});
+
 import { MarkdownContent } from "./MarkdownContent.js";
-import { MarkdownFileViewerHost } from "./MarkdownFileViewer.js";
+import { FileViewerHost, closeFileViewers } from "./FileViewer.js";
+import { FileLinkRequestError } from "../api/file-link-actions.js";
 
 describe("MarkdownContent line breaks", () => {
   beforeEach(() => {
@@ -234,15 +244,23 @@ describe("MarkdownContent quest links", () => {
       if (!quest) throw new Error("Quest not found");
       return etag ? { status: "not-modified", etag } : { status: "fresh", data: quest, etag: '"test-detail"' };
     });
-    mockResolveFileLinkAction.mockResolvedValue({
-      absolutePath: "/tmp/project/app.ts",
-      requestedPath: "/tmp/project/app.ts",
+    mockResolveFileLinkAction.mockImplementation(async ({ path }: { path: string }) => ({
+      absolutePath: path.startsWith("/") ? path : `/repo/${path}`,
+      requestedPath: path,
       exists: true,
       isFile: true,
       isDirectory: false,
       isImage: false,
       canRevealInFinder: false,
       platform: "linux",
+    }));
+    mockReadFileLinkFolder.mockReset();
+    mockUseFileMachine.mockReset();
+    // Open viewers live in a module store, so one test's viewers must not show up in the next.
+    act(() => closeFileViewers());
+    mockUseFileMachine.mockReturnValue({
+      name: "devbox",
+      settings: { claudeBinary: "", codexBinary: "", editorAccess: "ssh", sshHost: "devbox" },
     });
   });
 
@@ -906,19 +924,6 @@ describe("MarkdownContent quest links", () => {
     expect(screen.queryByTestId("session-hover-active-quest")).toBeNull();
   });
 
-  it("opens file: links in VS Code using configured editor preference", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" />);
-    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith("vscode://file//tmp/project/app.ts:42:1", "_blank", "noopener,noreferrer");
-    });
-    openSpy.mockRestore();
-  });
-
   it("can render local file links as inert text without changing the normal link surface", () => {
     const { rerender } = render(
       <MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" fileLinkMode="text-only" />,
@@ -948,265 +953,6 @@ describe("MarkdownContent quest links", () => {
     const images = container.querySelectorAll("img");
     expect(images).toHaveLength(1);
     expect(images[0]?.getAttribute("src")).toBe("https://example.com/c.png");
-  });
-
-  it("opens file: line-range links at the range start for local VS Code URIs", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    render(<MarkdownContent text="[config.ts:53-54](file:/tmp/project/config.ts:53-54)" />);
-    fireEvent.click(screen.getByRole("link", { name: "config.ts:53-54" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//tmp/project/config.ts:53:1",
-        "_blank",
-        "noopener,noreferrer",
-      );
-    });
-    openSpy.mockRestore();
-  });
-
-  it("resolves repo-root-relative file: links against the active session repo root", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/repo",
-            repo_root: "/repo",
-          } as never,
-        ],
-      ]),
-    }));
-
-    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162)" />);
-    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//repo/web/src/components/TopBar.tsx:162:1",
-        "_blank",
-        "noopener,noreferrer",
-      );
-    });
-    openSpy.mockRestore();
-  });
-
-  it("resolves relative file: links against the worktree root for worktree sessions", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/worktrees/repo-branch",
-            repo_root: "/repo",
-            is_worktree: true,
-          } as never,
-        ],
-      ]),
-    }));
-
-    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162)" />);
-    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//worktrees/repo-branch/web/src/components/TopBar.tsx:162:1",
-        "_blank",
-        "noopener,noreferrer",
-      );
-    });
-    openSpy.mockRestore();
-  });
-
-  it("remaps stale absolute worktree file links to the current worktree root", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    mockReadFile.mockRejectedValue(new Error("ENOENT"));
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/Users/yuege/.companion/worktrees/openai/master-wt-9326",
-            repo_root: "/Users/yuege/code/openai",
-            is_worktree: true,
-          } as never,
-        ],
-      ]),
-    }));
-
-    render(
-      <MarkdownContent text="[datasets.py](file:/Users/yuege/.companion/worktrees/openai/master-wt-7257/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1)" />,
-    );
-    fireEvent.click(screen.getByRole("link", { name: "datasets.py" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1",
-        "_blank",
-        "noopener,noreferrer",
-      );
-    });
-    openSpy.mockRestore();
-  });
-
-  it("does not launch an editor for file: links when editor preference is none", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
-    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
-
-    await waitFor(() => {
-      expect(mockGetSettings).toHaveBeenCalledTimes(1);
-    });
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it("routes file links through the authoritative remote VSCode path when configured", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-1" });
-
-    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
-    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/tmp/project/app.ts",
-        line: 7,
-        column: 3,
-      });
-    });
-  });
-
-  it("routes file line ranges through the authoritative remote VSCode path", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-range" });
-
-    render(<MarkdownContent text="[config.ts:53-54](file:/tmp/project/config.ts:53-54)" />);
-    fireEvent.click(screen.getByRole("link", { name: "config.ts:53-54" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/tmp/project/config.ts",
-        line: 53,
-        column: 1,
-        endLine: 54,
-      });
-    });
-  });
-
-  it("routes repo-root-relative file links through the authoritative remote VSCode path", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-2" });
-
-    setRepoSession();
-
-    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
-    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/TopBar.tsx",
-        line: 162,
-        column: 4,
-      });
-    });
-  });
-
-  it("routes worktree file links through the authoritative remote VSCode path using the worktree root", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-worktree" });
-
-    setRepoSession({ isWorktree: true });
-
-    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
-    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/worktrees/repo-branch/web/src/components/TopBar.tsx",
-        line: 162,
-        column: 4,
-      });
-    });
-  });
-
-  it("routes stale absolute worktree links through remote VSCode using the current worktree root", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-stale-worktree" });
-    mockReadFile.mockRejectedValue(new Error("ENOENT"));
-
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/Users/yuege/.companion/worktrees/openai/master-wt-9326",
-            repo_root: "/Users/yuege/code/openai",
-            is_worktree: true,
-          } as never,
-        ],
-      ]),
-    }));
-
-    render(
-      <MarkdownContent text="[datasets.py](file:/Users/yuege/.companion/worktrees/openai/master-wt-7257/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1)" />,
-    );
-    fireEvent.click(screen.getByRole("link", { name: "datasets.py" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py",
-        line: 1,
-        column: 1,
-      });
-    });
-  });
-
-  it("opens standard Markdown repo file links through the file-link path", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-standard" });
-    setRepoSession();
-
-    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx)" />);
-    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
-        line: 1,
-        column: 1,
-      });
-    });
   });
 
   it("opens image file links in Takode preview on left click instead of the editor", async () => {
@@ -1253,19 +999,19 @@ describe("MarkdownContent quest links", () => {
     render(
       <>
         <MarkdownContent text="[briefing](file:/repo/reports/briefing.md)" />
-        <MarkdownFileViewerHost />
+        <FileViewerHost />
       </>,
     );
     fireEvent.click(screen.getByRole("link", { name: "briefing" }));
 
     const viewer = await screen.findByRole("dialog", { name: "briefing.md" });
     expect(await within(viewer).findByRole("heading", { name: "Daily briefing" })).toBeTruthy();
-    expect(within(viewer).getByText("/repo/reports/briefing.md")).toBeTruthy();
+    // The header names the folder; the title names the file.
+    expect(within(viewer).getByText("/repo/reports")).toBeTruthy();
     expect(mockReadFileLinkText).toHaveBeenCalledWith(
       { path: "/repo/reports/briefing.md", isRelative: false, sessionId: "s1" },
       expect.any(AbortSignal),
     );
-    expect(mockGetSettings).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
 
     fireEvent.click(within(viewer).getByRole("button", { name: "Close file" }));
@@ -1288,13 +1034,16 @@ describe("MarkdownContent quest links", () => {
             `Scan: [scan](<file:${icloud}/Scan (1).pdf:3>) and [copy](file:${icloud}/Copy (2).txt)`,
           ].join("\n\n")}
         />
-        <MarkdownFileViewerHost />
+        <FileViewerHost />
       </>,
     );
 
     expect(container.querySelector("del")).toBeNull();
     expect(container.textContent).not.toContain("](");
-    expect(screen.getByRole("link", { name: "scan" }).getAttribute("href")).toBe(`file:${icloud}/Scan (1).pdf:3`);
+    // A PDF opens in a browser tab, read from the machine that holds it.
+    expect(screen.getByRole("link", { name: "scan" }).getAttribute("href")).toBe(
+      `/api/fs/file-link/pdf?${new URLSearchParams({ path: `${icloud}/Scan (1).pdf`, isRelative: "0" })}`,
+    );
     expect(screen.getByRole("link", { name: "copy" }).getAttribute("href")).toBe(`file:${icloud}/Copy (2).txt:1`);
 
     fireEvent.click(screen.getByRole("link", { name: "Research.md" }));
@@ -1303,24 +1052,6 @@ describe("MarkdownContent quest links", () => {
       { path: `${icloud}/Research 2026-10.md`, isRelative: false },
       expect.any(AbortSignal),
     );
-  });
-
-  it("opens spaced and special-character paths in a local editor with an exact URI", async () => {
-    // `#` and `?` would otherwise end the path inside the vscode:// URI.
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    render(<MarkdownContent text="[log](file:/tmp/My Logs/run #2?.log:4)" />);
-    fireEvent.click(screen.getByRole("link", { name: "log" }));
-
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith(
-        "vscode://file//tmp/My%20Logs/run%20%232%3F.log:4:1",
-        "_blank",
-        "noopener,noreferrer",
-      );
-    });
-    openSpy.mockRestore();
   });
 
   it("leaves spaced file links in code exactly as written", () => {
@@ -1437,28 +1168,6 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
-  it("keeps HTML-like non-HTML suffixes on the editor path", async () => {
-    // The browser default applies only to a final case-insensitive .html extension.
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-html-text" });
-    setRepoSession();
-
-    render(<MarkdownContent text="[source](file:web/docs/tutorial.html.txt)" />);
-    const link = screen.getByRole("link", { name: "source" });
-    expect(link.getAttribute("target")).toBeNull();
-    expect(link.getAttribute("href")).toBe("file:web/docs/tutorial.html.txt:1");
-    fireEvent.click(link);
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/docs/tutorial.html.txt",
-        line: 1,
-        column: 1,
-      });
-    });
-  });
-
   it("retains explicit context-menu editor access for HTML links", async () => {
     // HTML changes the ordinary click default only; the established authoritative
     // resolver and editor action remain available from the shared file menu.
@@ -1482,10 +1191,10 @@ describe("MarkdownContent quest links", () => {
     render(<MarkdownContent text="[tutorial](file:web/docs/tutorial.html)" />);
     fireEvent.contextMenu(screen.getByRole("link", { name: "tutorial" }), { clientX: 24, clientY: 40 });
 
-    expect(await screen.findByText("Open in Editor")).toBeTruthy();
+    expect(await screen.findByText("Open in VS Code")).toBeTruthy();
     expect(screen.getByText("Copy File Path")).toBeTruthy();
     expect(await screen.findByText("Open in Finder")).toBeTruthy();
-    fireEvent.click(screen.getByText("Open in Editor"));
+    fireEvent.click(screen.getByText("Open in VS Code"));
 
     await waitFor(() => {
       expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
@@ -1511,14 +1220,13 @@ describe("MarkdownContent quest links", () => {
         vi.advanceTimersByTime(550);
       });
 
-      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      expect(screen.getByText("Copy File Path")).toBeTruthy();
       // iOS can also emulate mousedown at finger lift; it must not dismiss the menu.
       fireEvent.mouseDown(link);
-      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      expect(screen.getByText("Copy File Path")).toBeTruthy();
       const followUpClick = new MouseEvent("click", { bubbles: true, cancelable: true });
       expect(link.dispatchEvent(followUpClick)).toBe(false);
       expect(followUpClick.defaultPrevented).toBe(true);
-      expect(mockGetSettings).not.toHaveBeenCalled();
       expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
       expect(openSpy).not.toHaveBeenCalled();
     } finally {
@@ -1541,7 +1249,7 @@ describe("MarkdownContent quest links", () => {
       act(() => {
         vi.advanceTimersByTime(550);
       });
-      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      expect(screen.getByText("Copy File Path")).toBeTruthy();
       fireEvent.touchCancel(link);
 
       fireEvent.touchStart(link, { touches: [{ clientX: 32, clientY: 48 }] });
@@ -1558,125 +1266,10 @@ describe("MarkdownContent quest links", () => {
       link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
       expect(preventedBeforeNavigationGuard).toBe(false);
-      expect(mockGetSettings).not.toHaveBeenCalled();
       expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("keeps non-image file-link left clicks on the editor-open path", async () => {
-    // Non-image links must preserve the established default even though click
-    // handling now asks the backend whether a target is previewable.
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-non-image" });
-    mockResolveFileLinkAction.mockResolvedValue({
-      absolutePath: "/repo/web/src/app.ts",
-      requestedPath: "web/src/app.ts",
-      exists: true,
-      isFile: true,
-      isDirectory: false,
-      isImage: false,
-      canRevealInFinder: false,
-      platform: "linux",
-    });
-    setRepoSession();
-
-    render(<MarkdownContent text="[app](file:web/src/app.ts)" />);
-    fireEvent.click(screen.getByRole("link", { name: "app" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/app.ts",
-        line: 1,
-        column: 1,
-      });
-    });
-    expect(screen.queryByTestId("lightbox-image")).toBeNull();
-  });
-
-  it("falls back to the editor-open path when file-link preview detection fails", async () => {
-    // Backend resolution is used to detect supported images, but a transient
-    // resolve failure should not strand normal file-link clicks.
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-fallback" });
-    mockResolveFileLinkAction.mockRejectedValue(new Error("resolve unavailable"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    setRepoSession();
-
-    try {
-      render(<MarkdownContent text="[app](file:web/src/app.ts)" />);
-      fireEvent.click(screen.getByRole("link", { name: "app" }));
-
-      await waitFor(() => {
-        expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-          absolutePath: "/repo/web/src/app.ts",
-          line: 1,
-          column: 1,
-        });
-      });
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("parses GitHub-style line fragments on standard Markdown repo file links", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-fragment" });
-    setRepoSession();
-
-    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx#L42-L57)" />);
-    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
-        line: 42,
-        column: 1,
-        endLine: 57,
-      });
-    });
-  });
-
-  it("parses suffix line, column, and range metadata on standard Markdown repo file links", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-suffix" });
-    setRepoSession();
-
-    render(
-      <MarkdownContent
-        text={
-          "[Line](web/src/components/QuestDetailPanel.tsx:42) [Column](web/src/components/QuestDetailPanel.tsx:42:7) [Range](web/src/components/QuestDetailPanel.tsx:42-57)"
-        }
-      />,
-    );
-    fireEvent.click(screen.getByRole("link", { name: "Line" }));
-    fireEvent.click(screen.getByRole("link", { name: "Column" }));
-    fireEvent.click(screen.getByRole("link", { name: "Range" }));
-
-    await waitFor(() => {
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
-        line: 42,
-        column: 1,
-      });
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
-        line: 42,
-        column: 7,
-      });
-      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
-        line: 42,
-        column: 1,
-        endLine: 57,
-      });
-    });
   });
 
   it("preserves normal external and unsafe standard Markdown links as non-file links", () => {
@@ -1714,9 +1307,10 @@ describe("MarkdownContent quest links", () => {
     render(<MarkdownContent text="[preview](file:artifacts/preview.png)" />);
     fireEvent.contextMenu(screen.getByRole("link", { name: "preview" }), { clientX: 24, clientY: 40 });
 
-    expect(await screen.findByText("Open in Editor")).toBeTruthy();
     expect(screen.getByText("Copy File Path")).toBeTruthy();
     expect(await screen.findByText("Open in Finder")).toBeTruthy();
+    // No editor is chosen in Settings, so the menu offers none.
+    expect(screen.queryByText(/^Open in VS Code/)).toBeNull();
     fireEvent.click(screen.getByText("Preview in Takode"));
 
     const image = await screen.findByTestId("lightbox-image");
@@ -1806,11 +1400,228 @@ describe("MarkdownContent quest links", () => {
     alertSpy.mockRestore();
   });
 
+  // File links open in Takode's own viewer, read on the machine that holds the file, so they work
+  // on phones and for files on another machine than the browser's. The editor is an explicit
+  // action in the viewer and in the link's menu.
+  describe("file links open in Takode's file viewer", () => {
+    function renderWithViewer(text: string) {
+      return render(
+        <>
+          <MarkdownContent text={text} />
+          <FileViewerHost />
+        </>,
+      );
+    }
+
+    function markedLines(viewer: HTMLElement): number[] {
+      return [...viewer.querySelectorAll("[data-marked]")].map((row) => Number(row.getAttribute("data-line")));
+    }
+
+    it("shows a code file scrolled to and marking the lines a link points at, without launching an editor", async () => {
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+      mockReadFileLinkText.mockResolvedValue({
+        absolutePath: "/tmp/project/config.ts",
+        content: Array.from({ length: 60 }, (_, index) => `const line${index + 1} = ${index + 1};`).join("\n"),
+      });
+      renderWithViewer("[config.ts:53-54](file:/tmp/project/config.ts:53-54)");
+      fireEvent.click(screen.getByRole("link", { name: "config.ts:53-54" }));
+
+      const viewer = await screen.findByRole("dialog", { name: "config.ts" });
+      await waitFor(() => expect(markedLines(viewer)).toEqual([53, 54]));
+      expect(openSpy).not.toHaveBeenCalled();
+      openSpy.mockRestore();
+    });
+
+    it("reads repo-relative links through the linking session, which resolves them on its machine", async () => {
+      mockReadFileLinkText.mockResolvedValue({ absolutePath: "/repo/web/src/components/TopBar.tsx", content: "x" });
+      setRepoSession();
+      renderWithViewer("[TopBar.tsx](file:web/src/components/TopBar.tsx:162)");
+      fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
+
+      await screen.findByRole("dialog", { name: "TopBar.tsx" });
+      expect(mockReadFileLinkText).toHaveBeenCalledWith(
+        { path: "web/src/components/TopBar.tsx", isRelative: true, sessionId: "s1", line: 162 },
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("keeps line ranges from GitHub-style fragments and line suffixes on standard repo links", async () => {
+      mockReadFileLinkText.mockResolvedValue({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        content: Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n"),
+      });
+      setRepoSession();
+      renderWithViewer(
+        "[Panel](web/src/components/QuestDetailPanel.tsx#L42-L45) [Line](web/src/components/QuestDetailPanel.tsx:7)",
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Panel" }));
+      const range = await screen.findByRole("dialog", { name: "QuestDetailPanel.tsx" });
+      await waitFor(() => expect(markedLines(range)).toEqual([42, 43, 44, 45]));
+      fireEvent.click(within(range).getByRole("button", { name: "Close file" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+      fireEvent.click(screen.getByRole("link", { name: "Line" }));
+      const line = await screen.findByRole("dialog", { name: "QuestDetailPanel.tsx" });
+      await waitFor(() => expect(markedLines(line)).toEqual([7]));
+    });
+
+    it("shows a folder's files and opens one above it", async () => {
+      mockResolveFileLinkAction.mockImplementation(async ({ path }: { path: string }) => ({
+        absolutePath: path.replace(/\/$/, ""),
+        requestedPath: path,
+        exists: true,
+        isFile: !path.endsWith("/"),
+        isDirectory: path.endsWith("/"),
+        isImage: false,
+        canRevealInFinder: false,
+        platform: "linux",
+      }));
+      mockReadFileLinkFolder.mockResolvedValue({
+        path: "/home/coder/reports",
+        truncated: false,
+        entries: [
+          { name: "old", path: "/home/coder/reports/old", isDirectory: true, size: 0, modifiedAt: 1 },
+          { name: "run.log", path: "/home/coder/reports/run.log", isDirectory: false, size: 2048, modifiedAt: 1 },
+        ],
+      });
+      mockReadFileLinkText.mockResolvedValue({ absolutePath: "/home/coder/reports/run.log", content: "started\ndone" });
+      renderWithViewer("[the reports](file:/home/coder/reports/)");
+      fireEvent.click(screen.getByRole("link", { name: "the reports" }));
+
+      const folder = await screen.findByRole("dialog", { name: "reports" });
+      expect(within(folder).getByText("2.0 KB")).toBeTruthy();
+      // The machine holding the files is named beside their folder.
+      expect(within(folder).getByText("devbox ·")).toBeTruthy();
+      fireEvent.click(within(folder).getByRole("button", { name: /run\.log/ }));
+      const file = await screen.findByRole("dialog", { name: "run.log" });
+      expect(within(file).getByText("done")).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "reports" })).toBeTruthy();
+    });
+
+    it("says why it can't show a file instead of failing silently", async () => {
+      mockReadFileLinkText.mockRejectedValue(new FileLinkRequestError("Not a text file", 415, 40000));
+      mockResolveFileLinkAction.mockImplementation(async ({ path }: { path: string }) => ({
+        absolutePath: path,
+        requestedPath: path,
+        exists: true,
+        isFile: true,
+        isDirectory: false,
+        isImage: false,
+        size: 40000,
+        canRevealInFinder: false,
+        platform: "linux",
+      }));
+      renderWithViewer("[model.bin](file:/tmp/model.bin)");
+      fireEvent.click(screen.getByRole("link", { name: "model.bin" }));
+
+      const viewer = await screen.findByRole("dialog", { name: "model.bin" });
+      expect(await within(viewer).findByText("Takode can't show this kind of file (39 KB).")).toBeTruthy();
+    });
+
+    it("opens HTML-like non-HTML suffixes in the viewer, not a browser tab", async () => {
+      // Only a final .html or .pdf extension opens a browser tab.
+      mockReadFileLinkText.mockResolvedValue({
+        absolutePath: "/repo/web/docs/tutorial.html.txt",
+        content: "<p>hi</p>",
+      });
+      setRepoSession();
+      renderWithViewer("[source](file:web/docs/tutorial.html.txt)");
+      const link = screen.getByRole("link", { name: "source" });
+      expect(link.getAttribute("target")).toBeNull();
+      fireEvent.click(link);
+      expect(await screen.findByRole("dialog", { name: "tutorial.html.txt" })).toBeTruthy();
+    });
+
+    it("opens PDFs in a browser tab from the machine that holds them", () => {
+      setRepoSession();
+      render(<MarkdownContent text="[report](file:out/eval.pdf)" />);
+      const link = screen.getByRole("link", { name: "report" });
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("href")).toBe("/api/fs/file-link/pdf?path=out%2Feval.pdf&isRelative=1&sessionId=s1");
+    });
+
+    it("still opens the viewer when checking for an image fails", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockResolveFileLinkAction.mockRejectedValueOnce(new Error("resolve unavailable"));
+      mockReadFileLinkText.mockResolvedValue({ absolutePath: "/tmp/app.ts", content: "x" });
+      renderWithViewer("[app](file:/tmp/app.ts)");
+      fireEvent.click(screen.getByRole("link", { name: "app" }));
+      expect(await screen.findByRole("dialog", { name: "app.ts" })).toBeTruthy();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // Open in VS Code opens on the user's own computer, so it reaches a file directly only on that
+  // computer, and on other machines over Remote-SSH once their SSH host is set up.
+  describe("Open in VS Code from a file link's menu", () => {
+    async function openMenu(text: string, name: string) {
+      render(<MarkdownContent text={text} />);
+      fireEvent.contextMenu(screen.getByRole("link", { name }), { clientX: 10, clientY: 12 });
+    }
+
+    it("opens a file on another machine over Remote-SSH at the linked line", async () => {
+      mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+      setRepoSession();
+      await openMenu("[app.ts](file:web/src/app.ts:7:3)", "app.ts");
+      fireEvent.click(await screen.findByText("Open in VS Code"));
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+devbox/repo/web/src/app.ts:7:3",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      openSpy.mockRestore();
+    });
+
+    it("opens a file on the user's own computer with a local link", async () => {
+      mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+      mockUseFileMachine.mockReturnValue({
+        name: "laptop",
+        settings: { claudeBinary: "", codexBinary: "", editorAccess: "local" },
+      });
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+      await openMenu("[config.ts:53-54](file:/tmp/project/config.ts:53-54)", "config.ts:53-54");
+      fireEvent.click(await screen.findByText("Open in VS Code"));
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//tmp/project/config.ts:53:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      openSpy.mockRestore();
+    });
+
+    it("grays the item out for a machine that isn't set up", async () => {
+      mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+      mockUseFileMachine.mockReturnValue({ name: "condor", settings: { claudeBinary: "", codexBinary: "" } });
+      await openMenu("[app.ts](file:/tmp/app.ts)", "app.ts");
+      // A disabled menu item is shown but can't be chosen.
+      const item = await screen.findByText("Open in VS Code: not set up for condor");
+      expect(item.closest("button")).toBeNull();
+    });
+
+    it("shows the remote VSCode error when the server reports no running VSCode window", async () => {
+      mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+      mockOpenVsCodeRemoteFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
+      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+      await openMenu("[app.ts](file:/tmp/project/app.ts:7:3)", "app.ts");
+      fireEvent.click(await screen.findByText("Open in VS Code"));
+      await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("No running VSCode was detected on this machine."));
+      alertSpy.mockRestore();
+    });
+  });
+
   it("opens the file-link menu from a mobile long press without launching the editor", async () => {
     vi.useFakeTimers();
     try {
       setRepoSession();
-      render(<MarkdownContent text="[mobile](file:web/src/mobile.ts)" />);
+      render(
+        <>
+          <MarkdownContent text="[mobile](file:web/src/mobile.ts)" />
+          <FileViewerHost />
+        </>,
+      );
 
       fireEvent.touchStart(screen.getByRole("link", { name: "mobile" }), {
         touches: [{ clientX: 32, clientY: 48 }],
@@ -1819,25 +1630,12 @@ describe("MarkdownContent quest links", () => {
         vi.advanceTimersByTime(550);
       });
 
-      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      expect(screen.getByText("Copy File Path")).toBeTruthy();
+      // The click the browser sends after a long press must not also open the file.
       fireEvent.click(screen.getByRole("link", { name: "mobile" }));
-      expect(mockGetSettings).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog", { name: "mobile.ts" })).toBeNull();
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("shows the remote VSCode error when the server reports no running VSCode window", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
-    mockOpenVsCodeRemoteFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
-
-    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
-    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
-
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith("No running VSCode was detected on this machine.");
-    });
-    alertSpy.mockRestore();
   });
 });

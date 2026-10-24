@@ -91,7 +91,7 @@ import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { ViewportHandoffSessionEntryGate } from "./components/ViewportHandoffEntryGate.js";
 import { ServerRestartOverlay } from "./components/ServerRestartOverlay.js";
-import { MarkdownFileViewerHost } from "./components/MarkdownFileViewer.js";
+import { FileViewerHost } from "./components/FileViewer.js";
 import { InAppPageViewerHost } from "./components/InAppPageViewer.js";
 import { GuidedReviewViewerHost } from "./components/GuidedReviewViewer.js";
 import { createViewportHandoffEntryId } from "./utils/viewport-handoff-client.js";
@@ -1039,7 +1039,7 @@ export default function App() {
         <Playground />
         {/* The Playground's Quest Detail Modal section opens this global overlay. */}
         <QuestDetailPanel />
-        <MarkdownFileViewerHost />
+        <FileViewerHost />
         <InAppPageViewerHost />
         <GuidedReviewViewerHost />
       </>
@@ -1195,7 +1195,7 @@ export default function App() {
 
       {/* Quest details, Markdown files and guided reviews: in the right-hand area on wide screens, else full-screen */}
       <QuestDetailPanel />
-      <MarkdownFileViewerHost />
+      <FileViewerHost />
       <GuidedReviewViewerHost />
       {/* Takode-origin pages that would open in a new tab, in the iPhone Home Screen app */}
       <InAppPageViewerHost />
