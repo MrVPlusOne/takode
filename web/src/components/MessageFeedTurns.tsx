@@ -355,6 +355,7 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId,
   questLinkSurface,
   threadResponsePresentation,
+  topicResponsePresentations = null,
   needsInputAnchorMessageIds,
   visibleThreadStatuses,
   workerPreviewTarget = null,
@@ -377,6 +378,8 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
+  /** In a topic conversation: each quest's answer presentation, used for that quest's turns. */
+  topicResponsePresentations?: ReadonlyMap<string, ThreadResponsePresentation | null> | null;
   needsInputAnchorMessageIds: ReadonlySet<string>;
   visibleThreadStatuses: LeaderThreadStatus[];
   /** Worker the thread waits on; its live preview renders under the status footer. */
@@ -461,10 +464,13 @@ export const TurnEntries = memo(function TurnEntries({
         const turnState = turnStates[turnIndex];
         const isActivityExpanded = turnState?.isActivityExpanded ?? false;
         const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
-        const turnResponsePresentation =
-          threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
-            ? threadResponsePresentation
-            : null;
+        const turnQuest = turnQuests?.[turnIndex] ?? null;
+        const answers = topicResponsePresentations
+          ? turnQuest
+            ? (topicResponsePresentations.get(turnQuest) ?? null)
+            : null
+          : threadResponsePresentation;
+        const turnResponsePresentation = answers && readyThreadResponseAppliesToTurn(turn, answers) ? answers : null;
         const collapsedThreadResponsePresentation =
           turnResponsePresentation &&
           (readyThreadResponsePresentation || threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
@@ -530,11 +536,10 @@ export const TurnEntries = memo(function TurnEntries({
             </>
           ) : null;
 
-        const turnQuest = turnQuests?.[turnIndex] ?? null;
         const questStarts = topicFeed && turnQuest && turnQuest !== (turnQuests?.[turnIndex - 1] ?? null);
         return (
           <Fragment key={turn.id}>
-            {questStarts && <TopicFeedQuestStart questId={turnQuest} onSelectThread={onSelectThread} />}
+            {questStarts && <TopicFeedQuestStart questId={turnQuest} />}
             <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
               <div
                 data-turn-id={turn.id}

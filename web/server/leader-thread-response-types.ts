@@ -129,4 +129,9 @@ export interface LeaderThreadResponseProjection {
    */
   currentAnswers: LeaderThreadResponseState[];
   ready: boolean;
+  /**
+   * A topic conversation's answer state: each member quest's projection, bounded to the window like
+   * a quest tab's. The topic's own projection carries no answers; each quest's turns use its own.
+   */
+  members?: Record<string, LeaderThreadResponseProjection>;
 }

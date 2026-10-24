@@ -44,6 +44,8 @@ export interface BuildThreadWindowInput {
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
+  /** For a topic conversation: each member quest's current answer state. */
+  memberResponseProjections?: Record<string, LeaderThreadResponseProjection>;
 }
 
 interface FeedItem {
@@ -127,6 +129,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     targetHistoryIndex: input.targetHistoryIndex,
     includeMessage: input.includeMessage,
     currentThreadResponseProjection: input.currentThreadResponseProjection,
+    members: topicMemberResponses(input, threadKey),
   });
   const entries = builtEntries.entries;
   const availability = deriveThreadWindowAvailability({
@@ -228,6 +231,7 @@ function buildThreadWindowEntries(input: {
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
+  members?: TopicMemberResponse[];
 }): {
   entries: ThreadWindowEntry[];
   threadResponseSupportComplete: boolean;
@@ -238,6 +242,7 @@ function buildThreadWindowEntries(input: {
     selectedItems.length > 0
       ? selectedItems
       : selectRecentStandalonePreviewItems(input.items, input.ranges, input.supportItemLimit);
+  if (input.members) return buildTopicWindowEntries(input, selectedItems, selectedOrFallbackItems, input.members);
   const responseProjection = selectThreadResponseProjection(input, selectedOrFallbackItems);
   const responseSupport = addCurrentThreadResponseSupport(
     input.messageHistory,
@@ -365,6 +370,88 @@ function selectThreadResponseProjection(
     if (cursor === queue.length - 1) includeSourceBoundaryAnswers();
   }
   return { ...projection, currentAnswers: answers.filter((_answer, index) => included.has(index)) };
+}
+
+interface TopicMemberResponse {
+  questId: string;
+  /** History indexes of the quest's own feed items. */
+  indexes: Set<number>;
+  projection: LeaderThreadResponseProjection;
+}
+
+function topicMemberResponses(input: BuildThreadWindowInput, threadKey: string): TopicMemberResponse[] | undefined {
+  const members = topicThreadMembers(threadKey);
+  if (!members || !input.memberResponseProjections) return undefined;
+  return members.flatMap((questId) => {
+    const projection = input.memberResponseProjections![questId];
+    if (!projection) return [];
+    const items = buildQuestThreadFeedItems(input.messageHistory, questId, input.includeMessage);
+    return [{ questId, indexes: new Set(items.map((item) => item.entry.history_index)), projection }];
+  });
+}
+
+/**
+ * A topic conversation's window: each member quest's answers are bounded and proven as in that
+ * quest's own tab, so its turns present answers the same way. The topic's projection carries
+ * the quests' projections; a quest whose proof is incomplete simply gets none.
+ */
+function buildTopicWindowEntries(
+  input: Parameters<typeof buildThreadWindowEntries>[0],
+  selectedItems: FeedItem[],
+  selectedOrFallbackItems: FeedItem[],
+  members: TopicMemberResponse[],
+): ReturnType<typeof buildThreadWindowEntries> {
+  let items = selectedOrFallbackItems;
+  const projections: Record<string, LeaderThreadResponseProjection> = {};
+  for (const member of members) {
+    const own = selectedOrFallbackItems.filter((item) => member.indexes.has(item.entry.history_index));
+    const projection = selectThreadResponseProjection(
+      { ...input, threadKey: member.questId, currentThreadResponseProjection: member.projection },
+      own,
+    );
+    const support = addCurrentThreadResponseSupport(
+      input.messageHistory,
+      member.questId,
+      own,
+      projection,
+      input.includeMessage,
+    );
+    if (!projection || !support.complete) continue;
+    projections[member.questId] = projection;
+    items = [...items, ...support.items];
+  }
+  const expandedItems = expandToolClosureItems(
+    input.messageHistory,
+    items,
+    { orphanPreviewFallback: selectedItems.length === 0 },
+    input.includeMessage,
+  );
+  const memberKeys = new Set(members.map((member) => member.questId));
+  const currentAnswerIds = new Set(
+    Object.values(projections).flatMap((projection) =>
+      projection.currentAnswers.map((answer) => answer.currentMessageId),
+    ),
+  );
+  // As in a quest tab: an older answer stays only in the quests it was written for.
+  const visible = expandedItems.filter(({ entry: { message } }) => {
+    if (message.type !== "assistant" || !message.threadAnswer || currentAnswerIds.has(message.message.id)) return true;
+    const authoredThreadKey = message.threadAnswer.authoredThreadKey ?? leaderResponseExactAnswerThreadKey(message);
+    return !!authoredThreadKey && memberKeys.has(authoredThreadKey);
+  });
+  return {
+    entries: dedupeEntries(visible),
+    threadResponseSupportComplete: true,
+    threadResponseProjection: {
+      version: members[0]!.projection.version,
+      threadKey: input.threadKey,
+      cutoverHistoryIndex: 0,
+      pendingMessageCount: 0,
+      pendingMessages: [],
+      currentAnswers: [],
+      ready: true,
+      members: projections,
+    },
+  };
 }
 
 function filterThreadAnswerVisibility(

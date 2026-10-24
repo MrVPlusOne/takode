@@ -204,6 +204,26 @@ function filterThreadResponseProofMessages(
   threadKey: string,
 ): ChatMessage[] {
   if (!state || normalizeThreadKey(state.threadKey) !== threadKey || isAllThreadsKey(threadKey)) return messages;
+  // A topic conversation: each quest's proof is filtered as in that quest's own tab.
+  if (state.members) {
+    const quests = Object.keys(state.members);
+    const members = Object.values(state.members);
+    const referencedIds = new Set(
+      members.flatMap((member) => member.currentAnswers.flatMap((a) => a.referencedUserMessageIds)),
+    );
+    const answerIds = new Set(
+      members.flatMap((member) => member.currentAnswers.map((answer) => answer.currentMessageId)),
+    );
+    return messages.filter((message) => {
+      if (message.role === "user" && referencedIds.has(message.id)) {
+        return quests.some((questId) => leaderResponseMessageIsAssociatedWithThread(message.metadata ?? {}, questId));
+      }
+      const proof = message.metadata?.threadAnswer;
+      if (!proof || answerIds.has(message.id)) return true;
+      const authoredThreadKey = proof.authoredThreadKey ?? leaderResponseExactAnswerThreadKey(message.metadata ?? {});
+      return !!authoredThreadKey && quests.includes(authoredThreadKey);
+    });
+  }
   const referencedIds = new Set(state.currentAnswers.flatMap((answer) => answer.referencedUserMessageIds));
   const answerIds = new Set(state.currentAnswers.map((answer) => answer.currentMessageId));
   return messages.filter((message) => {

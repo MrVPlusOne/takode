@@ -96,6 +96,7 @@ import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
+import { useTopicResponsePresentations } from "./topic-feed.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -583,6 +584,11 @@ export function MessageFeed({
     threadResponseState,
     normalizedThreadKey,
     isLeaderSession,
+    feedMessageModel.messagesAvailableForDerivation,
+  );
+  const topicResponsePresentations = useTopicResponsePresentations(
+    visibleSections,
+    threadResponseState,
     feedMessageModel.messagesAvailableForDerivation,
   );
   const allThreadsAnswers = useAllThreadsAnswerReferences(
@@ -1871,6 +1877,7 @@ export function MessageFeed({
                         userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                         questLinkSurface="chat-feed"
                         threadResponsePresentation={threadResponsePresentation}
+                        topicResponsePresentations={topicResponsePresentations}
                         needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                         visibleThreadStatuses={visibleThreadStatuses}
                         workerPreviewTarget={workerPreviewTarget}

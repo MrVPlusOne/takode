@@ -4,6 +4,7 @@ import type { ChatMessage } from "../types.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { topicThreadKey } from "../../shared/topic-thread-key.js";
 import { topicQuestsOfTurns } from "./topic-feed.js";
+import { getMessageThreadLinkKey } from "./MessageThreadHeader.js";
 
 /**
  * A topic conversation marks where the feed moves to another quest. Each turn belongs to the
@@ -48,5 +49,11 @@ describe("topic feed", () => {
     const messages = [message("a", "q-3"), message("b"), message("c", "q-12"), message("d", "q-99")];
     const kept = filterMessagesForThread(messages, topicThreadKey(["q-3", "q-12"])).map((item) => item.id);
     expect(kept).toEqual(["a", "c"]);
+  });
+
+  it("labels only messages of other threads, since each quest's strip names its own", () => {
+    const key = topicThreadKey(["q-3", "q-12"]);
+    expect(getMessageThreadLinkKey(message("a", "q-3"), key)).toBeNull();
+    expect(getMessageThreadLinkKey(message("b", "main"), key)).toBe("main");
   });
 });

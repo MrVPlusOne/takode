@@ -632,8 +632,16 @@ export function ChatView({
   const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
   const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+  // Set once handleSelectThread exists, below.
+  const openTopicQuestRef = useRef<(questId: string) => void>(() => {});
   const topicFeed = useMemo<TopicFeed | null>(
-    () => (topicFeedOn ? { questIds: topicConversation.questIds } : null),
+    () =>
+      topicFeedOn
+        ? {
+            questIds: topicConversation.questIds,
+            openQuest: (questId: string) => openTopicQuestRef.current(questId),
+          }
+        : null,
     [topicFeedOn, topicConversation],
   );
   const selectedSideQuestOf = useSideQuestOf(showQuestThreadBanner ? sessionId : undefined, selectedThreadKey);
@@ -838,6 +846,10 @@ export function ChatView({
       sessionNotifications,
     ],
   );
+  openTopicQuestRef.current = (questId) => {
+    closeTopicConversation(sessionId);
+    handleSelectThread(questId);
+  };
   // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);
   const phoneTopicTopRef = useRef<HTMLDivElement | null>(null);

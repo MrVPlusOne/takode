@@ -1280,8 +1280,12 @@ export function sendThreadWindowSync(
     Math.floor(options.itemCount || getThreadWindowItemCount(normalizedVisibleItemCount, normalizedSectionItemCount)),
   );
   const threadKey = normalizeSelectedFeedThreadKey(options.threadKey);
-  // A topic conversation shows its quests' answers as they are; answer state is per quest.
-  const responseState = topicThreadMembers(threadKey) ? null : buildLeaderThreadResponseState(session, threadKey);
+  // A topic conversation keeps each quest's own answer state.
+  const members = topicThreadMembers(threadKey);
+  const responseState = members ? null : buildLeaderThreadResponseState(session, threadKey);
+  const memberResponseProjections = members
+    ? Object.fromEntries(members.map((member) => [member, buildLeaderThreadResponseState(session, member).projection]))
+    : undefined;
   const sync = buildThreadWindowSync({
     messageHistory: session.messageHistory,
     threadKey,
@@ -1293,6 +1297,7 @@ export function sendThreadWindowSync(
     targetHistoryIndex: options.targetHistoryIndex,
     includeMessage: isRootAgentHistoryMessage,
     currentThreadResponseProjection: responseState?.projection,
+    memberResponseProjections,
   });
   sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
   // The answer state is covered too, so a cache hit can leave it out.

@@ -1,3 +1,4 @@
+import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { createContext } from "react";
 import type { ChatMessage } from "../types.js";
 import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
@@ -32,6 +33,8 @@ export function getMessageThreadKey(message: ChatMessage): string | null {
 export function getMessageThreadLinkKey(message: ChatMessage, currentThreadKey?: string): string | null {
   const threadKey = getMessageThreadKey(message);
   if (!threadKey || !currentThreadKey || isAllThreadsKey(currentThreadKey)) return threadKey;
+  // In a topic conversation the quest strip in the feed already names each message's quest.
+  if (topicThreadMembers(currentThreadKey)?.includes(threadKey)) return null;
   return threadKey === normalizeThreadKey(currentThreadKey) ? null : threadKey;
 }
 
