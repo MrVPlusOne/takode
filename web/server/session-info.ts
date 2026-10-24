@@ -209,7 +209,7 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */
   reviewerOf?: number;
   /**
-   * Set on a leader's Scribe (its topics writer), a special worker in its herd: the leader's
+   * Set on a leader's Scribe (the agent that keeps its topic pages), a special worker in its herd: the leader's
    * session ID. It gets the Scribe brief as instructions, its routine turns don't notify the leader,
    * and it uses no worker slot.
    */
@@ -304,6 +304,7 @@ const PUBLIC_LAUNCHER_SESSION_FIELDS = [
   "treeGroupId",
   "memorySessionSpaceSlug",
   "reviewerOf",
+  "scribeFor",
   "containerId",
   "containerName",
   "containerImage",

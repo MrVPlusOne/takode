@@ -14,7 +14,7 @@ import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
 
 /**
  * A leader's topic panel against a mocked API: a leader past about 20 quests gets the hint to
- * turn topics on, the page writer's tidying shows as one line with Undo, the panel follows the
+ * turn topics on, a Scribe's tidying shows as one line with Undo, the panel follows the
  * quest tab to its topic's page (with Update now and a place to say what to fix), and it sits in
  * the layout as a collapsible rail on desktop or opens as a sheet on phones.
  */
@@ -55,8 +55,6 @@ const LIST: TopicListResponse = {
     },
   ],
   spaces: ["MSI"],
-  paused: false,
-  budget: { used: 0, limit: 0, overBudget: false },
   suggestions: [],
 };
 
@@ -67,15 +65,19 @@ const ON: TopicListResponse = {
   suggestions: [
     { id: "s1", topicId: "t7", topicName: "T7 run", name: "Coding T7", reason: "Two runs share it", at: NOW },
   ],
-  writer: {
-    state: "filing",
-    text: "Filing 120 of 336 quests",
-    writerSessionId: "scribe-1",
-    writerSessionNum: 3300,
-    progress: { done: 120, total: 336 },
-    pending: 0,
+  scribe: {
+    activity: {
+      state: "filing",
+      text: "Filing 120 of 336 quests",
+      sessionId: "scribe-1",
+      sessionNum: 3300,
+      progress: { done: 120, total: 336 },
+      pending: 0,
+    },
+    paused: false,
+    budget: { used: 0, limit: 0, overBudget: false },
+    instructions: "",
   },
-  groupingNotes: "",
 };
 
 const DETAIL: TopicDetail = {
@@ -144,7 +146,7 @@ describe("TopicSidePanel", () => {
     const api = mockApi();
     vi.spyOn(topicApi, "list").mockResolvedValue(ON);
     const answer = vi.spyOn(topicApi, "answerSuggestion").mockResolvedValue({});
-    const notes = vi.spyOn(topicApi, "setGroupingNotes").mockResolvedValue({ groupingNotes: "x" });
+    const instructions = vi.spyOn(topicApi, "setScribeInstructions").mockResolvedValue({ instructions: "x" });
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     const status = await screen.findByTestId("scribe-status");
     expect(status).toHaveTextContent("Scribe #3300 · Filing 120 of 336 quests");
@@ -157,8 +159,8 @@ describe("TopicSidePanel", () => {
 
     fireEvent.click(screen.getByText("Settings and grouping"));
     fireEvent.change(screen.getByLabelText("How to group my topics"), { target: { value: "One topic per run." } });
-    fireEvent.click(within(screen.getByTestId("topic-grouping-notes")).getByText("Save"));
-    expect(notes).toHaveBeenCalledWith("l1", "One topic per run.");
+    fireEvent.click(within(screen.getByTestId("scribe-instructions")).getByText("Save"));
+    expect(instructions).toHaveBeenCalledWith("l1", "One topic per run.");
     expect(api.enable).not.toHaveBeenCalled();
   });
 

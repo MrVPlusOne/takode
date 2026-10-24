@@ -665,6 +665,30 @@ describe("POST /api/quests/:questId/claim", () => {
     expect(claimSpy).not.toHaveBeenCalled();
   });
 
+  it("returns 403 when the claiming session is a Scribe", async () => {
+    // A Scribe sits in its leader's herd like a worker, but only keeps topic pages: a leader that
+    // mistakes it for an idle worker must not be able to hand it quest work.
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      state: "idle",
+      cwd: "/test",
+      archived: false,
+      herdedBy: "leader-1",
+      scribeFor: "leader-1",
+    } as any);
+    const claimSpy = vi.spyOn(questStore, "claimQuest");
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-1" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("A Scribe keeps its leader's topic pages");
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
   it("passes archived-owner takeover policy to questStore.claimQuest", async () => {
     vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
       id: "q-1-v3",

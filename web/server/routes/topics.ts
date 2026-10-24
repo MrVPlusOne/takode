@@ -20,8 +20,9 @@ export function setTopicService(service: TopicService | null): void {
 
 /**
  * The Library's topics API, for the topic panel, leaders (`quest create --topic`, `takode topic`)
- * and their Scribes. A caller that is a Scribe acts for its leader: its changes count as automatic
- * (a rename of a topic the user named becomes a suggestion), and it reads its leader's events.
+ * and their Scribes (`/scribe/...`, `takode scribe`). A caller that is a Scribe acts for its
+ * leader: its changes count as automatic (a rename of a topic the user named becomes a
+ * suggestion), and it reads its leader's events.
  */
 export function createTopicRoutes(ctx: RouteContext, service: () => TopicService | null = getTopicService) {
   const api = new Hono();
@@ -34,7 +35,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   };
   /** The leader a Scribe works for, when the caller is one. */
   const scribeLeader = (svc: TopicService, callerId: string | null) =>
-    callerId ? svc.store.leaderOfWriter(callerId) : undefined;
+    callerId ? svc.store.leaderOfScribe(callerId) : undefined;
   /** The leader a request is about: `leader` in the query, else the caller's leader or the caller. */
   const leaderFor = (svc: TopicService, c: Context, explicit?: string): string | undefined => {
     const named = explicit ?? c.req.query("leader");
@@ -97,36 +98,29 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
             ? leaders.filter((leader) => leader.space === scoped)
             : leaders,
         spaces: [...new Set([...svc.store.spaces(), ...leaders.map((leader) => leader.space)])].sort(),
-        paused: leaderId ? svc.store.isPaused(leaderId) : false,
-        budget: leaderId ? svc.budget(leaderId) : { used: 0, limit: 0, overBudget: false },
         suggestions: svc.store.suggestions(scoped),
-        ...(leaderId
-          ? { writer: await svc.status(leaderId), groupingNotes: svc.store.groupingNotes(leaderId)?.text ?? "" }
-          : {}),
+        ...(leaderId ? { scribe: await svc.overview(leaderId) } : {}),
       };
     }),
   );
 
-  api.get("/topics/guide", (c) => c.json({ guide: SCRIBE_BRIEF }));
+  // ─── Scribes ──────────────────────────────────────────────────────────────
 
-  /** For a leader or its Scribe: the Scribe's status, the grouping instructions and waiting suggestions. */
-  api.get("/topics/status", (c) =>
+  api.get("/scribe/brief", (c) => c.json({ brief: SCRIBE_BRIEF }));
+
+  /** For a leader or its Scribe: the Scribe's activity and settings, and renames waiting for the user. */
+  api.get("/scribe/status", (c) =>
     run(c, async (svc) => {
       const leaderId = leaderFor(svc, c);
       if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
       const space = ctx.launcher.getSession(leaderId)?.memorySessionSpaceSlug;
       const own = await leaderQuestIds(leaderId);
       const topics = space ? svc.store.list(space).filter((topic) => topic.questIds.some((id) => own.has(id))) : [];
-      const budget = svc.budget(leaderId);
       return {
         leader: { sessionId: leaderId, sessionNum: ctx.launcher.getSessionNum(leaderId) ?? null, space: space ?? null },
         enabled: svc.store.isLeaderEnabled(leaderId),
         topics: topics.length,
-        scribe: await svc.status(leaderId),
-        paused: svc.store.isPaused(leaderId),
-        /** The Scribe's spend over the last day as a share of its leader's. */
-        spendShare: budget.limit > 0 ? (budget.used / budget.limit) * 0.1 : null,
-        groupingNotes: svc.store.groupingNotes(leaderId)?.text ?? "",
+        scribe: await svc.overview(leaderId),
         suggestions: svc.store
           .suggestions(space)
           .filter((suggestion) => topics.some((topic) => topic.id === suggestion.topicId)),
@@ -157,7 +151,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /** A leader's quests from a recent window, for filing them into topics; a Scribe gets its leader's. */
-  api.get("/topics/leader-quests", (c) =>
+  api.get("/scribe/quests", (c) =>
     run(c, async (svc) => {
       const leader = leaderFor(svc, c);
       if (!leader) throw new TopicStoreError("Name the leader.", 404);
@@ -247,16 +241,30 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** The user's instructions for how to group a leader's topics; the leader may set them for the user. */
-  api.post("/topics/leaders/:sessionId/notes", (c) =>
+  /** The user's instructions for how a leader's Scribe groups topics; the leader may set them for the user. */
+  api.post("/scribe/:leader/instructions", (c) =>
     run(c, async (svc) => {
       const body = await c.req.json().catch(() => ({}));
-      const sessionId = ctx.resolveId(c.req.param("sessionId"));
+      const sessionId = ctx.resolveId(c.req.param("leader"));
       if (!sessionId || typeof body.text !== "string") throw new TopicStoreError("Name a leader and send text.");
       if (scribeLeader(svc, caller(c))) throw new TopicStoreError("The grouping instructions are the user's.", 403);
-      svc.store.setGroupingNotes(sessionId, body.text);
-      svc.notesChanged(sessionId);
-      return { groupingNotes: svc.store.groupingNotes(sessionId)?.text ?? "" };
+      svc.store.setScribeInstructions(sessionId, body.text);
+      svc.instructionsChanged(sessionId);
+      return { instructions: svc.store.scribeInstructions(sessionId)?.text ?? "" };
+    }),
+  );
+
+  /** Pauses or resumes a leader's Scribe ("Keep pages up to date"); resuming asks it for what waited. */
+  api.post("/scribe/:leader/pause", (c) =>
+    run(c, async (svc) => {
+      const body = await c.req.json().catch(() => ({}));
+      const sessionId = ctx.resolveId(c.req.param("leader"));
+      if (!sessionId) throw new TopicStoreError("Leader not found.", 404);
+      if (scribeLeader(svc, caller(c)))
+        throw new TopicStoreError("Only the user or the leader pauses the Scribe.", 403);
+      svc.store.setScribePaused(sessionId, body.paused === true);
+      if (body.paused !== true) svc.schedule(sessionId, 0);
+      return { paused: svc.store.isScribePaused(sessionId) };
     }),
   );
 
@@ -266,17 +274,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       if (!sessionId) throw new TopicStoreError("Leader not found.", 404);
       svc.store.dismissHint(sessionId);
       return { ok: true };
-    }),
-  );
-
-  api.post("/topics/leaders/:sessionId/pause", (c) =>
-    run(c, async (svc) => {
-      const body = await c.req.json().catch(() => ({}));
-      const sessionId = ctx.resolveId(c.req.param("sessionId"));
-      if (!sessionId) throw new TopicStoreError("Leader not found.", 404);
-      svc.store.setPaused(sessionId, body.paused === true);
-      if (body.paused !== true) svc.schedule(sessionId, 0);
-      return { paused: svc.store.isPaused(sessionId) };
     }),
   );
 
@@ -294,7 +291,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /** For a Scribe: the page as it is and its leader's events since its last write, with what to link. */
-  api.get("/topics/:id/changes", (c) =>
+  api.get("/scribe/topics/:id/changes", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
       const callerId = caller(c);
@@ -344,7 +341,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
    * Saves a page. Quoted decisions must appear in the messages they link to. A Scribe's write
    * covers what it read through `changes` and is refused when another Scribe saved the page since.
    */
-  api.post("/topics/:id/page", (c) =>
+  api.post("/scribe/topics/:id/page", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
       const body = await c.req.json().catch(() => ({}));
@@ -364,7 +361,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         ...(read ? { revision: read.revision } : {}),
       });
       served.delete(key);
-      if (leaderId) svc.pageWritten(leaderId);
+      svc.pageSaved();
       return detail;
     }),
   );

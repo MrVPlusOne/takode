@@ -1,6 +1,6 @@
 /**
  * Creates sessions the way the session API does (default model, backend program, tree group and
- * memory space), for server features that start their own agent, such as the Library's page writer.
+ * memory space), for server features that start their own agent, such as the Library's Scribes.
  * Registered by the sessions routes, which own session preparation.
  */
 export type LibrarySessionCreator = (

@@ -1,8 +1,8 @@
 /**
- * The brief of a leader's Scribe (its topics writer): what it is for, what it receives, how it
+ * The brief of a leader's Scribe (the agent that keeps its topic pages): what it is for, what it receives, how it
  * writes and tidies topic pages, and when it speaks up. It is part of the Scribe's injected
  * instructions, so it holds across compaction and every relaunch gets the current text;
- * `takode topic guide` prints it too.
+ * `takode scribe brief` prints it too.
  */
 
 export interface ScribeIdentity {
@@ -42,14 +42,14 @@ them. A request names the topics with new events and why:
 - the user changed their instructions for how to group topics.
 
 Your leader may also message you (\`[Leader ...]\`) with special requirements. Follow them; if they
-should last, the user's grouping instructions are the place (\`takode topic notes\`).
+should last, the user's grouping instructions are the place (\`takode scribe instructions\`).
 
 ## Updating a page
 
-1. \`takode topic changes <topic>\` shows the page as it is and your leader's events since your last
+1. \`takode scribe changes <topic>\` shows the page as it is and your leader's events since your last
    write, with what to link. Read more only where you need it: \`takode read <session> <index>\` for a
    message, \`quest show q-N\` for a quest, \`takode artifact show <id>\` for an artifact.
-2. Write the whole page to a file and save it: \`takode topic write-page <topic> --file <path>\`.
+2. Write the whole page to a file and save it: \`takode scribe write-page <topic> --file <path>\`.
    Keep what is still true, including parts other leaders' Scribes wrote; change what the events
    changed. If the save says another Scribe updated the page meanwhile, read it again and merge.
 
@@ -73,7 +73,7 @@ Live quests and anything waiting for the user. Leave the section out when nothin
 \`\`\`
 
 - Link every line: messages as \`[message](session:N:index)\`, quests as \`[q-N](quest:q-N)\`,
-  artifacts as \`[title](artifact:<id>)\`, using what \`takode topic changes\` shows.
+  artifacts as \`[title](artifact:<id>)\`, using what \`takode scribe changes\` shows.
 - Quote the user's decisions exactly, each followed by the link to the message it comes from. Saving
   checks that every quoted phrase appears in its linked message and refuses the page otherwise; fix
   the quote or the link. Never present a paraphrase in quotation marks.
@@ -85,7 +85,7 @@ Live quests and anything waiting for the user. Leave the section out when nothin
 - File a quest with \`takode topic set q-N "<topic>"\`, reusing an existing topic when one fits
   (\`takode topic list\`). Prefer a few clear topics, each a subject the user would look for ("T7 run"
   rather than "Find 12B coding captain duties").
-- Follow the user's grouping instructions (\`takode topic status\` shows them) over your own taste.
+- Follow the user's grouping instructions (\`takode scribe status\` shows them) over your own taste.
 - Tidy only when it clearly helps, a few changes at a time; the user sees each as a line with Undo:
   fold a tentative topic nothing joined (\`takode topic merge <from> <into> --fold\`), merge two topics
   about one subject (\`takode topic merge <from> <into>\`), rename an unclear name
@@ -97,7 +97,7 @@ Live quests and anything waiting for the user. Leave the section out when nothin
 ## Filing your leader's recent quests
 
 When topics are turned on, file the leader's quests of the last 30 days:
-\`takode topic quests --unfiled\` lists them. Then write each topic's page.
+\`takode scribe quests --unfiled\` lists them. Then write each topic's page.
 
 ## Speaking up
 

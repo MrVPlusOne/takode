@@ -8,8 +8,8 @@ import { MarkdownContent } from "../MarkdownContent.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
 
 /**
- * The parts of a leader's topic panel: the per-leader switch and the pause, the latest tidying the
- * page writer did (each with Undo), a topic's row in the list, and a topic's page with its quests
+ * The parts of a leader's topic panel: the per-leader switch and its Scribe's settings, the latest
+ * tidying a Scribe did (each with Undo), a topic's row in the list, and a topic's page with its quests
  * and what was made. Topic pages are kept current on the server, so an open page refreshes itself.
  */
 
@@ -76,17 +76,17 @@ export function LeaderSwitches({
       </button>
       {open && (
         <div className="mt-2 flex flex-col gap-2.5" data-testid="topic-settings">
-          <GroupingNotes leaderId={leader.sessionId} saved={data.groupingNotes ?? ""} act={act} />
+          <ScribeInstructionsBox leaderId={leader.sessionId} saved={data.scribe?.instructions ?? ""} act={act} />
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={!data.paused}
-              onChange={(event) => act(topicApi.setPaused(leader.sessionId, !event.target.checked))}
+              checked={!data.scribe?.paused}
+              onChange={(event) => act(topicApi.setScribePaused(leader.sessionId, !event.target.checked))}
             />
             <span className="text-cc-fg">Keep pages up to date</span>
             <span className="ml-auto text-cc-muted">
-              {data.budget.limit > 0
-                ? `${Math.round((10 * data.budget.used) / data.budget.limit)}% of this leader's use today`
+              {data.scribe && data.scribe.budget.limit > 0
+                ? `${Math.round((10 * data.scribe.budget.used) / data.scribe.budget.limit)}% of this leader's use today`
                 : ""}
             </span>
           </label>
@@ -103,8 +103,8 @@ export function LeaderSwitches({
   );
 }
 
-/** "How to group my topics": the user's own words, read by the Scribe and the leader. */
-function GroupingNotes({
+/** "How to group my topics": the user's instructions for the Scribe, in their own words. */
+function ScribeInstructionsBox({
   leaderId,
   saved,
   act,
@@ -116,7 +116,7 @@ function GroupingNotes({
   const [text, setText] = useState(saved);
   useEffect(() => setText(saved), [saved]);
   return (
-    <div data-testid="topic-grouping-notes">
+    <div data-testid="scribe-instructions">
       <label htmlFor={`grouping-${leaderId}`} className="mb-1 block text-[12px] text-cc-muted">
         How to group my topics
       </label>
@@ -135,7 +135,7 @@ function GroupingNotes({
           </button>
           <button
             type="button"
-            onClick={() => act(topicApi.setGroupingNotes(leaderId, text))}
+            onClick={() => act(topicApi.setScribeInstructions(leaderId, text))}
             className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
           >
             Save

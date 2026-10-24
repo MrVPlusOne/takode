@@ -9,8 +9,8 @@ import { createTopicRoutes } from "./topics.js";
 
 /**
  * The topics API on a disposable store with mocked quests: a leader files a quest under a topic,
- * the space's page writer is recognized by its session and may not rename a topic the user
- * named, and a written page covers exactly the events the writer read.
+ * a leader's Scribe is recognized by its session and may not rename a topic the user named, and a
+ * page it writes covers exactly the events it read.
  */
 
 vi.mock("../quest-store.js", () => {
@@ -32,19 +32,24 @@ vi.mock("../quest-store.js", () => {
 });
 
 let root: string;
+/** Stores made by the current test, settled before their folder is removed. */
+let stores: TopicStore[] = [];
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "topic-routes-"));
+  stores = [];
 });
 
 afterEach(async () => {
+  await Promise.all(stores.map((store) => store.flush()));
   await rm(root, { recursive: true, force: true });
 });
 
 async function setup() {
   const store = new TopicStore(root);
+  stores.push(store);
   await store.load();
-  store.setWriter("leader", "scribe");
+  store.setScribeSession("leader", "scribe");
   const injected: string[] = [];
   const service = new TopicService(store, {
     getSession: () => undefined,
@@ -57,11 +62,11 @@ async function setup() {
       injected.push(text);
       return true;
     },
-    createWriter: async () => "scribe",
-    isWriterAlive: () => true,
-    isWriterBusy: () => false,
-    writerContextTokens: () => 0,
-    retireWriter: async () => {},
+    createScribe: async () => "scribe",
+    isScribeAlive: () => true,
+    isScribeBusy: () => false,
+    scribeContextTokens: () => 0,
+    retireScribe: async () => {},
     messageText: (sessionNum, index) => (sessionNum === 7 && index === 4 ? "Keep 0.02, launch now" : null),
     broadcastChanged: () => {},
   });
@@ -114,12 +119,12 @@ describe("topic routes", () => {
   it("refuses a page whose quoted decision is not in the message it links to", async () => {
     const { store, send } = await setup();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
-    const bad = await send(`/topics/${topic.id}/page`, "POST", {
+    const bad = await send(`/scribe/topics/${topic.id}/page`, "POST", {
       markdown: '## Your decisions\n- "Use 0.05 instead" ([message](session:7:4))',
     });
     expect(bad.status).toBe(400);
     expect((await bad.json()).error).toContain('"Use 0.05 instead" is not in message session:7:4');
-    const good = await send(`/topics/${topic.id}/page`, "POST", {
+    const good = await send(`/scribe/topics/${topic.id}/page`, "POST", {
       markdown: '## Your decisions\n- "keep 0.02, launch now" ([message](session:7:4))',
     });
     expect(good.status).toBe(200);
@@ -128,13 +133,19 @@ describe("topic routes", () => {
   it("tells a leader its Scribe's status and grouping instructions, which the Scribe may not change", async () => {
     const { app, send, setCaller } = await setup();
     setCaller("leader");
-    await send("/topics/leaders/leader/notes", "POST", { text: "One topic per training run." });
-    const status = await (await app.request("/topics/status")).json();
-    expect(status).toMatchObject({ groupingNotes: "One topic per training run.", scribe: { state: "off" } });
+    await send("/scribe/leader/instructions", "POST", { text: "One topic per training run." });
+    const status = await (await app.request("/scribe/status")).json();
+    expect(status).toMatchObject({
+      scribe: { instructions: "One topic per training run.", paused: false, activity: { state: "off" } },
+    });
+    // The leader can pause its Scribe; the Scribe can change neither the instructions nor the pause.
+    await send("/scribe/leader/pause", "POST", { paused: true });
+    expect((await (await app.request("/scribe/status")).json()).scribe.paused).toBe(true);
     setCaller("scribe");
-    expect((await send("/topics/leaders/leader/notes", "POST", { text: "x" })).status).toBe(403);
+    expect((await send("/scribe/leader/instructions", "POST", { text: "x" })).status).toBe(403);
+    expect((await send("/scribe/leader/pause", "POST", { paused: false })).status).toBe(403);
     // The Scribe reads its own leader's status without naming it.
-    expect((await (await app.request("/topics/status")).json()).leader.sessionId).toBe("leader");
+    expect((await (await app.request("/scribe/status")).json()).leader.sessionId).toBe("leader");
   });
 
   it("writes a page that covers what the Scribe read of its leader's events, so later events stay pending", async () => {
@@ -159,12 +170,12 @@ describe("topic routes", () => {
     store.addEvent(topic.id, { at: Date.now() + 11, kind: "quest_done", leaderId: "other", questId: "q-9" });
 
     setCaller("scribe");
-    const read = await (await app.request(`/topics/${topic.id.slice(0, 8)}/changes`)).json();
+    const read = await (await app.request(`/scribe/topics/${topic.id.slice(0, 8)}/changes`)).json();
     expect(read.events.map((event: { kind: string }) => event.kind)).toEqual(["quest_filed", "message"]);
     expect(read.events[1].sessionNum).toBe(7);
     expect(read.quests).toEqual([{ questId: "q-1", title: "Launch T7", status: "done" }]);
 
-    // An event that arrives while the writer is writing is not covered by the page.
+    // An event that arrives while the Scribe is writing is not covered by the page.
     store.addEvent(topic.id, {
       at: Date.now() + 20,
       kind: "quest_done",
@@ -172,7 +183,9 @@ describe("topic routes", () => {
       questId: "q-1",
       text: "Launch T7",
     });
-    const written = await send(`/topics/${topic.id}/page`, "POST", { markdown: "## Where it stands\nLaunched." });
+    const written = await send(`/scribe/topics/${topic.id}/page`, "POST", {
+      markdown: "## Where it stands\nLaunched.",
+    });
     expect(written.status).toBe(200);
     expect(store.pendingEvents(topic.id, "leader").map((event) => event.kind)).toEqual(["quest_done"]);
     expect(store.pendingEvents(topic.id, "other").map((event) => event.questId)).toEqual(["q-9"]);

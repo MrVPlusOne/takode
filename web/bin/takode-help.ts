@@ -17,6 +17,7 @@ import { REVIEW_HELP } from "./takode-review.js";
 import { VISUAL_HELP } from "./takode-visual.js";
 import { ARTIFACT_HELP } from "./takode-artifact.js";
 import { TOPIC_HELP } from "./takode-topic.js";
+import { SCRIBE_HELP } from "./takode-scribe.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
   BOARD_ADVANCE_HELP,
@@ -527,6 +528,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "topic":
       console.log(TOPIC_HELP);
       return true;
+    case "scribe":
+      console.log(SCRIBE_HELP);
+      return true;
     case "info":
       console.log(INFO_HELP);
       return true;
@@ -775,7 +779,8 @@ Commands:
   review        Publish a guided review of a git range (questions first, then a tour)
   visual        Preview a visual block at phone and desktop size before publishing it
   artifact      List and read saved artifacts (drafts, reports, figures, visuals, reviews) and their versions
-  topic         Library topics: file quests by subject and read or write topic pages
+  topic         Library topics: file quests by subject and read topic pages
+  scribe        The leader's Scribe that keeps topic pages: status, grouping instructions, pause
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session

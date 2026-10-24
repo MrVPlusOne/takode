@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { isRoutineScribeEvent } from "./herd-event-dispatcher.js";
-import { setScribeLookup } from "./scribe-registry.js";
+import { noteTurnEnded, setScribeHooks } from "./scribe-registry.js";
 import type { TakodeEvent } from "./session-types.js";
 
 /**
@@ -9,7 +9,7 @@ import type { TakodeEvent } from "./session-types.js";
  * and other workers' events are untouched.
  */
 
-afterEach(() => setScribeLookup(() => false));
+afterEach(() => setScribeHooks({ isScribe: () => false, turnEnded: () => {} }));
 
 function event(sessionId: string, kind: string, data: Record<string, unknown> = {}): TakodeEvent {
   return { id: 1, event: kind, sessionId, sessionNum: 1, sessionName: "x", ts: 0, data } as unknown as TakodeEvent;
@@ -17,7 +17,7 @@ function event(sessionId: string, kind: string, data: Record<string, unknown> = 
 
 describe("isRoutineScribeEvent", () => {
   it("drops a Scribe's silent turns and lifecycle, and keeps what the leader must see", () => {
-    setScribeLookup((id) => id === "scribe");
+    setScribeHooks({ isScribe: (id) => id === "scribe", turnEnded: () => {} });
     expect(isRoutineScribeEvent(event("scribe", "turn_end", { quiet: { summary: "x", silent: true } }))).toBe(true);
     expect(isRoutineScribeEvent(event("scribe", "session_archived"))).toBe(true);
     expect(isRoutineScribeEvent(event("scribe", "turn_end", { quiet_ignored: "the turn asked a question" }))).toBe(
@@ -25,5 +25,16 @@ describe("isRoutineScribeEvent", () => {
     );
     expect(isRoutineScribeEvent(event("scribe", "notification_needs_input"))).toBe(false);
     expect(isRoutineScribeEvent(event("worker", "turn_end", { quiet: { summary: "x", silent: true } }))).toBe(false);
+  });
+});
+
+describe("noteTurnEnded", () => {
+  it("tells the topic service only about Scribes' turn ends", () => {
+    // Every session's turn end passes through here; a Scribe's ends the request it worked on.
+    const ended: string[] = [];
+    setScribeHooks({ isScribe: (id) => id === "scribe", turnEnded: (id) => ended.push(id) });
+    noteTurnEnded("worker");
+    noteTurnEnded("scribe");
+    expect(ended).toEqual(["scribe"]);
   });
 });

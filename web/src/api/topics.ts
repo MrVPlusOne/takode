@@ -17,7 +17,7 @@ async function request<T>(path: string, options?: { method?: "GET" | "POST" | "P
 
 const topicPath = (id: string) => `/topics/${encodeURIComponent(id)}`;
 
-/** The Library's topics API (see `server/routes/topics.ts`). */
+/** The Library's topics and Scribe API (see `server/routes/topics.ts`). */
 export const topicApi = {
   /** A space's topics, or with `leader` the topics holding that leader's quests. */
   list: (space: string, leader?: string | null) =>
@@ -43,8 +43,9 @@ export const topicApi = {
     }),
   answerSuggestion: (suggestionId: string, accept: boolean) =>
     request<unknown>(`/topics/suggestions/${encodeURIComponent(suggestionId)}`, { method: "POST", body: { accept } }),
-  setGroupingNotes: (leaderSessionId: string, text: string) =>
-    request<{ groupingNotes: string }>(`/topics/leaders/${encodeURIComponent(leaderSessionId)}/notes`, {
+  /** The user's instructions for how the leader's Scribe groups topics. */
+  setScribeInstructions: (leaderSessionId: string, text: string) =>
+    request<{ instructions: string }>(`/scribe/${encodeURIComponent(leaderSessionId)}/instructions`, {
       method: "POST",
       body: { text },
     }),
@@ -59,8 +60,8 @@ export const topicApi = {
       body: {},
     }),
   /** Pauses or resumes a leader's Scribe. */
-  setPaused: (leaderSessionId: string, paused: boolean) =>
-    request<{ paused: boolean }>(`/topics/leaders/${encodeURIComponent(leaderSessionId)}/pause`, {
+  setScribePaused: (leaderSessionId: string, paused: boolean) =>
+    request<{ paused: boolean }>(`/scribe/${encodeURIComponent(leaderSessionId)}/pause`, {
       method: "POST",
       body: { paused },
     }),

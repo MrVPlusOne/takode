@@ -1958,7 +1958,7 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
 }
 
 /**
- * Events of a Scribe (a leader's topics writer) the leader need not see: its silent routine
+ * Events of a Scribe (the agent that keeps a leader's topic pages) the leader need not see: its silent routine
  * turns, and its own lifecycle (Takode archives and replaces Scribes by itself).
  */
 export function isRoutineScribeEvent(event: TakodeEvent): boolean {

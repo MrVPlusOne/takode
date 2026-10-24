@@ -126,4 +126,10 @@ describe("public launcher session serialization", () => {
     expect(stripInternalLauncherSessionState(launcherInfo({ hostId: "host-1" })).hostId).toBe("host-1");
     expect(stripInternalLauncherSessionState(launcherInfo())).not.toHaveProperty("hostId");
   });
+
+  // `takode list` and `takode spawn` read this to label a leader's Scribe and keep it out of the
+  // worker count; without it the Scribe looks like an idle worker the leader could reuse.
+  it("keeps which leader a Scribe works for", () => {
+    expect(stripInternalLauncherSessionState(launcherInfo({ scribeFor: "leader-1" })).scribeFor).toBe("leader-1");
+  });
 });

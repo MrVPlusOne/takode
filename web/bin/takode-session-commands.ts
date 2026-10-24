@@ -166,8 +166,9 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     base,
     filtered.map((s) => s.hostId),
   );
-  const shownWorkerCount = filtered.filter((s) => s.reviewerOf === undefined).length;
-  const shownReviewerCount = filtered.length - shownWorkerCount;
+  const shownReviewerCount = filtered.filter((s) => s.reviewerOf !== undefined).length;
+  const shownScribeCount = filtered.filter((s) => s.scribeFor).length;
+  const shownWorkerCount = filtered.length - shownReviewerCount - shownScribeCount;
   const activeHerdWorkerCount =
     isOrchestrator && mySessionId
       ? sessions.filter((s) => !s.archived && s.herdedBy === mySessionId && s.reviewerOf === undefined && !s.scribeFor)
@@ -243,11 +244,11 @@ export async function handleList(base: string, args: string[]): Promise<void> {
   }
 
   console.log(
-    `${total} session(s) shown (${shownWorkerCount} worker${shownWorkerCount === 1 ? "" : "s"}, ${shownReviewerCount} reviewer${shownReviewerCount === 1 ? "" : "s"})${filterHint}`,
+    `${total} session(s) shown (${shownWorkerCount} worker${shownWorkerCount === 1 ? "" : "s"}, ${shownReviewerCount} reviewer${shownReviewerCount === 1 ? "" : "s"}${shownScribeCount ? `, ${shownScribeCount} scribe${shownScribeCount === 1 ? "" : "s"}` : ""})${filterHint}`,
   );
   if (activeHerdWorkerCount !== null) {
     console.log(
-      `Worker slots used: ${activeHerdWorkerCount}/${mySelf?.workerSlotLimit}. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.`,
+      `Worker slots used: ${activeHerdWorkerCount}/${mySelf?.workerSlotLimit}. Reviewers and Scribes do not use worker slots, and archiving them will not free worker-slot capacity.`,
     );
   }
   console.log(
@@ -296,6 +297,7 @@ export function printSessionLine(
     isAssistant?: boolean;
     herdedBy?: string;
     reviewerOf?: number;
+    scribeFor?: string;
     model?: string;
     backendType?: string;
     cwd?: string;
@@ -332,7 +334,13 @@ export function printSessionLine(
   const prefix = opts?.indent ? "        ↳ " : "  ";
   const num = typeof s.sessionNum === "number" ? `#${s.sessionNum}` : "  ";
   const name = formatInlineText(s.name || "(unnamed)");
-  const role = s.isOrchestrator ? " [leader]" : s.reviewerOf !== undefined ? " [reviewer]" : "";
+  const role = s.isOrchestrator
+    ? " [leader]"
+    : s.reviewerOf !== undefined
+      ? " [reviewer]"
+      : s.scribeFor
+        ? " [scribe: keeps topic pages, not for quest work]"
+        : "";
   const herd = s.herdedBy ? " [herd]" : "";
   // Backend type tag: only show for codex (sdk is implied by session details)
   const backend = s.backendType === "codex" ? " [codex]" : "";

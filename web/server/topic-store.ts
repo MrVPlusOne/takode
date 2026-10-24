@@ -15,8 +15,8 @@ import {
 /**
  * Library topics on disk (`topics.json` beside the artifact library): topics per session space,
  * which topic each quest is filed under, each topic's page and the events since it was written,
- * and per leader: the switch, the pause, its topics writer, the user's grouping instructions and
- * how far each page covers its activity. Also the change list whose entries can be undone, and
+ * and per leader: the switch, its Scribe (session, pause, the user's grouping instructions, spend
+ * of replaced Scribes) and how far each page covers its activity. Also the change list whose entries can be undone, and
  * rename suggestions waiting for the user. Writes are whole-file and atomic, chained in order.
  */
 
@@ -37,7 +37,7 @@ interface StoredTopic {
   writtenAt: number | null;
   /** Per leader: the page covers that leader's events up to this time. */
   coveredThrough?: Record<string, number>;
-  /** Bumped by each page write, so a writer that read an older page cannot overwrite a newer one. */
+  /** Bumped by each page write, so a Scribe that read an older page cannot overwrite a newer one. */
   pageRevision?: number;
   events: TopicEvent[];
   /** Set when merged or folded into another topic; such a topic is hidden. */
@@ -69,20 +69,29 @@ interface TopicState {
   questTopics: Record<string, string>;
   enabledLeaders: Record<string, { enabledAt: number; backfilledAt?: number }>;
   hintDismissed: Record<string, number>;
-  /** Per leader: its writer is paused. */
-  paused: Record<string, boolean>;
-  /** Retired design: one hidden page writer per space. Kept only to retire those sessions. */
-  writers: Record<string, string>;
-  /** Per leader: its topics writer, a worker in its herd. */
-  leaderWriters?: Record<string, string>;
-  /** Per leader: the user's instructions for how to group its topics. */
-  groupingNotes?: Record<string, { text: string; updatedAt: number }>;
+  /** Per leader: its Scribe. */
+  scribes?: Record<string, StoredScribe>;
+  /** Retired design: one hidden page writer per space. Read once at startup to archive them. */
+  writers?: Record<string, string>;
   suggestions?: StoredSuggestion[];
   /** Per leader: history messages already read for events. */
   cursors: Record<string, number>;
   changes: StoredChange[];
-  /** Per leader: what replaced writers spent in their last day, so the budget still counts it. */
-  retiredSpend?: Record<string, Array<{ at: number; amount: number }>>;
+}
+
+/** A leader's Scribe: the worker in its herd that keeps its topic pages, and how the user set it. */
+interface StoredScribe {
+  sessionId?: string;
+  paused?: boolean;
+  /** The user's instructions for how to group the leader's topics. */
+  instructions?: ScribeInstructions;
+  /** What replaced Scribes spent in their last day, so the budget still counts it. */
+  retiredSpend?: Array<{ at: number; amount: number }>;
+}
+
+export interface ScribeInstructions {
+  text: string;
+  updatedAt: number;
 }
 
 export class TopicStoreError extends Error {
@@ -123,8 +132,6 @@ export class TopicStore {
         questTopics: {},
         enabledLeaders: {},
         hintDismissed: {},
-        paused: {},
-        writers: {},
         cursors: {},
         changes: [],
       };
@@ -135,7 +142,7 @@ export class TopicStore {
     return this.state !== null;
   }
 
-  // ─── Leaders, pause, page writers ─────────────────────────────────────────
+  // ─── Leaders ──────────────────────────────────────────────────────────────
 
   isLeaderEnabled(sessionId: string): boolean {
     return !!this.s().enabledLeaders[sessionId];
@@ -176,74 +183,67 @@ export class TopicStore {
     return !!this.s().hintDismissed[sessionId];
   }
 
-  isPaused(leaderId: string): boolean {
-    return !!this.s().paused[leaderId];
+  // ─── Scribes ──────────────────────────────────────────────────────────────
+
+  scribeSession(leaderId: string): string | undefined {
+    return this.s().scribes?.[leaderId]?.sessionId;
   }
 
-  setPaused(leaderId: string, paused: boolean): void {
-    if (paused) this.s().paused[leaderId] = true;
-    else delete this.s().paused[leaderId];
+  setScribeSession(leaderId: string, sessionId: string | undefined): void {
+    const scribe = this.scribeRecord(leaderId);
+    if (scribe.sessionId === sessionId) return;
+    scribe.sessionId = sessionId;
     this.dirty = true;
   }
 
-  writerFor(leaderId: string): string | undefined {
-    return this.s().leaderWriters?.[leaderId];
+  leaderOfScribe(sessionId: string): string | undefined {
+    return Object.entries(this.s().scribes ?? {}).find(([, scribe]) => scribe.sessionId === sessionId)?.[0];
   }
 
-  setWriter(leaderId: string, sessionId: string): void {
-    const state = this.s();
-    state.leaderWriters = { ...state.leaderWriters, [leaderId]: sessionId };
+  isScribePaused(leaderId: string): boolean {
+    return !!this.s().scribes?.[leaderId]?.paused;
+  }
+
+  setScribePaused(leaderId: string, paused: boolean): void {
+    this.scribeRecord(leaderId).paused = paused || undefined;
     this.dirty = true;
   }
 
-  clearWriter(leaderId: string): void {
-    if (!this.s().leaderWriters?.[leaderId]) return;
-    delete this.s().leaderWriters![leaderId];
+  scribeInstructions(leaderId: string): ScribeInstructions | undefined {
+    return this.s().scribes?.[leaderId]?.instructions;
+  }
+
+  setScribeInstructions(leaderId: string, text: string): void {
+    const clean = text.trim().slice(0, 4000);
+    this.scribeRecord(leaderId).instructions = clean ? { text: clean, updatedAt: this.now() } : undefined;
     this.dirty = true;
   }
 
-  leaderOfWriter(sessionId: string): string | undefined {
-    return Object.entries(this.s().leaderWriters ?? {}).find(([, id]) => id === sessionId)?.[0];
-  }
-
-  /** Writers of the retired per-space design, to be archived once; forgets them. */
-  takeLegacyWriters(): string[] {
-    const ids = Object.values(this.s().writers);
-    if (ids.length === 0) return [];
-    this.s().writers = {};
-    this.dirty = true;
-    return ids;
-  }
-
-  /** Keeps a replaced writer's recent spend in its leader's budget for a day. */
-  recordRetiredSpend(leaderId: string, amount: number): void {
-    const state = this.s();
-    state.retiredSpend ??= {};
-    state.retiredSpend[leaderId] = [...(state.retiredSpend[leaderId] ?? []), { at: this.now(), amount }];
+  /** Keeps a replaced Scribe's recent spend in its leader's budget for a day. */
+  recordRetiredScribeSpend(leaderId: string, amount: number): void {
+    const scribe = this.scribeRecord(leaderId);
+    scribe.retiredSpend = [...(scribe.retiredSpend ?? []), { at: this.now(), amount }];
     this.dirty = true;
   }
 
-  retiredSpend(leaderId: string, since: number): number {
-    const entries = this.s().retiredSpend?.[leaderId] ?? [];
+  retiredScribeSpend(leaderId: string, since: number): number {
+    const scribe = this.s().scribes?.[leaderId];
+    const entries = scribe?.retiredSpend ?? [];
     const recent = entries.filter((entry) => entry.at >= since);
-    if (recent.length !== entries.length) {
-      this.s().retiredSpend![leaderId] = recent;
+    if (scribe && recent.length !== entries.length) {
+      scribe.retiredSpend = recent;
       this.dirty = true;
     }
     return recent.reduce((sum, entry) => sum + entry.amount, 0);
   }
 
-  groupingNotes(leaderId: string): { text: string; updatedAt: number } | undefined {
-    return this.s().groupingNotes?.[leaderId];
-  }
-
-  setGroupingNotes(leaderId: string, text: string): void {
-    const state = this.s();
-    const clean = text.trim().slice(0, 4000);
-    state.groupingNotes ??= {};
-    if (clean) state.groupingNotes[leaderId] = { text: clean, updatedAt: this.now() };
-    else delete state.groupingNotes[leaderId];
+  /** Page writers of the retired per-space design, to be archived once; forgets them. */
+  takeLegacyWriters(): string[] {
+    const ids = Object.values(this.s().writers ?? {});
+    if (ids.length === 0) return [];
+    delete this.s().writers;
     this.dirty = true;
+    return ids;
   }
 
   cursorFor(leaderId: string): number | undefined {
@@ -360,7 +360,7 @@ export class TopicStore {
   }
 
   /**
-   * A writer's new name for a topic the user named: shown to the user with Accept and Dismiss,
+   * A Scribe's new name for a topic the user named: shown to the user with Accept and Dismiss,
    * and nothing changes until accepted. A name the user dismissed is not suggested again.
    */
   suggestRename(topicId: string, name: string, leaderId: string | undefined, reason?: string): TopicRenameSuggestion {
@@ -517,7 +517,7 @@ export class TopicStore {
 
   /**
    * Events the page does not include yet; with `leaderId`, only that leader's (and events of no
-   * leader), as its writer handles them.
+   * leader), as its Scribe handles them.
    */
   pendingEvents(topicId: string, leaderId?: string): TopicEvent[] {
     return pendingOf(this.require(topicId), leaderId);
@@ -528,8 +528,8 @@ export class TopicStore {
   }
 
   /**
-   * Saves a page that covers the writer's leader's events up to `upToDateAt`. With `revision`,
-   * the write is refused when another writer saved the page since this one read it.
+   * Saves a page that covers the Scribe's leader's events up to `upToDateAt`. With `revision`,
+   * the write is refused when another Scribe saved the page since this one read it.
    */
   writePage(
     topicId: string,
@@ -541,7 +541,7 @@ export class TopicStore {
     if (!markdown.trim()) throw new TopicStoreError("The page is empty.");
     if (options.revision !== undefined && options.revision !== (topic.pageRevision ?? 0)) {
       throw new TopicStoreError(
-        "Another leader's Scribe updated this page since you read it. Run `takode topic changes` again and merge your update into the current page.",
+        "Another leader's Scribe updated this page since you read it. Run `takode scribe changes` again and merge your update into the current page.",
         409,
       );
     }
@@ -621,7 +621,7 @@ export class TopicStore {
     };
   }
 
-  /** Whether the user undid a merge or fold of this topic: the page writer must not redo it. */
+  /** Whether the user undid a merge or fold of this topic: a Scribe must not redo it. */
   private userUndidMerge(topicId: string): boolean {
     return this.s().changes.some(
       (change) => change.undone && change.undo.kind === "merge" && change.undo.from.id === topicId,
@@ -701,6 +701,12 @@ export class TopicStore {
   private s(): TopicState {
     if (!this.state) throw new Error("Topic store is not loaded");
     return this.state;
+  }
+
+  private scribeRecord(leaderId: string): StoredScribe {
+    const scribes = (this.s().scribes ??= {});
+    scribes[leaderId] ??= {};
+    return scribes[leaderId];
   }
 }
 

@@ -1577,7 +1577,7 @@ describe("takode spawn", () => {
     expect(result.stdout).toContain("Worker slots used: 6/5.");
     expect(result.stdout).toContain("Please archive 1 worker session least likely to be reused.");
     expect(result.stdout).toContain(
-      "Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.",
+      "Reviewers and Scribes do not use worker slots, and archiving them will not free worker-slot capacity; a Scribe is never reused for quest work.",
     );
   });
 

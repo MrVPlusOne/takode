@@ -3,23 +3,25 @@ import type { QuestmasterTask } from "./quest-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import {
-  STORYTELLER_BUDGET_SHARE,
+  SCRIBE_BUDGET_SHARE,
   TOPIC_HINT_QUEST_COUNT,
   type TopicEvent,
   type TopicLeaderState,
-  type TopicWriterStatus,
+  type ScribeActivity,
+  type ScribeOverview,
 } from "../shared/library-topics.js";
 import type { TopicStore } from "./topic-store.js";
 
 /**
- * Keeps topic pages current, close to real time, with one topics writer per leader that has topics
+ * Keeps topic pages current, close to real time, with one Scribe per leader that has topics
  * on: a worker in that leader's herd. Events (its quests filed or finished, the user's messages in
  * those quests' tabs, artifacts saved there, fixes the user asked for) mark their topic changed for
- * that leader; about a minute after the first one, the leader's writer is asked to update the
+ * that leader; about a minute after the first one, the leader's Scribe is asked to update the
  * changed topics, reading only its leader's new events. Topics stay shared across the session
- * space, so pages can hold several leaders' work. A writer's spend stays within a share of its
- * leader's own, and each leader's writer can be paused.
+ * space, so pages can hold several leaders' work. A Scribe's spend stays within a share of its
+ * leader's own, and each leader's Scribe can be paused.
  */
 
 export interface TopicSessionLike {
@@ -47,15 +49,15 @@ export interface TopicServiceDeps {
   listQuests: () => Promise<QuestmasterTask[]>;
   /** Sends text to a session as an injected message; false when it could not be delivered. */
   inject: (sessionId: string, text: string) => boolean;
-  /** Starts a leader's topics writer as a worker in its herd; returns its session ID. */
-  createWriter: (leader: TopicLeaderInfo) => Promise<string>;
-  isWriterAlive: (sessionId: string) => boolean;
-  /** Whether the writer is working on a turn now. */
-  isWriterBusy: (sessionId: string) => boolean;
-  /** About how many tokens the writer's conversation holds. */
-  writerContextTokens: (sessionId: string) => number;
-  /** Archives a writer (replaced, or its leader turned topics off). */
-  retireWriter: (sessionId: string) => Promise<void>;
+  /** Starts a leader's Scribe as a worker in its herd; returns its session ID. */
+  createScribe: (leader: TopicLeaderInfo) => Promise<string>;
+  isScribeAlive: (sessionId: string) => boolean;
+  /** Whether the Scribe is working on a turn now. */
+  isScribeBusy: (sessionId: string) => boolean;
+  /** About how many tokens the Scribe's conversation holds. */
+  scribeContextTokens: (sessionId: string) => number;
+  /** Archives a Scribe (replaced, or its leader turned topics off). */
+  retireScribe: (sessionId: string) => Promise<void>;
   /** The text of a message by session number and history index, or null when it can't be read. */
   messageText: (sessionNum: number, index: number) => string | null;
   /** Tells browsers the topics changed. */
@@ -63,22 +65,22 @@ export interface TopicServiceDeps {
   now?: () => number;
 }
 
-/** Events wait this long for more before the writer is asked. */
+/** Events wait this long for more before the Scribe is asked. */
 export const TOPIC_UPDATE_DELAY_MS = 60_000;
-/** A request the writer hasn't answered is sent again after this long. */
+/** A request the Scribe hasn't answered is sent again after this long. */
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
 const SPEND_WINDOW_MS = 24 * 60 * 60_000;
 const BACKFILL_WINDOW_MS = 30 * 24 * 60 * 60_000;
 /**
- * A writer whose conversation holds more than this is replaced before its next request: each update
+ * A Scribe whose conversation holds more than this is replaced before its next request: each update
  * needs only its brief and what is new, while a long conversation is reread (and paid for) on every
  * update.
  */
-export const WRITER_CONTEXT_LIMIT = 100_000;
+export const SCRIBE_CONTEXT_LIMIT = 100_000;
 const EXCERPT_CHARS = 280;
 const MAX_UNFILED_LISTED = 20;
 
-interface WriterRequest {
+interface ScribeRequest {
   at: number;
   kind: "backfill" | "update";
   topics: string[];
@@ -87,10 +89,12 @@ interface WriterRequest {
 export class TopicService {
   /** Per leader: the pending update timer. */
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Per leader: the request its writer has not answered with a page yet. */
-  private requested = new Map<string, WriterRequest>();
-  /** Per leader: the grouping instructions its Scribe was last told (their save time). */
-  private notesTold = new Map<string, number>();
+  /** Per leader: the request its Scribe is working on, until the turn that took it ends. */
+  private requested = new Map<string, ScribeRequest>();
+  /** Leaders whose update waited for their Scribe's turn to end; it is asked again then. */
+  private held = new Set<string>();
+  /** Per Scribe session: the save time of the grouping instructions it was told. */
+  private instructionsTold = new Map<string, number>();
   private readonly now: () => number;
 
   constructor(
@@ -116,7 +120,11 @@ export class TopicService {
       if (!threadKey.startsWith("q-")) continue;
       const topic = this.store.topicOfQuest(threadKey);
       if (!topic) continue;
-      const text = typeof message.content === "string" ? message.content : "";
+      // A comment-only message has its words in its comments.
+      const text = formatAnnotatedMessage(
+        typeof message.content === "string" ? message.content : "",
+        "annotations" in message ? message.annotations : undefined,
+      );
       this.event(topic.id, sessionId, {
         at: typeof message.timestamp === "number" ? message.timestamp : this.now(),
         kind: "message",
@@ -164,7 +172,7 @@ export class TopicService {
   }
 
   /**
-   * The user asked for a fix on a topic's page: it goes to the writer of the leader whose panel it
+   * The user asked for a fix on a topic's page: it goes to the Scribe of the leader whose panel it
    * was asked from, or else of the enabled leader with the most quests under the topic.
    */
   async feedback(topicId: string, text: string, leaderId?: string): Promise<void> {
@@ -178,17 +186,17 @@ export class TopicService {
     void this.ask(leader, { force: true, topicId: topic.id });
   }
 
-  /** The user undid a tidying change: the pages that describe it are told by the writers involved. */
+  /** The user undid a tidying change: the pages that describe it are told by the Scribes involved. */
   undone(space: string): void {
     for (const leader of this.enabledLeadersIn(space)) this.schedule(leader);
   }
 
-  /** The user changed how to group a leader's topics: its writer hears about it on the next request. */
-  notesChanged(leaderId: string): void {
+  /** The user changed how to group a leader's topics: its Scribe hears about it on the next request. */
+  instructionsChanged(leaderId: string): void {
     if (this.store.isLeaderEnabled(leaderId)) this.schedule(leaderId, 0);
   }
 
-  /** Records an event for a leader's writer and schedules its update about a minute after the first. */
+  /** Records an event for a leader's Scribe and schedules its update about a minute after the first. */
   event(topicId: string, leaderId: string, event: TopicEvent): void {
     this.store.addEvent(topicId, { ...event, leaderId });
     this.deps.broadcastChanged();
@@ -205,10 +213,10 @@ export class TopicService {
     this.timers.set(leaderId, timer);
   }
 
-  // ─── Asking the writer ────────────────────────────────────────────────────
+  // ─── Asking the Scribe ────────────────────────────────────────────────────
 
   /**
-   * Asks a leader's writer to update every topic with pending events of that leader, file its
+   * Asks a leader's Scribe to update every topic with pending events of that leader, file its
    * unfiled quests and pass on changed grouping instructions. `force` (the user's Update now or a
    * fix request) skips the pause and the budget.
    */
@@ -225,20 +233,30 @@ export class TopicService {
       .filter((entry) => entry.pending > 0);
     const folds = options.topicId ? [] : this.store.foldCandidates(leader.space);
     const unfiled = options.topicId ? [] : await this.unfiledQuests(leaderId);
-    const notes = this.store.groupingNotes(leaderId);
-    const notesChanged = !!notes && notes.updatedAt !== this.notesTold.get(leaderId);
-    if (topics.length === 0 && folds.length === 0 && unfiled.length === 0 && !notesChanged) return "nothing";
+    const instructions = this.store.scribeInstructions(leaderId);
+    // Changed instructions alone wake the current Scribe; a new Scribe gets them with its first request.
+    const current = this.store.scribeSession(leaderId);
+    const instructionsChanged =
+      !!instructions && !!current && instructions.updatedAt !== this.instructionsTold.get(current);
+    if (topics.length === 0 && folds.length === 0 && unfiled.length === 0 && !instructionsChanged) return "nothing";
     if (!options.force) {
-      if (this.store.isPaused(leaderId)) return "paused";
+      if (this.store.isScribePaused(leaderId)) return "paused";
       if (this.budget(leaderId).overBudget) return "over_budget";
       const pending = this.requested.get(leaderId);
-      if (pending && this.now() - pending.at < REQUEST_TIMEOUT_MS) return "busy";
+      if ((pending && this.now() - pending.at < REQUEST_TIMEOUT_MS) || (current && this.deps.isScribeBusy(current))) {
+        this.held.add(leaderId);
+        return "busy";
+      }
     }
-    const writer = await this.ensureWriter(leader);
+    const scribe = await this.ensureScribe(leader);
+    const tellInstructions = !!instructions && instructions.updatedAt !== this.instructionsTold.get(scribe);
     const lines = [
       `Update the topic pages for leader #${leader.sessionNum ?? "?"}.`,
-      ...(notesChanged
-        ? ["", `The user's grouping instructions changed: "${notes!.text}". Re-file or tidy where they call for it.`]
+      ...(tellInstructions
+        ? [
+            "",
+            `The user's grouping instructions changed: "${instructions!.text}". Re-file or tidy where they call for it.`,
+          ]
         : []),
       ...(topics.length
         ? [
@@ -247,7 +265,7 @@ export class TopicService {
               ({ topic, pending }) =>
                 `- "${topic.name}" (${topic.id.slice(0, 8)}): ${pending} new event${pending === 1 ? "" : "s"}${topic.upToDateAt === null ? ", no page yet" : ""}.`,
             ),
-            "Run `takode topic changes <topic>` for each.",
+            "Run `takode scribe changes <topic>` for each.",
           ]
         : []),
       ...(unfiled.length
@@ -265,27 +283,34 @@ export class TopicService {
           ]
         : []),
     ];
-    if (!this.deps.inject(writer, lines.join("\n"))) return "busy";
+    if (!this.deps.inject(scribe, lines.join("\n"))) return "busy";
     this.requested.set(leaderId, { at: this.now(), kind: "update", topics: topics.map(({ topic }) => topic.name) });
-    if (notes) this.notesTold.set(leaderId, notes.updatedAt);
+    if (instructions) this.instructionsTold.set(scribe, instructions.updatedAt);
+    this.held.delete(leaderId);
     this.deps.broadcastChanged();
     return "asked";
   }
 
-  /** A writer saved a page: it answered, so the next events may ask again. */
-  pageWritten(leaderId: string): void {
-    this.requested.delete(leaderId);
+  /** A page was saved: the panels show it. */
+  pageSaved(): void {
     this.deps.broadcastChanged();
-    // Events that arrived while the writer worked get their own update.
-    const leader = this.deps.getLeaderInfo(leaderId);
-    if (leader && this.store.list(leader.space).some((topic) => this.store.pendingEvents(topic.id, leaderId).length)) {
-      this.schedule(leaderId);
-    }
   }
 
   /**
-   * Turns topics on or off for a leader. Turning on starts its writer, which first files the
-   * leader's last month of quests; turning off archives the writer.
+   * A Scribe ended a turn: the request it took is answered, whether it wrote pages or only filed
+   * quests or tidied topics. An update held back meanwhile is asked for now (after the usual pause).
+   */
+  scribeTurnEnded(sessionId: string): void {
+    const leaderId = this.store.leaderOfScribe(sessionId);
+    if (!leaderId) return;
+    this.requested.delete(leaderId);
+    this.deps.broadcastChanged();
+    if (this.held.delete(leaderId)) this.schedule(leaderId);
+  }
+
+  /**
+   * Turns topics on or off for a leader. Turning on starts its Scribe, which first files the
+   * leader's last month of quests; turning off archives the Scribe.
    */
   async setLeaderEnabled(sessionId: string, enabled: boolean): Promise<void> {
     const leader = this.deps.getLeaderInfo(sessionId);
@@ -294,56 +319,59 @@ export class TopicService {
     const session = this.deps.getSession(sessionId);
     if (enabled && session) this.store.setCursor(sessionId, session.messageHistory.length);
     if (!enabled) {
-      const writer = this.store.writerFor(sessionId);
-      this.store.clearWriter(sessionId);
+      const scribe = this.store.scribeSession(sessionId);
+      this.store.setScribeSession(sessionId, undefined);
       this.requested.delete(sessionId);
-      if (writer && this.deps.isWriterAlive(writer)) await this.deps.retireWriter(writer);
+      this.held.delete(sessionId);
+      if (scribe && this.deps.isScribeAlive(scribe)) await this.deps.retireScribe(scribe);
     }
     await this.store.flush();
     this.deps.broadcastChanged();
     if (!enabled) return;
-    const writer = await this.ensureWriter(leader);
+    const scribe = await this.ensureScribe(leader);
     if (!needsBackfill) return;
+    const instructions = this.store.scribeInstructions(sessionId);
     const delivered = this.deps.inject(
-      writer,
+      scribe,
       [
         `Topics were turned on for your leader #${leader.sessionNum ?? "?"} "${leader.name}".`,
-        "File its quests from the last 30 days into topics (`takode topic quests --unfiled` lists them), then write each topic's page.",
+        "File its quests from the last 30 days into topics (`takode scribe quests --unfiled` lists them), then write each topic's page.",
+        ...(instructions ? ["", `The user's grouping instructions: "${instructions.text}"`] : []),
       ].join("\n"),
     );
     if (delivered) {
       this.store.markBackfilled(sessionId);
       this.requested.set(sessionId, { at: this.now(), kind: "backfill", topics: [] });
-      const notes = this.store.groupingNotes(sessionId);
-      if (notes) this.notesTold.set(sessionId, notes.updatedAt);
+      if (instructions) this.instructionsTold.set(scribe, instructions.updatedAt);
       await this.store.flush();
     }
   }
 
-  /** Archives writers of the retired one-per-space design. */
+  /** Archives page writers of the retired one-per-space design. */
   async retireLegacyWriters(): Promise<void> {
     const ids = this.store.takeLegacyWriters();
     await this.store.flush();
     for (const id of ids) {
-      if (this.deps.isWriterAlive(id)) await this.deps.retireWriter(id);
+      if (this.deps.isScribeAlive(id)) await this.deps.retireScribe(id);
     }
   }
 
-  private async ensureWriter(leader: TopicLeaderInfo): Promise<string> {
-    const existing = this.store.writerFor(leader.sessionId);
-    if (existing && this.deps.isWriterAlive(existing)) {
-      // Never replace a writer that may still be working on a request.
-      if (this.requested.has(leader.sessionId) || this.deps.writerContextTokens(existing) <= WRITER_CONTEXT_LIMIT) {
+  private async ensureScribe(leader: TopicLeaderInfo): Promise<string> {
+    const existing = this.store.scribeSession(leader.sessionId);
+    if (existing && this.deps.isScribeAlive(existing)) {
+      // Never replace a Scribe that may still be working on a request.
+      if (this.requested.has(leader.sessionId) || this.deps.scribeContextTokens(existing) <= SCRIBE_CONTEXT_LIMIT) {
         return existing;
       }
-      this.store.recordRetiredSpend(
+      this.store.recordRetiredScribeSpend(
         leader.sessionId,
         sessionSpend(this.deps.getSession(existing), this.now() - SPEND_WINDOW_MS),
       );
-      await this.deps.retireWriter(existing);
+      await this.deps.retireScribe(existing);
+      this.instructionsTold.delete(existing);
     }
-    const sessionId = await this.deps.createWriter(leader);
-    this.store.setWriter(leader.sessionId, sessionId);
+    const sessionId = await this.deps.createScribe(leader);
+    this.store.setScribeSession(leader.sessionId, sessionId);
     await this.store.flush();
     return sessionId;
   }
@@ -382,12 +410,22 @@ export class TopicService {
 
   // ─── Status, budget and leader states ─────────────────────────────────────
 
-  /** What a leader's writer is doing, in one line for the panel and `takode topic status`. */
-  async status(leaderId: string): Promise<TopicWriterStatus> {
+  /** A leader's Scribe: what it is doing and how the user set it. */
+  async overview(leaderId: string): Promise<ScribeOverview> {
+    return {
+      activity: await this.activity(leaderId),
+      paused: this.store.isScribePaused(leaderId),
+      budget: this.budget(leaderId),
+      instructions: this.store.scribeInstructions(leaderId)?.text ?? "",
+    };
+  }
+
+  /** What a leader's Scribe is doing, in one line for the panel and `takode scribe status`. */
+  async activity(leaderId: string): Promise<ScribeActivity> {
     const leader = this.deps.getLeaderInfo(leaderId);
     if (!leader || !this.store.isLeaderEnabled(leaderId)) return { state: "off", text: "Topics are off", pending: 0 };
-    const writer = this.store.writerFor(leaderId);
-    const alive = !!writer && this.deps.isWriterAlive(writer);
+    const scribe = this.store.scribeSession(leaderId);
+    const alive = !!scribe && this.deps.isScribeAlive(scribe);
     const pending = this.store
       .list(leader.space)
       .reduce((sum, topic) => sum + this.store.pendingEvents(topic.id, leaderId).length, 0);
@@ -399,7 +437,7 @@ export class TopicService {
         return written && (!latest || written > latest) ? written : latest;
       }, undefined);
     const base = {
-      ...(alive ? { writerSessionId: writer, writerSessionNum: this.deps.sessionNum(writer!) } : {}),
+      ...(alive ? { sessionId: scribe, sessionNum: this.deps.sessionNum(scribe!) } : {}),
       pending,
       ...(lastPageAt ? { lastPageAt } : {}),
     };
@@ -411,14 +449,14 @@ export class TopicService {
         return { state: "filing", text: `Filing ${done} of ${total} quests`, progress: { done, total }, ...base };
       }
     }
-    if (this.deps.isWriterBusy(writer!)) {
+    if (this.deps.isScribeBusy(scribe!)) {
       const names = request?.topics ?? [];
       const text = names.length
         ? `Updating ${names.slice(0, 2).join(", ")}${names.length > 2 ? ` and ${names.length - 2} more` : ""}…`
         : "Working…";
       return { state: "updating", text, ...base };
     }
-    if (this.store.isPaused(leaderId)) {
+    if (this.store.isScribePaused(leaderId)) {
       return { state: "paused", text: pending ? `Paused · ${pending} updates waiting` : "Paused", ...base };
     }
     if (pending && this.budget(leaderId).overBudget) {
@@ -428,14 +466,14 @@ export class TopicService {
     return { state: "idle", text: "Up to date", ...base };
   }
 
-  /** A writer's spend over the last day against a share of its leader's spend. */
+  /** A Scribe's spend over the last day against a share of its leader's spend. */
   budget(leaderId: string): { used: number; limit: number; overBudget: boolean } {
     const since = this.now() - SPEND_WINDOW_MS;
     const leaderSpend = sessionSpend(this.deps.getSession(leaderId), since);
-    const writer = this.store.writerFor(leaderId);
+    const scribe = this.store.scribeSession(leaderId);
     const used =
-      (writer ? sessionSpend(this.deps.getSession(writer), since) : 0) + this.store.retiredSpend(leaderId, since);
-    const limit = leaderSpend * STORYTELLER_BUDGET_SHARE;
+      (scribe ? sessionSpend(this.deps.getSession(scribe), since) : 0) + this.store.retiredScribeSpend(leaderId, since);
+    const limit = leaderSpend * SCRIBE_BUDGET_SHARE;
     // With no measured leader spend yet (a fresh day or backend without usage), do not block the first updates.
     return { used, limit, overBudget: limit > 0 && used > limit };
   }
@@ -515,7 +553,7 @@ function normalizeQuote(text: string): string {
 
 /**
  * Spend of a session since a time, from its turns' token usage, weighted roughly like Claude's
- * prices (cache reads cheap, output dear), so leaders and the page writer compare fairly.
+ * prices (cache reads cheap, output dear), so leaders and Scribes compare fairly.
  */
 export function sessionSpend(session: TopicSessionLike | undefined, since: number): number {
   if (!session) return 0;
@@ -553,4 +591,13 @@ export function weightedTokens(usage: Usage): number {
 function excerpt(text: string, limit = EXCERPT_CHARS): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > limit ? `${clean.slice(0, limit - 1).trimEnd()}…` : clean;
+}
+
+/** A history message's text: a user message with its comments, or an answer's text blocks. */
+export function historyMessageText(message: BrowserIncomingMessage): string {
+  if (message.type === "user_message") {
+    return formatAnnotatedMessage(typeof message.content === "string" ? message.content : "", message.annotations);
+  }
+  if (message.type !== "assistant") return "";
+  return (message.message?.content ?? []).map((block) => (block.type === "text" ? block.text : "")).join("\n");
 }

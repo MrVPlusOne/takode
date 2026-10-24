@@ -4,7 +4,7 @@
  * failed, asked something, changed its quest, answered a leader or user message,
  * or leaves nothing to resume the worker still reaches the leader.
  *
- * A Scribe (a leader's topics writer) is quiet by default: its turns need no marker,
+ * A Scribe (the agent that keeps a leader's topic pages) is quiet by default: its turns need no marker,
  * Takode resumes it with its next request, and a routine turn is dropped rather than
  * held, so the leader hears from it only when it failed, asked, or answered the leader.
  */

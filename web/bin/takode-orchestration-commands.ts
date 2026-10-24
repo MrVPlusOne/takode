@@ -944,7 +944,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   }
   if (herdWarning) {
     console.log(
-      `\n\u26a0 Worker slots used: ${herdWarning.workerSlotsUsed}/${herdWarning.limit}. Please archive ${herdWarning.excessWorkers} worker session${herdWarning.excessWorkers === 1 ? "" : "s"} least likely to be reused. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity. Archived sessions' history remains readable via takode peek/read.`,
+      `\n\u26a0 Worker slots used: ${herdWarning.workerSlotsUsed}/${herdWarning.limit}. Please archive ${herdWarning.excessWorkers} worker session${herdWarning.excessWorkers === 1 ? "" : "s"} least likely to be reused. Reviewers and Scribes do not use worker slots, and archiving them will not free worker-slot capacity; a Scribe is never reused for quest work. Archived sessions' history remains readable via takode peek/read.`,
     );
   }
 }

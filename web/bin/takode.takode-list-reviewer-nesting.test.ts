@@ -230,7 +230,9 @@ describe("takode list reviewer nesting", () => {
     }
   });
 
-  it("shows worker-slot usage separately from the raw session total", async () => {
+  // A Scribe is in the herd but is not a worker: it is labelled so the leader doesn't reuse it for
+  // quest work, counted on its own, and left out of worker-slot usage like reviewers.
+  it("shows worker-slot usage separately from the raw session total, with the Scribe labelled", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
@@ -296,6 +298,19 @@ describe("takode list reviewer nesting", () => {
               cliConnected: true,
               herdedBy: "leader-slot-summary",
             },
+            {
+              sessionId: "scribe-a",
+              sessionNum: 13,
+              name: "Scribe",
+              state: "idle",
+              archived: false,
+              cwd: "/home/user",
+              createdAt: Date.now() - 15_000,
+              lastActivityAt: Date.now() - 9_000,
+              cliConnected: true,
+              herdedBy: "leader-slot-summary",
+              scribeFor: "leader-slot-summary",
+            },
           ]),
         );
         return;
@@ -317,9 +332,10 @@ describe("takode list reviewer nesting", () => {
       });
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("3 session(s) shown (2 workers, 1 reviewer)");
+      expect(result.stdout).toContain("4 session(s) shown (2 workers, 1 reviewer, 1 scribe)");
+      expect(result.stdout).toMatch(/#13 +○ Scribe \[scribe: keeps topic pages, not for quest work\]/);
       expect(result.stdout).toContain(
-        "Worker slots used: 2/8. Reviewers do not use worker slots, and archiving reviewers will not free worker-slot capacity.",
+        "Worker slots used: 2/8. Reviewers and Scribes do not use worker slots, and archiving them will not free worker-slot capacity.",
       );
     } finally {
       server.close();

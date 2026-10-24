@@ -8,8 +8,9 @@ import { TopicStore, pageSummary } from "./topic-store.js";
 import {
   TopicService,
   TOPIC_UPDATE_DELAY_MS,
-  WRITER_CONTEXT_LIMIT,
+  SCRIBE_CONTEXT_LIMIT,
   sessionSpend,
+  historyMessageText,
   type TopicSessionLike,
 } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS } from "../shared/library-topics.js";
@@ -17,26 +18,32 @@ import { TOPIC_TENTATIVE_MS } from "../shared/library-topics.js";
 /**
  * Library topics on disposable state: filing quests under topics in the user's words, tentative
  * topics, renames that never touch a name the user chose, merges and moves with Undo, and the
- * page writer being asked about a minute after events, within its budget and not while paused.
+ * leader's Scribe being asked about a minute after events, within its budget and not while paused.
  */
 
 const NOW = Date.UTC(2026, 9, 23, 19, 0);
 const DAY = 24 * 60 * 60 * 1000;
 let root: string;
 let now = NOW;
+/** Stores made by the current test: the service saves in the background, so they settle first. */
+let stores: TopicStore[] = [];
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "library-topics-"));
   now = NOW;
+  stores = [];
 });
 
 afterEach(async () => {
   vi.useRealTimers();
+  // Removing the folder while a background save writes into it fails the removal now and then.
+  await Promise.all(stores.map((store) => store.flush()));
   await rm(root, { recursive: true, force: true });
 });
 
 async function newStore() {
   const store = new TopicStore(root, () => now);
+  stores.push(store);
   await store.load();
   return store;
 }
@@ -97,7 +104,7 @@ describe("topic store", () => {
     now += 1000;
     store.undo(fold.id);
     expect(store.topicOfQuest("q-2")?.name).toBe("256K twin");
-    // The page writer may not fold it again, and it is no longer offered for folding; the user still can.
+    // A Scribe may not fold it again, and it is no longer offered for folding; the user still can.
     expect(() => store.merge(twin.id, t7.id, true, "Folded")).toThrow(/undid/);
     now += TOPIC_TENTATIVE_MS + 1;
     expect(store.foldCandidates("MSI").map((topic) => topic.name)).not.toContain("256K twin");
@@ -213,16 +220,16 @@ async function setupService() {
       injected.push({ sessionId, text });
       return true;
     },
-    createWriter: async (info) => {
+    createScribe: async (info) => {
       const id = `scribe-${info.sessionId}-${created.length + 1}`;
       created.push(id);
       sessions.set(id, { id, messageHistory: [], state: {} });
       return id;
     },
-    isWriterAlive: (id) => sessions.has(id),
-    isWriterBusy: (id) => busy.has(id),
-    writerContextTokens: (id) => contextTokens.get(id) ?? 0,
-    retireWriter: async (id) => {
+    isScribeAlive: (id) => sessions.has(id),
+    isScribeBusy: (id) => busy.has(id),
+    scribeContextTokens: (id) => contextTokens.get(id) ?? 0,
+    retireScribe: async (id) => {
       retired.push(id);
       sessions.delete(id);
     },
@@ -236,8 +243,9 @@ async function setupService() {
 /** Turns topics on for a leader and settles its first filing, so later tests start from quiet. */
 async function enable(service: TopicService, store: TopicStore, leaderId: string) {
   await service.setLeaderEnabled(leaderId, true);
-  service.pageWritten(leaderId);
-  return store.writerFor(leaderId)!;
+  const scribe = store.scribeSession(leaderId)!;
+  service.scribeTurnEnded(scribe);
+  return scribe;
 }
 
 describe("topic service", () => {
@@ -248,12 +256,12 @@ describe("topic service", () => {
     await service.setLeaderEnabled("leader", true);
     expect(created).toEqual(["scribe-leader-1"]);
     expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1"]);
-    expect(injected[0].text).toContain("takode topic quests --unfiled");
+    expect(injected[0].text).toContain("takode scribe quests --unfiled");
 
     // Off archives the Scribe; on again starts a new one, which files what is still unfiled.
     await service.setLeaderEnabled("leader", false);
     expect(retired).toEqual(["scribe-leader-1"]);
-    expect(store.writerFor("leader")).toBeUndefined();
+    expect(store.scribeSession("leader")).toBeUndefined();
     await service.setLeaderEnabled("leader", true);
     expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
     expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1", "scribe-leader-2"]);
@@ -281,7 +289,7 @@ describe("topic service", () => {
     await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
     expect(injected.map((message) => message.sessionId)).toEqual([scribe]);
     expect(injected[0].text).toContain('"T7 run"');
-    expect(injected[0].text).toContain("takode topic changes");
+    expect(injected[0].text).toContain("takode scribe changes");
     const topic = store.findByName("MSI", "T7 run")!;
     expect(store.pendingEvents(topic.id, "leader").map((event) => event.text)).toEqual(
       expect.arrayContaining(["Keep 0.02, launch now", "Also redo the plots by data"]),
@@ -331,12 +339,67 @@ describe("topic service", () => {
       leaderSessionId: "leader",
       status: "refined",
     });
-    store.setGroupingNotes("leader", "One topic per training run.");
-    service.notesChanged("leader");
+    store.setScribeInstructions("leader", "One topic per training run.");
+    service.instructionsChanged("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
     expect(injected[0].text).toContain('grouping instructions changed: "One topic per training run."');
     expect(injected[0].text).toContain("- q-90 Check the twin");
+  });
+
+  it("counts a request answered when the Scribe's turn ends, even with no page written", async () => {
+    // A turn that only files quests or folds topics writes no page; events that came in meanwhile
+    // must still reach the Scribe, and the status must not wait for a page that never comes.
+    const { service, injected, store, busy } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    injected.length = 0;
+    expect(await service.ask("leader")).toBe("asked");
+    busy.add(scribe);
+
+    // An event while the Scribe works on that request waits for its turn to end.
+    service.event(topic.id, "leader", { at: Date.now(), kind: "message", text: "Launch it" });
+    await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
+    expect(injected).toHaveLength(1);
+
+    // The turn ends without a page: the held update goes out after the usual pause.
+    busy.delete(scribe);
+    service.scribeTurnEnded(scribe);
+    expect((await service.activity("leader")).state).toBe("waiting");
+    await vi.advanceTimersByTimeAsync(TOPIC_UPDATE_DELAY_MS);
+    expect(injected).toHaveLength(2);
+    expect(injected[1].text).toContain('"T7 run"');
+  });
+
+  it("tells a replacement Scribe the grouping instructions its predecessor was told", async () => {
+    const { service, injected, store, contextTokens } = await setupService();
+    const first = await enable(service, store, "leader");
+    store.setScribeInstructions("leader", "One topic per training run.");
+    service.instructionsChanged("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.at(-1)).toMatchObject({
+      sessionId: first,
+      text: expect.stringContaining("One topic per training run."),
+    });
+    service.scribeTurnEnded(first);
+
+    // The first Scribe grew too long and is replaced before the next request; the new one is told.
+    contextTokens.set(first, SCRIBE_CONTEXT_LIMIT + 1);
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    expect(await service.ask("leader")).toBe("asked");
+    const second = store.scribeSession("leader")!;
+    expect(second).not.toBe(first);
+    expect(injected.at(-1)).toMatchObject({
+      sessionId: second,
+      text: expect.stringContaining('grouping instructions changed: "One topic per training run."'),
+    });
   });
 
   it("waits while paused or over budget, and Update now goes through anyway", async () => {
@@ -352,9 +415,9 @@ describe("topic service", () => {
       leaderId: "leader",
     });
 
-    store.setPaused("leader", true);
+    store.setScribePaused("leader", true);
     expect(await service.ask("leader")).toBe("paused");
-    store.setPaused("leader", false);
+    store.setScribePaused("leader", false);
 
     // The Scribe spent more than a tenth of what its leader spent today.
     sessions.get("leader")!.messageHistory.push(...turn(Date.now(), 1000));
@@ -377,13 +440,13 @@ describe("topic service", () => {
       leaderId: "leader",
     });
     // The filing request is still open: a fix request goes to the same Scribe.
-    contextTokens.set("scribe-leader-1", WRITER_CONTEXT_LIMIT + 1);
+    contextTokens.set("scribe-leader-1", SCRIBE_CONTEXT_LIMIT + 1);
     sessions.get("scribe-leader-1")!.messageHistory.push(...turn(Date.now(), 200));
     expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
     expect(retired).toEqual([]);
 
-    // Once it has written, the next request starts a fresh Scribe.
-    service.pageWritten("leader");
+    // Once its turn is over, the next request starts a fresh Scribe.
+    service.scribeTurnEnded("scribe-leader-1");
     expect(await service.ask("leader", { force: true, topicId: topic.id })).toBe("asked");
     expect(retired).toEqual(["scribe-leader-1"]);
     expect(created.at(-1)).toBe("scribe-leader-2");
@@ -398,25 +461,42 @@ describe("topic service", () => {
       { questId: "q-91", title: "A", createdAt: NOW, leaderSessionId: "leader", status: "done" },
       { questId: "q-92", title: "B", createdAt: NOW, leaderSessionId: "leader", status: "done" },
     );
-    expect((await service.status("leader")).state).toBe("off");
+    expect((await service.activity("leader")).state).toBe("off");
     await service.setLeaderEnabled("leader", true);
     store.assign({ questId: "q-91", space: "MSI", name: "Runs", by: "agent", byAgent: false, leaderId: "leader" });
-    expect(await service.status("leader")).toMatchObject({
+    expect(await service.activity("leader")).toMatchObject({
       state: "filing",
       text: "Filing 1 of 2 quests",
-      writerSessionId: "scribe-leader-1",
+      sessionId: "scribe-leader-1",
     });
-    service.pageWritten("leader");
+    service.scribeTurnEnded("scribe-leader-1");
     busy.add("scribe-leader-1");
     await service.ask("leader", { force: true });
-    expect((await service.status("leader")).text).toBe("Updating Runs…");
+    expect((await service.activity("leader")).text).toBe("Updating Runs…");
     busy.clear();
-    service.pageWritten("leader");
-    expect(await service.status("leader")).toMatchObject({ state: "waiting", pending: 1 });
+    service.scribeTurnEnded("scribe-leader-1");
+    expect(await service.activity("leader")).toMatchObject({ state: "waiting", pending: 1 });
     store.writePage(store.findByName("MSI", "Runs")!.id, "## Where it stands\nOk.", Date.now(), {
       leaderId: "leader",
     });
-    expect(await service.status("leader")).toMatchObject({ state: "idle", text: "Up to date" });
+    expect(await service.activity("leader")).toMatchObject({ state: "idle", text: "Up to date" });
+  });
+
+  it("reads a comment-only message's words from its comments, for events and the quote check", async () => {
+    // A user can answer only with comments on passages; the message's own content is then empty.
+    const message = {
+      ...userMessage("", "q-2713", NOW),
+      annotations: [{ id: "a1", selectedText: "ready to launch", comment: "Okay, let's launch it once merged." }],
+    } as unknown as BrowserIncomingMessage;
+    expect(historyMessageText(message)).toContain("[comment 1] Okay, let's launch it once merged.");
+
+    const { service, store, leader } = await setupService();
+    await enable(service, store, "leader");
+    store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    leader.messageHistory.push(message);
+    service.sessionSaved("leader");
+    const topic = store.findByName("MSI", "T7 run")!;
+    expect(store.pendingEvents(topic.id, "leader").at(-1)?.text).toContain("Okay, let's launch it once merged.");
   });
 
   it("checks that quoted decisions appear in the messages they link to", async () => {

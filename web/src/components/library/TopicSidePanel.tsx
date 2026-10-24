@@ -14,7 +14,7 @@ import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow, TopicView } from "./TopicPage.js";
 import { navigateToSession } from "../../utils/routing.js";
-import type { TopicWriterStatus } from "../../../shared/library-topics.js";
+import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, TopicIcon } from "./library-icons.js";
 
 const REFRESH_MS = 20_000;
@@ -120,7 +120,7 @@ export function TopicSidePanel({
           {collapses ? <CollapseIcon className="h-4 w-4" /> : "✕"}
         </button>
       </div>
-      {data?.writer && data.writer.state !== "off" && <ScribeStatusLine status={data.writer} />}
+      {data?.scribe && data.scribe.activity.state !== "off" && <ScribeStatusLine activity={data.scribe.activity} />}
       {error && <div className="px-3 py-2 text-[13px] text-cc-error">{error}</div>}
       {data && <RenameSuggestions data={data} act={act} />}
       {shown ? (
@@ -251,14 +251,14 @@ function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: strin
  * What the leader's Scribe is doing, live: "Filing 120 of 336 quests", "Updating T7 run…", "Up to
  * date". Tapping Scribe opens its session.
  */
-function ScribeStatusLine({ status }: { status: TopicWriterStatus }) {
-  const busy = status.state === "filing" || status.state === "updating" || status.state === "starting";
-  const quiet = status.state === "paused" || status.state === "over_budget";
+function ScribeStatusLine({ activity }: { activity: ScribeActivity }) {
+  const busy = activity.state === "filing" || activity.state === "updating" || activity.state === "starting";
+  const quiet = activity.state === "paused" || activity.state === "over_budget";
   return (
     <div
       className="flex shrink-0 items-center gap-2 border-b border-cc-border px-3 py-1.5 text-[12.5px] text-cc-muted"
       data-testid="scribe-status"
-      data-state={status.state}
+      data-state={activity.state}
     >
       <span
         aria-hidden="true"
@@ -267,25 +267,25 @@ function ScribeStatusLine({ status }: { status: TopicWriterStatus }) {
         }`}
       />
       <span className="min-w-0 flex-1 truncate">
-        {status.writerSessionId ? (
+        {activity.sessionId ? (
           <button
             type="button"
-            onClick={() => navigateToSession(status.writerSessionId!)}
+            onClick={() => navigateToSession(activity.sessionId!)}
             className="text-cc-primary hover:underline"
             title="Open the Scribe's session"
           >
-            Scribe{status.writerSessionNum != null ? ` #${status.writerSessionNum}` : ""}
+            Scribe{activity.sessionNum != null ? ` #${activity.sessionNum}` : ""}
           </button>
         ) : (
           "Scribe"
         )}{" "}
-        · <span className="text-cc-fg">{status.text}</span>
+        · <span className="text-cc-fg">{activity.text}</span>
       </span>
-      {status.progress && status.progress.total > 0 && (
+      {activity.progress && activity.progress.total > 0 && (
         <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-cc-border" aria-hidden="true">
           <span
             className="block h-full bg-cc-primary"
-            style={{ width: `${Math.round((100 * status.progress.done) / status.progress.total)}%` }}
+            style={{ width: `${Math.round((100 * activity.progress.done) / activity.progress.total)}%` }}
           />
         </span>
       )}

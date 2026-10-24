@@ -1568,6 +1568,16 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (targetMode === "proposed" && typeof body.worker === "string" && body.worker.trim()) {
       return c.json({ error: "Proposed Journey rows cannot be assigned to a worker yet." }, 400);
     }
+    if (typeof body.worker === "string" && body.worker.trim()) {
+      const assigned = boardWatchdogDeps.getLauncherSessionInfo(resolveId(body.worker.trim()) ?? body.worker.trim());
+      if (assigned?.scribeFor) {
+        const label = typeof body.workerNum === "number" ? `#${body.workerNum}` : "This session";
+        return c.json(
+          { error: `${label} is a Scribe: it keeps its leader's topic pages and cannot take quest work.` },
+          403,
+        );
+      }
+    }
     if (targetMode === "proposed" && waitFor && waitFor.length > 0) {
       return c.json(
         {

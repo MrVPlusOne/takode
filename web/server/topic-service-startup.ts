@@ -7,11 +7,10 @@ import { addSessionSaveListener } from "./artifact-library.js";
 import { archiveLibrarySession, createLibrarySession } from "./library-session-creator.js";
 import { resolveResultContextWindow } from "./bridge/context-usage.js";
 import { setTopicService } from "./routes/topics.js";
-import { TopicService, type TopicLeaderInfo, type TopicSessionLike } from "./topic-service.js";
+import { TopicService, historyMessageText, type TopicLeaderInfo, type TopicSessionLike } from "./topic-service.js";
 import { TopicStore } from "./topic-store.js";
-import { setScribeLookup } from "./scribe-registry.js";
+import { setScribeHooks } from "./scribe-registry.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../shared/library-topics.js";
-import type { BrowserIncomingMessage } from "./session-types.js";
 
 /**
  * Starts the Library's topics: loads the store beside the artifact library, reads saved sessions
@@ -56,7 +55,7 @@ export async function startLibraryTopics(input: {
       if (!info) return undefined;
       return info.isOrchestrator ? sessionId : info.herdedBy;
     },
-    createWriter: async (leader) => {
+    createScribe: async (leader) => {
       const leaderState = wsBridge.getSession(leader.sessionId)?.state;
       const { sessionId } = await createLibrarySession(
         {
@@ -75,11 +74,11 @@ export async function startLibraryTopics(input: {
       if (bridgeSession) bridgeSession.pendingStartupMemoryCatalogInjection = false;
       return sessionId;
     },
-    isWriterAlive: (sessionId) => {
+    isScribeAlive: (sessionId) => {
       const info = launcher.getSession(sessionId);
       return !!info && !info.archived;
     },
-    writerContextTokens: (sessionId) => {
+    scribeContextTokens: (sessionId) => {
       const session = wsBridge.getSession(sessionId);
       if (!session) return 0;
       const result = session.messageHistory.findLast((message) => message.type === "result");
@@ -88,8 +87,8 @@ export async function startLibraryTopics(input: {
         200_000;
       return ((session.state.context_used_percent ?? 0) / 100) * window;
     },
-    isWriterBusy: (sessionId) => wsBridge.getSession(sessionId)?.isGenerating === true,
-    retireWriter: (sessionId) => archiveLibrarySession(sessionId),
+    isScribeBusy: (sessionId) => wsBridge.getSession(sessionId)?.isGenerating === true,
+    retireScribe: (sessionId) => archiveLibrarySession(sessionId),
     messageText: (sessionNum, index) => {
       const sessionId = launcher.resolveSessionId(String(sessionNum));
       const message = sessionId ? wsBridge.getSession(sessionId)?.messageHistory[index] : undefined;
@@ -98,16 +97,12 @@ export async function startLibraryTopics(input: {
     broadcastChanged: () => {},
   });
   await service.store.load();
-  setScribeLookup((sessionId) => !!launcher.getSession(sessionId)?.scribeFor);
+  setScribeHooks({
+    isScribe: (sessionId) => !!launcher.getSession(sessionId)?.scribeFor,
+    turnEnded: (sessionId) => service.scribeTurnEnded(sessionId),
+  });
   launcher.scribeLeaderName = (leaderId) => input.sessionName(leaderId);
   setTopicService(service);
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;
-}
-
-/** A history message's text: a user message's content, or an answer's text blocks. */
-function historyMessageText(message: BrowserIncomingMessage): string {
-  if (message.type === "user_message") return typeof message.content === "string" ? message.content : "";
-  if (message.type !== "assistant") return "";
-  return (message.message?.content ?? []).map((block) => (block.type === "text" ? block.text : "")).join("\n");
 }
