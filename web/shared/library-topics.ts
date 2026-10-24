@@ -28,7 +28,7 @@ export interface TopicSummary {
 
 export interface TopicEvent {
   at: number;
-  kind: "quest_filed" | "quest_done" | "message" | "artifact" | "feedback";
+  kind: "quest_filed" | "quest_done" | "message" | "artifact" | "undone";
   /** The leader whose activity it came from; its Scribe handles it. */
   leaderId?: string;
   /** Made by a Scribe's own filing or tidying: it needs a page update but is not news to Scribes. */
@@ -45,6 +45,8 @@ export interface TopicEvent {
 export interface TopicDetail extends TopicSummary {
   aliases: string[];
   page: string | null;
+  /** When the page was last saved. */
+  writtenAt: number | null;
   events: TopicEvent[];
   /** Titles and states of the topic's quests, when the server includes them. */
   quests?: Array<{ questId: string; title: string; status: string }>;

@@ -193,7 +193,7 @@ takode search jwt --all
 
 ### Library topics and artifacts
 
-When the user turned Library topics on for you (`quest create` then reminds you to file quests with `--topic`), file each quest under the subject the user would look for later, in their words, reusing an existing topic when one fits (`takode topic list`). Before answering a question about a past subject ("remind me what we decided about X"), read its page with `takode topic show <topic>`, then the linked messages for detail. `takode artifact list` / `show` find drafts, reports and figures made earlier, with their versions.
+When the user turned Library topics on for you (`quest create` then reminds you to file quests with `--topic`), file each quest under the subject the user would look for later, in their words, reusing an existing topic when one fits (`takode topic list`). Before answering a question about a past subject ("remind me what we decided about X"), read its page with `takode topic show <topic>`, then the linked messages for detail. `takode artifact list` / `show` find drafts, reports and figures made earlier, with their versions. When the user asks, `takode topic on|off [--leader <session>]` turns topics on or off for a leader.
 
 #### Scribes
 

@@ -12,12 +12,15 @@ interface LibraryNavState {
   version: number | null;
   /** The leader whose artifacts are shown (what it and its workers made); null for a space or all. */
   leaderId: string | null;
+  /** A topic whose artifacts to show, set when the gallery is opened from a topic page; read once. */
+  topic: { id: string; name: string; questIds: string[] } | null;
 }
 
 export const useLibraryNav = create<LibraryNavState>(() => ({
   artifactId: null,
   version: null,
   leaderId: null,
+  topic: null,
 }));
 
 export function openLibraryArtifact(artifactId: string, version?: number): void {
@@ -32,6 +35,15 @@ export function showLibraryArtifact(artifactId: string | null, version?: number)
 /** Opens the gallery of what a leader and its workers made. */
 export function openLeaderLibrary(leaderId: string): void {
   useLibraryNav.setState({ leaderId, artifactId: null, version: null });
+  openSecondaryPage("library");
+}
+
+/** Opens the gallery on everything made in a topic's quests (all kinds). */
+export function openTopicLibrary(
+  leaderId: string | null,
+  topic: { id: string; name: string; questIds: string[] },
+): void {
+  useLibraryNav.setState({ leaderId, topic, artifactId: null, version: null });
   openSecondaryPage("library");
 }
 

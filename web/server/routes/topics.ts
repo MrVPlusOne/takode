@@ -235,7 +235,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     run(c, async (svc) => {
       const body = await c.req.json().catch(() => ({}));
       const sessionId = ctx.resolveId(c.req.param("sessionId"));
-      if (!sessionId || typeof body.enabled !== "boolean") throw new TopicStoreError("Name a leader and enabled.");
+      if (!sessionId) throw new TopicStoreError(`No session ${c.req.param("sessionId")}.`, 404);
+      if (typeof body.enabled !== "boolean") throw new TopicStoreError("Send enabled: true or false.");
       await svc.setLeaderEnabled(sessionId, body.enabled);
       return { enabled: svc.store.isLeaderEnabled(sessionId) };
     }),
@@ -408,18 +409,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
       if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should update it.");
       return { result: await svc.requestUpdate(leaderId, topic.id) };
-    }),
-  );
-
-  /** The user's fix for a page goes to a Scribe: of the panel's leader when named. */
-  api.post("/topics/:id/feedback", (c) =>
-    run(c, async (svc) => {
-      const topic = topicFor(svc, c, c.req.param("id"));
-      const body = await c.req.json().catch(() => ({}));
-      if (typeof body.text !== "string" || !body.text.trim()) throw new TopicStoreError("Write what to fix.");
-      const leaderId = typeof body.leader === "string" ? (ctx.resolveId(body.leader) ?? undefined) : undefined;
-      await svc.feedback(topic.id, body.text.trim(), leaderId);
-      return { ok: true };
     }),
   );
 

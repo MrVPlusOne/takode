@@ -35,12 +35,6 @@ export const topicApi = {
   /** Asks the Scribe of the leader whose panel this is to update the page now. */
   updateNow: (id: string, leader?: string | null) =>
     request<{ result: string }>(`${topicPath(id)}/update`, { method: "POST", body: leader ? { leader } : {} }),
-  /** A fix for the page, for the Scribe of the panel's leader. */
-  feedback: (id: string, text: string, leader?: string | null) =>
-    request<{ ok: true }>(`${topicPath(id)}/feedback`, {
-      method: "POST",
-      body: { text, ...(leader ? { leader } : {}) },
-    }),
   answerSuggestion: (suggestionId: string, accept: boolean) =>
     request<unknown>(`/topics/suggestions/${encodeURIComponent(suggestionId)}`, { method: "POST", body: { accept } }),
   /** The user's instructions for how the leader's Scribe groups topics. */

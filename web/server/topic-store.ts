@@ -94,6 +94,8 @@ interface StoredScribe {
   questsTold?: string[];
   /** Save time of the grouping instructions this Scribe session was sent. */
   instructionsSentAt?: number;
+  /** The page format the Scribe last wrote its pages in (it is asked once to rewrite older ones). */
+  pageFormat?: number;
 }
 
 export interface ScribeInstructions {
@@ -231,6 +233,15 @@ export class TopicStore {
 
   questsTold(leaderId: string): ReadonlySet<string> {
     return new Set(this.s().scribes?.[leaderId]?.questsTold ?? []);
+  }
+
+  pageFormat(leaderId: string): number {
+    return this.s().scribes?.[leaderId]?.pageFormat ?? 1;
+  }
+
+  setPageFormat(leaderId: string, format: number): void {
+    this.scribeRecord(leaderId).pageFormat = format;
+    this.dirty = true;
   }
 
   /** Whether the Scribe session has been sent the current grouping instructions. */
@@ -538,7 +549,7 @@ export class TopicStore {
     }
     for (const topicId of affected) {
       if (this.s().topics[topicId]?.page) {
-        this.addEvent(topicId, { at: this.now(), kind: "feedback", text: `The user undid: ${change.text}` });
+        this.addEvent(topicId, { at: this.now(), kind: "undone", text: `The user undid: ${change.text}` });
       }
     }
     change.undone = true;
@@ -645,7 +656,13 @@ export class TopicStore {
 
   detail(topicId: string): TopicDetail {
     const topic = this.require(topicId);
-    return { ...this.summary(topic), aliases: [...topic.aliases], page: topic.page, events: [...topic.events] };
+    return {
+      ...this.summary(topic),
+      aliases: [...topic.aliases],
+      page: topic.page,
+      writtenAt: topic.writtenAt ?? null,
+      events: [...topic.events],
+    };
   }
 
   changes(space?: string, limit = 20): TopicChange[] {
@@ -797,11 +814,19 @@ function publicChange(change: StoredChange): TopicChange {
   return rest;
 }
 
-/** The first paragraph of the page's "Where it stands" section, or of the page. */
+/** The page's one-sentence lead (text before its first heading), else "Where it stands", else its first paragraph. */
 export function pageSummary(page: string | null): string {
   if (!page) return "";
+  // The page opens with its one-sentence summary; older pages lead with "Where it stands".
+  const lead = page.startsWith("#")
+    ? ""
+    : page
+        .split(/\n#/)[0]!
+        .trim()
+        .split(/\n\s*\n/)[0]!;
   const section = /^#+\s*where it stands\s*\n+([\s\S]*?)(?:\n#|\n\s*\n|$)/im.exec(page);
   const text =
+    (lead || undefined) ??
     section?.[1] ??
     page
       .replace(/^#.*$/gm, "")

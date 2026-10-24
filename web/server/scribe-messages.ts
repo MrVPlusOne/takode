@@ -23,8 +23,10 @@ export interface UpdateContent {
   unsorted: Array<{ questId: string; title: string }>;
   /** The user's grouping instructions, when they changed since this Scribe was last told. */
   instructions?: string;
-  /** Topics the user asked to have updated now (Update now or a fix request). */
+  /** Topics the user asked to update now (Update now). */
   forced: string[];
+  /** The page format changed since the Scribe wrote its pages: rewrite them all, once. */
+  rewritePages?: boolean;
 }
 
 const MAX_EVENTS_PER_TOPIC = 8;
@@ -43,9 +45,15 @@ export function updateMessage(
   content: UpdateContent,
   sessionNum: (sessionId: string) => number | null,
 ): string | null {
-  const { topics, unsorted, instructions, forced } = content;
-  if (!topics.length && !unsorted.length && !instructions && !forced.length) return null;
+  const { topics, unsorted, instructions, forced, rewritePages } = content;
+  if (!topics.length && !unsorted.length && !instructions && !forced.length && !rewritePages) return null;
   const lines = [`What changed for your leader ${label(leader)} since my last message:`];
+  if (rewritePages) {
+    lines.push(
+      "",
+      "The page format in your brief changed. Rewrite each page of your leader's topics in the current format (`takode topic list` lists them), keeping what is still true.",
+    );
+  }
   if (instructions) lines.push("", `The user's grouping instructions changed: "${instructions}"`);
   if (forced.length) lines.push("", `The user asked to update now: ${forced.map((name) => `"${name}"`).join(", ")}`);
   for (const topic of topics) {
@@ -108,8 +116,8 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
       return `${time} · ${quest} finished: ${text}`;
     case "artifact":
       return `${time} · ${text} was saved in ${quest}`;
-    case "feedback":
-      return text.startsWith("The user undid") ? `${time} · ${text}` : `${time} · the user asked for a fix: "${text}"`;
+    case "undone":
+      return `${time} · ${text}`;
   }
 }
 

@@ -1,0 +1,313 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ArtifactSummary } from "../../../shared/artifact-library.js";
+import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.js";
+import { artifactApi } from "../../api/artifacts.js";
+import { topicApi } from "../../api/topics.js";
+import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.js";
+import { MarkdownContent } from "../MarkdownContent.js";
+import { ArtifactCard } from "./ArtifactThumbnail.js";
+
+/**
+ * A topic's page, for deciding what to do next and seeing what happened lately. From the top: the
+ * name with its one-sentence summary, the topic's quests still open (live), the Scribe's page (Now,
+ * then Recent, newest first), and the newest artifacts with a link to all of them in the gallery. Rename and merge sit in a menu; corrections go through the leader.
+ */
+
+const REFRESH_MS = 20_000;
+const ARTIFACTS_SHOWN = 3;
+
+export function TopicView({
+  id,
+  topics,
+  onBack,
+  onChanged,
+  embedded = false,
+  leaderId,
+}: {
+  id: string;
+  topics: TopicSummary[];
+  onBack: () => void;
+  onChanged: () => void;
+  /** Inside the topic side panel, which has its own header and back button. */
+  embedded?: boolean;
+  /** The leader whose panel shows the page: Update now goes to its Scribe, the gallery is its own. */
+  leaderId?: string;
+}) {
+  const [detail, setDetail] = useState<TopicDetail | null>(null);
+  const [artifacts, setArtifacts] = useState<{ items: ArtifactSummary[]; total: number }>({ items: [], total: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const loadedFor = useRef<string | null>(null);
+
+  const load = useCallback(() => {
+    topicApi
+      .get(id)
+      .then((next) => {
+        setDetail(next);
+        setError(null);
+        if (!next.questIds.length) return setArtifacts({ items: [], total: 0 });
+        return artifactApi
+          .list({ threads: next.questIds, limit: ARTIFACTS_SHOWN })
+          .then((list) => setArtifacts({ items: list.artifacts, total: list.total }));
+      })
+      .catch((reason: Error) => setError(reason.message));
+  }, [id]);
+
+  useEffect(() => {
+    if (loadedFor.current !== id) {
+      setDetail(null);
+      setNotice(null);
+      loadedFor.current = id;
+    }
+    load();
+    const timer = setInterval(load, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [id, load]);
+
+  const act = (action: Promise<unknown>, message?: string) =>
+    void action
+      .then(() => {
+        if (message) setNotice(message);
+        load();
+        onChanged();
+      })
+      .catch((reason: Error) => setError(reason.message));
+
+  if (!detail) {
+    return (
+      <TopicFrame onBack={onBack} embedded={embedded}>
+        <p className="p-4 text-[13px] text-cc-muted">{error ?? "Loading…"}</p>
+      </TopicFrame>
+    );
+  }
+  const { lead, body } = splitPage(detail.page);
+  const open = (detail.quests ?? []).filter((quest) => quest.status !== "done");
+  return (
+    <TopicFrame onBack={onBack} embedded={embedded}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-3 [&>*]:max-w-3xl" data-testid="topic-view">
+        <TopicHeader detail={detail} others={topics.filter((topic) => topic.id !== detail.id)} act={act} />
+        {lead && (
+          <p className="mt-1 text-[14px] leading-snug text-cc-muted" data-testid="topic-lead">
+            {plainText(lead)}
+          </p>
+        )}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-cc-muted">
+          <span>
+            {detail.questIds.length} quest{detail.questIds.length === 1 ? "" : "s"}
+            {detail.writtenAt ? ` · page updated ${clock(detail.writtenAt)}` : ""}
+          </span>
+          {detail.pendingEvents > 0 && (
+            <span>
+              · {detail.pendingEvents} new event{detail.pendingEvents === 1 ? "" : "s"} ·{" "}
+              <button
+                type="button"
+                onClick={() => act(topicApi.updateNow(detail.id, leaderId), "Updating the page…")}
+                className="text-cc-primary hover:underline"
+              >
+                Update now
+              </button>
+            </span>
+          )}
+        </div>
+        {notice && <div className="mt-1 text-[13px] text-cc-muted">{notice}</div>}
+        {error && <div className="mt-1 text-[13px] text-cc-error">{error}</div>}
+
+        {open.length > 0 && (
+          <section className="mt-4" data-testid="topic-open-quests">
+            <h3 className="mb-1 text-[11px] uppercase tracking-wide text-cc-muted">Open quests</h3>
+            <MarkdownContent
+              text={open
+                .map(
+                  (quest) =>
+                    `- [${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`,
+                )
+                .join("\n")}
+            />
+          </section>
+        )}
+
+        <div className="mt-3" data-testid="topic-page">
+          {body ? (
+            <MarkdownContent text={body} />
+          ) : (
+            <p className="text-[14px] text-cc-muted">The page is being written.</p>
+          )}
+        </div>
+
+        {artifacts.items.length > 0 && (
+          <section className="mt-5" data-testid="topic-artifacts">
+            <div className="mb-1 flex items-baseline gap-2">
+              <h3 className="text-[11px] uppercase tracking-wide text-cc-muted">Latest artifacts</h3>
+              <button
+                type="button"
+                onClick={() =>
+                  openTopicLibrary(leaderId ?? null, { id: detail.id, name: detail.name, questIds: detail.questIds })
+                }
+                className="ml-auto text-[13px] text-cc-primary hover:underline"
+              >
+                All {artifacts.total} in the gallery ›
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {artifacts.items.map((artifact) => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  showKind
+                  showSpace={false}
+                  onOpen={() => openLibraryArtifact(artifact.id)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <p className="mt-6 text-[12px] text-cc-muted">
+          Something wrong or missing on this page? Tell your leader; it passes it to the Scribe.
+        </p>
+      </div>
+    </TopicFrame>
+  );
+}
+
+/** The name, with Rename and Merge in a small menu rather than on the page. */
+function TopicHeader({
+  detail,
+  others,
+  act,
+}: {
+  detail: TopicDetail;
+  others: TopicSummary[];
+  act: (action: Promise<unknown>) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  if (renaming !== null) {
+    return (
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (renaming.trim()) act(topicApi.rename(detail.id, renaming));
+          setRenaming(null);
+        }}
+      >
+        <input
+          autoFocus
+          value={renaming}
+          onChange={(event) => setRenaming(event.target.value)}
+          aria-label="Topic name"
+          className="min-w-0 flex-1 rounded-lg border border-cc-border bg-cc-card px-2 py-1 text-base text-cc-fg outline-none focus:border-cc-primary/60"
+        />
+        <button type="submit" className="rounded-lg px-2 text-[13px] text-cc-primary">
+          Save
+        </button>
+      </form>
+    );
+  }
+  return (
+    <div className="relative flex items-start gap-2">
+      <h2 className="min-w-0 flex-1 text-[22px] font-semibold leading-tight text-cc-fg">{detail.name}</h2>
+      <button
+        type="button"
+        aria-label="Topic actions"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((value) => !value)}
+        className="h-8 w-8 shrink-0 rounded-lg text-[18px] leading-none text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      >
+        ⋯
+      </button>
+      {menuOpen && (
+        <div
+          className="absolute right-0 top-9 z-10 flex w-64 flex-col gap-1 rounded-lg border border-cc-border bg-cc-card p-2 text-[13px] shadow-lg"
+          data-testid="topic-actions"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              setRenaming(detail.name);
+            }}
+            className="rounded px-2 py-1 text-left text-cc-fg hover:bg-cc-hover"
+          >
+            Rename
+          </button>
+          {others.length > 0 && (
+            <select
+              aria-label="Merge into another topic"
+              value=""
+              onChange={(event) => {
+                setMenuOpen(false);
+                if (event.target.value) act(topicApi.merge(detail.id, event.target.value));
+              }}
+              className="takode-native-select rounded-md border border-cc-border bg-cc-card px-2 py-1 text-[13px] text-cc-fg"
+            >
+              <option value="">Merge into…</option>
+              {others.map((topic) => (
+                <option key={topic.id} value={topic.id}>
+                  {topic.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The page's opening sentence (before the first heading), and the rest. */
+export function splitPage(page: string | null): { lead: string; body: string } {
+  if (!page) return { lead: "", body: "" };
+  if (page.startsWith("#")) return { lead: "", body: page.trim() };
+  const heading = page.search(/\n#/);
+  return heading < 0
+    ? { lead: page.trim(), body: "" }
+    : { lead: page.slice(0, heading).trim(), body: page.slice(heading).trim() };
+}
+
+/** Markdown as plain text: link labels kept, emphasis marks dropped. */
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function statusLabel(status: string): string {
+  if (status === "in_progress") return "in progress";
+  if (status === "refined" || status === "idea") return "not started";
+  return status;
+}
+
+function TopicFrame({
+  onBack,
+  embedded,
+  children,
+}: {
+  onBack: () => void;
+  embedded: boolean;
+  children: React.ReactNode;
+}) {
+  if (embedded) return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>;
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-cc-border">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex shrink-0 items-center gap-1 px-3 pt-2 text-[13px] text-cc-muted hover:text-cc-fg md:hidden"
+      >
+        ‹ Topics
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function clock(at: number): string {
+  const sameDay = new Date(at).toDateString() === new Date().toDateString();
+  return sameDay
+    ? new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}

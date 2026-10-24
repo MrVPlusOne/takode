@@ -35,7 +35,7 @@ type KindTab = ArtifactKind | "all";
 const KIND_TABS: readonly KindTab[] = [...ARTIFACT_KINDS, "all"];
 
 export function LibraryPage() {
-  const { artifactId, leaderId } = useLibraryNav();
+  const { artifactId, leaderId, topic: requestedTopic } = useLibraryNav();
   const currentSpace = useCurrentSessionSpace();
   const leaderLabel = useSessionLabel(leaderId);
   const [space, setSpace] = useState<string | null>(null);
@@ -83,6 +83,14 @@ export function LibraryPage() {
     },
     [leaderId, effectiveSpace, kind, filters],
   );
+
+  // Opened from a topic page: show everything made in that topic, then forget the request.
+  useEffect(() => {
+    if (!requestedTopic) return;
+    setFilters({ ...EMPTY_FILTERS, topic: requestedTopic });
+    setKindState("all");
+    useLibraryNav.setState({ topic: null });
+  }, [requestedTopic]);
 
   useEffect(() => {
     const timer = setTimeout(() => fetchPage(0), filters.query ? 200 : 0);

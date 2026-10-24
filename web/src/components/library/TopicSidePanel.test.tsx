@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../api.js", () => ({ api: {} }));
 vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: string }) => <div>{text}</div> }));
 
+import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { artifactApi } from "../../api/artifacts.js";
@@ -80,12 +81,41 @@ const ON: TopicListResponse = {
   },
 };
 
+const ARTIFACT: ArtifactSummary = {
+  id: "a1",
+  kind: "post",
+  title: "T7 thread update",
+  space: "MSI",
+  sessionId: "l1",
+  threadKey: "q-2713",
+  createdAt: NOW,
+  updatedAt: NOW,
+  starred: false,
+  versionCount: 1,
+  latest: {
+    n: 1,
+    at: NOW,
+    bytes: 10,
+    kept: true,
+    source: { sessionId: "l1", messageId: "m1", threadKey: "q-2713", at: NOW },
+  },
+  preview: "Quick T7 update",
+};
+
 const DETAIL: TopicDetail = {
   ...LIST.topics[0]!,
   aliases: [],
-  page: "## Where it stands\nStep ~165.",
+  writtenAt: NOW,
+  page: [
+    "T7 is the 12B coding run with 384K context.",
+    "## Now\n- **Next:** compare with the 256K twin at step 200.",
+    "## Recent\n- **Oct 23** · Step ~165.",
+  ].join("\n"),
   events: [],
-  quests: [{ questId: "q-2713", title: "Launch T7", status: "done" }],
+  quests: [
+    { questId: "q-2713", title: "Launch T7", status: "done" },
+    { questId: "q-2797", title: "Twin evals", status: "in_progress" },
+  ],
 };
 
 afterEach(() => {
@@ -103,7 +133,6 @@ function mockApi() {
     enable: vi.spyOn(topicApi, "setLeaderEnabled").mockResolvedValue({ enabled: true }),
     undo: vi.spyOn(topicApi, "undo").mockResolvedValue({}),
     update: vi.spyOn(topicApi, "updateNow").mockResolvedValue({ result: "asked" }),
-    feedback: vi.spyOn(topicApi, "feedback").mockResolvedValue({ ok: true }),
   };
 }
 
@@ -125,21 +154,31 @@ describe("TopicSidePanel", () => {
     expect(api.undo).toHaveBeenCalledWith("c1");
   });
 
-  it("follows the quest tab on screen to its topic's page, with Update now and a fix request", async () => {
+  it("follows the quest tab on screen to its topic's page: summary, open quests, Now before Recent", async () => {
     const api = mockApi();
+    vi.mocked(artifactApi.list).mockResolvedValue({
+      artifacts: [{ ...ARTIFACT, id: "a1" }],
+      total: 7,
+    } as never);
     // q-2713 is filed under T7 run, so the panel opens on that page.
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const view = await screen.findByTestId("topic-view");
-    expect(within(view).getByTestId("topic-page")).toHaveTextContent("Step ~165.");
-    expect(view).toHaveTextContent("Launch T7");
+    expect(within(view).getByTestId("topic-lead")).toHaveTextContent("T7 is the 12B coding run with 384K context.");
+    // Only quests still open are listed (live), not every quest of the topic.
+    const open = within(view).getByTestId("topic-open-quests");
+    expect(open).toHaveTextContent("Twin evals · in progress");
+    expect(open).not.toHaveTextContent("Launch T7");
+    const page = within(view).getByTestId("topic-page");
+    expect(page.textContent!.indexOf("compare with the 256K twin")).toBeLessThan(
+      page.textContent!.indexOf("Step ~165."),
+    );
+    // No per-quest move menus or fix box: actions sit in the menu, fixes go through the leader.
+    expect(within(view).queryByLabelText(/Move q-/)).toBeNull();
+    expect(within(view).queryByLabelText("Fix this page")).toBeNull();
+    await waitFor(() => expect(within(view).getByText("All 7 in the gallery ›")).toBeInTheDocument());
 
-    // Both go to the Scribe of the leader whose panel this is.
     fireEvent.click(within(view).getByText("Update now"));
     expect(api.update).toHaveBeenCalledWith("t7", "l1");
-    fireEvent.change(within(view).getByLabelText("Fix this page"), { target: { value: "The LR is 0.02" } });
-    fireEvent.click(within(view).getByText("Send"));
-    expect(api.feedback).toHaveBeenCalledWith("t7", "The LR is 0.02", "l1");
-    await waitFor(() => expect(view).toHaveTextContent("Sent to the Scribe; the page will be corrected shortly."));
   });
 
   it("shows the Scribe's live status, rename suggestions to answer, and the grouping instructions box", async () => {

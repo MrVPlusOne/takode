@@ -18,8 +18,8 @@ import { initializationMessage, leaderNotice, reminderMessage, updateMessage } f
 /**
  * Keeps topic pages current with one Scribe per leader that has topics on: a worker in that
  * leader's herd, running continuously like any worker. Events (the leader's quests put under a
- * topic or finished, the user's messages in those quests' tabs, artifacts saved there, fixes the
- * user asked for, changes the user undid) are recorded on their topics. Whenever its Scribe is
+ * topic or finished, the user's messages in those quests' tabs, artifacts saved there, changes
+ * the user undid) are recorded on their topics. Whenever its Scribe is
  * idle, Takode sends it one message with everything that changed for its leader since the last
  * one; while it works, new events wait for its turn to end. If it stops with work of a message
  * left, it gets one reminder, and then its leader is told. Topics stay shared across the session
@@ -76,6 +76,9 @@ const SPEND_WINDOW_MS = 24 * 60 * 60_000;
 /** Initialization sorts the leader's quests of this window. */
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const EXCERPT_CHARS = 280;
+
+/** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
+export const PAGE_FORMAT = 2;
 
 export type DeliveryResult = "sent" | "nothing" | "paused" | "over_budget" | "busy" | "off";
 
@@ -174,21 +177,6 @@ export class TopicService {
     });
   }
 
-  /**
-   * The user asked for a fix on a topic's page: it goes to the Scribe of the leader whose panel it
-   * was asked from, or else of the enabled leader with the most quests under the topic.
-   */
-  async feedback(topicId: string, text: string, leaderId?: string): Promise<void> {
-    const topic = this.store.resolve(topicId);
-    if (!topic) return;
-    const leader =
-      leaderId && this.store.isLeaderEnabled(leaderId) ? leaderId : await this.leaderWithMostQuests(topic.id);
-    if (!leader) return;
-    this.store.addEvent(topic.id, { at: this.now(), kind: "feedback", leaderId: leader, text: excerpt(text, 2000) });
-    void this.store.flush();
-    await this.requestUpdate(leader, topic.id);
-  }
-
   /** Update now: the topic goes to the leader's Scribe with its next message, paused or not. */
   requestUpdate(leaderId: string, topicId: string): Promise<DeliveryResult> {
     const forced = this.forced.get(leaderId) ?? new Set<string>();
@@ -254,6 +242,7 @@ export class TopicService {
       if (!this.deps.inject(scribe, text)) return "busy";
       this.store.markInitialized(leaderId);
       this.store.markInstructionsSent(leaderId);
+      this.store.setPageFormat(leaderId, PAGE_FORMAT);
       // Initialization covers the recent quests and whatever happened before it.
       this.store.markDelivered(
         leaderId,
@@ -296,11 +285,13 @@ export class TopicService {
     const unsorted = recent.filter(
       (quest) => quest.status !== "done" && !this.store.topicOfQuest(quest.questId) && !told.has(quest.questId),
     );
+    const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
     const text = updateMessage(
       leader,
       {
         topics,
         unsorted,
+        rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
       },
@@ -315,7 +306,13 @@ export class TopicService {
       unsorted.map((quest) => quest.questId),
     );
     this.store.markInstructionsSent(leaderId);
-    const names = [...new Set([...forcedNames, ...topics.map((topic) => topic.name)])];
+    if (rewritePages) this.store.setPageFormat(leaderId, PAGE_FORMAT);
+    const names = rewritePages
+      ? this.store
+          .list(leader.space)
+          .filter((topic) => topic.questIds.some((id) => ownQuests.has(id)))
+          .map((topic) => topic.name)
+      : [...new Set([...forcedNames, ...topics.map((topic) => topic.name)])];
     this.awaiting.set(leaderId, { sentAt: this.now(), purpose: "update", throughSeq, topics: names, reminded: false });
     return this.sent();
   }
@@ -401,6 +398,15 @@ export class TopicService {
     await this.store.flush();
     this.deps.broadcastChanged();
     if (enabled) await this.deliver(sessionId);
+  }
+
+  /** At startup: Scribes whose pages predate the current page format are asked to rewrite them. */
+  askOutdatedScribes(): void {
+    for (const leaderId of this.store.enabledLeaderIds()) {
+      if (this.store.pageFormat(leaderId) < PAGE_FORMAT && !this.store.needsInitialization(leaderId)) {
+        this.changed(leaderId);
+      }
+    }
   }
 
   /** Archives page writers of the retired one-per-space design. */
@@ -577,17 +583,6 @@ export class TopicService {
 
   private enabledLeadersIn(space: string): string[] {
     return this.store.enabledLeaderIds().filter((leaderId) => this.deps.getLeaderInfo(leaderId)?.space === space);
-  }
-
-  private async leaderWithMostQuests(topicId: string): Promise<string | undefined> {
-    const questIds = new Set(this.store.questsOf(topicId));
-    const counts = new Map<string, number>();
-    for (const quest of await this.deps.listQuests()) {
-      const leaderId = (quest as { leaderSessionId?: string }).leaderSessionId;
-      if (!questIds.has(quest.questId) || !leaderId || !this.store.isLeaderEnabled(leaderId)) continue;
-      counts.set(leaderId, (counts.get(leaderId) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   }
 }
 

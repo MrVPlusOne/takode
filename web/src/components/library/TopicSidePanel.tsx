@@ -12,7 +12,8 @@ import {
 import { backdropClickProps } from "../../utils/backdrop-click.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
-import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow, TopicView } from "./TopicPage.js";
+import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow } from "./TopicPage.js";
+import { TopicView } from "./TopicView.js";
 import { navigateToSession } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, TopicIcon } from "./library-icons.js";

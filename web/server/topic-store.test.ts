@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { TopicStore, pageSummary } from "./topic-store.js";
-import { TopicService, sessionSpend, historyMessageText, type TopicSessionLike } from "./topic-service.js";
+import { PAGE_FORMAT, TopicService, sessionSpend, historyMessageText, type TopicSessionLike } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
 /**
  * Library topics on disposable state: filing quests under topics in the user's words, tentative
  * topics, renames that never touch a name the user chose, merges and moves with Undo, and the
- * leader's Scribe being asked about a minute after events, within its budget and not while paused.
+ * leader's Scribe being told what changed as soon as it is idle, within its budget and not while paused.
  */
 
 const NOW = Date.UTC(2026, 9, 23, 19, 0);
@@ -130,13 +130,17 @@ describe("topic store", () => {
     expect(store.findByName("MSI", "Seeded QA")).toBeUndefined();
   });
 
-  it("counts events after the page and summarizes the page's Where it stands", async () => {
+  it("counts events after the page and summarizes the page by its opening sentence", async () => {
     const store = await newStore();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
     expect(store.summary(store.resolve(topic.id)!).pendingEvents).toBe(1);
     store.writePage(topic.id, "## Where it stands\nStep ~165; the [twin](session:1:2) tracks T7.\n\n## Made\n- x", now);
     expect(store.list("MSI")[0]).toMatchObject({ pendingEvents: 0, summary: "Step ~165; the twin tracks T7." });
     expect(pageSummary("No headings here.\n\nSecond paragraph")).toBe("No headings here.");
+    // A page opens with its one-sentence summary, which the topic list shows.
+    expect(pageSummary("Library of topics and artifacts.\n## Now\n- Nothing open.")).toBe(
+      "Library of topics and artifacts.",
+    );
 
     await store.flush();
     const reloaded = await newStore();
@@ -429,6 +433,27 @@ describe("topic service", () => {
     await service.setLeaderEnabled("leader", true);
     await service.scribeTurnEnded(store.scribeSession("leader")!);
     expect(injected.at(-1)?.text).toContain("none of 1 recent quests is under a topic yet");
+  });
+
+  it("asks a Scribe once to rewrite pages written in an older format", async () => {
+    // Pages from before the current page format stay as written until the Scribe is asked; it is
+    // asked once (at startup), and a Scribe that initializes writes the current format already.
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    store.setPageFormat("leader", PAGE_FORMAT - 1);
+    injected.length = 0;
+
+    service.askOutdatedScribes();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics in the current format");
+
+    vi.advanceTimersByTime(10);
+    await service.scribeTurnEnded(scribe);
+    service.askOutdatedScribes();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
   });
 
   it("waits while paused or over budget, and Update now goes through anyway", async () => {
