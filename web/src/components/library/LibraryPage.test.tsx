@@ -71,8 +71,12 @@ beforeEach(() => {
   showLibraryArtifact(null);
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       requests.push(url);
+      if (init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ ...DETAIL, starred: body.starred }));
+      }
       if (url.startsWith("/api/artifacts?")) {
         return new Response(
           JSON.stringify({
@@ -119,7 +123,7 @@ describe("LibraryPage", () => {
     // All spaces are shown here, so cards name their space too.
     expect(await screen.findByText(`Post · v3 · MSI · ${clock(NOW)}`)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("library-artifact-card"));
+    fireEvent.click(within(screen.getByTestId("library-artifact-card")).getByText("T7 thread update"));
     expect(await screen.findByText("Draft version 3")).toBeInTheDocument();
     expect(screen.getByTestId("artifact-id")).toHaveTextContent("a1");
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
@@ -139,6 +143,24 @@ describe("LibraryPage", () => {
     expect(screen.getByTestId("library-active-filters")).toHaveTextContent("“t7” · Last 7 days");
     fireEvent.click(within(screen.getByTestId("library-active-filters")).getByText("Clear"));
     await waitFor(() => expect(requests.at(-1)).not.toContain("q=t7"));
+  });
+
+  it("stars a card from the grid and filters to starred cards from a toggle beside Filter", async () => {
+    render(<LibraryPage />);
+    const card = await screen.findByTestId("library-artifact-card");
+    expect(card).not.toHaveAttribute("data-starred");
+    fireEvent.click(within(card).getByRole("button", { name: "Star T7 thread update" }));
+    // The card shows the server's answer, marked starred, without opening the artifact.
+    await waitFor(() => expect(screen.getByTestId("library-artifact-card")).toHaveAttribute("data-starred", "true"));
+    expect(screen.queryByTestId("artifact-viewer")).toBeNull();
+
+    const toggle = screen.getByTestId("library-starred-toggle");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(requests.at(-1)).toContain("starred=1"));
+    // Starred has its own toggle, so the Filter button doesn't look pressed for it.
+    expect(screen.getByTestId("library-filter-button")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("library-filter-button").className).not.toContain("bg-cc-primary/10");
   });
 
   it("groups rows by day of their last change", () => {

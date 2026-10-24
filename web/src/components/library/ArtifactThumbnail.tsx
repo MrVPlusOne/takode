@@ -126,44 +126,84 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-/** A gallery card: the thumbnail, the title, and kind (when kinds are mixed), version and date. */
+/** Starred marks use the amber of the phase dots, which has a light and a dark shade. */
+const STAR_COLOR = "text-[var(--color-cc-phase-accent-amber)]";
+
+/**
+ * A gallery card: the thumbnail, the title, and kind (when kinds are mixed), version and date.
+ * With `onToggleStar`, a star sits on the thumbnail's corner: filled amber on starred cards, and
+ * on others shown on hover (always on touch screens) to star the card without opening it.
+ */
 export function ArtifactCard({
   artifact,
   showKind,
   showSpace,
   onOpen,
+  onToggleStar,
 }: {
   artifact: ArtifactSummary;
   showKind: boolean;
   showSpace: boolean;
   onOpen: () => void;
+  onToggleStar?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group flex min-w-0 flex-col gap-1.5 rounded-xl p-1 text-left hover:bg-cc-hover/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+    <div
+      className="group relative flex min-w-0 flex-col rounded-xl hover:bg-cc-hover/60"
       data-testid="library-artifact-card"
       data-kind={artifact.kind}
+      data-starred={artifact.starred ? "true" : undefined}
     >
-      <ArtifactThumbnail artifact={artifact} className="aspect-[16/10] w-full" />
-      <span className="min-w-0 px-0.5">
-        <span className="line-clamp-2 text-[13.5px] leading-snug text-cc-fg">
-          {artifact.title}
-          {artifact.starred && <StarIcon filled className="ml-1 inline h-3 w-3 align-[-1px] text-cc-muted" />}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-col gap-1.5 rounded-xl p-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+      >
+        <ArtifactThumbnail
+          artifact={artifact}
+          className={`aspect-[16/10] w-full ${artifact.starred ? "ring-2 ring-[var(--color-cc-phase-accent-amber)]/70" : ""}`}
+        />
+        <span className="min-w-0 px-0.5">
+          <span className="line-clamp-2 text-[13.5px] leading-snug text-cc-fg">{artifact.title}</span>
+          <span className="mt-0.5 block truncate text-[12px] text-cc-muted">
+            {[
+              showKind ? ARTIFACT_KIND_LABELS[artifact.kind] : null,
+              artifact.versionCount > 1 ? `v${artifact.versionCount}` : null,
+              showSpace ? artifact.space : null,
+              formatWhen(artifact.updatedAt),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
         </span>
-        <span className="mt-0.5 block truncate text-[12px] text-cc-muted">
-          {[
-            showKind ? ARTIFACT_KIND_LABELS[artifact.kind] : null,
-            artifact.versionCount > 1 ? `v${artifact.versionCount}` : null,
-            showSpace ? artifact.space : null,
-            formatWhen(artifact.updatedAt),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-      </span>
-    </button>
+      </button>
+      {onToggleStar ? (
+        <button
+          type="button"
+          onClick={onToggleStar}
+          aria-pressed={artifact.starred}
+          aria-label={artifact.starred ? `Unstar ${artifact.title}` : `Star ${artifact.title}`}
+          title={artifact.starred ? "Unstar" : "Star"}
+          className={`absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full border border-cc-border bg-cc-card/90 shadow-sm backdrop-blur-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+            artifact.starred
+              ? STAR_COLOR
+              : "text-cc-muted opacity-0 hover:text-cc-fg group-hover:opacity-100 pointer-coarse:opacity-100"
+          }`}
+          data-testid="artifact-card-star"
+        >
+          <StarIcon filled={artifact.starred} className="h-4 w-4" />
+        </button>
+      ) : (
+        artifact.starred && (
+          <span
+            className={`pointer-events-none absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-cc-card/90 ${STAR_COLOR}`}
+            aria-label="Starred"
+          >
+            <StarIcon filled className="h-3.5 w-3.5" />
+          </span>
+        )
+      )}
+    </div>
   );
 }
 

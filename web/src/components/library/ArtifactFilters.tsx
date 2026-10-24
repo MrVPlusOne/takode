@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { TopicSummary } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
-import { StarIcon } from "../ArtifactInline.js";
 
 /**
  * The gallery's search and filters behind one button at the top right, so they take no room until
- * wanted: search, date, topic and starred. The button looks pressed while any filter is on, and a
+ * wanted: search, date and topic. (Starred has its own toggle beside the button.) The button looks pressed while any filter is on, and a
  * line under the kind tabs says what is filtered.
  */
 
@@ -74,7 +73,8 @@ export function ArtifactFilterButton({
     };
   }, [open, topicSource.space, topicSource.leaderId]);
 
-  const active = filtersActive(filters);
+  // Starred has its own toggle beside this button; the menu holds the rest.
+  const active = filtersActive({ ...filters, starred: false });
   const update = (patch: Partial<ArtifactFilters>) => onChange({ ...filters, ...patch });
   return (
     <div className="relative shrink-0">
@@ -158,27 +158,17 @@ export function ArtifactFilterButton({
               </select>
             </label>
           )}
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              aria-pressed={filters.starred}
-              onClick={() => update({ starred: !filters.starred })}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] ${
-                filters.starred ? "border-cc-primary/50 bg-cc-primary/10 text-cc-fg" : "border-cc-border text-cc-muted"
-              }`}
-            >
-              <StarIcon filled={filters.starred} className="h-3.5 w-3.5" /> Starred only
-            </button>
-            {active && (
+          {active && (
+            <div className="flex justify-end">
               <button
                 type="button"
-                onClick={() => onChange(EMPTY_FILTERS)}
+                onClick={() => onChange({ ...EMPTY_FILTERS, starred: filters.starred })}
                 className="text-[13px] text-cc-primary hover:underline"
               >
                 Clear all
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

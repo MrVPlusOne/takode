@@ -10,6 +10,7 @@ import { useStore } from "../../store.js";
 import { setLibraryLeader, showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
 import { ArtifactViewer } from "./ArtifactViewer.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
+import { StarIcon } from "../ArtifactInline.js";
 import {
   ArtifactFilterButton,
   EMPTY_FILTERS,
@@ -88,6 +89,19 @@ export function LibraryPage() {
     return () => clearTimeout(timer);
   }, [fetchPage, filters.query]);
 
+  // Applied when the server answers; with Starred on, an unstarred card stays until the next load,
+  // so a mistaken tap can be undone in place.
+  const toggleStar = (artifact: ArtifactSummary) => {
+    artifactApi
+      .setStarred(artifact.id, !artifact.starred)
+      .then((detail) =>
+        setItems((current) =>
+          current.map((item) => (item.id === detail.id ? { ...item, starred: detail.starred } : item)),
+        ),
+      )
+      .catch((reason: Error) => setError(reason.message));
+  };
+
   const setKind = (next: KindTab) => {
     setKindState(next);
     localStorage.setItem(KIND_KEY, next);
@@ -132,6 +146,25 @@ export function LibraryPage() {
       </div>
       <div className="order-1 ml-auto flex min-w-0 items-center gap-2 md:order-2">
         {scopeSelect}
+        <button
+          type="button"
+          onClick={() => setFilters((current) => ({ ...current, starred: !current.starred }))}
+          aria-pressed={filters.starred}
+          aria-label="Starred only"
+          title="Starred only"
+          className={`flex h-[34px] items-center gap-1.5 rounded-lg border px-2.5 text-[13px] ${
+            filters.starred
+              ? "border-[var(--color-cc-phase-accent-amber)]/60 bg-[var(--color-cc-phase-accent-amber)]/10 text-cc-fg"
+              : "border-cc-border bg-cc-card text-cc-muted hover:text-cc-fg"
+          }`}
+          data-testid="library-starred-toggle"
+        >
+          <StarIcon
+            filled={filters.starred}
+            className={`h-4 w-4 ${filters.starred ? "text-[var(--color-cc-phase-accent-amber)]" : ""}`}
+          />
+          <span className="hidden sm:inline">Starred</span>
+        </button>
         <ArtifactFilterButton
           filters={filters}
           onChange={setFilters}
@@ -165,6 +198,7 @@ export function LibraryPage() {
           showSpace={!leaderId && !effectiveSpace}
           filtered={filtersActive(filters)}
           onMore={() => !loading && total !== null && items.length < total && fetchPage(items.length)}
+          onToggleStar={toggleStar}
         />
       </div>
     </div>
@@ -236,6 +270,7 @@ function Gallery({
   showSpace,
   filtered,
   onMore,
+  onToggleStar,
 }: {
   items: ArtifactSummary[];
   total: number | null;
@@ -245,6 +280,7 @@ function Gallery({
   showSpace: boolean;
   filtered: boolean;
   onMore: () => void;
+  onToggleStar: (artifact: ArtifactSummary) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -290,6 +326,7 @@ function Gallery({
                   showKind={kind === "all"}
                   showSpace={showSpace}
                   onOpen={() => showLibraryArtifact(artifact.id)}
+                  onToggleStar={() => onToggleStar(artifact)}
                 />
               ))}
             </div>
