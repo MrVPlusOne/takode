@@ -24,7 +24,6 @@ import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 
 export interface NextAttentionLanding {
   item: NextAttentionItem;
-  sessionNum: number | null;
   /** 1-based position of the opened item in the queue. */
   position: number;
   total: number;
@@ -91,11 +90,7 @@ export function useAttentionNavigator(
     (skip?: (item: NextAttentionItem) => boolean): NextAttentionLanding | null => {
       const walked = skip ? queue.filter((item) => !skip(item)) : queue;
       const step = pickAttentionAfter(walked, cursors.get(scope) ?? null);
-      if (!step) return null;
-      const sessionNum =
-        useStore.getState().sdkSessions.find((session) => session.sessionId === step.item.sessionId)?.sessionNum ??
-        null;
-      return { item: step.item, sessionNum, position: step.position + 1, total: walked.length };
+      return step && { item: step.item, position: step.position + 1, total: walked.length };
     },
     [queue, scope],
   );

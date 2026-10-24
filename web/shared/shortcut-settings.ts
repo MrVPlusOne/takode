@@ -13,6 +13,7 @@ export const SHORTCUT_ACTION_IDS = [
   "previous_session",
   "next_session",
   "next_attention",
+  "next_attention_global",
   "new_session",
   "voice_start",
   "voice_stop",

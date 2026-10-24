@@ -1,5 +1,3 @@
-import { createPortal } from "react-dom";
-import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 
@@ -9,7 +7,7 @@ import { NotifyMeIcon } from "./NotifyMe.js";
  */
 export type AttentionKind = NextAttentionItem["kind"];
 
-/** Kind names for toasts and accessible labels. */
+/** Kind names for accessible labels. */
 export const ATTENTION_KIND_TITLE: Record<AttentionKind, string> = {
   "needs-input": "Needs input",
   "notify-me": "Notify Me result",
@@ -79,33 +77,4 @@ export function formatRelativeTime(ts: number): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
-}
-
-/** Where a Next step just went. `inline` renders in place instead of floating at the top. */
-export function NextAttentionToast({ landing, inline = false }: { landing: NextAttentionLanding; inline?: boolean }) {
-  const { item } = landing;
-  const toast = (
-    <div
-      role="status"
-      data-testid="next-attention-toast"
-      className={`rounded-xl border bg-cc-card px-3 py-2 shadow-lg ${attentionTone(item.kind).border} ${
-        inline
-          ? ""
-          : "pointer-events-none fixed left-1/2 top-14 z-50 w-[min(28rem,calc(100vw-1.5rem))] -translate-x-1/2"
-      }`}
-    >
-      <div className="flex items-center gap-2 text-[12px] text-cc-fg">
-        <AttentionKindIcon kind={item.kind} />
-        <span className="min-w-0 flex-1 truncate">
-          <span className="font-semibold">{ATTENTION_KIND_TITLE[item.kind]}</span> ·{" "}
-          {landing.sessionNum !== null && <span className="text-cc-muted">#{landing.sessionNum} </span>}
-          {item.label}
-        </span>
-        <span className="shrink-0 tabular-nums text-cc-muted">
-          {landing.position} / {landing.total}
-        </span>
-      </div>
-    </div>
-  );
-  return inline ? toast : createPortal(toast, document.body);
 }

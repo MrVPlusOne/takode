@@ -1420,13 +1420,10 @@ describe("TopBar phone layout and Next", () => {
 
     fireEvent.click(within(panel).getByTestId("attention-list-next"));
     expect(window.location.hash).toContain("m2");
-    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("Needs input · #102 Confirm rollback plan");
-    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
     expect(within(panel).getByTestId("attention-list-next")).toHaveTextContent("2/2");
 
     fireEvent.click(within(panel).getByTestId("attention-list-next"));
     expect(window.location.hash).toContain("m1");
-    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
   });
 
   it("names a prompt's quest on its second line and falls back to the session name", () => {
@@ -1517,7 +1514,9 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.queryByRole("dialog", { name: "Everything that needs attention" })).not.toBeInTheDocument();
   });
 
-  it("steps to the next item from the keyboard shortcut without opening the list", () => {
+  it("steps to the next item from the keyboard shortcut without opening the list or a banner", () => {
+    // The user found the banner saying where a step went distracting: the
+    // session and tab it opens already show that.
     resetStore(twoPromptsState());
     render(<TopBar />);
 
@@ -1525,7 +1524,13 @@ describe("TopBar phone layout and Next", () => {
       window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT));
     });
     expect(window.location.hash).toContain("m2");
-    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+    expect(screen.queryByRole("dialog", { name: "Everything that needs attention" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT));
+    });
+    expect(window.location.hash).toContain("m1");
   });
 
   it("leaves a herded worker's question to its leader out of the list", () => {
@@ -1542,7 +1547,7 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByTestId("attention-list-button")).toHaveTextContent("1");
     fireEvent.click(screen.getByTestId("attention-list-button"));
     fireEvent.click(screen.getByTestId("attention-list-next"));
-    expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("#101 Pick deployment window");
+    expect(window.location.hash).toContain("m1");
   });
 
   it("counts only the open questions while one waits, and everything once none do", () => {

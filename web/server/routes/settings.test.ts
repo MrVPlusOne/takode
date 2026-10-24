@@ -74,7 +74,7 @@ describe("settings routes", () => {
   });
 
   it("keeps an override for every shortcut action the Settings page offers", async () => {
-    // Regression: the server once had its own action list without Next Item Needing Attention,
+    // Regression: the server once had its own action list without the next-attention action,
     // so it dropped that row's overrides and every recording silently reverted.
     const app = createApp();
     const overrides: Record<string, string | null> = Object.fromEntries(

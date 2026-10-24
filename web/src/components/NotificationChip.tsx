@@ -30,9 +30,8 @@ import { formatSnoozeUntil } from "./NeedsInputSnoozeControl.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { canCloseThreadTab, closeThreadTab, needsInputMenuItems } from "../utils/attention-item-menu.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
-import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
-import { AttentionItemSections, SessionAttentionToast, attentionThreadPlace } from "./AttentionItemRows.js";
+import { AttentionItemSections, attentionThreadPlace } from "./AttentionItemRows.js";
 import {
   ATTENTION_KIND_TITLE,
   AttentionKindIcon,
@@ -56,7 +55,6 @@ type NotificationCategory = SessionNotification["category"];
 const NOTIFICATION_POPOVER_MIN_OFFSET_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
-const NEXT_TOAST_MS = 2600;
 const OTHER_ATTENTION_KINDS = ["notify-me", "unread"] as const;
 
 /** Where the chip floats: the feed's lower right (phones) or its upper right (desktop, less mouse travel). */
@@ -918,6 +916,12 @@ function NotificationPopover({
 
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
+/**
+ * Dispatched by the "Next Item in This Session" keyboard shortcut, with the session on screen
+ * as `detail.sessionId`; that session's chip takes the step.
+ */
+export const ATTENTION_NEXT_IN_SESSION_EVENT = "takode:attention-next-in-session";
+
 function inThread(threadKey: string) {
   return (item: NextAttentionItem) => item.threadKey !== null && normalizeThreadKey(item.threadKey) === threadKey;
 }
@@ -945,14 +949,13 @@ export function NotificationChip({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   attentionPreview?: SessionAttentionPreview;
-  /** Which feed edge the chip floats at; its toast and list open away from that edge. */
+  /** Which feed edge the chip floats at; its list opens away from that edge. */
   placement?: NotificationChipPlacement;
 }) {
   const { active, muted } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
   const attention = useSessionAttention(sessionId, active, attentionPreview);
   const [open, setOpen] = useState(false);
-  const [landing, setLanding] = useState<NextAttentionLanding | null>(null);
   const chipRef = useRef<HTMLDivElement>(null);
   const { needsInput, review, waiting } = useMemo(
     () => getEffectiveNotificationBreakdown(active, summary),
@@ -974,9 +977,7 @@ export function NotificationChip({
     (threadKey: string) => {
       const landed = peekNext(inThread(threadKey));
       closeThreadTab(sessionId, threadKey, landed?.item.threadKey ?? undefined);
-      if (!landed) return;
-      openItem(landed.item);
-      setLanding({ ...landed, sessionNum: null });
+      if (landed) openItem(landed.item);
     },
     [openItem, peekNext, sessionId],
   );
@@ -998,12 +999,6 @@ export function NotificationChip({
     });
   });
 
-  useEffect(() => {
-    if (!landing) return;
-    const timer = window.setTimeout(() => setLanding(null), NEXT_TOAST_MS);
-    return () => window.clearTimeout(timer);
-  }, [landing]);
-
   const close = useCallback(() => setOpen(false), []);
   const activate = useCallback(() => {
     if (!next) {
@@ -1011,10 +1006,20 @@ export function NotificationChip({
       return;
     }
     setOpen(false);
-    const landed = goNext();
-    // The session is the one in view, so the toast leaves out its number.
-    setLanding(landed && { ...landed, sessionNum: null });
+    goNext();
   }, [goNext, next]);
+
+  // The shortcut steps like a tap, but with nothing to step through it does nothing:
+  // opening the list from the keyboard would only cover the feed.
+  useEffect(() => {
+    const onShortcut = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId?: string }>).detail?.sessionId !== sessionId || !next) return;
+      setOpen(false);
+      goNext();
+    };
+    window.addEventListener(ATTENTION_NEXT_IN_SESSION_EVENT, onShortcut);
+    return () => window.removeEventListener(ATTENTION_NEXT_IN_SESSION_EVENT, onShortcut);
+  }, [goNext, next, sessionId]);
 
   if (needsInput + waiting + total === 0 && mutedNeedsInput === 0) return null;
 
@@ -1072,7 +1077,6 @@ export function NotificationChip({
             </span>
           )}
         </button>
-        {landing && <SessionAttentionToast landing={landing} placement={placement} />}
       </div>
 
       {open && (

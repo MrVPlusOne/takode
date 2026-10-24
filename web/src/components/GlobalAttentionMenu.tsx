@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
-import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.js";
 import { useNextAttention, useTrackedNotifyMeEntries } from "../hooks/useNextAttention.js";
 import { useStore } from "../store.js";
@@ -14,14 +13,13 @@ import {
   type NextAttentionItem,
 } from "../utils/next-attention.js";
 import { AttentionItemRow, AttentionItemSections } from "./AttentionItemRows.js";
-import { AttentionKindIcon, BellIcon, NextAttentionToast, NextChevron, attentionTone } from "./AttentionKind.js";
+import { AttentionKindIcon, BellIcon, NextChevron, attentionTone } from "./AttentionKind.js";
 import { useNotifyMeSummary } from "./NotifyMe.js";
 import { ATTENTION_LIST_HASH, ATTENTION_OPEN_EVENT } from "../utils/routing.js";
 
-const TOAST_MS = 2600;
 const ALL_KINDS = ["needs-input", "notify-me", "unread"] as const;
 
-/** Dispatched by the "Next item needing attention" keyboard shortcut. */
+/** Dispatched by the "Next Item Across Sessions" keyboard shortcut. */
 export const ATTENTION_NEXT_EVENT = "takode:attention-next";
 
 /**
@@ -53,16 +51,12 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
     [mutedEntries, trackedEntries, reminders],
   );
   const hasAnything = queue.length > 0 || mutedEntries.length > 0 || waitingTrackedCount > 0 || reminders.length > 0;
-  const [landing, setLanding] = useState<NextAttentionLanding | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const step = useCallback(() => setLanding(goNext()), [goNext]);
-
-  useEffect(() => {
-    if (!landing) return;
-    const timer = window.setTimeout(() => setLanding(null), TOAST_MS);
-    return () => window.clearTimeout(timer);
-  }, [landing]);
+  // No banner says where a step went: the session and tab it opens show that.
+  const step = useCallback(() => {
+    goNext();
+  }, [goNext]);
 
   useEffect(() => {
     window.addEventListener(ATTENTION_NEXT_EVENT, step);
@@ -120,7 +114,6 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
           }}
         />
       )}
-      {landing && <NextAttentionToast landing={landing} />}
     </>
   );
 }

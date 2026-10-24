@@ -70,8 +70,10 @@ export interface ShortcutRuntime {
   navigateToSession: (sessionId: string) => void;
   navigateToMostRecentSession: () => boolean;
   closeSecondaryPage: () => void;
-  /** Open the next item in the top bar's attention list. */
-  goToNextAttention?: () => void;
+  /** Open the next item needing attention in `sessionId`, as its feed chip's Next does. */
+  goToNextAttentionInSession?: (sessionId: string) => void;
+  /** Open the next item in the top bar's attention list, across all sessions. */
+  goToNextAttentionGlobal?: () => void;
 }
 
 type ShortcutBindingMap = Record<ShortcutActionId, ShortcutBinding | null>;
@@ -89,6 +91,7 @@ const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
   "previous_session",
   "next_session",
   "next_attention",
+  "next_attention_global",
 ]);
 const TAP_BINDING_PREFIX = "Tap:";
 const DOUBLE_TAP_BINDING_PREFIX = "DoubleTap:";
@@ -128,9 +131,15 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   },
   {
     id: "next_attention",
-    label: "Next Item Needing Attention",
+    label: "Next Item in This Session",
     description:
-      "Open the next item in the attention list: needs-input prompts, then Notify Me results, then unread results.",
+      "Open the next item needing attention in the session on screen, like the Next chip in its feed: needs-input prompts, then Notify Me results, then unread results. Does nothing when nothing is left there.",
+  },
+  {
+    id: "next_attention_global",
+    label: "Next Item Across Sessions",
+    description:
+      "Open the next item in the top bar's attention list, across all sessions: needs-input prompts, then Notify Me results, then unread results.",
   },
   {
     id: "new_session",
@@ -175,6 +184,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Mod+Shift+[",
     next_session: "Mod+Shift+]",
     next_attention: "Mod+Shift+E",
+    next_attention_global: "Mod+Shift+A",
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -186,6 +196,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Ctrl+PageUp",
     next_session: "Ctrl+PageDown",
     next_attention: "Mod+Shift+E",
+    next_attention_global: "Mod+Shift+A",
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -197,6 +208,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Alt+H",
     next_session: "Alt+L",
     next_attention: "Alt+A",
+    next_attention_global: "Alt+Shift+A",
     new_session: "Alt+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
@@ -771,9 +783,14 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       runtime.setActiveTab("chat");
       return true;
     }
+    // Handled even when the session has nothing left, so a key the browser also uses never reaches it.
     case "next_attention":
-      if (!runtime.goToNextAttention) return false;
-      runtime.goToNextAttention();
+      if (!runtime.currentSessionId || !runtime.goToNextAttentionInSession) return false;
+      runtime.goToNextAttentionInSession(runtime.currentSessionId);
+      return true;
+    case "next_attention_global":
+      if (!runtime.goToNextAttentionGlobal) return false;
+      runtime.goToNextAttentionGlobal();
       return true;
     case "new_session":
       runtime.openNewSessionModal(

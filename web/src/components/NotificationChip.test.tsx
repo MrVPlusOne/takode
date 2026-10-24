@@ -121,7 +121,7 @@ vi.mock("../utils/attention-item-menu.js", async (importOriginal) => ({
     mockCloseThreadTab(sessionId, threadKey, nextThreadKey),
 }));
 
-import { NotificationChip } from "./NotificationChip.js";
+import { ATTENTION_NEXT_IN_SESSION_EVENT, NotificationChip } from "./NotificationChip.js";
 import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
 
 /** The chip's button: a next step while items are listed, otherwise the inbox toggle. */
@@ -1131,7 +1131,7 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" />);
-      // The popover anchors to the chip's container, which also holds its toast.
+      // The popover anchors to the chip's container.
       Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
         configurable: true,
         value: () => ({
@@ -1159,10 +1159,10 @@ describe("NotificationChip", () => {
     }
   });
 
-  it("opens its list and toast below a chip at the feed's top", () => {
+  it("opens its list below a chip at the feed's top", () => {
     // Desktop places the chip at the feed's top right, just under the top bar.
     // Opening upward there would push the list off screen, so the list drops
-    // from the chip's bottom edge and the Next toast shows under the chip.
+    // from the chip's bottom edge.
     setNotifications("s1", [
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: 1, messageId: "m-1", done: false },
     ]);
@@ -1172,9 +1172,6 @@ describe("NotificationChip", () => {
       configurable: true,
       value: () => ({ x: 900, y: 60, top: 60, right: 1000, bottom: 84, left: 900, width: 100, height: 24 }),
     });
-
-    fireEvent.click(chipButton());
-    expect(screen.getByTestId("next-attention-toast").parentElement).toHaveClass("top-full");
 
     openInbox();
     const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
@@ -1309,7 +1306,8 @@ describe("NotificationChip", () => {
   describe("session attention navigator", () => {
     it("steps through the session's prompts newest first on each tap and wraps around", () => {
       // A tap is a next step, not a list toggle: each one opens the next item
-      // and the label names the one after it.
+      // and the label names the one after it. No banner says where it went
+      // (the user found it distracting): the opened item shows that.
       setNotifications("s1", [
         { id: "old", category: "needs-input", summary: "Older ask", timestamp: 100, messageId: "m-old", done: false },
         { id: "new", category: "needs-input", summary: "Newer ask", timestamp: 200, messageId: "m-new", done: false },
@@ -1319,13 +1317,51 @@ describe("NotificationChip", () => {
       expect(chipButton()).toHaveTextContent("1/2·Next");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
-      expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 2");
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
       expect(chipButton()).toHaveTextContent("2/2·Next");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
-      expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("2 / 2");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+    });
+
+    it("steps on the Next Item in This Session shortcut for its own session only", () => {
+      // The shortcut takes the same step as a tap on the chip of the session on
+      // screen, and shares its position; other sessions' chips ignore it.
+      setNotifications("s1", [
+        { id: "old", category: "needs-input", summary: "Older ask", timestamp: 100, messageId: "m-old", done: false },
+        { id: "new", category: "needs-input", summary: "Newer ask", timestamp: 200, messageId: "m-new", done: false },
+      ]);
+      render(<NotificationChip sessionId="s1" />);
+      const shortcut = (sessionId: string) =>
+        act(() => {
+          window.dispatchEvent(new CustomEvent(ATTENTION_NEXT_IN_SESSION_EVENT, { detail: { sessionId } }));
+        });
+
+      shortcut("s2");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+
+      shortcut("s1");
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+      expect(chipButton()).toHaveTextContent("2/2·Next");
+      fireEvent.click(chipButton());
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
+      shortcut("s1");
+      expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
+    });
+
+    it("does nothing on the shortcut when nothing is left to step through", () => {
+      // A tap with only a muted prompt opens the list; the shortcut leaves the
+      // feed alone instead, so a key pressed in passing never covers it.
+      setNotifications("s1", [
+        { id: "muted", category: "needs-input", summary: "Muted", timestamp: 1, done: false, muted: true },
+      ]);
+      render(<NotificationChip sessionId="s1" />);
+      act(() => {
+        window.dispatchEvent(new CustomEvent(ATTENTION_NEXT_IN_SESSION_EVENT, { detail: { sessionId: "s1" } }));
+      });
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
       expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
     });
 
@@ -1586,7 +1622,6 @@ describe("NotificationChip", () => {
         // the view is told to move straight to the next item's thread.
         expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", "q-2");
         expect(window.location.hash).toContain("thread=q-2");
-        expect(screen.getByTestId("next-attention-toast")).toHaveTextContent("1 / 1");
       });
 
       it("only closes the tab when nothing else needs attention", () => {
@@ -1599,7 +1634,6 @@ describe("NotificationChip", () => {
         fireEvent.contextMenu(chipButton());
         fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
         expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", undefined);
-        expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
       });
 
       it("keeps the list one choice away", () => {
@@ -1624,6 +1658,7 @@ describe("NotificationChip", () => {
 
       it("offers the choice on a phone long-press without stepping on lift", () => {
         vi.useFakeTimers();
+        window.location.hash = "#/session/s1?thread=q-1";
         try {
           setPrompts();
           mockCanCloseThreadTab.mockReturnValue(true);
@@ -1639,7 +1674,7 @@ describe("NotificationChip", () => {
           fireEvent.click(chipButton());
 
           expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
-          expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
+          expect(window.location.hash).toBe("#/session/s1?thread=q-1");
         } finally {
           vi.useRealTimers();
         }
@@ -1667,7 +1702,6 @@ describe("NotificationChip", () => {
           fireEvent.click(closeAndNext);
 
           expect(mockCloseThreadTab).not.toHaveBeenCalled();
-          expect(screen.queryByTestId("next-attention-toast")).not.toBeInTheDocument();
           expect(window.location.hash).not.toContain("thread=q-2");
           expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
 

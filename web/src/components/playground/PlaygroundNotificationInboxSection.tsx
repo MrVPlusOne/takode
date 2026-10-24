@@ -597,9 +597,9 @@ export function PlaygroundNotificationInboxSection() {
               closable quest tab it first offers &quot;Close tab and go to next&quot; (skipping items in that tab) or
               &quot;Show list&quot;. Rows keep only Go to; right-click or long-press a row (not the chip) for its own
               menu: Acknowledge and Stop tracking for Notify Me, Mark as read and Close tab for unread threads. Here
-              steps only move the position and toast; in a session they jump to each item. On desktop the chip floats at
-              the feed&apos;s top right, near the top bar&apos;s attention controls, and its toast and inbox open below
-              it; phones keep it at the bottom right.
+              steps only move the position; in a session they jump to each item, as does the Next Item in This Session
+              shortcut. On desktop the chip floats at the feed&apos;s top right, near the top bar&apos;s attention
+              controls, and its inbox opens below it; phones keep it at the bottom right.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">

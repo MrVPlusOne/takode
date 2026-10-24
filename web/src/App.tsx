@@ -64,6 +64,7 @@ import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
 import { SERVER_TODO_ITEM_SUMMARIES, watchTodoItemSummaries } from "./components/todo-item-summaries.js";
 import { ATTENTION_NEXT_EVENT } from "./components/GlobalAttentionMenu.js";
+import { ATTENTION_NEXT_IN_SESSION_EVENT } from "./components/NotificationChip.js";
 import { EmptyState } from "./components/EmptyState.js";
 import {
   beginActiveSessionListRequest,
@@ -743,7 +744,9 @@ export default function App() {
         navigateToSession,
         navigateToMostRecentSession: () => navigateToMostRecentSession(),
         closeSecondaryPage,
-        goToNextAttention: () => window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT)),
+        goToNextAttentionInSession: (sessionId) =>
+          window.dispatchEvent(new CustomEvent(ATTENTION_NEXT_IN_SESSION_EVENT, { detail: { sessionId } })),
+        goToNextAttentionGlobal: () => window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT)),
       });
       if (!handled) return false;
       if (actionId !== "search_session") {

@@ -8,6 +8,7 @@ import {
   findShortcutBindingConflict,
   formatShortcut,
   getMatchingShortcutAction,
+  getEffectiveShortcutBinding,
   getMatchingShortcutTapAction,
   getShortcutHint,
   isAppGlobalShortcutAction,
@@ -475,9 +476,10 @@ describe("shortcuts", () => {
     expect(navigateToSession).not.toHaveBeenCalled();
   });
 
-  it("steps the attention list through the runtime and reports when it cannot", () => {
-    // The shortcut walks the same list as the top bar's Next; without a
-    // handler (no top bar mounted) it is left unhandled for the browser.
+  it("steps the session's or the global attention list through the runtime", () => {
+    // "Next Item in This Session" steps the chip of the session on screen and
+    // "Next Item Across Sessions" the top bar's list. Without a handler, or with
+    // no session on screen for the in-session one, they are left to the browser.
     const runtime = {
       secondaryPage: null,
       currentSessionId: "s1",
@@ -498,10 +500,34 @@ describe("shortcuts", () => {
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
       closeSecondaryPage: vi.fn(),
     } satisfies ShortcutRuntime;
-    const goToNextAttention = vi.fn();
-    expect(performShortcutAction("next_attention", { ...runtime, goToNextAttention })).toBe(true);
-    expect(goToNextAttention).toHaveBeenCalledTimes(1);
+    const goToNextAttentionInSession = vi.fn();
+    const goToNextAttentionGlobal = vi.fn();
+    const wired = { ...runtime, goToNextAttentionInSession, goToNextAttentionGlobal };
+
+    expect(performShortcutAction("next_attention", wired)).toBe(true);
+    expect(goToNextAttentionInSession).toHaveBeenCalledWith("s1");
+    expect(goToNextAttentionGlobal).not.toHaveBeenCalled();
+
+    expect(performShortcutAction("next_attention_global", wired)).toBe(true);
+    expect(goToNextAttentionGlobal).toHaveBeenCalledTimes(1);
+    expect(goToNextAttentionInSession).toHaveBeenCalledTimes(1);
+
+    expect(performShortcutAction("next_attention", { ...wired, currentSessionId: null })).toBe(false);
     expect(performShortcutAction("next_attention", runtime)).toBe(false);
+    expect(performShortcutAction("next_attention_global", runtime)).toBe(false);
+  });
+
+  it("gives the two attention steps different preset keys", () => {
+    // Every preset binds both, and never to the same keys.
+    for (const preset of ["standard", "vscode-light", "vim-light"] as const) {
+      const settings = { enabled: true, preset, overrides: {} };
+      const inSession = getEffectiveShortcutBinding(settings, "next_attention");
+      const global = getEffectiveShortcutBinding(settings, "next_attention_global");
+      expect(inSession).toBeTruthy();
+      expect(global).toBeTruthy();
+      expect(findShortcutBindingConflict(settings, "next_attention_global", global!, "MacIntel")).toBeNull();
+      expect(findShortcutBindingConflict(settings, "next_attention", inSession!, "Linux x86_64")).toBeNull();
+    }
   });
 
   it("marks only non-search app-wide actions as app-global shortcuts", () => {
@@ -509,6 +535,7 @@ describe("shortcuts", () => {
     expect(isAppGlobalShortcutAction("previous_session")).toBe(true);
     expect(isAppGlobalShortcutAction("next_session")).toBe(true);
     expect(isAppGlobalShortcutAction("next_attention")).toBe(true);
+    expect(isAppGlobalShortcutAction("next_attention_global")).toBe(true);
     expect(isAppGlobalShortcutAction("search_session")).toBe(false);
     expect(isAppGlobalShortcutAction("toggle_sidebar")).toBe(false);
   });

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { NextAttentionLanding } from "../hooks/useAttentionNavigator.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { attentionItemMenuItems } from "../utils/attention-item-menu.js";
 import type { NextAttentionItem } from "../utils/next-attention.js";
@@ -9,7 +8,6 @@ import {
   ATTENTION_GROUP_TITLE,
   AttentionKindIcon,
   BellIcon,
-  NextAttentionToast,
   formatRelativeTime,
   type AttentionKind,
 } from "./AttentionKind.js";
@@ -25,26 +23,6 @@ const GROUP_ARIA_LABEL: Record<AttentionKind, string> = {
   "notify-me": "Notify Me results",
   unread: "Unread results",
 };
-
-/** Where the feed chip's Next just went, floating next to the chip on the feed side. */
-export function SessionAttentionToast({
-  landing,
-  placement,
-}: {
-  landing: NextAttentionLanding;
-  /** The feed edge the chip floats at; the toast shows on the chip's other side. */
-  placement: "top" | "bottom";
-}) {
-  return (
-    <div
-      className={`pointer-events-none absolute right-0 z-20 w-max max-w-[min(24rem,calc(100vw-1.5rem))] font-sans-ui ${
-        placement === "top" ? "top-full mt-1.5" : "bottom-full mb-1.5"
-      }`}
-    >
-      <NextAttentionToast landing={landing} inline />
-    </div>
-  );
-}
 
 /**
  * The row's first line: what needs attention. Where it lives goes on the second

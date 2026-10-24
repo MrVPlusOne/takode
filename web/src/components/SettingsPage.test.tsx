@@ -885,7 +885,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    const row = screen.getByText("Next Item in This Session").closest(".space-y-2") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
     fireEvent.keyDown(window, { key: "n", ctrlKey: true });
 
@@ -901,7 +901,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    const row = screen.getByText("Next Item in This Session").closest(".space-y-2") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
     fireEvent.keyDown(window, { key: "n", ctrlKey: true });
 
@@ -916,7 +916,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    const row = screen.getByText("Next Item in This Session").closest(".space-y-2") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
     expect(
       within(row).getByText(/Browser shortcuts such as Ctrl\+N, Ctrl\+T and Ctrl\+W can't be used/),
@@ -935,7 +935,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const row = screen.getByText("Next Item Needing Attention").closest(".space-y-2") as HTMLElement;
+    const row = screen.getByText("Next Item in This Session").closest(".space-y-2") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Record shortcut" }));
     fireEvent.blur(window);
 
