@@ -35,6 +35,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Verify promised durable actions before Ready.** After you say you will create, refine, dispatch, or advance a quest, complete and verify the durable record in that same turn: exact quest ID, board row, needs-input notification, worker send/phase dispatch, Port/push, or other external record as applicable. If the durable action is not complete, mark the thread Waiting or incomplete with what remains instead of Ready. Avoid broad mixed context dumps as the final step before setup; prefer compact targeted checks and perform the durable action once the user request is clear.
 - **Persist true follow-up relationships.** When creating or refining a quest that is a true follow-up, bug fix, successor, redesign, or user-approved next quest from prior findings, include `Relationship: follow-up of [q-N](quest:q-N)` in the approval surface and persist it with `quest create ... --follow-up-of q-N` or `quest edit q-M --follow-up-of q-N`. Leave incidental mentions to auto-detected backlinks.
 - **Record the message a quest came from.** When you file a quest from a request the user made in a conversation, pass that message's `id:uN` with `quest create ... --source-message uN` (or `quest edit q-M --source-message uN`). The new quest thread then opens with a link back to that message, and the message gets a "Continued in" link to the quest, so the user can follow a conversation across tabs. A quest whose request stays where it was asked is a supporting quest: answer the request there once the result exists, and keep only the quest's own work in its tab (see Supporting quests in your leader instructions).
+- **Quote long user messages by ID instead of retyping them.** `takode read <your-session> uN --quote` prints the user's exact words as a Markdown quote linked back to the message, and `--raw` prints just the text; pipe either into `quest create`/`quest edit --desc-file -` or `quest feedback add --text-file -` and add your own context after the quote. Short messages need no exact copy.
 - **Keep sequential follow-up work in the same quest.** New quests and threads are for parallel work or a genuinely separate deliverable. Building an approved design or the next step of a staged build continues in the earlier quest as a later Work occurrence, reopened if it already finished, even when that quest was first scoped as design or investigation only. A design checkpoint must say whether each choice continues the build in the same quest (the default), closes without a build, or files a separate quest. If same-quest routing expands a previously design-only current quest, reconcile a design-only title and any stale description/TLDR before Work resumes; final Memory is only the backstop. Return the current quest to its assigned worker in Work after the decision. Apply Sequential Follow-Up Continuity in [quest-journey.md](quest-journey.md) and the current phase briefs.
 - **Verify delivery before saying a feature is implemented, available, or ready to test.** Apply the delivery-evidence checklist in [quest-journey.md](quest-journey.md). A design selection, design-only Memory record, probe run, or generic tool output is not delivery evidence; if the checklist is not satisfied, say the feature is not delivered before attempting a test.
 - **Events are push-based.** Herd events arrive as `[Herd]` user messages when idle. No polling.
@@ -309,13 +310,15 @@ takode peek 1 --detail --turns 3
 
 Default to the plain-text forms above when you are reading for judgment. Switch to `--json` only when you need exact machine fields.
 
-### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`
+### `takode read <session> <msg-id>... [--raw | --quote | --json] [--offset N] [--limit N]`
 
-Read full content of a specific message, with line numbers and pagination.
+Read full content of a specific message, with line numbers and pagination. `--raw` prints only the exact full text; `--quote` prints it as a Markdown quote with sender, time and a link back to the message. Name several messages before the flags to read them in order.
 
 ```bash
 takode read 1 42
 takode read 1 42 --offset 0 --limit 50
+takode read 1 u651 u653 --quote
+{ takode read 1 u651 --quote; printf '\nContext: the leader adds this.\n'; } | quest feedback add q-5 --text-file -
 ```
 
 ### `takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]`

@@ -897,7 +897,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: `Message index ${idx} does not participate in thread ${threadTarget.threadKey}` }, 404);
     }
 
-    return c.json(result);
+    // The session number lets `takode read --quote` link back to the message.
+    const sessionNum = launcher.getSessionNum(sessionId);
+    return c.json(sessionNum === undefined ? result : { ...result, sessionNum });
   });
 
   // ─── Takode: Grep (within-session search) ────────────────────

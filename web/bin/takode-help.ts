@@ -198,10 +198,20 @@ Examples:
   takode peek 1 --detail --turns 3
 `;
 
-const READ_HELP = `Usage: takode read <session> <history-index|uN> [--offset N] [--limit N] [--thread main|q-N] [--json]
+const READ_HELP = `Usage: takode read <session> <history-index|uN>... [--raw | --quote | --json] [--offset N] [--limit N] [--thread main|q-N]
 
-Read one full message from a session. Leader source-envelope IDs such as u12
-(human request) require the leader session argument because they are session-scoped.
+Read full messages from a session, with line numbers. Leader source-envelope IDs such
+as u12 (human request) require the leader session argument because they are session-scoped.
+List several messages before any flags to read them in order.
+
+  --raw     Print only each message's exact full text, ready to pipe or paste.
+  --quote   Print each message as a Markdown quote headed by its sender, time and a
+            link back to it, ready to put in a quest description or feedback.
+  --json    Structured output (an array when several messages are named).
+
+Examples:
+  takode read 12 u651 --raw | quest feedback add q-5 --author human --text-file -
+  { takode read 12 u651 u653 --quote; printf '\\nYour added context.\\n'; } | quest edit q-5 --desc-file -
 `;
 
 const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]

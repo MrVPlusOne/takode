@@ -981,54 +981,111 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   }
 }
 
+type ReadMessageResponse = {
+  idx: number;
+  type: string;
+  ts: number;
+  totalLines: number;
+  offset: number;
+  limit: number;
+  content: string;
+  sessionNum?: number;
+  contentBlocks?: { type: string }[];
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: Array<{ threadKey: string; questId?: string; source?: string }>;
+  threadStatuses?: ThreadStatusSummary[];
+  rawMessage?: {
+    type?: string;
+    agentSource?: { sessionId: string; sessionLabel?: string };
+  };
+};
+
+const READ_USAGE =
+  "Usage: takode read <session> <history-index|uN>... [--raw | --quote | --json] [--offset N] [--limit N] [--thread main|q-N]";
+
 export async function handleRead(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  const msgIdx = args[1];
-  if (!sessionRef || !msgIdx)
-    err("Usage: takode read <session> <history-index|uN> [--offset N] [--limit N] [--thread main|q-N] [--json]");
+  const firstFlag = args.findIndex((arg, i) => i > 0 && arg.startsWith("--"));
+  const msgRefs = args.slice(1, firstFlag === -1 ? undefined : firstFlag);
+  if (!sessionRef || msgRefs.length === 0) err(READ_USAGE);
 
-  const flags = parseFlags(args.slice(2));
+  const flags = parseFlags(args.slice(1 + msgRefs.length));
+  const mode = flags.raw === true ? "raw" : flags.quote === true ? "quote" : flags.json === true ? "json" : "lines";
+  if ([flags.raw, flags.quote, flags.json].filter((flag) => flag === true).length > 1) {
+    err("Use only one of --raw, --quote and --json.");
+  }
+  // --raw and --quote always print whole messages, so paging flags would be ignored silently.
+  if ((mode === "raw" || mode === "quote") && (flags.offset !== undefined || flags.limit !== undefined)) {
+    err(`--${mode} prints whole messages; drop --offset and --limit.`);
+  }
   const offset = Number(flags.offset) || 0;
   const limit = Number(flags.limit) || 200;
-  const jsonMode = flags.json === true;
   const threadKey = parseThreadFilterFlag(flags.thread);
 
-  const params = new URLSearchParams();
-  if (offset) params.set("offset", String(offset));
-  if (limit !== 200) params.set("limit", String(limit));
-  appendThreadQueryParam(params, threadKey);
-  const qs = params.toString() ? `?${params}` : "";
-
-  const data = await apiGet(
-    base,
-    `/sessions/${encodeURIComponent(sessionRef)}/messages/${encodeURIComponent(msgIdx)}${qs}`,
-    { auth: "optional" },
-  );
-
-  if (jsonMode) {
-    console.log(JSON.stringify(data, null, 2));
-    return;
-  }
-
-  const d = data as {
-    idx: number;
-    type: string;
-    ts: number;
-    totalLines: number;
-    offset: number;
-    limit: number;
-    content: string;
-    contentBlocks?: { type: string }[];
-    threadKey?: string;
-    questId?: string;
-    threadRefs?: Array<{ threadKey: string; questId?: string; source?: string }>;
-    threadStatuses?: ThreadStatusSummary[];
-    rawMessage?: {
-      type?: string;
-      agentSource?: { sessionId: string; sessionLabel?: string };
-    };
+  const fetchMessage = async (msgRef: string, page: { offset: number; limit: number }) => {
+    const params = new URLSearchParams();
+    if (page.offset) params.set("offset", String(page.offset));
+    if (page.limit !== 200) params.set("limit", String(page.limit));
+    appendThreadQueryParam(params, threadKey);
+    const qs = params.toString() ? `?${params}` : "";
+    return (await apiGet(
+      base,
+      `/sessions/${encodeURIComponent(sessionRef)}/messages/${encodeURIComponent(msgRef)}${qs}`,
+      { auth: "optional" },
+    )) as ReadMessageResponse;
   };
 
+  const outputs: string[] = [];
+  const jsonMessages: ReadMessageResponse[] = [];
+  for (const msgRef of msgRefs) {
+    if (mode === "json") {
+      jsonMessages.push(await fetchMessage(msgRef, { offset, limit }));
+      continue;
+    }
+    if (mode === "lines") {
+      outputs.push(formatReadLines(await fetchMessage(msgRef, { offset, limit }), msgRef));
+      continue;
+    }
+    // The server pages by lines; fetch again with room for every line when a message is longer.
+    let data = await fetchMessage(msgRef, { offset: 0, limit: 200 });
+    if (data.totalLines > data.limit) data = await fetchMessage(msgRef, { offset: 0, limit: data.totalLines });
+    outputs.push(mode === "raw" ? data.content : formatReadQuote(data, msgRef, sessionRef));
+  }
+  if (mode === "json") {
+    // One message keeps the long-standing object shape; several become an array.
+    console.log(JSON.stringify(jsonMessages.length === 1 ? jsonMessages[0] : jsonMessages, null, 2));
+    return;
+  }
+  // Blank line between messages; --raw and --quote output stays pasteable as Markdown.
+  console.log(outputs.join("\n\n"));
+}
+
+/**
+ * Render a message as a Markdown blockquote headed by who sent it, when, and a
+ * Takode link back to the message, ready to paste into a quest or feedback.
+ */
+function formatReadQuote(d: ReadMessageResponse, msgRef: string, sessionRef: string): string {
+  const sessionNum = d.sessionNum ?? (/^\d+$/.test(sessionRef) ? Number(sessionRef) : undefined);
+  const refLabel = isCanonicalLeaderUserMessageId(msgRef.trim().toLowerCase())
+    ? msgRef.trim().toLowerCase()
+    : `msg ${d.idx}`;
+  const link = sessionNum === undefined ? refLabel : `[#${sessionNum} ${refLabel}](session:${sessionNum}:${d.idx})`;
+  const header = `${readSourceLabel(d)}, ${formatDate(d.ts)} ${formatTime(d.ts)} (${link}):`;
+  const body = d.content.split("\n").map((line) => (line ? `> ${line}` : ">"));
+  return [`> ${header}`, ">", ...body].join("\n");
+}
+
+function readSourceLabel(d: ReadMessageResponse): string {
+  if (d.type !== "user_message" && d.rawMessage?.type !== "user_message") {
+    return d.type.charAt(0).toUpperCase() + d.type.slice(1);
+  }
+  const label = userSourceLabel({ agent: d.rawMessage?.agentSource });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function formatReadLines(d: ReadMessageResponse, msgIdx: string): string {
+  const out: string[] = [];
   const time = formatTime(d.ts);
   const lineInfo =
     d.totalLines > d.limit
@@ -1041,9 +1098,9 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
     : d.type === "assistant" && d.contentBlocks?.some((b) => b.type === "tool_use")
       ? "assistant (tools)"
       : d.type;
-  console.log(`[msg ${d.idx}] ${formatInlineText(typeLabel)} -- ${time}${lineInfo}`);
-  for (const line of formatThreadLines(d)) console.log(line);
-  console.log("\u2500".repeat(60));
+  out.push(`[msg ${d.idx}] ${formatInlineText(typeLabel)} -- ${time}${lineInfo}`);
+  out.push(...formatThreadLines(d));
+  out.push("\u2500".repeat(60));
 
   // Print with line numbers (like the Read tool)
   const isSessionScopedLeaderMessageRead = isCanonicalLeaderUserMessageId(msgIdx.trim().toLowerCase());
@@ -1054,18 +1111,19 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
   const lines = (visibleContent?.content ?? d.content).split("\n");
   for (let i = 0; i < lines.length; i++) {
     const lineNum = String(d.offset + i + 1).padStart(4);
-    console.log(`${lineNum}  ${formatInlineText(lines[i] ?? "")}`);
+    out.push(`${lineNum}  ${formatInlineText(lines[i] ?? "")}`);
   }
 
   if (visibleContent?.truncated) {
-    console.log("");
-    console.log(`... ${visibleContent.remainingChars} more chars hidden. Use --json for full content.`);
+    out.push("");
+    out.push(`... ${visibleContent.remainingChars} more chars hidden. Use --raw for full content.`);
   } else if (d.offset + lines.length < d.totalLines) {
-    console.log("");
-    console.log(
+    out.push("");
+    out.push(
       `... ${d.totalLines - d.offset - lines.length} more lines. Use --offset ${d.offset + d.limit} to continue.`,
     );
   }
+  return out.join("\n");
 }
 
 type PeekTurnScanResponse = {
