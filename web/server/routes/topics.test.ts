@@ -22,6 +22,13 @@ vi.mock("../quest-store.js", () => {
       sessionSpaceSlug: "MSI",
       createdAt: 1,
       leaderSessionId: "leader",
+      // Finished just now: its wrap-up and unticked checks are what the Scribe builds Now from.
+      completedAt: Date.now(),
+      debriefTldr: "Launched; not tried on an iPhone.",
+      verificationItems: [
+        { text: "Check the T7 dashboard on the phone", checked: false },
+        { text: "Restart the server", checked: true },
+      ],
     },
     { questId: "q-2", title: "256K twin", status: "in_progress", sessionSpaceSlug: "MSI", createdAt: 2 },
   ];
@@ -199,7 +206,16 @@ describe("topic routes", () => {
     const read = await (await app.request(`/scribe/topics/${topic.id.slice(0, 8)}/changes`)).json();
     expect(read.events.map((event: { kind: string }) => event.kind)).toEqual(["quest_filed", "message"]);
     expect(read.events[1].sessionNum).toBe(7);
-    expect(read.quests).toEqual([{ questId: "q-1", title: "Launch T7", status: "done" }]);
+    expect(read.quests).toEqual([
+      {
+        questId: "q-1",
+        title: "Launch T7",
+        status: "done",
+        completedAt: expect.any(Number),
+        checksLeft: ["Check the T7 dashboard on the phone"],
+        wrapUp: "Launched; not tried on an iPhone.",
+      },
+    ]);
 
     // An event that arrives while the Scribe is writing is not covered by the page.
     store.addEvent(topic.id, {

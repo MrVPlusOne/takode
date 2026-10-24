@@ -435,6 +435,29 @@ describe("topic service", () => {
     expect(injected.at(-1)?.text).toContain("none of 1 recent quests is under a topic yet");
   });
 
+  it("tells the Scribe which checks a finished quest left for the user", async () => {
+    // Unticked checks are often what Now needs ("try it on the phone", "send the guide").
+    const { service, injected, store } = await setupService();
+    await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    injected.length = 0;
+    service.questChanged({
+      questId: "q-1",
+      title: "Launch T7",
+      status: "done",
+      leaderSessionId: "leader",
+      verificationItems: [
+        { text: "Check the dashboard on the phone", checked: false },
+        { text: "Restart the server", checked: true },
+      ],
+    } as unknown as QuestmasterTask);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected[0]!.text).toContain(
+      "q-1 finished: Launch T7 · left for the user: Check the dashboard on the phone",
+    );
+    expect(injected[0]!.text).not.toContain("Restart the server");
+  });
+
   it("asks a Scribe once to rewrite pages written in an older format", async () => {
     // Pages from before the current page format stay as written until the Scribe is asked; it is
     // asked once (at startup), and a Scribe that initializes writes the current format already.
@@ -447,7 +470,8 @@ describe("topic service", () => {
     service.askOutdatedScribes();
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics in the current format");
+    expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics");
+    expect(injected[0]!.text).toContain("rebuild Now from what its quests left open");
 
     vi.advanceTimersByTime(10);
     await service.scribeTurnEnded(scribe);

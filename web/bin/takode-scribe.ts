@@ -168,7 +168,14 @@ interface TopicChangesResponse {
     messageIndex?: number;
     text?: string;
   }>;
-  quests: Array<{ questId: string; title: string; status: string }>;
+  quests: Array<{
+    questId: string;
+    title: string;
+    status: string;
+    completedAt?: number;
+    checksLeft?: string[];
+    wrapUp?: string;
+  }>;
   artifacts: Array<{ id: string; kind: string; title: string; versions: number; questId: string; updatedAt: number }>;
 }
 
@@ -177,8 +184,12 @@ function formatChanges(response: TopicChangesResponse): string {
   const lines = [
     `Topic "${topic.name}" (${topic.id.slice(0, 8)}, space ${topic.space}${topic.nameSource === "user" ? ", named by the user" : ""}${topic.tentative ? ", new" : ""})`,
     "",
-    "## Quests",
-    ...response.quests.map((quest) => `- [${quest.questId}](quest:${quest.questId}) ${quest.status}: ${quest.title}`),
+    "## Quests (what each left open is the source for Now)",
+    ...response.quests.flatMap((quest) => [
+      `- [${quest.questId}](quest:${quest.questId}) ${quest.completedAt ? `done ${new Date(quest.completedAt).toLocaleDateString()}` : quest.status}: ${quest.title}`,
+      ...(quest.checksLeft ?? []).map((check) => `  - Left for the user (unticked): ${check}`),
+      ...(quest.wrapUp ? [`  - Wrap-up: ${quest.wrapUp.replace(/\s*\n\s*/g, " ")}`] : []),
+    ]),
     "",
     `## What happened since your last write (${response.events.length})`,
     ...response.events.map((event) => {

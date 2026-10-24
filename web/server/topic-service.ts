@@ -78,7 +78,7 @@ const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
-export const PAGE_FORMAT = 2;
+export const PAGE_FORMAT = 3;
 
 export type DeliveryResult = "sent" | "nothing" | "paused" | "over_budget" | "busy" | "off";
 
@@ -159,7 +159,18 @@ export class TopicService {
     if (quest.status !== "done") return;
     const already = topic.events.some((event) => event.kind === "quest_done" && event.questId === quest.questId);
     if (already) return;
-    this.event(topic.id, leaderId, { at: this.now(), kind: "quest_done", questId: quest.questId, text: quest.title });
+    // Checks the quest left for the user are often what the page's Now needs.
+    const checks = (
+      (quest as { verificationItems?: Array<{ text: string; checked: boolean }> }).verificationItems ?? []
+    )
+      .filter((item) => !item.checked)
+      .map((item) => item.text);
+    this.event(topic.id, leaderId, {
+      at: this.now(),
+      kind: "quest_done",
+      questId: quest.questId,
+      text: excerpt(checks.length ? `${quest.title} · left for the user: ${checks.join("; ")}` : quest.title, 600),
+    });
   }
 
   /** A new artifact version saved in a quest's tab is an event for that quest's topic. */

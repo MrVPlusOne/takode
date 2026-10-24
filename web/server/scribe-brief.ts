@@ -98,10 +98,14 @@ One sentence on what this topic covers, so the user can tell at a glance whether
 \`\`\`
 
 - **Now** is what the user reads first. Keep it short and current: add what came up, remove what is
-  done. Look for what is left in quest debriefs (limits, things not tested, checks for the user),
-  in the leader's final messages, in the user's ideas for later, and in unanswered questions. When
-  nothing is open, write "Nothing open." The panel also lists the topic's open quests itself, so
-  say what they are waiting for rather than repeating their titles.
+  done. Build it from evidence, not from the old page: \`takode scribe changes <topic>\` lists each
+  quest with the checks it left for the user that are still unticked and, for quests finished in the
+  last two weeks, their wrap-up (limits, things not tested, follow-ups). Add the leader's final
+  messages, the user's ideas for later and unanswered questions. Use judgment: the user rarely ticks
+  checks, so drop ones later work made moot (a restart that has long since happened) and fold
+  routine "try it on the phone" checks of one area into one line. Write "Nothing open." only after
+  looking. The panel also lists the topic's open quests itself, so say what they are waiting for
+  rather than repeating their titles.
 - **Worth knowing** is yours to fill with anything else that would genuinely help the user in this
   topic and fits nowhere else (a gotcha to remember, a pattern across quests, a number they keep
   needing). Keep it to a few short lines, and leave the section out when there is nothing.

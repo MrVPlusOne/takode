@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
+import type { QuestmasterTask } from "../quest-types.js";
 import { getArtifactLibrary } from "../artifact-library.js";
 import type { TopicListResponse } from "../../shared/library-topics.js";
 import { TopicStoreError } from "../topic-store.js";
@@ -320,9 +321,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
           ...event,
           ...(event.sessionId ? { sessionNum: ctx.launcher.getSessionNum(event.sessionId) ?? null } : {}),
         })),
-        quests: quests
-          .filter((quest) => !!quest)
-          .map((quest) => ({ questId: quest!.questId, title: quest!.title, status: quest!.status })),
+        quests: quests.filter((quest) => !!quest).map((quest) => questForScribe(quest!)),
         artifacts: artifacts.map((artifact) => ({
           id: artifact.id.slice(0, 8),
           kind: artifact.kind,
@@ -413,4 +412,30 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   return api;
+}
+
+/** A wrap-up older than this is history (Recent), not a source of what is left (Now). */
+const RECENT_WRAP_UP_MS = 14 * 24 * 3600_000;
+
+/**
+ * A topic's quest as its Scribe needs it for Now: status, when it finished, the checks it left for
+ * the user that are still unticked, and for a quest finished in the last two weeks its wrap-up
+ * summary, where limits and follow-ups usually are.
+ */
+function questForScribe(quest: QuestmasterTask) {
+  const done = quest as QuestmasterTask & {
+    completedAt?: number;
+    debriefTldr?: string;
+    verificationItems?: Array<{ text: string; checked: boolean }>;
+  };
+  const recent = !!done.completedAt && Date.now() - done.completedAt < RECENT_WRAP_UP_MS;
+  const checks = (done.verificationItems ?? []).filter((item) => !item.checked).map((item) => item.text);
+  return {
+    questId: quest.questId,
+    title: quest.title,
+    status: quest.status,
+    ...(done.completedAt ? { completedAt: done.completedAt } : {}),
+    ...(checks.length ? { checksLeft: checks } : {}),
+    ...(recent && done.debriefTldr ? { wrapUp: done.debriefTldr.slice(0, 800) } : {}),
+  };
 }
