@@ -219,6 +219,19 @@ describe("WorkBoardBar panel views", () => {
     expect(queryByText(/^\d+ items?$/)).toBeNull();
   });
 
+  it("hides Main's strip while the phone topic panel covers the thread, and shows it again after", () => {
+    // The phone topic panel starts right under the tabs, so the thread's strip steps aside.
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+    const { queryByTestId, rerender } = render(<WorkBoardBar sessionId="s1" hideThreadStrip />);
+    expect(queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
+    expect(queryByTestId("thread-tab-rail")).toBeInTheDocument();
+    rerender(<WorkBoardBar sessionId="s1" />);
+    expect(queryByTestId("workboard-main-banner")).toBeInTheDocument();
+  });
+
   it("keeps selected workboard view visible in place while visiting a quest thread", () => {
     resetStore({
       sdkSessions: [

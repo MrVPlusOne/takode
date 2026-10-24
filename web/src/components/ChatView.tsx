@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
+import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { TopicConversationButton, TopicConversationHeader, useTopicConversation } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
@@ -542,6 +543,8 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
+  // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
+  const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
 
   useLayoutEffect(() => {
@@ -1141,6 +1144,7 @@ export function ChatView({
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
           closeTabRef={workBoardCloseTabRef}
+          hideThreadStrip={phoneTopicsOpen}
         />
       )}
 
@@ -1151,7 +1155,7 @@ export function ChatView({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
-              {!preview && topicFeedOn && (
+              {!preview && !phoneTopicsOpen && topicFeedOn && (
                 <div ref={questStripRef} className="contents">
                   <TopicConversationHeader
                     leaderId={sessionId}
@@ -1160,7 +1164,7 @@ export function ChatView({
                   />
                 </div>
               )}
-              {!preview && showQuestThreadBanner && !topicFeedOn && (
+              {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
                 <div ref={questStripRef} className="contents">
                   <QuestThreadBanner
                     row={selectedThreadRow}
@@ -1180,7 +1184,7 @@ export function ChatView({
                   />
                 </div>
               )}
-              {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (
+              {!preview && !phoneTopicsOpen && !showQuestThreadBanner && sessionQuestBannerRow && (
                 <QuestThreadBanner
                   row={sessionQuestBannerRow}
                   threadKey={sessionQuestBannerRow.threadKey}

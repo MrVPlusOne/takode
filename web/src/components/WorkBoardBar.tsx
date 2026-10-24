@@ -489,6 +489,7 @@ function WorkBoardBarComponent({
   onCloseThreadTab,
   threadRows = [],
   closeTabRef,
+  hideThreadStrip = false,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -498,6 +499,8 @@ function WorkBoardBarComponent({
   threadRows?: WorkBoardThreadNavigationRow[];
   /** Filled with this bar's close handler, for closing a tab from outside the bar. */
   closeTabRef?: MutableRefObject<((threadKey: string) => void) | null>;
+  /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
+  hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));
@@ -616,7 +619,7 @@ function WorkBoardBarComponent({
         threadStatuses={threadStatuses}
       />
 
-      {showMainBanner && (
+      {showMainBanner && !hideThreadStrip && (
         <div
           className="flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
           data-testid="workboard-main-banner"
