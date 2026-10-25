@@ -16,6 +16,8 @@ import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { ComposerInputSurface } from "./ComposerSurface.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
+import { useComposerUndoHistory } from "./composer-undo-history.js";
+import { ComposerRecordingBar, ComposerUndoRedoButtons } from "./ComposerToolbarControls.js";
 import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
 import {
   createComposerDraftImage,
@@ -154,6 +156,16 @@ export function Composer({
   const zoomLevel = useStore((s) => s.zoomLevel);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const applyUndoText = useCallback(
+    (restored: string) => {
+      // Like typing, a restored draft retires offers that described the previous text.
+      setVoiceEditProposal(null);
+      setAlternateVoiceRerun(null);
+      setText(restored);
+    },
+    [setText],
+  );
+  const undoHistory = useComposerUndoHistory({ sessionId, text, apply: applyUndoText, textareaRef });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageDragDepthRef = useRef(0);
   const startedImageUploadsRef = useRef(new Set<string>());
@@ -229,6 +241,11 @@ export function Composer({
     voiceShortcutTapCandidateRef.current = null;
     voiceShortcutLastTapRef.current = null;
   }, []);
+
+  const handleCancelRecording = useCallback(() => {
+    cancelRecording();
+    clearVoiceShortcutTap();
+  }, [cancelRecording, clearVoiceShortcutTap]);
 
   const deferPendingVoiceStartRelease = useCallback(() => {
     if (voiceStartPendingReleaseTimerRef.current) {
@@ -975,6 +992,7 @@ export function Composer({
     const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
     const clearComposerUi = () => {
       setComposerExpanded(false);
+      undoHistory.reset("");
       closeAutocompleteMenus();
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -1030,8 +1048,7 @@ export function Composer({
       if (useStore.getState().annotationEditor?.sessionId === sessionId) return;
       if (e.key === "Escape" && (isRecording || isPreparing)) {
         e.preventDefault();
-        cancelRecording();
-        clearVoiceShortcutTap();
+        handleCancelRecording();
         return;
       }
 
@@ -1117,7 +1134,7 @@ export function Composer({
       clearVoiceShortcutTap();
     };
   }, [
-    cancelRecording,
+    handleCancelRecording,
     clearVoiceShortcutTap,
     voiceSupported,
     isRecording,
@@ -1743,6 +1760,23 @@ export function Composer({
                     directComposerMessagesSend={isConnected}
                     onToggle={handleTogglePause}
                   />
+                }
+                editControls={
+                  <ComposerUndoRedoButtons
+                    canUndo={undoHistory.canUndo}
+                    canRedo={undoHistory.canRedo}
+                    onUndo={undoHistory.undo}
+                    onRedo={undoHistory.redo}
+                  />
+                }
+                recordingBar={
+                  isRecording ? (
+                    <ComposerRecordingBar
+                      currentLevel={volumeLevel}
+                      samples={volumeHistory}
+                      onCancel={handleCancelRecording}
+                    />
+                  ) : undefined
                 }
                 onOpenFilePicker={() => fileInputRef.current?.click()}
                 warmMicrophone={warmMicrophone}

@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
+import { ComposerRecordingBar } from "./ComposerToolbarControls.js";
 
 let mockAbsolutePath = "/workspace/project/web/src/components/Composer.tsx";
 
@@ -63,20 +64,24 @@ afterEach(() => {
 });
 
 describe("ComposerStatusBlocks voice recording controls", () => {
-  it("shows the edit/append selector immediately before the recording label and wires both actions", async () => {
-    // q-453: the current voice mode needs to be visible next to the active
-    // recording label so users can catch edit-vs-append mistakes before speaking.
+  it("shows the edit/append selector at the start of the recording row and wires both actions", async () => {
+    // q-453: the current voice mode needs to be visible while recording so users can catch
+    // edit-vs-append mistakes before speaking. The running time and level live in the
+    // composer's button row (ComposerRecordingBar), so this row holds no "Recording" label.
     const props = renderStatusBlocks({
       isRecording: true,
       voiceCaptureMode: "edit",
+      inputDeviceLabel: "USB Microphone",
       vscodeSelectionLabel: null,
       vscodeSelectionSummary: null,
       vscodeSelectionTitle: null,
     });
 
     const modeToggle = screen.getByTestId("voice-capture-mode-toggle");
-    const recordingLabel = screen.getByText("Recording");
-    expect(modeToggle.compareDocumentPosition(recordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const deviceLabel = screen.getByTestId("voice-input-device-label");
+    expect(modeToggle.compareDocumentPosition(deviceLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Recording")).toBeNull();
+    expect(screen.queryByTestId("voice-level-waveform")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("button", { name: "Append" }));
@@ -99,55 +104,6 @@ describe("ComposerStatusBlocks voice recording controls", () => {
     renderStatusBlocks({ isRecording: true, inputDeviceLabel: null });
 
     expect(screen.queryByTestId("voice-input-device-label")).toBeNull();
-  });
-
-  it("renders one fixed waveform meter with the current level as the newest sample", () => {
-    // The recording row uses one centered waveform surface so the live level
-    // and recent history read as a single compact meter.
-    renderStatusBlocks({
-      isRecording: true,
-      volumeLevel: 0.7,
-      volumeHistory: [
-        { time: 0, level: 0.08 },
-        { time: 125, level: 0.35 },
-        { time: 250, level: 0.72 },
-      ],
-      vscodeSelectionLabel: null,
-      vscodeSelectionSummary: null,
-      vscodeSelectionTitle: null,
-    });
-
-    expect(screen.queryByLabelText("Current input level")).toBeNull();
-    expect(screen.queryByLabelText("Recent input level history")).toBeNull();
-
-    const waveform = screen.getByLabelText("Current and recent input level");
-    expect(waveform.className).toContain("items-center");
-    expect(waveform.className).toContain("shrink-0");
-
-    const bars = screen.getAllByTestId("voice-level-waveform-bar");
-    expect(bars).toHaveLength(40);
-    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
-    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBeNull();
-  });
-
-  it("reserves red waveform bars for clipping-level input", () => {
-    // Healthy recording levels stay in the normal copper meter; only an
-    // overload-level current sample should trip the clipping marker.
-    renderStatusBlocks({
-      isRecording: true,
-      volumeLevel: 0.99,
-      volumeHistory: [
-        { time: 0, level: 0.2 },
-        { time: 125, level: 0.45 },
-      ],
-      vscodeSelectionLabel: null,
-      vscodeSelectionSummary: null,
-      vscodeSelectionTitle: null,
-    });
-
-    const bars = screen.getAllByTestId("voice-level-waveform-bar");
-    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
-    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBe("true");
   });
 
   it("labels post-STT no-enhancement transcription as finalizing", () => {
@@ -316,6 +272,55 @@ describe("ComposerStatusBlocks voice recording controls", () => {
     expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
     expect(screen.queryByText("Voice append result ready")).toBeNull();
     expect(screen.getByRole("button", { name: "Rerun as voice edit" }).hasAttribute("disabled")).toBe(true);
+  });
+});
+
+describe("ComposerRecordingBar level meter", () => {
+  it("renders one fixed waveform meter with the current level as the newest sample", () => {
+    // The recording bar uses one centered waveform surface so the live level
+    // and recent history read as a single compact meter.
+    render(
+      <ComposerRecordingBar
+        currentLevel={0.7}
+        samples={[
+          { time: 0, level: 0.08 },
+          { time: 125, level: 0.35 },
+          { time: 250, level: 0.72 },
+        ]}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Current input level")).toBeNull();
+    expect(screen.queryByLabelText("Recent input level history")).toBeNull();
+
+    const waveform = screen.getByLabelText("Current and recent input level");
+    expect(waveform.className).toContain("items-center");
+    expect(waveform.className).toContain("shrink-0");
+
+    const bars = screen.getAllByTestId("voice-level-waveform-bar");
+    expect(bars).toHaveLength(40);
+    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
+    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBeNull();
+  });
+
+  it("reserves red waveform bars for clipping-level input", () => {
+    // Healthy recording levels stay in the normal copper meter; only an
+    // overload-level current sample should trip the clipping marker.
+    render(
+      <ComposerRecordingBar
+        currentLevel={0.99}
+        samples={[
+          { time: 0, level: 0.2 },
+          { time: 125, level: 0.45 },
+        ]}
+        onCancel={() => {}}
+      />,
+    );
+
+    const bars = screen.getAllByTestId("voice-level-waveform-bar");
+    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
+    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBe("true");
   });
 });
 

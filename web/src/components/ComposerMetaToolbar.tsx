@@ -13,6 +13,8 @@ export function ComposerMetaToolbar({
   imageUploadDisabled,
   imageUploadTitle,
   pauseControl,
+  editControls,
+  recordingBar,
   onOpenFilePicker,
   warmMicrophone,
   voiceSupported,
@@ -34,6 +36,10 @@ export function ComposerMetaToolbar({
   imageUploadDisabled: boolean;
   imageUploadTitle: string;
   pauseControl: ReactNode;
+  /** Undo and redo, after pause. */
+  editControls?: ReactNode;
+  /** While recording, replaces the left side of the row. */
+  recordingBar?: ReactNode;
   onOpenFilePicker: () => void;
   warmMicrophone: () => void;
   voiceSupported: boolean;
@@ -58,7 +64,12 @@ export function ComposerMetaToolbar({
     <div data-testid="composer-footer-toolbar" className="flex items-center gap-x-2 px-2.5 pb-2.5 pt-1">
       {/* Model, effort and access live in the session title (SessionSettingsMenu); only pause stays here. */}
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <div className="shrink-0">{pauseControl}</div>
+        {recordingBar ?? (
+          <>
+            <div className="shrink-0">{pauseControl}</div>
+            {editControls}
+          </>
+        )}
       </div>
 
       {/* Mic and send keep fixed positions in every state: users re-click the mic's usual spot to stop

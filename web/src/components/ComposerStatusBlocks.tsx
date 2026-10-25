@@ -108,6 +108,8 @@ export function ComposerStatusBlocks({
           inputDeviceLabel={inputDeviceLabel}
           microphoneSelection={microphoneSelection}
           className="px-4 pt-2"
+          // Time, level and cancel sit in the button row below (ComposerRecordingBar).
+          showLevel={false}
           prefix={
             voiceCaptureMode !== "dictation" ? (
               <div

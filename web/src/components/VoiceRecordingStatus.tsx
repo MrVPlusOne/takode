@@ -15,6 +15,7 @@ export function VoiceRecordingStatus({
   className = "",
   waveformClassName = "",
   testId = "voice-recording-status",
+  showLevel = true,
 }: {
   currentLevel: number;
   samples: VoiceLevelSample[];
@@ -25,13 +26,19 @@ export function VoiceRecordingStatus({
   className?: string;
   waveformClassName?: string;
   testId?: string;
+  /** False when the recording indicator and level are shown elsewhere, as in the composer's button row. */
+  showLevel?: boolean;
 }) {
   return (
     <div data-testid={testId} className={`flex min-w-0 items-center gap-2 text-[11px] text-cc-primary ${className}`}>
       {prefix}
-      <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" />
-      <span className="shrink-0 font-medium">Recording</span>
-      <VoiceLevelWaveform currentLevel={currentLevel} samples={samples} className={waveformClassName} />
+      {showLevel && (
+        <>
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" />
+          <span className="shrink-0 font-medium">Recording</span>
+          <VoiceLevelWaveform currentLevel={currentLevel} samples={samples} className={waveformClassName} />
+        </>
+      )}
       {microphoneSelection ? (
         <RecordingMicrophonePicker label={inputDeviceLabel} selection={microphoneSelection} />
       ) : (
