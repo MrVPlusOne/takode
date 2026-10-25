@@ -81,7 +81,7 @@ const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
-export const PAGE_FORMAT = 3;
+export const PAGE_FORMAT = 4;
 
 export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
 
@@ -275,6 +275,23 @@ export class TopicService {
       ? `the user marked this Now item done on the page, which took it off: "${item}"`
       : `the user took back marking this Now item done, which put it back: "${item}"`;
     this.event(topicId, leaderId, { at: this.now(), kind: "now_done", text });
+  }
+
+  /**
+   * The user's requests for a topic's page changed: the leader's Scribe hears about it, unless it
+   * saved them itself.
+   */
+  setPageRequests(topicId: string, leaderId: string, text: string, byScribe = false): string {
+    const saved = this.store.setTopicInstructions(topicId, text);
+    this.event(topicId, leaderId, {
+      at: this.now(),
+      kind: "page_request",
+      ...(byScribe ? { byScribe: true } : {}),
+      text: saved
+        ? `the user's requests for this page are now: "${excerpt(saved, 900)}"`
+        : "the user cleared their requests for this page",
+    });
+    return saved;
   }
 
   /** Update now: the topic goes to the leader's Scribe with its next message, paused or not. */

@@ -16,6 +16,9 @@ normal work needs nothing from the leader but filing quests with --topic.
   takode topic move q-N "<topic>"                      File a quest under another topic
   takode topic rename <topic> "<name>" [--reason "<why>"]
   takode topic merge <from> <into> [--fold]
+  takode topic instructions <topic> "<text>"           Save the user's lasting requests for this
+                                                       topic's page, such as a section to keep
+                                                       (replaces them; "" clears them)
 
 <topic> is a topic's name, or the short ID shown by list.`;
 
@@ -102,6 +105,20 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
       );
       return;
     }
+    case "instructions": {
+      const [ref, text] = positionals;
+      if (!ref || text === undefined)
+        err('Usage: takode topic instructions <topic> "<text>"  (empty text clears them)');
+      const { instructions } = (await apiPost(base, `${topicPath(ref)}/instructions`, { text })) as {
+        instructions: string;
+      };
+      console.log(
+        instructions
+          ? "Saved; the Scribe keeps the page this way from its next update."
+          : "Requests for this page cleared.",
+      );
+      return;
+    }
     default:
       console.log(TOPIC_HELP);
       if (subcommand) process.exit(1);
@@ -133,6 +150,7 @@ function formatTopicDetail(detail: TopicDetail): string {
   return [
     `${detail.name}  (${detail.id.slice(0, 8)}, space ${detail.space}${detail.tentative ? ", new" : ""})`,
     `Quests: ${detail.questIds.join(", ") || "none"}`,
+    ...(detail.instructions ? [`The user's requests for this page: "${detail.instructions}"`] : []),
     detail.upToDateAt
       ? `Page up to date as of ${new Date(detail.upToDateAt).toLocaleString()}${detail.pendingEvents ? `; ${detail.pendingEvents} newer events` : ""}:`
       : "No page yet.",

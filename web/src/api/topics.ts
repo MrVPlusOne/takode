@@ -38,9 +38,12 @@ export const topicApi = {
   /** Marks a Now item of the page done (or takes it back); the panel's leader's Scribe hears it. */
   nowDone: (id: string, key: string, leader: string, done = true) =>
     request<{ ok: boolean }>(`${topicPath(id)}/now-done`, { method: "POST", body: { key, leader, done } }),
+  /** The user's lasting requests for a topic's page; the panel's leader's Scribe hears about them. */
+  setPageRequests: (id: string, text: string, leader: string) =>
+    request<{ instructions: string }>(`${topicPath(id)}/instructions`, { method: "POST", body: { text, leader } }),
   answerSuggestion: (suggestionId: string, accept: boolean) =>
     request<unknown>(`/topics/suggestions/${encodeURIComponent(suggestionId)}`, { method: "POST", body: { accept } }),
-  /** The user's instructions for how the leader's Scribe groups topics. */
+  /** The user's instructions for all of a leader's topics. */
   setScribeInstructions: (leaderSessionId: string, text: string) =>
     request<{ instructions: string }>(`/scribe/${encodeURIComponent(leaderSessionId)}/instructions`, {
       method: "POST",

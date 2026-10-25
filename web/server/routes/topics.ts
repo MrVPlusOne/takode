@@ -320,6 +320,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         upToDateAt: detail.upToDateAt,
         // Shown with every page so the user's lasting requests hold after compaction or a restart.
         instructions: (leaderId && svc.store.scribeInstructions(leaderId)?.text) || undefined,
+        pageRequests: detail.instructions || undefined,
         events: pending.map(({ leaderId: _leaderId, ...event }) => ({
           ...event,
           ...(event.sessionId ? { sessionNum: ctx.launcher.getSessionNum(event.sessionId) ?? null } : {}),
@@ -415,6 +416,19 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /** The user marked a Now item done on the page: the panel's leader's Scribe hears about it. */
+  /** The user's lasting requests for one topic's page; a leader or Scribe may save them for the user. */
+  api.post("/topics/:id/instructions", (c) =>
+    run(c, async (svc) => {
+      const topic = topicFor(svc, c, c.req.param("id"));
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.text !== "string") throw new TopicStoreError("Send text.");
+      const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
+      if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should hear about it.");
+      const byScribe = !!scribeLeader(svc, caller(c));
+      return { instructions: svc.setPageRequests(topic.id, leaderId, body.text, byScribe) };
+    }),
+  );
+
   api.post("/topics/:id/now-done", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));

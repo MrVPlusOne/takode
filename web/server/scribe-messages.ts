@@ -128,6 +128,7 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
     case "note":
       return `${time} · note on ${quest}: "${text}"`;
     case "now_done":
+    case "page_request":
       return `${time} · ${text}`;
   }
 }

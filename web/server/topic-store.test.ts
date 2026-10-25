@@ -595,6 +595,36 @@ describe("topic service", () => {
     ]);
   });
 
+  it("saves the user's requests for one page and tells the Scribe, unless it saved them itself", async () => {
+    // A request such as "keep links to the two newest reports" belongs to one page; it is kept with
+    // the topic and reaches the Scribe as news, but a Scribe saving it for the user hears nothing back.
+    const { service, injected, store } = await setupService();
+    await enable(service, store, "leader");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "Daily briefing",
+      by: "agent",
+      byAgent: true,
+      leaderId: "leader",
+    });
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    injected.length = 0;
+
+    service.setPageRequests(topic.id, "leader", "  Keep links to the two newest reports at the top. ");
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(store.detail(topic.id).instructions).toBe("Keep links to the two newest reports at the top.");
+    expect(injected.at(-1)?.text).toContain(
+      `the user's requests for this page are now: "Keep links to the two newest reports at the top."`,
+    );
+
+    injected.length = 0;
+    service.setPageRequests(topic.id, "leader", "Also a status table.", true);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(store.detail(topic.id).instructions).toBe("Also a status table.");
+    expect(injected).toEqual([]);
+  });
+
   it("tells the Scribe which checks a finished quest left for the user", async () => {
     // Unticked checks are often what Now needs ("try it on the phone", "send the guide").
     const { service, injected, store } = await setupService();

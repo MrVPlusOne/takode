@@ -153,8 +153,10 @@ interface TopicChangesResponse {
   topic: { id: string; name: string; space: string; nameSource: string; tentative: boolean };
   page: string | null;
   upToDateAt: number | null;
-  /** The user's lasting instructions for topics and pages. */
+  /** The user's lasting instructions for all the leader's topics. */
   instructions?: string;
+  /** The user's lasting requests for this topic's page. */
+  pageRequests?: string;
   events: Array<{
     at: number;
     kind: string;
@@ -179,7 +181,10 @@ function formatChanges(response: TopicChangesResponse): string {
   const lines = [
     `Topic "${topic.name}" (${topic.id.slice(0, 8)}, space ${topic.space}${topic.nameSource === "user" ? ", named by the user" : ""}${topic.tentative ? ", new" : ""})`,
     "",
-    ...(response.instructions ? ["## The user's instructions (follow them)", response.instructions, ""] : []),
+    ...(response.pageRequests ? ["## The user's requests for this page (follow them)", response.pageRequests, ""] : []),
+    ...(response.instructions
+      ? ["## The user's instructions for all topics (follow them)", response.instructions, ""]
+      : []),
     "## Quests (what each left open is the source for Now)",
     ...response.quests.flatMap((quest) => [
       `- [${quest.questId}](quest:${quest.questId}) ${quest.completedAt ? `done ${new Date(quest.completedAt).toLocaleDateString()}` : quest.status}: ${quest.title}`,

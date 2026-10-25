@@ -181,6 +181,29 @@ describe("topic routes", () => {
     });
   });
 
+  it("keeps the user's requests for one page, which the Scribe sees with every read of it", async () => {
+    const { app, store, send, setCaller } = await setup();
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "Daily briefing",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    setCaller("leader");
+    const saved = await send(`/topics/${topic.id}/instructions`, "POST", {
+      text: "Keep links to the two newest reports.",
+    });
+    expect(saved.status).toBe(200);
+    expect((await (await app.request(`/topics/${topic.id}`)).json()).instructions).toBe(
+      "Keep links to the two newest reports.",
+    );
+    setCaller("scribe");
+    const read = await (await app.request(`/scribe/topics/${topic.id}/changes`)).json();
+    expect(read.pageRequests).toBe("Keep links to the two newest reports.");
+  });
+
   it("writes a page that covers what the Scribe read of its leader's events, so later events stay pending", async () => {
     const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({

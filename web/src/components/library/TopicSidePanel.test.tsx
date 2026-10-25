@@ -105,6 +105,7 @@ const DETAIL: TopicDetail = {
   ...LIST.topics[0]!,
   aliases: [],
   writtenAt: NOW,
+  instructions: "",
   page: [
     "T7 is the 12B coding run with 384K context.",
     "## Now\n- **Next:** compare with the 256K twin at step 200.",
@@ -202,6 +203,20 @@ describe("TopicSidePanel", () => {
     expect(items[1]).toHaveAttribute("data-stale", "true");
     fireEvent.click(within(items[1]!).getByRole("button", { name: "Mark done" }));
     expect(done).toHaveBeenCalledWith("t7", "on hold|the qa seeds", "l1", true);
+  });
+
+  it("edits the user's requests for this page from the topic menu, for the panel leader's Scribe", async () => {
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, instructions: "Keep the newest report at the top." });
+    const save = vi.spyOn(topicApi, "setPageRequests").mockResolvedValue({ instructions: "x" });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Topic actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Requests for this page" }));
+    const box = screen.getByLabelText("Requests for this page");
+    expect(box).toHaveValue("Keep the newest report at the top.");
+    fireEvent.change(box, { target: { value: "Keep the two newest reports at the top." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(save).toHaveBeenCalledWith("t7", "Keep the two newest reports at the top.", "l1");
   });
 
   it("groups Now items under their labels, newest first, and keeps a done item with Undo", async () => {

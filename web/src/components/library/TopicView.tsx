@@ -11,8 +11,10 @@ import { ArtifactCard } from "./ArtifactThumbnail.js";
 
 /**
  * A topic's page, for deciding what to do next and seeing what happened lately. From the top: the
- * name with its one-sentence summary, the topic's quests still open (live), the Scribe's page (Now,
- * then Recent, newest first), and the newest artifacts with a link to all of them in the gallery. Rename and merge sit in a menu; corrections go through the leader.
+ * name with its one-sentence summary, the topic's quests still open (live), the Scribe's page (Now
+ * and History, with the sections that fit the topic), and the newest artifacts with a link to all of
+ * them in the gallery. Rename, merge and the user's requests for the page sit in a menu; corrections
+ * go through the leader.
  */
 
 const REFRESH_MS = 20_000;
@@ -95,7 +97,12 @@ export function TopicView({
         style={bottomRoom ? { paddingBottom: `calc(2rem + ${bottomRoom}px)` } : undefined}
         data-testid="topic-view"
       >
-        <TopicHeader detail={detail} others={topics.filter((topic) => topic.id !== detail.id)} act={act} />
+        <TopicHeader
+          detail={detail}
+          others={topics.filter((topic) => topic.id !== detail.id)}
+          act={act}
+          leaderId={leaderId}
+        />
         {lead && (
           <p className="mt-1 text-[14px] leading-snug text-cc-muted" data-testid="topic-lead">
             {plainText(lead)}
@@ -343,18 +350,39 @@ function when(at: number): string {
   return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** The name, with Rename and Merge in a small menu rather than on the page. */
+/**
+ * The name, with Rename, Merge and the user's requests for the page in a small menu rather than on
+ * the page.
+ */
 function TopicHeader({
   detail,
   others,
   act,
+  leaderId,
 }: {
   detail: TopicDetail;
   others: TopicSummary[];
   act: (action: Promise<unknown>) => void;
+  /** The panel's leader, whose Scribe hears about changed requests; without one they can't be edited. */
+  leaderId?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [requests, setRequests] = useState<string | null>(null);
+  if (requests !== null && leaderId) {
+    return (
+      <PageRequestsEditor
+        name={detail.name}
+        text={requests}
+        onChange={setRequests}
+        onCancel={() => setRequests(null)}
+        onSave={() => {
+          act(topicApi.setPageRequests(detail.id, requests, leaderId));
+          setRequests(null);
+        }}
+      />
+    );
+  }
   if (renaming !== null) {
     return (
       <form
@@ -405,6 +433,18 @@ function TopicHeader({
           >
             Rename
           </button>
+          {leaderId && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setRequests(detail.instructions);
+              }}
+              className="rounded px-2 py-1 text-left text-cc-fg hover:bg-cc-hover"
+            >
+              Requests for this page
+            </button>
+          )}
           {others.length > 0 && (
             <select
               aria-label="Merge into another topic"
@@ -425,6 +465,47 @@ function TopicHeader({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** What the user wants this page to keep, in their own words; the Scribe follows it on every update. */
+function PageRequestsEditor({
+  name,
+  text,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  name: string;
+  text: string;
+  onChange: (text: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div data-testid="topic-page-requests">
+      <h2 className="text-[22px] font-semibold leading-tight text-cc-fg">{name}</h2>
+      <label htmlFor="topic-page-requests" className="mb-1 mt-2 block text-[12px] text-cc-muted">
+        Requests for this page
+      </label>
+      <textarea
+        id="topic-page-requests"
+        autoFocus
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+        rows={3}
+        placeholder="For example: keep a section with links to the two newest reports at the top."
+        className="w-full resize-y rounded-lg border border-cc-border bg-cc-card px-2.5 py-1.5 text-base text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60 md:text-[13px]"
+      />
+      <div className="mt-1 flex justify-end gap-2 text-[13px]">
+        <button type="button" onClick={onCancel} className="px-2 py-1 text-cc-muted hover:text-cc-fg">
+          Cancel
+        </button>
+        <button type="button" onClick={onSave} className="rounded-md bg-cc-primary px-2.5 py-1 text-white">
+          Save
+        </button>
+      </div>
     </div>
   );
 }

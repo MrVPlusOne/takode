@@ -31,9 +31,19 @@ export interface TopicEvent {
   at: number;
   /**
    * check: a User review check of a quest was ticked; note: the user's or leader's note on a
-   * quest; now_done: the user marked a Now item done on the page.
+   * quest; now_done: the user marked a Now item done on the page; page_request: the user's requests
+   * for the topic's page changed.
    */
-  kind: "quest_filed" | "quest_done" | "message" | "artifact" | "undone" | "check" | "note" | "now_done";
+  kind:
+    | "quest_filed"
+    | "quest_done"
+    | "message"
+    | "artifact"
+    | "undone"
+    | "check"
+    | "note"
+    | "now_done"
+    | "page_request";
   /** The leader whose activity it came from; its Scribe handles it. */
   leaderId?: string;
   /** Made by a Scribe's own filing or tidying: it needs a page update but is not news to Scribes. */
@@ -52,6 +62,8 @@ export interface TopicDetail extends TopicSummary {
   page: string | null;
   /** When the page was last saved. */
   writtenAt: number | null;
+  /** The user's lasting requests for this page, such as a section to keep ("" when none). */
+  instructions: string;
   events: TopicEvent[];
   /** Titles and states of the topic's quests, when the server includes them. */
   quests?: Array<{ questId: string; title: string; status: string }>;

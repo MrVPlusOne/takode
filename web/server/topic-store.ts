@@ -47,6 +47,8 @@ interface StoredTopic {
   events: TopicEvent[];
   /** The page's Now items by key (see `nowSectionOf`): when each appeared or was last reworded. */
   nowItems?: Record<string, StoredNowItem>;
+  /** The user's lasting requests for this page (sections to keep, what to show). */
+  instructions?: { text: string; updatedAt: number };
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
 }
@@ -795,8 +797,18 @@ export class TopicStore {
       aliases: [...topic.aliases],
       page: topic.page,
       writtenAt: topic.writtenAt ?? null,
+      instructions: topic.instructions?.text ?? "",
       events: [...topic.events],
     };
+  }
+
+  /** Saves the user's lasting requests for a topic's page (replacing them); returns the saved text. */
+  setTopicInstructions(topicId: string, text: string): string {
+    const topic = this.require(topicId);
+    const clean = text.trim().slice(0, 4000);
+    topic.instructions = clean ? { text: clean, updatedAt: this.now() } : undefined;
+    this.dirty = true;
+    return clean;
   }
 
   changes(space?: string, limit = 20): TopicChange[] {
