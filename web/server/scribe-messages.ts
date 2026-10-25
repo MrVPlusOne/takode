@@ -51,7 +51,7 @@ export function updateMessage(
   if (rewritePages) {
     lines.push(
       "",
-      "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them). For each one, run `takode scribe changes <topic>` first and rebuild Now from what its quests left open (unticked checks, wrap-ups) and from recent messages, rather than carrying over the old Now.",
+      "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them) in the current format. For each one, run `takode scribe changes <topic>` first, then bring its Now entries in line with what its quests left open (unticked checks, wrap-ups) and with recent messages, using `takode scribe now`.",
     );
   }
   if (instructions) lines.push("", `The user's instructions changed: "${instructions}"`);

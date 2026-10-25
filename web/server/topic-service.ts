@@ -81,7 +81,7 @@ const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
-export const PAGE_FORMAT = 4;
+export const PAGE_FORMAT = 5;
 
 export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
 
@@ -268,12 +268,12 @@ export class TopicService {
     });
   }
 
-  /** The user marked a Now item done on the page (or took it back): the Scribe hears about it. */
-  nowDone(topicId: string, leaderId: string, key: string, done = true): void {
-    const item = excerpt(this.store.markNowDone(topicId, key, done), 400);
+  /** The user marked a Now entry done on the page (or took it back): the Scribe hears about it. */
+  nowDone(topicId: string, leaderId: string, id: string, done = true): void {
+    const item = excerpt(this.store.markNowDone(topicId, id, done), 400);
     const text = done
-      ? `the user marked this Now item done on the page, which took it off: "${item}"`
-      : `the user took back marking this Now item done, which put it back: "${item}"`;
+      ? `the user marked Now entry ${id} done on the page: "${item}"`
+      : `the user took back marking Now entry ${id} done: "${item}"`;
     this.event(topicId, leaderId, { at: this.now(), kind: "now_done", text });
   }
 

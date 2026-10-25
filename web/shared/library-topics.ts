@@ -4,7 +4,7 @@
  * leader, a worker in its herd). Topics and their pages are opt-in per leader.
  * Shared by the server, the browser and the `takode topic` and `takode scribe` commands.
  */
-import type { NowItemStatus } from "./topic-now-items.js";
+import type { NowEntry } from "./topic-now-items.js";
 
 /** Who named a topic: names the user chose are never changed automatically. */
 export type TopicNameSource = "user" | "agent";
@@ -67,8 +67,8 @@ export interface TopicDetail extends TopicSummary {
   events: TopicEvent[];
   /** Titles and states of the topic's quests, when the server includes them. */
   quests?: Array<{ questId: string; title: string; status: string }>;
-  /** Per item of the page's Now section, when the server includes them. */
-  nowItems?: NowItemStatus[];
+  /** The topic's Now entries, when the server includes them. */
+  now?: NowEntry[];
 }
 
 /** One line in the Library's change list; every change can be undone. */

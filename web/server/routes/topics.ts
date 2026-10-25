@@ -3,6 +3,7 @@ import { getQuest, listQuests } from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { getArtifactLibrary } from "../artifact-library.js";
 import type { TopicListResponse } from "../../shared/library-topics.js";
+import { type NowGroup, nowGroupOf, takeLegacyNow } from "../../shared/topic-now-items.js";
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
 import { SCRIBE_BRIEF } from "../scribe-brief.js";
@@ -282,7 +283,11 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const quests = await Promise.all(detail.questIds.map((questId) => getQuest(questId)));
       return {
         ...detail,
-        nowItems: svc.store.nowStatus(detail.id),
+        now: svc.store
+          .nowEntries(detail.id)
+          .map((entry) =>
+            entry.leaderId ? { ...entry, leaderNum: ctx.launcher.getSessionNum(entry.leaderId) ?? null } : entry,
+          ),
         quests: quests.flatMap((quest) =>
           quest ? [{ questId: quest.questId, title: quest.title, status: quest.status }] : [],
         ),
@@ -321,6 +326,11 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         // Shown with every page so the user's lasting requests hold after compaction or a restart.
         instructions: (leaderId && svc.store.scribeInstructions(leaderId)?.text) || undefined,
         pageRequests: detail.instructions || undefined,
+        now: svc.store.nowEntries(detail.id).map((entry) => ({
+          ...entry,
+          ...(entry.leaderId ? { leaderNum: ctx.launcher.getSessionNum(entry.leaderId) ?? null } : {}),
+          yours: !entry.leaderId || entry.leaderId === leaderId,
+        })),
         events: pending.map(({ leaderId: _leaderId, ...event }) => ({
           ...event,
           ...(event.sessionId ? { sessionNum: ctx.launcher.getSessionNum(event.sessionId) ?? null } : {}),
@@ -360,7 +370,10 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         return { ...svc.store.detail(topic.id), warnings: [] };
       }
       if (typeof body.markdown !== "string") throw new TopicStoreError("Send the page as markdown.");
-      const detail = svc.store.writePage(topic.id, body.markdown, read?.through ?? Date.now(), {
+      // Now lives in entries; a Now section written into the page would show twice.
+      const legacy = takeLegacyNow(body.markdown);
+      const markdown = legacy ? legacy.page : body.markdown;
+      const detail = svc.store.writePage(topic.id, markdown, read?.through ?? Date.now(), {
         ...(leaderId ? { leaderId } : {}),
         ...(read ? { revision: read.revision } : {}),
       });
@@ -368,7 +381,14 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       svc.pageSaved();
       return {
         ...detail,
-        warnings: svc.checkQuotes(body.markdown).map((problem) => `${problem}: fix the quote or its link`),
+        warnings: [
+          ...(legacy
+            ? [
+                "The page's Now section was left out: Now is kept as entries. Add, edit or remove them with `takode scribe now`.",
+              ]
+            : []),
+          ...svc.checkQuotes(markdown).map((problem) => `${problem}: fix the quote or its link`),
+        ],
       };
     }),
   );
@@ -415,7 +435,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** The user marked a Now item done on the page: the panel's leader's Scribe hears about it. */
   /** The user's lasting requests for one topic's page; a leader or Scribe may save them for the user. */
   api.post("/topics/:id/instructions", (c) =>
     run(c, async (svc) => {
@@ -429,19 +448,68 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
+  /** The user marked a Now entry done on the page: the panel's leader's Scribe hears about it. */
   api.post("/topics/:id/now-done", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
       const body = await c.req.json().catch(() => ({}));
-      if (typeof body.key !== "string") throw new TopicStoreError("Name the item.");
+      if (typeof body.id !== "string") throw new TopicStoreError("Name the entry.");
       const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
       if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should hear about it.");
-      svc.nowDone(topic.id, leaderId, body.key, body.done !== false);
+      svc.nowDone(topic.id, leaderId, body.id, body.done !== false);
       return { ok: true };
     }),
   );
 
+  /**
+   * A Scribe's Now commands: add an entry for its leader's work, edit or remove one. The page
+   * shows the change at once; it needs no page save.
+   */
+  api.post("/scribe/topics/:id/now", (c) =>
+    run(c, async (svc) => {
+      const topic = topicFor(svc, c, c.req.param("id"));
+      const body = await c.req.json().catch(() => ({}));
+      const entry = svc.store.addNow(topic.id, { ...nowInput(body), leaderId: leaderFor(svc, c) });
+      svc.pageSaved();
+      return entry;
+    }),
+  );
+  api.patch("/scribe/topics/:id/now/:entry", (c) =>
+    run(c, async (svc) => {
+      const topic = topicFor(svc, c, c.req.param("id"));
+      const body = await c.req.json().catch(() => ({}));
+      const patch = Object.fromEntries(Object.entries(nowInput(body, true)).filter(([, value]) => value !== undefined));
+      const entry = svc.store.editNow(topic.id, c.req.param("entry"), patch);
+      svc.pageSaved();
+      return entry;
+    }),
+  );
+  api.delete("/scribe/topics/:id/now/:entry", (c) =>
+    run(c, async (svc) => {
+      const topic = topicFor(svc, c, c.req.param("id"));
+      const text = svc.store.removeNow(topic.id, c.req.param("entry"));
+      svc.pageSaved();
+      return { removed: text };
+    }),
+  );
+
   return api;
+}
+
+/** A Now entry from a command's body; with `partial`, fields may be left out. */
+function nowInput(body: Record<string, unknown>, partial = false) {
+  const text = typeof body.text === "string" ? body.text : undefined;
+  const group = typeof body.group === "string" ? nowGroupOf(body.group) : null;
+  if (typeof body.group === "string" && !group) {
+    throw new TopicStoreError(`Unknown group "${body.group}"; use you, waiting, progress, next or try.`);
+  }
+  if (!partial && (!group || text === undefined)) throw new TopicStoreError("Send the group and the text.");
+  return {
+    group: group?.group as NowGroup,
+    who: typeof body.who === "string" ? body.who : group?.who,
+    text: text as string,
+    due: typeof body.due === "string" ? body.due : undefined,
+  };
 }
 
 /** A wrap-up older than this is history (Recent), not a source of what is left (Now). */

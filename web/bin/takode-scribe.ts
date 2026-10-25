@@ -1,7 +1,8 @@
 import type { ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
+import { type NowEntry, nowGroupLabel } from "../shared/topic-now-items.js";
 import { formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
-import { apiGet, apiPost, err, parseFlags, readOptionTextFile } from "./takode-core.js";
+import { apiDelete, apiGet, apiPatch, apiPost, err, parseFlags, readOptionTextFile } from "./takode-core.js";
 import { need } from "./takode-topic.js";
 
 export const SCRIBE_HELP = `Usage: takode scribe <command> ...
@@ -25,6 +26,11 @@ For the Scribe:
   takode scribe write-page <topic> --file <path>|-     Save the whole page
   takode scribe write-page <topic> --unchanged         Nothing on the page needs to change: mark
                                                        what changes showed as read
+  takode scribe now add <topic> --group <group> [--who "<who>"] [--due YYYY-MM-DD] "<text>"
+                                                       Add a Now entry for your leader's work; groups:
+                                                       you, waiting (needs --who), progress, next, try
+  takode scribe now edit <topic> <id> [--group <group>] [--who "<who>"] [--due YYYY-MM-DD] ["<text>"]
+  takode scribe now remove <topic> <id>                It is done or no longer matters
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
                                                        with no topic yet)
 
@@ -42,6 +48,10 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
       const status = (await apiGet(base, `/scribe/status${leaderQuery}`)) as ScribeStatusResponse;
       if (flags.json === true) console.log(JSON.stringify(status, null, 2));
       else console.log(formatScribeStatus(status));
+      return;
+    }
+    case "now": {
+      console.log(await handleNow(base, positionals, flags, pagePath));
       return;
     }
     case "instructions": {
@@ -157,6 +167,7 @@ interface TopicChangesResponse {
   instructions?: string;
   /** The user's lasting requests for this topic's page. */
   pageRequests?: string;
+  now: Array<NowEntry & { yours: boolean }>;
   events: Array<{
     at: number;
     kind: string;
@@ -210,8 +221,57 @@ function formatChanges(response: TopicChangesResponse): string {
         )
       : ["- none"]),
     "",
+    "## Now (entries; change them with `takode scribe now`)",
+    ...(response.now.length ? response.now.map(formatNowEntry) : ["- none"]),
+    "",
     "## Current page",
     response.page ?? "(no page yet)",
   ];
   return lines.join("\n");
+}
+
+function formatNowEntry(entry: TopicChangesResponse["now"][number]): string {
+  const facts = [
+    entry.yours ? "" : `from leader #${entry.leaderNum ?? "?"}`,
+    entry.due ? `due ${entry.due}` : "",
+    entry.doneAt ? "the user marked it done" : "",
+    `since ${new Date(entry.since).toLocaleDateString()}`,
+  ].filter(Boolean);
+  return `- ${entry.id} · ${nowGroupLabel(entry)}: ${entry.text} (${facts.join(", ")})`;
+}
+
+/** `takode scribe now add|edit|remove`: one line saying what changed. */
+async function handleNow(
+  base: string,
+  positionals: string[],
+  flags: Record<string, string | boolean>,
+  pagePath: (ref: string) => string,
+): Promise<string> {
+  const [action, topic, ...more] = positionals;
+  const usage = "takode scribe now add|edit|remove <topic> ... (see takode scribe --help)";
+  if (!topic) err(`Usage: ${usage}`);
+  const fields = {
+    ...(typeof flags.group === "string" ? { group: flags.group } : {}),
+    ...(typeof flags.who === "string" ? { who: flags.who } : {}),
+    ...(typeof flags.due === "string" ? { due: flags.due } : {}),
+  };
+  if (action === "add") {
+    const entry = (await apiPost(base, `${pagePath(topic)}/now`, { ...fields, text: more.join(" ") })) as NowEntry;
+    return `Added ${entry.id} under ${nowGroupLabel(entry)}.`;
+  }
+  const id = more[0];
+  if (!id) err(`Usage: ${usage}`);
+  if (action === "edit") {
+    const text = more.slice(1).join(" ");
+    const entry = (await apiPatch(base, `${pagePath(topic)}/now/${encodeURIComponent(id)}`, {
+      ...fields,
+      ...(text ? { text } : {}),
+    })) as NowEntry;
+    return `Updated ${entry.id} (${nowGroupLabel(entry)}).`;
+  }
+  if (action === "remove") {
+    await apiDelete(base, `${pagePath(topic)}/now/${encodeURIComponent(id)}`);
+    return `Removed ${id}.`;
+  }
+  return err(`Usage: ${usage}`);
 }

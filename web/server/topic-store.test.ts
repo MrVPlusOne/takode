@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
@@ -473,7 +473,7 @@ describe("topic service", () => {
     expect(injected[0]!.text).toContain('in q-1, a check for the user was ticked: "Try it on the phone"');
   });
 
-  it("dates Now items, keeps the date through rewording, and passes a done mark to the Scribe", async () => {
+  it("keeps Now as entries a Scribe adds, edits and removes, and passes a done mark to the Scribe", async () => {
     const { service, injected, store } = await setupService();
     const scribe = await enable(service, store, "leader");
     const { topic } = store.assign({
@@ -485,48 +485,77 @@ describe("topic service", () => {
       leaderId: "leader",
     });
     await service.scribeTurnEnded(scribe);
-    const page = (next: string) =>
-      `T7.\n\n## Now\n- **Next:** compare with the twin ([q-1](quest:q-1)).\n- **Next:** ${next}\n\n## Recent\n- Oct 23`;
     now = NOW;
-    store.writePage(topic.id, page("send the guide."), NOW, { leaderId: "leader" });
-    now = NOW + 3 * DAY;
-    // The first item is reworded but keeps its label and link; the second is new.
-    store.writePage(
-      topic.id,
-      page("ask about budgets.").replace("compare with the twin", "compare with the 256K twin"),
-      NOW,
-      { leaderId: "leader" },
-    );
-    const [twin, budgets] = store.nowStatus(topic.id);
-    expect(twin).toMatchObject({ since: NOW, lastNews: NOW + 3 * DAY });
-    expect(budgets).toMatchObject({ since: NOW + 3 * DAY });
+    store.writePage(topic.id, "T7.\n\n## History\n- Oct 23", NOW, { leaderId: "leader" });
+    const twin = store.addNow(topic.id, {
+      group: "next",
+      text: "compare with the twin ([q-1](quest:q-1)).",
+      leaderId: "leader",
+    });
+    expect(twin).toMatchObject({ group: "next", leaderId: "leader", questIds: ["q-1"], since: NOW });
+    expect(() => store.addNow(topic.id, { group: "waiting", text: "images" })).toThrow(/whom it waits on/);
 
-    // An event of a linked quest is news about the item.
+    // Editing keeps the date; an event of a linked quest is news about it.
+    now = NOW + 3 * DAY;
+    store.editNow(topic.id, twin.id, { text: "compare with the 256K twin ([q-1](quest:q-1)).", due: "2026-11-06" });
+    expect(store.nowEntries(topic.id)[0]).toMatchObject({ since: NOW, lastNews: NOW + 3 * DAY, due: "2026-11-06" });
     now = NOW + 4 * DAY;
     store.addEvent(topic.id, { at: now, kind: "artifact", questId: "q-1", text: "report" });
-    expect(store.nowStatus(topic.id)[0]!.lastNews).toBe(NOW + 4 * DAY);
+    expect(store.nowEntries(topic.id)[0]!.lastNews).toBe(NOW + 4 * DAY);
 
-    // A done tap takes the item off the page at once, with no Scribe round: the user knows what they
-    // did. The event waits to ride along with the next message, and Undo puts the item back.
+    // A done tap needs no Scribe round: the event waits to ride along with the next message, the
+    // entry stays struck through for a day (Undo), and then it is gone.
+    const budgets = store.addNow(topic.id, { group: "next", text: "ask about budgets.", leaderId: "leader" });
     injected.length = 0;
-    service.nowDone(topic.id, "leader", budgets!.key);
+    service.nowDone(topic.id, "leader", budgets.id);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(injected).toHaveLength(0);
-    expect(store.detail(topic.id).page).not.toContain("ask about budgets");
-    expect(store.nowStatus(topic.id).find((item) => item.key === budgets!.key)).toMatchObject({
-      doneAt: now,
-      text: "**Next:** ask about budgets.",
-    });
+    expect(store.nowEntries(topic.id).find((entry) => entry.id === budgets.id)!.doneAt).toBe(now);
     expect(store.list("MSI").find((t) => t.id === topic.id)!.pendingEvents).toBe(1); // the artifact, not the tap
-    service.nowDone(topic.id, "leader", budgets!.key, false);
-    expect(store.detail(topic.id).page).toContain("- **Next:** ask about budgets.");
-    expect(store.nowStatus(topic.id)[1]!.doneAt).toBeUndefined();
-    service.nowDone(topic.id, "leader", budgets!.key);
+    service.nowDone(topic.id, "leader", budgets.id, false);
+    expect(store.nowEntries(topic.id).find((entry) => entry.id === budgets.id)!.doneAt).toBeUndefined();
+    service.nowDone(topic.id, "leader", budgets.id);
     service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title: "Plots", kind: "figure", version: 1 });
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain("which took it off");
+    expect(injected[0]!.text).toContain(`the user marked Now entry ${budgets.id} done on the page`);
     expect(injected[0]!.text).toContain('figure "Plots" was saved in q-1');
+    now = NOW + 6 * DAY;
+    expect(store.nowEntries(topic.id).map((entry) => entry.id)).toEqual([twin.id]);
+
+    expect(store.removeNow(topic.id, twin.id)).toContain("256K twin");
+    expect(store.nowEntries(topic.id)).toEqual([]);
+  });
+
+  it("moves the Now section of pages written before entries into entries, once, at load", async () => {
+    // Pages saved before Now was kept as entries carry it as text; at load it becomes entries
+    // credited to the one leader whose Scribe wrote the page, and leaves the page.
+    const root = await mkdtemp(join(tmpdir(), "topics-now-"));
+    const first = new TopicStore(root, () => NOW);
+    await first.load();
+    const { topic } = first.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    first.writePage(
+      topic.id,
+      "T7.\n\n## Now\n- **Waiting on Parsewave:** images ([q-1](quest:q-1)).\n- **Not tried on your iPhone:** the panel.\n- **Asked:** track formal methods.\n\n## History\n- Oct 23",
+      NOW,
+      { leaderId: "leader" },
+    );
+    await first.flush();
+    const raw = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
+    delete raw.topics[topic.id].now;
+    await writeFile(join(root, "topics.json"), JSON.stringify(raw));
+
+    const second = new TopicStore(root, () => NOW + DAY);
+    await second.load();
+    expect(second.detail(topic.id).page).toBe("T7.\n\n## History\n- Oct 23");
+    expect(
+      second.nowEntries(topic.id).map(({ group, who, text, leaderId }) => ({ group, who, text, leaderId })),
+    ).toEqual([
+      { group: "waiting", who: "Parsewave", text: "images ([q-1](quest:q-1)).", leaderId: "leader" },
+      { group: "try", who: undefined, text: "the panel.", leaderId: "leader" },
+      { group: "next", who: undefined, text: "Asked: track formal methods.", leaderId: "leader" },
+    ]);
+    await rm(root, { recursive: true, force: true });
   });
 
   it("sends the leader's first event at once, debounces a burst, and debounces the user's own", async () => {
@@ -661,7 +690,7 @@ describe("topic service", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
     expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics");
-    expect(injected[0]!.text).toContain("rebuild Now from what its quests left open");
+    expect(injected[0]!.text).toContain("bring its Now entries in line with what its quests left open");
 
     // A turn that rewrote nothing gets a reminder naming the pages left; the request stands.
     vi.advanceTimersByTime(10);

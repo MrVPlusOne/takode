@@ -8,6 +8,7 @@ vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: st
 
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
+import type { NowEntry } from "../../../shared/topic-now-items.js";
 import { topicApi } from "../../api/topics.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
@@ -106,17 +107,19 @@ const DETAIL: TopicDetail = {
   aliases: [],
   writtenAt: NOW,
   instructions: "",
-  page: [
-    "T7 is the 12B coding run with 384K context.",
-    "## Now\n- **Next:** compare with the 256K twin at step 200.",
-    "## Recent\n- **Oct 23** · Step ~165.",
-  ].join("\n"),
+  page: ["T7 is the 12B coding run with 384K context.", "## History\n- **Oct 23** · Step ~165."].join("\n"),
+  now: [entry({ id: "n1", text: "compare with the 256K twin at step 200." })],
   events: [],
   quests: [
     { questId: "q-2713", title: "Launch T7", status: "done" },
     { questId: "q-2797", title: "Twin evals", status: "in_progress" },
   ],
 };
+
+/** A Now entry of the panel's leader, added at NOW unless said otherwise. */
+function entry(fields: Partial<NowEntry> & { id: string; text: string }): NowEntry {
+  return { group: "next", leaderId: "l1", questIds: [], since: NOW, lastNews: NOW, ...fields };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -154,7 +157,7 @@ describe("TopicSidePanel", () => {
     expect(api.undo).toHaveBeenCalledWith("c1");
   });
 
-  it("follows the quest tab on screen to its topic's page: summary, open quests, Now before Recent", async () => {
+  it("follows the quest tab on screen to its topic's page: summary, open quests, Now before History", async () => {
     const api = mockApi();
     vi.mocked(artifactApi.list).mockResolvedValue({
       artifacts: [{ ...ARTIFACT, id: "a1" }],
@@ -181,28 +184,27 @@ describe("TopicSidePanel", () => {
     expect(api.update).toHaveBeenCalledWith("t7", "l1");
   });
 
-  it("dates each Now item, mutes one with no news for a week, and marks one done for the Scribe", async () => {
-    // The server reports per Now item when it appeared and its latest news; the page shows that
-    // date, mutes an item quiet for over a week, and a done tap goes to the panel leader's Scribe.
+  it("dates each Now entry, mutes one with no news for a week, and marks one done for the Scribe", async () => {
+    // The page shows when each entry was added, mutes one quiet for over a week, and a done tap
+    // goes to the panel leader's Scribe.
     mockApi();
     const day = 24 * 60 * 60 * 1000;
     vi.mocked(topicApi.get).mockResolvedValue({
       ...DETAIL,
-      page: "T7.\n## Now\n- **Next:** compare with the twin ([q-2797](quest:q-2797)).\n- **On hold:** the QA seeds.\n## Recent\n- Oct 23",
-      nowItems: [
-        { key: "next|quest:q-2797", since: NOW - day, lastNews: NOW - day },
-        { key: "on hold|the qa seeds", since: NOW - 10 * day, lastNews: NOW - 10 * day },
+      now: [
+        entry({ id: "n1", text: "compare with the twin.", since: NOW - day, lastNews: NOW - day, due: "2026-11-06" }),
+        entry({ id: "n2", text: "the QA seeds.", since: NOW - 10 * day, lastNews: NOW - 10 * day }),
       ],
     });
     const done = vi.spyOn(topicApi, "nowDone").mockResolvedValue({ ok: true });
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const items = await screen.findAllByTestId("topic-now-item");
-    expect(items[0]).toHaveTextContent("Since");
+    expect(items[0]).toHaveTextContent("Due Nov 6 · Since");
     expect(items[0]).not.toHaveAttribute("data-stale");
     expect(items[1]).toHaveTextContent("No news since");
     expect(items[1]).toHaveAttribute("data-stale", "true");
     fireEvent.click(within(items[1]!).getByRole("button", { name: "Mark done" }));
-    expect(done).toHaveBeenCalledWith("t7", "on hold|the qa seeds", "l1", true);
+    expect(done).toHaveBeenCalledWith("t7", "n2", "l1", true);
   });
 
   it("edits the user's requests for this page from the topic menu, for the panel leader's Scribe", async () => {
@@ -219,34 +221,47 @@ describe("TopicSidePanel", () => {
     expect(save).toHaveBeenCalledWith("t7", "Keep the two newest reports at the top.", "l1");
   });
 
-  it("groups Now items under their labels, newest first, and keeps a done item with Undo", async () => {
-    // The Scribe groups items by label but nothing showed the groups, so a new item seemed to land
-    // in a random place; the label is now the group's heading and the newest item leads.
+  it("shows Now after a leading Status section, in fixed groups, the panel leader's first", async () => {
+    // Now is kept as entries and placed by the page: after Status (or a Latest section), grouped
+    // in a fixed order, newest first; a shared topic's other leaders' entries fold below.
     mockApi();
     const day = 24 * 60 * 60 * 1000;
     vi.mocked(topicApi.get).mockResolvedValue({
       ...DETAIL,
-      page: "T7.\n## Now\n- **Next:** old step.\n- **In progress:** the run.\n- **Next:** new step.\n## Recent\n- Oct 23",
-      nowItems: [
-        { key: "next|old step", since: NOW - 2 * day, lastNews: NOW - 2 * day },
-        { key: "in progress|the run", since: NOW - day, lastNews: NOW - day },
-        { key: "next|new step", since: NOW, lastNews: NOW },
-        { key: "next|sent", since: NOW - day, lastNews: NOW - day, doneAt: NOW, text: "**Next:** send the guide." },
+      page: "T7.\n## Status\nAs of Oct 24: step 215.\n## History\n- Oct 23",
+      now: [
+        entry({ id: "a", text: "old step.", since: NOW - 2 * day }),
+        entry({ id: "b", group: "progress", text: "the run.", since: NOW - day }),
+        entry({ id: "c", text: "new step." }),
+        entry({ id: "d", group: "waiting", who: "Parsewave", text: "images." }),
+        entry({ id: "e", text: "send the guide.", doneAt: NOW }),
+        entry({ id: "f", text: "a hosts check.", leaderId: "l2", leaderNum: 2763 }),
       ],
     });
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    await screen.findAllByTestId("topic-now-item");
-    const groups = screen.getAllByTestId("topic-now-group");
-    expect(groups.map((group) => group.firstElementChild?.textContent)).toEqual(["Next", "In progress"]);
+    const now = await screen.findByTestId("topic-now");
+    const page = screen.getByTestId("topic-page").textContent!;
+    expect(page.indexOf("step 215")).toBeLessThan(page.indexOf("old step."));
+    expect(page.indexOf("old step.")).toBeLessThan(page.indexOf("Oct 23"));
+    const groups = within(now).getAllByTestId("topic-now-group");
+    expect(groups.map((group) => group.firstElementChild?.textContent)).toEqual([
+      "Waiting on Parsewave",
+      "In progress",
+      "Next",
+    ]);
     expect(
-      within(groups[0]!)
+      within(groups[2]!)
         .getAllByTestId("topic-now-item")
         .map((item) => item.textContent),
     ).toEqual([expect.stringContaining("new step."), expect.stringContaining("old step.")]);
-    const done = screen.getAllByTestId("topic-now-item").at(-1)!;
+    const done = within(now).getAllByTestId("topic-now-item").at(-1)!;
     expect(done).toHaveTextContent("send the guide.");
-    expect(done).toHaveTextContent("Marked done");
     expect(within(done).getByText("Undo")).toBeInTheDocument();
+
+    expect(within(now).queryByText("a hosts check.")).toBeNull();
+    fireEvent.click(within(now).getByTestId("topic-now-others"));
+    expect(within(now).getByTestId("topic-now-others")).toHaveTextContent("From other leaders (1)");
+    expect(within(now).getByText("a hosts check.").closest("li")).toHaveTextContent("#2763 · Since");
   });
 
   it("shows the Scribe's live status, rename suggestions to answer, and the instructions box", async () => {

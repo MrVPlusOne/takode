@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.js";
-import { NOW_ITEM_STALE_MS, type NowItemStatus, nowSectionOf } from "../../../shared/topic-now-items.js";
+import { NOW_ENTRY_STALE_MS, NOW_GROUPS, type NowEntry, nowGroupLabel } from "../../../shared/topic-now-items.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.js";
@@ -152,8 +152,9 @@ export function TopicView({
             >
               <TopicPageBody
                 body={body}
-                status={detail.nowItems ?? []}
-                onDone={leaderId ? (key, done) => act(topicApi.nowDone(detail.id, key, leaderId, done)) : undefined}
+                entries={detail.now ?? []}
+                leaderId={leaderId}
+                onDone={leaderId ? (id, done) => act(topicApi.nowDone(detail.id, id, leaderId, done)) : undefined}
               />
             </InlineLocalImagesContext.Provider>
           ) : (
@@ -198,131 +199,149 @@ export function TopicView({
 }
 
 /**
- * The page, with each Now item showing when it appeared (muted after a week without news) and a
- * button to mark it done, which tells the Scribe.
+ * The page, with Now from the topic's entries: after a leading Status or "Latest …" section, else
+ * first. The panel's leader's entries come first in fixed groups; other leaders' entries of a shared
+ * topic are folded below them.
  */
 function TopicPageBody({
   body,
-  status,
+  entries,
+  leaderId,
   onDone,
 }: {
   body: string;
-  status: NowItemStatus[];
-  onDone?: (key: string, done: boolean) => void;
+  entries: NowEntry[];
+  leaderId?: string;
+  onDone?: (id: string, done: boolean) => void;
 }) {
-  const section = nowSectionOf(body);
-  const byKey = new Map(status.map((item) => [item.key, item]));
-  // Items marked done are off the page; they show struck through, with Undo, for a day.
-  const done = status.filter(
-    (item) => item.doneAt !== undefined && item.text && !section?.items.some((i) => i.key === item.key),
-  );
-  if (!section && !done.length) return <MarkdownContent text={body} questLinkSurface="chat-feed" />;
-  const groups = nowGroups(section?.items ?? [], byKey);
+  const [othersOpen, setOthersOpen] = useState(false);
+  const { first, rest } = splitLeadingSections(body);
+  const mine = entries.filter((entry) => !leaderId || !entry.leaderId || entry.leaderId === leaderId);
+  const others = entries.filter((entry) => !mine.includes(entry));
   return (
     <>
-      <MarkdownContent text={section ? section.before : body} questLinkSurface="chat-feed" />
-      <div className="mb-3 mt-1 flex flex-col gap-2" data-testid="topic-now-items">
-        {groups.map((group) => (
-          <div key={group.label || "-"} data-testid="topic-now-group">
-            {group.label && <div className="text-[12.5px] font-medium text-cc-muted">{group.label}</div>}
-            <ul className="mt-0.5 flex flex-col gap-1.5">
-              {group.items.map((item) => (
-                <NowItemRow
-                  key={item.key}
-                  text={item.text}
-                  status={byKey.get(item.key)}
-                  onDone={onDone}
-                  itemKey={item.key}
-                />
-              ))}
-            </ul>
-          </div>
-        ))}
-        {done.length > 0 && (
-          <ul className="flex flex-col gap-1.5">
-            {done.map((item) => (
-              <NowItemRow key={item.key} text={item.text!} status={item} onDone={onDone} itemKey={item.key} />
-            ))}
-          </ul>
-        )}
-      </div>
-      {section?.after && <MarkdownContent text={section.after} questLinkSurface="chat-feed" />}
+      {first && <MarkdownContent text={first} questLinkSurface="chat-feed" />}
+      {entries.length > 0 && (
+        <div className="mb-3" data-testid="topic-now">
+          <MarkdownContent text="## Now" />
+          <NowGroups entries={mine} onDone={onDone} />
+          {others.length > 0 && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setOthersOpen((open) => !open)}
+                aria-expanded={othersOpen}
+                className="text-[13px] text-cc-muted hover:text-cc-fg"
+                data-testid="topic-now-others"
+              >
+                {othersOpen ? "▾" : "›"} From other leaders ({others.length})
+              </button>
+              {othersOpen && <NowGroups entries={others} onDone={onDone} showLeader />}
+            </div>
+          )}
+        </div>
+      )}
+      {rest && <MarkdownContent text={rest} questLinkSurface="chat-feed" />}
     </>
   );
 }
 
-/**
- * Now items grouped by their label ("In progress", "Next"), in the order the page first uses
- * each label, newest first within a group; the label shows once as the group's heading instead
- * of on each item. Items without a label come first.
- */
-function nowGroups(
-  items: ReadonlyArray<{ key: string; text: string }>,
-  status: ReadonlyMap<string, NowItemStatus>,
-): Array<{ label: string; items: Array<{ key: string; text: string }> }> {
-  const groups = new Map<string, Array<{ key: string; text: string; since: number }>>();
-  for (const item of items) {
-    const match = /^\*\*([^*]+?):?\*\*:?\s*/.exec(item.text);
-    const label = match ? match[1]!.replace(/:$/, "").trim() : "";
-    const group = groups.get(label) ?? [];
-    group.push({
-      key: item.key,
-      text: match ? item.text.slice(match[0].length) : item.text,
-      since: status.get(item.key)?.since ?? 0,
-    });
-    groups.set(label, group);
+/** The page's leading Status and "Latest …" sections, which come before Now, and the rest. */
+function splitLeadingSections(body: string): { first: string; rest: string } {
+  const sections = body.split(/\n(?=## )/);
+  let count = 0;
+  while (count < sections.length && /^## +(Status|Latest\b.*)\s*$/m.test(sections[count]!.split("\n")[0]!)) count += 1;
+  return { first: sections.slice(0, count).join("\n"), rest: sections.slice(count).join("\n") };
+}
+
+/** Entries in the fixed groups, newest first within each; entries marked done follow, struck through. */
+function NowGroups({
+  entries,
+  onDone,
+  showLeader = false,
+}: {
+  entries: NowEntry[];
+  onDone?: (id: string, done: boolean) => void;
+  showLeader?: boolean;
+}) {
+  const open = entries.filter((entry) => entry.doneAt === undefined);
+  const done = entries.filter((entry) => entry.doneAt !== undefined);
+  const groups = new Map<string, NowEntry[]>();
+  for (const group of NOW_GROUPS) {
+    for (const entry of open.filter((candidate) => candidate.group === group).sort((a, b) => b.since - a.since)) {
+      const label = nowGroupLabel(entry);
+      groups.set(label, [...(groups.get(label) ?? []), entry]);
+    }
   }
-  const ordered = [...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : 0));
-  return ordered.map(([label, group]) => ({ label, items: [...group].sort((a, b) => b.since - a.since) }));
+  return (
+    <div className="mt-1 flex flex-col gap-2" data-testid="topic-now-items">
+      {[...groups.entries()].map(([label, group]) => (
+        <div key={label} data-testid="topic-now-group">
+          <div className="text-[12.5px] font-medium text-cc-muted">{label}</div>
+          <ul className="mt-0.5 flex flex-col gap-1.5">
+            {group.map((entry) => (
+              <NowItemRow key={entry.id} entry={entry} onDone={onDone} showLeader={showLeader} />
+            ))}
+          </ul>
+        </div>
+      ))}
+      {done.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {done.map((entry) => (
+            <NowItemRow key={entry.id} entry={entry} onDone={onDone} showLeader={showLeader} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function NowItemRow({
-  itemKey,
-  text,
-  status,
+  entry,
   onDone,
+  showLeader,
 }: {
-  itemKey: string;
-  text: string;
-  status?: NowItemStatus;
-  onDone?: (key: string, done: boolean) => void;
+  entry: NowEntry;
+  onDone?: (id: string, done: boolean) => void;
+  showLeader: boolean;
 }) {
-  const done = !!status?.doneAt;
-  const stale = !done && !!status && Date.now() - status.lastNews > NOW_ITEM_STALE_MS;
+  const done = entry.doneAt !== undefined;
+  const stale = !done && Date.now() - entry.lastNews > NOW_ENTRY_STALE_MS;
+  const facts = [
+    ...(showLeader && entry.leaderNum != null ? [`#${entry.leaderNum}`] : []),
+    ...(entry.due ? [`Due ${dueDay(entry.due)}`] : []),
+    stale ? `No news since ${when(entry.lastNews)}` : `Since ${when(entry.since)}`,
+  ];
   return (
     <li className="flex items-start gap-2" data-testid="topic-now-item" data-stale={stale || undefined}>
       <span aria-hidden="true" className="mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full bg-cc-fg/80" />
       <div className="min-w-0 flex-1">
         <div className={done ? "line-through opacity-50" : stale ? "opacity-60" : ""}>
-          <MarkdownContent text={text} questLinkSurface="chat-feed" />
+          <MarkdownContent text={entry.text} questLinkSurface="chat-feed" />
         </div>
-        {status && (
-          <div className="text-[12px] text-cc-muted">
-            {done ? (
-              <>
-                Marked done {when(status.doneAt!)}.{" "}
-                {onDone && (
-                  <button
-                    type="button"
-                    onClick={() => onDone(itemKey, false)}
-                    className="text-cc-primary hover:underline"
-                  >
-                    Undo
-                  </button>
-                )}
-              </>
-            ) : stale ? (
-              `No news since ${when(status.lastNews)}`
-            ) : (
-              `Since ${when(status.since)}`
-            )}
-          </div>
-        )}
+        <div className="text-[12px] text-cc-muted">
+          {done ? (
+            <>
+              Marked done {when(entry.doneAt!)}.{" "}
+              {onDone && (
+                <button
+                  type="button"
+                  onClick={() => onDone(entry.id, false)}
+                  className="text-cc-primary hover:underline"
+                >
+                  Undo
+                </button>
+              )}
+            </>
+          ) : (
+            facts.join(" · ")
+          )}
+        </div>
       </div>
       {onDone && !done && (
         <button
           type="button"
-          onClick={() => onDone(itemKey, true)}
+          onClick={() => onDone(entry.id, true)}
           aria-label="Mark done"
           title="Mark done"
           className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
@@ -343,6 +362,11 @@ function NowItemRow({
       )}
     </li>
   );
+}
+
+/** "Nov 6", for a due date given as "YYYY-MM-DD". */
+function dueDay(due: string): string {
+  return new Date(`${due}T00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /** "Oct 24, 3:22 PM". */

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type NowItemStatus, nowSectionOf, withNowItems } from "../shared/topic-now-items.js";
+import { type NowEntry, type NowGroup, NOW_GROUPS, questLinksOf, takeLegacyNow } from "../shared/topic-now-items.js";
 import {
   TOPIC_TENTATIVE_MS,
   type QuestTopicMap,
@@ -45,22 +45,26 @@ interface StoredTopic {
   /** Bumped by each page write, so a Scribe that read an older page cannot overwrite a newer one. */
   pageRevision?: number;
   events: TopicEvent[];
-  /** The page's Now items by key (see `nowSectionOf`): when each appeared or was last reworded. */
-  nowItems?: Record<string, StoredNowItem>;
+  /** The topic's Now: open items, added and removed by Scribes, marked done by the user. */
+  now?: StoredNowEntry[];
+  /** Retired: dates of Now items read from the page text; moved into `now` at load. */
+  nowItems?: Record<string, { since: number; changedAt: number; text: string }>;
   /** The user's lasting requests for this page (sections to keep, what to show). */
   instructions?: { text: string; updatedAt: number };
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
 }
 
-interface StoredNowItem {
+interface StoredNowEntry {
+  id: string;
+  group: NowGroup;
+  who?: string;
+  text: string;
+  leaderId?: string;
   since: number;
   changedAt: number;
-  text: string;
-  /** The user marked it done on the page, which took it off the page. */
+  due?: string;
   doneAt?: number;
-  /** Where it was in the Now list when taken off, so Undo puts it back there. */
-  removedIndex?: number;
 }
 
 type Undo =
@@ -154,6 +158,7 @@ export class TopicStore {
       const parsed = JSON.parse(await readFile(join(this.root, "topics.json"), "utf-8")) as TopicState;
       if (parsed?.version !== 1 || typeof parsed.topics !== "object") throw new Error("unknown topics format");
       this.state = parsed;
+      for (const topic of Object.values(parsed.topics)) this.moveNowOffPage(topic);
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
         console.error("[library-topics] Unreadable topics file, keeping it aside:", error);
@@ -524,6 +529,7 @@ export class TopicStore {
       if (normalizeName(alias) !== normalizeName(into.name) && !into.aliases.includes(alias)) into.aliases.push(alias);
     }
     into.events = [...into.events, ...from.events].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS_PER_TOPIC);
+    if (from.now?.length) into.now = [...(into.now ?? []), ...from.now];
     into.updatedAt = this.now();
     from.mergedInto = into.id;
     this.addEvent(into.id, {
@@ -572,6 +578,8 @@ export class TopicStore {
         into.aliases = undo.intoAliases;
         const fromEventKeys = new Set(undo.from.events.map(eventKey));
         into.events = into.events.filter((event) => !fromEventKeys.has(eventKey(event)));
+        const fromNow = new Set((undo.from.now ?? []).map((entry) => entry.id));
+        if (into.now) into.now = into.now.filter((entry) => !fromNow.has(entry.id));
       }
     } else {
       const movedTo = this.s().questTopics[undo.questId];
@@ -637,12 +645,11 @@ export class TopicStore {
     if (!markdown.trim()) throw new TopicStoreError("The page is empty.");
     if (options.revision !== undefined && options.revision !== (topic.pageRevision ?? 0)) {
       throw new TopicStoreError(
-        "The page changed since you read it (another leader's Scribe saved it, or the user marked a Now item done). Run `takode scribe changes` again and merge your update into the current page.",
+        "The page changed since you read it (another leader's Scribe saved it). Run `takode scribe changes` again and merge your update into the current page.",
         409,
       );
     }
     topic.page = markdown;
-    topic.nowItems = this.nextNowItems(topic, markdown);
     if (options.leaderId) {
       topic.coveredThrough = {
         ...topic.coveredThrough,
@@ -660,95 +667,110 @@ export class TopicStore {
   }
 
   /**
-   * Per Now item of the page: when it appeared, its latest news (rewording, or an event of a quest
-   * it links) and whether the user marked it done. Pages saved before items were tracked date
-   * their items from the page's save.
+   * The topic's Now entries, oldest first, with their latest news (an edit, or an event of a quest
+   * they link). Entries the user marked done stay a day, so Undo works.
    */
-  nowStatus(topicId: string): NowItemStatus[] {
+  nowEntries(topicId: string): NowEntry[] {
     const topic = this.require(topicId);
-    const section = nowSectionOf(topic.page);
-    const fallback = topic.writtenAt ?? topic.updatedAt;
-    const current = section ? section.items : [];
-    const removed = Object.entries(topic.nowItems ?? {}).flatMap(([key, stored]) =>
-      stored.doneAt !== undefined && stored.removedIndex !== undefined && this.now() - stored.doneAt <= DONE_KEPT_MS
-        ? [{ key, since: stored.since, lastNews: stored.changedAt, doneAt: stored.doneAt, text: stored.text }]
-        : [],
-    );
-    return [
-      ...current.map((item) => {
-        const stored = topic.nowItems?.[item.key];
+    return (topic.now ?? [])
+      .filter((entry) => entry.doneAt === undefined || this.now() - entry.doneAt <= DONE_KEPT_MS)
+      .map((entry) => {
+        const questIds = questLinksOf(entry.text);
         const questNews = topic.events
-          .filter((event) => event.questId && item.questIds.includes(event.questId))
+          .filter((event) => event.questId && questIds.includes(event.questId))
           .reduce((latest, event) => Math.max(latest, event.at), 0);
-        const since = stored?.since ?? fallback;
-        return { key: item.key, since, lastNews: Math.max(stored?.changedAt ?? since, questNews) };
-      }),
-      ...removed,
-    ];
+        const { changedAt, ...rest } = entry;
+        return { ...rest, questIds, lastNews: Math.max(changedAt, questNews) };
+      });
   }
 
-  /**
-   * The user marked a Now item done on the page: it comes off the page at once, so no Scribe is
-   * needed for that; taking it back (`done` false) puts it back where it was. Returns its text.
-   */
-  markNowDone(topicId: string, key: string, done = true): string {
+  /** A Scribe adds a Now entry for its leader's work. */
+  addNow(topicId: string, input: NowInput & { leaderId?: string }): NowEntry {
     const topic = this.require(topicId);
-    const items = nowSectionOf(topic.page)?.items ?? [];
-    const at = this.now();
-    if (done) {
-      const index = items.findIndex((candidate) => candidate.key === key);
-      if (index < 0) throw new TopicStoreError("That item is no longer on the page.", 404);
-      const item = items[index]!;
-      const stored = topic.nowItems?.[key] ?? {
-        since: topic.writtenAt ?? at,
-        changedAt: topic.writtenAt ?? at,
-        text: item.text,
-      };
-      topic.nowItems = { ...topic.nowItems, [key]: { ...stored, text: item.text, doneAt: at, removedIndex: index } };
-      this.setPage(
-        topic,
-        withNowItems(
-          topic.page,
-          items.filter((_, position) => position !== index).map((i) => i.text),
-        ),
-      );
-      return item.text;
-    }
-    const stored = topic.nowItems?.[key];
-    if (stored?.removedIndex === undefined) throw new TopicStoreError("That item was not marked done.", 404);
-    const texts = items.map((item) => item.text);
-    texts.splice(Math.min(stored.removedIndex, texts.length), 0, stored.text);
-    const { doneAt: _doneAt, removedIndex: _index, ...rest } = stored;
-    topic.nowItems = { ...topic.nowItems, [key]: rest };
-    this.setPage(topic, withNowItems(topic.page, texts));
-    return stored.text;
+    const entry: StoredNowEntry = {
+      id: randomUUID().replace(/-/g, "").slice(0, 6),
+      ...checkNow(input),
+      ...(input.leaderId ? { leaderId: input.leaderId } : {}),
+      since: this.now(),
+      changedAt: this.now(),
+    };
+    topic.now = [...this.prunedNow(topic), entry];
+    this.nowChanged(topic);
+    return this.nowEntries(topic.id).find((candidate) => candidate.id === entry.id)!;
   }
 
-  /** A page change made for the user (not a Scribe's write): a Scribe that read the older page re-reads. */
-  private setPage(topic: StoredTopic, page: string | null): void {
-    if (page !== null) {
-      topic.page = page;
-      topic.pageRevision = (topic.pageRevision ?? 0) + 1;
-    }
+  /** A Scribe rewords or regroups a Now entry; it keeps its date. */
+  editNow(topicId: string, id: string, patch: Partial<NowInput>): NowEntry {
+    const topic = this.require(topicId);
+    const entry = this.nowEntry(topic, id);
+    const next = checkNow({ group: entry.group, who: entry.who, text: entry.text, due: entry.due, ...patch });
+    for (const field of ["who", "due"] as const) if (!next[field]) delete entry[field];
+    Object.assign(entry, next, { changedAt: this.now() });
+    this.nowChanged(topic);
+    return this.nowEntries(topic.id).find((candidate) => candidate.id === id)!;
+  }
+
+  /** A Scribe removes a Now entry that is done or no longer matters; returns its text. */
+  removeNow(topicId: string, id: string): string {
+    const topic = this.require(topicId);
+    const entry = this.nowEntry(topic, id);
+    topic.now = (topic.now ?? []).filter((candidate) => candidate.id !== id);
+    this.nowChanged(topic);
+    return entry.text;
+  }
+
+  /** The user marked a Now entry done on the page, or took that back; returns its text. */
+  markNowDone(topicId: string, id: string, done = true): string {
+    const topic = this.require(topicId);
+    const entry = this.nowEntry(topic, id);
+    if (done) entry.doneAt = this.now();
+    else delete entry.doneAt;
+    this.nowChanged(topic);
+    return entry.text;
+  }
+
+  private nowEntry(topic: StoredTopic, id: string): StoredNowEntry {
+    const entry = topic.now?.find((candidate) => candidate.id === id);
+    if (!entry)
+      throw new TopicStoreError(`No Now entry ${id} on "${topic.name}"; \`takode scribe changes\` lists them.`, 404);
+    return entry;
+  }
+
+  /** Entries marked done more than a day ago are dropped. */
+  private prunedNow(topic: StoredTopic): StoredNowEntry[] {
+    return (topic.now ?? []).filter((entry) => entry.doneAt === undefined || this.now() - entry.doneAt <= DONE_KEPT_MS);
+  }
+
+  private nowChanged(topic: StoredTopic): void {
     topic.updatedAt = this.now();
     this.dirty = true;
   }
 
-  private nextNowItems(topic: StoredTopic, markdown: string): Record<string, StoredNowItem> {
-    const at = this.now();
-    const previous = topic.nowItems ?? untrackedNowItems(topic);
-    const next: Record<string, StoredNowItem> = {};
-    for (const item of nowSectionOf(markdown)?.items ?? []) {
-      const stored = previous[item.key];
-      if (!stored || stored.removedIndex !== undefined) next[item.key] = { since: at, changedAt: at, text: item.text };
-      else next[item.key] = stored.text === item.text ? stored : { ...stored, text: item.text, changedAt: at };
-    }
-    // Items the user marked done stay a day, so Undo still works after the Scribe's next update.
-    for (const [key, stored] of Object.entries(previous)) {
-      if (next[key] || stored.removedIndex === undefined || at - (stored.doneAt ?? 0) > DONE_KEPT_MS) continue;
-      next[key] = stored;
-    }
-    return next;
+  /**
+   * Pages written before Now was kept as entries: their Now bullets become entries (dated as the
+   * page tracked them, else from its save, and credited to the one leader whose Scribe wrote the
+   * page, if only one did), and the section leaves the page.
+   */
+  private moveNowOffPage(topic: StoredTopic): void {
+    if (topic.now) return;
+    const legacy = takeLegacyNow(topic.page);
+    if (!legacy) return;
+    const leaders = Object.keys(topic.coveredThrough ?? {});
+    const tracked = Object.values(topic.nowItems ?? {});
+    const at = topic.writtenAt ?? topic.updatedAt;
+    topic.now = legacy.items.map((item) => {
+      const dated = tracked.find((stored) => stored.text.endsWith(item.text));
+      return {
+        id: randomUUID().replace(/-/g, "").slice(0, 6),
+        ...item,
+        ...(leaders.length === 1 ? { leaderId: leaders[0] } : {}),
+        since: dated?.since ?? at,
+        changedAt: dated?.changedAt ?? at,
+      };
+    });
+    topic.page = legacy.page;
+    delete topic.nowItems;
+    this.dirty = true;
   }
 
   /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
@@ -956,12 +978,31 @@ function eventKey(event: TopicEvent): string {
   return `${event.at}|${event.kind}|${event.questId ?? ""}|${event.messageIndex ?? ""}`;
 }
 
-/** Items of a page saved before items were tracked, dated from that save. */
-function untrackedNowItems(topic: StoredTopic): Record<string, StoredNowItem> {
-  const at = topic.writtenAt ?? topic.updatedAt;
-  return Object.fromEntries(
-    (nowSectionOf(topic.page)?.items ?? []).map((item) => [item.key, { since: at, changedAt: at, text: item.text }]),
-  );
+/** A Now entry as a command gives it. */
+interface NowInput {
+  group: NowGroup;
+  who?: string;
+  text: string;
+  /** "YYYY-MM-DD". */
+  due?: string;
+}
+
+function checkNow(input: NowInput): NowInput {
+  if (!NOW_GROUPS.includes(input.group)) {
+    throw new TopicStoreError(`Unknown group "${input.group}"; use one of ${NOW_GROUPS.join(", ")}.`);
+  }
+  const text = input.text.trim();
+  if (!text) throw new TopicStoreError("Say what the item is.");
+  const who = input.who?.trim();
+  if (input.group === "waiting" && !who) throw new TopicStoreError("Say whom it waits on (--who).");
+  if (input.due && !/^\d{4}-\d{2}-\d{2}$/.test(input.due))
+    throw new TopicStoreError("Give the due date as YYYY-MM-DD.");
+  return {
+    group: input.group,
+    text,
+    ...(input.group === "waiting" && who ? { who } : {}),
+    ...(input.due ? { due: input.due } : {}),
+  };
 }
 
 function publicChange(change: StoredChange): TopicChange {

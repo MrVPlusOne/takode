@@ -181,6 +181,45 @@ describe("topic routes", () => {
     });
   });
 
+  it("lets a Scribe add, edit and remove Now entries for its leader, and keeps Now out of the page text", async () => {
+    const { app, store, send, setCaller } = await setup();
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: false,
+      leaderId: "leader",
+    });
+    setCaller("scribe");
+    const added = await (
+      await send(`/scribe/topics/${topic.id}/now`, "POST", { group: "waiting", who: "Parsewave", text: "images" })
+    ).json();
+    expect(added).toMatchObject({ group: "waiting", who: "Parsewave", leaderId: "leader" });
+    expect((await send(`/scribe/topics/${topic.id}/now`, "POST", { group: "soon", text: "x" })).status).toBe(400);
+    const edited = await (await send(`/scribe/topics/${topic.id}/now/${added.id}`, "PATCH", { group: "next" })).json();
+    expect(edited).toMatchObject({ group: "next", text: "images" });
+
+    // The panel gets the entries with the page; the Scribe sees them, marked as its leader's.
+    setCaller("leader");
+    expect((await (await app.request(`/topics/${topic.id}`)).json()).now).toHaveLength(1);
+    setCaller("scribe");
+    const read = await (await app.request(`/scribe/topics/${topic.id}/changes`)).json();
+    expect(read.now).toMatchObject([{ id: added.id, yours: true }]);
+
+    // A Now section written into the page would show twice: it is left out, with a warning.
+    const saved = await (
+      await send(`/scribe/topics/${topic.id}/page`, "POST", {
+        markdown: "T7.\n\n## Now\n- **Next:** x\n\n## History\n- Oct 23",
+      })
+    ).json();
+    expect(saved.page).toBe("T7.\n\n## History\n- Oct 23");
+    expect(saved.warnings[0]).toContain("takode scribe now");
+
+    expect((await send(`/scribe/topics/${topic.id}/now/${added.id}`, "DELETE", {})).status).toBe(200);
+    expect(store.nowEntries(topic.id)).toEqual([]);
+  });
+
   it("keeps the user's requests for one page, which the Scribe sees with every read of it", async () => {
     const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({
