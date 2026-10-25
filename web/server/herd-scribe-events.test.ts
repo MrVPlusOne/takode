@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { isRoutineScribeEvent } from "./herd-event-dispatcher.js";
-import { noteTurnEnded, setScribeHooks } from "./scribe-registry.js";
+import { noteSessionError, noteTurnEnded, setScribeHooks } from "./scribe-registry.js";
 import type { TakodeEvent } from "./session-types.js";
 
 /**
@@ -29,7 +29,7 @@ describe("isRoutineScribeEvent", () => {
 });
 
 describe("noteTurnEnded", () => {
-  it("tells the topic service only about Scribes' turn ends", () => {
+  it("tells the topic service only about Scribes' turn ends", async () => {
     // Every session's turn end passes through here; a Scribe's ends the request it worked on.
     const ended: string[] = [];
     const outcomes: boolean[] = [];
@@ -42,11 +42,18 @@ describe("noteTurnEnded", () => {
     });
     noteTurnEnded("worker");
     noteTurnEnded("scribe", { reason: "result" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ended).toEqual(["scribe"]);
     // A stuck turn cleared by the watchdog or a disconnect did not finish; a provisional end is no end.
     noteTurnEnded("scribe", { reason: "stuck_auto_recovery", interrupted: true });
     noteTurnEnded("scribe", { reason: "cli_disconnect" });
     noteTurnEnded("scribe", { reason: "x", provisional: true });
-    expect(outcomes).toEqual([false, true, true]);
+    // A turn Restart Server interrupted is continued after the restart, so it neither failed nor ended.
+    noteTurnEnded("scribe", { reason: "result", interrupted: true, interrupt_origin: "restart_prep" });
+    // A failed Claude turn ends with a plain result, and its error follows at once.
+    noteTurnEnded("scribe", { reason: "result" });
+    noteSessionError("scribe");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(outcomes).toEqual([false, true, true, true]);
   });
 });

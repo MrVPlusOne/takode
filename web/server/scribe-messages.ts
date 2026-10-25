@@ -89,6 +89,16 @@ export function retryMessage(text: string): string {
   return `Your last turn was interrupted or failed before you finished, so here is my last message again:\n\n${text}`;
 }
 
+/** For the leader, once, when its Scribe's turns keep failing (often its login or the model service). */
+export function failureNotice(scribeNum: number | null, failures: number, retryAt: number): string {
+  const scribe = `#${scribeNum ?? "?"}`;
+  const at = new Date(retryAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return [
+    `Your Scribe ${scribe}'s last ${failures} turns failed, so Takode stopped sending it page updates. It tries again later, waiting longer each time up to 30 minutes (next at ${at}), and resumes as soon as a turn finishes.`,
+    `Turns that fail at once usually mean its backend can't run (an expired login, an outage): look with \`takode peek ${scribeNum ?? "<scribe>"}\`, and tell the user if it needs them.`,
+  ].join("\n");
+}
+
 /** For the leader, when its Scribe stopped again after the reminder. */
 export function leaderNotice(scribeNum: number | null, left: string[]): string {
   const scribe = `#${scribeNum ?? "?"}`;

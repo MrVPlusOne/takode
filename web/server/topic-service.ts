@@ -17,6 +17,7 @@ import {
   leaderNotice,
   reminderMessage,
   retryMessage,
+  failureNotice,
   updateMessage,
 } from "./scribe-messages.js";
 
@@ -102,6 +103,13 @@ const QUIET_MS = 2 * 60_000;
 /** No waiting event waits longer than this. */
 const MAX_WAIT_MS = 2 * 60_000;
 
+/** After a Scribe's turn fails, its next message waits this long, doubling with each failure in a row. */
+const FAILURE_BACKOFF_MS = 30_000;
+/** The longest wait: while its turns keep failing, a Scribe is tried this often. */
+const MAX_FAILURE_BACKOFF_MS = 30 * 60_000;
+/** Failed turns in a row after which the leader is told, once until a turn finishes. */
+const FAILURES_BEFORE_NOTICE = 3;
+
 /** A message the Scribe got and has not finished a turn on yet. */
 interface Delivery {
   sentAt: number;
@@ -128,6 +136,13 @@ export class TopicService {
   private forced = new Map<string, Set<string>>();
   /** Per leader: what was left when the Scribe stopped again after a reminder (shown in its status). */
   private stalled = new Map<string, string[]>();
+  /**
+   * Per leader whose Scribe's last turns failed: how many in a row, when it is tried again, the
+   * message to send again then, and whether the leader was told. Without a wait, a Scribe whose
+   * backend fails at once would be sent its message again and again.
+   */
+  private failing = new Map<string, { count: number; retryAt: number; resend?: Delivery; told: boolean }>();
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Per leader: when its waiting events are due to go, and when the first of them came. */
   private dueAt = new Map<string, number>();
   private firstPendingAt = new Map<string, number>();
@@ -386,7 +401,17 @@ export class TopicService {
     }
     const current = this.store.scribeSession(leaderId);
     if (current && this.deps.isScribeAlive(current) && this.isWorking(leaderId, current)) return "busy";
+    // After failed turns, nothing goes before the wait is over, unless the user asked to update now.
+    const failing = this.failing.get(leaderId);
+    if (failing && failing.retryAt > this.now() && !forcedIds.length) return "waiting";
     const scribe = await this.ensureScribe(leader);
+    if (failing?.resend) {
+      const resend = failing.resend;
+      if (!this.deps.inject(scribe, retryMessage(resend.text))) return "busy";
+      failing.resend = undefined;
+      this.awaiting.set(leaderId, { ...resend, sentAt: this.now(), reminded: true });
+      return this.sent();
+    }
     const instructions = this.store.scribeInstructions(leaderId);
     const sendInstructions = !this.store.instructionsSent(leaderId);
     const recent = await this.leaderQuests(leaderId, this.now() - RECENT_WINDOW_MS);
@@ -446,8 +471,12 @@ export class TopicService {
     );
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
     // Events alone wait until they are due, and the user's own page actions only ride along.
+    // A rewrite request the Scribe stopped on (its leader was told) waits for the next real update.
     const urgent =
-      forcedNames.length > 0 || unsorted.length > 0 || rewritePages || (sendInstructions && !!instructions);
+      forcedNames.length > 0 ||
+      unsorted.length > 0 ||
+      (rewritePages && !this.stalled.has(leaderId)) ||
+      (sendInstructions && !!instructions);
     if (!urgent) {
       if (!topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"))) return "nothing";
       if ((this.dueAt.get(leaderId) ?? 0) > this.now()) return "waiting";
@@ -514,20 +543,26 @@ export class TopicService {
   }
 
   /**
-   * A Scribe ended a turn. If the turn was interrupted or failed, or work of its last message is
-   * left, it gets one more try (the message again, or a reminder of what is left); if it stops
-   * again unfinished, its leader is told. Then whatever changed meanwhile is sent.
+   * A Scribe ended a turn. A failed or interrupted turn gets its message again after a wait that
+   * grows with each failure in a row (see `turnFailed`). A finished turn ends any such wait; if
+   * work of its message is left, it gets one reminder, and if it stops again with work left, its
+   * leader is told. Then whatever changed meanwhile is sent.
    */
   async scribeTurnEnded(sessionId: string, outcome: ScribeTurnOutcome = { unfinished: false }): Promise<void> {
     const leaderId = this.store.leaderOfScribe(sessionId);
     if (!leaderId) return;
     const delivery = this.awaiting.get(leaderId);
     this.awaiting.delete(leaderId);
+    if (outcome.unfinished) {
+      this.turnFailed(leaderId, sessionId, delivery);
+      return;
+    }
+    this.failing.delete(leaderId);
+    clearTimeout(this.retryTimers.get(leaderId));
+    this.retryTimers.delete(leaderId);
     if (delivery) {
-      const left = outcome.unfinished
-        ? ["its turn was interrupted or failed before it finished"]
-        : await this.workLeft(leaderId, delivery);
-      const retry = outcome.unfinished ? retryMessage(delivery.text) : reminderMessage(left);
+      const left = await this.workLeft(leaderId, delivery);
+      const retry = reminderMessage(left);
       if (left.length && !delivery.reminded && this.deps.inject(sessionId, retry)) {
         this.awaiting.set(leaderId, { ...delivery, sentAt: this.now(), reminded: true });
         this.deps.broadcastChanged();
@@ -544,6 +579,35 @@ export class TopicService {
     }
     this.deps.broadcastChanged();
     await this.deliver(leaderId);
+  }
+
+  /**
+   * A Scribe's turn failed or was interrupted: its message goes again after 30 seconds, doubling
+   * with each failure in a row up to 30 minutes, and other updates wait as well. After three in a
+   * row the leader is told once; the next finished turn ends it all.
+   */
+  private turnFailed(leaderId: string, sessionId: string, delivery: Delivery | undefined): void {
+    const previous = this.failing.get(leaderId);
+    const count = (previous?.count ?? 0) + 1;
+    const wait = Math.min(FAILURE_BACKOFF_MS * 2 ** (count - 1), MAX_FAILURE_BACKOFF_MS);
+    const retryAt = this.now() + wait;
+    const tell = !previous?.told && count >= FAILURES_BEFORE_NOTICE;
+    this.failing.set(leaderId, {
+      count,
+      retryAt,
+      ...(delivery || previous?.resend ? { resend: delivery ?? previous?.resend } : {}),
+      told: !!previous?.told || tell,
+    });
+    if (tell) this.deps.notifyLeader(leaderId, failureNotice(this.deps.sessionNum(sessionId), count, retryAt));
+    clearTimeout(this.retryTimers.get(leaderId));
+    this.retryTimers.set(
+      leaderId,
+      setTimeout(() => {
+        this.retryTimers.delete(leaderId);
+        void this.deliver(leaderId);
+      }, wait),
+    );
+    this.deps.broadcastChanged();
   }
 
   /** What a message asked for and is still not done, in a line each. */
@@ -724,6 +788,14 @@ export class TopicService {
         text: delivery.reminded ? "Asked again; waiting for the Scribe" : "Request sent; waiting for the Scribe",
         ...base,
       };
+    }
+    const failing = this.failing.get(leaderId);
+    if (failing) {
+      const at = new Date(failing.retryAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const text = failing.told
+        ? `Its turns keep failing; trying again at ${at}; your leader was told`
+        : `Its last turn failed; trying again at ${at}`;
+      return { state: "waiting", text, ...base };
     }
     if (this.stalled.has(leaderId)) {
       return { state: "waiting", text: "Stopped before finishing; your leader was told", ...base };

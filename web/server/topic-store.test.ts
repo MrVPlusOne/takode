@@ -711,25 +711,53 @@ describe("topic service", () => {
     expect(injected).toHaveLength(2);
   });
 
-  it("sends a request again when the turn that took it was interrupted, then tells the leader", async () => {
-    // At a restart a Scribe's turn can be cut off before it starts (its process was replaced); the
-    // status must not say "Up to date" and the request must not be lost.
+  it("sends a request again after a failed turn, waiting longer each time, and tells the leader once", async () => {
+    // A Scribe whose backend fails at once (no login, an outage) used to be sent its message again
+    // at once, over a thousand turns in ten minutes. Now each failure in a row doubles the wait,
+    // other updates wait too, the leader is told once after three, and a finished turn ends it.
     const { service, injected, notices, store } = await setupService();
     const scribe = await enable(service, store, "leader");
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     const request = injected.at(-1)!.text;
-    expect((await service.activity("leader")).text).toBe("Request sent; waiting for the Scribe");
+    const sent = () => injected.length;
 
     await service.scribeTurnEnded(scribe, { unfinished: true });
+    const before = sent();
+    expect((await service.activity("leader")).text).toMatch(/^Its last turn failed; trying again at/);
+    store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(sent()).toBe(before); // nothing goes during the wait, not even new events
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sent()).toBe(before + 1);
     expect(injected.at(-1)!.text).toContain("Your last turn was interrupted or failed");
     expect(injected.at(-1)!.text).toContain(request);
     expect((await service.activity("leader")).text).toBe("Asked again; waiting for the Scribe");
 
+    // Second failure: a minute; third: two minutes, and the leader is told, once.
     await service.scribeTurnEnded(scribe, { unfinished: true });
-    expect(notices.at(-1)!.text).toContain("its turn was interrupted or failed before it finished");
-    expect((await service.activity("leader")).text).toBe("Stopped before finishing; your leader was told");
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(sent()).toBe(before + 1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sent()).toBe(before + 2);
+    expect(notices).toHaveLength(0);
+    await service.scribeTurnEnded(scribe, { unfinished: true });
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.text).toContain("last 3 turns failed");
+    expect((await service.activity("leader")).text).toMatch(/^Its turns keep failing/);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await service.scribeTurnEnded(scribe, { unfinished: true });
+    expect(notices).toHaveLength(1);
+
+    // A finished turn ends the wait: what waited goes at once.
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    const resent = sent();
+    await service.scribeTurnEnded(scribe);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent()).toBe(resent + 1);
+    expect(injected.at(-1)!.text).toContain("q-2");
   });
 
   it("waits while paused, and Update now goes through anyway", async () => {

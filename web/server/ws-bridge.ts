@@ -1,7 +1,7 @@
 import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
 import type { QuestStartedFrom } from "./quest-types.js";
 import { notifySessionSavedForArtifacts } from "./artifact-library.js";
-import { noteTurnEnded, type TurnEndOutcome } from "./scribe-registry.js";
+import { noteSessionError, noteTurnEnded, type TurnEndOutcome } from "./scribe-registry.js";
 import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
 import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
 import { viewportHandoffStateMessage } from "./bridge/browser-subscribe-snapshots.js";
@@ -686,6 +686,7 @@ export class WsBridge {
     actorSessionId?: string,
   ): void {
     if (event === "turn_end") noteTurnEnded(sessionId, data as TurnEndOutcome);
+    if (event === "session_error") noteSessionError(sessionId);
     if (!this.herdEventDispatcher) return;
     if (actorSessionId === undefined) {
       this.herdEventDispatcher.emitTakodeEvent(sessionId, event, data);
