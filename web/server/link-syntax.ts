@@ -27,13 +27,15 @@ export const MESSAGE_DRAFT_INSTRUCTIONS = [
   "",
   "````",
   "```draft",
+  "title: T7 eval start",
+  "---",
   "Quick update on **T7**: evals start at `iter 2`.",
   "```",
   "````",
   "",
   "Takode shows it as a card that looks like the sent message, with a Copy for Slack button that copies exactly the draft. Do not put drafts in quotes (`>`) or italics: they paste as quotes or italics. Keep notes about the draft outside the block, and put each alternative in its own block. If the draft itself contains a code block, open the draft block with four backticks.",
   "",
-  "Takode saves drafts in the user's Library and groups revisions as versions. When a draft is likely to be revised, start it with a `title: <short name>` line and a `---` line (neither is shown or copied), and reuse the same title for each revision in the same thread. Untitled blocks that follow it in the same answer join it as further messages of one post; give alternatives different titles. `takode artifact list` and `takode artifact show <id>` find earlier drafts, reports and figures, with links to them.",
+  "Takode saves every draft in the user's Library and groups its revisions as versions by title. Always start a draft with a `title: <short name>` line and a `---` line, as in the example (neither is shown or copied), even for a short one-off message, and reuse the exact title for each revision in the same thread so it becomes a new version instead of a separate untitled post. Do this even if earlier drafts in this conversation had no title line. Untitled blocks that follow a titled one in the same answer join it as further messages of one post; give alternatives different titles. `takode artifact list` and `takode artifact show <id>` find earlier drafts, reports and figures, with links to them.",
 ].join("\n");
 
 /** Visual blocks: diagrams, charts and kit shapes drawn in a sandboxed frame in any Markdown. */

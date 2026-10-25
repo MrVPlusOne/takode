@@ -12,6 +12,7 @@ import {
 import { normalizePersistedBackendType, type BackendType } from "./session-types.js";
 import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
+import { parseDraftHeader } from "../shared/artifact-library.js";
 import {
   getQuestJourneyPhaseAssigneeBriefDisplayPath,
   getQuestJourneyPhaseLeaderBriefDisplayPath,
@@ -116,6 +117,10 @@ describe("buildCompanionInstructions", () => {
   it("shows the draft block in the syntax the chat renders as a draft card", () => {
     // MarkdownContent turns a fenced block labelled `draft` into the card; keep the example parseable.
     expect(MESSAGE_DRAFT_INSTRUCTIONS).toMatch(/^```draft$/m);
+    // Agents copy the example, and an untitled draft lands in the Library as a separate post on
+    // every revision, so the example must carry a title header the Library actually reads.
+    const exampleBody = /^```draft\n([\s\S]*?)\n```$/m.exec(MESSAGE_DRAFT_INSTRUCTIONS)?.[1] ?? "";
+    expect(parseDraftHeader(exampleBody).title).toBeTruthy();
   });
 
   it("keeps copyable native link examples in supported URI syntax", () => {
