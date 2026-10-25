@@ -1,4 +1,12 @@
-import { useCallback, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 
 /**
  * Draggable dividers for side-by-side split views. Every split view in Takode lets people drag
@@ -8,6 +16,9 @@ import { useCallback, useRef, useState, type CSSProperties, type KeyboardEvent, 
  */
 
 const STORAGE_KEY = "cc-split-widths";
+
+/** Mounted panes per split, so a width saved in one (another leader's view, kept mounted) reaches all. */
+const panes = new Map<string, Set<(width: number) => void>>();
 
 function readStoredWidths(): Record<string, number> {
   let parsed: unknown;
@@ -32,7 +43,8 @@ export interface SplitWidth {
 }
 
 /**
- * The width of a split's resizable pane, remembered per `id`. `side` is where the pane sits: a
+ * The width of a split's resizable pane, remembered per `id` and shared by every pane with that
+ * `id`, mounted or not (each leader's topic panel, say). `side` is where the pane sits: a
  * pane on the left grows as the divider moves right, one on the right as it moves left.
  */
 export function useSplitWidth(
@@ -49,12 +61,24 @@ export function useSplitWidth(
     [min, max],
   );
   const [width, setWidth] = useState(() => clamp(readStoredWidths()[id] ?? defaultWidth));
+  useEffect(() => {
+    const follow = (value: number) => setWidth(clamp(value));
+    // A hidden view (React Activity) drops its effects, so catch up on what was saved meanwhile.
+    follow(readStoredWidths()[id] ?? defaultWidth);
+    const set = panes.get(id) ?? new Set();
+    panes.set(id, set.add(follow));
+    return () => {
+      set.delete(follow);
+      if (!set.size) panes.delete(id);
+    };
+  }, [id, clamp, defaultWidth]);
   const save = useCallback(
     (value: number) => {
       const widths = readStoredWidths();
       if (value === defaultWidth) delete widths[id];
       else widths[id] = value;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+      for (const follow of panes.get(id) ?? []) follow(value);
     },
     [id, defaultWidth],
   );

@@ -49,6 +49,20 @@ describe("SplitHandle", () => {
     expect(again).toHaveAttribute("aria-valuenow", "300");
   });
 
+  it("shares a saved width with other mounted panes of the same split", () => {
+    // Each leader's view keeps its topic panel mounted; resizing one must not leave the others behind.
+    render(
+      <>
+        <Split />
+        <Split />
+      </>,
+    );
+    const [first, second] = screen.getAllByRole("separator");
+    fireEvent.keyDown(first!, { key: "ArrowRight", shiftKey: true });
+    expect(first).toHaveAttribute("aria-valuenow", "364");
+    expect(second).toHaveAttribute("aria-valuenow", "364");
+  });
+
   it("grows a right-hand pane as the divider moves left", () => {
     render(<Split side="right" />);
     const handle = screen.getByRole("separator");
