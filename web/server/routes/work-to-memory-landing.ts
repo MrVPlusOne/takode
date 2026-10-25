@@ -6,6 +6,8 @@ import { upsertBoardRow } from "../bridge/board-watchdog-controller.js";
 import type { BoardRow, BoardRowLanding } from "../session-types.js";
 import type { RouteContext } from "./context.js";
 import { recordLandedDelivery } from "./landed-delivery.js";
+import { latestWorkPhaseOccurrenceId } from "./work-evidence-context.js";
+import * as questStore from "../quest-store.js";
 
 /**
  * The landing-queue entry a worker hands its quest to Memory with: its own,
@@ -74,6 +76,10 @@ export function createLandingQuestHandoff(deps: {
       if (session) upsertBoardRow(session as never, row, deps.workBoardStateDeps);
     },
     getEntry: async (entryId) => wsBridge.landingQueue?.getEntry(entryId),
+    workOccurrenceId: async (leaderSessionId, row) => {
+      const quest = await questStore.getQuest(row.questId);
+      return quest ? latestWorkPhaseOccurrenceId(leaderSessionId, row, quest) : undefined;
+    },
     recordDelivery: (input) => recordLandedDelivery({ launcher, wsBridge }, input),
     completeQuest: async (questId, completion, workerSessionId) => {
       if (!wsBridge.completeLandedQuest) throw new Error("quest completion is not available");

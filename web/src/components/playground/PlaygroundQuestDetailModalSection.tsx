@@ -28,8 +28,8 @@ export function PlaygroundQuestDetailModalSection() {
               </button>
             </div>
             <p className="text-xs text-cc-muted mt-2">
-              Click to open a mock quest detail overlay: q-42 is done with feedback, q-44 is in progress with none
-              (Finish Quest and the empty feedback field). Press Escape or click the backdrop to close.
+              Click to open a mock quest detail overlay: q-42 is done with feedback and two rounds, q-44 is in progress
+              with none (Finish Quest and the empty feedback field). Press Escape or click the backdrop to close.
             </p>
           </div>
         </Card>
@@ -96,6 +96,22 @@ function openPlaygroundQuestDetail(questId: "q-42" | "q-44") {
             },
           ],
           journeyRuns,
+          // Reopened once: each Journey run shows as a round, with the second round's brief at its top.
+          rounds: [
+            {
+              openedAt: now - 86400000,
+              title: "Bounded scroll wrapper for the sidebar",
+              closedAt: now - 5500000,
+              outcome: "The sidebar scrolls inside a bounded wrapper on phones narrower than 375px.",
+              outcomeTldr: "Bounded, scrollable sidebar on narrow phones.",
+            },
+            {
+              openedAt: now - 5410000,
+              title: "Landscape phones",
+              brief: "Make the bounded sidebar work in **landscape** on phones, then land both rounds together.",
+              requests: [27],
+            },
+          ],
           feedback: [
             ...buildPlaygroundPhaseFeedback(journeyRuns),
             // Unscoped feedback sits in the Journey timeline by time: inside a phase, between runs, after the Journey.

@@ -1182,6 +1182,7 @@ function QuestMarkdownLink({
     <QuestInlineLink
       questId={target.questId}
       feedbackIndex={target.feedbackIndex}
+      round={target.round}
       className={className}
       stopPropagation={stopPropagation}
       surface={surface}

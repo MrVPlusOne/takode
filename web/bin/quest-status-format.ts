@@ -8,6 +8,7 @@ import {
 } from "./quest-feedback.js";
 import { formatSessionLabel, type SessionMetadata } from "./quest-format.js";
 import { preferredFeedbackPreview } from "../server/quest-tldr.js";
+import { buildQuestRounds, type QuestRoundView } from "../shared/quest-rounds.js";
 
 const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
@@ -34,9 +35,11 @@ export function formatQuestStatusSummary(
   const humanEntries = filterFeedbackEntries(quest, { author: "human" });
   const unaddressed = unaddressedHumanFeedbackEntries(quest);
   const latestSummary = latestAgentSummaryFeedback(quest);
+  const round = currentRound(quest);
   return [
     `Quest ${quest.questId}: ${quest.title}`,
     `Status:      ${STATUS_LABELS[quest.status] ?? quest.status}`,
+    ...(round ? [`Round:       ${round.number} (${round.open ? "open" : "closed"}): ${round.title}`] : []),
     `Owner:       ${owner}`,
     `Leader:      ${leader}`,
     `User review checks: ${verification}`,
@@ -59,6 +62,7 @@ export function questStatusSummaryForJson(quest: QuestmasterTask): Record<string
     questId: quest.questId,
     title: quest.title,
     status: quest.status,
+    round: roundForJson(currentRound(quest)),
     ownerSessionId: "sessionId" in quest ? quest.sessionId : null,
     leaderSessionId: quest.leaderSessionId ?? null,
     verification:
@@ -95,6 +99,16 @@ function suggestNextQuestAction(quest: QuestmasterTask): string {
       : "await final review or respond to new feedback";
   }
   return quest.status === "done" ? "no action" : "inspect quest details";
+}
+
+/** The latest round of a reopened quest; null for a quest with one round. */
+function currentRound(quest: QuestmasterTask): QuestRoundView | null {
+  const { rounds } = buildQuestRounds(quest);
+  return rounds.length > 1 ? rounds.at(-1)! : null;
+}
+
+function roundForJson(round: QuestRoundView | null): Record<string, unknown> | null {
+  return round ? { number: round.number, title: round.title, open: round.open } : null;
 }
 
 function compactSnippet(text: string, maxLength: number): string {

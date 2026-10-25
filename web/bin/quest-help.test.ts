@@ -12,9 +12,7 @@ describe("quest help", () => {
     showHelp();
 
     const output = log.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain(
-      "show   <id> [--sections <list>] [--full] [--json]       Show compact quest detail; reveal sections on demand",
-    );
+    expect(output).toContain("show   <id> [--sections <list>] [--round <n>] [--full] [--json]");
     expect(output).toContain("quest show q-1 --sections description,debrief");
     expect(output).toContain("quest show q-1 --sections phases");
     expect(output).toContain("quest show q-1 --sections phase:7");

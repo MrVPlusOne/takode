@@ -5,6 +5,8 @@ const TAG = LANDING_QUEUE_MESSAGE_TAG;
 
 export interface LandedDeliveryInput {
   questId: string;
+  /** The landing entry; a quest records each entry's commits once. */
+  entryId: string;
   leaderSessionId: string;
   workerSessionId: string;
   workPhaseOccurrenceId: string;
@@ -20,6 +22,8 @@ export interface LandingQuestHandoffDeps {
   activeRows(): Array<{ leaderSessionId: string; row: BoardRow }>;
   updateRow(leaderSessionId: string, row: Omit<BoardRow, "createdAt" | "updatedAt">): void;
   getEntry(entryId: string): Promise<LandingEntry | undefined>;
+  /** The Work occurrence a row is in, or the Work a later phase such as a User Checkpoint paused. */
+  workOccurrenceId(leaderSessionId: string, row: BoardRow): Promise<string | undefined>;
   /**
    * Record landed commits as the Work occurrence's code delivery, as the Work
    * -> Memory transition records synced commits. Returns the delivery ID, and
@@ -168,6 +172,7 @@ export class LandingQuestHandoff {
         try {
           const recorded = await this.deps.recordDelivery({
             questId: match.row.questId,
+            entryId: entry.id,
             leaderSessionId: match.leaderSessionId,
             workerSessionId: landing.workerSessionId,
             workPhaseOccurrenceId: landing.workPhaseOccurrenceId,
@@ -267,18 +272,53 @@ export class LandingQuestHandoff {
       );
   }
 
-  /** An outcome for a quest that was not handed to Memory with this entry yet. */
-  private outcomeBeforeHandOff(entry: LandingEntry): boolean {
+  /**
+   * An outcome for a quest that was not handed to Memory with this entry yet.
+   * A Work round can land several changes before its hand-off, which names
+   * only one entry, so a landed change is recorded as the round's delivery now.
+   */
+  private async outcomeBeforeHandOff(entry: LandingEntry): Promise<boolean> {
     if (entry.state !== "landed" || !entry.questId) return false;
+    const recorded = await this.recordBeforeHandOff(entry).catch((error) => {
+      logError(error);
+      return undefined;
+    });
+    const handOff = `\`takode board work-to-memory ${entry.questId} --work-note <index> --landing-entry <entry>\``;
     this.deps.notify(
       entry.sessionId,
       [
         `${TAG} Your change for ${entry.questId} landed on ${entry.target.branch}. Target SHAs in order: ${targets(entry)}`,
         "",
-        `Hand the quest to Memory with \`takode board work-to-memory ${entry.questId} --work-note <index> --landing-entry ${entry.id}\`; Takode records the landed commits as the Work delivery.`,
+        recorded
+          ? `Takode recorded it as a delivery (${recorded}) of this Work. When the round's work is done, hand off with ${handOff}, naming your last submitted entry; that can be this one (${entry.id}).`
+          : `Hand the quest to Memory with \`takode board work-to-memory ${entry.questId} --work-note <index> --landing-entry ${entry.id}\`; Takode records the landed commits as the Work delivery.`,
       ].join("\n"),
     );
     return true;
+  }
+
+  private async recordBeforeHandOff(entry: LandingEntry): Promise<string | undefined> {
+    const match = this.deps
+      .activeRows()
+      .find(({ row }) => row.questId.toLowerCase() === entry.questId!.toLowerCase() && row.worker === entry.sessionId);
+    if (!match || !entry.mapping?.length || this.recording.has(entry.id)) return undefined;
+    const workPhaseOccurrenceId = await this.deps.workOccurrenceId(match.leaderSessionId, match.row);
+    if (!workPhaseOccurrenceId) return undefined;
+    this.recording.add(entry.id);
+    const recorded = await this.deps
+      .recordDelivery({
+        questId: match.row.questId,
+        entryId: entry.id,
+        leaderSessionId: match.leaderSessionId,
+        workerSessionId: entry.sessionId,
+        workPhaseOccurrenceId,
+        ...(entry.preparationId ? { preparationId: entry.preparationId } : {}),
+        branch: entry.target.branch,
+        tip: entry.pushedTip ?? entry.mapping.at(-1)!.target,
+        mapping: entry.mapping,
+      })
+      .finally(() => this.recording.delete(entry.id));
+    return recorded.deliveryId;
   }
 
   private findByEntry(entryId: string): { leaderSessionId: string; row: BoardRow } | undefined {

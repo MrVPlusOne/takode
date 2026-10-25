@@ -9,6 +9,7 @@ const STDIN_FILE_FLAGS = new Set([
   "--notes-file",
   "--text-file",
   "--summary-file",
+  "--brief-file",
 ]);
 const VALUE_FLAGS = new Set([
   "--author",
@@ -48,6 +49,10 @@ const VALUE_FLAGS = new Set([
   "--summary",
   "--summary-file",
   "--base",
+  "--brief",
+  "--brief-file",
+  "--requests",
+  "--round",
   "--message",
   "--history-index",
   "--advance-through",
@@ -84,6 +89,12 @@ export function classifyQuestCommand(args: readonly string[]): QuestCommandClass
     const questId = normalizedQuestId(positionals[1]);
     return { kind: "mutation", ...(questId ? { questId } : {}) };
   }
+  if (command === "round") {
+    const positionals = questCommandPositionals(args);
+    if (positionals[0] !== "edit") return { kind: "unknown" };
+    const questId = normalizedQuestId(positionals[1]);
+    return { kind: "mutation", ...(questId ? { questId } : {}) };
+  }
   if (["help", "--help", "-h", "resize-image", "optimize-image"].includes(command)) return { kind: "read" };
   if (command === "reassign") {
     const questId = normalizedQuestId(questCommandPositionals(args)[0]);
@@ -96,6 +107,7 @@ export function classifyQuestCommand(args: readonly string[]): QuestCommandClass
     "done",
     "cancel",
     "transition",
+    "reopen",
     "later",
     "inbox",
     "edit",

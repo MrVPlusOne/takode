@@ -251,6 +251,8 @@ export interface AppState {
   questOverlayId: string | null;
   questOverlaySearchHighlight: string | null;
   questOverlayFeedbackTarget: import("./utils/quest-link-target.js").QuestFeedbackTargetRequest | null;
+  /** Round a `quest:q-N:round:K` link asked Quest Detail to show. */
+  questOverlayRoundTarget: import("./utils/quest-link-target.js").QuestRoundTargetRequest | null;
   questmasterSearchQuery: string;
   questmasterSelectedTags: string[];
   questmasterCompactSort: import("./api.js").QuestmasterCompactSort | null;
@@ -302,7 +304,7 @@ export interface AppState {
     newSessionDefaultsKey?: string;
   }) => void;
   closeNewSessionModal: () => void;
-  openQuestOverlay: (questId: string, searchHighlight?: string, feedbackIndex?: number) => void;
+  openQuestOverlay: (questId: string, searchHighlight?: string, feedbackIndex?: number, round?: number) => void;
   closeQuestOverlay: () => void;
   setVsCodeSelectionContext: (context: VsCodeSelectionState | null) => void;
   dismissVsCodeSelection: (key: string | null) => void;

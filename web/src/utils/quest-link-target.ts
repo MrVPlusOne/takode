@@ -5,9 +5,16 @@ export interface QuestFeedbackTargetRequest {
   requestId: number;
 }
 
+export interface QuestRoundTargetRequest {
+  round: number;
+  requestId: number;
+}
+
 export interface QuestLinkTarget {
   questId: string;
   feedbackIndex?: number;
+  /** One-based round of a reopened quest (`quest:q-N:round:K`). */
+  round?: number;
   delivery?: { id: string; sha: string; range?: CommitRange };
 }
 
@@ -19,6 +26,7 @@ const WHOLE_QUEST_PATTERNS = [
 ];
 const CANONICAL_FEEDBACK_PATTERN = new RegExp(`^quest:${QUEST_ID_PATTERN}:feedback:(\\d+)$`, "i");
 const LEGACY_FEEDBACK_PATTERN = new RegExp(`^quest:${QUEST_ID_PATTERN}#feedback-(\\d+)$`, "i");
+const ROUND_PATTERN = new RegExp(`^quest:${QUEST_ID_PATTERN}:round:(\\d+)$`, "i");
 
 export function parseQuestLinkTarget(href?: string): QuestLinkTarget | null {
   if (!href) return null;
@@ -43,6 +51,12 @@ export function parseQuestLinkTarget(href?: string): QuestLinkTarget | null {
           : {}),
       },
     };
+
+  const roundMatch = trimmed.match(ROUND_PATTERN);
+  if (roundMatch) {
+    const round = Number.parseInt(roundMatch[2]!, 10);
+    return round >= 1 && Number.isSafeInteger(round) ? { questId: roundMatch[1]!.toLowerCase(), round } : null;
+  }
 
   const feedbackMatch = trimmed.match(CANONICAL_FEEDBACK_PATTERN) ?? trimmed.match(LEGACY_FEEDBACK_PATTERN);
   if (!feedbackMatch) return null;

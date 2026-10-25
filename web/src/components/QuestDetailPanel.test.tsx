@@ -963,7 +963,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    const olderRun = screen.getByRole("button", { name: /Earlier Journey run 1/ });
+    const olderRun = screen.getByRole("button", { name: /Round 1:/ });
     await waitFor(() => expect(olderRun).toHaveAttribute("aria-expanded", "true"));
     const target = document.querySelector<HTMLElement>('[data-feedback-index="3"]')!;
     expect(target).toHaveAttribute("data-feedback-highlighted", "true");

@@ -89,6 +89,7 @@ import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { readDeliveryRange } from "../server/quest-delivery-range.js";
 import { fetchLinkedTodos, runShowCommand } from "./quest-show-command.js";
+import { runReopenCommand, runRoundCommand, type QuestRoundCommandDeps } from "./quest-round-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { grepQuestsForCli, type QuestCliGrep } from "../server/routes/quest-cli-reads.js";
 import { runQuizCommand } from "./quest-quiz.js";
@@ -1457,9 +1458,12 @@ async function cmdFeedback(): Promise<void> {
 }
 
 async function cmdFeedbackList(): Promise<void> {
-  validateFlags(["last", "author", "unaddressed", "json"]);
+  validateFlags(["last", "author", "unaddressed", "round", "json"]);
   const id = positional(1);
-  if (!id) die("Usage: quest feedback list <questId> [--last N] [--author human|agent|all] [--unaddressed] [--json]");
+  if (!id || (flag("round") && !/^\d+$/.test(option("round") ?? "")))
+    die(
+      "Usage: quest feedback list <questId> [--last N] [--author human|agent|all] [--unaddressed] [--round N] [--json]",
+    );
   const quest = await getQuest(id);
   if (!quest) die(`Quest ${id} not found`);
   if (flag("last") && option("last") === undefined) die("--last requires a positive integer value");
@@ -1467,6 +1471,7 @@ async function cmdFeedbackList(): Promise<void> {
   const entries = filterFeedbackEntries(quest, {
     author: parseFeedbackAuthorFilter(),
     unaddressed: flag("unaddressed"),
+    ...(option("round") ? { round: Number(option("round")) } : {}),
     ...(last !== undefined ? { last } : {}),
   });
   if (jsonOutput) {
@@ -1813,6 +1818,22 @@ async function proxyCodexMutationToServer(): Promise<boolean> {
   return true;
 }
 
+function roundCommandDeps(): QuestRoundCommandDeps {
+  return {
+    positional,
+    validateFlags,
+    option,
+    readRichText: readOptionalRichTextOption,
+    questServer,
+    postTransition: (questId, body) =>
+      postQuestStatusMutation(statusMutationCommandDeps(), questId, "transition", body),
+    directCodex: Boolean(directCodex),
+    jsonOutput,
+    out,
+    die,
+  };
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1882,6 +1903,10 @@ async function main(): Promise<void> {
       return cmdCancel();
     case "transition":
       return cmdTransition();
+    case "reopen":
+      return runReopenCommand(roundCommandDeps());
+    case "round":
+      return runRoundCommand(roundCommandDeps());
     case "later":
       return cmdLater();
     case "inbox":

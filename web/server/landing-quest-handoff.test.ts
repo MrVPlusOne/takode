@@ -62,6 +62,7 @@ function harness(status: "MEMORY" | "LANDING" = "MEMORY") {
       rows.set(patch.questId, { ...existing, ...patch } as BoardRow);
     },
     getEntry: async () => entry,
+    workOccurrenceId: async (leader, row) => `board-${leader}-${row.createdAt}:p1`,
     recordDelivery,
     completeQuest,
     notify: (session, text) => void messages.push({ session, text }),
@@ -115,10 +116,43 @@ describe("landing quest hand-off", () => {
     expect(h.messages.at(-1)!.text).toContain("Delivery d-1: `quest commit-links q-1 --delivery d-1`");
   });
 
-  it("tells the owner how to hand off a change that landed before its quest went to Memory", async () => {
+  it("records a change that landed before the hand-off as a delivery of the round's Work", async () => {
+    // A round can land several changes while it waits at User Checkpoints; the
+    // hand-off names one entry, so each landed change is recorded when it lands.
     const h = harness();
-    h.rows.get("q-1")!.landing = undefined;
+    const row = h.rows.get("q-1")!;
+    row.landing = undefined;
+    row.status = "USER_CHECKPOINT";
+    row.journey = {
+      phaseIds: ["work", "user-checkpoint", "work", "memory"],
+      activePhaseIndex: 1,
+      currentPhaseId: "user-checkpoint",
+    };
     expect(await h.handoff.entryResolved(h.setEntry(landed))).toBe(true);
+    expect(h.recordDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questId: "q-1",
+        entryId: "le-00000001",
+        workerSessionId: "worker",
+        workPhaseOccurrenceId: "board-leader-1:p1",
+        mapping: landed.mapping,
+      }),
+    );
+    expect(h.messages).toEqual([
+      expect.objectContaining({
+        session: "worker",
+        text: expect.stringContaining("recorded it as a delivery (d-1) of this Work"),
+      }),
+    ]);
+    // A bounce before the hand-off is the queue's own message to the owner, still in Work.
+    expect(await h.handoff.entryResolved(h.setEntry({ state: "bounced", reason: "conflict" }))).toBe(false);
+  });
+
+  it("tells the owner how to hand off a landed change of a quest that is not on a board", async () => {
+    const h = harness();
+    h.rows.delete("q-1");
+    expect(await h.handoff.entryResolved(h.setEntry(landed))).toBe(true);
+    expect(h.recordDelivery).not.toHaveBeenCalled();
     expect(h.messages).toEqual([
       expect.objectContaining({
         session: "worker",
@@ -127,8 +161,6 @@ describe("landing quest hand-off", () => {
         ),
       }),
     ]);
-    // A bounce before the hand-off is the queue's own message to the owner, still in Work.
-    expect(await h.handoff.entryResolved(h.setEntry({ state: "bounced", reason: "conflict" }))).toBe(false);
   });
 
   it("lets a worker in Memory finish, then routes a change that bounced meanwhile to the leader", async () => {

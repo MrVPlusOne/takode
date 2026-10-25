@@ -1,6 +1,7 @@
 import type { QuestmasterTask } from "../server/quest-types.js";
 import type { TodoCompactItem } from "../shared/todo-types.js";
 import { formatQuestDetail, type SessionMetadata } from "./quest-format.js";
+import { buildQuestRounds } from "../shared/quest-rounds.js";
 
 type QuestShowCommandDeps = {
   validateFlags: (allowed: string[]) => void;
@@ -20,17 +21,22 @@ type QuestShowCommandDeps = {
 };
 
 export async function runShowCommand(deps: QuestShowCommandDeps): Promise<void> {
-  deps.validateFlags(["json", "sections", "full"]);
+  deps.validateFlags(["json", "sections", "full", "round"]);
   const id = deps.positional(0);
-  if (!id || (deps.flag("sections") && !deps.option("sections"))) {
-    deps.die("Usage: quest show <questId> [--sections <list>] [--full] [--json]");
+  const round = deps.option("round");
+  if (
+    !id ||
+    (deps.flag("sections") && !deps.option("sections")) ||
+    (deps.flag("round") && !/^\d+$/.test(round ?? ""))
+  ) {
+    deps.die("Usage: quest show <questId> [--sections <list>] [--round <n>] [--full] [--json]");
   }
 
   const quest = await deps.getQuest(id);
   if (!quest) deps.die(`Quest ${id} not found`);
 
   if (deps.jsonOutput) {
-    deps.out(quest);
+    deps.out(round ? (buildQuestRounds(quest).rounds[Number(round) - 1] ?? null) : quest);
     return;
   }
 
@@ -41,6 +47,7 @@ export async function runShowCommand(deps: QuestShowCommandDeps): Promise<void> 
       getSessionName: deps.getSessionName,
       full: deps.flag("full"),
       sections: deps.option("sections"),
+      ...(round ? { round: Number(round) } : {}),
     }),
   );
   const linkedTodos = await deps.getLinkedTodos(quest.questId);

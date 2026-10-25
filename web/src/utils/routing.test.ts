@@ -23,6 +23,7 @@ import {
   questOverlayTargetFromHash,
   threadRouteFromHash,
   withQuestFeedbackInHash,
+  withQuestRoundInHash,
   withQuestIdInHash,
   withThreadKeyInHash,
   withoutQuestIdInHash,
@@ -160,6 +161,14 @@ describe("quest hash helpers", () => {
   it("adds whole-quest routes and clears stale feedback targets", () => {
     expect(withQuestIdInHash("#/session/s1", "q-12")).toBe("#/session/s1?quest=q-12");
     expect(withQuestIdInHash("#/session/s1?foo=1&quest=q-7&feedback=3", "q-12")).toBe("#/session/s1?foo=1&quest=q-12");
+  });
+
+  it("round-trips a round of a reopened quest through the hash and clears it with the quest", () => {
+    const hash = withQuestRoundInHash("#/session/s1?foo=1&feedback=3", "q-12", 4);
+    expect(hash).toBe("#/session/s1?foo=1&quest=q-12&round=4");
+    expect(questOverlayTargetFromHash(hash)).toEqual({ questId: "q-12", round: 4 });
+    expect(withQuestIdInHash(hash, "q-12")).toBe("#/session/s1?foo=1&quest=q-12");
+    expect(withoutQuestIdInHash(hash)).toBe("#/session/s1?foo=1");
   });
 
   it("removes coupled quest and feedback query params while preserving others", () => {

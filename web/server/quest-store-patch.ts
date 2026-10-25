@@ -5,6 +5,7 @@ import { normalizeQuestQuizItems } from "./quest-quiz.js";
 import { mergeQuestRelationships } from "./quest-relationships.js";
 import { shouldMarkVerificationInboxUnreadFromFeedbackPatch } from "./quest-store-helpers.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
+import { editQuestRound } from "../shared/quest-rounds.js";
 
 export function applyQuestPatch(current: QuestmasterTask, questId: string, patch: QuestPatchInput): QuestmasterTask {
   const markVerificationInboxUnread = shouldMarkVerificationInboxUnreadFromFeedbackPatch(current, patch.feedback);
@@ -37,6 +38,8 @@ export function applyQuestPatch(current: QuestmasterTask, questId: string, patch
   if (patch.quizItems !== undefined) {
     (updated as { quizItems?: QuestmasterTask["quizItems"] }).quizItems = normalizeQuestQuizItems(patch.quizItems);
   }
+  if (patch.round !== undefined)
+    (updated as { rounds?: QuestmasterTask["rounds"] }).rounds = editQuestRound(current, patch.round);
   if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
     (updated as QuestDone).verificationInboxUnread = true;
   }

@@ -111,6 +111,56 @@ describe("QuestPhaseDocumentationTimeline", () => {
     expect(screen.getByRole("button", { name: "Hide 4 earlier phases" })).toBeInTheDocument();
   });
 
+  it("names runs by their round on a reopened quest and opens the round a round link targets", async () => {
+    // Producer-shaped rounds: what buildQuestRounds returns for a quest reopened once.
+    const rounds = {
+      rounds: [
+        {
+          number: 1,
+          title: "Artifact library",
+          openedAt: 0,
+          closedAt: 1,
+          open: false,
+          derived: false,
+          outcome: "Artifacts are saved with versions.",
+          outcomeTldr: "Artifacts saved with versions.",
+          requestIndices: [],
+          feedbackIndices: [101, 102],
+          runIds: ["run-1"],
+          deliveryIds: [],
+        },
+        {
+          number: 2,
+          title: "Topics",
+          brief: "Topic pages beside the chat.",
+          openedAt: 2,
+          open: true,
+          derived: false,
+          requestIndices: [],
+          feedbackIndices: [],
+          runIds: ["run-2"],
+          deliveryIds: [],
+        },
+      ],
+      pendingFeedbackIndices: [],
+    };
+    // jsdom has no scrolling; the round target still asks its run to scroll into view.
+    Element.prototype.scrollIntoView = vi.fn();
+    render(
+      <QuestPhaseDocumentationTimeline
+        summary={longSummary()}
+        rounds={rounds}
+        roundTarget={{ round: 1, requestId: 1 }}
+      />,
+    );
+
+    const roundOne = screen.getByRole("button", { name: /Round 1: Artifact library/ });
+    await waitFor(() => expect(roundOne).toHaveAttribute("aria-expanded", "true"));
+    expect(document.body).toHaveTextContent("Artifacts saved with versions.");
+    expect(screen.getByRole("button", { name: /Round 2: Topics/ })).toHaveAttribute("aria-expanded", "true");
+    expect(document.body).toHaveTextContent("Topic pages beside the chat.");
+  });
+
   it("reveals an exact target inside a collapsed older Journey run", async () => {
     const onTargetReady = vi.fn();
     render(
@@ -268,6 +318,20 @@ describe("QuestDetailTextSections Journey Details toggle", () => {
     description: "Keep long Journey details compact.",
     createdAt: 1,
   };
+
+  it("shows a reopened quest's open round beside the standing description", () => {
+    const reopened = {
+      ...quest,
+      rounds: [
+        { openedAt: 1, closedAt: 2, title: "First step" },
+        { openedAt: 3, title: "Second step", brief: "Only the **second** step." },
+      ],
+    } as QuestmasterTask;
+    render(<QuestDetailTextSections quest={reopened} phaseDocumentationSummary={longSummary()} />);
+    const card = screen.getByTestId("quest-detail-open-round");
+    expect(card).toHaveTextContent("Round 2: Second step");
+    expect(card).toHaveTextContent("Only the second step.");
+  });
 
   it("defaults expanded, collapses locally, and resets on remount", () => {
     const summary = longSummary();

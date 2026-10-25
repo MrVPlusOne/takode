@@ -235,6 +235,38 @@ export interface QuestCodeCommitEvidenceReplacementEvent {
 
 export type QuestCodeCommitEvidenceReplacementEventDraft = Omit<QuestCodeCommitEvidenceReplacementEvent, "ts">;
 
+/**
+ * One round of work in a quest: what one opening or reopening asked for and
+ * what it delivered. Round 1 opens with the quest; `quest reopen` closes the
+ * latest round and opens the next. Feedback, Journey runs and deliveries are
+ * not stamped with a round: `shared/quest-rounds.ts` places them by time.
+ */
+export interface QuestRound {
+  /** When the round opened; round 1 opens when the quest is created. */
+  openedAt: number;
+  /** Short name of the round. Round 1 without one is named by the quest title. */
+  title?: string;
+  /** What this round asks for, beyond the quest's standing description. */
+  brief?: string;
+  /** Feedback indices of the requests that asked for this round. */
+  requests?: number[];
+  /** When the round closed (the quest was reopened). A done quest's open round closes at its completion. */
+  closedAt?: number;
+  /** The round's final debrief, kept when the quest is reopened. */
+  outcome?: string;
+  /** Human-readable scan summary of `outcome`. */
+  outcomeTldr?: string;
+  /** Recorded from a Journey run of a quest that had no rounds before its first reopening. */
+  derived?: boolean;
+}
+
+/** Opens the next round when a quest is reopened (a transition to `refined`). */
+export interface QuestRoundOpenInput {
+  title: string;
+  brief?: string;
+  requests?: number[];
+}
+
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
 interface QuestBase {
@@ -294,6 +326,8 @@ interface QuestBase {
   journeyRuns?: QuestJourneyRun[];
   /** Active-recall quiz items attached to this quest. */
   quizItems?: QuestQuizItem[];
+  /** Rounds of work, oldest first. Quests created before rounds existed have none until reopened. */
+  rounds?: QuestRound[];
   /**
    * Opaque legacy payload from the rejected quest-owned Outcome model.
    * Preserve exactly across mutations, but never promote it into active UI, search,
@@ -507,6 +541,14 @@ export interface QuestPatchInput {
   journeyRuns?: QuestJourneyRun[];
   /** Replace active-recall quiz items attached to this quest. */
   quizItems?: QuestQuizItem[];
+  /** Retitle or rewrite the brief of one round, by its one-based number. */
+  round?: QuestRoundEdit;
+}
+
+export interface QuestRoundEdit {
+  number: number;
+  title?: string;
+  brief?: string;
 }
 
 /** Status transitions. Always creates a new version linked to the previous. */
@@ -550,4 +592,6 @@ export interface QuestTransitionInput {
   debriefMachine?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
   cancelled?: boolean;
+  /** Reopen: close the latest round and open this one. Only with status `refined`. */
+  openRound?: QuestRoundOpenInput;
 }

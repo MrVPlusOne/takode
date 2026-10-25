@@ -16,6 +16,10 @@ export async function recordLandedDelivery(
   deps: { launcher: RouteContext["launcher"]; wsBridge: RouteContext["wsBridge"] },
   input: LandedDeliveryInput,
 ): Promise<{ deliveryId: string; note?: string }> {
+  const recorded = (await questStore.getQuest(input.questId))?.codeDeliveries?.find(
+    (delivery) => delivery.landingEntryId === input.entryId,
+  );
+  if (recorded) return { deliveryId: recorded.id };
   const session = deps.launcher.getSession(input.workerSessionId);
   if (!session) throw new Error(`the worker session ${input.workerSessionId} is unknown`);
   const caller = workEvidenceCaller(session as WorkEvidenceTargetCaller);
@@ -52,13 +56,16 @@ export async function recordLandedDelivery(
   }
   const quest = await questStore.getQuest(input.questId);
   if (!quest) throw new Error(`quest ${input.questId} is gone`);
-  const delivery = await onCheckoutMachine(host, "buildCodeDelivery", {
+  const built = await onCheckoutMachine(host, "buildCodeDelivery", {
     ...scope,
     commitShas,
     existing: deliveryEvidenceOf(quest),
     leaderSessionId: input.leaderSessionId,
     ...(preparationId ? { preparationId } : {}),
   });
+  // An already recorded delivery comes back unchanged and must stay unchanged.
+  const recordedBefore = quest.codeDeliveries?.some((delivery) => delivery.id === built.id);
+  const delivery = recordedBefore ? built : { ...built, landingEntryId: input.entryId };
   const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
     input.questId,
     { kind: "takode", sessionId: input.workerSessionId },

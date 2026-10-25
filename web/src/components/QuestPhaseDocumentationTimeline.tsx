@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { QuestRoundView, QuestRoundsView } from "../../shared/quest-rounds.js";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { formatQuestJourneyDuration, getQuestJourneyPhase } from "../../shared/quest-journey.js";
 import {
@@ -17,7 +18,7 @@ import { getQuestPhaseAccentValue, getQuestPhaseBorderStyle } from "../utils/que
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
-import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
+import type { QuestFeedbackTargetRequest, QuestRoundTargetRequest } from "../utils/quest-link-target.js";
 
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
@@ -25,6 +26,10 @@ interface QuestPhaseDocumentationTimelineProps {
   sessionId?: string;
   onSessionNavigate?: () => void;
   feedbackTarget?: QuestFeedbackTargetRequest | null;
+  /** The quest's rounds; a reopened quest labels each Journey run with its round. */
+  rounds?: QuestRoundsView;
+  /** Round a round link opened the quest at: its runs expand and scroll into view. */
+  roundTarget?: QuestRoundTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
   /**
@@ -60,6 +65,10 @@ interface DocumentationRunGroup {
   metaLabel: string;
   defaultExpanded: boolean;
   groups: PhaseDocumentationGroup[];
+  /** The round this run belongs to, on a reopened quest. */
+  round?: QuestRoundView;
+  /** The round's first run shows the round's brief and kept outcome. */
+  firstRunOfRound?: boolean;
 }
 
 type TimelineTopLevelItem =
@@ -80,13 +89,20 @@ export function QuestPhaseDocumentationTimeline({
   sessionId,
   onSessionNavigate,
   feedbackTarget,
+  rounds,
+  roundTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
   renderFeedbackEntry,
 }: QuestPhaseDocumentationTimelineProps) {
   const groups = summary.groups.filter((group) => group.entries.length > 0 || group.phaseStatus !== "pending");
   const placement = placeUnscopedFeedback(groups, summary.unscopedFeedback);
-  const runGroups = buildDocumentationRunGroups(summary, groups, placement);
+  const runGroups = labelRunsByRound(buildDocumentationRunGroups(summary, groups, placement), rounds);
+  const targetRoundRunKeys = roundTarget
+    ? runGroups.filter((run) => run.round?.number === roundTarget.round).map((run) => run.key)
+    : [];
+  const targetRoundRunKey = targetRoundRunKeys[0];
+  const roundTargetRef = useRef<HTMLDivElement | null>(null);
   const renderRunSections = runGroups.length > 1;
   const hasSearchHighlight = Boolean(searchHighlight?.trim());
   const [runExpansionOverrides, setRunExpansionOverrides] = useState<Record<string, boolean>>({});
@@ -119,6 +135,15 @@ export function QuestPhaseDocumentationTimeline({
       setWindowExpansionOverrides((current) => (current[key] === true ? current : { ...current, [key]: true }));
     }
   }, [feedbackTarget?.requestId, targetGroupKey, targetRunKey, targetWindowDirection]);
+  useEffect(() => {
+    if (!roundTarget || targetRoundRunKeys.length === 0) return;
+    setRunExpansionOverrides((current) => {
+      const next = { ...current };
+      for (const key of targetRoundRunKeys) next[key] = true;
+      return next;
+    });
+    requestAnimationFrame(() => roundTargetRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  }, [roundTarget?.requestId, targetRoundRunKey]);
   useEffect(() => {
     if (!feedbackTarget || !targetIsUnscoped) return;
     const index = feedbackTarget.index;
@@ -190,10 +215,12 @@ export function QuestPhaseDocumentationTimeline({
             return (
               <div
                 key={run.key}
+                ref={run.key === targetRoundRunKey ? roundTargetRef : undefined}
                 className="min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border/70 bg-cc-input-bg/35"
                 data-testid="quest-phase-documentation-run"
                 data-run-key={run.key}
                 data-run-expanded={expanded ? "true" : "false"}
+                data-round={run.round?.number}
               >
                 <button
                   type="button"
@@ -214,6 +241,9 @@ export function QuestPhaseDocumentationTimeline({
                 </button>
                 {expanded && (
                   <div className="border-t border-cc-border/60 px-2 py-1.5">
+                    {run.firstRunOfRound && run.round && (
+                      <RoundSummary round={run.round} sessionId={sessionId} onSessionNavigate={onSessionNavigate} />
+                    )}
                     <PhaseDocumentationGroupList
                       groups={run.groups}
                       runKey={run.key}
@@ -261,6 +291,51 @@ export function QuestPhaseDocumentationTimeline({
       )}
     </section>
   );
+}
+
+/** A stored round's brief, and the outcome it kept when the quest was reopened. */
+function RoundSummary({
+  round,
+  sessionId,
+  onSessionNavigate,
+}: {
+  round: QuestRoundView;
+  sessionId?: string;
+  onSessionNavigate?: () => void;
+}) {
+  // Derived rounds have no brief, and their outcome is the Work note shown below.
+  const outcome = round.derived ? undefined : (round.outcomeTldr ?? round.outcome);
+  if (!round.brief && !outcome) return null;
+  return (
+    <div className="mb-1.5 space-y-1 text-xs" data-testid="quest-round-summary">
+      {round.brief && (
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Brief</div>
+          <MarkdownContent text={round.brief} size="sm" sessionId={sessionId} onSessionNavigate={onSessionNavigate} />
+        </div>
+      )}
+      {outcome && !round.open && (
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Outcome</div>
+          <MarkdownContent text={outcome} size="sm" sessionId={sessionId} onSessionNavigate={onSessionNavigate} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** On a reopened quest, name each Journey run by its round instead of its run order. */
+function labelRunsByRound(runs: DocumentationRunGroup[], rounds: QuestRoundsView | undefined): DocumentationRunGroup[] {
+  if (!rounds || rounds.rounds.length < 2) return runs;
+  const seen = new Set<number>();
+  return runs.map((run) => {
+    const runId = run.groups[0]?.journeyRunId;
+    const round = runId ? rounds.rounds.find((candidate) => candidate.runIds.includes(runId)) : undefined;
+    if (!round) return run;
+    const firstRunOfRound = !seen.has(round.number);
+    seen.add(round.number);
+    return { ...run, label: `Round ${round.number}: ${round.title}`, round, firstRunOfRound };
+  });
 }
 
 function PhaseDocumentationGroupList({

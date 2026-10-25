@@ -614,9 +614,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     const store = useStore.getState();
     if (
       store.questOverlayId !== targetQuestId ||
-      (store.questOverlayFeedbackTarget?.index ?? null) !== (target.feedbackIndex ?? null)
+      (store.questOverlayFeedbackTarget?.index ?? null) !== (target.feedbackIndex ?? null) ||
+      (store.questOverlayRoundTarget?.round ?? null) !== (target.round ?? null)
     ) {
-      if (target.feedbackIndex === undefined) store.openQuestOverlay(targetQuestId);
+      if (target.round) store.openQuestOverlay(targetQuestId, undefined, undefined, target.round);
+      else if (target.feedbackIndex === undefined) store.openQuestOverlay(targetQuestId);
       else store.openQuestOverlay(targetQuestId, undefined, target.feedbackIndex);
     }
     setShowCreateForm(false);

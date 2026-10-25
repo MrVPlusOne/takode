@@ -27,6 +27,7 @@ const QUEST_ID_PATTERN = /^q-\d+$/i;
 const THREAD_QUERY_PARAM = "thread";
 const QUEST_QUERY_PARAM = "quest";
 const FEEDBACK_QUERY_PARAM = "feedback";
+const ROUND_QUERY_PARAM = "round";
 const SECONDARY_VIEW_QUERY_PARAM = "view";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
@@ -183,6 +184,9 @@ export function questOverlayTargetFromHash(hash: string): QuestLinkTarget | null
   const { params } = splitHash(hash);
   const questId = normalizeQuestId(params.get(QUEST_QUERY_PARAM));
   if (!questId) return null;
+  const round = params.get(ROUND_QUERY_PARAM);
+  if (round !== null && /^[1-9]\d*$/.test(round) && Number.isSafeInteger(Number(round)))
+    return { questId, round: Number(round) };
   const feedback = params.get(FEEDBACK_QUERY_PARAM);
   if (feedback === null || !/^\d+$/.test(feedback)) return { questId };
   const feedbackIndex = Number.parseInt(feedback, 10);
@@ -222,6 +226,11 @@ export function withQuestIdInHash(hash: string, questId: string): string {
   return withQuestTargetInHash(hash, { questId });
 }
 
+/** Return a hash string with a quest overlay showing one round of a reopened quest. */
+export function withQuestRoundInHash(hash: string, questId: string, round: number): string {
+  return withQuestTargetInHash(hash, { questId, round });
+}
+
 /** Return a hash string with an exact-feedback overlay query param set. */
 export function withQuestFeedbackInHash(hash: string, questId: string, feedbackIndex: number): string {
   return withQuestTargetInHash(hash, { questId, feedbackIndex });
@@ -237,6 +246,8 @@ function withQuestTargetInHash(hash: string, target: QuestLinkTarget): string {
   } else {
     params.delete(FEEDBACK_QUERY_PARAM);
   }
+  if (Number.isSafeInteger(target.round) && target.round! >= 1) params.set(ROUND_QUERY_PARAM, String(target.round));
+  else params.delete(ROUND_QUERY_PARAM);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -246,6 +257,7 @@ export function withoutQuestIdInHash(hash: string): string {
   const { path, params } = splitHash(hash);
   params.delete(QUEST_QUERY_PARAM);
   params.delete(FEEDBACK_QUERY_PARAM);
+  params.delete(ROUND_QUERY_PARAM);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }

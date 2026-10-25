@@ -32,6 +32,7 @@ import {
   openQuestOverlayRouteAware,
   withQuestFeedbackInHash,
   withQuestIdInHash,
+  withQuestRoundInHash,
 } from "../utils/routing.js";
 import {
   QuestPreviewCardContent,
@@ -249,10 +250,13 @@ export function QuestFeedInlineLink({
   onNavigate,
   onSessionNavigate,
   feedbackIndex,
+  round,
   loadQuest = hydrateQuestDetail,
 }: {
   questId: string;
   feedbackIndex?: number;
+  /** One-based round of a reopened quest to open at. */
+  round?: number;
   children?: ReactNode;
   className: string;
   stopPropagation: boolean;
@@ -286,13 +290,17 @@ export function QuestFeedInlineLink({
   const headingId = `${dialogId}-heading`;
   const normalizedFeedbackIndex =
     Number.isSafeInteger(feedbackIndex) && feedbackIndex! >= 0 ? feedbackIndex : undefined;
-  const questHash =
-    normalizedFeedbackIndex === undefined
+  const questHash = round
+    ? withQuestRoundInHash(hash, questId, round)
+    : normalizedFeedbackIndex === undefined
       ? withQuestIdInHash(hash, questId)
       : withQuestFeedbackInHash(hash, questId, normalizedFeedbackIndex);
   const parentQuestHash = withQuestIdInHash(hash, questId);
-  const targetLabel =
-    normalizedFeedbackIndex === undefined ? questId : `${questId} feedback #${normalizedFeedbackIndex}`;
+  const targetLabel = round
+    ? `${questId} round ${round}`
+    : normalizedFeedbackIndex === undefined
+      ? questId
+      : `${questId} feedback #${normalizedFeedbackIndex}`;
   const linkRef = useRef<HTMLAnchorElement>(null);
   const previewRef = useRef<HTMLButtonElement>(null);
   const microRef = useRef<HTMLDivElement>(null);
@@ -831,15 +839,16 @@ export function QuestFeedInlineLink({
         openExplicitRichPreview("touch");
         return;
       }
-      if (normalizedFeedbackIndex === undefined) {
+      if (normalizedFeedbackIndex === undefined && !round) {
         openQuestOverlayRouteAware(questId);
       } else {
-        useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+        if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
+        else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
         navigateTo(questHash);
       }
       onNavigate?.();
     },
-    [normalizedFeedbackIndex, onNavigate, openExplicitRichPreview, questHash, questId, stopPropagation],
+    [normalizedFeedbackIndex, onNavigate, openExplicitRichPreview, questHash, questId, round, stopPropagation],
   );
 
   const retryRichPreview = useCallback(() => {
@@ -1307,6 +1316,7 @@ export function QuestFeedInlineLink({
             displayTitle={canonicalTitle}
             targetLabel={targetLabel}
             feedbackIndex={normalizedFeedbackIndex}
+            round={round}
             questHash={questHash}
             parentQuestHash={parentQuestHash}
             placement={richPlacement}
@@ -1345,6 +1355,7 @@ const QuestFeedRichPreview = forwardRef<
     displayTitle: string | null;
     targetLabel: string;
     feedbackIndex?: number;
+    round?: number;
     questHash: string;
     parentQuestHash: string;
     placement: RichPlacement | null;
@@ -1369,6 +1380,7 @@ const QuestFeedRichPreview = forwardRef<
     displayTitle,
     targetLabel,
     feedbackIndex,
+    round,
     questHash,
     parentQuestHash,
     placement,
@@ -1389,7 +1401,11 @@ const QuestFeedRichPreview = forwardRef<
   const feedback = feedbackIndex === undefined ? undefined : quest?.feedback?.[feedbackIndex];
   const feedbackUnavailable = feedbackIndex !== undefined && (!feedback || isDeletedQuestFeedbackEntry(feedback));
   const title = displayTitle?.trim() || quest?.title?.trim() || `${questId} preview`;
-  const primaryActionLabel = feedbackIndex === undefined ? "Open quest" : `Open feedback #${feedbackIndex}`;
+  const primaryActionLabel = round
+    ? `Open round ${round}`
+    : feedbackIndex === undefined
+      ? "Open quest"
+      : `Open feedback #${feedbackIndex}`;
   const initialWidth = placement?.width ?? RICH_LOGICAL_WIDTH_PX;
   const maxHeight = placement?.maxHeight ?? RICH_MAX_LOGICAL_HEIGHT_PX;
 

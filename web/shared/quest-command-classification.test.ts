@@ -25,6 +25,8 @@ describe("Quest command classification", () => {
     [["feedback", "--text", "Note", "--json", "q-12"], "mutation"],
     [["feedback", "--text", "Edit", "--json", "edit", "q-12", "0"], "mutation"],
     [["quiz", "--items-file", "quiz.json", "--json", "set", "q-12"], "mutation"],
+    [["reopen", "--title", "Next round", "--requests", "3,4", "q-12"], "mutation"],
+    [["round", "--title", "Renamed", "edit", "q-12", "2"], "mutation"],
     [["reassign", "--session", "worker", "--reason", "handoff", "--json", "q-12"], "reassign"],
   ])("extracts the target after valued and boolean flags from %j", (args, kind) => {
     expect(classifyQuestCommand(args)).toMatchObject({ kind, questId: "q-12" });

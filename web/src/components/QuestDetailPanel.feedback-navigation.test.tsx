@@ -171,7 +171,7 @@ describe("QuestDetailPanel feedback navigation lifecycle", () => {
     target = document.querySelector<HTMLElement>('[data-feedback-index="0"]')!;
     expect(target).toHaveAttribute("data-feedback-highlighted", "false");
     expect(target.querySelector("details")).toHaveAttribute("open");
-    expect(screen.getByRole("button", { name: /Earlier Journey run 1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Round 1:/ })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("keeps an unscoped agent card's layout geometry while its highlight expires", () => {

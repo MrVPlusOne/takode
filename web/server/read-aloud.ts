@@ -72,6 +72,7 @@ First decide whether the message needs rewriting to be easy to follow when heard
 Takode links. Agents write these as Markdown links with fixed kinds of targets, and in the app each one is something the listener can tap:
 - [q-42](quest:q-42): quest 42, a tracked piece of work. The message usually says what it is about.
 - [q-42 feedback #3](quest:q-42:feedback:3): note 3 on quest 42, such as an agent's report on its work.
+- [q-42 round 3](quest:q-42:round:3): round 3 of quest 42, one stretch of work on a quest that was reopened for its next step.
 - [#5](session:5): session 5, one agent's conversation. [#5 msg 42](session:5:42): one message in it.
 - [summary](session:5:notification:3): a question an agent is waiting for the listener to answer; the label sums it up.
 - [title](todo:td-12): one of the listener's personal to-dos.

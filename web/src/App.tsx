@@ -27,6 +27,7 @@ import {
   questOverlayTargetFromHash,
   withQuestFeedbackInHash,
   withQuestIdInHash,
+  withQuestRoundInHash,
   withoutQuestIdInHash,
   navigateToSession,
   navigateToSessionMessageId,
@@ -159,18 +160,41 @@ function feedbackIndexOf(target: QuestLinkTarget | null): number | null {
   return target?.feedbackIndex ?? null;
 }
 
-function questOverlayMatchesTarget(
-  questOverlayId: string | null,
-  feedbackIndex: number | null,
-  target: QuestLinkTarget,
-): boolean {
-  return questOverlayId === target.questId && feedbackIndex === feedbackIndexOf(target);
+/** The overlay's live target: the quest, and the feedback entry or round it was opened at. */
+interface LiveQuestOverlayTarget {
+  questId: string | null;
+  feedbackIndex: number | null;
+  round: number | null;
+}
+
+function liveQuestOverlayTarget(state: ReturnType<typeof useStore.getState>): LiveQuestOverlayTarget {
+  return {
+    questId: state.questOverlayId,
+    feedbackIndex: state.questOverlayFeedbackTarget?.index ?? null,
+    round: state.questOverlayRoundTarget?.round ?? null,
+  };
+}
+
+function questOverlayMatchesTarget(live: LiveQuestOverlayTarget, target: QuestLinkTarget): boolean {
+  return (
+    live.questId === target.questId &&
+    live.feedbackIndex === feedbackIndexOf(target) &&
+    live.round === (target.round ?? null)
+  );
+}
+
+function openQuestOverlayTarget(target: QuestLinkTarget): void {
+  const store = useStore.getState();
+  if (target.round) store.openQuestOverlay(target.questId, undefined, undefined, target.round);
+  else if (target.feedbackIndex === undefined) store.openQuestOverlay(target.questId);
+  else store.openQuestOverlay(target.questId, undefined, target.feedbackIndex);
 }
 
 function useQuestOverlayRouteSync(
   hash: string,
   questOverlayId: string | null,
   questOverlayFeedbackIndex: number | null,
+  questOverlayRound: number | null,
 ) {
   const observedHashRef = useRef<string | null>(null);
   const routedTargetRef = useRef<QuestLinkTarget | null>(null);
@@ -186,17 +210,8 @@ function useQuestOverlayRouteSync(
       routedTargetRef.current = target;
 
       if (target) {
-        const liveFeedbackIndex = store.questOverlayFeedbackTarget?.index ?? null;
-        if (!questOverlayMatchesTarget(store.questOverlayId, liveFeedbackIndex, target)) {
-          if (target.feedbackIndex === undefined) store.openQuestOverlay(target.questId);
-          else store.openQuestOverlay(target.questId, undefined, target.feedbackIndex);
-        }
-        const appliedStore = useStore.getState();
-        routedTargetAppliedRef.current = questOverlayMatchesTarget(
-          appliedStore.questOverlayId,
-          appliedStore.questOverlayFeedbackTarget?.index ?? null,
-          target,
-        );
+        if (!questOverlayMatchesTarget(liveQuestOverlayTarget(store), target)) openQuestOverlayTarget(target);
+        routedTargetAppliedRef.current = questOverlayMatchesTarget(liveQuestOverlayTarget(useStore.getState()), target);
         return;
       }
 
@@ -211,10 +226,9 @@ function useQuestOverlayRouteSync(
     // event instead of replacing a just-pushed browser-history entry.
     if (getHashLocationSnapshot() !== hash) return;
 
-    const liveStore = useStore.getState();
-    const liveQuestOverlayId = liveStore.questOverlayId;
-    const liveFeedbackIndex = liveStore.questOverlayFeedbackTarget?.index ?? null;
-    if (questOverlayMatchesTarget(liveQuestOverlayId, liveFeedbackIndex, target)) {
+    const live = liveQuestOverlayTarget(useStore.getState());
+    const liveQuestOverlayId = live.questId;
+    if (questOverlayMatchesTarget(live, target)) {
       routedTargetAppliedRef.current = true;
       return;
     }
@@ -222,14 +236,8 @@ function useQuestOverlayRouteSync(
     // Zustand subscription publishes the route-open state. Keep the hash
     // authoritative until this route has been observed in the store once.
     if (!routedTargetAppliedRef.current) {
-      if (target.feedbackIndex === undefined) liveStore.openQuestOverlay(target.questId);
-      else liveStore.openQuestOverlay(target.questId, undefined, target.feedbackIndex);
-      const appliedStore = useStore.getState();
-      routedTargetAppliedRef.current = questOverlayMatchesTarget(
-        appliedStore.questOverlayId,
-        appliedStore.questOverlayFeedbackTarget?.index ?? null,
-        target,
-      );
+      openQuestOverlayTarget(target);
+      routedTargetAppliedRef.current = questOverlayMatchesTarget(liveQuestOverlayTarget(useStore.getState()), target);
       return;
     }
 
@@ -239,11 +247,13 @@ function useQuestOverlayRouteSync(
     }
 
     const nextHash =
-      liveFeedbackIndex === null
-        ? withQuestIdInHash(hash, liveQuestOverlayId)
-        : withQuestFeedbackInHash(hash, liveQuestOverlayId, liveFeedbackIndex);
+      live.round !== null
+        ? withQuestRoundInHash(hash, liveQuestOverlayId, live.round)
+        : live.feedbackIndex === null
+          ? withQuestIdInHash(hash, liveQuestOverlayId)
+          : withQuestFeedbackInHash(hash, liveQuestOverlayId, live.feedbackIndex);
     navigateTo(nextHash, true);
-  }, [hash, questOverlayFeedbackIndex, questOverlayId]);
+  }, [hash, questOverlayFeedbackIndex, questOverlayId, questOverlayRound]);
 }
 
 function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.getState>) {
@@ -378,6 +388,7 @@ export default function App() {
     codexSubagentInspector,
     questOverlayId,
     questOverlayFeedbackIndex,
+    questOverlayRound,
   } = useStore(
     useShallow((s) => ({
       darkMode: s.darkMode,
@@ -395,10 +406,11 @@ export default function App() {
       codexSubagentInspector: s.codexSubagentInspector,
       questOverlayId: s.questOverlayId,
       questOverlayFeedbackIndex: s.questOverlayFeedbackTarget?.index ?? null,
+      questOverlayRound: s.questOverlayRoundTarget?.round ?? null,
     })),
   );
   const rawHash = useHashLocation();
-  useQuestOverlayRouteSync(rawHash, questOverlayId, questOverlayFeedbackIndex);
+  useQuestOverlayRouteSync(rawHash, questOverlayId, questOverlayFeedbackIndex, questOverlayRound);
   // A page link such as `#/questmaster` opens over the last session, which stays the
   // primary view; the effect below rewrites the URL to say so.
   const lastPrimaryHashRef = useRef<string | null>(null);

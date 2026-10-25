@@ -9,6 +9,13 @@ import {
 } from "../shared/quest-phase-documentation-summary.js";
 import { formatQuestRelationships } from "./quest-relationship-format.js";
 import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
+import { buildQuestRounds } from "../shared/quest-rounds.js";
+import {
+  formatAllRoundLines,
+  formatCurrentRoundLines,
+  formatRoundDetailLines,
+  hasQuestRounds,
+} from "./quest-round-format.js";
 export type { SessionMetadata } from "./quest-session-metadata.js";
 
 type FormatSessionOptions = {
@@ -24,12 +31,15 @@ type QuestDetailSections = {
   debrief: boolean;
   metadata: boolean;
   phases: boolean;
+  rounds: boolean;
   phaseIndexes: Set<number>;
 };
 
 type FormatQuestDetailOptions = FormatQuestOptions & {
   full?: boolean;
   sections?: string | string[];
+  /** Show one round in full instead of the quest overview. */
+  round?: number;
 };
 
 const DEFAULT_PHASE_ENTRY_LIMIT = 8;
@@ -92,13 +102,14 @@ function normalizeDetailSections(value: string | string[] | undefined): QuestDet
     debrief: false,
     metadata: false,
     phases: false,
+    rounds: false,
     phaseIndexes: new Set(),
   };
   const rawParts = Array.isArray(value) ? value : value ? value.split(",") : [];
   for (const rawPart of rawParts) {
     const part = rawPart.trim();
     if (!part) continue;
-    if (part === "description" || part === "debrief" || part === "metadata" || part === "phases") {
+    if (part === "description" || part === "debrief" || part === "metadata" || part === "phases" || part === "rounds") {
       sections[part] = true;
       continue;
     }
@@ -108,7 +119,7 @@ function normalizeDetailSections(value: string | string[] | undefined): QuestDet
       continue;
     }
     throw new Error(
-      `Unknown quest show section "${part}". Valid sections: description, debrief, metadata, phases, phase:<index>`,
+      `Unknown quest show section "${part}". Valid sections: description, debrief, metadata, phases, rounds, phase:<index>`,
     );
   }
   return sections;
@@ -424,9 +435,16 @@ export function formatQuestDetail(
   if (options?.full) return formatQuestDetailFull(q, sessionMetadata, options);
 
   const sections = normalizeDetailSections(options?.sections);
+  const preview = (entry: IndexedQuestFeedbackEntry) => formatFeedbackEntryPreview(entry, sessionMetadata, options);
   const lines: string[] = [];
   lines.push(`Quest ${q.questId} (rev ${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
   lines.push(`Title:       ${q.title}`);
+  if (options?.round !== undefined) {
+    lines.push(...formatRoundDetailLines(q, options.round, preview));
+    lines.push(`Full note:   quest feedback show ${q.questId} <index>`);
+    return lines.join("\n");
+  }
+  const rounds = hasQuestRounds(q);
   const tldr = normalizeTldr((q as { tldr?: unknown }).tldr);
   if (tldr) lines.push(`TLDR:        ${tldr}`);
 
@@ -441,7 +459,9 @@ export function formatQuestDetail(
   const debrief = q.status === "done" && !isCancelled ? (q as { debrief?: string }).debrief?.trim() : undefined;
   const debriefTldr =
     q.status === "done" && !isCancelled ? normalizeTldr((q as { debriefTldr?: unknown }).debriefTldr) : undefined;
-  if (sections.debrief && debrief) {
+  if (rounds && !sections.debrief) {
+    // A reopened quest's debrief is its last round's outcome, shown with that round below.
+  } else if (sections.debrief && debrief) {
     if (debriefTldr) addIndentedSection(lines, "Debrief TLDR", debriefTldr);
     const machine = (q as { debriefMachine?: string }).debriefMachine;
     addIndentedSection(lines, machine ? `Debrief (written on ${machine})` : "Debrief", debrief);
@@ -473,13 +493,16 @@ export function formatQuestDetail(
     lines.push(...formatMetadataLines(q, sessionMetadata, options).map((line) => `  ${line}`));
   }
 
-  lines.push(...formatPhaseDocumentationIndex(q, sessionMetadata, options, sections.phases ? "phases" : "compact"));
+  if (rounds) lines.push(...formatCurrentRoundLines(q, rounds, preview, sections.rounds));
+  if (!rounds || sections.phases)
+    lines.push(...formatPhaseDocumentationIndex(q, sessionMetadata, options, sections.phases ? "phases" : "compact"));
   for (const phaseIndex of [...sections.phaseIndexes].sort((a, b) => a - b)) {
     lines.push(...formatFullPhaseNote(q, phaseIndex, sessionMetadata, options));
   }
 
-  const revealSections = ["description", "debrief", "metadata", "phases"].join(",");
+  const revealSections = ["description", "debrief", "metadata", "phases", ...(rounds ? ["rounds"] : [])].join(",");
   lines.push(`Reveal:      quest show ${q.questId} --sections ${revealSections}`);
+  if (rounds) lines.push(`One round:   quest show ${q.questId} --round <n>`);
   lines.push(`Full detail: quest show ${q.questId} --full  (expensive; prefer --sections first)`);
   return lines.join("\n");
 }
@@ -571,6 +594,7 @@ function formatQuestDetailFull(
     }
   }
   lines.push(...deliverySummaryLines(q, true));
+  lines.push(...formatAllRoundLines(buildQuestRounds(q)));
   if (q.quizItems?.length) {
     lines.push(`Quiz Items: ${q.quizItems.length}`);
     lines.push(`  Full: quest quiz show ${q.questId}`);

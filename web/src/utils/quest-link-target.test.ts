@@ -23,6 +23,8 @@ describe("parseQuestLinkTarget", () => {
     ["quest://q-42", { questId: "q-42" }],
     [" QUEST:Q-42:FEEDBACK:5 ", { questId: "q-42", feedbackIndex: 5 }],
     ["quest:q-42#feedback-5", { questId: "q-42", feedbackIndex: 5 }],
+    // One round of a reopened quest.
+    ["quest:q-42:round:3", { questId: "q-42", round: 3 }],
   ])("parses %s", (href, expected) => {
     expect(parseQuestLinkTarget(href)).toEqual(expected);
   });
@@ -35,6 +37,8 @@ describe("parseQuestLinkTarget", () => {
     "quest:q-42#feedback-3-extra",
     "quest://q-42:feedback:3",
     `quest:q-42:feedback:${Number.MAX_SAFE_INTEGER}0`,
+    "quest:q-42:round:0",
+    "quest:q-42:round:x",
   ])("rejects malformed or unsupported target %s", (href) => {
     expect(parseQuestLinkTarget(href)).toBeNull();
   });

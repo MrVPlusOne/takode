@@ -625,6 +625,7 @@ function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefi
     quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined,
     ...questOwnerRefs(quest).flatMap((owner) => [`${owner.kind} ${owner.sessionId}`, questOwnerKey(owner)]),
     ...(quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source]),
+    ...(quest.rounds ?? []).flatMap((round) => [round.title, round.brief, round.outcome]),
     ...("feedback" in quest
       ? liveQuestFeedbackEntries(quest.feedback).flatMap((entry) => [entry.tldr, entry.text])
       : []),

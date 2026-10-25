@@ -93,6 +93,27 @@ export function resolveActiveWorkPhaseContext(
   };
 }
 
+/**
+ * The Work occurrence a row is in, or the last one before its current phase,
+ * such as the Work a User Checkpoint paused. Undefined before any Work.
+ */
+export function latestWorkPhaseOccurrenceId(
+  leaderSessionId: string,
+  row: BoardRow,
+  quest: QuestmasterTask,
+): string | undefined {
+  const journey = normalizeQuestJourneyPlan(row.journey, row.status);
+  const current = getQuestJourneyCurrentPhaseIndex(journey, row.status);
+  if (current === undefined) return undefined;
+  const workIndex = journey.phaseIds.lastIndexOf("work", current);
+  if (workIndex < 0) return undefined;
+  const journeyRunId = `board-${leaderSessionId.slice(0, 8)}-${row.createdAt}`;
+  const snapshotted = quest.journeyRuns
+    ?.find((run) => run.runId === journeyRunId)
+    ?.phaseOccurrences.find((occurrence) => occurrence.phaseIndex === workIndex)?.occurrenceId;
+  return snapshotted ?? `${journeyRunId}:p${workIndex + 1}`;
+}
+
 export function resolveCurrentWorkFeedback(args: {
   quest: QuestmasterTask;
   authorSessionId: string;

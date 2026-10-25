@@ -73,6 +73,8 @@ export interface QuestCodeDelivery {
   targetHeadSha: string;
   commits: QuestDeliveredCommit[];
   earlierReviews?: RetainedReviewRange[];
+  /** The landing-queue entry these commits landed through, so the entry is recorded once. */
+  landingEntryId?: string;
 }
 
 /** Browser/CLI projection deliberately omits paths, refs, and complete review ranges. */

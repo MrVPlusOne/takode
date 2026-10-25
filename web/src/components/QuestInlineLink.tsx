@@ -2,7 +2,12 @@ import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "re
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
-import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
+import {
+  openQuestOverlayRouteAware,
+  withQuestFeedbackInHash,
+  withQuestIdInHash,
+  withQuestRoundInHash,
+} from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
@@ -28,10 +33,13 @@ export function QuestInlineLink({
   onNavigate,
   onSessionNavigate,
   feedbackIndex,
+  round,
   surface = "legacy",
 }: {
   questId: string;
   feedbackIndex?: number;
+  /** One-based round of a reopened quest to open at. */
+  round?: number;
   children?: ReactNode;
   className?: string;
   stopPropagation?: boolean;
@@ -44,9 +52,10 @@ export function QuestInlineLink({
   if (surface === "chat-feed") {
     return (
       <QuestFeedInlineLink
-        key={`${questId.toLowerCase()}:${Number.isSafeInteger(feedbackIndex) ? feedbackIndex : "quest"}`}
+        key={`${questId.toLowerCase()}:${Number.isSafeInteger(feedbackIndex) ? feedbackIndex : round ? `round-${round}` : "quest"}`}
         questId={questId}
         feedbackIndex={feedbackIndex}
+        round={round}
         className={className}
         stopPropagation={stopPropagation}
         onNavigate={onNavigate}
@@ -60,6 +69,7 @@ export function QuestInlineLink({
     <LegacyQuestInlineLink
       questId={questId}
       feedbackIndex={feedbackIndex}
+      round={round}
       className={className}
       stopPropagation={stopPropagation}
       hoverCardZIndexClassName={hoverCardZIndexClassName}
@@ -78,9 +88,11 @@ function LegacyQuestInlineLink({
   hoverCardZIndexClassName,
   onNavigate,
   feedbackIndex,
+  round,
 }: {
   questId: string;
   feedbackIndex?: number;
+  round?: number;
   children?: ReactNode;
   className: string;
   stopPropagation: boolean;
@@ -105,12 +117,16 @@ function LegacyQuestInlineLink({
 
   const normalizedFeedbackIndex =
     Number.isSafeInteger(feedbackIndex) && feedbackIndex! >= 0 ? feedbackIndex : undefined;
-  const questHash =
-    normalizedFeedbackIndex === undefined
+  const questHash = round
+    ? withQuestRoundInHash(hash, questId, round)
+    : normalizedFeedbackIndex === undefined
       ? withQuestIdInHash(hash, questId)
       : withQuestFeedbackInHash(hash, questId, normalizedFeedbackIndex);
-  const targetLabel =
-    normalizedFeedbackIndex === undefined ? questId : `${questId} feedback #${normalizedFeedbackIndex}`;
+  const targetLabel = round
+    ? `${questId} round ${round}`
+    : normalizedFeedbackIndex === undefined
+      ? questId
+      : `${questId} feedback #${normalizedFeedbackIndex}`;
   const title =
     hoverFetchState === "loading"
       ? `Loading ${questId} preview`
@@ -152,10 +168,11 @@ function LegacyQuestInlineLink({
           if (stopPropagation) e.stopPropagation();
           if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
-          if (normalizedFeedbackIndex === undefined) {
+          if (normalizedFeedbackIndex === undefined && !round) {
             openQuestOverlayRouteAware(questId);
           } else {
-            useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+            if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
+            else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
             navigateTo(questHash);
           }
           onNavigate?.();

@@ -159,6 +159,27 @@ export function grepQuests(
       });
     }
 
+    (quest.rounds ?? []).forEach((round, index) => {
+      // Earlier rounds keep their title, brief and outcome here once the quest is reopened.
+      for (const [field, text] of [
+        ["title", round.title],
+        ["brief", round.brief],
+        ["outcome", round.outcome],
+      ] as const) {
+        if (!text) continue;
+        pushMatch(
+          {
+            questId: quest.questId,
+            title: quest.title,
+            status: quest.status,
+            matchedField: `rounds[${index + 1}].${field}`,
+            snippet: "",
+          },
+          text,
+        );
+      }
+    });
+
     const feedback = "feedback" in quest ? indexedLiveQuestFeedbackEntries(quest.feedback) : [];
     (quest.quizItems ?? []).forEach((item, index) => {
       pushMatch(

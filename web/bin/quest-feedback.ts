@@ -1,5 +1,6 @@
 import type { QuestFeedbackEntry, QuestVerificationItem, QuestmasterTask } from "../server/quest-types.js";
 import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
+import { buildQuestRounds } from "../shared/quest-rounds.js";
 
 export type FeedbackAuthorFilter = "human" | "agent" | "all";
 
@@ -10,6 +11,8 @@ export type IndexedFeedbackEntry = QuestFeedbackEntry & {
 export type FeedbackFilterOptions = {
   author?: FeedbackAuthorFilter;
   unaddressed?: boolean;
+  /** Only this one-based round's entries. */
+  round?: number;
   last?: number;
 };
 
@@ -57,6 +60,10 @@ export function filterFeedbackEntries(
   }
   if (options.unaddressed) {
     entries = entries.filter((entry) => entry.author === "human" && !entry.addressed);
+  }
+  if (options.round !== undefined) {
+    const inRound = new Set(buildQuestRounds(quest).rounds[options.round - 1]?.feedbackIndices ?? []);
+    entries = entries.filter((entry) => inRound.has(entry.index));
   }
   if (options.last !== undefined) {
     entries = entries.slice(Math.max(0, entries.length - options.last));

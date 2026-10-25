@@ -3,6 +3,7 @@ import {
   type QuestCreateInput,
   type QuestDone,
   type QuestIdea,
+  type QuestJourneyRun,
   type QuestInProgress,
   type QuestInvocationProvenance,
   type QuestmasterTask,
@@ -29,6 +30,7 @@ import { appendQuestRecoveryEvent } from "./quest-recovery.js";
 import { normalizeQuestCodeCommitEvidenceReplacementEvents } from "./quest-code-commit-evidence.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
+import { reopenQuestRounds } from "../shared/quest-rounds.js";
 import {
   getPreviousQuestOwners,
   getQuestOwner,
@@ -75,6 +77,7 @@ export function buildCreatedQuest(
       : {}),
     ...(input.images?.length ? { images: input.images } : {}),
     ...(quizItems ? { quizItems } : {}),
+    rounds: [{ openedAt: now }],
   };
 
   switch (status) {
@@ -136,16 +139,26 @@ export function buildTransitionedQuest(
     !(targetStatus === "done" && hasQuestReviewMetadata(current)) &&
     input.tldr === undefined &&
     input.ownershipEvent === undefined &&
-    input.recoveryEvent === undefined
+    input.recoveryEvent === undefined &&
+    input.openRound === undefined
   ) {
     return current;
   }
 
   const now = options.now ?? Date.now();
+  if (input.openRound && targetStatus !== "refined")
+    throw new Error("A new round opens only when reopening to refined");
+  if (input.openRound && (current.status === "idea" || current.status === "refined"))
+    throw new Error(`${current.questId} has not started its current round; edit that round instead of reopening`);
+  const rounds = input.openRound ? reopenQuestRounds(current, input.openRound, now) : current.rounds;
+  // A finished or reopened quest's Journey runs are over; without this they stay "active" forever.
+  const journeyRuns =
+    (targetStatus === "done" && !input.cancelled) || input.openRound
+      ? closeActiveJourneyRuns(current.journeyRuns, now)
+      : current.journeyRuns;
   const newVersion = current.version + 1;
   const tldr = input.tldr !== undefined ? normalizeTldr(input.tldr) : normalizeTldr(current.tldr);
   const currentFeedback = current.feedback;
-  const currentJourneyRuns = current.journeyRuns;
   const currentQuizItems = normalizeQuestQuizItems(current.quizItems);
   const inputQuizItems = normalizeQuestQuizItems(input.quizItems);
   const quizItems = inputQuizItems ?? currentQuizItems;
@@ -186,8 +199,9 @@ export function buildTransitionedQuest(
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(recoveryEvents?.length ? { recoveryEvents } : {}),
     ...(codeCommitEvidenceReplacementEvents.length > 0 ? { codeCommitEvidenceReplacementEvents } : {}),
-    ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
+    ...(journeyRuns?.length ? { journeyRuns } : {}),
     ...(quizItems ? { quizItems } : {}),
+    ...(rounds?.length ? { rounds } : {}),
     ...(Object.prototype.hasOwnProperty.call(current, "outcome") ? { outcome: current.outcome } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
@@ -315,6 +329,11 @@ export function buildTransitionedQuest(
   return liveStore ? normalizeLiveQuest(quest) : quest;
 }
 
+function closeActiveJourneyRuns(runs: QuestJourneyRun[] | undefined, now: number): QuestJourneyRun[] | undefined {
+  if (!runs?.some((run) => run.status === "active")) return runs;
+  return runs.map((run) => (run.status === "active" ? { ...run, status: "completed", completedAt: now } : run));
+}
+
 /** Build a cancelled Quest record without performing persistence. */
 export function buildCancelledQuest(
   current: QuestmasterTask,
@@ -371,6 +390,7 @@ export function buildCancelledQuest(
     ...(current.deliveryTargetApprovals?.length ? { deliveryTargetApprovals: current.deliveryTargetApprovals } : {}),
     ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
     ...(cancelQuizItems ? { quizItems: cancelQuizItems } : {}),
+    ...(current.rounds?.length ? { rounds: current.rounds } : {}),
     ...(Object.prototype.hasOwnProperty.call(current, "outcome") ? { outcome: current.outcome } : {}),
     status: "done",
     ...(description ? { description } : {}),

@@ -9,11 +9,12 @@ import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline, type JourneyFeedbackRenderer } from "./QuestPhaseDocumentationTimeline.js";
 import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { buildQuestRounds } from "../../shared/quest-rounds.js";
 import type { QuestmasterTask } from "../types.js";
 import type { QuestPhaseDocumentationSummary } from "../../shared/quest-phase-documentation-summary.js";
 import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
-import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
+import type { QuestFeedbackTargetRequest, QuestRoundTargetRequest } from "../utils/quest-link-target.js";
 
 interface QuestDetailTextSectionsProps {
   quest: QuestmasterTask;
@@ -24,6 +25,8 @@ interface QuestDetailTextSectionsProps {
   sessionId?: string;
   onSessionNavigate?: () => void;
   feedbackTarget?: QuestFeedbackTargetRequest | null;
+  /** Round a round link opened the quest at. */
+  roundTarget?: QuestRoundTargetRequest | null;
   highlightedFeedbackIndex?: number | null;
   onFeedbackTargetReady?: (element: HTMLElement | null) => void;
   /** Renders an expanded unscoped feedback entry shown inside the Journey timeline. */
@@ -40,6 +43,7 @@ export function QuestDetailTextSections({
   sessionId,
   onSessionNavigate,
   feedbackTarget,
+  roundTarget,
   highlightedFeedbackIndex,
   onFeedbackTargetReady,
   renderFeedbackEntry,
@@ -52,11 +56,15 @@ export function QuestDetailTextSections({
   const hasFinalDebrief = Boolean(questDebrief);
   const [journeyDetailsExpanded, setJourneyDetailsExpanded] = useState(true);
   // With phase documentation, the timeline shows every feedback entry, scoped or not.
-  const targetInTimeline = Boolean(feedbackTarget && phaseDocumentationSummary.hasPhaseDocumentation);
+  const targetInTimeline = Boolean((feedbackTarget || roundTarget) && phaseDocumentationSummary.hasPhaseDocumentation);
+  const rounds = useMemo(() => buildQuestRounds(quest), [quest]);
+  // A reopened quest's open round says what the current Work is for, beside the standing description.
+  const latestRound = rounds.rounds.at(-1);
+  const openRound = rounds.rounds.length > 1 && latestRound?.open ? latestRound : undefined;
   useEffect(() => setJourneyDetailsExpanded(true), [quest.questId]);
   useEffect(() => {
     if (targetInTimeline) setJourneyDetailsExpanded(true);
-  }, [feedbackTarget?.requestId, targetInTimeline]);
+  }, [feedbackTarget?.requestId, roundTarget?.requestId, targetInTimeline]);
   const detailSearchHighlight = searchHighlight
     ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false }
     : null;
@@ -146,6 +154,24 @@ export function QuestDetailTextSections({
         </>
       ) : (
         <>
+          {openRound && (
+            <div className="min-w-0 max-w-full space-y-2" data-testid="quest-detail-open-round">
+              <QuestDetailSectionLabel>Current round</QuestDetailSectionLabel>
+              <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
+                <div className="mb-1 text-xs font-semibold text-cc-fg">
+                  Round {openRound.number}: {openRound.title}
+                </div>
+                <MarkdownContent
+                  text={openRound.brief ?? "No brief for this round."}
+                  size="sm"
+                  sessionId={sessionId}
+                  searchHighlight={detailSearchHighlight}
+                  wrapLongContent
+                  onSessionNavigate={onSessionNavigate}
+                />
+              </div>
+            </div>
+          )}
           {(questTldr || description) && (
             <div className="min-w-0 max-w-full space-y-2">
               <QuestDetailSectionLabel>Description</QuestDetailSectionLabel>
@@ -203,6 +229,8 @@ export function QuestDetailTextSections({
             sessionId={sessionId}
             onSessionNavigate={onSessionNavigate}
             feedbackTarget={feedbackTarget}
+            rounds={rounds}
+            roundTarget={roundTarget}
             highlightedFeedbackIndex={highlightedFeedbackIndex}
             onFeedbackTargetReady={onFeedbackTargetReady}
             renderFeedbackEntry={renderFeedbackEntry}

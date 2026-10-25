@@ -96,6 +96,7 @@ export function QuestDetailPanel() {
   const sdkSessions = useStore((s) => s.sdkSessions);
   const phoneLayout = !useDesktopShellLayout();
   const feedbackNavigationTarget = useStore((s) => s.questOverlayFeedbackTarget);
+  const roundTarget = useStore((s) => s.questOverlayRoundTarget);
 
   const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
   const journeyBoardRow = useMemo(() => {
@@ -1296,6 +1297,7 @@ export function QuestDetailPanel() {
                 sessionId={questMarkdownSessionId}
                 onSessionNavigate={closePanel}
                 feedbackTarget={activeFeedbackTarget}
+                roundTarget={roundTarget}
                 highlightedFeedbackIndex={highlightedFeedbackIndex}
                 onFeedbackTargetReady={handleFeedbackTargetReady}
                 renderFeedbackEntry={renderFeedbackEntry}

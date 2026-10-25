@@ -62,7 +62,7 @@ When in doubt about whether a change is quest creation/refinement or routine boo
 ```
 quest list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]  List quests
 quest grep   <pattern> [--count N] [--json]                  Search quest title, description, final debrief, and feedback/comments
-quest show   <id> [--sections <list>] [--full] [--json]        Show compact quest detail; reveal sections on demand
+quest show   <id> [--sections <list>] [--round <n>] [--full] [--json]  Show compact quest detail; reveal sections or one round on demand
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
@@ -73,6 +73,8 @@ quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--ses
 quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]      Mark as done/cancelled
 quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]                Cancel from any status
 quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
+quest reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--json]  Reopen for the next round of sequential work
+quest round edit <id> <n> [--title "..."] [--brief "..." | --brief-file <path>|-] [--json]  Retitle a round or rewrite its brief
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
 quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>] [--topic "<topic>"] [--json]     Edit in place (NEVER use to create)
@@ -80,7 +82,7 @@ quest check  <id> <index> [--json]                            Toggle a User revi
 quest feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry explicitly
 quest feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--json]  Edit an existing feedback entry
-quest feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]  List indexed feedback entries
+quest feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--round N] [--json]  List indexed feedback entries
 quest feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]  Show latest matching feedback
 quest feedback show <id> <index> [--json]                     Show one indexed feedback entry
 quest outcome show <id> [--json]                               Inspect preserved legacy Outcome data (read-only)
@@ -486,6 +488,8 @@ quest show q-12 --sections phase:7
 quest show q-12 --sections description,debrief,phase:7
 ```
 
+A reopened quest shows its current round in full instead of the phase-note index: the round's title, brief, requests, phase notes, delivered commits and outcome, then one line per earlier round. Use `--round <n>` to reveal one earlier round in full and `--sections rounds` to list every round.
+
 `quest show q-N --full` remains available as the full-detail escape hatch, but it can consume substantial context on historical quests. Prefer targeted `--sections` reveals first.
 
 JSON compatibility is preserved: `quest show q-N --json` returns the full quest object for scripts.
@@ -680,7 +684,17 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 - Do not leave code commit info only in comments; structured code metadata is required before Memory begins.
 - Read `memory-completion.md` for detailed pre-submission, final Memory, review inbox, User review check, reviewer hygiene, Stream Memory CLI, and debrief TLDR guidance.
 
+## Rounds of a reopened quest
+
+Sequential follow-up work continues in the same quest, so a quest can be reopened many times. Each opening is a **round**: round 1 opens with the quest, and `quest reopen` closes the current round (keeping a done quest's debrief as that round's outcome) and opens the next with its own title, brief and requests. The quest stays one quest, one thread and one conversation, but reads as a sequence of small quests: `quest show` puts the open round first and earlier rounds one line each, and `[q-42 round 3](quest:q-42:round:3)` links one round.
+
+- **Leaders reopen with `quest reopen`**, not `quest transition --status refined`: `quest reopen q-N --title "<short round name>" --brief-file - --requests "81,84" <<'BRIEF' ... BRIEF`. The brief says what this round asks for and where it stops; `--requests` names the feedback entries that asked for it. Then dispatch as usual (`takode board set`, claim). Reopen before setting the board row.
+- **The description is the standing brief**: what the whole quest is and the decisions that still stand. Replace stale parts instead of appending a section per round; round-specific asks belong in the round brief (`quest round edit q-N <n> --brief-file -` when it changes, such as at a User Checkpoint).
+- **The debrief is the round's outcome.** Final Memory writes what this round changed, not the whole quest again; touch the quest TLDR or description only when the round changed the overall picture.
+- **Workers read the open round first.** Open an earlier round (`--round <n>`, `quest feedback list --round <n>`) only when the brief or the work points at it.
+- Quests reopened before rounds existed show one round per Journey run, named from its Work note.
+
 ### Done → in_progress (rework)
-- Human found issues and left feedback. Run `quest show q-N` and read the full feedback thread before resuming work. Address every point raised.
+- Human found issues and left feedback. Run `quest show q-N` and read the open round, its requests and the unaddressed feedback before resuming work. Address every point raised.
 - If fixing feedback requires more code changes after an earlier Work pass, commit the current worktree state first when useful for reviewability, make the rework in a separate follow-up commit, refresh the Work note, and keep the quest in Work until accepted by the authorized envelope or routed to a separate review quest.
 - Before re-submitting, ensure resolved human feedback entries are marked addressed with `quest address`.

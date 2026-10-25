@@ -8,7 +8,8 @@ Commands:
                                                          List quests with optional filters
   mine   [--json]                                        List quests owned by current session
   grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets
-  show   <id> [--sections <list>] [--full] [--json]       Show compact quest detail; reveal sections on demand
+  show   <id> [--sections <list>] [--round <n>] [--full] [--json]
+                                                         Show compact quest detail; reveal sections or one round on demand
   status <id> [--json]                                   Show compact action-oriented quest status
   commit-links <id> --delivery <id> [--range <base-sha>..<recorded-tip-sha>] [--commits <sha,...>] [--json]  Author fixed delivery or verified range chips
   history <id> [--json]                                  Show quest history
@@ -27,6 +28,10 @@ Commands:
                                                          Cancel from any status
   transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--memory-commit <sha>] [--memory-commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
                                                          Change status
+  reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--json]
+                                                         Reopen for the next round of sequential work
+  round edit <id> <n> [--title "..."] [--brief "..." | --brief-file <path>|-] [--json]
+                                                         Retitle a round or rewrite its brief
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
   edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>] [--json]
@@ -38,7 +43,7 @@ Commands:
                                                          Add feedback entry explicitly
   feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--json]
                                                          Edit an existing feedback entry
-  feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]
+  feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--round N] [--json]
                                                          List indexed feedback entries
   feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]
                                                          Show latest matching feedback entry
@@ -79,6 +84,7 @@ Quest detail reveal:
   quest show q-1 --sections description,debrief         Reveal high-level bodies
   quest show q-1 --sections phases                      Reveal phase index and TLDRs, not full bodies
   quest show q-1 --sections phase:7                     Reveal one full phase note by # index
+  quest show q-1 --round 3                              Reveal one round of a reopened quest
   quest show q-1 --full                                 Expensive full detail; prefer --sections first
 
 Safer rich-text input:

@@ -279,6 +279,7 @@ export const useStore = create<AppState>((set, get) => ({
   questOverlayId: null,
   questOverlaySearchHighlight: null,
   questOverlayFeedbackTarget: null,
+  questOverlayRoundTarget: null,
   questmasterSearchQuery: "",
   questmasterSelectedTags: [],
   questmasterCompactSort: null,
@@ -504,7 +505,7 @@ export const useStore = create<AppState>((set, get) => ({
   setSearchPreviewSessionId: (sessionId) => set({ searchPreviewSessionId: sessionId }),
   openNewSessionModal: (opts) => set({ newSessionModalState: opts ?? {} }),
   closeNewSessionModal: () => set({ newSessionModalState: null }),
-  openQuestOverlay: (questId, searchHighlight, feedbackIndex) =>
+  openQuestOverlay: (questId, searchHighlight, feedbackIndex, round) =>
     set((state) => ({
       questOverlayId: questId,
       questOverlaySearchHighlight: searchHighlight ?? null,
@@ -512,9 +513,18 @@ export const useStore = create<AppState>((set, get) => ({
         feedbackIndex === undefined || !Number.isSafeInteger(feedbackIndex) || feedbackIndex < 0
           ? null
           : { index: feedbackIndex, requestId: (state.questOverlayFeedbackTarget?.requestId ?? 0) + 1 },
+      questOverlayRoundTarget:
+        round === undefined || !Number.isSafeInteger(round) || round < 1
+          ? null
+          : { round, requestId: (state.questOverlayRoundTarget?.requestId ?? 0) + 1 },
     })),
   closeQuestOverlay: () =>
-    set({ questOverlayId: null, questOverlaySearchHighlight: null, questOverlayFeedbackTarget: null }),
+    set({
+      questOverlayId: null,
+      questOverlaySearchHighlight: null,
+      questOverlayFeedbackTarget: null,
+      questOverlayRoundTarget: null,
+    }),
   setQuestmasterSearchQuery: (query) => set({ questmasterSearchQuery: query }),
   setQuestmasterSelectedTags: (tags) => set({ questmasterSelectedTags: tags }),
   setQuestmasterCompactSort: (sort) => set({ questmasterCompactSort: sort }),
@@ -540,6 +550,7 @@ export const useStore = create<AppState>((set, get) => ({
       questOverlayId: null,
       questOverlaySearchHighlight: null,
       questOverlayFeedbackTarget: null,
+      questOverlayRoundTarget: null,
     });
   },
 
@@ -1783,6 +1794,7 @@ export const useStore = create<AppState>((set, get) => ({
       questOverlayId: null,
       questOverlaySearchHighlight: null,
       questOverlayFeedbackTarget: null,
+      questOverlayRoundTarget: null,
       terminalOpen: false,
       terminalCwd: null,
       terminalSessionId: null,
