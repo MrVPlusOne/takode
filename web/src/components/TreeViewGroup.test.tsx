@@ -89,7 +89,6 @@ function renderTreeViewGroup(group: TreeViewGroupData, overrides: Partial<Compon
       recentlyRenamed={new Set()}
       onSelect={vi.fn()}
       onStartRename={vi.fn()}
-      onArchive={vi.fn()}
       onUnarchive={vi.fn()}
       onDelete={vi.fn()}
       onClearRecentlyRenamed={vi.fn()}

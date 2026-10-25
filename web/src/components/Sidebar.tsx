@@ -161,7 +161,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
 
   const sessionActions = useSessionActions(refreshSessionListNow, showArchived || archivedSessionPage.loaded);
   const {
-    handleArchiveSession,
     handleUnarchiveSession,
     handleDeleteSession,
     archiveConfirmation,
@@ -729,7 +728,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
   const sessionItemHandlers = useStableCallbacks({
     onSelect: handleSelectSession,
     onStartRename: handleStartRename,
-    onArchive: handleArchiveSession,
     onUnarchive: handleUnarchiveSession,
     onRetryWorktreeCleanup: handleRetryWorktreeCleanup,
     onDelete: handleDeleteSession,

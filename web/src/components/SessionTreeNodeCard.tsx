@@ -11,7 +11,6 @@ export type SessionTreeRowProps = Pick<
   SessionItemProps,
   | "onSelect"
   | "onStartRename"
-  | "onArchive"
   | "onUnarchive"
   | "onDelete"
   | "onClearRecentlyRenamed"

@@ -320,7 +320,6 @@ const sessionItemProps: Omit<ComponentProps<typeof SessionItem>, "session" | "se
   isRecentlyRenamed: false,
   onSelect: NOOP,
   onStartRename: NOOP,
-  onArchive: NOOP,
   onUnarchive: NOOP,
   onDelete: NOOP,
   onClearRecentlyRenamed: NOOP,

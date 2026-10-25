@@ -454,7 +454,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
         isRecentlyRenamed={false}
         onSelect={() => {}}
         onStartRename={() => {}}
-        onArchive={() => {}}
         onUnarchive={() => {}}
         onDelete={() => {}}
         onClearRecentlyRenamed={() => {}}
@@ -964,34 +963,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("leader-1", { force: true });
     });
     expect(mockApi.archiveGroup).not.toHaveBeenCalled();
-  });
-
-  it("leader swipe archive requires confirmation instead of archiving immediately", () => {
-    const leader = makeSession("leader-1", { model: "leader-session" });
-    const worker = makeSession("worker-1", { model: "worker-session" });
-    const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", {
-      model: "worker-session",
-      herdedBy: "leader-1",
-      createdAt: 1_000,
-    });
-    mockState = createMockState({
-      sessions: new Map([
-        ["leader-1", leader],
-        ["worker-1", worker],
-      ]),
-      sdkSessions: [leaderSdk, workerSdk],
-    });
-
-    render(<Sidebar />);
-    const leaderButton = screen.getByText("leader-session").closest("button")!;
-
-    fireEvent.touchStart(leaderButton, { touches: [{ clientX: 80, clientY: 40 }] });
-    fireEvent.touchMove(leaderButton, { touches: [{ clientX: 170, clientY: 42 }] });
-    fireEvent.touchEnd(leaderButton);
-
-    expect(mockApi.archiveSession).not.toHaveBeenCalled();
-    expect(screen.getByText(/1 active herd member session/i)).toBeInTheDocument();
   });
 
   it("context-menu archive uses the same leader confirmation safeguard", () => {

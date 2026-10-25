@@ -1669,7 +1669,6 @@ export function PlaygroundOverviewSections() {
                     }
                     onSelect={() => {}}
                     onStartRename={() => {}}
-                    onArchive={() => {}}
                     onUnarchive={() => {}}
                     onDelete={() => {}}
                     onClearRecentlyRenamed={() => {}}
@@ -1707,7 +1706,6 @@ export function PlaygroundOverviewSections() {
                   isRecentlyRenamed={false}
                   onSelect={() => {}}
                   onStartRename={() => {}}
-                  onArchive={() => {}}
                   onUnarchive={() => {}}
                   onDelete={() => {}}
                   onClearRecentlyRenamed={() => {}}
@@ -1738,7 +1736,6 @@ export function PlaygroundOverviewSections() {
                   isRecentlyRenamed={false}
                   onSelect={() => {}}
                   onStartRename={() => {}}
-                  onArchive={() => {}}
                   onUnarchive={() => {}}
                   onDelete={() => {}}
                   onClearRecentlyRenamed={() => {}}
@@ -1771,7 +1768,6 @@ export function PlaygroundOverviewSections() {
                         compact
                         onSelect={() => {}}
                         onStartRename={() => {}}
-                        onArchive={() => {}}
                         onUnarchive={() => {}}
                         onDelete={() => {}}
                         onClearRecentlyRenamed={() => {}}
@@ -1813,7 +1809,6 @@ export function PlaygroundOverviewSections() {
                 isRecentlyRenamed={false}
                 onSelect={() => {}}
                 onStartRename={() => {}}
-                onArchive={() => {}}
                 onUnarchive={() => {}}
                 onDelete={() => {}}
                 onClearRecentlyRenamed={() => {}}
@@ -1848,7 +1843,6 @@ export function PlaygroundOverviewSections() {
                     isRecentlyRenamed={false}
                     onSelect={() => {}}
                     onStartRename={() => {}}
-                    onArchive={() => {}}
                     onUnarchive={() => {}}
                     onDelete={() => {}}
                     onClearRecentlyRenamed={() => {}}

@@ -99,7 +99,6 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
 }
 
 function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>> = {}) {
-  const onArchive = vi.fn();
   const onSelect = vi.fn();
   const session = overrides.session ?? makeSession();
   const projectedAttention = mockStoreState.sessionAttention.get(session.id) ?? null;
@@ -115,7 +114,6 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
       isRecentlyRenamed={false}
       onSelect={onSelect}
       onStartRename={vi.fn()}
-      onArchive={onArchive}
       onUnarchive={vi.fn()}
       onDelete={vi.fn()}
       onClearRecentlyRenamed={vi.fn()}
@@ -133,7 +131,6 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
 
   return {
     ...view,
-    onArchive,
     onSelect,
   };
 }
@@ -169,7 +166,6 @@ function EditingSessionItem({
       isRecentlyRenamed={false}
       onSelect={vi.fn()}
       onStartRename={vi.fn()}
-      onArchive={vi.fn()}
       onUnarchive={vi.fn()}
       onDelete={vi.fn()}
       onClearRecentlyRenamed={vi.fn()}
@@ -223,40 +219,20 @@ const SAGE_THEME: HerdGroupBadgeTheme = {
   herdBackground: "rgba(119, 191, 139, 0.1)",
 };
 
-describe("SessionItem swipe archive", () => {
-  it("archives on right swipe in normal mode", () => {
-    const { getByText, onArchive } = renderSessionItem();
-    const item = getByText("Session").closest("button")!;
-
-    fireEvent.touchStart(item, { touches: [{ clientX: 80, clientY: 40 }] });
-    fireEvent.touchMove(item, { touches: [{ clientX: 170, clientY: 42 }] });
-    fireEvent.touchEnd(item);
-
-    expect(onArchive).toHaveBeenCalledTimes(1);
-    expect(onArchive.mock.calls[0][1]).toBe("s1");
-  });
-
-  it("archives on left swipe in normal mode", () => {
-    const { getByText, onArchive } = renderSessionItem();
+describe("SessionItem touch", () => {
+  // Swipe-to-archive was removed: a sideways swipe on a row belongs to the sessions panel (it
+  // closes the panel on phones), so the row must neither move nor offer an archive action.
+  it("a sideways swipe on a row does not archive or show an archive backdrop", () => {
+    const { getByText } = renderSessionItem();
     const item = getByText("Session").closest("button")!;
 
     fireEvent.touchStart(item, { touches: [{ clientX: 180, clientY: 40 }] });
-    fireEvent.touchMove(item, { touches: [{ clientX: 90, clientY: 38 }] });
+    fireEvent.touchMove(item, { touches: [{ clientX: 60, clientY: 42 }] });
+
+    expect(screen.queryByText("Archive")).not.toBeInTheDocument();
+    expect(item.style.transform).toBe("");
     fireEvent.touchEnd(item);
-
-    expect(onArchive).toHaveBeenCalledTimes(1);
-    expect(onArchive.mock.calls[0][1]).toBe("s1");
-  });
-
-  it("disables swipe archive while reorder mode is active", () => {
-    const { getByText, onArchive } = renderSessionItem({ reorderMode: true });
-    const item = getByText("Session").closest("button")!;
-
-    fireEvent.touchStart(item, { touches: [{ clientX: 80, clientY: 40 }] });
-    fireEvent.touchMove(item, { touches: [{ clientX: 170, clientY: 42 }] });
-    fireEvent.touchEnd(item);
-
-    expect(onArchive).not.toHaveBeenCalled();
+    expect(screen.queryByText("Archive")).not.toBeInTheDocument();
   });
 
   it("does not select the session when the mobile reorder handle is tapped", () => {

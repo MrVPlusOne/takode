@@ -1,7 +1,7 @@
 import { useSessionRowPending } from "../utils/pending-session-rows.js";
 import { SessionArchiveConfirmation, type ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 export type { ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
-import { memo, useRef, useCallback, useState, type RefObject } from "react";
+import { memo, useRef, useCallback, type RefObject } from "react";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import {
@@ -216,7 +216,6 @@ export interface SessionItemProps {
   isRecentlyRenamed: boolean;
   onSelect: (id: string) => void;
   onStartRename: (id: string, currentName: string) => void;
-  onArchive: (e: React.MouseEvent, id: string) => void;
   onUnarchive: (e: React.MouseEvent, id: string) => void;
   onRetryWorktreeCleanup?: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
@@ -273,7 +272,6 @@ function SessionItemComponent({
   isRecentlyRenamed,
   onSelect,
   onStartRename,
-  onArchive,
   onUnarchive,
   onRetryWorktreeCleanup,
   onDelete,
@@ -310,11 +308,8 @@ function SessionItemComponent({
   spaceLabel,
 }: SessionItemProps) {
   const rowRef = useRef<HTMLElement | null>(null);
-  const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const touchStartedOnDragHandle = useRef(false);
-  const swipeActive = useRef(false);
   const suppressTap = useRef(false);
-  const [swipeOffsetPx, setSwipeOffsetPx] = useState(0);
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
@@ -338,7 +333,6 @@ function SessionItemComponent({
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
   const inboxUrgency = useNotificationUrgency(s.id);
-  const canSwipeToArchive = !archived && !reorderMode;
   const rowPending = useSessionRowPending(s.id);
   const effectiveAttention = attention ?? null;
   const effectiveHasUnread = !!hasUnread;
@@ -355,87 +349,32 @@ function SessionItemComponent({
   );
   const cancelLongPress = longPress.handlers.onTouchCancel;
 
+  // A sideways swipe here belongs to the sessions panel (it closes the panel on phones), so rows
+  // only time long-presses and keep reorder-handle touches from selecting the session.
   const handleTouchStart = (e: React.TouchEvent<HTMLElement>) => {
     const touchTarget = e.target as HTMLElement | null;
-    const startedOnDragHandle = !!touchTarget?.closest("[data-session-drag-handle='true']");
-    touchStartedOnDragHandle.current = startedOnDragHandle;
-    if (startedOnDragHandle) {
+    touchStartedOnDragHandle.current = !!touchTarget?.closest("[data-session-drag-handle='true']");
+    if (touchStartedOnDragHandle.current) {
       suppressTap.current = true;
       cancelLongPress();
-      swipeStart.current = null;
-      swipeActive.current = false;
-      setSwipeOffsetPx(0);
       return;
     }
-
-    const touch = e.touches[0];
-    swipeStart.current = { x: touch.clientX, y: touch.clientY };
-    swipeActive.current = false;
-    setSwipeOffsetPx(0);
     longPress.handlers.onTouchStart(e);
   };
 
-  const triggerArchiveFromSwipe = useCallback(() => {
-    const synthetic = { preventDefault: () => {}, stopPropagation: () => {} } as React.MouseEvent;
-    onArchive(synthetic, s.id);
-  }, [onArchive, s.id]);
-
   const handleTouchMove = (e: React.TouchEvent<HTMLElement>) => {
-    if (touchStartedOnDragHandle.current) {
-      cancelLongPress();
-      return;
-    }
-    const start = swipeStart.current;
-    if (!start) {
-      cancelLongPress();
-      return;
-    }
-    const touch = e.touches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (!swipeActive.current) {
-      const isHorizontalSwipe = Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) + 4;
-      if (isHorizontalSwipe && canSwipeToArchive) {
-        swipeActive.current = true;
-        suppressTap.current = true;
-      }
-      if (isHorizontalSwipe || Math.abs(dy) > 8) {
-        cancelLongPress();
-      }
-    }
-    if (swipeActive.current) {
-      const clampedDx = Math.max(-120, Math.min(120, dx));
-      setSwipeOffsetPx(clampedDx);
-      e.preventDefault();
-    }
+    if (touchStartedOnDragHandle.current) cancelLongPress();
+    else longPress.handlers.onTouchMove(e);
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLElement>) => {
     longPress.handlers.onTouchEnd(e);
-    if (touchStartedOnDragHandle.current) {
-      touchStartedOnDragHandle.current = false;
-      swipeStart.current = null;
-      swipeActive.current = false;
-      setSwipeOffsetPx(0);
-      return;
-    }
-    if (swipeActive.current) {
-      const shouldArchive = Math.abs(swipeOffsetPx) >= 72 && canSwipeToArchive;
-      swipeActive.current = false;
-      setSwipeOffsetPx(0);
-      if (shouldArchive) {
-        triggerArchiveFromSwipe();
-      }
-    }
-    swipeStart.current = null;
+    touchStartedOnDragHandle.current = false;
   };
 
   const handleTouchCancel = () => {
     cancelLongPress();
     touchStartedOnDragHandle.current = false;
-    swipeStart.current = null;
-    swipeActive.current = false;
-    setSwipeOffsetPx(0);
   };
 
   const handleSelect = useCallback(() => {
@@ -461,7 +400,6 @@ function SessionItemComponent({
     s.worktreeExists === true &&
     s.worktreeCleanupStatus !== "pending" &&
     !!onRetryWorktreeCleanup;
-  const showingSwipeBackdrop = canSwipeToArchive && Math.abs(swipeOffsetPx) > 0;
   const herdHighlightClass =
     herdHoverHighlight === "leader"
       ? "ring-1 ring-amber-400/70"
@@ -592,11 +530,6 @@ function SessionItemComponent({
   const selectedSidebarMetadata = isActive || isSearchSelected;
   const sidebarLineAdditionClassName = selectedSidebarMetadata ? "text-current" : "text-green-500";
   const sidebarLineRemovalClassName = selectedSidebarMetadata ? "text-current" : "text-red-400";
-
-  const rowStyle = {
-    transform: swipeOffsetPx !== 0 ? `translateX(${swipeOffsetPx}px)` : undefined,
-    transition: swipeActive.current ? "none" : "transform 180ms ease-out",
-  };
 
   const rowContent = (
     <>
@@ -986,18 +919,6 @@ function SessionItemComponent({
       aria-busy={rowPending || undefined}
       style={indentLevel > 0 ? { paddingLeft: `${indentLevel * 16}px` } : undefined}
     >
-      {canSwipeToArchive && (
-        <div
-          className={`absolute inset-0 sm:hidden rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 pointer-events-none transition-opacity ${
-            showingSwipeBackdrop ? "opacity-100" : "opacity-0"
-          }`}
-        >
-          <div className="h-full px-3.5 flex items-center justify-between text-[11px] font-medium">
-            <span>Archive</span>
-            <span>Archive</span>
-          </div>
-        </div>
-      )}
       {isEditing ? (
         <div
           ref={(element) => {
@@ -1011,11 +932,6 @@ function SessionItemComponent({
           onMouseLeave={() => {
             if (onHoverEnd) onHoverEnd();
           }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchCancel}
-          style={rowStyle}
           className={rowClassName}
         >
           {rowContent}
@@ -1046,7 +962,7 @@ function SessionItemComponent({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchCancel}
-          style={{ ...rowStyle, ...longPress.pressStyle }}
+          style={longPress.pressStyle}
           className={`${rowClassName} [-webkit-touch-callout:none]`}
         >
           {rowContent}

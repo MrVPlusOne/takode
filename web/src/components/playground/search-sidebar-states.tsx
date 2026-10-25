@@ -322,7 +322,6 @@ function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
           recentlyRenamed={EMPTY_STRING_SET}
           onSelect={noop}
           onStartRename={noop}
-          onArchive={noopMouse}
           onUnarchive={noopMouse}
           onDelete={noopMouse}
           onClearRecentlyRenamed={noop}

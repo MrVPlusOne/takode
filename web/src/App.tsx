@@ -60,6 +60,7 @@ import { navigateTo } from "./utils/navigation.js";
 import type { QuestLinkTarget } from "./utils/quest-link-target.js";
 import { getHashLocationSnapshot, useHashLocation } from "./utils/hash-location.js";
 import { Sidebar } from "./components/Sidebar.js";
+import { useDrawerSwipeClose } from "./hooks/useDrawerSwipeClose.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
@@ -532,6 +533,8 @@ export default function App() {
   const shouldKeepMobileSidebarMounted = !isDesktopShell;
   const shouldRenderSidebar = sidebarOpen || shouldKeepMobileSidebarMounted;
   const isMobileSidebarHidden = shouldKeepMobileSidebarMounted && !sidebarOpen;
+  const closeMobileSidebar = useCallback(() => useStore.getState().setSidebarOpen(false), []);
+  const sidebarSwipe = useDrawerSwipeClose(closeMobileSidebar, sidebarOpen && !isDesktopShell);
 
   useEffect(() => {
     const shell = sidebarShellRef.current;
@@ -1079,7 +1082,7 @@ export default function App() {
 
       {/* Mobile overlay backdrop */}
       {sidebarOpen && !isDesktopShell && (
-        <div className="fixed inset-0 bg-black/30 z-30" onClick={() => useStore.getState().setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/30 z-30" onClick={closeMobileSidebar} />
       )}
 
       {/* Sidebar — overlay on mobile, inline on desktop */}
@@ -1090,10 +1093,18 @@ export default function App() {
           inert={secondaryAreaOpen}
           data-testid="app-sidebar-shell"
           data-mobile-sidebar-state={shouldKeepMobileSidebarMounted ? (sidebarOpen ? "open" : "hidden") : undefined}
+          {...(isDesktopShell ? {} : sidebarSwipe.handlers)}
           style={
             isDesktopShell
               ? { ...sidebarSplit.style, touchAction: "pan-y", overscrollBehaviorX: "none" }
-              : { touchAction: "pan-y", overscrollBehaviorX: "none" }
+              : {
+                  touchAction: "pan-y",
+                  overscrollBehaviorX: "none",
+                  ...(sidebarSwipe.dragPx !== null && {
+                    transform: `translateX(${sidebarSwipe.dragPx}px)`,
+                    transition: "none",
+                  }),
+                }
           }
           className={`
             ${

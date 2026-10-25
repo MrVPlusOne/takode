@@ -63,7 +63,6 @@ const itemProps = {
   isRecentlyRenamed: false,
   onSelect: noop,
   onStartRename: noop,
-  onArchive: noop,
   onUnarchive: noop,
   onDelete: noop,
   onClearRecentlyRenamed: noop,
