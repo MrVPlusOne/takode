@@ -43,6 +43,7 @@ import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { TopicFeedContext, TopicFeedQuestStart, topicQuestsOfTurns } from "./topic-feed.js";
+import { TopicFeedEntry } from "./library/TopicConversation.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
   if (entry.kind !== "message") return true;
@@ -450,6 +451,7 @@ export const TurnEntries = memo(function TurnEntries({
   return (
     <InlineMessageTimingVisibilityContext.Provider value={showInlineMessageTiming}>
       {/* Opens the thread with what the quest is about, once its first section is loaded. */}
+      {threadQuestId && !hasOlderSections && <TopicFeedEntry />}
       {threadQuestId && !hasOlderSections && (
         <QuestDescriptionSummaryCard
           questId={threadQuestId}

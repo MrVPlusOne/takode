@@ -1,7 +1,12 @@
 import { useEffect } from "react";
 import type { QuestmasterTask } from "../../types.js";
 import { useStore } from "../../store.js";
-import { TopicConversationHeader } from "../library/TopicConversation.js";
+import {
+  TopicConversationHeader,
+  TopicEntryContext,
+  TopicEntryLine,
+  TopicFeedEntry,
+} from "../library/TopicConversation.js";
 import { TopicFeedQuestStart } from "../topic-feed.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -37,8 +42,20 @@ export function PlaygroundTopicConversationSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Topic Conversation"
-        description="A topic's quests read as one conversation, opened from a quest's Whole topic button or a topic row in the Done list. The topic header replaces the quest strip (× goes back to the quest alone); each quest's strip sits in the feed where its part starts and sticks to the top while you read it, until the next one covers it. Tapping a strip opens that quest's own tab."
+        description="A topic's quests read as one conversation, opened from the topic line above a quest's strip, the Part of line at the start of the quest's conversation, Read all N quests on the topic page, or a topic row in the Done list. The topic header replaces the quest strip (× goes back to the quest alone); each quest's strip sits in the feed where its part starts and sticks to the top while you read it, until the next one covers it. Tapping a strip opens that quest's own tab."
       >
+        <Card label="Ways in from a quest tab: the topic line above its strip, and the line its conversation opens with">
+          <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
+            <TopicEntryLine name="Guided review and diffs" count={QUESTS.length} onOpen={() => {}} />
+            <div className="px-3 py-3">
+              <TopicEntryContext.Provider
+                value={{ name: "Guided review and diffs", count: QUESTS.length, onOpen: () => {} }}
+              >
+                <TopicFeedEntry />
+              </TopicEntryContext.Provider>
+            </div>
+          </div>
+        </Card>
         <Card label="Scroll inside the box">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
             <TopicConversationHeader

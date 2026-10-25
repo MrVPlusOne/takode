@@ -17,6 +17,7 @@ import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow } from "./TopicPage.js";
 import { TopicView } from "./TopicView.js";
+import { readTopicConversation } from "../../utils/topic-conversation.js";
 import { navigateToSession } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, TopicIcon } from "./library-icons.js";
@@ -153,6 +154,10 @@ export function TopicSidePanel({
               onChanged={load}
               embedded
               leaderId={leaderId}
+              onReadConversation={(questIds) => {
+                readTopicConversation(leaderId, questIds, threadKey);
+                if (variant === "sheet") close();
+              }}
             />
           </Activity>
         ))}

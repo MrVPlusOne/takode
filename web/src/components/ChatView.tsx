@@ -1,7 +1,12 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
-import { TopicConversationButton, TopicConversationHeader, useTopicConversation } from "./library/TopicConversation.js";
+import {
+  TopicConversationHeader,
+  TopicEntryContext,
+  TopicEntryLine,
+  useTopicConversation,
+} from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { topicThreadKey } from "../../shared/topic-thread-key.js";
@@ -635,6 +640,17 @@ export function ChatView({
   const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
   const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+  const feedTopicEntry = useMemo(
+    () =>
+      topicConversation && !topicFeedOn
+        ? {
+            name: topicConversation.name,
+            count: topicConversation.questIds.length,
+            onOpen: () => openTopicConversation(sessionId, selectedThreadKey),
+          }
+        : null,
+    [topicConversation, topicFeedOn, sessionId, selectedThreadKey],
+  );
   // Set once handleSelectThread exists, below.
   const openTopicQuestRef = useRef<(questId: string) => void>(() => {});
   const topicFeed = useMemo<TopicFeed | null>(
@@ -1166,6 +1182,13 @@ export function ChatView({
               )}
               {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
                 <div ref={questStripRef} className="contents">
+                  {topicConversation && (
+                    <TopicEntryLine
+                      name={topicConversation.name}
+                      count={topicConversation.questIds.length}
+                      onOpen={() => openTopicConversation(sessionId, selectedThreadKey)}
+                    />
+                  )}
                   <QuestThreadBanner
                     row={selectedThreadRow}
                     threadKey={selectedThreadKey}
@@ -1173,14 +1196,6 @@ export function ChatView({
                     monitorSessionId={sessionId}
                     diffSessionId={sessionId}
                     onCloseTab={closeSelectedThreadTab}
-                    extraChip={
-                      topicConversation && (
-                        <TopicConversationButton
-                          count={topicConversation.questIds.length}
-                          onOpen={() => openTopicConversation(sessionId, selectedThreadKey)}
-                        />
-                      )
-                    }
                   />
                 </div>
               )}
@@ -1198,35 +1213,37 @@ export function ChatView({
               )}
               {/* Where the phone topic panel starts: just under the thread strip. */}
               <div ref={phoneTopicTopRef} aria-hidden="true" />
-              <ViewportHandoffThreadEntryGate
-                key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                sessionId={preview ? null : sessionId}
-                threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                entryId={viewportHandoffThreadEntryRef.current.entryId}
-                fallback={
-                  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                    Loading conversation...
-                  </div>
-                }
-              >
-                {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                <StartedQuestsProvider
-                  sessionId={sessionId}
-                  enabled={isLeaderSession && !preview}
-                  refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+              <TopicEntryContext.Provider value={feedTopicEntry}>
+                <ViewportHandoffThreadEntryGate
+                  key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                  sessionId={preview ? null : sessionId}
+                  threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                  entryId={viewportHandoffThreadEntryRef.current.entryId}
+                  fallback={
+                    <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                      Loading conversation...
+                    </div>
+                  }
                 >
-                  <TopicFeedContext.Provider value={topicFeed}>
-                    <MessageFeed
-                      sessionId={sessionId}
-                      threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                      projectThreadRoutes={isLeaderSession}
-                      onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                      showCodexSubagentControl={!preview}
-                      markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                    />
-                  </TopicFeedContext.Provider>
-                </StartedQuestsProvider>
-              </ViewportHandoffThreadEntryGate>
+                  {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                  <StartedQuestsProvider
+                    sessionId={sessionId}
+                    enabled={isLeaderSession && !preview}
+                    refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                  >
+                    <TopicFeedContext.Provider value={topicFeed}>
+                      <MessageFeed
+                        sessionId={sessionId}
+                        threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                        projectThreadRoutes={isLeaderSession}
+                        onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                        showCodexSubagentControl={!preview}
+                        markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                      />
+                    </TopicFeedContext.Provider>
+                  </StartedQuestsProvider>
+                </ViewportHandoffThreadEntryGate>
+              </TopicEntryContext.Provider>
             </div>
             {!preview && selectedSideChat && (
               <SideChatPanel

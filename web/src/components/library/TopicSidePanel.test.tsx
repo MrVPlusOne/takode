@@ -5,6 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../api.js", () => ({ api: {} }));
 vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: string }) => <div>{text}</div> }));
+const readTopicConversation = vi.hoisted(() => vi.fn());
+vi.mock("../../utils/topic-conversation.js", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  readTopicConversation,
+}));
 
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
@@ -182,6 +187,26 @@ describe("TopicSidePanel", () => {
 
     fireEvent.click(within(view).getByText("Update now"));
     expect(api.update).toHaveBeenCalledWith("t7", "l1");
+  });
+
+  it("turns the quest count into the way to read the topic as one conversation", async () => {
+    // Jiayi: the button shares the count's place instead of repeating the count on a line of its own.
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, questIds: ["q-2713", "q-2797"] });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const read = await screen.findByTestId("topic-read-conversation");
+    expect(read).toHaveTextContent("Read all 2 quests");
+    expect(screen.queryByText(/^2 quests/)).toBeNull();
+    fireEvent.click(read);
+    expect(readTopicConversation).toHaveBeenCalledWith("l1", ["q-2713", "q-2797"], "q-2713");
+  });
+
+  it("keeps a plain count for a topic of one quest", async () => {
+    mockApi();
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const view = await screen.findByTestId("topic-view");
+    expect(within(view).queryByTestId("topic-read-conversation")).toBeNull();
+    expect(view).toHaveTextContent(/1 quest\s*· page updated/);
   });
 
   it("dates each Now entry, mutes one with no news for a week, and marks one done for the Scribe", async () => {

@@ -29,6 +29,7 @@ export function TopicView({
   embedded = false,
   leaderId,
   bottomRoom = 0,
+  onReadConversation,
 }: {
   id: string;
   topics: TopicSummary[];
@@ -40,6 +41,8 @@ export function TopicView({
   leaderId?: string;
   /** Extra room at the bottom, so an expanded composer covering the panel's lower part hides nothing. */
   bottomRoom?: number;
+  /** Reads the topic's quests as one conversation in the leader's feed. */
+  onReadConversation?: (questIds: string[]) => void;
 }) {
   const [detail, setDetail] = useState<TopicDetail | null>(null);
   const [artifacts, setArtifacts] = useState<{ items: ArtifactSummary[]; total: number }>({ items: [], total: 0 });
@@ -109,9 +112,23 @@ export function TopicView({
           </p>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-cc-muted">
-          <span>
-            {detail.questIds.length} quest{detail.questIds.length === 1 ? "" : "s"}
-            {detail.writtenAt ? ` · page updated ${clock(detail.writtenAt)}` : ""}
+          <span className="inline-flex flex-wrap items-center gap-x-1">
+            {onReadConversation && detail.questIds.length > 1 ? (
+              // The quest count doubles as the way to read them all as one conversation.
+              <button
+                type="button"
+                onClick={() => onReadConversation(detail.questIds)}
+                className="inline-flex items-center gap-1 text-cc-primary hover:underline"
+                title="Read the topic's quests as one conversation"
+                data-testid="topic-read-conversation"
+              >
+                <ConversationIcon className="h-3.5 w-3.5" />
+                Read all {detail.questIds.length} quests
+              </button>
+            ) : (
+              `${detail.questIds.length} quest${detail.questIds.length === 1 ? "" : "s"}`
+            )}
+            {detail.writtenAt ? <span>· page updated {clock(detail.writtenAt)}</span> : null}
           </span>
           {detail.pendingEvents > 0 && (
             <span>
@@ -588,4 +605,19 @@ function clock(at: number): string {
   return sameDay
     ? new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
     : new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function ConversationIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
+      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" strokeLinejoin="round" />
+    </svg>
+  );
 }
