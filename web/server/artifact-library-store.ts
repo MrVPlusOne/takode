@@ -471,9 +471,8 @@ export class ArtifactLibraryStore {
     const spaces = [...new Set(all.map((artifact) => artifact.space))].sort();
     const words = (query.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const inSessions = query.sessionIds ? this.artifactsOfSessions(query.sessionIds) : null;
-    const matches = all
+    const others = all
       .filter((artifact) => !query.space || artifact.space === query.space)
-      .filter((artifact) => !query.kind || artifact.kind === query.kind)
       .filter((artifact) => !query.sessionId || artifact.sessionId === query.sessionId)
       .filter((artifact) => !query.threadKeys || query.threadKeys.includes(artifact.threadKey))
       .filter((artifact) => !inSessions || inSessions.has(artifact.id))
@@ -483,13 +482,18 @@ export class ArtifactLibraryStore {
         if (words.length === 0) return true;
         const text = `${artifact.title}\n${artifact.preview}`.toLowerCase();
         return words.every((word) => text.includes(word));
-      })
+      });
+    const kinds: Partial<Record<ArtifactKind, number>> = {};
+    for (const artifact of others) kinds[artifact.kind] = (kinds[artifact.kind] ?? 0) + 1;
+    const matches = others
+      .filter((artifact) => !query.kind || artifact.kind === query.kind)
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const offset = Math.max(0, query.offset ?? 0);
     const limit = Math.min(Math.max(1, query.limit ?? 100), 500);
     return {
       artifacts: matches.slice(offset, offset + limit).map(summarize),
       total: matches.length,
+      kinds,
       spaces,
     };
   }

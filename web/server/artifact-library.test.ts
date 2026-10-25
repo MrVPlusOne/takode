@@ -340,6 +340,9 @@ describe("versions and projection", () => {
     store.setStarred(a.id, true);
     expect(store.list({ starred: true }).artifacts.map((artifact) => artifact.id)).toEqual([a.id]);
     expect(store.list({ query: "two" }).artifacts.map((artifact) => artifact.id)).toEqual([b.id]);
+    // Each kind's count ignores the kind asked for but keeps the other filters, for the kind tabs.
+    expect(store.list({ kind: "figure" }).kinds).toEqual({ post: 2 });
+    expect(store.list({ kind: "figure", query: "two" }).kinds).toEqual({ post: 1 });
 
     const merged = store.merge(b.id, a.id)!;
     expect(merged.artifact).toMatchObject({ versionCount: 2, starred: true });

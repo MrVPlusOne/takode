@@ -11,6 +11,7 @@ import { setLibraryLeader, showLibraryArtifact, useLibraryNav } from "../../util
 import { ArtifactViewer } from "./ArtifactViewer.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
 import { StarIcon } from "../ArtifactInline.js";
+import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import {
   ArtifactFilterButton,
   EMPTY_FILTERS,
@@ -43,10 +44,18 @@ export function LibraryPage() {
   const [filters, setFilters] = useState<ArtifactFilters>(EMPTY_FILTERS);
   const [items, setItems] = useState<ArtifactSummary[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const [kindCounts, setKindCounts] = useState<Partial<Record<ArtifactKind, number>> | null>(null);
   const [knownSpaces, setKnownSpaces] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const requestRef = useRef(0);
+  // An artifact opened from the gallery gets its own history entry, so going back (the phone's
+  // swipe) returns to the gallery rather than closing the Library.
+  const [openedFromGallery, setOpenedFromGallery] = useState<string | null>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  usePreviewSheetHistoryEntry(artifactId !== null && artifactId === openedFromGallery, viewerRef, () =>
+    showLibraryArtifact(null),
+  );
   // The last leader this Library was opened for, so the scope menu can switch back to it.
   const lastLeader = useRef<string | null>(leaderId);
   if (leaderId) lastLeader.current = leaderId;
@@ -75,6 +84,7 @@ export function LibraryPage() {
           if (request !== requestRef.current) return;
           setItems((previous) => (offset === 0 ? next.artifacts : [...previous, ...next.artifacts]));
           setTotal(next.total);
+          setKindCounts(next.kinds);
           setKnownSpaces(next.spaces);
           setError(null);
         })
@@ -150,7 +160,7 @@ export function LibraryPage() {
   const header = (
     <div className="flex flex-wrap items-center gap-2">
       <div className="order-2 w-full md:order-1 md:w-auto md:max-w-[620px] md:flex-1">
-        <KindTabs kind={kind} onChange={setKind} />
+        <KindTabs kind={kind} counts={kindCounts} onChange={setKind} />
       </div>
       <div className="order-1 ml-auto flex min-w-0 items-center gap-2 md:order-2">
         {scopeSelect}
@@ -185,7 +195,7 @@ export function LibraryPage() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-cc-bg" data-testid="library-page" data-scope={scopeKey}>
       {artifactId && (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div ref={viewerRef} className="flex min-h-0 flex-1 flex-col">
           <ArtifactViewer id={artifactId} onBack={() => showLibraryArtifact(null)} onChanged={() => fetchPage(0)} />
         </div>
       )}
@@ -206,6 +216,10 @@ export function LibraryPage() {
           showSpace={!leaderId && !effectiveSpace}
           filtered={filtersActive(filters)}
           onMore={() => !loading && total !== null && items.length < total && fetchPage(items.length)}
+          onOpen={(id) => {
+            setOpenedFromGallery(id);
+            showLibraryArtifact(id);
+          }}
           onToggleStar={toggleStar}
         />
       </div>
@@ -213,8 +227,20 @@ export function LibraryPage() {
   );
 }
 
-/** One kind at a time; All is last, for when the kind is unknown. Equal cells, so the bar stays aligned. */
-function KindTabs({ kind, onChange }: { kind: KindTab; onChange: (kind: KindTab) => void }) {
+/**
+ * One kind at a time; All is last, for when the kind is unknown. Equal cells, so the bar stays
+ * aligned. A kind with nothing to show (under the same scope and filters) is disabled, unless it is
+ * the one on screen.
+ */
+function KindTabs({
+  kind,
+  counts,
+  onChange,
+}: {
+  kind: KindTab;
+  counts: Partial<Record<ArtifactKind, number>> | null;
+  onChange: (kind: KindTab) => void;
+}) {
   return (
     <div
       className="grid grid-cols-7 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[12.5px]"
@@ -227,8 +253,9 @@ function KindTabs({ kind, onChange }: { kind: KindTab; onChange: (kind: KindTab)
           type="button"
           role="tab"
           aria-selected={kind === value}
+          disabled={value !== kind && value !== "all" && counts !== null && !counts[value]}
           onClick={() => onChange(value)}
-          className={`truncate px-0.5 py-1.5 ${kind === value ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"}`}
+          className={`truncate px-0.5 py-1.5 disabled:cursor-default disabled:opacity-40 ${kind === value ? "bg-cc-active text-cc-fg" : "text-cc-muted enabled:hover:text-cc-fg"}`}
           data-testid="library-kind-tab"
           data-kind={value}
         >
@@ -278,6 +305,7 @@ function Gallery({
   showSpace,
   filtered,
   onMore,
+  onOpen,
   onToggleStar,
 }: {
   items: ArtifactSummary[];
@@ -288,6 +316,7 @@ function Gallery({
   showSpace: boolean;
   filtered: boolean;
   onMore: () => void;
+  onOpen: (artifactId: string) => void;
   onToggleStar: (artifact: ArtifactSummary) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -333,7 +362,7 @@ function Gallery({
                   artifact={artifact}
                   showKind={kind === "all"}
                   showSpace={showSpace}
-                  onOpen={() => showLibraryArtifact(artifact.id)}
+                  onOpen={() => onOpen(artifact.id)}
                   onToggleStar={() => onToggleStar(artifact)}
                 />
               ))}

@@ -1,3 +1,4 @@
+import { useComposerScrollSpace } from "../ComposerFeedLayout.js";
 import { Activity, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { QuestTopicMap, TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
@@ -66,6 +67,8 @@ export function TopicSidePanel({
   const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const followed = useQuestTopic(leaderId, threadKey);
+  // An expanded desktop composer can cover the panel's lower part; the feed gets the same room.
+  const composerRoom = useComposerScrollSpace(`topic-panel:${leaderId}`);
   const focus = useTopicPanel((state) => (state.focus?.leaderId === leaderId ? state.focus : null));
 
   const load = useCallback(() => {
@@ -143,6 +146,7 @@ export function TopicSidePanel({
         .map(({ topicId }) => (
           <Activity key={topicId} mode={topicId === shown ? "visible" : "hidden"}>
             <TopicView
+              bottomRoom={composerRoom}
               id={topicId}
               topics={data?.topics ?? []}
               onBack={() => setChosen("")}
@@ -153,7 +157,11 @@ export function TopicSidePanel({
           </Activity>
         ))}
       <Activity mode={shown ? "hidden" : "visible"}>
-        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="topic-panel-list">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          style={composerRoom ? { paddingBottom: composerRoom } : undefined}
+          data-testid="topic-panel-list"
+        >
           {!data ? (
             <div className="px-3 py-4 text-[13px] text-cc-muted">Loading…</div>
           ) : (

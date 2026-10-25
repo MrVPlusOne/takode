@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,6 +82,7 @@ beforeEach(() => {
           JSON.stringify({
             artifacts: [POST],
             total: 1,
+            kinds: { figure: 1, post: 1 },
             spaces: ["MSI", "Takode"],
           }),
         );
@@ -114,6 +115,10 @@ describe("LibraryPage", () => {
     expect(requests[0]).toContain("kind=figure");
     expect(within(card).getByText("T7 thread update")).toBeInTheDocument();
     expect(screen.getByText("Today", { selector: "h3" })).toBeInTheDocument();
+    // A kind with nothing in it can't be chosen; kinds with artifacts and All can.
+    expect(screen.getByRole("tab", { name: "Tables" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Posts" })).toBeEnabled();
+    expect(screen.getByRole("tab", { name: "All" })).toBeEnabled();
 
     // Another kind, then All (no kind filter), which also names each card's kind.
     fireEvent.click(screen.getByRole("tab", { name: "Posts" }));
@@ -129,6 +134,18 @@ describe("LibraryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
     expect(await screen.findByText("Draft version 2")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "‹ Library" }));
+    expect(screen.getByTestId("library-gallery")).toBeVisible();
+  });
+
+  it("goes back from an artifact opened in the gallery to the gallery, as the phone's swipe does", async () => {
+    // The swipe is the browser's back: it must leave the artifact, not the Library.
+    render(<LibraryPage />);
+    fireEvent.click(within(await screen.findByTestId("library-artifact-card")).getByText("T7 thread update"));
+    expect(await screen.findByText("Draft version 3")).toBeInTheDocument();
+    const popped = new Promise((resolve) => window.addEventListener("popstate", resolve, { once: true }));
+    act(() => history.back());
+    await act(async () => popped);
+    expect(screen.queryByTestId("artifact-viewer")).toBeNull();
     expect(screen.getByTestId("library-gallery")).toBeVisible();
   });
 

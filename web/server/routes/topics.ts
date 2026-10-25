@@ -195,7 +195,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         byAgent: !!scribeLeader(svc, callerId),
         ...(questLeader ? { leaderId: questLeader } : {}),
       });
-      if (questLeader) svc.changed(questLeader);
+      if (questLeader) svc.leaderActivity(questLeader);
       return result;
     }),
   );

@@ -83,7 +83,24 @@ const EXCERPT_CHARS = 280;
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
 export const PAGE_FORMAT = 3;
 
-export type DeliveryResult = "sent" | "nothing" | "paused" | "busy" | "off";
+export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
+
+/** How urgent an event kind is for its Scribe (see `TopicService.schedule`). */
+type EventTiming = "ride" | "user" | "leader";
+
+/** The user's own page actions ride along; their other actions and the leader's activity are scheduled. */
+function eventTiming(kind: TopicEvent["kind"]): EventTiming {
+  if (kind === "now_done") return "ride";
+  if (kind === "message" || kind === "undone") return "user";
+  return "leader";
+}
+
+/** A burst of events waits for a pause this long before it goes. */
+const DEBOUNCE_MS = 30_000;
+/** The leader's activity goes at once when none came for this long. */
+const QUIET_MS = 2 * 60_000;
+/** No waiting event waits longer than this. */
+const MAX_WAIT_MS = 2 * 60_000;
 
 /** A message the Scribe got and has not finished a turn on yet. */
 interface Delivery {
@@ -111,6 +128,12 @@ export class TopicService {
   private forced = new Map<string, Set<string>>();
   /** Per leader: what was left when the Scribe stopped again after a reminder (shown in its status). */
   private stalled = new Map<string, string[]>();
+  /** Per leader: when its waiting events are due to go, and when the first of them came. */
+  private dueAt = new Map<string, number>();
+  private firstPendingAt = new Map<string, number>();
+  private dueTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Per leader: its latest activity event, to tell a burst from the first event after a quiet spell. */
+  private lastLeaderEventAt = new Map<string, number>();
   /** Per leader: deliveries run one at a time, so two events never send two messages. */
   private chains = new Map<string, Promise<unknown>>();
   private readonly now: () => number;
@@ -157,7 +180,7 @@ export class TopicService {
     }
     this.store.setCursor(sessionId, history.length);
     void this.store.flush();
-    if (recorded) this.changed(sessionId);
+    if (recorded) this.schedule(sessionId, "user");
   }
 
   /** A quest of a leader with topics on changed: finishing one is an event; a new one may need a topic. */
@@ -172,8 +195,14 @@ export class TopicService {
     }
     this.noteResolutions(topic.id, leaderId, quest);
     if (quest.status !== "done") return;
-    const already = topic.events.some((event) => event.kind === "quest_done" && event.questId === quest.questId);
+    // A reopened quest finishes again (each landing completes it): every completion is news, so
+    // only an event recorded since this completion counts as already told.
+    const completedAt = (quest as { completedAt?: number }).completedAt ?? 0;
+    const already = topic.events.some(
+      (event) => event.kind === "quest_done" && event.questId === quest.questId && event.at >= completedAt,
+    );
     if (already) return;
+    const wrapUp = (quest as { debriefTldr?: string }).debriefTldr?.trim();
     // Checks the quest left for the user are often what the page's Now needs.
     const checks = (
       (quest as { verificationItems?: Array<{ text: string; checked: boolean }> }).verificationItems ?? []
@@ -184,7 +213,13 @@ export class TopicService {
       at: this.now(),
       kind: "quest_done",
       questId: quest.questId,
-      text: excerpt(checks.length ? `${quest.title} · left for the user: ${checks.join("; ")}` : quest.title, 600),
+      // The wrap-up says what changed and whether it is live; open checks are often Now's material.
+      text: excerpt(
+        [quest.title, wrapUp, checks.length ? `left for the user: ${checks.join("; ")}` : ""]
+          .filter(Boolean)
+          .join(" · "),
+        900,
+      ),
     });
   }
 
@@ -237,8 +272,8 @@ export class TopicService {
   nowDone(topicId: string, leaderId: string, key: string, done = true): void {
     const item = excerpt(this.store.markNowDone(topicId, key, done), 400);
     const text = done
-      ? `the user marked this Now item done on the page: "${item}"`
-      : `the user took back marking this Now item done; keep it: "${item}"`;
+      ? `the user marked this Now item done on the page, which took it off: "${item}"`
+      : `the user took back marking this Now item done, which put it back: "${item}"`;
     this.event(topicId, leaderId, { at: this.now(), kind: "now_done", text });
   }
 
@@ -250,9 +285,14 @@ export class TopicService {
     return this.deliver(leaderId);
   }
 
-  /** The user undid a tidying change: the Scribes of the space hear about it. */
+  /** The user undid a tidying change: the Scribes of the space hear about it, after a short pause. */
   undone(space: string): void {
-    for (const leader of this.enabledLeadersIn(space)) this.changed(leader);
+    for (const leader of this.enabledLeadersIn(space)) this.schedule(leader, "user");
+  }
+
+  /** The leader filed a quest under a topic: its Scribe hears about it promptly. */
+  leaderActivity(leaderId: string): void {
+    this.schedule(leaderId, "leader");
   }
 
   /** Something the leader's Scribe should hear about changed (instructions, a resume, a filing). */
@@ -260,12 +300,48 @@ export class TopicService {
     if (this.store.isLeaderEnabled(leaderId)) void this.deliver(leaderId);
   }
 
-  /** Records an event for a leader's Scribe and sends it as soon as the Scribe is idle. */
+  /** Records an event for a leader's Scribe and schedules it by how urgent its kind is. */
   event(topicId: string, leaderId: string, event: TopicEvent): void {
     this.store.addEvent(topicId, { ...event, leaderId });
     void this.store.flush();
     this.deps.broadcastChanged();
-    this.changed(leaderId);
+    this.schedule(leaderId, eventTiming(event.kind));
+  }
+
+  /**
+   * When new events go to the Scribe. The user's own page actions ("ride") wait for the next
+   * message. The user's other actions ("user") wait for a pause of DEBOUNCE_MS, so a burst becomes
+   * one message. The leader's activity ("leader") goes at once after a quiet spell, and a burst
+   * that follows waits for a pause too. No event waits longer than MAX_WAIT_MS.
+   */
+  private schedule(leaderId: string, timing: EventTiming): void {
+    if (timing === "ride" || !this.store.isLeaderEnabled(leaderId)) return;
+    const now = this.now();
+    // Already due (its delivery is underway or waits for the Scribe's turn to end): keep it due.
+    const existing = this.dueAt.get(leaderId);
+    if (existing !== undefined && existing <= now) {
+      if (timing === "leader") this.lastLeaderEventAt.set(leaderId, now);
+      this.changed(leaderId);
+      return;
+    }
+    const first = this.firstPendingAt.get(leaderId) ?? now;
+    const quiet = now - (this.lastLeaderEventAt.get(leaderId) ?? Number.NEGATIVE_INFINITY) >= QUIET_MS;
+    if (timing === "leader") this.lastLeaderEventAt.set(leaderId, now);
+    const due =
+      timing === "leader" && quiet && !this.dueAt.has(leaderId)
+        ? now
+        : Math.min(now + DEBOUNCE_MS, first + MAX_WAIT_MS);
+    this.firstPendingAt.set(leaderId, first);
+    this.dueAt.set(leaderId, due);
+    if (due <= now) {
+      this.changed(leaderId);
+      return;
+    }
+    clearTimeout(this.dueTimers.get(leaderId));
+    this.dueTimers.set(
+      leaderId,
+      setTimeout(() => this.changed(leaderId), due - now),
+    );
   }
 
   // ─── Messages to the Scribe ───────────────────────────────────────────────
@@ -352,6 +428,13 @@ export class TopicService {
       (quest) => quest.status !== "done" && !this.store.topicOfQuest(quest.questId) && !told.has(quest.questId),
     );
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
+    // Events alone wait until they are due, and the user's own page actions only ride along.
+    const urgent =
+      forcedNames.length > 0 || unsorted.length > 0 || rewritePages || (sendInstructions && !!instructions);
+    if (!urgent) {
+      if (!topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"))) return "nothing";
+      if ((this.dueAt.get(leaderId) ?? 0) > this.now()) return "waiting";
+    }
     const text = updateMessage(
       leader,
       {
@@ -373,6 +456,10 @@ export class TopicService {
     );
     this.store.markInstructionsSent(leaderId);
     this.stalled.delete(leaderId);
+    this.dueAt.delete(leaderId);
+    this.firstPendingAt.delete(leaderId);
+    clearTimeout(this.dueTimers.get(leaderId));
+    this.dueTimers.delete(leaderId);
     const names = rewritePages
       ? this.store
           .list(leader.space)
@@ -470,7 +557,9 @@ export class TopicService {
     return this.store.list(leader.space).flatMap((topic) => {
       const unread = this.store
         .pendingEvents(topic.id, leaderId)
-        .filter((event) => (event.seq ?? 0) <= delivery.throughSeq && !event.byScribe).length;
+        .filter(
+          (event) => (event.seq ?? 0) <= delivery.throughSeq && !event.byScribe && event.kind !== "now_done",
+        ).length;
       return unread ? [`"${topic.name}": ${unread} event${unread === 1 ? "" : "s"} not on its page yet`] : [];
     });
   }
@@ -576,7 +665,11 @@ export class TopicService {
     const alive = !!scribe && this.deps.isScribeAlive(scribe);
     const pending = this.store
       .list(leader.space)
-      .reduce((sum, topic) => sum + this.store.pendingEvents(topic.id, leaderId).length, 0);
+      .reduce(
+        (sum, topic) =>
+          sum + this.store.pendingEvents(topic.id, leaderId).filter((event) => event.kind !== "now_done").length,
+        0,
+      );
     const lastPageAt = this.store
       .list(leader.space)
       .filter((topic) => topic.questIds.length)

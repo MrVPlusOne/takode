@@ -33,7 +33,7 @@ export function createArtifactRoutes(
 
   api.get("/artifacts", (c) => {
     const lib = library();
-    if (!lib) return c.json({ artifacts: [], total: 0, spaces: [] });
+    if (!lib) return c.json({ artifacts: [], total: 0, kinds: {}, spaces: [] });
     const query: ArtifactListQuery = {};
     // An agent sees its own session's space unless it asks for another one, or for all.
     const space = c.req.query("space") ?? callerSpace(c);

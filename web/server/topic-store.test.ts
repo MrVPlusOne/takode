@@ -283,11 +283,14 @@ describe("topic service", () => {
     injected.length = 0;
     vi.advanceTimersByTime(1000);
 
-    // The user's messages in the quest's tab go out at once, with links to the messages.
+    // The user's messages in the quest's tab go out after a short pause (a burst becomes one
+    // message), with links to the messages.
     leader.messageHistory.push(userMessage("Keep 0.02, launch now", "q-2713", Date.now()));
     leader.messageHistory.push(userMessage("unrelated", "main", Date.now()));
     service.sessionSaved("leader");
     await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(injected).toHaveLength(1);
     expect(injected[0]).toMatchObject({ sessionId: scribe });
     expect(injected[0].text).toContain('the user wrote in q-2713 ([message](session:7:0)): "Keep 0.02, launch now"');
@@ -297,7 +300,7 @@ describe("topic service", () => {
     busy.add(scribe);
     leader.messageHistory.push(userMessage("Also redo the plots by data", "q-2713", Date.now()));
     service.sessionSaved("leader");
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(injected).toHaveLength(1);
     vi.advanceTimersByTime(10);
     writePage(store, "T7 run");
@@ -348,7 +351,7 @@ describe("topic service", () => {
     // A write based on the page before A's is refused, so B merges instead of overwriting.
     expect(() =>
       store.writePage(topic.id, "## Where it stands\nB only.", Date.now(), { leaderId: "other", revision }),
-    ).toThrow(/updated this page since you read it/);
+    ).toThrow(/changed since you read it/);
   });
 
   it("names new quests with no topic and changed grouping instructions, each once", async () => {
@@ -503,15 +506,93 @@ describe("topic service", () => {
     store.addEvent(topic.id, { at: now, kind: "artifact", questId: "q-1", text: "report" });
     expect(store.nowStatus(topic.id)[0]!.lastNews).toBe(NOW + 4 * DAY);
 
+    // A done tap takes the item off the page at once, with no Scribe round: the user knows what they
+    // did. The event waits to ride along with the next message, and Undo puts the item back.
     injected.length = 0;
     service.nowDone(topic.id, "leader", budgets!.key);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(store.nowStatus(topic.id)[1]!.doneAt).toBe(now);
-    expect(injected[0]!.text).toContain(
-      'the user marked this Now item done on the page: "**Next:** ask about budgets."',
-    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(injected).toHaveLength(0);
+    expect(store.detail(topic.id).page).not.toContain("ask about budgets");
+    expect(store.nowStatus(topic.id).find((item) => item.key === budgets!.key)).toMatchObject({
+      doneAt: now,
+      text: "**Next:** ask about budgets.",
+    });
+    expect(store.list("MSI").find((t) => t.id === topic.id)!.pendingEvents).toBe(1); // the artifact, not the tap
     service.nowDone(topic.id, "leader", budgets!.key, false);
+    expect(store.detail(topic.id).page).toContain("- **Next:** ask about budgets.");
     expect(store.nowStatus(topic.id)[1]!.doneAt).toBeUndefined();
+    service.nowDone(topic.id, "leader", budgets!.key);
+    service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title: "Plots", kind: "figure", version: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain("which took it off");
+    expect(injected[0]!.text).toContain('figure "Plots" was saved in q-1');
+  });
+
+  it("sends the leader's first event at once, debounces a burst, and debounces the user's own", async () => {
+    // A Scribe round per event wastes work: a burst becomes one message after a 30-second pause,
+    // the leader's first event after a quiet spell goes at once, and nothing waits over 2 minutes.
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const { topic } = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "T7 run",
+      by: "agent",
+      byAgent: true,
+      leaderId: "leader",
+    });
+    await service.scribeTurnEnded(scribe);
+    injected.length = 0;
+    const artifact = (title: string) =>
+      service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title, kind: "figure", version: 1 });
+
+    artifact("First");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
+
+    // A burst right after: one message once the burst pauses.
+    artifact("Second");
+    await vi.advanceTimersByTimeAsync(20_000);
+    artifact("Third");
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(injected).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(injected).toHaveLength(2);
+    expect(injected[1]!.text).toContain('figure "Second"');
+    expect(injected[1]!.text).toContain('figure "Third"');
+    expect(store.detail(topic.id).events.at(-1)?.kind).toBe("artifact");
+  });
+
+  it("tells the Scribe every time a reopened quest finishes again, with its wrap-up", async () => {
+    // Each landing completes a reopened quest; only the first completion used to reach the Scribe,
+    // so pages kept saying work was waiting to land after it was live.
+    const { service, injected, store } = await setupService();
+    await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    const finish = (completedAt: number, wrapUp: string) =>
+      service.questChanged({
+        questId: "q-1",
+        title: "Launch T7",
+        status: "done",
+        leaderSessionId: "leader",
+        completedAt,
+        debriefTldr: wrapUp,
+      } as unknown as QuestmasterTask);
+    injected.length = 0;
+    finish(Date.now(), "Submitted to the landing queue.");
+    await vi.advanceTimersByTimeAsync(0);
+    finish(Date.now() - 1, "Submitted to the landing queue.");
+    vi.advanceTimersByTime(5 * 60_000);
+    finish(Date.now(), "Landed; live after the restart.");
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    const done = store.detail(store.findByName("MSI", "T7 run")!.id).events.filter((e) => e.kind === "quest_done");
+    expect(done.map((event) => event.text)).toEqual([
+      "Launch T7 · Submitted to the landing queue.",
+      "Launch T7 · Landed; live after the restart.",
+    ]);
   });
 
   it("tells the Scribe which checks a finished quest left for the user", async () => {

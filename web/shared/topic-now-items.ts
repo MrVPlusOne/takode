@@ -31,8 +31,10 @@ export interface NowItemStatus {
   since: number;
   /** The latest news about it: its appearing or rewording, or an event of a quest it links. */
   lastNews: number;
-  /** When the user marked it done on the page; the Scribe removes it at its next update. */
+  /** When the user marked it done on the page, which took it off the page (Undo puts it back). */
   doneAt?: number;
+  /** For an item marked done: its text, since it is no longer on the page. */
+  text?: string;
 }
 
 /** An item with no news for this long is shown muted. */
@@ -40,6 +42,23 @@ export const NOW_ITEM_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** The page's Now section split into its items; null when it has none. */
 export function nowSectionOf(page: string | null): NowSection | null {
+  const section = splitNowSection(page);
+  return section?.items.length ? section : null;
+}
+
+/**
+ * The page with its Now section's items replaced, each a bullet, everything else kept; "Nothing
+ * open." when none remain. Null when the page has no Now heading.
+ */
+export function withNowItems(page: string | null, texts: readonly string[]): string | null {
+  const section = splitNowSection(page);
+  if (!section) return null;
+  const list = texts.length ? texts.map((text) => `- ${text}`).join("\n") : "Nothing open.";
+  return [section.before, list, ...(section.after ? ["", section.after] : [])].join("\n");
+}
+
+/** The Now section, also when it holds no items; null without a Now heading. */
+function splitNowSection(page: string | null): NowSection | null {
   if (!page) return null;
   const lines = page.split("\n");
   const start = lines.findIndex((line) => /^##\s+Now\s*$/i.test(line.trim()));
@@ -52,7 +71,6 @@ export function nowSectionOf(page: string | null): NowSection | null {
     if (/^[-*]\s+/.test(line)) bullets.push([line.replace(/^[-*]\s+/, "")]);
     else if (bullets.length && line.trim()) bullets[bullets.length - 1]!.push(line.trim());
   }
-  if (!bullets.length) return null;
 
   const seen = new Map<string, number>();
   const items = bullets.map((parts) => {

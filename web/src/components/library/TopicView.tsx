@@ -26,6 +26,7 @@ export function TopicView({
   onChanged,
   embedded = false,
   leaderId,
+  bottomRoom = 0,
 }: {
   id: string;
   topics: TopicSummary[];
@@ -35,6 +36,8 @@ export function TopicView({
   embedded?: boolean;
   /** The leader whose panel shows the page: Update now goes to its Scribe, the gallery is its own. */
   leaderId?: string;
+  /** Extra room at the bottom, so an expanded composer covering the panel's lower part hides nothing. */
+  bottomRoom?: number;
 }) {
   const [detail, setDetail] = useState<TopicDetail | null>(null);
   const [artifacts, setArtifacts] = useState<{ items: ArtifactSummary[]; total: number }>({ items: [], total: 0 });
@@ -87,7 +90,11 @@ export function TopicView({
   const open = (detail.quests ?? []).filter((quest) => quest.status !== "done");
   return (
     <TopicFrame onBack={onBack} embedded={embedded}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-3 [&>*]:max-w-3xl" data-testid="topic-view">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-3 [&>*]:max-w-3xl"
+        style={bottomRoom ? { paddingBottom: `calc(2rem + ${bottomRoom}px)` } : undefined}
+        data-testid="topic-view"
+      >
         <TopicHeader detail={detail} others={topics.filter((topic) => topic.id !== detail.id)} act={act} />
         {lead && (
           <p className="mt-1 text-[14px] leading-snug text-cc-muted" data-testid="topic-lead">
@@ -125,6 +132,7 @@ export function TopicView({
                     `- [${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`,
                 )
                 .join("\n")}
+              questLinkSurface="chat-feed"
             />
           </section>
         )}
@@ -196,19 +204,69 @@ function TopicPageBody({
   onDone?: (key: string, done: boolean) => void;
 }) {
   const section = nowSectionOf(body);
-  if (!section) return <MarkdownContent text={body} />;
   const byKey = new Map(status.map((item) => [item.key, item]));
+  // Items marked done are off the page; they show struck through, with Undo, for a day.
+  const done = status.filter(
+    (item) => item.doneAt !== undefined && item.text && !section?.items.some((i) => i.key === item.key),
+  );
+  if (!section && !done.length) return <MarkdownContent text={body} questLinkSurface="chat-feed" />;
+  const groups = nowGroups(section?.items ?? [], byKey);
   return (
     <>
-      <MarkdownContent text={section.before} />
-      <ul className="mb-3 mt-1 flex flex-col gap-1.5" data-testid="topic-now-items">
-        {section.items.map((item) => (
-          <NowItemRow key={item.key} text={item.text} status={byKey.get(item.key)} onDone={onDone} itemKey={item.key} />
+      <MarkdownContent text={section ? section.before : body} questLinkSurface="chat-feed" />
+      <div className="mb-3 mt-1 flex flex-col gap-2" data-testid="topic-now-items">
+        {groups.map((group) => (
+          <div key={group.label || "-"} data-testid="topic-now-group">
+            {group.label && <div className="text-[12.5px] font-medium text-cc-muted">{group.label}</div>}
+            <ul className="mt-0.5 flex flex-col gap-1.5">
+              {group.items.map((item) => (
+                <NowItemRow
+                  key={item.key}
+                  text={item.text}
+                  status={byKey.get(item.key)}
+                  onDone={onDone}
+                  itemKey={item.key}
+                />
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
-      {section.after && <MarkdownContent text={section.after} />}
+        {done.length > 0 && (
+          <ul className="flex flex-col gap-1.5">
+            {done.map((item) => (
+              <NowItemRow key={item.key} text={item.text!} status={item} onDone={onDone} itemKey={item.key} />
+            ))}
+          </ul>
+        )}
+      </div>
+      {section?.after && <MarkdownContent text={section.after} questLinkSurface="chat-feed" />}
     </>
   );
+}
+
+/**
+ * Now items grouped by their label ("In progress", "Next"), in the order the page first uses
+ * each label, newest first within a group; the label shows once as the group's heading instead
+ * of on each item. Items without a label come first.
+ */
+function nowGroups(
+  items: ReadonlyArray<{ key: string; text: string }>,
+  status: ReadonlyMap<string, NowItemStatus>,
+): Array<{ label: string; items: Array<{ key: string; text: string }> }> {
+  const groups = new Map<string, Array<{ key: string; text: string; since: number }>>();
+  for (const item of items) {
+    const match = /^\*\*([^*]+?):?\*\*:?\s*/.exec(item.text);
+    const label = match ? match[1]!.replace(/:$/, "").trim() : "";
+    const group = groups.get(label) ?? [];
+    group.push({
+      key: item.key,
+      text: match ? item.text.slice(match[0].length) : item.text,
+      since: status.get(item.key)?.since ?? 0,
+    });
+    groups.set(label, group);
+  }
+  const ordered = [...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : 0));
+  return ordered.map(([label, group]) => ({ label, items: [...group].sort((a, b) => b.since - a.since) }));
 }
 
 function NowItemRow({
@@ -229,13 +287,13 @@ function NowItemRow({
       <span aria-hidden="true" className="mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full bg-cc-fg/80" />
       <div className="min-w-0 flex-1">
         <div className={done ? "line-through opacity-50" : stale ? "opacity-60" : ""}>
-          <MarkdownContent text={text} />
+          <MarkdownContent text={text} questLinkSurface="chat-feed" />
         </div>
         {status && (
           <div className="text-[12px] text-cc-muted">
             {done ? (
               <>
-                Marked done; the Scribe takes it off the page.{" "}
+                Marked done {when(status.doneAt!)}.{" "}
                 {onDone && (
                   <button
                     type="button"
@@ -247,9 +305,9 @@ function NowItemRow({
                 )}
               </>
             ) : stale ? (
-              `No news since ${day(status.lastNews)}`
+              `No news since ${when(status.lastNews)}`
             ) : (
-              `Since ${day(status.since)}`
+              `Since ${when(status.since)}`
             )}
           </div>
         )}
@@ -280,8 +338,9 @@ function NowItemRow({
   );
 }
 
-function day(at: number): string {
-  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+/** "Oct 24, 3:22 PM". */
+function when(at: number): string {
+  return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 /** The name, with Rename and Merge in a small menu rather than on the page. */

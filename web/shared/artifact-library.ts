@@ -136,6 +136,8 @@ export interface ArtifactListQuery {
 export interface ArtifactListResponse {
   artifacts: ArtifactSummary[];
   total: number;
+  /** How many artifacts each kind has under the same query without its kind, for the kind tabs. */
+  kinds: Partial<Record<ArtifactKind, number>>;
   spaces: string[];
 }
 

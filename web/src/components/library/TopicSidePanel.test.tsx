@@ -204,6 +204,36 @@ describe("TopicSidePanel", () => {
     expect(done).toHaveBeenCalledWith("t7", "on hold|the qa seeds", "l1", true);
   });
 
+  it("groups Now items under their labels, newest first, and keeps a done item with Undo", async () => {
+    // The Scribe groups items by label but nothing showed the groups, so a new item seemed to land
+    // in a random place; the label is now the group's heading and the newest item leads.
+    mockApi();
+    const day = 24 * 60 * 60 * 1000;
+    vi.mocked(topicApi.get).mockResolvedValue({
+      ...DETAIL,
+      page: "T7.\n## Now\n- **Next:** old step.\n- **In progress:** the run.\n- **Next:** new step.\n## Recent\n- Oct 23",
+      nowItems: [
+        { key: "next|old step", since: NOW - 2 * day, lastNews: NOW - 2 * day },
+        { key: "in progress|the run", since: NOW - day, lastNews: NOW - day },
+        { key: "next|new step", since: NOW, lastNews: NOW },
+        { key: "next|sent", since: NOW - day, lastNews: NOW - day, doneAt: NOW, text: "**Next:** send the guide." },
+      ],
+    });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    await screen.findAllByTestId("topic-now-item");
+    const groups = screen.getAllByTestId("topic-now-group");
+    expect(groups.map((group) => group.firstElementChild?.textContent)).toEqual(["Next", "In progress"]);
+    expect(
+      within(groups[0]!)
+        .getAllByTestId("topic-now-item")
+        .map((item) => item.textContent),
+    ).toEqual([expect.stringContaining("new step."), expect.stringContaining("old step.")]);
+    const done = screen.getAllByTestId("topic-now-item").at(-1)!;
+    expect(done).toHaveTextContent("send the guide.");
+    expect(done).toHaveTextContent("Marked done");
+    expect(within(done).getByText("Undo")).toBeInTheDocument();
+  });
+
   it("shows the Scribe's live status, rename suggestions to answer, and the grouping instructions box", async () => {
     const api = mockApi();
     vi.spyOn(topicApi, "list").mockResolvedValue(ON);
