@@ -243,7 +243,7 @@ const SEND_HELP = `Usage: takode send <session> <message> [--thread <main|q-N>] 
        takode send <session> --stdin [--thread <main|q-N>] [--correction] [--json]
 
 Send a message to a herded session, or to another leader session.
-A leader's busy state does not block delivery, so --correction is not needed for leaders.
+A leader's or a Scribe's busy state does not block delivery, so --correction is not needed for them.
 Messages to a leader must name the receiving leader's thread with --thread: the quest the
 message is about when that leader runs it or you are handing it over, otherwise main.
 A quest that does not exist falls back to Main; the result says which thread was used.
@@ -780,7 +780,7 @@ Commands:
   visual        Preview a visual block at phone and desktop size before publishing it
   artifact      List and read saved artifacts (drafts, reports, figures, visuals, reviews) and their versions
   topic         Library topics: file quests by subject and read topic pages
-  scribe        The leader's Scribe that keeps topic pages: status, grouping instructions, pause
+  scribe        The leader's Scribe that keeps topic pages: status, instructions, pause
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session

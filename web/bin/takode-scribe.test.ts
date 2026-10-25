@@ -20,11 +20,11 @@ const STATUS: ScribeStatusResponse = {
 };
 
 describe("formatScribeStatus", () => {
-  it("names the Scribe, its spend, the grouping instructions and waiting renames", () => {
+  it("names the Scribe, its spend, the instructions and waiting renames", () => {
     expect(formatScribeStatus(STATUS).split("\n")).toEqual([
       "Topics for #2957 (space MSI): 9 topics",
       "Scribe #3146: Up to date (paused)",
-      'Grouping instructions: "One topic per training run."',
+      'Instructions: "One topic per training run."',
       'Waiting for the user: rename "Interview with Qi Chen" to "Interviews"',
     ]);
   });

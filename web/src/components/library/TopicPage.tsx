@@ -10,7 +10,7 @@ import { topicApi } from "../../api/topics.js";
 
 /**
  * A leader's topics switch and settings. Off: an offer to turn topics on (with the quest count once
- * there are about 20). On: Settings opens the pause, the user's grouping instructions for the Scribe,
+ * there are about 20). On: Settings opens the pause, the user's instructions for the Scribe,
  * and turning topics off.
  */
 export function LeaderSwitches({
@@ -65,7 +65,7 @@ export function LeaderSwitches({
         aria-expanded={open}
         className="text-cc-primary hover:underline"
       >
-        {open ? "Hide settings" : "Settings and grouping"}
+        {open ? "Hide settings" : "Settings and instructions"}
       </button>
       {open && (
         <div className="mt-2 flex flex-col gap-2.5" data-testid="topic-settings">
@@ -91,7 +91,7 @@ export function LeaderSwitches({
   );
 }
 
-/** "How to group my topics": the user's instructions for the Scribe, in their own words. */
+/** The user's lasting instructions for the Scribe (grouping, what pages show), in their own words. */
 function ScribeInstructionsBox({
   leaderId,
   saved,
@@ -106,14 +106,14 @@ function ScribeInstructionsBox({
   return (
     <div data-testid="scribe-instructions">
       <label htmlFor={`grouping-${leaderId}`} className="mb-1 block text-[12px] text-cc-muted">
-        How to group my topics
+        Instructions for the Scribe
       </label>
       <textarea
         id={`grouping-${leaderId}`}
         value={text}
         onChange={(event) => setText(event.target.value)}
         rows={3}
-        placeholder="For example: one topic per training run; keep interviews out of topics."
+        placeholder="For example: one topic per training run; keep links to the newest report at the top of its page."
         className="w-full resize-y rounded-lg border border-cc-border bg-cc-card px-2.5 py-1.5 text-base text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60 md:text-[13px]"
       />
       {text.trim() !== saved.trim() && (

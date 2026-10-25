@@ -13,9 +13,9 @@ steer it beyond these commands, message it: takode send <its session> "...".
 
 For leaders:
   takode scribe status [--leader <session>] [--json]   What your Scribe is doing, the user's
-                                                       grouping instructions, renames waiting
-  takode scribe instructions "<text>"                  Set the user's grouping instructions, when the
-                                                       user asks you to ("" clears them)
+                                                       instructions, renames waiting
+  takode scribe instructions "<text>"                  Set the user's lasting instructions for topics
+                                                       and pages (replaces them; "" clears them)
   takode scribe pause | resume                         Stop or restart automatic page updates
 
 For the Scribe:
@@ -52,9 +52,7 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
         text,
       })) as { instructions: string };
       console.log(
-        instructions
-          ? "Grouping instructions saved; the Scribe follows them from its next update."
-          : "Grouping instructions cleared.",
+        instructions ? "Instructions saved; the Scribe follows them from its next update." : "Instructions cleared.",
       );
       return;
     }
@@ -143,7 +141,7 @@ export function formatScribeStatus(status: ScribeStatusResponse): string {
   const lines = [
     `Topics for ${leader} (space ${status.leader.space ?? "?"}): ${status.topics} topic${status.topics === 1 ? "" : "s"}`,
     `Scribe ${scribe}: ${activity.text}${paused ? " (paused)" : ""}`,
-    `Grouping instructions: ${instructions ? `"${instructions}"` : "none"}`,
+    `Instructions: ${instructions ? `"${instructions}"` : "none"}`,
   ];
   for (const suggestion of status.suggestions) {
     lines.push(`Waiting for the user: rename "${suggestion.topicName}" to "${suggestion.name}"`);
@@ -155,6 +153,8 @@ interface TopicChangesResponse {
   topic: { id: string; name: string; space: string; nameSource: string; tentative: boolean };
   page: string | null;
   upToDateAt: number | null;
+  /** The user's lasting instructions for topics and pages. */
+  instructions?: string;
   events: Array<{
     at: number;
     kind: string;
@@ -179,6 +179,7 @@ function formatChanges(response: TopicChangesResponse): string {
   const lines = [
     `Topic "${topic.name}" (${topic.id.slice(0, 8)}, space ${topic.space}${topic.nameSource === "user" ? ", named by the user" : ""}${topic.tentative ? ", new" : ""})`,
     "",
+    ...(response.instructions ? ["## The user's instructions (follow them)", response.instructions, ""] : []),
     "## Quests (what each left open is the source for Now)",
     ...response.quests.flatMap((quest) => [
       `- [${quest.questId}](quest:${quest.questId}) ${quest.completedAt ? `done ${new Date(quest.completedAt).toLocaleDateString()}` : quest.status}: ${quest.title}`,

@@ -263,6 +263,53 @@ describe("takode send", () => {
     }
   });
 
+  it("sends to a busy Scribe without --correction but still guards a busy worker", async () => {
+    // A Scribe is woken for every change in its leader's work, so it is usually mid-turn; a leader's
+    // message to it must go through. A busy worker still needs --correction.
+    const messageCalls: string[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+      const json = (body: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+
+      if (url === "/api/takode/me") return json({ sessionId: "leader-a", isOrchestrator: true });
+      if (url === "/api/sessions/scribe-1") {
+        return json({ sessionId: "scribe-1", sessionNum: 31, isGenerating: true, scribeFor: "leader-a" });
+      }
+      if (url === "/api/sessions/worker-1") return json({ sessionId: "worker-1", sessionNum: 32, isGenerating: true });
+      if (url === "/api/sessions/leader-a/herd") return json([{ sessionId: "scribe-1" }, { sessionId: "worker-1" }]);
+      if (url === "/api/takode/sessions") return json([{ sessionId: "leader-a", sessionNum: 21, name: "Leader A" }]);
+      if (method === "POST" && url.endsWith("/message")) {
+        messageCalls.push(url);
+        return json({ ok: true, delivery: "sent" });
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-a", COMPANION_AUTH_TOKEN: "auth-leader-a" };
+
+    try {
+      const toScribe = await runTakode(
+        ["send", "scribe-1", "keep the two newest reports", "--port", String(port)],
+        env,
+      );
+      expect(toScribe.status).toBe(0);
+      const toWorker = await runTakode(["send", "worker-1", "another task", "--port", String(port)], env);
+      expect(toWorker.status).not.toBe(0);
+      expect(toWorker.stderr + toWorker.stdout).toContain("currently working");
+      expect(messageCalls).toEqual(["/api/sessions/scribe-1/message"]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("requires --thread for leader recipients and rejects it for workers", async () => {
     // A leader files every incoming message under one of its threads and only the
     // sender knows which, so a leader message without --thread fails before sending.

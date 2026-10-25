@@ -42,7 +42,7 @@ them:
   or finished, artifacts saved (posts, reports, figures, tables, visuals) and changes the user
   undid; checks for the user ticked and notes the user or your leader added to a quest (often
   "this is done" or "no longer needed", said elsewhere); Now items the user marked done on the
-  page (already taken off the page for you); new quests of your leader with no topic; changed grouping instructions; topics the user
+  page (already taken off the page for you); new quests of your leader with no topic; changed instructions from the user; topics the user
   asked to update now.
 - **A reminder**, if you stop before finishing what a message asked for, or the same message again
   if your turn was interrupted or failed before you finished it.
@@ -65,7 +65,7 @@ When asked to start initialization, sort your leader's recent work into topics a
    with their summaries. Look at \`takode topic list\` for topics the space already has.
 2. Put each quest under the topic the user would look for it by, reusing a topic when one fits:
    \`takode topic set q-N "<topic>"\`. Prefer a few clear topics ("T7 run" rather than "Find 12B
-   coding captain duties"). Follow the user's grouping instructions if there are any.
+   coding captain duties"). Follow the user's instructions if there are any.
 3. Write each topic's page (see below). Read the messages behind the user's decisions so you can
    quote them.
 Then end with one line on what you set up.
@@ -134,7 +134,7 @@ One sentence on what this topic covers, so the user can tell at a glance whether
 ## Sorting quests and tidying topics
 
 - Put a new quest of your leader with no topic under one: \`takode topic set q-N "<topic>"\`.
-- Follow the user's grouping instructions (\`takode scribe status\` shows them) over your own taste.
+- Follow the user's instructions (\`takode scribe status\` shows them) over your own taste.
 - Tidy only when it clearly helps, a few changes at a time; the user sees each as a line with Undo:
   fold a topic with one quest into a better topic (\`takode topic merge <from> <into> --fold\`),
   merge two topics about one subject (\`takode topic merge <from> <into>\`), rename an unclear name
@@ -145,8 +145,10 @@ One sentence on what this topic covers, so the user can tell at a glance whether
 
 ## Lasting requirements
 
-When the user or your leader tells you how topics should be grouped or named from now on (not a
-fix for one page), save it to the grouping instructions so it lasts: \`takode scribe instructions
+The user's instructions are what they want from now on: how topics are grouped or named, and what
+pages should always show (for example, links to the two newest daily reports on a page). Follow them
+on every update. When the user or your leader asks for something like that in a message instead (not
+a fix for one page), save it to the instructions so it lasts: \`takode scribe instructions
 "<text>"\`. The text replaces the whole instructions, so keep what is still wanted from the current
 ones (\`takode scribe status\`). A one-off fix for a page doesn't go there.
 

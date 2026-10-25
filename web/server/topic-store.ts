@@ -16,7 +16,7 @@ import {
 /**
  * Library topics on disk (`topics.json` beside the artifact library): topics per session space,
  * which topic each quest is filed under, each topic's page and the events since it was written,
- * and per leader: the switch, its Scribe (session, pause, the user's grouping instructions, spend
+ * and per leader: the switch, its Scribe (session, pause, the user's instructions, spend
  * of replaced Scribes) and how far each page covers its activity. Also the change list whose entries can be undone, and
  * rename suggestions waiting for the user. Writes are whole-file and atomic, chained in order.
  */
@@ -104,13 +104,13 @@ interface TopicState {
 interface StoredScribe {
   sessionId?: string;
   paused?: boolean;
-  /** The user's instructions for how to group the leader's topics. */
+  /** The user's lasting instructions for the leader's topics and pages. */
   instructions?: ScribeInstructions;
   /** Events up to this sequence number were sent to the Scribe. */
   deliveredSeq?: number;
   /** Quests with no topic the Scribe was already told about (newest last, capped). */
   questsTold?: string[];
-  /** Save time of the grouping instructions this Scribe session was sent. */
+  /** Save time of the instructions this Scribe session was sent. */
   instructionsSentAt?: number;
   /** The page format the Scribe last wrote its pages in (it is asked once to rewrite older ones). */
   pageFormat?: number;
@@ -228,7 +228,7 @@ export class TopicStore {
     return this.s().scribes?.[leaderId]?.sessionId;
   }
 
-  /** Sets a leader's Scribe session; a new session has been sent no grouping instructions yet. */
+  /** Sets a leader's Scribe session; a new session has been sent no instructions yet. */
   setScribeSession(leaderId: string, sessionId: string | undefined): void {
     const scribe = this.scribeRecord(leaderId);
     if (scribe.sessionId === sessionId) return;
@@ -268,7 +268,7 @@ export class TopicStore {
     this.dirty = true;
   }
 
-  /** Whether the Scribe session has been sent the current grouping instructions. */
+  /** Whether the Scribe session has been sent the current instructions. */
   instructionsSent(leaderId: string): boolean {
     const scribe = this.s().scribes?.[leaderId];
     return !scribe?.instructions || scribe.instructionsSentAt === scribe.instructions.updatedAt;

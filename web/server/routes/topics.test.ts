@@ -201,9 +201,12 @@ describe("topic routes", () => {
     });
     // Another leader's event is for that leader's Scribe.
     store.addEvent(topic.id, { at: Date.now() + 11, kind: "quest_done", leaderId: "other", questId: "q-9" });
+    store.setScribeInstructions("leader", "Keep links to the two newest daily reports on the page.");
 
     setCaller("scribe");
     const read = await (await app.request(`/scribe/topics/${topic.id.slice(0, 8)}/changes`)).json();
+    // The user's lasting instructions come with every page read, so they hold after compaction.
+    expect(read.instructions).toBe("Keep links to the two newest daily reports on the page.");
     expect(read.events.map((event: { kind: string }) => event.kind)).toEqual(["quest_filed", "message"]);
     expect(read.events[1].sessionNum).toBe(7);
     expect(read.quests).toEqual([

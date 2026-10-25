@@ -243,7 +243,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** The user's instructions for how a leader's Scribe groups topics; the leader may set them for the user. */
+  /** The user's lasting instructions for a leader's Scribe (grouping, what pages show); the leader may set them for the user. */
   api.post("/scribe/:leader/instructions", (c) =>
     run(c, async (svc) => {
       const body = await c.req.json().catch(() => ({}));
@@ -318,6 +318,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         },
         page: detail.page,
         upToDateAt: detail.upToDateAt,
+        // Shown with every page so the user's lasting requests hold after compaction or a restart.
+        instructions: (leaderId && svc.store.scribeInstructions(leaderId)?.text) || undefined,
         events: pending.map(({ leaderId: _leaderId, ...event }) => ({
           ...event,
           ...(event.sessionId ? { sessionNum: ctx.launcher.getSessionNum(event.sessionId) ?? null } : {}),

@@ -75,6 +75,7 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
         isGenerating?: boolean;
         archived?: boolean;
         isOrchestrator?: boolean;
+        scribeFor?: string;
       };
       const targetId = targetSession.sessionId;
       if (targetSession.archived) {
@@ -93,8 +94,12 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
       if (targetSession.isOrchestrator === true && !thread) err(THREAD_REQUIRED);
       if (targetSession.isOrchestrator !== true && thread) err("--thread applies only to messages to a leader.");
 
+      // A Scribe is woken for every change in its leader's work, so it is usually mid-turn, and a
+      // message just joins its page updates; the guard is for a worker's task, which it would cut into.
+      const isScribe = !!targetSession.scribeFor;
+
       // Guard: block sends to running sessions unless --correction is used
-      if (!isPeerLeader && targetSession.isGenerating && !isCorrection) {
+      if (!isPeerLeader && !isScribe && targetSession.isGenerating && !isCorrection) {
         const label = targetSession.name
           ? `#${targetSession.sessionNum ?? "?"} ${targetSession.name}`
           : `#${targetSession.sessionNum ?? sessionRef}`;

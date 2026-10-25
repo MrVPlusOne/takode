@@ -234,7 +234,7 @@ describe("TopicSidePanel", () => {
     expect(within(done).getByText("Undo")).toBeInTheDocument();
   });
 
-  it("shows the Scribe's live status, rename suggestions to answer, and the grouping instructions box", async () => {
+  it("shows the Scribe's live status, rename suggestions to answer, and the instructions box", async () => {
     const api = mockApi();
     vi.spyOn(topicApi, "list").mockResolvedValue(ON);
     const answer = vi.spyOn(topicApi, "answerSuggestion").mockResolvedValue({});
@@ -249,8 +249,8 @@ describe("TopicSidePanel", () => {
     fireEvent.click(within(suggestions).getByText("Accept"));
     expect(answer).toHaveBeenCalledWith("s1", true);
 
-    fireEvent.click(screen.getByText("Settings and grouping"));
-    fireEvent.change(screen.getByLabelText("How to group my topics"), { target: { value: "One topic per run." } });
+    fireEvent.click(screen.getByText("Settings and instructions"));
+    fireEvent.change(screen.getByLabelText("Instructions for the Scribe"), { target: { value: "One topic per run." } });
     fireEvent.click(within(screen.getByTestId("scribe-instructions")).getByText("Save"));
     expect(instructions).toHaveBeenCalledWith("l1", "One topic per run.");
     expect(api.enable).not.toHaveBeenCalled();

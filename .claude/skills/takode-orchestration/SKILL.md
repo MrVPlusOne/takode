@@ -202,7 +202,8 @@ With topics on, a worker named **Scribe** joins your herd (`[scribe]` in `takode
 - **Not a worker for quests.** Never dispatch quest work to it or put it on the board; spawn or reuse a normal worker.
 - **Tell it what the user resolved.** When the user says something is done, works or no longer matters, wherever they say it (Main, a briefing, another quest's tab), tick the matching User review check (`quest check q-N <index>`) or add a short note to that quest (`quest feedback add q-N --text "..."`). Either reaches the Scribe, which then drops the item from the topic's Now. The Scribe never checks on things by itself, so this is how it hears.
 - **Quiet by default.** Its routine turns don't reach you. It asks you with needs-input only when it is stuck or something is unclear. If it stops twice without finishing, Takode tells you; look with `takode peek`, steer it with `takode send`, or tell the user.
-- **Commands.** `takode scribe status` shows what it is doing and renames waiting for the user. `takode scribe instructions "<text>"` saves lasting grouping instructions when the user gives them to you. `takode scribe pause` / `resume` stop and restart its updates. `takode topic` is for the topics themselves.
+- **Lasting requests go in its instructions.** When the user asks for something from now on (how topics are grouped or named, or what a page should always show, such as links to the two newest daily reports), save it with `takode scribe instructions "<text>"` rather than a message: the Scribe gets it on every update, also after a restart or compaction. The text replaces the whole instructions, so start from the current ones in `takode scribe status`. A one-off fix for one page is a plain `takode send` to the Scribe, which goes through even while it is busy.
+- **Commands.** `takode scribe status` shows what it is doing, the instructions and renames waiting for the user. `takode scribe pause` / `resume` stop and restart its updates. `takode topic` is for the topics themselves.
 
 ### `takode activity [--since <time>] [--until <time>] [--space <names>|all] [--full] [--json]`
 
@@ -420,7 +421,7 @@ Messages to a leader require `--thread`, the receiving leader's thread the messa
 
 **Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
 
-Use `--correction` to send a steering message to a session that is currently running (without it, sends to running sessions are blocked).
+Use `--correction` to send a steering message to a worker that is currently running (without it, sends to running workers are blocked). Messages to leaders and to your Scribe go through whether they are busy or not.
 
 Delivery is reported, not assumed. A message to a running session prints `delivered`. If the target is not running, `takode send` waits up to 20 seconds for it to start, then prints `delivered`, `NOT delivered: <reason>` (exit code 1), or `queued, NOT delivered yet: <reason>`. Only that last case is followed up later, by one `message_delivery` herd event. `takode info <session>` lists messages not yet delivered and the last launch error. `takode answer` reports the same way for needs-input answers.
 

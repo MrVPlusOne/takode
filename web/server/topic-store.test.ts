@@ -256,7 +256,7 @@ describe("topic service", () => {
     expect(injected.map((message) => message.sessionId)).toEqual(["scribe-leader-1"]);
     expect(injected[0].text).toContain("Start initialization for your leader #7");
     expect(injected[0].text).toContain("sort its recent work into topics");
-    expect(injected[0].text).toContain('grouping instructions: "One topic per training run."');
+    expect(injected[0].text).toContain('instructions: "One topic per training run."');
 
     // Off archives the Scribe; on again starts a new one, which initializes and is told the instructions.
     await service.setLeaderEnabled("leader", false);
@@ -354,7 +354,7 @@ describe("topic service", () => {
     ).toThrow(/changed since you read it/);
   });
 
-  it("names new quests with no topic and changed grouping instructions, each once", async () => {
+  it("names new quests with no topic and changed instructions, each once", async () => {
     const { service, injected, store, quests } = await setupService();
     const scribe = await enable(service, store, "leader");
     injected.length = 0;
@@ -370,7 +370,7 @@ describe("topic service", () => {
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
-    expect(injected[0].text).toContain('grouping instructions changed: "One topic per training run."');
+    expect(injected[0].text).toContain('instructions changed: "One topic per training run."');
     expect(injected[0].text).toContain("- q-90 Check the twin");
 
     // Nothing new after its turn: no message.

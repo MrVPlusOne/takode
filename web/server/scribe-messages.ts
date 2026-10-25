@@ -21,7 +21,7 @@ export interface UpdateContent {
   topics: TopicChanges[];
   /** The leader's quests created since the last message that have no topic yet. */
   unsorted: Array<{ questId: string; title: string }>;
-  /** The user's grouping instructions, when they changed since this Scribe was last told. */
+  /** The user's instructions for topics and pages, when they changed since this Scribe was last told. */
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
   forced: string[];
@@ -35,7 +35,7 @@ const MAX_UNSORTED = 20;
 export function initializationMessage(leader: LeaderLabel, instructions: string | undefined): string {
   return [
     `Start initialization for your leader ${label(leader)}: sort its recent work into topics and write each topic's page, as the Initialization part of your brief describes.`,
-    ...(instructions ? ["", `The user's grouping instructions: "${instructions}"`] : []),
+    ...(instructions ? ["", `The user's instructions: "${instructions}"`] : []),
   ].join("\n");
 }
 
@@ -54,7 +54,7 @@ export function updateMessage(
       "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them). For each one, run `takode scribe changes <topic>` first and rebuild Now from what its quests left open (unticked checks, wrap-ups) and from recent messages, rather than carrying over the old Now.",
     );
   }
-  if (instructions) lines.push("", `The user's grouping instructions changed: "${instructions}"`);
+  if (instructions) lines.push("", `The user's instructions changed: "${instructions}"`);
   if (forced.length) lines.push("", `The user asked to update now: ${forced.map((name) => `"${name}"`).join(", ")}`);
   for (const topic of topics) {
     lines.push("", `"${topic.name}" (${topic.id.slice(0, 8)}):`);
