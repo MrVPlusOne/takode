@@ -4,8 +4,9 @@
  * progress, finished). A chip lists its tabs; Find opens a sheet that lists either the
  * user's messages or every tab, open and closed, newest first.
  */
-import type { QuestTopicMap, TopicBrief } from "../../shared/library-topics.js";
-import { DoneTopicList } from "./DoneTopicList.js";
+import type { TopicSummary } from "../../shared/library-topics.js";
+import { TopicIcon } from "./library/library-icons.js";
+import { TopicTabList } from "./TopicTabList.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
@@ -135,13 +136,14 @@ export interface ThreadTabGroupBarProps extends RowContext {
   onOpenMessage?: (threadKey: string, messageId: string) => void;
   /** Where the bar sits; group lists open away from the screen edge. */
   placement?: "top" | "bottom";
-  /** For a leader with Library topics on: the Done list groups its tabs under their topics. */
-  doneTopics?: {
-    map: QuestTopicMap;
-    /** The topics in brief, for their quest counts and last activity. */
-    topics: Record<string, TopicBrief>;
-    /** Opens the topic of a quest tab as one conversation. */
-    onOpenConversation: (threadKey: string) => void;
+  /**
+   * For a leader with Library topics on: the Topics group, right after Main, listing its topics by
+   * recent activity. It is selected while a topic conversation is on screen.
+   */
+  topicsGroup?: {
+    topics: TopicSummary[];
+    currentTopicId: string | null;
+    onOpen: (topic: TopicSummary) => void;
   };
 }
 
@@ -157,10 +159,10 @@ export function ThreadTabGroupBar({
   loadRecentMessages,
   onOpenMessage,
   placement = "top",
-  doneTopics,
+  topicsGroup,
   ...rows
 }: ThreadTabGroupBarProps) {
-  const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
+  const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | "topics" | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
   const lastPressRef = useRef<string>("mouse");
@@ -177,11 +179,13 @@ export function ThreadTabGroupBar({
   const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
   // The All view sits under the Main strip too, so Main is the selected tab there.
   const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
-  const currentGroup = onMain
-    ? null
-    : (THREAD_TAB_GROUP_ORDER.find((id) =>
-        groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
-      ) ?? null);
+  const onTopic = !onMain && !!topicsGroup?.currentTopicId;
+  const currentGroup =
+    onMain || onTopic
+      ? null
+      : (THREAD_TAB_GROUP_ORDER.find((id) =>
+          groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
+        ) ?? null);
   const barRef = useRef<HTMLDivElement | null>(null);
   useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
   const select = (threadKey: string) => {
@@ -199,7 +203,7 @@ export function ThreadTabGroupBar({
       setListLeft(null);
       return;
     }
-    const tab = bar.querySelector<HTMLElement>(`[data-testid="thread-tab-group-chip"][data-group="${openGroup}"]`);
+    const tab = bar.querySelector<HTMLElement>(`[role="tab"][data-group="${openGroup}"]`);
     setListLeft(Math.max(0, Math.min(tab?.offsetLeft ?? 0, bar.clientWidth - WIDE_LIST_WIDTH_PX)));
   }, [openGroup]);
 
@@ -218,6 +222,29 @@ export function ThreadTabGroupBar({
   const item = (key: string, props: Omit<BarItemProps, "placement" | "selectedSurface">) => (
     <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
+  const openFind = () => {
+    setOpenGroup(null);
+    setSheetOpen(true);
+    onOpenFind?.();
+  };
+  // The Topics group, right after Main.
+  const topicsItem = () =>
+    topicsGroup &&
+    item("topics", {
+      label: "Topics",
+      selected: onTopic,
+      open: openGroup === "topics",
+      group: "topics",
+      count: topicsGroup.topics.length,
+      testId: "thread-tab-group-topics",
+      onClick: () => setOpenGroup((open) => (open === "topics" ? null : "topics")),
+      children: (
+        <>
+          <TopicIcon className="h-3.5 w-3.5 shrink-0" />
+          <span className="hidden md:inline">Topics</span>
+        </>
+      ),
+    });
   return (
     <div
       ref={barRef}
@@ -248,6 +275,7 @@ export function ThreadTabGroupBar({
             </>
           ),
         })}
+        {topicsGroup && topicsGroup.topics.length > 0 && topicsItem()}
         {THREAD_TAB_GROUP_ORDER.map((id) =>
           groups[id].length > 0
             ? item(id, {
@@ -283,11 +311,7 @@ export function ThreadTabGroupBar({
           open: sheetOpen,
           compact: true,
           testId: "thread-tab-group-search",
-          onClick: () => {
-            setOpenGroup(null);
-            setSheetOpen(true);
-            onOpenFind?.();
-          },
+          onClick: openFind,
           children: (
             <>
               <SearchGlyph />
@@ -312,29 +336,38 @@ export function ThreadTabGroupBar({
             data-testid="thread-tab-group-list"
             data-group={openGroup}
           >
-            <GroupHeading
-              id={openGroup}
-              count={groups[openGroup].length}
-              action={
-                openGroup === "done" && rows.onClose ? (
-                  <CloseAllButton tabs={groups.done.filter((tab) => tab.canClose)} onClose={rows.onClose} />
-                ) : undefined
-              }
-            />
-            {openGroup === "done" && doneTopics ? (
-              <DoneTopicList
-                tabs={groups.done}
-                openTabs={THREAD_TAB_GROUP_ORDER.flatMap((id) => (id === "done" ? [] : groups[id]))}
-                map={doneTopics.map}
-                topics={doneTopics.topics}
-                renderRow={(tab) => <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />}
-                onOpenConversation={(threadKey) => {
-                  setOpenGroup(null);
-                  doneTopics.onOpenConversation(threadKey);
-                }}
-              />
+            {openGroup === "topics" ? (
+              topicsGroup && (
+                <>
+                  <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
+                    <span className="text-[11px] uppercase tracking-wide text-cc-muted">Topics</span>
+                    <span className="text-[11px] tabular-nums text-cc-muted">{topicsGroup.topics.length}</span>
+                  </div>
+                  <TopicTabList
+                    topics={topicsGroup.topics}
+                    currentTopicId={onTopic ? topicsGroup.currentTopicId : null}
+                    onOpen={(topic) => {
+                      setOpenGroup(null);
+                      topicsGroup.onOpen(topic);
+                    }}
+                  />
+                </>
+              )
             ) : (
-              groups[openGroup].map((tab) => <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />)
+              <>
+                <GroupHeading
+                  id={openGroup}
+                  count={groups[openGroup].length}
+                  action={
+                    openGroup === "done" && rows.onClose ? (
+                      <CloseAllButton tabs={groups.done.filter((tab) => tab.canClose)} onClose={rows.onClose} />
+                    ) : undefined
+                  }
+                />
+                {groups[openGroup].map((tab) => (
+                  <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
+                ))}
+              </>
             )}
           </div>
         </>
@@ -409,7 +442,7 @@ interface BarItemProps {
   selected: boolean;
   open?: boolean;
   compact?: boolean;
-  group?: ThreadTabGroupId;
+  group?: ThreadTabGroupId | "topics";
   /** How many tabs the group holds. */
   count?: number;
   activeOutput?: boolean;

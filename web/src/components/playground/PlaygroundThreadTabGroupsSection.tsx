@@ -7,7 +7,7 @@ import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
 import type { MessageSearchResult } from "../../api/session-message-search.js";
-import type { QuestTopicMap } from "../../../shared/library-topics.js";
+import type { TopicSummary } from "../../../shared/library-topics.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { LoadRecentMessages } from "../ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
@@ -113,15 +113,38 @@ const loadPlaygroundRecentMessages: LoadRecentMessages = async (query, offset) =
   return { results: matches.slice(offset, end), nextOffset: end < matches.length ? end : null };
 };
 
-/** For a leader with topics on: its Done list grouped by the topics its quests are filed under. */
-const DONE_TOPICS: QuestTopicMap = {
-  "q-9479": { id: "topic-feed", name: "Feed polish" },
-  "q-9470": { id: "topic-feed", name: "Feed polish" },
-  "q-9469": { id: "topic-light", name: "Light theme" },
-};
+/** For a leader with topics on: its topics by recent activity, for the Topics group. */
+const TOPICS: TopicSummary[] = [
+  playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", 1),
+  playgroundTopic("topic-light", "Light theme", 95, "Quest strips use the card color in light mode."),
+  playgroundTopic("topic-voice", "Voice input", 60 * 26, "Dictation keeps recording through a phone call."),
+];
+
+function playgroundTopic(id: string, name: string, minutesAgo: number, update: string, waiting = 0): TopicSummary {
+  const at = NOW - minutesAgo * MINUTE;
+  return {
+    id,
+    space: "Takode",
+    name,
+    nameSource: "agent",
+    tentative: false,
+    createdAt: at,
+    updatedAt: at,
+    questIds: ["q-9479", "q-9470"],
+    summary: "",
+    upToDateAt: at,
+    pendingEvents: 0,
+    activityAt: at,
+    latestUpdate: update,
+    waitingOnYou: Array.from({ length: waiting }, () => "Pick a layout."),
+    openNow: waiting,
+  };
+}
 
 function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"; topics?: boolean }) {
   const [current, setCurrent] = useState("q-9482");
+  // The topic whose conversation is on screen: the Topics group stays selected while it is.
+  const [topicOpen, setTopicOpen] = useState<string | null>(null);
   const [tabs, setTabs] = useState(TABS);
   const [closedTabs, setClosedTabs] = useState(CLOSED_TABS);
   // Choosing a closed tab reopens it, as the leader's real tab state does.
@@ -132,6 +155,7 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
       setTabs((existing) => [{ ...reopened, canClose: true }, ...existing]);
     }
     setCurrent(threadKey);
+    setTopicOpen(null);
   };
   const close = (threadKey: string) => {
     const closing = tabs.find((tab) => tab.threadKey === threadKey);
@@ -166,7 +190,9 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         onClose={close}
         loadRecentMessages={loadPlaygroundRecentMessages}
         onOpenMessage={(threadKey) => select(threadKey)}
-        doneTopics={topics ? { map: DONE_TOPICS, topics: {}, onOpenConversation: () => {} } : undefined}
+        topicsGroup={
+          topics ? { topics: TOPICS, currentTopicId: topicOpen, onOpen: (topic) => setTopicOpen(topic.id) } : undefined
+        }
       />
     </div>
   );
@@ -177,13 +203,13 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, the Done list shows the five newest finished quests, then one row per topic (tap to read the topic as one conversation, ▾ to list its quests), then the quests under no topic."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group, or search)">
             <PhoneFrame placement="top" />
           </Card>
-          <Card label="Topics on (open Done: recent, then topics)">
+          <Card label="Topics on (open Topics, pick one)">
             <PhoneFrame placement="top" topics />
           </Card>
           <Card label="At the bottom (lists open upward)">

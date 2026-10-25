@@ -43,7 +43,7 @@ afterEach(() => {
 function renderBar(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {}) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
-  render(
+  const bar = (next: typeof props) => (
     <ThreadTabGroupBar
       main={MAIN}
       tabs={TABS}
@@ -51,10 +51,11 @@ function renderBar(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {})
       activeOutputThreadKey={null}
       onSelect={onSelect}
       onClose={onClose}
-      {...props}
-    />,
+      {...next}
+    />
   );
-  return { onSelect, onClose };
+  const view = render(bar(props));
+  return { onSelect, onClose, rerender: (next: typeof props) => view.rerender(bar(next)) };
 }
 
 describe("groupThreadTabs", () => {
@@ -270,43 +271,42 @@ describe("ThreadTabGroupBar", () => {
     expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
   });
 
-  it("lists recent finished tabs, then topics that open as one conversation, for a leader with topics on", () => {
-    // Topics on: q-13 and q-15 share a topic with the open q-10, q-14 has another. Topics
-    // are ordered by their last activity, not tab order; a topic counts all its quests and lists its
-    // open one first, so its work is found here while its newest quest is still running. Tapping the
-    // topic row opens the topic conversation and closes the list.
-    const onOpenConversation = vi.fn();
-    renderBar({
-      doneTopics: {
-        map: {
-          "q-10": { id: "t1", name: "Relay" },
-          "q-14": { id: "t2", name: "Briefing" },
-          "q-13": { id: "t1", name: "Relay" },
-          "q-15": { id: "t1", name: "Relay" },
-        },
-        topics: {
-          t1: { name: "Relay", questIds: ["q-9", "q-10", "q-13", "q-15"], activityAt: 2_000 },
-          t2: { name: "Briefing", questIds: ["q-14"], activityAt: 1_000 },
-        },
-        onOpenConversation,
-      },
+  it("lists topics by activity in a Topics group after Main, selected while a topic is on screen", () => {
+    // A leader with topics on gets a Topics group right after Main. It lists every topic, most
+    // recent activity first; choosing one opens it and closes the list. While a topic conversation
+    // is on screen the Topics group is the selected one (not the quest's status group) and that
+    // topic is marked. Done lists finished quests only.
+    const onOpen = vi.fn();
+    const topic = (id: string, name: string, activityAt: number) =>
+      ({ id, name, activityAt, questIds: ["q-13"], latestUpdate: `${name} moved.`, waitingOnYou: [] }) as never;
+    const { rerender } = renderBar({
+      currentThreadKey: "q-13",
+      topicsGroup: { topics: [topic("t1", "Relay", 2), topic("t2", "Briefing", 1)], currentTopicId: null, onOpen },
     });
-    fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
-    const list = screen.getByTestId("done-topic-list");
-    expect(within(list).getAllByTestId("thread-tab-list-row").length).toBeGreaterThan(0);
-    const [topic, other] = within(list).getAllByTestId("done-topic-row");
-    expect(topic!.textContent).toContain("Relay");
-    expect(topic!.textContent).toContain("4 quests · 1 open · latest: Fix the relay proxy");
-    expect(other!.textContent).toContain("Briefing");
-    fireEvent.click(within(topic!).getByRole("button", { name: "List the quests of Relay" }));
-    expect(
-      within(topic!)
-        .getAllByTestId("thread-tab-list-row")
-        .map((row) => row.dataset.threadKey),
-    ).toEqual(["q-10", "q-13", "q-15"]);
-    fireEvent.click(within(topic!).getByText("Relay"));
-    expect(onOpenConversation).toHaveBeenCalledTimes(1);
-    expect(onOpenConversation.mock.calls[0]![0]).toBe("q-10");
+    const bar = screen.getByTestId("thread-tab-group-bar");
+    const items = within(bar).getAllByRole("tab");
+    expect(items[1]?.getAttribute("data-group")).toBe("topics");
+    expect(items[1]?.getAttribute("data-selected")).toBe("false");
+    fireEvent.click(items[1]!);
+    const rows = screen.getAllByTestId("topic-tab-row");
+    expect(rows.map((row) => row.dataset.topic)).toEqual(["t1", "t2"]);
+    fireEvent.click(rows[1]!);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
+    expect(screen.queryByTestId("topic-tab-list")).toBeNull();
+
+    rerender({
+      currentThreadKey: "q-13",
+      topicsGroup: { topics: [topic("t1", "Relay", 2), topic("t2", "Briefing", 1)], currentTopicId: "t2", onOpen },
+    });
+    const topicsItem = within(screen.getByTestId("thread-tab-group-bar")).getAllByRole("tab")[1]!;
+    expect(topicsItem?.getAttribute("data-selected")).toBe("true");
+    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
+    expect(done?.getAttribute("data-selected")).toBe("false");
+    fireEvent.click(topicsItem);
+    expect(screen.getAllByTestId("topic-tab-row")[1]?.getAttribute("aria-current")).toBe("true");
+
+    fireEvent.click(screen.getByTestId("thread-tab-group-backdrop"));
+    fireEvent.click(done);
     expect(screen.queryByTestId("done-topic-list")).toBeNull();
   });
 

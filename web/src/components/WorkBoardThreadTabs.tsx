@@ -3,7 +3,9 @@
  * tabs as status groups (ThreadTabGroups) on every screen size, with the tab menu
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
-import { openTopicConversation } from "../utils/topic-conversation.js";
+import { openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
+import { useTopicTabTopics } from "./TopicTabList.js";
+import type { TopicSummary } from "../../shared/library-topics.js";
 import { useCallback, useState } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -224,6 +226,23 @@ export function ThreadTabRail({
     sessionId,
     displayedTabs.flatMap((tab) => (tab.questId ? [tab.questId] : [])),
   );
+  // The Topics group: recent topics; one is selected while its conversation is on screen.
+  const conversationTab = useTopicConversationTab(sessionId);
+  const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
+  const currentTopicId =
+    conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null;
+  const topicList = useTopicTabTopics(sessionId, !!leaderTopics, currentTopicId ?? "");
+  const openTopic = (topic: TopicSummary) => {
+    // The tab on screen when it is one of the topic's quests, else its newest quest with a tab.
+    const inTabs = new Set(displayedTabs.map((tab) => tab.questId));
+    const byNewest = [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
+    const questId = topic.questIds.includes(currentKey)
+      ? currentKey
+      : (byNewest.find((id) => inTabs.has(id)) ?? byNewest[0]);
+    if (!questId) return;
+    openThread(questId);
+    openTopicConversation(sessionId, questId);
+  };
   const openMessage = (threadKey: string, messageId: string) =>
     navigateToSessionMessageId(sessionId, messageId, { threadKey, preserveMainThreadRoute: true });
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
@@ -250,15 +269,12 @@ export function ThreadTabRail({
         threadStatuses={threadStatuses}
         onSelect={openThread}
         onClose={onCloseThreadTab}
-        doneTopics={
+        topicsGroup={
           leaderTopics
             ? {
-                map: leaderTopics.map,
-                topics: leaderTopics.topics,
-                onOpenConversation: (threadKey) => {
-                  openThread(threadKey);
-                  openTopicConversation(sessionId, threadKey);
-                },
+                topics: topicList,
+                currentTopicId,
+                onOpen: openTopic,
               }
             : undefined
         }
