@@ -28,6 +28,7 @@ import {
   parseThreadTextPrefix,
 } from "./thread-routing.js";
 import { topicThreadMembers } from "./topic-thread-key.js";
+import { LEADER_THREAD_RESPONSE_VERSION } from "../server/leader-thread-response-types.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -44,8 +45,11 @@ export interface BuildThreadWindowInput {
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
-  /** For a topic conversation: each member quest's current answer state. */
-  memberResponseProjections?: Record<string, LeaderThreadResponseProjection>;
+  /**
+   * For a topic conversation: a member quest's current answer state. Asked only for the quests
+   * whose turns are in the window, because building it reads the whole history.
+   */
+  memberResponseProjection?: (questId: string) => LeaderThreadResponseProjection | undefined;
 }
 
 interface FeedItem {
@@ -91,7 +95,13 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     1,
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
-  const items = buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
+  const members = topicThreadMembers(threadKey);
+  const memberItems = members
+    ? buildQuestThreadFeedItemsByThread(input.messageHistory, members, input.includeMessage)
+    : undefined;
+  const items = memberItems
+    ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
+    : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
@@ -129,7 +139,10 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     targetHistoryIndex: input.targetHistoryIndex,
     includeMessage: input.includeMessage,
     currentThreadResponseProjection: input.currentThreadResponseProjection,
-    members: topicMemberResponses(input, threadKey),
+    members:
+      memberItems && input.memberResponseProjection
+        ? { items: memberItems, projection: input.memberResponseProjection }
+        : undefined,
   });
   const entries = builtEntries.entries;
   const availability = deriveThreadWindowAvailability({
@@ -231,7 +244,7 @@ function buildThreadWindowEntries(input: {
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
-  members?: TopicMemberResponse[];
+  members?: TopicMembers;
 }): {
   entries: ThreadWindowEntry[];
   threadResponseSupportComplete: boolean;
@@ -372,52 +385,44 @@ function selectThreadResponseProjection(
   return { ...projection, currentAnswers: answers.filter((_answer, index) => included.has(index)) };
 }
 
-interface TopicMemberResponse {
-  questId: string;
-  /** History indexes of the quest's own feed items. */
-  indexes: Set<number>;
-  projection: LeaderThreadResponseProjection;
-}
-
-function topicMemberResponses(input: BuildThreadWindowInput, threadKey: string): TopicMemberResponse[] | undefined {
-  const members = topicThreadMembers(threadKey);
-  if (!members || !input.memberResponseProjections) return undefined;
-  return members.flatMap((questId) => {
-    const projection = input.memberResponseProjections![questId];
-    if (!projection) return [];
-    const items = buildQuestThreadFeedItems(input.messageHistory, questId, input.includeMessage);
-    return [{ questId, indexes: new Set(items.map((item) => item.entry.history_index)), projection }];
-  });
+interface TopicMembers {
+  /** Each member quest's own feed items. */
+  items: Map<string, FeedItem[]>;
+  projection: (questId: string) => LeaderThreadResponseProjection | undefined;
 }
 
 /**
  * A topic conversation's window: each member quest's answers are bounded and proven as in that
  * quest's own tab, so its turns present answers the same way. The topic's projection carries
- * the quests' projections; a quest whose proof is incomplete simply gets none.
+ * the projections of the quests with turns in the window; a quest whose proof is incomplete
+ * simply gets none. Quests with no turns in the window add nothing, not even their newest answer.
  */
 function buildTopicWindowEntries(
   input: Parameters<typeof buildThreadWindowEntries>[0],
   selectedItems: FeedItem[],
   selectedOrFallbackItems: FeedItem[],
-  members: TopicMemberResponse[],
+  members: TopicMembers,
 ): ReturnType<typeof buildThreadWindowEntries> {
   let items = selectedOrFallbackItems;
   const projections: Record<string, LeaderThreadResponseProjection> = {};
-  for (const member of members) {
-    const own = selectedOrFallbackItems.filter((item) => member.indexes.has(item.entry.history_index));
+  const windowIndexes = new Set(selectedOrFallbackItems.map((item) => item.entry.history_index));
+  for (const [questId, memberItems] of members.items) {
+    const ownIndexes = new Set(memberItems.map((item) => item.entry.history_index));
+    const own = selectedOrFallbackItems.filter((item) => ownIndexes.has(item.entry.history_index));
+    if (own.length === 0) continue;
     const projection = selectThreadResponseProjection(
-      { ...input, threadKey: member.questId, currentThreadResponseProjection: member.projection },
+      { ...input, threadKey: questId, currentThreadResponseProjection: members.projection(questId) },
       own,
     );
     const support = addCurrentThreadResponseSupport(
       input.messageHistory,
-      member.questId,
+      questId,
       own,
       projection,
       input.includeMessage,
     );
     if (!projection || !support.complete) continue;
-    projections[member.questId] = projection;
+    projections[questId] = projection;
     items = [...items, ...support.items];
   }
   const expandedItems = expandToolClosureItems(
@@ -426,7 +431,7 @@ function buildTopicWindowEntries(
     { orphanPreviewFallback: selectedItems.length === 0 },
     input.includeMessage,
   );
-  const memberKeys = new Set(members.map((member) => member.questId));
+  const memberKeys = new Set(members.items.keys());
   const currentAnswerIds = new Set(
     Object.values(projections).flatMap((projection) =>
       projection.currentAnswers.map((answer) => answer.currentMessageId),
@@ -442,7 +447,7 @@ function buildTopicWindowEntries(
     entries: dedupeEntries(visible),
     threadResponseSupportComplete: true,
     threadResponseProjection: {
-      version: members[0]!.projection.version,
+      version: LEADER_THREAD_RESPONSE_VERSION,
       threadKey: input.threadKey,
       cutoverHistoryIndex: 0,
       pendingMessageCount: 0,
@@ -923,18 +928,26 @@ function buildThreadConversationItems(
   threadKey: string,
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
-  // A topic conversation is its quests' threads merged in time order.
   const members = topicThreadMembers(threadKey);
   if (members) {
-    return dedupeFeedItems(
-      members.flatMap((member) =>
-        addTurnClosingResults(buildQuestThreadFeedItems(messages, member, includeMessage), messages, includeMessage),
-      ),
+    return buildTopicConversationItems(
+      buildQuestThreadFeedItemsByThread(messages, members, includeMessage),
+      messages,
+      includeMessage,
     );
   }
   const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
   return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
+}
+
+/** A topic conversation is its quests' threads merged in time order. */
+function buildTopicConversationItems(
+  memberItems: Map<string, FeedItem[]>,
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
+  return dedupeFeedItems(addTurnClosingResults([...memberItems.values()].flat(), messages, includeMessage));
 }
 
 function buildFeedItems(
@@ -1055,40 +1068,52 @@ function buildQuestThreadFeedItems(
   threadKey: string,
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
-  const includedToolRelations = new Set<string>();
-  messages.forEach((message, index) => {
-    if (includeMessage && !includeMessage(message, index)) return;
-    if (!messageHasThreadRef(message, threadKey)) return;
-    for (const relationKey of messageToolRelationKeys(message)) includedToolRelations.add(relationKey);
-    if (message.type === "tool_result_preview") {
-      for (const preview of message.previews) {
-        includedToolRelations.add(toolRelationKey(message, preview.tool_use_id));
-      }
-    }
-    if (typeof (message as { parent_tool_use_id?: unknown }).parent_tool_use_id === "string") {
-      includedToolRelations.add(
-        toolRelationKey(message, (message as { parent_tool_use_id: string }).parent_tool_use_id),
-      );
-    }
+  const key = normalizeSelectedFeedThreadKey(threadKey);
+  return buildQuestThreadFeedItemsByThread(messages, [key], includeMessage).get(key)!;
+}
+
+/**
+ * The feed items of each of these quest threads: its routed messages plus the tool rows that
+ * belong to them. One pass for all threads, because reading a message's routes (which parses its
+ * text) is the costly part, and a topic conversation asks for many threads at once.
+ */
+function buildQuestThreadFeedItemsByThread(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKeys: readonly string[],
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): Map<string, FeedItem[]> {
+  const threads = new Map(
+    threadKeys.map((key) => [
+      normalizeSelectedFeedThreadKey(key),
+      { relations: new Set<string>(), items: [] as FeedItem[] },
+    ]),
+  );
+  // Each included message's own routes among these threads (empty when it has none).
+  const routed = messages.map((message, index) => {
+    if (includeMessage && !includeMessage(message, index)) return null;
+    const keys = [...normalizedRouteKeys(message, true)].filter((key) => threads.has(key));
+    const relations = keys.length > 0 ? relatedToolRelationKeys(message) : [];
+    for (const key of keys) for (const relation of relations) threads.get(key)!.relations.add(relation);
+    return keys;
   });
 
-  const items: FeedItem[] = [];
   messages.forEach((message, index) => {
-    if (includeMessage && !includeMessage(message, index)) return;
-    if (messageHasThreadRef(message, threadKey)) {
-      items.push({ order: index, entry: { message, history_index: index } });
-      return;
-    }
+    const keys = routed[index];
+    if (!keys) return;
     const parentToolUseId = (message as { parent_tool_use_id?: unknown }).parent_tool_use_id;
-    if (typeof parentToolUseId === "string" && includedToolRelations.has(toolRelationKey(message, parentToolUseId))) {
-      items.push({ order: index, entry: { message, history_index: index } });
-      return;
-    }
-    if (messageToolRelationKeys(message).some((relationKey) => includedToolRelations.has(relationKey))) {
-      items.push({ order: index, entry: { message, history_index: index } });
+    const parentRelation = typeof parentToolUseId === "string" ? toolRelationKey(message, parentToolUseId) : null;
+    const relations = messageToolRelationKeys(message);
+    for (const [key, thread] of threads) {
+      if (
+        keys.includes(key) ||
+        (parentRelation && thread.relations.has(parentRelation)) ||
+        relations.some((relation) => thread.relations.has(relation))
+      ) {
+        thread.items.push({ order: index, entry: { message, history_index: index } });
+      }
     }
   });
-  return items;
+  return new Map([...threads].map(([key, thread]) => [key, thread.items]));
 }
 
 function addTurnClosingResults(

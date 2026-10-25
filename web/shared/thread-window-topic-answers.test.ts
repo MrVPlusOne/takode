@@ -98,10 +98,11 @@ describe("topic conversation answers", () => {
       itemCount: 10,
       sectionItemCount: 10,
       visibleItemCount: 1,
-      memberResponseProjections: {
-        "q-1": answered("q-1", "raw-u1", "u1", "a1", 1),
-        "q-2": answered("q-2", "raw-u2", "u2", "a2", 3),
-      },
+      memberResponseProjection: (questId) =>
+        ({
+          "q-1": answered("q-1", "raw-u1", "u1", "a1", 1),
+          "q-2": answered("q-2", "raw-u2", "u2", "a2", 3),
+        })[questId],
     });
 
     // The topic's own state carries no answers, only each quest's.
@@ -119,5 +120,36 @@ describe("topic conversation answers", () => {
       const presentation = resolveThreadResponses(sections, state.members![questId], questId, true, chat);
       expect(presentation?.currentResponses).toHaveLength(1);
     }
+  });
+
+  it("asks only the quests with turns in the window for their answer state", () => {
+    // Opening a topic of many quests was slow: every quest's answer state was built from the
+    // whole history, and each quest's newest answer was pulled into the newest window even when
+    // it sat far above it. A quest whose turns are not in the window must cost and add nothing.
+    const messages = [
+      human("raw-u1", "u1", 1, "q-1"),
+      answer("a1", 2, "q-1", ["u1"]),
+      human("raw-u2", "u2", 3, "q-2"),
+      answer("a2", 4, "q-2", ["u2"]),
+    ];
+    const asked: string[] = [];
+    const sync = buildThreadWindowSync({
+      messageHistory: messages,
+      threadKey: topicThreadKey(["q-1", "q-2"]),
+      fromItem: -1,
+      // Only the newest turn (q-2's) is in the window.
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+      memberResponseProjection: (questId) => {
+        asked.push(questId);
+        const n = questId.slice(2);
+        return answered(questId, `raw-u${n}`, `u${n}`, `a${n}`, n === "1" ? 1 : 3);
+      },
+    });
+
+    expect(asked).toEqual(["q-2"]);
+    expect(Object.keys(sync.threadResponseProjection!.members!)).toEqual(["q-2"]);
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([2, 3]);
   });
 });
