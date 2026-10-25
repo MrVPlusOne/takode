@@ -5,7 +5,7 @@ import { isMostRecentlyUsedAlertWindow } from "./utils/alert-window-presence.js"
 import { parseHash } from "./utils/routing.js";
 import { receiveSyncedList } from "./utils/synced-lists.js";
 import { readDisplayedLeaderThreadKey } from "./utils/thread-viewport.js";
-import { ALL_THREADS_KEY, normalizeThreadKey } from "./utils/thread-projection.js";
+import { ALL_THREADS_KEY, threadViewShows } from "./utils/thread-projection.js";
 import { playNeedsInputSound, playReviewSound } from "./utils/notification-sound.js";
 
 /** The notification list and status fields a `notification_update` or subscribe snapshot carries. */
@@ -75,5 +75,5 @@ function isViewingAlertTab(sessionId: string, threadKey: string | undefined): bo
   if (useStore.getState().currentSessionId !== sessionId) return false;
   if (!threadKey) return true;
   const displayed = readDisplayedLeaderThreadKey(sessionId);
-  return displayed === ALL_THREADS_KEY || displayed === normalizeThreadKey(threadKey);
+  return displayed === ALL_THREADS_KEY || (!!displayed && threadViewShows(displayed, threadKey));
 }

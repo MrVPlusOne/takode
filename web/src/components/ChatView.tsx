@@ -557,13 +557,6 @@ export function ChatView({
     markThreadNavigationCommitted(sessionId, normalizeThreadKey(selectedThreadKey));
   }, [isLeaderSession, selectedThreadKey, sessionId]);
 
-  // Reconnects and handoff refetches request the window of the thread on screen,
-  // which the saved selection does not always match.
-  useLayoutEffect(() => {
-    if (!isLeaderSession || preview) return;
-    return markLeaderThreadDisplayed(sessionId, selectedThreadKey);
-  }, [isLeaderSession, preview, selectedThreadKey, sessionId]);
-
   useLayoutEffect(() => {
     markColdReplayFlushCommitted(sessionId);
   });
@@ -640,6 +633,14 @@ export function ChatView({
   const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
   const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+
+  // Reconnects and handoff refetches request the window of the feed on screen, which the saved
+  // selection does not always match: a topic conversation shows its topic's window, not its tab's
+  // quest alone, so coming back after messages arrived elsewhere in the topic refreshes it too.
+  useLayoutEffect(() => {
+    if (!isLeaderSession || preview) return;
+    return markLeaderThreadDisplayed(sessionId, feedThreadKey);
+  }, [isLeaderSession, preview, feedThreadKey, sessionId]);
   const feedTopicEntry = useMemo(
     () =>
       topicConversation && !topicFeedOn

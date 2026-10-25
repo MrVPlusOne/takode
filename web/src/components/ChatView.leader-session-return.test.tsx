@@ -217,6 +217,9 @@ vi.mock("./ModelProvenanceMigrationBanner.js", () => ({ ModelProvenanceMigration
 vi.mock("./session-participant-status.js", () => ({ useParticipantSessionStatusDotProps: () => ({}) }));
 
 import { ChatView } from "./ChatView.js";
+import { topicApi } from "../api/topics.js";
+import { closeTopicConversation, openTopicConversation } from "../utils/topic-conversation.js";
+import { topicThreadKey } from "../../shared/topic-thread-key.js";
 
 function RouteAwareChatView() {
   const hash = useSyncExternalStore(
@@ -266,6 +269,23 @@ function latestViewportThreadEntryId(sessionId: string, threadKey: string): stri
 }
 
 describe("ChatView passive leader-session returns", () => {
+  it("records a topic conversation's own window as the one on screen, so a reconnect refreshes it", async () => {
+    // Regression: a topic conversation kept recording its tab's quest as the thread on screen, so a
+    // phone coming back asked for that quest's window; the topic's window kept a gap where messages
+    // arrived while it was away, and later live messages appeared after it.
+    vi.spyOn(topicApi, "questMap").mockResolvedValue({
+      enabled: true,
+      map: { [QUEST_ID]: { id: "t1", name: "Library" } },
+      topics: { t1: { name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 } },
+    });
+    act(() => openTopicConversation(LEADER_SESSION_ID, QUEST_ID));
+    render(<RouteAwareChatView />);
+    const topicKey = topicThreadKey([QUEST_ID, "q-1945"]);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
+    expect(readDisplayedLeaderThreadKey(LEADER_SESSION_ID)).toBe(topicKey);
+    act(() => closeTopicConversation(LEADER_SESSION_ID));
+  });
+
   it("reuses one thread entry across a plan overlay but refreshes a true Main to quest to Main return", async () => {
     persistLeaderSelectedThreadKey(LEADER_SESSION_ID, "main");
     history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}`);
